@@ -10,34 +10,34 @@ import (
 )
 
 // ContainerWorktree is the worktree-in-container policy: the
-// {Workspace} × {Runtime} composition (plan §3) whose Workspace is a per-agent
+// {Workspace} × {Runtime} composition whose Workspace is a per-agent
 // git worktree (Phase 2) and whose Runtime is a container (Phase 1). The axes
 // {workspace: worktree, runtime: container} resolve HERE (via Prepare), NOT to
 // the Container policy (which mounts the LIVE project dir): the run's own
 // worktree is bind-mounted identical-path into a fresh container as cwd, so
 // concurrent runs never share a checkout AND the engine is contained. It REUSES the two proven
-// halves — the Worktree policy's WIP-safe, nested-aware lifecycle (create + §3.1
+// halves — the Worktree policy's WIP-safe, nested-aware lifecycle (create +
 // excludes/skip-worktree + teardown) and the Container policy's scratch/auth/spawn
 // — rather than duplicating either. (A full orthogonal Workspace×Runtime refactor
 // of all three policies is the cleaner end state, flagged as a follow-up; this
 // targeted composition avoids destabilizing the proven top-level container +
 // worktree + none paths.)
 //
-// gitdir-when-mounted (§4a T1.1): a linked worktree's .git is a FILE
+// gitdir-when-mounted: a linked worktree's .git is a FILE
 // (`gitdir: <main>/.git/worktrees/<name>`), so mounting only the worktree breaks
 // git inside the container ("not a git repository"). The fix used here is the
 // identical-path .git mirror — the main repo's git common-dir is ALSO bind-mounted
 // at its identical host path, so the gitdir pointer resolves and `git status`/
 // `git diff`/`git rev-parse` work in-container. This keeps the ENTIRE worktree
 // lifecycle host-side (create + WIP-safe teardown via the unchanged Worktree
-// machinery); the alternative (T1.1 option b, creating worktrees inside a mounted
+// machinery); the alternative (creating worktrees inside a mounted
 // repo) would split that lifecycle across the boundary and put worktree creation +
 // teardown out of reach of the host-side WIP-safe Git seam. Identical-path is also
 // consistent with the identical-path workspace mount already proven for the
 // top-level container.
 //
 // Approvals bypass (the container is the boundary) and auth (resolveContainerAuth)
-// come from the Container half. T1.5 caveat: a low-trust fan-out member currently
+// come from the Container half. Trust caveat: a low-trust fan-out member currently
 // receives the SAME full host creds as the trusted top-level run — per-agent
 // key/budget scoping is a later concern, flagged not solved.
 type ContainerWorktree struct {
@@ -79,11 +79,11 @@ func (ContainerWorktree) Name() string { return "container-worktree" }
 func (ContainerWorktree) Approvals() Approvals { return ApprovalsBypass }
 
 // PrepareWorkspace provisions a worktree-in-container workspace. The ordering is
-// load-bearing for the §2b fan-out degrade chain (container→worktree→none):
+// load-bearing for the degrade chain (container→worktree→none):
 //  1. the container gate + host scratch FIRST — if the container can't launch (no
 //     runtime/image/auth) it fails BEFORE any worktree is created, so the caller's
 //     chain degrades cleanly to a BARE worktree with nothing to unwind;
-//  2. then the per-member worktree, reusing Worktree.PrepareWorkspace so the §3.1
+//  2. then the per-member worktree, reusing Worktree.PrepareWorkspace so the
 //     info/exclude + skip-worktree and the WIP-safe teardown all come for free — a
 //     non-git repo fails here and the chain degrades worktree→none;
 //  3. then the identical-path .git gitdir mirror mount so git resolves in-container.
@@ -112,7 +112,7 @@ func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, age
 	if err != nil {
 		// The worktree just failed to yield a usable gitdir mount; tearing it down
 		// (WIP-safe — freshly created, so clean) lets the chain retry as a bare
-		// host worktree, where git resolves natively (§3, a Tier-0 non-issue).
+		// host worktree, where git resolves natively (a Tier-0 non-issue).
 		_ = wt.Cleanup()
 		_ = os.RemoveAll(sc.root)
 		return nil, err
@@ -129,7 +129,7 @@ func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, age
 	}, nil
 }
 
-// gitdirMount builds the identical-path .git mirror mount (§4a T1.1) from the
+// gitdirMount builds the identical-path .git mirror mount from the
 // worktree's git common-dir, so the worktree's `gitdir:` pointer resolves inside
 // the container. Read-write by design: the worktree's per-checkout admin files
 // (index, HEAD) under <common>/worktrees/<name> are written there, exactly as a

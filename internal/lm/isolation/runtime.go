@@ -23,7 +23,10 @@ type ContainerRuntime interface {
 	// Binary is the runtime CLI resolved for exec (e.g. "docker"). Empty for Host.
 	Binary() string
 	// Available reports whether this runtime can launch a container NOW: the CLI
-	// is on PATH and its daemon is reachable. Used to degrade (never blocks).
+	// is on PATH and its daemon is reachable. Drives runtime selection: when
+	// nothing is available an EXPLICITLY-requested container is a fatal finding
+	// (ClassIsolation, exit 3) unless --degraded, while an ambient default
+	// degrades silently to the host.
 	Available() bool
 	// RunArgs builds the full argv (after Binary) that starts the container in the
 	// FOREGROUND with stdout/stderr attached — go-plugin reads the plugin's
@@ -234,8 +237,10 @@ func renderRunSpec(spec RunSpec) []string {
 }
 
 // runtimeReachable reports whether a container runtime CLI is on PATH and its
-// daemon answers `<bin> info`. Fault tolerance: any failure (missing binary,
-// daemon down) → false → the caller degrades to None; it never blocks the LLM.
+// daemon answers `<bin> info`. Any failure (missing binary, daemon down) →
+// false → the caller degrades down the chain to None: a fatal finding
+// (ClassIsolation) the choke owner aborts on when a container was EXPLICITLY
+// requested, unless --degraded; an ambient default degrades silently.
 func runtimeReachable(bin string) bool {
 	if _, err := exec.LookPath(bin); err != nil {
 		return false
@@ -347,9 +352,11 @@ func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, err
 // SelectRuntime picks the container runtime by config preference then detection.
 // prefer is an explicit runtime name ("docker" | "podman"); empty means auto. It
 // returns the first launchable runtime (prefer, else docker, else podman) with
-// rootless detected for docker, or Host{} when none can launch — the caller then
-// degrades to None. It never errors: a runtime that cannot launch is simply not
-// selected (CLAUDE.md fault tolerance).
+// rootless detected for docker, or Host{} when none can launch. SelectRuntime
+// itself never errors — a runtime that cannot launch is simply not selected;
+// the caller decides the consequence: an EXPLICITLY-requested container that
+// lands on Host is a fatal finding (ClassIsolation) it aborts on unless
+// --degraded, while an ambient default degrades silently to the host.
 func SelectRuntime(prefer string) ContainerRuntime {
 	newDocker := func() ContainerRuntime { return newDockerRuntime(runtimeReachable) }
 	byName := map[string]func() ContainerRuntime{

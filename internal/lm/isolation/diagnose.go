@@ -50,7 +50,7 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	if _, isHost := rt.(Host); isHost {
 		d.Runtime = "none"
 		d.Guidance = append(d.Guidance,
-			"no container runtime is reachable: `runtime: container` agents will degrade to the host"+noRuntimeHint())
+			"no container runtime is reachable: `runtime: container` agents abort startup (exit 3) unless --degraded, which runs them on the host"+noRuntimeHint())
 		return d
 	}
 	d.Runtime = rt.Name()
@@ -110,7 +110,7 @@ func diagnoseAdvisory(ctx context.Context, rt ContainerRuntime, d *Diagnosis) {
 		d.SharedFS = fmt.Sprintf("unprobed: possibly the host's daemon (advisory: daemon name %q != hostname %q)", name, host)
 		if d.InContainer {
 			d.Guidance = append(d.Guidance,
-				"the daemon may be the host's (docker-outside-of-docker); containerized agents would fail their filesystem probe and degrade")
+				"the daemon may be the host's (docker-outside-of-docker); containerized agents would fail their filesystem probe and abort startup (exit 3) unless --degraded")
 		}
 	}
 }

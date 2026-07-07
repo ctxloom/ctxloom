@@ -19,9 +19,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// Default container-policy parameters. The image is the REQUIRED agent image: the
-// policy degrades to None when it is absent (the graceful rollout — until the
-// production image ships, defaults.isolation:container becomes today's behaviour).
+// Default container-policy parameters. The image is the REQUIRED agent image: when
+// it is absent and not locally buildable the policy degrades down the chain to
+// None. That degrade is a fatal finding (ClassIsolation) the choke owner aborts on
+// unless --degraded, since the image is only required for an EXPLICITLY-requested
+// container.
 // The binary/home/socket-dir are the in-container conventions the minimal image
 // (and the future production image) must honour.
 const (
@@ -40,17 +42,20 @@ const (
 // top-level run it bind-mounts the live project at its identical absolute path
 // (cwd + .git resolve unchanged, WIP intact, edits land in the real files) with a
 // fresh $HOME (engine global state isolated, "fresh except mounted creds" — see
-// below). Any inability to launch degrades to None via an error the caller
-// catches — the LLM never blocks (CLAUDE.md).
+// below). Any inability to launch returns an error the caller catches and
+// degrades down the chain to None; because a container tier is only ever built
+// for an EXPLICIT request, that lost boundary is a fatal finding (ClassIsolation)
+// the choke owner aborts on unless --degraded (CLAUDE.md fail-loudly).
 //
 // AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
 // profile's resolveAuth): the container gets the engine's scoped env passthrough
 // (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set; kiro: KIRO_API_KEY) or the
 // engine's credentials bind-mounted READ-ONLY into the fresh HOME (claude
 // subscription OAuth). No resolvable auth → PrepareWorkspace errors → the caller
-// degrades to None (the host session is already authenticated). Only the TRUSTED
-// top-level run reaches this; low-trust fan-out auth (per-agent keys/budgets,
-// T1.5) is a later concern.
+// degrades down the chain to None — a fatal finding (ClassIsolation) the choke
+// owner aborts on unless --degraded, since the container was EXPLICITLY
+// requested. Only the TRUSTED top-level run reaches this; low-trust fan-out auth
+// (per-agent keys/budgets, T1.5) is a later concern.
 //
 // CONFIG: ctxloom's managed-config writers (.claude/settings.json, commands, the
 // framed context file under .ctxloom/cache) target the run's cwd, which here is

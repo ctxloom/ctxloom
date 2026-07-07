@@ -67,8 +67,10 @@ var hostHomeDir = os.UserHomeDir
 // ANTHROPIC_API_KEY in the host env — the user's chosen default) and otherwise
 // falls back to mounting the host's subscription OAuth credentials read-only into
 // the container HOME. It returns ok=false only when NEITHER is available, so the
-// caller degrades to None rather than launching an unauthenticated engine that
-// would hang or fail (CLAUDE.md fault tolerance).
+// caller errors and degrades down the chain to None rather than launching an
+// unauthenticated engine that would hang or fail — a fatal finding
+// (ClassIsolation) the choke owner aborts on unless --degraded, since the
+// container was EXPLICITLY requested.
 func resolveClaudeContainerAuth(containerHome string) (containerAuth, bool) {
 	if env := scopedEnv(os.Getenv, claudeAuthEnvVars); os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return containerAuth{mode: authEnv, env: env}, true

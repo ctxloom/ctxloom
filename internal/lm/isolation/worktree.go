@@ -33,8 +33,10 @@ const worktreeTeardownTimeout = 30 * time.Second
 // approvals — so approvals stay Prompt. SpawnClient is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
 // (RunOptions.WorkDir) plus per-agent config-home envs. Not a git repo, or the
-// worktree add fails → PrepareWorkspace errors so the caller degrades to None
-// (warn, never block — CLAUDE.md).
+// worktree add fails → PrepareWorkspace errors so the caller degrades to None.
+// A lost worktree is a WORKSPACE-axis degrade (config isolation only, not a
+// security boundary), so it stays a silent warn-and-continue — unlike a lost
+// CONTAINER boundary, which is fatal unless --degraded.
 type Worktree struct {
 	git     git.Git
 	baseRef string

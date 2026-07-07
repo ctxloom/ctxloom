@@ -402,8 +402,10 @@ func (c Container) ensureImage(ctx context.Context) error {
 // build (official-image overlay first, then the install Containerfile), with
 // the RUNNING static ctxloom binary layered in — no go toolchain, no ctxloom
 // release needed. A failed REBUILD of a stale-but-present image degrades to
-// running the stale image (warn, never block); anything else errors so the
-// caller degrades (CLAUDE.md fault tolerance).
+// running the stale image (warn, never block — the container still launches);
+// anything else (image absent and unbuildable, or a hard build failure) errors,
+// so the caller degrades down the chain — a fatal finding (ClassIsolation) the
+// choke owner aborts on unless --degraded.
 func (c Container) runEnsureImage(ctx context.Context) error {
 	sources := buildSources(c.profile, "", c.baseContainerfile)
 	present := c.imagePresent(ctx)

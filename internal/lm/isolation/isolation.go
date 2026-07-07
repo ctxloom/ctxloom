@@ -88,9 +88,12 @@ type Policy interface {
 	Approvals() Approvals
 	// PrepareWorkspace provisions the workspace the run executes in. projectDir
 	// is the host's live project root; agentID scopes/names a per-agent
-	// workspace (a member label). Fault tolerance: a policy that cannot prepare
-	// its workspace should warn and return an error so the caller degrades — it
-	// must never block the LLM. None never fails.
+	// workspace (a member label). A policy that cannot prepare its workspace
+	// warns and returns an error so the caller degrades down the chain; the run
+	// always gets a workspace (None never fails). Dropping a requested CONTAINER
+	// boundary is additionally a fatal finding (ClassIsolation) the choke owner
+	// aborts on unless --degraded; a workspace-axis degrade (worktree→None)
+	// stays a silent fallback.
 	PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
 	// SpawnClient launches the plugin process for a prepared workspace and
 	// returns its client. none/worktree → a bare self-invoked `ctxloom llm serve`
@@ -257,9 +260,10 @@ type ImageConfig struct {
 // worktree (axes are independent; degradation never touches the other axis).
 // The container policies degrade AGAIN in PrepareWorkspace (runtime present
 // but the image absent and not buildable, no resolvable auth, scratch
-// creation failure) — see Prepare's chain. Unknown axis values warn and act
-// as that axis's default (CLAUDE.md fault tolerance: a bad axis value, or an
-// unavailable runtime, must never block the LLM).
+// creation failure) — see Prepare's chain. A bad axis value warns and acts as
+// that axis's default (CLAUDE.md fault tolerance). An EXPLICITLY-requested
+// container that finds no available runtime is different: that degrade is a
+// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded.
 func Resolve(axes Axes, backend string, img ImageConfig) Policy {
 	return chainFor(axes, backend, img)[0]
 }
@@ -334,8 +338,10 @@ func IsContainerPolicyName(name string) bool {
 // binding — this function just realizes their product. state is the run's
 // session identity (SessionStateFromEnv over the run's env map): it scopes
 // the container policies' durable state mounts and the worktree's ephemeral
-// scratch home. Each degrade warns (CLAUDE.md fault tolerance); the run is
-// never blocked.
+// scratch home. Each degrade warns and the run always gets a workspace;
+// dropping a requested CONTAINER boundary is additionally a fatal finding
+// (ClassIsolation) the choke owner aborts on unless --degraded (a
+// workspace-axis degrade stays a silent fallback).
 func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
 	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), projectDir, agentID)
 }

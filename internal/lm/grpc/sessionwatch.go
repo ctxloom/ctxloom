@@ -57,7 +57,7 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 	if n > w.sent {
 		events := make([]*WatchEvent, 0, n-w.sent)
 		for _, e := range sess.Entries[w.sent:n] {
-			events = append(events, &WatchEvent{Event: &WatchEvent_Entry{Entry: entryToProto(e)}})
+			events = append(events, &WatchEvent{Event: &WatchEvent_Entry{Entry: EntryToProto(e)}})
 		}
 		w.sent = n
 		w.idleTicks = 0

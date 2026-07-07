@@ -13,13 +13,27 @@ Stream a session's transcript as structured turns (messages, not raw bytes)
 
 ### Synopsis
 
-Tail a harp's backend session as a structured turn stream: each new
-transcript entry arrives as it appears (within ~250ms), with a boundary
-marking where a response completes. This is ctxloom's per-session observation
-contract — the stream structured frontends (the VSCode companion, the
-terminal viewer) consume.
+Tail a harp's session as a structured turn stream: each new entry arrives
+as it appears, with a boundary marking where a response completes. This is
+ctxloom's per-session observation contract — the stream structured frontends
+(the VSCode companion, the terminal viewer) consume.
 
-With --format json the stream is NDJSON: one WatchEvent per line, in protojson
+One feed, two sources behind it (--source, default auto):
+
+  live   the harp is a delegation child whose orchestrator currently holds
+         its event stream — the watch taps it over the orchestrator's agent
+         bus socket for zero-lag events. Only such CHILDREN are tappable
+         (an orchestrator does not drive its own serving session's engine).
+         Recorded transcript entries replay first as scrollback, then live
+         events follow; the watch ENDS when the child's engine exits.
+  store  the transcript tail: the backend session is re-read on a short poll
+         (~250ms) and diffed. Works for any harp with a transcript
+         association, live or not, and runs until interrupted.
+
+auto prefers the live tap and falls back to the store tail; forcing --source
+live errors when no orchestrator holds the harp.
+
+With --format json the stream is NDJSON: one event per line, in protojson
 field names, carrying exactly one of
 
   {"entry": {...}}     a newly-appended normalized turn — type (user |
@@ -29,18 +43,23 @@ field names, carrying exactly one of
                        timestampUnix, and sidechain (true marks an engine
                        subagent's interior entry, not the main thread)
   {"boundary": {...}}  a completed response: entries[fromIndex, toIndex)
-  {"heartbeat": {}}    idle keepalive, roughly every 2s while nothing is new
+                       (live-source indexes are feed-relative)
+  {"heartbeat": {}}    idle keepalive, roughly every 2s (store source only)
+  {"gap": {...}}       live source only: this viewer fell behind and missed
+                       {"dropped": N} events (delivery to the agent is never
+                       delayed for a slow watcher)
 
-The stream is lossless: each entry is the backend's full normalized form —
-complete tool inputs/outputs and thinking content, untruncated. Text mode
-pretty-prints each turn, draws a rule at each response boundary, prefixes
-subagent-interior entries with "↳", and stays silent on heartbeats.
+The stream is lossless while the viewer keeps up: each entry is the backend's
+full normalized form — complete tool inputs/outputs and thinking content,
+untruncated. Text mode pretty-prints each turn, draws a rule at each response
+boundary, prefixes subagent-interior entries with "↳", and stays silent on
+heartbeats.
 
-The watch runs until interrupted; Ctrl-C ends the stream cleanly. A harp
-whose bind hook recorded a session id is tailed through the owning backend;
-a harp with no bound session whose transcript lives in its own session store
-(a containerized run's persist/ mount) is tailed by file location. Errors if
-the harp has neither yet.
+Ctrl-C ends the stream cleanly. A harp with a hook-bound session id is tailed
+through the owning backend; a harp with no bound session whose transcript
+lives in its own session store (a containerized run's persist/ mount) is
+tailed by file location. Errors if the harp has neither and no live tap holds
+it.
 
 ```
 ctxloom session watch <harp-name> [flags]
@@ -49,7 +68,8 @@ ctxloom session watch <harp-name> [flags]
 ### Options
 
 ```
-  -h, --help   help for watch
+  -h, --help            help for watch
+      --source string   Feed source: auto (live tap when held, else store tail), live, or store (default "auto")
 ```
 
 ### Options inherited from parent commands

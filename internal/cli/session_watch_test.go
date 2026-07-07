@@ -17,15 +17,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agentbus"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // watchChan returns pre-filled, already-closed event/error channels modelling a
-// completed WatchSession stream.
-func watchChan(events ...*pb.WatchEvent) (<-chan *pb.WatchEvent, <-chan error) {
-	ec := make(chan *pb.WatchEvent, len(events))
+// completed observation feed.
+func watchChan(events ...*pb.WatchEvent) (<-chan operations.SessionFeedEvent, <-chan error) {
+	ec := make(chan operations.SessionFeedEvent, len(events))
+	for _, e := range events {
+		ec <- operations.SessionFeedEvent{Event: e}
+	}
+	close(ec)
+	errc := make(chan error)
+	close(errc)
+	return ec, errc
+}
+
+// feedChan is watchChan for pre-wrapped feed events (gap markers included).
+func feedChan(events ...operations.SessionFeedEvent) (<-chan operations.SessionFeedEvent, <-chan error) {
+	ec := make(chan operations.SessionFeedEvent, len(events))
 	for _, e := range events {
 		ec <- e
 	}
@@ -138,7 +153,7 @@ func TestStreamWatchEvents_TextSidechainPrefix(t *testing.T) {
 // TestStreamWatchEvents_PropagatesStreamError: a fatal mid-stream error surfaces
 // after the events drain.
 func TestStreamWatchEvents_PropagatesStreamError(t *testing.T) {
-	ec := make(chan *pb.WatchEvent)
+	ec := make(chan operations.SessionFeedEvent)
 	close(ec)
 	errc := make(chan error, 1)
 	errc <- errors.New("stream broke")
@@ -155,6 +170,26 @@ func TestStreamWatchEvents_UnknownFormat(t *testing.T) {
 	err := streamWatchEvents(io.Discard, "yaml", events, errs)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown format")
+}
+
+// TestStreamWatchEvents_GapMarker: a live-source gap renders as its own NDJSON
+// line kind (a viewer must know it missed events) and as an explicit text note.
+func TestStreamWatchEvents_GapMarker(t *testing.T) {
+	events, errs := feedChan(
+		operations.SessionFeedEvent{Gap: 3},
+		operations.SessionFeedEvent{Event: entryEvent("assistant", "after the gap")},
+	)
+	var buf bytes.Buffer
+	require.NoError(t, streamWatchEvents(&buf, formatJSON, events, errs))
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, `{"gap":{"dropped":3}}`, lines[0])
+	assert.Contains(t, lines[1], "after the gap")
+
+	events, errs = feedChan(operations.SessionFeedEvent{Gap: 3})
+	buf.Reset()
+	require.NoError(t, streamWatchEvents(&buf, formatText, events, errs))
+	assert.Contains(t, buf.String(), "missed 3 live events")
 }
 
 // --- by-harp resolution through by-location discovery ---
@@ -361,4 +396,102 @@ func TestRunSessionWatch_UnknownBackend(t *testing.T) {
 	err := runSessionWatch(cmd, []string{harp})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown backend")
+}
+
+// TestRunSessionWatch_UnknownSource: an invalid --source is rejected before
+// any resolution.
+func TestRunSessionWatch_UnknownSource(t *testing.T) {
+	testsupport.Isolate(t)
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.Flags().String("source", "psychic", "")
+
+	err := runSessionWatch(cmd, []string{"whatever-harp"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown feed source")
+}
+
+// --- live source through the published command ---
+
+// TestRunSessionWatch_LiveTapE2E: the published command transparently gains
+// the live source — a fake orchestrator-held child, observed over a real bus
+// socket discovered from the environment, streams NDJSON entries and
+// boundaries as they happen, and the watch ends cleanly when the child's
+// stream closes.
+func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	hub := agentbus.NewTapHub()
+	sock := filepath.Join(t.TempDir(), "bus.sock")
+	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil)
+	require.NoError(t, err)
+	defer srv.Close()
+	t.Setenv(agentbus.SocketEnv, sock)
+
+	// The fake orchestrator: holds the child's stream, consuming at its own
+	// pace, while the watch taps it.
+	in := make(chan agent.ChatEvent)
+	consumed := hub.Tee(entry.HarpName, in)
+	go func() {
+		for range consumed {
+		}
+	}()
+
+	out := &syncBuffer{}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(out)
+	cmd.Flags().String("format", "json", "")
+	cmd.Flags().String("source", "live", "")
+
+	done := make(chan error, 1)
+	go func() { done <- runSessionWatch(cmd, []string{entry.HarpName}) }()
+
+	// The watch's subscription races the first push (live taps deliver from
+	// subscribe-time forward), so emit entries until one lands in the output.
+	pusherStop := make(chan struct{})
+	pusherDone := make(chan struct{})
+	go func() {
+		defer close(pusherDone)
+		for {
+			select {
+			case in <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "live-hello"}}:
+			case <-pusherStop:
+				return
+			}
+			select {
+			case <-time.After(10 * time.Millisecond):
+			case <-pusherStop:
+				return
+			}
+		}
+	}()
+	require.Eventually(t, func() bool {
+		for _, e := range entryLines(out.String()) {
+			if e.Content == "live-hello" {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 5*time.Millisecond, "a live entry must reach the NDJSON stream")
+	close(pusherStop)
+	<-pusherDone
+
+	in <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	require.Eventually(t, func() bool {
+		return strings.Contains(out.String(), `"boundary"`)
+	}, 5*time.Second, 5*time.Millisecond, "the turn Complete must arrive as a boundary")
+
+	close(in) // the child's engine exits → the live watch ends on its own
+	select {
+	case werr := <-done:
+		require.NoError(t, werr, "a live watch must end cleanly when the child ends")
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch did not end after the child's stream closed")
+	}
 }

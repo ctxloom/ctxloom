@@ -614,6 +614,183 @@ func TestAgentRecv_TimeoutIsTypedFailure(t *testing.T) {
 	require.ErrorIs(t, err, agentbus.ErrRecvTimeout)
 }
 
+// rosterState reads one harp's state off the orchestrator's roster snapshot.
+func rosterState(o *agentOrchestrator, harp string) string {
+	for _, e := range o.rosterSnapshot() {
+		if e.Harp == harp {
+			return e.State
+		}
+	}
+	return ""
+}
+
+// TestRoster_TracksChildStates pins the roster verb's source across the child
+// lifecycle: executing mid-turn, queued past the cap, parked in agent_recv,
+// idle at an empty-mailbox boundary, ended when the engine exits — with agent
+// name, lineage, and a live last-activity stamp on every entry.
+func TestRoster_TracksChildStates(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	// Per-engine turn gates, so each child's turn is released independently.
+	gates := []chan struct{}{make(chan struct{}), make(chan struct{})}
+	var spawned int
+	ff := newFakeEngineFactory(nil)
+	ff.next = func() *fakeChatEngine {
+		e := &fakeChatEngine{turnGate: gates[spawned%len(gates)]}
+		spawned++
+		return e
+	}
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	first, err := o.run(context.Background(), "worker", "task one")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := ff.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	assert.Equal(t, "executing", rosterState(o, first.Harp), "mid-turn child is executing")
+
+	second, err := o.run(context.Background(), "worker", "task two")
+	require.NoError(t, err)
+	assert.Equal(t, "queued", rosterState(o, second.Harp), "past the cap the spawn is queued")
+
+	entries := o.rosterSnapshot()
+	require.Len(t, entries, 2)
+	for _, e := range entries {
+		assert.Equal(t, "worker", e.Agent)
+		assert.Equal(t, "coordinator-harp", e.Parent)
+		assert.NotZero(t, e.LastActivityUnix)
+	}
+
+	// Child 1 parks in agent_recv → roster shows parked (and its slot frees).
+	recvDone := make(chan struct{})
+	go func() {
+		defer close(recvDone)
+		_, rerr := o.broker.Recv(context.Background(), first.Harp, conformanceWait)
+		assert.NoError(t, rerr)
+	}()
+	require.Eventually(t, func() bool { return rosterState(o, first.Harp) == "parked" },
+		conformanceWait, 10*time.Millisecond)
+
+	// The freed slot starts child 2; completing its turn parks it idle.
+	require.Eventually(t, func() bool { return ff.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		e := ff.engine(1)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	gates[1] <- struct{}{}
+	require.Eventually(t, func() bool { return rosterState(o, second.Harp) == "idle" },
+		conformanceWait, 10*time.Millisecond, "an empty-mailbox boundary parks the child idle")
+
+	// Answering child 1 unparks it (executing again); releasing its gated turn
+	// completes the boundary → idle.
+	_, err = o.send(first.Harp, "answer", "42")
+	require.NoError(t, err)
+	<-recvDone
+	gates[0] <- struct{}{}
+	require.Eventually(t, func() bool { return rosterState(o, first.Harp) == "idle" },
+		conformanceWait, 10*time.Millisecond)
+}
+
+// TestRoster_EndedChild pins the terminal state: an exited engine's harp stays
+// on the roster as ended (resumable), not dropped.
+func TestRoster_EndedChild(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	ff := newFakeEngineFactory(func() *fakeChatEngine { return &fakeChatEngine{endAfterTurns: 1} })
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "one and done")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "ended" },
+		conformanceWait, 10*time.Millisecond)
+}
+
+// TestRoster_OverSocket pins the roster verb end to end: the same snapshot is
+// served over the orchestrator's bus socket for out-of-process viewers.
+func TestRoster_OverSocket(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	ff := newFakeEngineFactory(nil)
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "report back")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := ff.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	sock := ff.engine(0).request().Env[agentbus.SocketEnv]
+	require.NotEmpty(t, sock)
+	roster, err := agentbus.FetchRoster(sock)
+	require.NoError(t, err)
+	require.Len(t, roster, 1)
+	assert.Equal(t, out.Harp, roster[0].Harp)
+	assert.Equal(t, "worker", roster[0].Agent)
+	assert.Equal(t, "coordinator-harp", roster[0].Parent)
+	assert.NotZero(t, roster[0].LastActivityUnix)
+}
+
+// TestObserve_LiveChildOverSocket pins the live tap end to end against a real
+// orchestrator: an observer subscribed by harp over the bus socket sees the
+// child's next turn's entries and completion, while the orchestrator's own
+// delivery (turn handling) is untouched. The coordinator's own harp is NOT
+// tappable — the orchestrator doesn't drive its own serving session's engine.
+func TestObserve_LiveChildOverSocket(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	gate := make(chan struct{})
+	ff := newFakeEngineFactory(func() *fakeChatEngine { return &fakeChatEngine{turnGate: gate} })
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := ff.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	sock := ff.engine(0).request().Env[agentbus.SocketEnv]
+	obsCtx, obsCancel := context.WithCancel(context.Background())
+	defer obsCancel()
+	events, _, err := agentbus.ObserveSession(obsCtx, sock, out.Harp)
+	require.NoError(t, err)
+
+	// Only children are tappable: the coordinator harp is typed not-live.
+	_, _, nerr := agentbus.ObserveSession(context.Background(), sock, "coordinator-harp")
+	require.ErrorIs(t, nerr, agentbus.ErrNotLive)
+
+	gate <- struct{}{} // release the gated turn → entry + complete flow
+
+	var got []agentbus.ObserveEvent
+	for len(got) < 2 {
+		select {
+		case ev, ok := <-events:
+			require.True(t, ok, "stream ended before the turn's events arrived")
+			got = append(got, ev)
+		case <-time.After(conformanceWait):
+			t.Fatalf("observed %d events, want 2", len(got))
+		}
+	}
+	require.NotNil(t, got[0].Entry)
+	assert.Equal(t, "ok", got[0].Entry.Content)
+	require.NotNil(t, got[1].Complete)
+	assert.Equal(t, "end_turn", got[1].Complete.StopReason)
+
+	// The turn handling proceeded to the boundary: the child parked idle.
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "idle" },
+		conformanceWait, 10*time.Millisecond)
+}
+
 // TestAgentToolHandlers_PlumbTheDelegation drives the registered tool
 // handlers (not the orchestrator directly) for one spawn + send + recv, and
 // pins the no-config guard the docgen server relies on.

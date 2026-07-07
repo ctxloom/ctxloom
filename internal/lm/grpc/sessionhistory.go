@@ -32,10 +32,11 @@ func unixToTime(u int64) time.Time {
 	return time.Unix(u, 0).UTC()
 }
 
-// entryToProto converts one normalized turn to its proto form. Shared by
-// sessionToProto (whole-transcript reassembly) and WatchSession (per-entry
-// streaming) so both encode entries identically.
-func entryToProto(e agent.SessionEntry) *SessionEntry {
+// EntryToProto converts one normalized turn to its proto form. Shared by
+// sessionToProto (whole-transcript reassembly), WatchSession (per-entry
+// streaming), and the operations feed resolver (live-tap normalization) so
+// all encode entries identically.
+func EntryToProto(e agent.SessionEntry) *SessionEntry {
 	return &SessionEntry{
 		Type:          string(e.Type),
 		Content:       e.Content,
@@ -59,7 +60,7 @@ func sessionToProto(s *agent.Session) *SessionData {
 		Entries:   make([]*SessionEntry, 0, len(s.Entries)),
 	}
 	for _, e := range s.Entries {
-		out.Entries = append(out.Entries, entryToProto(e))
+		out.Entries = append(out.Entries, EntryToProto(e))
 	}
 	return out
 }

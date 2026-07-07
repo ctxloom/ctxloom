@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,13 +64,31 @@ type childAgent struct {
 	perm      agent.PermissionMode
 	env       map[string]string // harp/bus/depth env, reused on resume
 
-	state      childState
-	slotHeld   bool
-	oneshot    bool
-	in         chan<- agent.ChatMessage
-	close      func()
-	wake       chan struct{}
-	turnOutput []string // oneshot bridging: this turn's entries
+	state        childState
+	slotHeld     bool
+	oneshot      bool
+	lastActivity time.Time // stamped on every state change and event (roster freshness)
+	in           chan<- agent.ChatMessage
+	close        func()
+	wake         chan struct{}
+	turnOutput   []string // oneshot bridging: this turn's entries
+}
+
+// label is the wire vocabulary for a child's state (agentbus.RosterEntry.State).
+func (s childState) label() string {
+	switch s {
+	case childQueued:
+		return "queued"
+	case childExecuting:
+		return "executing"
+	case childParked:
+		return "parked"
+	case childIdle:
+		return "idle"
+	case childEnded:
+		return "ended"
+	}
+	return "unknown"
 }
 
 // agentOrchestrator owns agent delegation for one serving session: it spawns
@@ -88,6 +107,7 @@ type agentOrchestrator struct {
 	gate    *operations.ExecutableTrustGate
 
 	broker *agentbus.Broker
+	hub    *agentbus.TapHub // live-observation seam: children's event streams, tapped by harp
 	slots  *turnSlots
 
 	mu       sync.Mutex
@@ -110,6 +130,7 @@ func newAgentOrchestrator(cfg *config.Config, parentHarp string, depth int, proj
 		slots:      newTurnSlots(agentTurnCap),
 	}
 	o.broker = agentbus.New(agentbus.Hooks{OnPark: o.onChildPark, OnUnpark: o.onChildUnpark})
+	o.hub = agentbus.NewTapHub()
 	// The executable trust gate for the children's managed-MCP composition —
 	// the same fail-closed gate the run/acp paths apply. Built here (pre-serve,
 	// single-threaded) because Config's gate field is not synchronized.
@@ -183,12 +204,13 @@ func (o *agentOrchestrator) run(ctx context.Context, agentName, prompt string) (
 	}
 
 	c := &childAgent{
-		harp:      entry.HarpName,
-		agentName: agentName,
-		resolved:  rs,
-		perm:      perm,
-		state:     childQueued,
-		wake:      make(chan struct{}, 1),
+		harp:         entry.HarpName,
+		agentName:    agentName,
+		resolved:     rs,
+		perm:         perm,
+		state:        childQueued,
+		lastActivity: time.Now(),
+		wake:         make(chan struct{}, 1),
 		env: map[string]string{
 			"CTXLOOM_SESSION_HARP": entry.HarpName,
 			agentbus.SocketEnv:     sock,
@@ -266,7 +288,7 @@ func (o *agentOrchestrator) ensureSocket() (string, error) {
 			o.sockErr = err
 			return
 		}
-		srv, err := agentbus.Listen(path, o.broker)
+		srv, err := agentbus.Listen(path, o.broker, o.hub, o.rosterSnapshot)
 		if err != nil {
 			o.sockErr = err
 			return
@@ -376,20 +398,52 @@ func (o *agentOrchestrator) childMCPServers(c *childAgent) []agent.ChatMCPServer
 }
 
 // driveChild consumes the child's event stream, handling turn boundaries and
-// idle wakes, until the stream closes (the child ended).
+// idle wakes, until the stream closes (the child ended). The stream is teed
+// through the observation hub so observers can subscribe by harp; the tee
+// never adds backpressure here (agentbus.TapHub's invariant), so this loop's
+// pace is exactly what it was consuming launch.Events directly.
 func (o *agentOrchestrator) driveChild(c *childAgent, launch *operations.AgentChatLaunch) {
+	events := o.hub.Tee(c.harp, launch.Events)
 	for {
 		select {
-		case ev, ok := <-launch.Events:
+		case ev, ok := <-events:
 			if !ok {
 				o.endChild(c, launch)
 				return
 			}
+			o.touch(c)
 			o.handleChildEvent(c, ev)
 		case <-c.wake:
 			o.wakeChild(c)
 		}
 	}
+}
+
+// touch stamps the child's last activity (roster freshness).
+func (o *agentOrchestrator) touch(c *childAgent) {
+	o.mu.Lock()
+	c.lastActivity = time.Now()
+	o.mu.Unlock()
+}
+
+// rosterSnapshot lists this orchestrator's children for the bus roster verb —
+// the observation viewer's roster source (a future agent_list MCP tool shares
+// this same snapshot). Sorted by harp for stable output.
+func (o *agentOrchestrator) rosterSnapshot() []agentbus.RosterEntry {
+	o.mu.Lock()
+	out := make([]agentbus.RosterEntry, 0, len(o.children))
+	for _, c := range o.children {
+		out = append(out, agentbus.RosterEntry{
+			Harp:             c.harp,
+			Agent:            c.agentName,
+			State:            c.state.label(),
+			Parent:           o.parentHarp,
+			LastActivityUnix: c.lastActivity.Unix(),
+		})
+	}
+	o.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Harp < out[j].Harp })
+	return out
 }
 
 func (o *agentOrchestrator) handleChildEvent(c *childAgent, ev agent.ChatEvent) {
@@ -445,6 +499,7 @@ func (o *agentOrchestrator) wakeChild(c *childAgent) {
 	o.mu.Lock()
 	c.slotHeld = true
 	c.state = childExecuting
+	c.lastActivity = time.Now()
 	o.mu.Unlock()
 	o.sendTurn(c, msg.Body)
 }
@@ -470,6 +525,7 @@ func (o *agentOrchestrator) endChild(c *childAgent, launch *operations.AgentChat
 	}
 	o.mu.Lock()
 	c.state = childEnded
+	c.lastActivity = time.Now()
 	in := c.in
 	c.in = nil
 	o.mu.Unlock()
@@ -488,6 +544,7 @@ func (o *agentOrchestrator) endChild(c *childAgent, launch *operations.AgentChat
 		resume := c.state == childEnded
 		if resume {
 			c.state = childQueued
+			c.lastActivity = time.Now()
 		}
 		o.mu.Unlock()
 		if resume {
@@ -502,6 +559,7 @@ func (o *agentOrchestrator) failChild(c *childAgent, err error) {
 	clidiag.Warn("ctxloom", "agent_run: child %s (%s) failed to launch: %v", c.harp, c.agentName, err)
 	o.mu.Lock()
 	c.state = childEnded
+	c.lastActivity = time.Now()
 	o.mu.Unlock()
 	o.releaseSlot(c)
 	o.broker.Send(agentbus.Message{
@@ -535,6 +593,7 @@ func (o *agentOrchestrator) send(to, kind, body string) (string, error) {
 	state := c.state
 	if state == childEnded {
 		c.state = childQueued // claim the resume so concurrent sends don't double-launch
+		c.lastActivity = time.Now()
 	}
 	o.mu.Unlock()
 	switch state {
@@ -565,6 +624,7 @@ func (o *agentOrchestrator) resumeChild(c *childAgent) {
 	o.mu.Lock()
 	c.slotHeld = true
 	c.state = childExecuting
+	c.lastActivity = time.Now()
 	o.mu.Unlock()
 
 	contextText := c.resolved.Context
@@ -600,6 +660,7 @@ func (o *agentOrchestrator) onChildPark(harp string) {
 	if release {
 		c.slotHeld = false
 		c.state = childParked
+		c.lastActivity = time.Now()
 	}
 	o.mu.Unlock()
 	if release {
@@ -624,6 +685,7 @@ func (o *agentOrchestrator) onChildUnpark(harp string) {
 	o.mu.Lock()
 	c.slotHeld = true
 	c.state = childExecuting
+	c.lastActivity = time.Now()
 	o.mu.Unlock()
 }
 
@@ -638,6 +700,7 @@ func (o *agentOrchestrator) attachLaunch(c *childAgent, launch *operations.Agent
 func (o *agentOrchestrator) setState(c *childAgent, s childState) {
 	o.mu.Lock()
 	c.state = s
+	c.lastActivity = time.Now()
 	o.mu.Unlock()
 }
 

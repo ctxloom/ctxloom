@@ -58,7 +58,7 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 func chatEventToProto(ev agent.ChatEvent) *ChatEvent {
 	switch {
 	case ev.Entry != nil:
-		return &ChatEvent{Event: &ChatEvent_Entry{Entry: entryToProto(*ev.Entry)}}
+		return &ChatEvent{Event: &ChatEvent_Entry{Entry: EntryToProto(*ev.Entry)}}
 	case ev.Complete != nil:
 		return &ChatEvent{Event: &ChatEvent_Complete{Complete: turnMetaToProto(ev.Complete)}}
 	case ev.Session != nil:

@@ -864,6 +864,20 @@ Examples:
 		// built-in serve transport, not a user-supplied binary — and stays none.
 		var client pb.Client
 		if llmBinary != "" {
+			// The external plugin binary is spawned DIRECTLY — isolation wraps the
+			// built-in serve transport, not a user-supplied binary — so it can be
+			// neither containerized nor given a worktree. An EXPLICITLY-requested
+			// container is therefore a lost sandbox boundary: recordExternalPlugin-
+			// IsolationDrop raises a fatal ClassIsolation finding the gate below
+			// aborts on before the UNSANDBOXED binary spawns (unless --degraded).
+			// This mirrors the built-in path's second isolation gate (the else
+			// branch below), which the earlier startup gate can't cover because
+			// isolation resolves AFTER it. The gate re-checks from postStartupMark
+			// so the windows tile.
+			recordExternalPluginIsolationDrop(runAxes, llmBinary)
+			if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
+				return ferr
+			}
 			// Use external plugin binary
 			client, err = pb.NewLLMRunner(llmBinary, llmArgs, runVerbosity)
 			if err != nil {
@@ -987,6 +1001,29 @@ Examples:
 
 		return nil
 	},
+}
+
+// externalPluginIsolationFixIt is the fix-it for a container requested on the
+// external-plugin-binary path, which cannot be sandboxed at all.
+const externalPluginIsolationFixIt = "this backend runs an external plugin binary that ctxloom cannot sandbox — use a built-in backend for container isolation, drop the container runtime request, or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
+
+// recordExternalPluginIsolationDrop records the isolation faults for the
+// external-plugin-binary path (llmBinary != ""), which is spawned directly and
+// so can be neither containerized nor given a worktree. An EXPLICITLY-requested
+// container is a lost sandbox boundary — a fatal ClassIsolation finding the
+// caller's gate aborts on unless --degraded downgrades it to the host run. A
+// requested worktree only warns: it degrades benignly to the live project dir,
+// the same non-fatal outcome as the built-in worktree→none degrade (only a lost
+// CONTAINER boundary is fatal). The warning streams in both modes; the finding
+// records in strict mode only (strictness.Fail is a no-op under --degraded).
+func recordExternalPluginIsolationDrop(axes isolation.Axes, binary string) {
+	if axes.WantsContainer() {
+		strictness.Fail(strictness.ClassIsolation, externalPluginIsolationFixIt,
+			"runtime: container requested but the external plugin binary %q cannot be containerized — running on the HOST without a container boundary (this session is NOT sandboxed)", binary)
+	}
+	if axes.WantsWorktree() {
+		clidiag.Warn("ctxloom", "workspace: worktree requested but the external plugin binary %q runs in the live project dir", binary)
+	}
 }
 
 // warnBypassOnLostContainer reports whether the launch should warn that a

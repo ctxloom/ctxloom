@@ -20,6 +20,7 @@ import (
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // imageBuildTimeout caps one on-the-fly agent-image build. The production
@@ -84,6 +85,24 @@ func defaultBaseStage() *baseStage {
 func userBaseStage(path string) *baseStage {
 	return &baseStage{desc: "user base Containerfile " + path, path: path}
 }
+
+// fromUserBase reports whether this build source builds on a user-CONFIGURED
+// base Containerfile (isolation_base_containerfile) rather than an embedded /
+// official base. A failure of THIS source is an explicit-request failure: a
+// silent fallthrough to a different base ships an image the user never asked
+// for, so runEnsureImage records a finding instead of degrading quietly.
+func (s buildSource) fromUserBase() bool {
+	return s.base != nil && s.base.path != ""
+}
+
+// staleRebuildFixIt is attached to the finding raised when a STALE image's
+// refresh build fails and the run would otherwise launch the existing stale
+// image (which, pre-entrypoint, can run as root). userBaseBuildFixIt is
+// attached when an explicitly-configured base Containerfile fails to build.
+const (
+	staleRebuildFixIt  = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or pass --degraded (env CTXLOOM_DEGRADED=1) to run the existing STALE image anyway"
+	userBaseBuildFixIt = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source"
+)
 
 // buildSources orders a profile's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). Else, for
@@ -401,9 +420,13 @@ func (c Container) ensureImage(ctx context.Context) error {
 // Containerfile config no longer match the host's) and locally buildable →
 // build (official-image overlay first, then the install Containerfile), with
 // the RUNNING static ctxloom binary layered in — no go toolchain, no ctxloom
-// release needed. A failed REBUILD of a stale-but-present image degrades to
-// running the stale image (warn, never block — the container still launches);
-// anything else (image absent and unbuildable, or a hard build failure) errors,
+// release needed. A failed REBUILD of a stale-but-present image still LAUNCHES
+// the stale image (returns nil, so the container axis is never taken down), but
+// records a fatal ClassIsolation finding: a stale, pre-entrypoint image can run
+// as ROOT, so strict mode aborts before spawning it while --degraded runs it
+// as-is. A failed build from an EXPLICITLY-configured base Containerfile
+// likewise records a finding rather than silently substituting another base.
+// Anything else (image absent and unbuildable, or a hard build failure) errors,
 // so the caller degrades down the chain — a fatal finding (ClassIsolation) the
 // choke owner aborts on unless --degraded.
 func (c Container) runEnsureImage(ctx context.Context) error {
@@ -441,13 +464,29 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
-		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
+		if src.fromUserBase() {
+			// The user EXPLICITLY configured this base Containerfile; falling
+			// through to the official/embedded base silently builds an image
+			// they never asked for. Record a finding (the choke owner aborts in
+			// strict mode) rather than substitute quietly — --degraded still
+			// falls through to the next source.
+			strictness.Fail(strictness.ClassIsolation, userBaseBuildFixIt,
+				"agent image build from the configured base Containerfile (%s) failed: %v", src.desc, err)
+		} else {
+			clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
+		}
 		lastErr = err
 	}
 	if present {
-		// The stale image still runs; a failed refresh must not take the
-		// container axis down with it.
-		clidiag.Warn("ctxloom", "rebuild of stale image %q failed (%v); running the existing image", c.image, lastErr)
+		// The stale image still runs, so a failed refresh must not take the
+		// container axis down with it — in DEGRADED mode the chain launches the
+		// existing stale image (return nil). But a stale, pre-entrypoint image can
+		// run as ROOT, so silently shipping it is a security-relevant downgrade of
+		// the requested isolation: record a fatal ClassIsolation finding the choke
+		// owner aborts on in strict mode (before the stale image spawns), while
+		// --degraded records nothing and runs the stale image exactly as before.
+		strictness.Fail(strictness.ClassIsolation, staleRebuildFixIt,
+			"rebuild of stale image %q failed (%v); the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated) and would run as-is", c.image, lastErr)
 		return nil
 	}
 	return fmt.Errorf("local build of container image %q failed: %w", c.image, lastErr)
@@ -598,6 +637,25 @@ type ImageBuildOptions struct {
 	Output io.Writer
 }
 
+// selectBuildRuntime resolves the container runtime for an agent-image build,
+// failing loud when an EXPLICITLY-requested runtime (opts.Runtime / --runtime)
+// is not the one selected. SelectRuntime silently substitutes a DIFFERENT daemon
+// when the requested one is unavailable — which would build the image into a
+// daemon the user never asked for (and a later run, which auto-selects, may then
+// not find it there). Auto-detect (empty prefer) has nothing to honor and only
+// fails when NO runtime is reachable. Uses the selectRuntimeProbe seam so the
+// choice is unit-testable without a live daemon.
+func selectBuildRuntime(prefer string) (ContainerRuntime, error) {
+	rt := selectRuntimeProbe(prefer)
+	if _, isHost := rt.(Host); isHost {
+		return nil, fmt.Errorf("no container runtime (docker/podman) is available to build with")
+	}
+	if prefer != "" && rt.Name() != prefer {
+		return nil, fmt.Errorf("requested container runtime %q is not available; refusing to build with %q instead (start/enable %q, or pass --runtime %q to build with it deliberately)", prefer, rt.Name(), prefer, rt.Name())
+	}
+	return rt, nil
+}
+
 // BuildAgentImage builds the agent image for the REGISTERED backend name from
 // the best available source — the caller's base-image overlay, the agent stage
 // on a user base Containerfile, the client's official image, or the embedded
@@ -614,9 +672,9 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if len(sources) == 0 {
 		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --base-image with the client preinstalled", backend)
 	}
-	rt := SelectRuntime(opts.Runtime)
-	if _, isHost := rt.(Host); isHost {
-		return "", fmt.Errorf("no container runtime (docker/podman) is available to build with")
+	rt, err := selectBuildRuntime(opts.Runtime)
+	if err != nil {
+		return "", err
 	}
 	selfExe, err := resolveSelfExe()
 	if err != nil {

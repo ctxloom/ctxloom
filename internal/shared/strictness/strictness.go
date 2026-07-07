@@ -52,12 +52,16 @@ const (
 	// ClassTrust is a corrupt/unreadable trust store (the deny-all posture).
 	ClassTrust Class = "trust-store"
 	// ClassIsolation is an EXPLICITLY-requested container runtime that cannot be
-	// satisfied (no reachable runtime, agent image absent/unbuildable, shared-fs
-	// probe failed, no resolvable auth) so the run would otherwise fall back to
-	// the UNSANDBOXED host. Only an explicit request — an agent's `runtime:`
-	// trait, the project `runtime:` default, or `--runtime container` — reaches
-	// this class; the ambient host default degrades silently and never lands
-	// here.
+	// satisfied AS REQUESTED: no reachable runtime, an unrecognized runtime axis
+	// value (a typo that would silently land on the host), an external plugin
+	// binary that cannot be containerized, the agent image absent/unbuildable, a
+	// stale image whose refresh build failed, a configured base image
+	// (isolation_base_containerfile) that failed to build, shared-fs probe
+	// failed, or no resolvable auth — so the run would otherwise fall back to the
+	// UNSANDBOXED host, or run a STALE/substituted image instead of the one
+	// requested. Only an explicit request — an agent's `runtime:` trait, the
+	// project `runtime:` default, or `--runtime container` — reaches this class;
+	// the ambient host default degrades silently and never lands here.
 	ClassIsolation Class = "isolation"
 )
 

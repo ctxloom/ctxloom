@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // withFakeSelfExe points resolveSelfExe at a dummy static-binary stand-in so
@@ -497,4 +498,183 @@ func TestCompanionGate_DerivedFromCompanionList(t *testing.T) {
 	synthetic := companionGateFor([]string{"alpha", "beta"})
 	assert.Contains(t, synthetic, "for b in alpha beta; do")
 	assert.NotContains(t, synthetic, "taskloom", "no hard-coded companion survives the derivation")
+}
+
+// writeInspectOKBuildFailScript writes a runtime stand-in whose `image inspect`
+// always succeeds (image PRESENT, returning labelsJSON on --format) but whose
+// `build` always fails — the stale-image / failed-rebuild shape.
+func writeInspectOKBuildFailScript(t *testing.T, path, labelsJSON string) {
+	t.Helper()
+	script := fmt.Sprintf(`#!/bin/sh
+PATH=/usr/bin:/bin
+case "$1" in
+build) exit 1 ;;
+image) if [ "$4" = "--format" ]; then printf '%%s' %q; fi; exit 0 ;;
+esac
+exit 0
+`, labelsJSON)
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+}
+
+// writeAbsentBuildFailScript writes a runtime stand-in whose `image inspect` and
+// `build` both fail — an ABSENT image whose local build cannot succeed.
+func writeAbsentBuildFailScript(t *testing.T, path string) {
+	t.Helper()
+	script := `#!/bin/sh
+PATH=/usr/bin:/bin
+case "$1" in
+build) exit 1 ;;
+image) exit 1 ;;
+esac
+exit 0
+`
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+}
+
+// forceProvenance reseeds the process-global provenance cache (HostProvenance-
+// Digest memoizes once per process) so the staleness gate is LIVE and
+// deterministic regardless of test order. Requires resolveSelfExe to already
+// point at a readable stand-in (withFakeSelfExe), which makes the digest
+// non-empty. The cleanup clears it so the next caller recomputes against the
+// restored (real) binary.
+func forceProvenance(t *testing.T) {
+	t.Helper()
+	provenanceOnce = sync.Once{}
+	provenanceCached = ""
+	require.NotEmpty(t, HostProvenanceDigest(""), "the fake selfExe must yield a non-empty provenance digest")
+	t.Cleanup(func() {
+		provenanceOnce = sync.Once{}
+		provenanceCached = ""
+	})
+}
+
+// TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins site 4: a PRESENT
+// but STALE image whose refresh build fails still LAUNCHES the stale image
+// (ensureImage returns nil — the container axis is never taken down), but in
+// strict mode records a fatal ClassIsolation finding the choke owner aborts on
+// (a stale pre-entrypoint image can run as root), while --degraded runs the
+// stale image with no finding, exactly as before.
+func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
+	setup := func(t *testing.T) Container {
+		withFakeSelfExe(t)
+		t.Setenv("PATH", t.TempDir()) // no companions on PATH: staging warns + skips
+		forceProvenance(t)
+		dir := t.TempDir()
+		script := filepath.Join(dir, "fake-docker")
+		// A baked provenance that will never match the host digest → STALE.
+		writeInspectOKBuildFailScript(t, script, `{"ctxloom.provenance":"stale-nomatch"}`)
+		return Container{
+			runtime: fakeRuntime{name: "docker", binary: script, available: true},
+			image:   "ctxloom-agent-stale-test:latest",
+			profile: containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+		}
+	}
+
+	t.Run("strict: one fatal finding; the stale image still launches", func(t *testing.T) {
+		resetStrictness(t)
+		c := setup(t)
+		require.NoError(t, c.ensureImage(context.Background()),
+			"the stale image still launches — a failed refresh never blocks the axis")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "a stale image whose rebuild failed is exactly one fatal finding")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "STALE", "the finding must flag the stale image")
+		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+	})
+
+	t.Run("degraded: runs the stale image with no finding", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		c := setup(t)
+		require.NoError(t, c.ensureImage(context.Background()))
+		assert.Empty(t, strictness.All(), "--degraded records nothing and runs the stale image as before")
+	})
+}
+
+// TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded pins site 6: a failed
+// build from an EXPLICITLY-configured base Containerfile
+// (isolation_base_containerfile) records a fatal ClassIsolation finding instead
+// of silently falling through to a DIFFERENT base. The fallback sources still
+// only warn; --degraded records nothing.
+func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
+	setup := func(t *testing.T) Container {
+		withFakeSelfExe(t)
+		t.Setenv("PATH", t.TempDir())
+		dir := t.TempDir()
+		base := filepath.Join(dir, "Containerfile.base")
+		require.NoError(t, os.WriteFile(base, []byte("FROM scratch\n"), 0o644))
+		script := filepath.Join(dir, "fake-docker")
+		writeAbsentBuildFailScript(t, script) // absent image → enter the build loop; builds fail
+		return Container{
+			runtime:           fakeRuntime{name: "docker", binary: script, available: true},
+			image:             "ctxloom-agent-userbase-test:latest",
+			baseContainerfile: base,
+			profile:           containerProfile{containerfile: []byte("FROM scratch\n"), validate: "true"},
+		}
+	}
+
+	t.Run("strict: the configured base failure is one fatal finding; fallbacks warn", func(t *testing.T) {
+		resetStrictness(t)
+		c := setup(t)
+		err := c.ensureImage(context.Background())
+		require.Error(t, err, "all sources failed on an absent image, so ensure still errors")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "only the configured user-base source is a finding; the fallbacks warn")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "configured base Containerfile",
+			"the finding must name the user-configured base that failed")
+		assert.Contains(t, findings[0].FixIt, "isolation_base_containerfile")
+	})
+
+	t.Run("degraded: no finding — falls through to the next source as before", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		c := setup(t)
+		_ = c.ensureImage(context.Background())
+		assert.Empty(t, strictness.All())
+	})
+}
+
+// TestSelectBuildRuntime_ExplicitPreferMustBeHonored pins site 5: an explicitly
+// requested build runtime (--runtime) that isn't the one selected fails loud
+// rather than silently building into a DIFFERENT daemon; auto-detect (empty
+// prefer) accepts whatever is reachable and only errors when none is.
+func TestSelectBuildRuntime_ExplicitPreferMustBeHonored(t *testing.T) {
+	t.Run("explicit prefer not selected → error (no silent wrong-daemon build)", func(t *testing.T) {
+		stubRuntimeProbe(t, Docker{})
+		_, err := selectBuildRuntime("podman")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "podman", "names what was requested")
+		assert.Contains(t, err.Error(), "docker", "names what it refused to substitute")
+	})
+
+	t.Run("explicit prefer honored → ok", func(t *testing.T) {
+		stubRuntimeProbe(t, Docker{})
+		rt, err := selectBuildRuntime("docker")
+		require.NoError(t, err)
+		assert.Equal(t, "docker", rt.Name())
+	})
+
+	t.Run("auto (empty prefer) accepts whatever is reachable", func(t *testing.T) {
+		stubRuntimeProbe(t, Docker{})
+		rt, err := selectBuildRuntime("")
+		require.NoError(t, err)
+		assert.Equal(t, "docker", rt.Name())
+	})
+
+	t.Run("no runtime reachable → error", func(t *testing.T) {
+		stubRuntimeProbe(t, Host{})
+		_, err := selectBuildRuntime("podman")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no container runtime")
+	})
+
+	t.Run("an unknown prefer falls through to auto and is rejected as a mismatch", func(t *testing.T) {
+		stubRuntimeProbe(t, Docker{})
+		_, err := selectBuildRuntime("containerd")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "containerd")
+	})
 }

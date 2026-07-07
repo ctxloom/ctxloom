@@ -228,14 +228,26 @@ func noRuntimeHint() string {
 	return ""
 }
 
-// warnUnknownAxes emits one advisory per unrecognized axis value; the value
-// then behaves as that axis's default (shared / host) rather than blocking.
+// warnUnknownAxes reports a broken/typo'd axis value. The two axes differ in
+// severity because their defaults differ in blast radius:
+//
+//   - An unrecognized WORKSPACE value degrades to the shared project dir — a
+//     convenience axis, never a security boundary (a lost worktree degrades
+//     gracefully everywhere else too), so it stays a plain warn-and-continue.
+//   - An unrecognized RUNTIME value degrades to the HOST. The user typed a
+//     non-empty runtime, so they asked for SOMETHING other than the default;
+//     silently landing UNSANDBOXED on the host when they may have meant
+//     `container` is the exact silent security downgrade fail-loudly exists to
+//     stop. It is a fatal ClassIsolation finding the choke owner aborts on
+//     unless --degraded downgrades it back to the host degrade.
 func warnUnknownAxes(a Axes) {
 	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
 	if a.Runtime != "" && a.Runtime != RuntimeHost && a.Runtime != RuntimeContainer {
-		clidiag.Warn("ctxloom", "unknown runtime axis %q (known: %s); treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
+		strictness.Fail(strictness.ClassIsolation,
+			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
+			"unknown runtime axis %q (known: %s); this run would land on the HOST without a container boundary (NOT sandboxed) — treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
 	}
 }
 
@@ -260,10 +272,12 @@ type ImageConfig struct {
 // worktree (axes are independent; degradation never touches the other axis).
 // The container policies degrade AGAIN in PrepareWorkspace (runtime present
 // but the image absent and not buildable, no resolvable auth, scratch
-// creation failure) — see Prepare's chain. A bad axis value warns and acts as
-// that axis's default (CLAUDE.md fault tolerance). An EXPLICITLY-requested
-// container that finds no available runtime is different: that degrade is a
-// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded.
+// creation failure) — see Prepare's chain. A bad WORKSPACE axis value warns and
+// acts as the shared default (CLAUDE.md fault tolerance); a bad RUNTIME axis
+// value is a fatal ClassIsolation finding, not a silent host degrade — see
+// warnUnknownAxes. An EXPLICITLY-requested container that finds no available
+// runtime is likewise a fatal finding (ClassIsolation) the choke owner aborts on
+// unless --degraded.
 func Resolve(axes Axes, backend string, img ImageConfig) Policy {
 	return chainFor(axes, backend, img)[0]
 }

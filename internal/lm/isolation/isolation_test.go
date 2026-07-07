@@ -73,6 +73,9 @@ func TestFactoryForWorkspace_BindsPolicy(t *testing.T) {
 // unknown axis values degrade to that axis's default (fault tolerance) rather
 // than failing.
 func TestResolve_DefaultsAndDegrades(t *testing.T) {
+	// An unknown RUNTIME value now records a fatal finding (see
+	// TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign); reset so it never bleeds.
+	resetStrictness(t)
 	for _, axes := range []Axes{
 		{},
 		{Workspace: WorkspaceShared, Runtime: RuntimeHost},
@@ -80,12 +83,53 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 		p := Resolve(axes, "claude-code", ImageConfig{})
 		assert.IsType(t, None{}, p, "axes %+v resolve to None", axes)
 	}
-	// Unknown axis values → degrade to the axis defaults (warn; never block).
+	// Unknown axis values still degrade the POLICY to the axis defaults (a bad
+	// runtime ALSO records a fatal finding, asserted elsewhere; the returned lead
+	// policy is unchanged).
 	assert.IsType(t, None{}, Resolve(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
 		"unknown axis values degrade to None")
 	// Independence: an unknown RUNTIME never drops a requested worktree.
 	assert.IsType(t, Worktree{}, Resolve(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
 		"an unknown runtime axis degrades alone; the workspace axis survives")
+}
+
+// TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign pins the per-axis severity
+// split: a typo'd RUNTIME value would silently land the run UNSANDBOXED on the
+// host, so it is a fatal ClassIsolation finding the choke owner aborts on unless
+// --degraded; a typo'd WORKSPACE value degrades to the shared project dir (a
+// convenience axis, never a boundary), so it stays a plain warn-and-continue.
+func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
+	t.Run("strict: an unknown RUNTIME axis is one fatal isolation finding", func(t *testing.T) {
+		resetStrictness(t)
+		warnUnknownAxes(Axes{Runtime: "hyperdrive"})
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "a typo'd runtime that would land on the host is fatal")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the finding must flag the silent downgrade")
+		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+	})
+
+	t.Run("strict: an unknown WORKSPACE axis warns but records nothing", func(t *testing.T) {
+		resetStrictness(t)
+		warnUnknownAxes(Axes{Workspace: "podracer"})
+		assert.Empty(t, strictness.All(),
+			"a typo'd workspace axis degrades to the shared dir — benign, never fatal")
+	})
+
+	t.Run("degraded: an unknown RUNTIME axis records nothing", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		warnUnknownAxes(Axes{Runtime: "hyperdrive"})
+		assert.Empty(t, strictness.All(), "--degraded is the escape hatch: warn, then host")
+	})
+
+	t.Run("recognized and empty axis values are silent", func(t *testing.T) {
+		resetStrictness(t)
+		warnUnknownAxes(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer})
+		warnUnknownAxes(Axes{}) // the ambient default must never fire
+		assert.Empty(t, strictness.All())
+	})
 }
 
 // TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded pins the

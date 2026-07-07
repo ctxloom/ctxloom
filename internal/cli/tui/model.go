@@ -53,6 +53,10 @@ type Model struct {
 	firstLines []int
 	vp         viewport.Model
 
+	injecting  bool   // the inject input line is open: keys type into it
+	injectHarp string // the explicit target, latched when the line opens
+	injectText string
+
 	status string
 	errMsg string
 }
@@ -75,6 +79,11 @@ type feedEventMsg struct {
 }
 type feedClosedMsg struct {
 	harp string
+	err  error
+}
+type injectResultMsg struct {
+	harp string
+	mode string // agentbus.Delivery* on success
 	err  error
 }
 
@@ -258,11 +267,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.feed = nil
 		}
 		return m, nil
+
+	case injectResultMsg:
+		if msg.err != nil {
+			m.errMsg = fmt.Sprintf("inject %s: %v", msg.harp, msg.err)
+		} else {
+			m.status = fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode)
+			m.errMsg = ""
+		}
+		return m, nil
 	}
 	return m, nil
 }
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.injecting {
+		return m.updateInjectKey(msg)
+	}
 	key := msg.String()
 	if m.firstKey {
 		m.firstKey = false
@@ -327,8 +348,78 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.export("ndjson")
 	case "y":
 		return m.copySelection()
+	case "i":
+		return m.openInject()
 	}
 	return m, nil
+}
+
+// openInject opens the inject input line targeting the viewed harp. The
+// target is latched at open so a roster refresh can't silently retarget the
+// text mid-composition.
+func (m Model) openInject() (tea.Model, tea.Cmd) {
+	if m.feedHarp == "" {
+		m.status = "no agent selected to inject into"
+		return m, nil
+	}
+	if m.src.Inject == nil {
+		m.errMsg = "inject unavailable (no agent bus for this session)"
+		return m, nil
+	}
+	m.injecting = true
+	m.injectHarp = m.feedHarp
+	m.injectText = ""
+	m.status = ""
+	m.errMsg = ""
+	return m, nil
+}
+
+// updateInjectKey owns every key while the inject line is open: printable
+// keys type into the line (including j/k — navigation is suspended), enter
+// sends over the bus, esc cancels. The engine prefix and ctrl+c still back
+// out of the overlay entirely.
+func (m Model) updateInjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyRunes:
+		m.injectText += string(msg.Runes)
+		return m, nil
+	case tea.KeySpace: // space is its own key type, not a rune
+		m.injectText += " "
+		return m, nil
+	}
+	switch msg.String() {
+	case m.prefixKey, "ctrl+c":
+		return m.quit()
+	case "esc":
+		m.injecting = false
+		m.injectText = ""
+		return m, nil
+	case "enter":
+		text := m.injectText
+		if strings.TrimSpace(text) == "" {
+			return m, nil
+		}
+		harp := m.injectHarp
+		m.injecting = false
+		m.injectText = ""
+		m.status = "injecting into " + harp + "…"
+		return m, m.injectCmd(harp, text)
+	case "backspace":
+		if r := []rune(m.injectText); len(r) > 0 {
+			m.injectText = string(r[:len(r)-1])
+		}
+	}
+	return m, nil
+}
+
+// injectCmd runs the bus round trip off the update loop; the outcome — the
+// delivery mode, or the bus's typed error — renders inline on arrival.
+func (m Model) injectCmd(harp, text string) tea.Cmd {
+	inject := m.src.Inject
+	return func() tea.Msg {
+		mode, err := inject(harp, text)
+		return injectResultMsg{harp: harp, mode: mode, err: err}
+	}
 }
 
 func (m Model) quit() (tea.Model, tea.Cmd) {
@@ -494,7 +585,14 @@ func (m Model) View() string {
 		b.WriteString(padCell(feedLines[i], feedW))
 		b.WriteByte('\n')
 	}
-	hints := " j/k move · enter feed · x expand · f follow · g/G ends · s/S save · y copy · " +
+	if m.injecting {
+		// The inject line replaces the hints while open: explicit target, the
+		// text so far, and its own key hints. Deliberately not dimmed — it is
+		// the focused input.
+		b.WriteString(padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", m.geo.Cols))
+		return b.String()
+	}
+	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
 		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
 	note := m.status
 	if m.errMsg != "" {

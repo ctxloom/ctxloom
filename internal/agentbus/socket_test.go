@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,7 +22,16 @@ func listenTestBus(t *testing.T, b *Broker) string {
 func listenObservableTestBus(t *testing.T, b *Broker, hub *TapHub, roster RosterFunc) string {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := Listen(sock, b, hub, roster)
+	srv, err := Listen(sock, b, hub, roster, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Close() })
+	return sock
+}
+
+func listenInjectableTestBus(t *testing.T, b *Broker, inject InjectFunc) string {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "bus.sock")
+	srv, err := Listen(sock, b, nil, nil, inject)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
 	return sock
@@ -90,11 +100,11 @@ func TestSocket_TypedErrorsCrossTheWire(t *testing.T) {
 func TestListen_ReplacesStaleSocket(t *testing.T) {
 	b := New(Hooks{})
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv1, err := Listen(sock, b, nil, nil)
+	srv1, err := Listen(sock, b, nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, srv1.Close())
 
-	srv2, err := Listen(sock, b, nil, nil)
+	srv2, err := Listen(sock, b, nil, nil, nil)
 	require.NoError(t, err)
 	defer srv2.Close()
 
@@ -330,4 +340,42 @@ func TestSocket_RosterWithoutProvider(t *testing.T) {
 	got, err := FetchRoster(sock)
 	require.NoError(t, err)
 	assert.Empty(t, got)
+}
+
+// TestSocket_InjectRoundTrip pins the inject verb's wire contract: the
+// target harp and text reach the orchestrator-side seam, the delivery mode
+// it reports crosses back, and the typed not-injectable maps to its sentinel
+// client-side.
+func TestSocket_InjectRoundTrip(t *testing.T) {
+	var mu sync.Mutex
+	var gotHarp, gotText string
+	inject := func(harp, text string) (string, error) {
+		if harp != "swift-elm-fox" {
+			return "", fmt.Errorf("inject: %q is not a child of this orchestrator: %w", harp, ErrNotInjectable)
+		}
+		mu.Lock()
+		gotHarp, gotText = harp, text
+		mu.Unlock()
+		return DeliveryNewTurn, nil
+	}
+	sock := listenInjectableTestBus(t, New(Hooks{}), inject)
+
+	mode, err := Inject(sock, "swift-elm-fox", "user says: check the tokenizer")
+	require.NoError(t, err)
+	assert.Equal(t, DeliveryNewTurn, mode)
+	mu.Lock()
+	assert.Equal(t, "swift-elm-fox", gotHarp)
+	assert.Equal(t, "user says: check the tokenizer", gotText)
+	mu.Unlock()
+
+	_, err = Inject(sock, "foreign-session-harp", "hello?")
+	require.ErrorIs(t, err, ErrNotInjectable)
+}
+
+// TestSocket_InjectWithoutProvider: a server with no inject seam answers the
+// typed not-injectable — nothing is held there, so nothing can be delivered.
+func TestSocket_InjectWithoutProvider(t *testing.T) {
+	sock := listenTestBus(t, New(Hooks{}))
+	_, err := Inject(sock, "anyone", "hi")
+	require.ErrorIs(t, err, ErrNotInjectable)
 }

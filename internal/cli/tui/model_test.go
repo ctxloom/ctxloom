@@ -13,18 +13,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agentbus"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/termui"
 )
 
-// fakeSources records watches/cancels and lets tests push feed events.
+// fakeSources records watches/cancels/injects and lets tests push feed
+// events and script the inject outcome.
 type fakeSources struct {
 	rows      []RosterRow
 	watched   []string
 	events    map[string]chan operations.SessionFeedEvent
 	cancelled map[string]int
 	exportDir string
+
+	injected   [][2]string // {harp, text} per inject call
+	injectMode string      // "" defaults to DeliveryQueued
+	injectErr  error
 }
 
 func newFakeSources(dir string, rows ...RosterRow) *fakeSources {
@@ -53,6 +59,16 @@ func (f *fakeSources) sources() Sources {
 		},
 		ExportDir: func(string) (string, error) { return f.exportDir, nil },
 		Now:       func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
+		Inject: func(harp, text string) (string, error) {
+			f.injected = append(f.injected, [2]string{harp, text})
+			if f.injectErr != nil {
+				return "", f.injectErr
+			}
+			if f.injectMode == "" {
+				return agentbus.DeliveryQueued, nil
+			}
+			return f.injectMode, nil
+		},
 	}
 }
 
@@ -62,6 +78,12 @@ func keyMsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace}
 	case "ctrl+]":
 		return tea.KeyMsg{Type: tea.KeyCtrlCloseBracket}
 	default:
@@ -309,4 +331,94 @@ func TestModel_FeedClosedReportsEnd(t *testing.T) {
 	msg := waitEventCmd("h1", m.feed)()
 	m, _ = step(t, m, msg)
 	assert.Contains(t, m.status, "feed ended")
+}
+
+func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "h1", State: "executing"},
+		RosterRow{Harp: "h2", State: "idle"},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	m, _ = step(t, m, keyMsg("i"))
+	require.True(t, m.injecting)
+	assert.Contains(t, m.View(), "inject → h1:", "the input line shows the explicit target harp")
+
+	// While the line is open, navigation keys type into it, not the roster.
+	m, cmd := step(t, m, keyMsg("j"))
+	assert.Nil(t, cmd, "j must not open another feed while the line is open")
+	assert.Equal(t, "h1", m.rows[m.sel].Harp, "selection pinned while typing")
+	m, _ = step(t, m, keyMsg("k"))
+	m, _ = step(t, m, keyMsg("space"))
+	m, _ = step(t, m, keyMsg("q"))
+	assert.Equal(t, "jk q", m.injectText)
+	assert.Contains(t, m.View(), "inject → h1: jk q")
+
+	// Backspace edits; enter on blank text sends nothing; esc cancels.
+	m, _ = step(t, m, keyMsg("backspace"))
+	assert.Equal(t, "jk ", m.injectText)
+	m.injectText = "  "
+	m, cmd = step(t, m, keyMsg("enter"))
+	assert.Nil(t, cmd, "blank text must not send")
+	assert.True(t, m.injecting)
+	m, _ = step(t, m, keyMsg("esc"))
+	assert.False(t, m.injecting)
+	assert.Empty(t, f.injected, "cancel sends nothing")
+
+	// And navigation works again after cancel.
+	_, cmd = step(t, m, keyMsg("j"))
+	require.NotNil(t, cmd, "after esc, j navigates the roster again")
+}
+
+func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "idle"})
+	f.injectMode = agentbus.DeliveryNewTurn
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	m, _ = step(t, m, keyMsg("i"))
+	m, _ = step(t, m, keyMsg("go left"))
+	m, cmd := step(t, m, keyMsg("enter"))
+	require.NotNil(t, cmd, "enter must dispatch the bus round trip")
+	assert.False(t, m.injecting, "the line closes at send")
+
+	m, _ = step(t, m, cmd())
+	require.Equal(t, [][2]string{{"h1", "go left"}}, f.injected)
+	assert.Equal(t, "injected into h1: "+agentbus.DeliveryNewTurn, m.status,
+		"the delivery mode renders inline")
+}
+
+func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "ended"})
+	f.injectErr = agentbus.ErrNotInjectable
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	m, _ = step(t, m, keyMsg("i"))
+	m, _ = step(t, m, keyMsg("hello"))
+	m, cmd := step(t, m, keyMsg("enter"))
+	require.NotNil(t, cmd)
+	m, _ = step(t, m, cmd())
+	assert.Contains(t, m.errMsg, "inject h1:")
+	assert.Contains(t, m.errMsg, agentbus.ErrNotInjectable.Error(),
+		"the bus's typed refusal renders inline")
+}
+
+func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
+	// No observable sessions: i explains instead of opening.
+	f := newFakeSources(t.TempDir())
+	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
+	m, _ = step(t, m, keyMsg("i"))
+	assert.False(t, m.injecting)
+	assert.Contains(t, m.status, "no agent selected")
+
+	// No Inject seam wired (no bus can ever be reached): typed unavailability.
+	f2 := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	src := f2.sources()
+	src.Inject = nil
+	m2 := NewModel(context.Background(), src, testGeo(), 0x1d, nil)
+	m2, cmd := step(t, m2, rosterMsg{rows: f2.rows})
+	require.NotNil(t, cmd)
+	m2, _ = step(t, m2, cmd())
+	m2, _ = step(t, m2, keyMsg("i"))
+	assert.False(t, m2.injecting)
+	assert.Contains(t, m2.errMsg, "inject unavailable")
 }

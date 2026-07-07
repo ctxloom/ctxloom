@@ -428,7 +428,7 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 
 	hub := agentbus.NewTapHub()
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil)
+	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil, nil)
 	require.NoError(t, err)
 	defer srv.Close()
 	t.Setenv(agentbus.SocketEnv, sock)

@@ -15,6 +15,7 @@ package agentbus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -22,6 +23,18 @@ import (
 // ParentAddress is the one recipient a spawned child may address: its own
 // coordinator, resolved from the lineage the orchestrator registered.
 const ParentAddress = "parent"
+
+// UserSender is the sender identity on messages the human injects through the
+// observation viewer. It is never a harp, so a recipient — a child whose
+// parked receive completes, or a coordinator draining its mailbox — can tell
+// a user message from its parent's.
+const UserSender = "user"
+
+// KindUserInjected marks the O3 mirror notice a user injection always sends
+// to the target's parent: From names the injected child (the coordinator's
+// from-keyed handling attributes the notice to that child's thread), Body
+// carries the bounded digest.
+const KindUserInjected = "user_injected"
 
 // SocketEnv names the Unix-socket path a child's ctxloom-mcp subprocess dials
 // to reach its orchestrator's broker. Set by the orchestrator on the child
@@ -44,6 +57,11 @@ var (
 	// ErrRecvBusy rejects a second concurrent agent_recv for the same harp —
 	// one parked receive per session is the contract.
 	ErrRecvBusy = errors.New("agent_recv: a receive is already parked for this session")
+	// ErrNotInjectable rejects a user injection whose target this
+	// orchestrator does not hold and cannot resume (an unknown harp, or a
+	// foreign process's session — there is no delivery channel into another
+	// process's terminal, by design).
+	ErrNotInjectable = errors.New("inject: target is not a child this orchestrator holds or can resume")
 )
 
 // Message is one bus message. From/To are session harps (To may have been
@@ -123,6 +141,42 @@ func (b *Broker) SendFromChild(from, to, kind, body string) error {
 	}
 	b.Send(Message{From: from, To: parent, Kind: kind, Body: body})
 	return nil
+}
+
+// injectDigestRunes bounds the mirror notice body: enough for the parent to
+// recognize what was said, never the bulk (the full text reaches the child as
+// its turn, not the parent).
+const injectDigestRunes = 120
+
+// InjectFromUser delivers user-typed text to a registered session with sender
+// identity UserSender, reporting whether a parked receive consumed it (the
+// caller drives the recipient's turn otherwise). An unregistered target is
+// the typed ErrNotInjectable — nothing is delivered and nothing mirrored.
+//
+// INVARIANT (decision O3): the KindUserInjected notice to the target's parent
+// mailbox fires on EVERY successful injection, whatever the delivery mode —
+// there is no silent-injection path; a coordinator's picture of its child
+// never diverges without a trace.
+func (b *Broker) InjectFromUser(to, text string) (bool, error) {
+	b.mu.Lock()
+	parent, ok := b.parentOf[to]
+	b.mu.Unlock()
+	if !ok {
+		return false, ErrNotInjectable
+	}
+	completed := b.Send(Message{From: UserSender, To: to, Body: text})
+	b.Send(Message{From: to, To: parent, Kind: KindUserInjected, Body: injectDigest(text)})
+	return completed, nil
+}
+
+// injectDigest truncates the mirror body at the rune bound, appending the
+// total size so the parent knows how much it didn't see.
+func injectDigest(text string) string {
+	r := []rune(text)
+	if len(r) <= injectDigestRunes {
+		return text
+	}
+	return fmt.Sprintf("%s… (%d chars total)", string(r[:injectDigestRunes]), len(r))
 }
 
 // Send enqueues a message for its recipient, completing a parked receive when

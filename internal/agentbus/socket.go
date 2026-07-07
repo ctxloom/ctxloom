@@ -16,8 +16,8 @@ import (
 
 // The executor→orchestrator transport: a child engine's own `ctxloom mcp`
 // subprocess forwards agent_send/agent_recv here over a Unix socket (path from
-// SocketEnv), and observation clients (the feed resolver, the future viewer)
-// dial the same socket for the observe/roster verbs. The protocol is
+// SocketEnv), and observation clients (the feed resolver, the viewer) dial
+// the same socket for the observe/roster/inject verbs. The protocol is
 // package-internal — one JSON request line per connection, one JSON response
 // line back (the observe op alone continues past its ack as a stream of
 // ObserveEvent lines) — and MUST NOT leak into any exported wire contract.
@@ -26,13 +26,13 @@ import (
 // identity (its CTXLOOM_SESSION_HARP); the orchestrator's lineage — not the
 // caller — decides where "parent" routes.
 type busRequest struct {
-	Op     string `json:"op"` // "send" | "recv" | "observe" | "roster"
+	Op     string `json:"op"` // "send" | "recv" | "observe" | "roster" | "inject"
 	From   string `json:"from"`
 	To     string `json:"to,omitempty"`
 	Kind   string `json:"kind,omitempty"`
 	Body   string `json:"body,omitempty"`
 	WaitMS int64  `json:"wait_ms,omitempty"`
-	Harp   string `json:"harp,omitempty"` // observe: the harp to tap
+	Harp   string `json:"harp,omitempty"` // observe/inject: the target harp
 }
 
 type busResponse struct {
@@ -41,7 +41,18 @@ type busResponse struct {
 	ErrKind  string        `json:"error_kind,omitempty"`
 	Messages []Message     `json:"messages,omitempty"`
 	Roster   []RosterEntry `json:"roster,omitempty"`
+	Delivery string        `json:"delivery,omitempty"` // inject: the Delivery* mode applied
 }
+
+// Delivery modes an inject reports back (busResponse.Delivery): which §6a
+// delivery-by-state rule the orchestrator applied to the user's text. The
+// viewer renders these verbatim.
+const (
+	DeliveryCompletedRecv = "completed-recv" // completed the child's parked agent_recv
+	DeliveryNewTurn       = "new-turn"       // woke an idle child into a new turn
+	DeliveryQueued        = "queued"         // queued for the child's next turn boundary
+	DeliveryResumed       = "resumed"        // relaunched an ended session, the text as its next turn
+)
 
 // ObserveEvent is one line on an observation stream (the observe verb's
 // vocabulary, after the ack). Exactly one of Entry, Complete, Gap, or Ended is
@@ -73,14 +84,21 @@ type RosterEntry struct {
 // the same snapshot).
 type RosterFunc func() []RosterEntry
 
+// InjectFunc delivers user-typed text into a session the orchestrator holds,
+// reporting the Delivery* mode that applied. The orchestrator owns
+// delivery-by-state (complete a parked recv / wake / queue / resume), so the
+// server delegates rather than driving the broker directly.
+type InjectFunc func(harp, text string) (string, error)
+
 // errKind wire tags, mapped back to the typed sentinels client-side so a
 // forwarded failure is indistinguishable from a local one.
 const (
-	errKindTimeout = "timeout"
-	errKindRouting = "routing"
-	errKindSender  = "unknown-sender"
-	errKindBusy    = "busy"
-	errKindNotLive = "not-live"
+	errKindTimeout       = "timeout"
+	errKindRouting       = "routing"
+	errKindSender        = "unknown-sender"
+	errKindBusy          = "busy"
+	errKindNotLive       = "not-live"
+	errKindNotInjectable = "not-injectable"
 )
 
 // maxBusLine bounds one protocol line (a briefing-sized body fits comfortably;
@@ -93,21 +111,23 @@ const recvDialGrace = 15 * time.Second
 
 // Server serves a broker over a Unix socket for forwarded executor calls,
 // plus the observation verbs (observe over hub, roster over the snapshot
-// func). hub and roster may be nil: observe then answers not-live and roster
-// answers empty.
+// func) and the inject verb (delegated to the orchestrator). hub, roster,
+// and inject may be nil: observe then answers not-live, roster answers empty,
+// and inject answers not-injectable.
 type Server struct {
 	ln     net.Listener
 	broker *Broker
 	hub    *TapHub
 	roster RosterFunc
+	inject InjectFunc
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// Listen binds the broker (and the observation surfaces) to a Unix socket at
-// path, replacing any stale socket file from a dead predecessor. The accept
-// loop runs until Close.
-func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc) (*Server, error) {
+// Listen binds the broker (and the observation/injection surfaces) to a Unix
+// socket at path, replacing any stale socket file from a dead predecessor.
+// The accept loop runs until Close.
+func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc, inject InjectFunc) (*Server, error) {
 	// A leftover socket file refuses the bind; a dead orchestrator can't be
 	// listening, so unlinking is safe.
 	_ = os.Remove(path)
@@ -116,7 +136,7 @@ func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc) (*Serve
 		return nil, fmt.Errorf("agent bus: listen %s: %w", path, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{ln: ln, broker: broker, hub: hub, roster: roster, ctx: ctx, cancel: cancel}
+	s := &Server{ln: ln, broker: broker, hub: hub, roster: roster, inject: inject, ctx: ctx, cancel: cancel}
 	go s.acceptLoop()
 	return s, nil
 }
@@ -181,6 +201,15 @@ func (s *Server) dispatch(req busRequest) busResponse {
 			entries = s.roster()
 		}
 		return busResponse{OK: true, Roster: entries}
+	case "inject":
+		if s.inject == nil {
+			return errResponse(ErrNotInjectable)
+		}
+		mode, err := s.inject(req.Harp, req.Body)
+		if err != nil {
+			return errResponse(err)
+		}
+		return busResponse{OK: true, Delivery: mode}
 	default:
 		return busResponse{Error: fmt.Sprintf("unknown bus op %q", req.Op)}
 	}
@@ -274,6 +303,8 @@ func errResponse(err error) busResponse {
 		resp.ErrKind = errKindBusy
 	case errors.Is(err, ErrNotLive):
 		resp.ErrKind = errKindNotLive
+	case errors.Is(err, ErrNotInjectable):
+		resp.ErrKind = errKindNotInjectable
 	}
 	return resp
 }
@@ -317,9 +348,26 @@ func respError(resp busResponse) error {
 		return ErrRecvBusy
 	case errKindNotLive:
 		return ErrNotLive
+	case errKindNotInjectable:
+		return ErrNotInjectable
 	default:
 		return errors.New(resp.Error)
 	}
+}
+
+// Inject sends user-typed text into harp via the orchestrator at sock — the
+// viewer's inject verb. The returned mode is the Delivery* constant the
+// orchestrator reports; a target it doesn't hold and can't resume maps back
+// to the typed ErrNotInjectable.
+func Inject(sock, harp, text string) (string, error) {
+	resp, err := roundTrip(sock, busRequest{Op: "inject", Harp: harp, Body: text}, recvDialGrace)
+	if err != nil {
+		return "", err
+	}
+	if err := respError(resp); err != nil {
+		return "", err
+	}
+	return resp.Delivery, nil
 }
 
 // FetchRoster lists the orchestrator's held sessions over the bus socket at

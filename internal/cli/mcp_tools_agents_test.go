@@ -791,6 +791,207 @@ func TestObserve_LiveChildOverSocket(t *testing.T) {
 		conformanceWait, 10*time.Millisecond)
 }
 
+// assertUserInjectedMirror drains the coordinator's inbox and requires the O3
+// mirror notice — kind user_injected, From naming the injected child, Body
+// carrying the digest. The parent mailbox here IS the serving session's own
+// inbox (o.recv), pinning that the mirror reaches the coordinator surface.
+func assertUserInjectedMirror(t *testing.T, o *agentOrchestrator, child, digest string) {
+	t.Helper()
+	msgs, err := o.recv(context.Background(), time.Second)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, agentbus.KindUserInjected, msgs[0].Kind)
+	assert.Equal(t, child, msgs[0].From, "the notice names the injected child")
+	assert.Equal(t, digest, msgs[0].Body)
+}
+
+// TestInject_CompletedRecvShowsUserSender pins S2 delivery mode 1 and the
+// sender-identity requirement: injecting while the child is parked in
+// agent_recv completes that recv with From="user" (not the parent's harp),
+// the verb reports completed-recv, and the mirror still fires.
+func TestInject_CompletedRecvShowsUserSender(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	gate := make(chan struct{})
+	ff := newFakeEngineFactory(func() *fakeChatEngine { return &fakeChatEngine{turnGate: gate} })
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := ff.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	// The child parks in agent_recv mid-turn.
+	recvDone := make(chan []agentbus.Message, 1)
+	go func() {
+		msgs, rerr := o.broker.Recv(context.Background(), out.Harp, conformanceWait)
+		assert.NoError(t, rerr)
+		recvDone <- msgs
+	}()
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "parked" },
+		conformanceWait, 10*time.Millisecond)
+
+	mode, err := o.inject(out.Harp, "user steering note")
+	require.NoError(t, err)
+	assert.Equal(t, agentbus.DeliveryCompletedRecv, mode)
+
+	select {
+	case msgs := <-recvDone:
+		require.Len(t, msgs, 1)
+		assert.Equal(t, agentbus.UserSender, msgs[0].From,
+			"the completed recv shows the message came from the user, not the parent")
+		assert.Equal(t, "user steering note", msgs[0].Body)
+	case <-time.After(conformanceWait):
+		t.Fatal("parked recv never completed")
+	}
+	assertUserInjectedMirror(t, o, out.Harp, "user steering note")
+}
+
+// TestInject_QueuedMidTurn pins delivery mode "queued": injecting during an
+// executing turn queues to the boundary; the child's next turn carries the
+// user text untouched; the mirror fires at inject time, not delivery time.
+func TestInject_QueuedMidTurn(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	gate := make(chan struct{})
+	ff := newFakeEngineFactory(func() *fakeChatEngine { return &fakeChatEngine{turnGate: gate} })
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := ff.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	mode, err := o.inject(out.Harp, "mid-turn note")
+	require.NoError(t, err)
+	assert.Equal(t, agentbus.DeliveryQueued, mode)
+	assertUserInjectedMirror(t, o, out.Harp, "mid-turn note")
+
+	gate <- struct{}{} // finish turn 1 → the boundary drains the injection as turn 2
+	require.Eventually(t, func() bool {
+		texts := ff.engine(0).recordedTexts()
+		return len(texts) == 2 && texts[1] == "mid-turn note"
+	}, conformanceWait, 10*time.Millisecond)
+}
+
+// TestInject_WakesIdleChild pins delivery mode "new-turn": an idle child
+// (empty-mailbox boundary) is woken with the user text as its next turn.
+func TestInject_WakesIdleChild(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	ff := newFakeEngineFactory(nil)
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "idle" },
+		conformanceWait, 10*time.Millisecond)
+
+	mode, err := o.inject(out.Harp, "user follow-up")
+	require.NoError(t, err)
+	assert.Equal(t, agentbus.DeliveryNewTurn, mode)
+
+	require.Eventually(t, func() bool {
+		texts := ff.engine(0).recordedTexts()
+		return len(texts) == 2 && texts[1] == "user follow-up"
+	}, conformanceWait, 10*time.Millisecond)
+	assertUserInjectedMirror(t, o, out.Harp, "user follow-up")
+}
+
+// TestInject_ResumesEndedChild pins delivery mode "resumed": injecting into a
+// child whose engine exited relaunches the session and delivers the user
+// text as its first turn — exactly the agent_send resume rule.
+func TestInject_ResumesEndedChild(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	ff := newFakeEngineFactory(func() *fakeChatEngine { return &fakeChatEngine{endAfterTurns: 1} })
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "ended" },
+		conformanceWait, 10*time.Millisecond)
+
+	mode, err := o.inject(out.Harp, "user wants one more pass")
+	require.NoError(t, err)
+	assert.Equal(t, agentbus.DeliveryResumed, mode)
+
+	require.Eventually(t, func() bool { return ff.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		e := ff.engine(1)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	assert.Contains(t, ff.engine(1).recordedTexts()[0], "user wants one more pass",
+		"the injection is the resumed session's first turn")
+	assertUserInjectedMirror(t, o, out.Harp, "user wants one more pass")
+}
+
+// TestInject_NotInjectableIsTyped pins the refusal policy: a harp this
+// orchestrator does not hold — a foreign process's session, or the serving
+// session itself (the user already owns its terminal) — is the typed
+// ErrNotInjectable, and nothing lands in any mailbox.
+func TestInject_NotInjectableIsTyped(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, nil)
+	o := newTestOrchestrator(t, cfg, root, newFakeEngineFactory(nil))
+
+	_, err := o.inject("foreign-session-harp", "hello?")
+	require.ErrorIs(t, err, agentbus.ErrNotInjectable)
+
+	_, err = o.inject("coordinator-harp", "talking to myself")
+	require.ErrorIs(t, err, agentbus.ErrNotInjectable)
+
+	_, err = o.recv(context.Background(), 20*time.Millisecond)
+	require.ErrorIs(t, err, agentbus.ErrRecvTimeout, "a refused injection mirrors nothing")
+}
+
+// TestInject_OverSocket pins the whole S2 path end to end over a real Unix
+// socket against a live (fake-engined) child: the viewer-side Inject verb
+// delivers the user text as the child's next turn, reports the delivery
+// mode, mirrors to the coordinator's inbox, and types the foreign-harp
+// refusal across the wire.
+func TestInject_OverSocket(t *testing.T) {
+	resetStrictness(t)
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"worker": headlessAgent("p1"),
+	})
+	ff := newFakeEngineFactory(nil)
+	o := newTestOrchestrator(t, cfg, root, ff)
+
+	out, err := o.run(context.Background(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(o, out.Harp) == "idle" },
+		conformanceWait, 10*time.Millisecond)
+
+	sock := ff.engine(0).request().Env[agentbus.SocketEnv]
+	require.NotEmpty(t, sock)
+
+	mode, err := agentbus.Inject(sock, out.Harp, "steer toward the parser")
+	require.NoError(t, err)
+	assert.Equal(t, agentbus.DeliveryNewTurn, mode)
+
+	require.Eventually(t, func() bool {
+		texts := ff.engine(0).recordedTexts()
+		return len(texts) == 2 && texts[1] == "steer toward the parser"
+	}, conformanceWait, 10*time.Millisecond)
+	assertUserInjectedMirror(t, o, out.Harp, "steer toward the parser")
+
+	_, err = agentbus.Inject(sock, "foreign-session-harp", "hello?")
+	require.ErrorIs(t, err, agentbus.ErrNotInjectable)
+}
+
 // TestAgentToolHandlers_PlumbTheDelegation drives the registered tool
 // handlers (not the orchestrator directly) for one spawn + send + recv, and
 // pins the no-config guard the docgen server relies on.

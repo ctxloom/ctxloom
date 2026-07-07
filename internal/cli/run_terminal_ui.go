@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -107,14 +108,17 @@ func terminalUISources(workDir, selfHarp string) tui.Sources {
 			}
 			return dir, os.MkdirAll(dir, 0o755)
 		},
+		Inject: func(harp, text string) (string, error) {
+			return sessionBusInject(selfHarp, harp, text)
+		},
 	}
 }
 
-// sessionBusRoster fetches the roster from the orchestrator serving THIS
+// sessionBusSocket resolves the socket of the orchestrator serving THIS
 // session's children: ambient CTXLOOM_BUS_SOCKET first, else the socket the
 // orchestrator binds in the session's harp dir (mcp_agent_orchestrator
 // socketPath). A missing socket is the normal no-orchestrator-yet case.
-func sessionBusRoster(selfHarp string) ([]agentbus.RosterEntry, error) {
+func sessionBusSocket(selfHarp string) (string, error) {
 	sock := os.Getenv(agentbus.SocketEnv)
 	if sock == "" && selfHarp != "" {
 		if dir, err := paths.HarpDir(selfHarp); err == nil {
@@ -122,12 +126,33 @@ func sessionBusRoster(selfHarp string) ([]agentbus.RosterEntry, error) {
 		}
 	}
 	if sock == "" {
-		return nil, os.ErrNotExist
+		return "", os.ErrNotExist
 	}
 	if _, err := os.Stat(sock); err != nil {
+		return "", err
+	}
+	return sock, nil
+}
+
+// sessionBusRoster fetches the roster from this session's orchestrator.
+func sessionBusRoster(selfHarp string) ([]agentbus.RosterEntry, error) {
+	sock, err := sessionBusSocket(selfHarp)
+	if err != nil {
 		return nil, err
 	}
 	return agentbus.FetchRoster(sock)
+}
+
+// sessionBusInject delivers user-typed text into harp through this session's
+// orchestrator — the viewer's inject seam. Unlike the roster (enrichment), a
+// missing orchestrator here is a real failure the viewer must show: there is
+// no other channel into a delegated child.
+func sessionBusInject(selfHarp, harp, text string) (string, error) {
+	sock, err := sessionBusSocket(selfHarp)
+	if err != nil {
+		return "", fmt.Errorf("no agent orchestrator is reachable for this session: %w", err)
+	}
+	return agentbus.Inject(sock, harp, text)
 }
 
 // surroundRoster adapts the bus roster onto the surround's local mirror type

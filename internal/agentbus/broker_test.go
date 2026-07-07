@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -228,4 +229,93 @@ func TestBroker_ConcurrentSendRecv(t *testing.T) {
 func TestTypedErrorsAreSentinels(t *testing.T) {
 	assert.True(t, errors.Is(ErrRecvTimeout, ErrRecvTimeout))
 	assert.False(t, errors.Is(ErrRecvTimeout, ErrPeerRouting))
+}
+
+// TestInjectFromUser_SenderIdentityAndMirror pins S2's two invariants at the
+// broker: the injected text reaches the child with sender identity "user" (a
+// completed parked recv can tell it wasn't the parent), and the O3 mirror
+// notice lands in the parent's mailbox — kind, child harp, digest — on the
+// same injection.
+func TestInjectFromUser_SenderIdentityAndMirror(t *testing.T) {
+	b := New(Hooks{})
+	b.AddChild("child-a", "coord")
+
+	got := make(chan []Message, 1)
+	go func() {
+		msgs, err := b.Recv(context.Background(), "child-a", 5*time.Second)
+		assert.NoError(t, err)
+		got <- msgs
+	}()
+	require.Eventually(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		_, parked := b.parked["child-a"]
+		return parked
+	}, 2*time.Second, 5*time.Millisecond)
+
+	completed, err := b.InjectFromUser("child-a", "focus on the lexer first")
+	require.NoError(t, err)
+	assert.True(t, completed, "the parked recv consumed the injection")
+
+	select {
+	case msgs := <-got:
+		require.Len(t, msgs, 1)
+		assert.Equal(t, UserSender, msgs[0].From, "the child sees the USER as the sender, not its parent")
+		assert.Equal(t, "focus on the lexer first", msgs[0].Body)
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked recv never completed")
+	}
+
+	mirror, err := b.Recv(context.Background(), "coord", 0)
+	require.NoError(t, err)
+	require.Len(t, mirror, 1)
+	assert.Equal(t, KindUserInjected, mirror[0].Kind)
+	assert.Equal(t, "child-a", mirror[0].From, "the notice names the injected child")
+	assert.Equal(t, "focus on the lexer first", mirror[0].Body)
+}
+
+// TestInjectFromUser_MirrorOnQueuedDeliveryToo pins the ALWAYS half of O3:
+// the mirror fires even when no recv is parked and the text just queues —
+// there is no silent-injection path.
+func TestInjectFromUser_MirrorOnQueuedDeliveryToo(t *testing.T) {
+	b := New(Hooks{})
+	b.AddChild("child-a", "coord")
+
+	completed, err := b.InjectFromUser("child-a", "queued text")
+	require.NoError(t, err)
+	assert.False(t, completed)
+
+	msg, ok := b.TakeNext("child-a")
+	require.True(t, ok)
+	assert.Equal(t, UserSender, msg.From)
+	assert.Equal(t, "queued text", msg.Body)
+
+	mirror, err := b.Recv(context.Background(), "coord", 0)
+	require.NoError(t, err)
+	require.Len(t, mirror, 1)
+	assert.Equal(t, KindUserInjected, mirror[0].Kind)
+	assert.Equal(t, "child-a", mirror[0].From)
+}
+
+// TestInjectFromUser_UnknownTargetIsTyped pins the refusal: an unregistered
+// target is the typed ErrNotInjectable, and a refused injection delivers and
+// mirrors nothing.
+func TestInjectFromUser_UnknownTargetIsTyped(t *testing.T) {
+	b := New(Hooks{})
+	_, err := b.InjectFromUser("never-registered", "hello?")
+	require.ErrorIs(t, err, ErrNotInjectable)
+	_, err = b.Recv(context.Background(), "coord", 0)
+	require.ErrorIs(t, err, ErrRecvTimeout, "a refused injection mirrors nothing")
+}
+
+// TestInjectDigest_Bounds pins the mirror body bound: short text rides
+// verbatim; long text is cut at the rune bound with the total length
+// appended so the parent knows how much it didn't see.
+func TestInjectDigest_Bounds(t *testing.T) {
+	assert.Equal(t, "short", injectDigest("short"))
+
+	long := strings.Repeat("x", 300)
+	d := injectDigest(long)
+	assert.Equal(t, strings.Repeat("x", injectDigestRunes)+"…", string([]rune(d)[:injectDigestRunes+1]))
+	assert.Contains(t, d, "(300 chars total)")
 }

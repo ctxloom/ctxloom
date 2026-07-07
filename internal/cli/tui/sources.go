@@ -20,6 +20,10 @@ type Sources struct {
 	// ExportDir returns (creating if needed) the directory transcript
 	// exports land in for harp — the harp's ctxloom session dir.
 	ExportDir func(harp string) (string, error)
+	// Inject delivers user-typed text into harp through the serving
+	// orchestrator's agent bus, returning the delivery mode it reports
+	// (agentbus.Delivery*). Nil when no bus can ever be reached.
+	Inject func(harp, text string) (string, error)
 	// Now is the export-filename clock; nil means time.Now.
 	Now func() time.Time
 }

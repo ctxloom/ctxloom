@@ -49,7 +49,7 @@ func liveBus(t *testing.T, harp string) (in chan agent.ChatEvent, out <-chan age
 	t.Helper()
 	hub := agentbus.NewTapHub()
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil)
+	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
 	t.Setenv(agentbus.SocketEnv, sock)
@@ -223,7 +223,7 @@ func TestWatchFeed_DirDiscovery(t *testing.T) {
 	coordDir := filepath.Join(home, ".ctxloom", "sessions", "co")
 	require.NoError(t, os.MkdirAll(coordDir, 0o755))
 	hub := agentbus.NewTapHub()
-	srv, err := agentbus.Listen(filepath.Join(coordDir, "agent-bus.sock"), agentbus.New(agentbus.Hooks{}), hub, nil)
+	srv, err := agentbus.Listen(filepath.Join(coordDir, "agent-bus.sock"), agentbus.New(agentbus.Hooks{}), hub, nil, nil)
 	require.NoError(t, err)
 	defer srv.Close()
 

@@ -288,7 +288,7 @@ func (o *agentOrchestrator) ensureSocket() (string, error) {
 			o.sockErr = err
 			return
 		}
-		srv, err := agentbus.Listen(path, o.broker, o.hub, o.rosterSnapshot)
+		srv, err := agentbus.Listen(path, o.broker, o.hub, o.rosterSnapshot, o.inject)
 		if err != nil {
 			o.sockErr = err
 			return
@@ -588,7 +588,24 @@ func (o *agentOrchestrator) send(to, kind, body string) (string, error) {
 	if o.broker.Send(agentbus.Message{From: o.parentHarp, To: to, Kind: kind, Body: body}) {
 		return "completed the child's waiting agent_recv", nil
 	}
+	switch o.driveQueued(c) {
+	case childEnded:
+		return "child session had ended — resuming it with the message as its next turn", nil
+	case childIdle:
+		return "delivering as a new turn", nil
+	case childQueued:
+		return "queued: the child has not started yet; it will drain its mailbox after its first turn", nil
+	default: // executing / parked race
+		return "queued mid-turn: delivered at the child's next turn boundary", nil
+	}
+}
 
+// driveQueued drives the recipient of an already-enqueued message per its
+// state (§6a): resume an ended child or wake an idle one into a new turn;
+// executing/parked/queued children reach the message at their own boundary.
+// Returns the state the delivery observed — callers render it for their
+// surface (agent_send prose, the inject verb's Delivery* enum).
+func (o *agentOrchestrator) driveQueued(c *childAgent) childState {
 	o.mu.Lock()
 	state := c.state
 	if state == childEnded {
@@ -599,17 +616,45 @@ func (o *agentOrchestrator) send(to, kind, body string) (string, error) {
 	switch state {
 	case childEnded:
 		go o.resumeChild(c)
-		return "child session had ended — resuming it with the message as its next turn", nil
 	case childIdle:
 		select {
 		case c.wake <- struct{}{}:
 		default:
 		}
-		return "delivering as a new turn", nil
-	case childQueued:
-		return "queued: the child has not started yet; it will drain its mailbox after its first turn", nil
-	default: // executing / parked race
-		return "queued mid-turn: delivered at the child's next turn boundary", nil
+	}
+	return state
+}
+
+// inject is the bus socket's inject verb (plan §5, slice S2): deliver
+// user-typed text into a child by the same §6a delivery-by-state rules as a
+// parent agent_send, but with sender identity agentbus.UserSender — a child
+// whose parked agent_recv completes sees the message came from the user, not
+// its parent. The broker mirrors the O3 user_injected notice to this serving
+// session's mailbox unconditionally. Only children this orchestrator holds
+// (live, or ended-but-resumable) are injectable; anything else — a foreign
+// process's session, an unknown harp, this session itself — is the typed
+// ErrNotInjectable. A refused injection touches no delivery state.
+func (o *agentOrchestrator) inject(harp, text string) (string, error) {
+	o.mu.Lock()
+	c := o.children[harp]
+	o.mu.Unlock()
+	if c == nil {
+		return "", fmt.Errorf("inject: %q is not a child of this orchestrator: %w", harp, agentbus.ErrNotInjectable)
+	}
+	completed, err := o.broker.InjectFromUser(harp, text)
+	if err != nil {
+		return "", err
+	}
+	if completed {
+		return agentbus.DeliveryCompletedRecv, nil
+	}
+	switch o.driveQueued(c) {
+	case childEnded:
+		return agentbus.DeliveryResumed, nil
+	case childIdle:
+		return agentbus.DeliveryNewTurn, nil
+	default:
+		return agentbus.DeliveryQueued, nil
 	}
 }
 

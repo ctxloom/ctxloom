@@ -158,6 +158,37 @@ func TestWorktree_TeardownLeaksOnListFailure(t *testing.T) {
 	assert.Empty(t, f.Removed, "no removal when the worktree list is unavailable")
 }
 
+// TestProvisionConfigHome_OwnerOnly: the per-agent config-home holds engine
+// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — it must be
+// owner-only (0700) like every MkdirTemp sibling in this package, never
+// world-traversable.
+func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
+	home := Worktree{}.provisionConfigHome("agent-x")
+	require.NotEmpty(t, home)
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+
+	info, err := os.Stat(home)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "engine creds/state dir is owner-only")
+}
+
+// TestWorktreeCleanup_SurfacesConfigHomeResidue: the config-home removal was a
+// bare `_ = os.RemoveAll` — an unremovable tree (e.g. wrongly-owned files)
+// must stream a warning naming the path, never vanish silently.
+func TestWorktreeCleanup_SurfacesConfigHomeResidue(t *testing.T) {
+	home := brokenScratch(t)
+	target := filepath.Join(os.TempDir(), "ctxloom-wt-res")
+	f := &git.Fake{Worktrees: []git.Worktree{{Path: target}}}
+	ws := &worktreeWorkspace{git: f, repoDir: "/proj", dir: target, configHome: home}
+
+	done := captureStderr(t)
+	require.NoError(t, ws.Cleanup())
+	stderr := done()
+
+	assert.Contains(t, stderr, home, "the warning names the residue path")
+	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
+}
+
 // TestWorktree_CleanupIdempotent: a second Cleanup is a noop (no double-teardown).
 func TestWorktree_CleanupIdempotent(t *testing.T) {
 	outer := filepath.Join(os.TempDir(), "ctxloom-wt-i")

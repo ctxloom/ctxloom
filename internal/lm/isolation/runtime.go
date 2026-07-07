@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // ContainerRuntime is the pluggable container launcher — proper polymorphism, NOT
@@ -96,10 +98,19 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 // entrypoint to remap its generic ctxloom user to the launching uid/gid and
 // drop privileges to it.
 func identityEnvArgs() []string {
-	return []string{
+	args := []string{
 		"-e", fmt.Sprintf("PUID=%d", os.Getuid()),
 		"-e", fmt.Sprintf("PGID=%d", os.Getgid()),
 	}
+	if strictness.Degraded() {
+		// The entrypoint REFUSES to run the engine as root when it cannot
+		// become the PUID identity (no usable gosu/setpriv) — in strict mode
+		// that refusal fails the launch loudly. Degraded mode is the one
+		// warn-and-continue home (CLAUDE.md), so it alone passes the escape
+		// hatch that downgrades the refusal to warn-and-run-as-root.
+		args = append(args, "-e", "CTXLOOM_ALLOW_ROOT=1")
+	}
+	return args
 }
 
 // RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
@@ -237,17 +248,50 @@ func runtimeReachable(bin string) bool {
 	return cmd.Run() == nil
 }
 
-// dockerIsRootless reports whether the docker daemon is rootless (its `info`
-// SecurityOptions list "rootless"). Best-effort: on any error it returns false
-// (assume rootful → we pass --user), which is the safe default.
-func dockerIsRootless() bool {
+// dockerSecurityOptions probes the docker daemon's security options; a package
+// var so tests drive the undecidable-probe path hermetically (mirrors the
+// resolveSelfExe / sharedFSCheck seams).
+var dockerSecurityOptions = func() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").Output()
+	return string(out), err
+}
+
+// dockerIsRootless reports whether the docker daemon is rootless (its `info`
+// SecurityOptions list "rootless"). Called only for a REACHABLE daemon
+// (newDockerRuntime gates on reachability), so a probe failure here is a
+// genuinely undecidable identity direction — not a missing CLI or a down
+// daemon — and it must not pick one silently: the answer decides whether PUID
+// is injected, i.e. who OWNS every file the run writes. INVARIANT on error:
+// assume ROOTFUL (inject PUID) and route a finding. Wrongly assuming rootful
+// under a rootless daemon skews project-file ownership to a subordinate uid —
+// wrong, but confined to the launching user's privileges; wrongly assuming
+// rootless under a rootful daemon would run the engine as REAL root and
+// root-own project files — strictly worse. Strict mode collects the finding
+// (the choke owner aborts pre-launch); --degraded proceeds on the assumption
+// with the streamed warning.
+func dockerIsRootless() bool {
+	out, err := dockerSecurityOptions()
 	if err != nil {
+		strictness.Fail(strictness.ClassIsolation,
+			"check `docker info --format '{{.SecurityOptions}}'` against the daemon and retry, or pass --degraded to proceed assuming a rootful daemon",
+			"cannot determine whether the docker daemon is rootless (%v); assuming rootful — if it is actually rootless, files the container writes will land owned by a subordinate uid", err)
 		return false
 	}
-	return strings.Contains(string(out), "rootless")
+	return strings.Contains(out, "rootless")
+}
+
+// newDockerRuntime constructs the Docker runtime for selection. The rootless
+// identity probe runs only when the daemon is REACHABLE: an unreachable
+// docker is never selected (Available gates selection), so probing it would
+// only manufacture a spurious identity finding on docker-less or daemon-down
+// hosts where podman serves the run.
+func newDockerRuntime(reachable func(string) bool) ContainerRuntime {
+	if !reachable("docker") {
+		return Docker{}
+	}
+	return Docker{rootless: dockerIsRootless()}
 }
 
 // InContainer reports whether THIS process is already running inside a
@@ -307,7 +351,7 @@ func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, err
 // degrades to None. It never errors: a runtime that cannot launch is simply not
 // selected (CLAUDE.md fault tolerance).
 func SelectRuntime(prefer string) ContainerRuntime {
-	newDocker := func() ContainerRuntime { return Docker{rootless: dockerIsRootless()} }
+	newDocker := func() ContainerRuntime { return newDockerRuntime(runtimeReachable) }
 	byName := map[string]func() ContainerRuntime{
 		"docker": newDocker,
 		"podman": func() ContainerRuntime { return Podman{rootless: podmanIsRootless()} },

@@ -104,7 +104,10 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, _ Workspac
 // would strip ~/.gitconfig/ssh identity the worktree still needs.
 func (Worktree) provisionConfigHome(agentID string) string {
 	home := worktreeScratchPath("ctxloom-cfg", agentID)
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
+	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
+	// world-traversable.
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "worktree: per-agent config-home unavailable (using shared global config): %v", err)
 		return ""
 	}
@@ -200,8 +203,11 @@ func (w *worktreeWorkspace) Cleanup() error {
 	w.teardown(ctx, target)
 
 	if w.configHome != "" {
-		_ = os.RemoveAll(w.configHome)
+		home := w.configHome
 		w.configHome = ""
+		if err := os.RemoveAll(home); err != nil {
+			warnCleanupResidue("per-agent config-home", home, err)
+		}
 	}
 	return nil
 }

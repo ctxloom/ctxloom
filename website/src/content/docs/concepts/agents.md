@@ -84,7 +84,7 @@ You control the base:
 
 - `ctxloom container scaffold` writes the default base Containerfile to `.ctxloom/base.Containerfile` and sets `isolation_base_containerfile`, so your tools, certs, and mirrors layer under every locally-built agent image.
 - `--base-image` overlays ctxloom onto an image that already ships the client CLI.
-- `isolation_images` in config names fully user-provided images that run as-is and are never built.
+- `isolation_images` in config names fully user-provided images that run as-is and are never built. An override must honor the **identity contract**: it runs the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install `ctxloom-entrypoint` as its `ENTRYPOINT`) and bakes no `USER` — otherwise the container would start with the image's own identity and root-own the files it writes into your mounted project. A violating image is a fatal startup finding; `--degraded` launches it anyway with the image's own identity.
 
 `ctxloom container check` diagnoses the environment before you commit to containerized agents: whether this process is itself inside a container, which runtime (docker/podman) is reachable, whether the image exists, and whether the runtime's daemon shares your filesystem — the probe that catches docker-outside-of-docker setups where bind mounts silently resolve against the wrong filesystem. Run it inside a dev container to learn whether to enable docker-in-docker or keep agents on `runtime: host`.
 

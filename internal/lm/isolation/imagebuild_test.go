@@ -156,6 +156,7 @@ func TestOverlayContainerfile(t *testing.T) {
 	assert.Contains(t, cf, "COPY companions/ /usr/local/bin/\n", "host-mirrored companions layered in")
 	assert.Contains(t, cf, companionGate, "companion ABI gate runs")
 	assert.Contains(t, cf, overlayUserLayer, "best-effort ctxloom user + gosu layer")
+	assert.Contains(t, cf, overlayUserGate, "the identity machinery is VERIFIED after the attempts, not best-effort")
 	assert.Contains(t, cf, "COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint\n")
 	assert.Contains(t, cf, "ENTRYPOINT [\"/usr/local/bin/ctxloom-entrypoint\"]\n", "identity-remap entrypoint replaces the base's")
 	assert.Contains(t, cf, "LABEL ctxloom.version=\"${CTXLOOM_VERSION}\"\n", "diagnostic version label baked")
@@ -164,6 +165,23 @@ func TestOverlayContainerfile(t *testing.T) {
 	noValidate := string(overlayContainerfile("base:1", ""))
 	assert.NotContains(t, noValidate, "RUN base", "no client validate command → no client RUN gate")
 	assert.Contains(t, noValidate, "RUN /usr/local/bin/ctxloom version\n", "the ctxloom gate always runs")
+}
+
+// TestOverlayUserGate_FailsTheBuildWithAFixIt: a base that cannot grow the
+// identity machinery (the ctxloom user, and setpriv or gosu+usermod+groupmod)
+// must FAIL the build with a fix-it — the old all-`|| true` layer shipped an
+// image whose engine then ran as root behind a buried in-container warning,
+// invisible to the launch-failure gate. The install ATTEMPTS stay best-effort
+// (arbitrary bases bring arbitrary package managers); only the VERIFICATION
+// is hard.
+func TestOverlayUserGate_FailsTheBuildWithAFixIt(t *testing.T) {
+	assert.Contains(t, overlayUserGate, "exit 1", "an unmet contract fails the build")
+	assert.NotContains(t, overlayUserGate, "|| true", "the verification is never swallowed")
+	assert.Contains(t, overlayUserGate, "id ctxloom", "the ctxloom user must exist")
+	assert.Contains(t, overlayUserGate, "setpriv", "setpriv alone suffices (numeric ids, remap-immune)")
+	assert.Contains(t, overlayUserGate, "usermod", "gosu needs a working remap, so it requires usermod/groupmod")
+	// Both failure messages carry a fix-it naming what to install.
+	assert.Contains(t, overlayUserGate, "install", "the build failure tells the user how to fix the base")
 }
 
 // TestImageStale: a present image is stale when its ctxloom.provenance label

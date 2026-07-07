@@ -181,14 +181,17 @@ func (w *containerWorktreeWorkspace) Dir() string { return w.wt.Dir() }
 // WIP-safe, nested-worktree-aware teardown. The caller kills the client (docker
 // rm -f the container) BEFORE Cleanup, so the worktree is no longer mounted
 // anywhere when it is removed — kill-then-teardown keeps the removal WIP-safe. It
-// never returns an error: the scratch removal is best-effort and the worktree
+// never returns an error: a scratch-removal failure is surfaced loudly
+// (warnCleanupResidue — likely wrong-identity root-owned files) and the worktree
 // teardown is itself WIP-safe (an inner worktree with WIP leaves the tree in
 // place). Idempotent (the worktree teardown guards on its own cleared dir).
 func (w *containerWorktreeWorkspace) Cleanup() error {
 	if w.scratchRoot != "" {
 		root := w.scratchRoot
 		w.scratchRoot = ""
-		_ = os.RemoveAll(root)
+		if err := os.RemoveAll(root); err != nil {
+			warnCleanupResidue("container scratch", root, err)
+		}
 	}
 	return w.wt.Cleanup()
 }

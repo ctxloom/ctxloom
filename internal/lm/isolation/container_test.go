@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,6 +63,61 @@ func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
 	_, statErr := os.Stat(scratch)
 	assert.True(t, os.IsNotExist(statErr), "cleanup removes the scratch tree")
 	assert.NoError(t, ws.Cleanup(), "cleanup is idempotent")
+}
+
+// brokenScratch builds a scratch tree RemoveAll cannot fully remove (a file
+// pinned inside a write-protected subdir) — the hermetic stand-in for the
+// root-owned residue a wrong-identity container leaves behind. Perms are
+// restored on cleanup so t.TempDir's own removal succeeds.
+func brokenScratch(t *testing.T) string {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory write protection; cannot simulate immovable residue")
+	}
+	root := t.TempDir()
+	sub := filepath.Join(root, "cfg0")
+	require.NoError(t, os.Mkdir(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "stuck"), []byte("x"), 0o644))
+	require.NoError(t, os.Chmod(sub, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
+	return root
+}
+
+// TestContainerWorkspace_CleanupSurfacesResidue: a scratch tree the launching
+// user cannot remove is the CONSEQUENCE DETECTOR for every identity hole (a
+// wrong-identity container root-owned it) — the failure must stream loudly,
+// naming the residue path, the likely cause, and a manual fix, never be
+// silently swallowed (the callers discard Cleanup's error by contract).
+func TestContainerWorkspace_CleanupSurfacesResidue(t *testing.T) {
+	root := brokenScratch(t)
+	ws := &containerWorkspace{dir: "/proj", scratchRoot: root, agentID: "m"}
+
+	done := captureStderr(t)
+	err := ws.Cleanup()
+	stderr := done()
+
+	require.Error(t, err, "the error still returns for callers that check")
+	assert.Contains(t, err.Error(), "remove container scratch")
+	assert.Contains(t, stderr, root, "the warning names the residue path")
+	assert.Contains(t, stderr, "wrong-identity", "…and the likely cause")
+	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
+}
+
+// TestContainerWorktreeWorkspace_CleanupSurfacesResidue: the composed
+// workspace's scratch removal was a bare `_ = os.RemoveAll` — same residue,
+// same loud surfacing (its Cleanup contract stays never-error: the worktree
+// half's WIP-safety owns that semantic).
+func TestContainerWorktreeWorkspace_CleanupSurfacesResidue(t *testing.T) {
+	root := brokenScratch(t)
+	ws := &containerWorktreeWorkspace{wt: &worktreeWorkspace{}, scratchRoot: root, agentID: "m"}
+
+	done := captureStderr(t)
+	err := ws.Cleanup()
+	stderr := done()
+
+	assert.NoError(t, err, "the composed cleanup never errors (WIP-safe contract)")
+	assert.Contains(t, stderr, root, "the warning names the residue path")
+	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,

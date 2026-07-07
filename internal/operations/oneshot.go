@@ -285,7 +285,12 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// it runs AFTER client.Kill() (kill the plugin before removing its
 		// workspace — WIP-safe for the worktree teardown). none's cleanup is a
 		// noop. Registered before the gate below, so a gated member's degraded
-		// workspace is still torn down.
+		// workspace is still torn down. The error is deliberately dropped: a
+		// cleanup failure surfaces from INSIDE Cleanup (a streamed warning
+		// naming the residue path + fix — see warnCleanupResidue), and it must
+		// NOT become a finding here — this defer fires outside the serialized
+		// gate window, where a recorded finding would poison a concurrent
+		// member's gate.
 		defer func() { _ = ws.Cleanup() }()
 		if gerr := isolationGateErr(found); gerr != nil {
 			return nil, gerr

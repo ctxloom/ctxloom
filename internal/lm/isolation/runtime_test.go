@@ -1,14 +1,17 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // sampleSpec is a representative RunSpec used across the argv-rendering tests.
@@ -59,6 +62,81 @@ func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()), "launching uid crosses for the remap")
 	assert.Contains(t, joined, fmt.Sprintf("-e PGID=%d", os.Getgid()), "launching gid crosses for the remap")
 	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
+}
+
+// TestIdentityEnvArgs_DegradedAllowsRootFallback: the entrypoint refuses to
+// run the engine as root when it cannot BECOME the PUID identity; degraded
+// mode — the one warn-and-continue home — must let that container launch
+// anyway, so the runtime passes the entrypoint's escape hatch there and ONLY
+// there (in strict mode the refusal stands and fails the launch loudly).
+func TestIdentityEnvArgs_DegradedAllowsRootFallback(t *testing.T) {
+	resetStrictness(t)
+	joined := strings.Join(Docker{}.RunArgs(sampleSpec()), " ")
+	assert.NotContains(t, joined, "CTXLOOM_ALLOW_ROOT", "strict: the root-refusal must stand")
+
+	strictness.SetDegraded(true)
+	assert.Contains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
+		"-e CTXLOOM_ALLOW_ROOT=1", "degraded docker run carries the escape hatch")
+	assert.Contains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
+		"-e CTXLOOM_ALLOW_ROOT=1", "degraded podman run carries the escape hatch")
+}
+
+// TestDockerIsRootless_ProbeErrorRoutesAFinding: the daemon's rootless-ness
+// decides whether PUID is injected — i.e. who OWNS every file the run writes
+// — so an undecidable probe must not pick a direction silently. It assumes
+// rootful (the least damaging wrong guess: subuid-skewed ownership under a
+// rootless daemon, vs running the engine as REAL root under a rootful one)
+// and routes a ClassIsolation finding: strict collects it (the choke owner
+// aborts), degraded streams the warning and proceeds on the assumption.
+func TestDockerIsRootless_ProbeErrorRoutesAFinding(t *testing.T) {
+	resetStrictness(t)
+	prev := dockerSecurityOptions
+	t.Cleanup(func() { dockerSecurityOptions = prev })
+
+	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
+	assert.False(t, dockerIsRootless(), "least-damaging default: rootful")
+	found := strictness.All()
+	require.Len(t, found, 1)
+	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
+	assert.Contains(t, found[0].Message, "rootless")
+	assert.Contains(t, found[0].FixIt, "--degraded")
+
+	// A successful probe never records: both answers are decisions, not faults.
+	strictness.Reset()
+	dockerSecurityOptions = func() (string, error) { return "[name=rootless name=seccomp]", nil }
+	assert.True(t, dockerIsRootless())
+	dockerSecurityOptions = func() (string, error) { return "[name=seccomp]", nil }
+	assert.False(t, dockerIsRootless())
+	assert.Empty(t, strictness.All())
+
+	// Degraded: the assumption is warned about, never collected.
+	strictness.SetDegraded(true)
+	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
+	assert.False(t, dockerIsRootless())
+	assert.Empty(t, strictness.All())
+}
+
+// TestNewDockerRuntime_ProbesOnlyReachableDaemons: with no reachable docker
+// the rootless probe must not run at all — the runtime is never selected
+// (Available gates selection), so probing would only manufacture a spurious
+// identity finding on docker-less/daemon-down hosts (e.g. podman machines),
+// aborting strict-mode container runs that docker plays no part in.
+func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
+	resetStrictness(t)
+	prev := dockerSecurityOptions
+	t.Cleanup(func() { dockerSecurityOptions = prev })
+
+	dockerSecurityOptions = func() (string, error) {
+		t.Fatal("the identity probe must not run for an unreachable daemon")
+		return "", nil
+	}
+	rt := newDockerRuntime(func(string) bool { return false })
+	assert.Equal(t, Docker{}, rt)
+	assert.Empty(t, strictness.All())
+
+	dockerSecurityOptions = func() (string, error) { return "[name=rootless]", nil }
+	rt = newDockerRuntime(func(string) bool { return true })
+	assert.Equal(t, Docker{rootless: true}, rt, "a reachable daemon gets the real probe")
 }
 
 // TestPodmanRootful_DockerCompatibleArgv: rootful podman matches rootful

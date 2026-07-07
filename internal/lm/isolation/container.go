@@ -16,6 +16,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Default container-policy parameters. The image is the REQUIRED agent image: the
@@ -213,6 +214,11 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	if err := c.ensureImage(ctx); err != nil {
 		return containerScratch{}, err
 	}
+	// The image is present — but a USER-OWNED run-as-is image must also satisfy
+	// the identity contract BEFORE anything starts: a wrong-identity container
+	// LAUNCHES fine (invisible to the fatal launch gate) and then root-owns
+	// every file it writes into the bind-mounted project.
+	c.checkRunAsIsIdentity(ctx)
 	// The image is now locally present, so the shared-filesystem probe is one
 	// cheap scratch container. A mismatch means every identical-path mount
 	// below (project dir, socket scratch, auth, gitdir mirror) would resolve
@@ -387,6 +393,88 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	return exec.CommandContext(cctx, c.runtime.Binary(), "image", "inspect", c.image).Run() == nil
 }
 
+// overrideIdentityFixIt names the ways out when a user-supplied image cannot
+// satisfy the identity contract: make the image entrypoint-governed, or accept
+// the image's own identity via degraded mode.
+const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or pass --degraded to run it with the image's own identity"
+
+// runAsIs reports whether this policy runs a USER-OWNED image as-is (an
+// isolation_images override, or an explicit image on a profile with no local
+// recipe): no build source exists, so nothing ctxloom authored — the identity
+// entrypoint included — is guaranteed to be in the image.
+func (c Container) runAsIs() bool {
+	return len(buildSources(c.profile, "", c.baseContainerfile)) == 0
+}
+
+// entrypointGoverned reports whether the image's PID-1 entrypoint is the
+// ctxloom identity-remap script — the contract that makes the PUID/PGID env
+// the runtime passes actually change who the engine runs as.
+func entrypointGoverned(entrypoint []string) bool {
+	for _, e := range entrypoint {
+		if strings.Contains(e, "ctxloom-entrypoint") {
+			return true
+		}
+	}
+	return false
+}
+
+// rootishUser reports whether an image-config USER resolves to root (empty is
+// the container default: root).
+func rootishUser(user string) bool {
+	u, _, _ := strings.Cut(user, ":")
+	return u == "" || u == "0" || u == "root"
+}
+
+// runAsIsIdentityProblem describes why a user-owned image would START with the
+// WRONG identity under the given runtime ("" = the contract holds). 2da1e34
+// replaced rootful docker's blanket `--user uid:gid` (which owned ALL images)
+// with the PUID env + baked-entrypoint remap; that governs only images that
+// RUN the entrypoint, so a run-as-is image needs this static contract check —
+// the one pre-start signal, since a wrong-identity container launches cleanly.
+func runAsIsIdentityProblem(rt ContainerRuntime, id imageIdentity) string {
+	if d, ok := rt.(Docker); ok && d.rootless {
+		// Rootless docker passes no PUID: container-ROOT is the one uid that
+		// maps to the launching host user, so the image must run as root.
+		if rootishUser(id.User) {
+			return ""
+		}
+		return fmt.Sprintf("its USER %q maps to a subordinate uid under the rootless docker daemon (only container-root maps to the launching user)", id.User)
+	}
+	// Every PUID-passing mode (rootful docker, podman both modes — and any
+	// unknown runtime, conservatively) relies on the baked ctxloom entrypoint,
+	// started as root, to remap and drop.
+	if !entrypointGoverned(id.Entrypoint) {
+		return "it does not run the ctxloom identity-remap entrypoint, so the PUID/PGID remap is inert and the engine runs as the image's own user"
+	}
+	if !rootishUser(id.User) {
+		return fmt.Sprintf("its USER %q prevents the identity remap (the ctxloom entrypoint must start as root to remap and drop)", id.User)
+	}
+	return ""
+}
+
+// checkRunAsIsIdentity gates a run-as-is (user-owned) image on the identity
+// contract. A violation — or an unverifiable config — routes a ClassIsolation
+// finding: in strict mode the choke owner aborts on it BEFORE SpawnClient
+// (never a silent wrong-identity start), while --degraded records nothing and
+// the run proceeds on the image's own identity with the streamed warning.
+// Locally-built images bake the entrypoint, so the contract holds by
+// construction and no inspect runs.
+func (c Container) checkRunAsIsIdentity(ctx context.Context) {
+	if !c.runAsIs() {
+		return
+	}
+	id, err := c.imageIdentityConfig(ctx)
+	if err != nil {
+		strictness.Fail(strictness.ClassIsolation, overrideIdentityFixIt,
+			"cannot verify the identity contract of user-supplied container image %q (%v); it may start with the wrong identity and write wrongly-owned files into the project", c.image, err)
+		return
+	}
+	if problem := runAsIsIdentityProblem(c.runtime, id); problem != "" {
+		strictness.Fail(strictness.ClassIsolation, overrideIdentityFixIt,
+			"user-supplied container image %q would start with the WRONG identity on %s: %s — files it writes into the mounted project would not be owned by you (e.g. root-owned)", c.image, runtimeName(c.runtime), problem)
+	}
+}
+
 // containerWorkspace is the container policy's workspace: Dir() is the live
 // project directory (identical-path mounted into the container) and Cleanup()
 // removes the host-side scratch tree (socket dir + config overlays). The container
@@ -407,7 +495,8 @@ type containerWorkspace struct {
 func (w *containerWorkspace) Dir() string { return w.dir }
 
 // Cleanup removes the host scratch tree. Idempotent — safe to call once after the
-// run's client is killed.
+// run's client is killed. A removal failure is surfaced by warnCleanupResidue
+// (callers discard the returned error by contract).
 func (w *containerWorkspace) Cleanup() error {
 	if w.scratchRoot == "" {
 		return nil
@@ -415,9 +504,22 @@ func (w *containerWorkspace) Cleanup() error {
 	dir := w.scratchRoot
 	w.scratchRoot = ""
 	if err := os.RemoveAll(dir); err != nil {
+		warnCleanupResidue("container scratch", dir, err)
 		return fmt.Errorf("remove container scratch: %w", err)
 	}
 	return nil
+}
+
+// warnCleanupResidue surfaces a workspace-teardown removal failure: the
+// residue is typically root-owned files a wrong-identity container wrote —
+// the CONSEQUENCE DETECTOR for every identity hole — which the launching user
+// cannot delete. Streamed only, deliberately never recorded as a strictness
+// finding: cleanup runs AFTER the run, outside any checkpoint→gate window,
+// and a recorded finding would land inside a CONCURRENT member's window
+// (isolationGateMu serializes gate windows, not end-of-run cleanups) and fail
+// that member spuriously.
+func warnCleanupResidue(what, path string, err error) {
+	clidiag.Warn("ctxloom", "%s %s could not be removed (%v) — likely root-owned residue from a wrong-identity container; inspect and remove it manually (e.g. `sudo rm -rf %s`)", what, path, err, path)
 }
 
 // runtimeName renders a possibly-nil runtime for diagnostics.

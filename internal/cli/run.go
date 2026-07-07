@@ -885,7 +885,10 @@ Examples:
 			// container before removing its scratch — WIP-safe). Registered before
 			// client.Kill so it runs after, and before the gate below so an abort on
 			// a container→worktree degrade still tears the prepared worktree down.
-			// none's cleanup is a noop.
+			// none's cleanup is a noop. The error is deliberately dropped: a
+			// cleanup failure surfaces from INSIDE Cleanup (a streamed warning
+			// naming the residue path + fix — see warnCleanupResidue), and this
+			// runs post-gate where no choke owner could act on an error anyway.
 			defer func() { _ = ws.Cleanup() }()
 			if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
 				return ferr

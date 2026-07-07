@@ -126,6 +126,11 @@ func gitCmd(dir string, args ...string) *exec.Cmd {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
-		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com")
+		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com",
+		// Isolate from the developer's / CI's GLOBAL and SYSTEM git config: a
+		// global commit.gpgsign, core.hooksPath, or init.templateDir would
+		// otherwise leak in and corrupt these real-git init/commit/worktree
+		// operations (this file is UN-tagged, so it also runs under `just test`).
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	return cmd
 }

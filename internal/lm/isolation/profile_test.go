@@ -18,6 +18,17 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 	assert.Equal(t, "claude --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".claude")
 	assert.NotContains(t, p.overlayDirs, ".kiro")
+
+	// The auth axis: the degrade hint names claude's trigger var, and the wired
+	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
+	// func value is not directly comparable.
+	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
+	require.NotNil(t, p.resolveAuth, "the claude profile wires an auth resolver")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	auth, ok := p.resolveAuth("/root")
+	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
+	assert.Equal(t, authEnv, auth.mode)
+	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
 }
 
 // TestContainerProfileFor_Kiro pins the kiro profile: its OWN image tag (a kiro
@@ -31,6 +42,17 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	assert.Equal(t, "kiro-cli --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".kiro")
 	assert.NotContains(t, p.overlayDirs, ".claude", "kiro writes no .claude config")
+
+	// The auth axis: the degrade hint names kiro's trigger var, and the wired
+	// resolver IS the kiro (KIRO_API_KEY) one — not claude's — asserted
+	// behaviorally since a func value is not directly comparable.
+	assert.Contains(t, p.authHint, "KIRO_API_KEY", "the degrade hint names kiro's trigger var")
+	require.NotNil(t, p.resolveAuth, "the kiro profile wires an auth resolver")
+	t.Setenv("KIRO_API_KEY", "kiro-test")
+	auth, ok := p.resolveAuth("/root")
+	require.True(t, ok, "with KIRO_API_KEY set the wired resolver authenticates")
+	assert.Equal(t, authEnv, auth.mode)
+	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the wired resolver is the kiro (KIRO_API_KEY) resolver")
 }
 
 // TestContainerProfileFor_UnknownIsDefault: engines without a profile keep the
@@ -42,6 +64,9 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Empty(t, p.containerfile, "backend %q has no local-build recipe", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
+		// The default profile is claude-oriented throughout, including auth.
+		require.NotNil(t, p.resolveAuth, "backend %q wires the default (claude) auth resolver", name)
+		assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q inherits claude's degrade hint", name)
 	}
 }
 

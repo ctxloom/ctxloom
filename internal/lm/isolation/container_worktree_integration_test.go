@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,16 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	if !(Docker{}).Available() {
 		t.Skip("docker unavailable; skipping the worktree-in-container integration test")
 	}
+	// This test writes into the mounted worktree FROM INSIDE the container and
+	// then tears the worktree down FROM THE HOST. Only ROOTLESS docker maps
+	// container-root to the launching user, so those in-container writes are
+	// host-user-owned and the WIP-safe teardown (and t.TempDir cleanup) can remove
+	// them. Under a ROOTFUL daemon the writes are ROOT-owned and both teardowns
+	// fail, LEAKING root-owned files — so gate on rootless, not merely Available().
+	rt := SelectRuntime("docker")
+	if d, ok := rt.(Docker); !ok || !d.rootless {
+		t.Skip("rootful docker root-owns worktree files the host-user teardown cannot remove; needs rootless docker")
+	}
 	buildGitIntegrationImage(t)
 
 	// Env-passthrough auth satisfies the container gate without host creds; the mock
@@ -52,7 +63,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 
 	repo := initRealRepo(t) // helper from worktree_integration_test.go (same package)
 
-	pol := NewContainerWorktree(SelectRuntime("docker"), worktreeIntegrationImage, git.NewExec())
+	pol := NewContainerWorktree(rt, worktreeIntegrationImage, git.NewExec())
 	ws, err := pol.PrepareWorkspace(ctx, repo, "wt-itest")
 	require.NoError(t, err, "PrepareWorkspace must create a worktree + container scratch")
 
@@ -73,6 +84,9 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	// (1) TRANSPORT: Info() crosses the worktree-in-container gRPC boundary.
 	client, err := pol.SpawnClient("mock", "", 0, ws)
 	require.NoError(t, err, "SpawnClient brings the plugin up in a container over the mounted worktree")
+	// Kill on cleanup so a later require failure can't leak a running container
+	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).
+	t.Cleanup(func() { client.Kill() })
 	info, err := client.Info(ctx)
 	require.NoError(t, err, "Info() round-trips over the plugin-in-container transport")
 	assert.Equal(t, "mock", info.GetName(), "backend name from inside the container")
@@ -155,9 +169,11 @@ func buildGitIntegrationImage(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 
+	// Target the HOST arch: `FROM alpine:latest` resolves the host's arch, so a
+	// hardcoded GOARCH=amd64 binary would `exec format error` on an arm64 host.
 	bin := filepath.Join(dir, "ctxloom")
 	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)
 	}

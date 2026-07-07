@@ -41,6 +41,23 @@ func (failingPolicy) SpawnClient(string, string, int, Workspace) (pb.Client, err
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
 
+// passingPolicy is a test Policy that always prepares a trivial workspace (the
+// project dir, via None); its Name is configurable so a chain can place a
+// SUCCEEDING non-container tier (e.g. a bare worktree) right after a failing
+// container tier — the shape that exercises a lost-CONTAINER-boundary degrade
+// which still yields a workspace. SpawnClient is never reached (prepareChain
+// stops at the first success).
+type passingPolicy struct{ name string }
+
+func (p passingPolicy) Name() string      { return p.name }
+func (passingPolicy) Approvals() Approvals { return ApprovalsPrompt }
+func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+	return None{}.PrepareWorkspace(ctx, projectDir, agentID)
+}
+func (passingPolicy) SpawnClient(string, string, int, Workspace) (pb.Client, error) {
+	return nil, errors.New("unused: prepareChain stops at the first success")
+}
+
 // TestNone_IsHostIdentical pins the None policy to today's host behaviour: the
 // workspace IS the project directory, cleanup is a noop, and approvals stay
 // Prompt. This is the behaviour-identity contract Step 0.2 must preserve.
@@ -147,6 +164,10 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 
 	t.Run("strict: records one fatal isolation finding and still degrades to the host", func(t *testing.T) {
 		resetStrictness(t)
+		// The mark the run path's post-Prepare gate would anchor at, captured
+		// BEFORE the degrade so Since(mark) proves the finding lands inside the
+		// gate's scan window (not merely that some finding exists somewhere).
+		mark := strictness.Checkpoint()
 
 		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
 		require.NotNil(t, ws, "the run always gets a workspace — the degrade never blocks the LLM")
@@ -159,10 +180,33 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		require.NotEmpty(t, findings[0].FixIt, "the finding must carry a fix-it hint")
 		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
 
-		// The choke owner aborts on this finding with the distinct exit code (3).
-		// This is the same failOnFindings the run path calls right after Prepare;
-		// here we assert the mapping so the isolation class is provably fatal.
-		require.NotEmpty(t, strictness.Since(0), "the finding is visible to the choke owner's Since(mark) check")
+		// The finding lands inside the window a choke owner's post-Prepare gate
+		// scans (strictness.Since(mark)). The class→exit-code-3 ABORT mapping
+		// itself is pinned in the cli package's failOnFindings test — this package
+		// cannot import cli — so here we assert only that the finding is visible to
+		// that gate window, not the exit code.
+		gated := strictness.Since(mark)
+		require.Len(t, gated, 1, "the finding falls inside the choke owner's Since(mark) gate window")
+		assert.Equal(t, strictness.ClassIsolation, gated[0].Class)
+	})
+
+	t.Run("a ContainerWorktree that degrades to a bare worktree is a lost-boundary finding", func(t *testing.T) {
+		resetStrictness(t)
+
+		// The {worktree, container} chain: the container-worktree tier fails to
+		// launch and degrades to the SURVIVING bare worktree. The container
+		// boundary is lost even though the workspace axis is preserved, so it is
+		// fatal — a container→non-container transition, not the benign
+		// worktree→none workspace-axis degrade.
+		chain := []Policy{failingPolicy{name: (ContainerWorktree{}).Name()}, passingPolicy{name: (Worktree{}).Name()}, None{}}
+		policy, ws := prepareChain(context.Background(), chain, "/project", "agent-a")
+		require.NotNil(t, ws)
+		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "dropping the container half of container-worktree is exactly one fatal finding")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the message must flag the lost boundary")
 	})
 
 	t.Run("degraded: records nothing — the host degrade is the accepted outcome", func(t *testing.T) {

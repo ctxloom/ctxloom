@@ -109,6 +109,26 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 	assert.Empty(t, auth.mounts, "env passthrough does not mount credentials")
 }
 
+// TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars pins the
+// env-passthrough BOUNDARY: the trigger is ANTHROPIC_API_KEY specifically, NOT
+// any ANTHROPIC_* var. With another ANTHROPIC_* set alone (base URL / model) but
+// no key and no on-disk creds, the resolver must DEGRADE (ok=false, authNone) —
+// never select env passthrough — so a run is not launched against a partial,
+// keyless auth env. This kills the mutant that would trigger on
+// len(presentEnvKeys) > 0 instead of on the key itself.
+func TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars(t *testing.T) {
+	withFakeHome(t)                             // no ~/.claude credentials on disk
+	t.Setenv("ANTHROPIC_API_KEY", "")           // the trigger var is unset…
+	t.Setenv("ANTHROPIC_BASE_URL", "https://x") // …but OTHER ANTHROPIC_* vars ARE set
+	t.Setenv("ANTHROPIC_MODEL", "claude-x")
+
+	auth, ok := resolveClaudeContainerAuth("/root")
+	require.False(t, ok,
+		"other ANTHROPIC_* set without ANTHROPIC_API_KEY (and no creds) must NOT env-trigger — it degrades")
+	assert.Equal(t, authNone, auth.mode, "no key and no creds resolves to no auth, not env passthrough")
+	assert.Empty(t, auth.envPassthrough, "nothing crosses when the trigger var is absent")
+}
+
 // TestContainerAuthMode_String documents the diagnostic labels (no secrets).
 func TestContainerAuthMode_String(t *testing.T) {
 	assert.Equal(t, "env-passthrough", authEnv.String())

@@ -60,6 +60,37 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 	assert.Contains(t, argv, "--mount type=bind,source=/scratch/cfg0,target=/proj/.claude")
 }
 
+// TestBuildRunSpec_LoopbackPortPublishesLoopbackTCP pins the NON-ZERO
+// loopback-port path (the non-Linux / Docker-Desktop transport): a port > 0 is
+// carried into RunSpec.PublishPort and renders a `-p 127.0.0.1:PORT:PORT`
+// publish — loopback only, never 0.0.0.0 — so the host go-plugin client can dial
+// the in-container TCP listener across the Docker Desktop VM boundary. The 0
+// case (Linux unix-socket transport, no publish) is covered by
+// TestBuildRunSpec_WiresAuthHandshakeAndMounts and asserted absent here.
+func TestBuildRunSpec_LoopbackPortPublishesLoopbackTCP(t *testing.T) {
+	const port = 54321
+	spec := buildRunSpec("img", "name", "/proj", "/root",
+		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
+		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
+		nil, nil, nil, port)
+
+	assert.Equal(t, port, spec.PublishPort, "a non-zero loopback port is carried into the run spec")
+	assert.Contains(t, spec.Env, "PLUGIN_LISTEN_TCP=1", "a loopback port forces the container plugin onto TCP")
+
+	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	assert.Contains(t, argv, "-p 127.0.0.1:54321:54321", "the loopback TCP port is published on 127.0.0.1 only")
+	assert.NotContains(t, argv, "0.0.0.0", "the plugin RPC port is never published on all interfaces")
+
+	// Contrast: the 0 (Linux) case publishes nothing.
+	unixSpec := buildRunSpec("img", "name", "/proj", "/root",
+		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
+		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
+		nil, nil, nil, 0)
+	assert.Equal(t, 0, unixSpec.PublishPort, "the Linux unix-socket transport publishes no port")
+	assert.NotContains(t, strings.Join(Docker{rootless: true}.RunArgs(unixSpec), " "), "-p ",
+		"no -p publish under the unix-socket transport")
+}
+
 // TestContainerConfigOverlay_ShadowsManagedPaths: the overlay produces one
 // writable bind mount per managed-config directory, each backed by a real scratch
 // dir under the root, whose container target shadows the project path — keeping

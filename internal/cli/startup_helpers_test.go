@@ -236,6 +236,7 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 // fault tolerance) — without it a corrupted config.yaml silently launches an
 // empty-context session.
 func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
+	resetStrictness(t) // printConfigWarnings records findings; keep them out of the shared collector
 	var buf bytes.Buffer
 
 	printConfigWarnings(&buf, []config.Warning{
@@ -251,6 +252,16 @@ func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
 	}
 	assert.Contains(t, buf.String(), "config.yaml is malformed")
 	assert.Contains(t, buf.String(), "failed schema validation")
+
+	// Each warning is ALSO recorded as a fatal finding so `ctxloom run`/`mcp`/`acp`
+	// abort on a present-but-broken config (fail-loudly) instead of launching an
+	// empty-context session — the whole point of surfacing them here.
+	findings := strictness.All()
+	require.Len(t, findings, 2, "each config warning records a fatal startup finding")
+	assert.Equal(t, strictness.ClassConfig, findings[0].Class, "a parse warning is config-class")
+	assert.Equal(t, strictness.ClassConfig, findings[1].Class, "a validate warning is config-class")
+	assert.NotEmpty(t, findings[0].FixIt, "the finding carries a fix-it hint")
+	assert.Contains(t, findings[0].Message, "config.yaml is malformed", "the finding echoes the warning text")
 }
 
 func TestPrintConfigWarnings_NoWarningsIsSilent(t *testing.T) {
@@ -293,6 +304,7 @@ func TestWriteSyncSummary_InstalledOrUpdatedPrintsMessage(t *testing.T) {
 }
 
 func TestWriteSyncSummary_FailuresListEachFailedItem(t *testing.T) {
+	resetStrictness(t) // writeSyncSummary records a finding per failed item; keep them out of the shared collector
 	var buf bytes.Buffer
 	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status: "partial",
@@ -337,11 +349,22 @@ func TestWriteSyncSummary_FailuresListEachFailedItem(t *testing.T) {
 	}
 	assert.Equal(t, 2, indentedLines,
 		"each failed item must get its own indented line so diagnosis is unambiguous")
+
+	// Each failed item is ALSO recorded as a fatal sync finding for the strict
+	// startup gate (a pinned/configured item neither cached nor fetchable) — so a
+	// hard-fail sync aborts `ctxloom run`/`mcp` rather than silently degrading.
+	findings := strictness.All()
+	require.Len(t, findings, 2, "each failed sync item records a fatal finding")
+	for _, f := range findings {
+		assert.Equal(t, strictness.ClassSync, f.Class, "a failed sync item is sync-class")
+		assert.NotEmpty(t, f.FixIt, "the finding carries a fix-it hint")
+	}
 }
 
 func TestWriteSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 	// Partial-success path: per CLAUDE.md, 9 of 10 succeeding is still success.
 	// The user needs to see *both* what worked and what didn't.
+	resetStrictness(t) // the failed item records a finding; keep it out of the shared collector
 	var buf bytes.Buffer
 	writeSyncSummary(&buf, &operations.SyncDependenciesResult{
 		Status:    "partial",
@@ -360,6 +383,13 @@ func TestWriteSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 		"partial-success summary must still warn about the failures")
 	assert.Contains(t, out, "myorg/broken",
 		"partial-success summary must still name failed items")
+
+	// The single failed item is still recorded as a fatal sync finding even on the
+	// partial-success path (installs succeeded, but the missing pinned item is fatal).
+	findings := strictness.All()
+	require.Len(t, findings, 1, "the failed item records a fatal sync finding despite partial success")
+	assert.Equal(t, strictness.ClassSync, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "myorg/broken", "the finding names the failed item")
 }
 
 func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {

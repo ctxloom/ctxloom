@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -171,13 +172,31 @@ func TestContainerName_SanitizesAndScopes(t *testing.T) {
 	assert.True(t, strings.HasPrefix(containerName("///"), "ctxloom-iso-agent-"))
 }
 
-// TestResolveContainer_DegradesWithoutRuntime documents the two-place degrade: with
-// no runtime Resolve returns None; with a runtime it returns a container policy.
+// TestResolveContainer_DegradesWithoutRuntime documents the two-place degrade,
+// driven HERMETICALLY through the selectRuntimeProbe seam (never a real
+// docker/podman daemon): with a launchable runtime Resolve returns the container
+// policy; with no runtime it degrades to None AND records the fatal
+// ClassIsolation finding an explicitly-requested-but-unsatisfiable container
+// raises.
 func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
-	p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
-	if (Docker{}).Available() || (Podman{}).Available() {
+	t.Run("a launchable runtime resolves to the container policy", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
+
+		p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
 		assert.Equal(t, "container", p.Name(), "a launchable runtime resolves to the container policy")
-	} else {
+		assert.Empty(t, strictness.All(), "a satisfied container request records no finding")
+	})
+
+	t.Run("no runtime degrades to none and records one fatal isolation finding", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeProbe(t, Host{})
+
+		p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
 		assert.Equal(t, "none", p.Name(), "no runtime degrades to none")
-	}
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "a requested container with no reachable runtime is one fatal finding")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	})
 }

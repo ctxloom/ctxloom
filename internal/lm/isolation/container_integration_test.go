@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,9 @@ func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
 
 	client, err := pol.SpawnClient("mock", "", 0, ws)
 	require.NoError(t, err, "SpawnClient must bring up the plugin in a container and connect")
+	// Kill on cleanup so a later require failure can't leak a running container
+	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).
+	t.Cleanup(func() { client.Kill() })
 
 	// Info() crosses the container boundary over the translated unix socket.
 	info, err := client.Info(ctx)
@@ -102,6 +106,9 @@ func TestContainerPolicy_TransportLoopbackTCP(t *testing.T) {
 
 	client, err := pol.SpawnClient("mock", "", 0, ws)
 	require.NoError(t, err, "SpawnClient must bring up the plugin over the TCP-loopback transport")
+	// Kill on cleanup so a later require failure can't leak a running container
+	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).
+	t.Cleanup(func() { client.Kill() })
 
 	// The live container must publish a 127.0.0.1 TCP port — the discriminating
 	// proof that the loopback transport (not the bind-mounted unix socket) is in
@@ -135,10 +142,12 @@ func buildIntegrationImage(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Build the static linux/amd64 ctxloom into the docker build context.
+	// Build the static linux ctxloom into the docker build context, targeting the
+	// HOST arch: `FROM alpine:latest` resolves the host's arch, so a hardcoded
+	// GOARCH=amd64 binary would `exec format error` on an arm64 host.
 	bin := filepath.Join(dir, "ctxloom")
 	build := exec.Command("go", "build", "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)
 	}

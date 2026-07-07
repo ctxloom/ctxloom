@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -110,6 +111,9 @@ func TestContainerWorktreeWorkspace_NoConfigHomeEnv(t *testing.T) {
 // default/none axes resolve to none only; a worktree workspace leads with the
 // bare worktree then none; unknown axis values act as the axis defaults.
 func TestChainFor_NonContainer(t *testing.T) {
+	// The unknown-runtime case below records a fatal ClassIsolation finding
+	// (warnUnknownAxes); reset so it never bleeds into a later test.
+	resetStrictness(t)
 	for _, axes := range []Axes{{}, {Workspace: WorkspaceShared, Runtime: RuntimeHost}} {
 		chain := chainFor(axes, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1, "axes %+v", axes)
@@ -126,39 +130,42 @@ func TestChainFor_NonContainer(t *testing.T) {
 	assert.IsType(t, None{}, unknown[0], "unknown axis values act as the axis defaults")
 }
 
-// TestChainFor_Container pins the runtime-axis chains and their independence
-// from the workspace axis: {worktree, container} leads with
-// worktree-in-container then degrades the RUNTIME axis first (worktree
-// survives); {none, container} leads with the live-dir Container and degrades
-// straight to none — it never grows a worktree that wasn't requested. With no
-// runtime available the container tier is dropped up front, leaving exactly
-// the requested workspace.
+// TestChainFor_Container pins the runtime-axis chains (with a runtime AVAILABLE)
+// and their independence from the workspace axis. It drives the probe
+// HERMETICALLY through the selectRuntimeProbe seam — never a real docker/podman
+// daemon — so the chain shape is deterministic on any host: {worktree,
+// container} leads with worktree-in-container then degrades the RUNTIME axis
+// first (the worktree survives) before None; {none, container} leads with the
+// live-dir Container and degrades straight to None — it never grows a worktree
+// that wasn't requested. The no-runtime shape (the container tier dropped up
+// front) is pinned separately, also hermetically, in
+// TestChainFor_NoRuntime_FatalUnlessDegraded.
 func TestChainFor_Container(t *testing.T) {
+	resetStrictness(t)
+	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
+
 	both := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+	require.Len(t, both, 3)
+	assert.IsType(t, ContainerWorktree{}, both[0], "{worktree, container} leads with worktree-in-container")
+	assert.IsType(t, Worktree{}, both[1], "the runtime axis degrades first; the worktree survives")
+	assert.IsType(t, None{}, both[2], "then none")
+
 	live := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
-	if (Docker{}).Available() || (Podman{}).Available() {
-		require.Len(t, both, 3)
-		assert.IsType(t, ContainerWorktree{}, both[0], "{worktree, container} leads with worktree-in-container")
-		assert.IsType(t, Worktree{}, both[1], "the runtime axis degrades first; the worktree survives")
-		assert.IsType(t, None{}, both[2], "then none")
+	require.Len(t, live, 2)
+	assert.IsType(t, Container{}, live[0], "{none, container} mounts the LIVE project dir")
+	assert.IsType(t, None{}, live[1], "and degrades to none — never into an unrequested worktree")
 
-		require.Len(t, live, 2)
-		assert.IsType(t, Container{}, live[0], "{none, container} mounts the LIVE project dir")
-		assert.IsType(t, None{}, live[1], "and degrades to none — never into an unrequested worktree")
-	} else {
-		require.Len(t, both, 2)
-		assert.IsType(t, Worktree{}, both[0], "no runtime drops only the container dimension")
-		assert.IsType(t, None{}, both[1])
-
-		require.Len(t, live, 1)
-		assert.IsType(t, None{}, live[0], "no runtime and no workspace request leaves none")
-	}
+	assert.Empty(t, strictness.All(), "an available runtime satisfies the container request — no isolation finding")
 }
 
 // TestPrepareChain_DegradesToFirstSuccess exercises the fan-out degrade WALK: a
 // failing worktree-in-container degrades to a bare worktree; when every isolated
 // tier fails (non-git repo) it falls to none on the shared project dir.
 func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
+	// Each scenario degrades a container-worktree tier to a non-container tier,
+	// which records a fatal ClassIsolation finding (the lost container boundary);
+	// reset so those findings never bleed into a later test.
+	resetStrictness(t)
 	ctx := context.Background()
 	common := t.TempDir() // stand-in .git common dir so the worktree exclude write succeeds
 

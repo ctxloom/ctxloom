@@ -99,6 +99,14 @@ func (l *BaseLifecycle) ensureMCP() {
 	}
 }
 
+// ChatMCPServers composes the managed MCP set this lifecycle holds into
+// chat-injectable server entries (see ComposeChatMCPServers). nil until
+// MergeManaged has folded a managed payload in — a skip-setup run injects
+// nothing, mirroring Flush's no-op.
+func (l *BaseLifecycle) ChatMCPServers() []ChatMCPServer {
+	return ComposeChatMCPServers(l.backendName, l.mcp, l.bundleMCP, nil)
+}
+
 // GetHooks returns the current hooks configuration.
 func (l *BaseLifecycle) GetHooks() *wire.HooksConfig {
 	return l.hooks

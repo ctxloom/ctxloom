@@ -7,8 +7,41 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/acpagent"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
+
+// TestACPSessionMCPServers: an ACP session-open composes the managed MCP set
+// from the session's cwd config — ctxloom's own context server plus the
+// builtin-bundle companions (taskloom) — for session/new injection, and a
+// client-supplied server of the same name wins over the managed entry.
+func TestACPSessionMCPServers(t *testing.T) {
+	// Builtin companion servers are PATH-gated; pin lookPath so the taskloom
+	// entry resolves deterministically regardless of the host.
+	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/fake/bin", nil })
+	defer restore()
+
+	got := acpSessionMCPServers(&config.Config{}, "claude-code", nil, nil)
+
+	byName := make(map[string]agent.ChatMCPServer, len(got))
+	for _, s := range got {
+		byName[s.Name] = s
+	}
+	require.Contains(t, byName, "ctxloom")
+	assert.Equal(t, "ctxloom", byName["ctxloom"].Command)
+	assert.Equal(t, []string{"mcp"}, byName["ctxloom"].Args)
+	require.Contains(t, byName, "taskloom")
+	assert.Equal(t, "taskloom", byName["taskloom"].Command)
+	assert.Equal(t, []string{"mcp"}, byName["taskloom"].Args)
+
+	// Dedup: the client already supplies a "taskloom" server → not injected.
+	deduped := acpSessionMCPServers(&config.Config{}, "claude-code", nil,
+		[]agent.ChatMCPServer{{Name: "taskloom", Command: "/custom/taskloom"}})
+	for _, s := range deduped {
+		assert.NotEqual(t, "taskloom", s.Name, "client-supplied name must win over the managed entry")
+	}
+}
 
 // TestSessionModesFrom_ProfilesAndAgents: the mode list is default set,
 // then profiles (each assembling just itself), then agents (each assembling

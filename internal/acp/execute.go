@@ -54,6 +54,11 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 			Model:       req.Model,
 			Env:         req.Env,
 			Permissions: req.Permissions,
+			// The managed MCP set (ctxloom context server, builtin taskloom,
+			// config/profile servers) merged by Setup rides session/new — the
+			// ACP child reads no engine settings file, so this injection is
+			// the structured path's counterpart of Setup's settings write.
+			MCPServers: b.ManagedChatMCPServers(),
 		}, in, out)
 	}()
 

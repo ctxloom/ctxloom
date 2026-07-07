@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -84,9 +85,11 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		contextText     string
 		label           string
 		defaultProfiles []string
+		sessionProfiles []string
 		currentAgent    string
 		backendName     string
 		model           string
+		mcpServers      []agent.ChatMCPServer
 	)
 	// Fail-loudly gate, per session: checkpoint before config load + assembly
 	// so this session's fatal findings don't bleed across sessions (the process
@@ -128,6 +131,7 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 				contextText = rs.Context
 				label = rs.Label
 				currentAgent = resolveAgent
+				sessionProfiles = rs.Profiles
 				if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
 					// ACP sessions run in-process at the editor's cwd — a
 					// containerized engine the editor cannot reach would be worse
@@ -149,6 +153,7 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 				contextText = ctxResult.Context
 				profileLLM = ctxResult.ProfileLLM
 				defaultProfiles = ctxResult.Profiles
+				sessionProfiles = ctxResult.Profiles
 			}
 
 			label = llmOverride
@@ -160,6 +165,17 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 			}
 		}
 		backendName, model = operations.ResolveBackend(cfg, label)
+
+		// An ACP session never runs backend Setup (which writes the managed MCP
+		// servers into the engine's settings file), so the managed set rides
+		// session/new mcpServers instead. Bundle executables pass the SAME trust
+		// gate the run path applies before reaching the engine (fail-closed);
+		// client-supplied servers win by name over the managed entries.
+		execGate := operations.NewExecutableTrustGate(cfg)
+		cfg.SetExecutableTrustGate(execGate.Gate())
+		mcpServers = append(append([]agent.ChatMCPServer{}, req.MCPServers...),
+			acpSessionMCPServers(cfg, backendName, sessionProfiles, req.MCPServers)...)
+		execGate.WarnWithheld()
 
 		// Strict mode: refuse to open the session when config load or assembly
 		// recorded a fatal finding, surfacing the full list to the editor. Degraded
@@ -206,7 +222,7 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		// The connected editor answers session/request_permission — real
 		// interactive approvals in structured mode (no terminal prompt here).
 		ForwardPermissions: true,
-		MCPServers:         req.MCPServers,
+		MCPServers:         mcpServers,
 	})
 	if err != nil {
 		client.Kill()
@@ -233,6 +249,21 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		Replay:       replay,
 		LLMs:         buildSessionLLMs(cfg, label),
 	}, nil
+}
+
+// acpSessionMCPServers composes the ctxloom-managed MCP injection for one ACP
+// session from the session-cwd config: the same sources Setup's settings write
+// reconciles — ctxloom's auto-registered context server, builtin-bundle
+// companions (taskloom), and the config/profile servers scoped to the
+// session's profile set — minus any name the client already supplied
+// (existing wins). The cfg-holding seams are used (not AssembleManagedConfig,
+// which re-loads config from the process cwd) so the session's own config and
+// its attached trust gate are honored.
+func acpSessionMCPServers(cfg *config.Config, backendName string, profiles []string, existing []agent.ChatMCPServer) []agent.ChatMCPServer {
+	return agent.ComposeChatMCPServers(backendName,
+		backends.AssembleManagedMCP(cfg, profiles),
+		cfg.ResolveBundleMCPServers(profiles),
+		existing)
 }
 
 // buildSessionLLMs advertises the cwd's configured LLMs (the labels `-l`/`--llm`

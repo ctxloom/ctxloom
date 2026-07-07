@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -166,12 +167,47 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, formatJSON, strings.NewReader("hello\n"), &out)
+	err := runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, nil, formatJSON, strings.NewReader("hello\n"), &out)
 	require.NoError(t, err)
 
 	<-captureDone // the message reached the RPC's input channel
 	assert.Equal(t, []string{"hello"}, captured)
 	assert.Contains(t, out.String(), `"content":"hi back"`)
+}
+
+// TestRunStructuredREPL_InjectsManagedMCPServers: the managed MCP set composed
+// from the run's ManagedConfig — the SAME payload RunStart ships to Setup —
+// reaches the Chat RPC's ChatRequest, the structured path's counterpart of the
+// Setup settings write.
+func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
+	var captured agent.ChatRequest
+	mock := &pb.MockClient{
+		ChatFunc: func(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+			captured = req
+			in := make(chan agent.ChatMessage, 1)
+			events := make(chan agent.ChatEvent)
+			errs := make(chan error)
+			go func() {
+				for range in {
+				}
+				close(events)
+				close(errs)
+			}()
+			return in, events, errs, nil
+		},
+	}
+
+	managed := &agent.ManagedConfig{
+		MCP:       &wire.MCPConfig{},
+		BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
+	}
+	var out bytes.Buffer
+	require.NoError(t, runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}},
+		managed.ChatMCPServers("claude-code"), formatJSON, strings.NewReader(""), &out))
+
+	require.Len(t, captured.MCPServers, 2)
+	assert.Equal(t, agent.ChatMCPServer{Name: "ctxloom", Command: "ctxloom", Args: []string{"mcp"}}, captured.MCPServers[0])
+	assert.Equal(t, "taskloom", captured.MCPServers[1].Name)
 }
 
 // TestRunStructuredREPL_StreamEndsBeforeStdinEOF: a backend that crashes/ends
@@ -200,7 +236,7 @@ func TestRunStructuredREPL_StreamEndsBeforeStdinEOF(t *testing.T) {
 	done := make(chan error, 1)
 	var out bytes.Buffer
 	go func() {
-		done <- runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, formatJSON, pr, &out)
+		done <- runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, nil, formatJSON, pr, &out)
 	}()
 
 	select {

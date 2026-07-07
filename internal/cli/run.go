@@ -830,6 +830,7 @@ Examples:
 			clidiag.Warn("ctxloom", "permissions bypassed on the host (claude-code stopgap)")
 		}
 
+		managed := backends.AssembleManagedConfig(backendName, workDir, execGate.Gate(), ctxResult.Profiles)
 		req := &pb.RunStart{
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
@@ -841,7 +842,7 @@ Examples:
 				Verbosity:      uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:          model,                     // e.g., "opus", "sonnet", "haiku"
 			},
-			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir, execGate.Gate(), ctxResult.Profiles)),
+			ManagedConfig: pb.ManagedConfigToProto(managed),
 		}
 		// Advisory: tell the user if a bundle executable was withheld (content-free).
 		execGate.WarnWithheld()
@@ -915,8 +916,10 @@ Examples:
 
 		// --structured: drive the session as a structured turn REPL (the gRPC
 		// WatchSession + user_message interface) instead of owning the terminal.
+		// The Chat RPC never runs Setup, so the managed MCP servers Setup would
+		// write to the engine's settings file ride the session instead.
 		if runStructured {
-			return runStructuredREPL(ctx, client, req, outputFormatOf(cmd), os.Stdin, os.Stdout)
+			return runStructuredREPL(ctx, client, req, managed.ChatMCPServers(backendName), outputFormatOf(cmd), os.Stdin, os.Stdout)
 		}
 
 		// For an interactive run the frontend owns the terminal: raw mode + stdin

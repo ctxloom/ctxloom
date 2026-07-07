@@ -26,7 +26,12 @@ import (
 //
 // EOF on stdin (Ctrl-D) closes input so the agent completes its last turn; an
 // interrupt cancels the whole exchange.
-func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, format string, stdin io.Reader, stdout io.Writer) error {
+//
+// mcpServers is the managed MCP set composed from the run's ManagedConfig
+// (agent.ManagedConfig.ChatMCPServers): the Chat RPC never runs Setup, so the
+// servers Setup would write to the engine's settings file ride the session
+// instead.
+func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, mcpServers []agent.ChatMCPServer, format string, stdin io.Reader, stdout io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -36,6 +41,7 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 		Model:       opts.GetModel(),
 		Env:         opts.GetEnv(),
 		Permissions: agent.WireMode(opts.GetPermissionMode()),
+		MCPServers:  mcpServers,
 	})
 	if err != nil {
 		return fmt.Errorf("start chat: %w", err)

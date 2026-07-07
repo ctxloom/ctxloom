@@ -203,31 +203,56 @@ func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
 	return agent.AtomicWriteFile(fs, path, data, defaultAgentName+".json")
 }
 
+// WriteContext implements agent.ContextWriter for Kiro: it writes the assembled
+// context (req.Context) into the ctxloom-owned steering file, which Kiro
+// auto-loads every session (it fires no SessionStart hook for context). Empty
+// content removes the steering file.
+func (w *KiroWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
+	return w.writeSteering(req.ProjectDir, req.Context)
+}
+
 // reconcileSteering writes (or removes, when hash is empty) the ctxloom-owned
-// steering file carrying the assembled context.
+// steering file carrying the assembled context. The content is read from the
+// content-addressed context file, then handed to the shared writeSteering core.
 func (w *KiroWriter) reconcileSteering(projectDir, hash string) error {
+	content := ""
+	if hash != "" {
+		var err error
+		content, err = agent.ReadContextFile(projectDir, hash, agent.WithContextFS(w.getFS()))
+		if err != nil {
+			w.warn("failed to read context file %s: %v - context will not be delivered to kiro", hash, err)
+			content = ""
+		}
+	}
+	_, err := w.writeSteering(projectDir, content)
+	return err
+}
+
+// writeSteering is the steering-file core shared by reconcileSteering
+// (hash-addressed) and WriteContext (string-addressed). Non-empty content is
+// written with the `inclusion: always` front-matter; empty content removes the
+// file. It reports the workspace-relative path written or removed.
+func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextReport, error) {
 	fs := w.getFS()
 	path := w.steeringPath(projectDir)
+	rel := filepath.Join(kiroDir, "steering", steeringFileName)
 
-	remove := func() error {
+	if content == "" {
 		if exists, _ := afero.Exists(fs, path); exists {
-			return fs.Remove(path)
+			if err := fs.Remove(path); err != nil {
+				return agent.ContextReport{}, err
+			}
 		}
-		return nil
-	}
-	if hash == "" {
-		return remove()
-	}
-	content, err := agent.ReadContextFile(projectDir, hash, agent.WithContextFS(fs))
-	if err != nil {
-		w.warn("failed to read context file %s: %v - context will not be delivered to kiro", hash, err)
-		return remove()
+		return agent.ContextReport{Removed: []string{rel}}, nil
 	}
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("failed to create %s steering directory: %w", kiroDir, err)
+		return agent.ContextReport{}, fmt.Errorf("failed to create %s steering directory: %w", kiroDir, err)
 	}
 	body := "---\ninclusion: always\n---\n\n" + content + "\n"
-	return agent.AtomicWriteFile(fs, path, []byte(body), steeringFileName)
+	if err := agent.AtomicWriteFile(fs, path, []byte(body), steeringFileName); err != nil {
+		return agent.ContextReport{}, err
+	}
+	return agent.ContextReport{Wrote: []string{rel}}, nil
 }
 
 // --- MCP (.kiro/settings/mcp.json), preserved + ledger-tracked ---

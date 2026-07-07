@@ -523,9 +523,19 @@ func (w *AntigravityHookWriter) agentsMDPath(projectDir string) string {
 	return filepath.Join(projectDir, AgentsDir, "AGENTS.md")
 }
 
+// WriteContext implements agent.ContextWriter for Antigravity: it merges the
+// assembled context (req.Context) into the managed section of .agents/AGENTS.md
+// — agy reads that file at session start and fires no SessionStart hook for
+// context — preserving any user content outside the markers. Empty content
+// removes the managed section (and the file, when it was wholly ctxloom's).
+func (w *AntigravityHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
+	return w.writeManagedContext(req.ProjectDir, req.Context)
+}
+
 // reconcileManagedContext writes (or removes, when hash is empty) the managed
 // context section of .agents/AGENTS.md. The context content is read from the
-// content-addressed context file the provider wrote under projectDir.
+// content-addressed context file the provider wrote under projectDir, then
+// merged by the shared writeManagedContext core.
 func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string) error {
 	content := ""
 	if hash != "" {
@@ -538,12 +548,23 @@ func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string)
 			content = ""
 		}
 	}
+	_, err := w.writeManagedContext(projectDir, content)
+	return err
+}
 
+// writeManagedContext is the marker-merge core shared by reconcileManagedContext
+// (hash-addressed) and WriteContext (string-addressed). It replaces the
+// ctxloom-managed marker section of .agents/AGENTS.md with content (when
+// non-empty), preserving user content outside the markers; empty content strips
+// the section, removing the file when nothing user-authored remains. It reports
+// the workspace-relative path written or removed.
+func (w *AntigravityHookWriter) writeManagedContext(projectDir, content string) (agent.ContextReport, error) {
 	fs := w.getFS()
 	path := w.agentsMDPath(projectDir)
+	rel := filepath.Join(AgentsDir, "AGENTS.md")
 	existing, err := afero.ReadFile(fs, path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read %s: %w", path, err)
+		return agent.ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
 	userContent := stripManagedSection(string(existing))
@@ -564,11 +585,16 @@ func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string)
 	if strings.TrimSpace(merged) == "" {
 		// Nothing left: remove the file if it exists, never create it.
 		if exists, _ := afero.Exists(fs, path); exists {
-			return fs.Remove(path)
+			if err := fs.Remove(path); err != nil {
+				return agent.ContextReport{}, err
+			}
 		}
-		return nil
+		return agent.ContextReport{Removed: []string{rel}}, nil
 	}
-	return agent.AtomicWriteFile(fs, path, []byte(merged), "AGENTS.md")
+	if err := agent.AtomicWriteFile(fs, path, []byte(merged), "AGENTS.md"); err != nil {
+		return agent.ContextReport{}, err
+	}
+	return agent.ContextReport{Wrote: []string{rel}}, nil
 }
 
 // stripManagedSection returns content with the ctxloom-managed marker section

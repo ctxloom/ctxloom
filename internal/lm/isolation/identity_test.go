@@ -56,7 +56,7 @@ func TestRunAsIsIdentityProblem(t *testing.T) {
 	governed := []string{"/usr/local/bin/ctxloom-entrypoint"}
 	tests := []struct {
 		name   string
-		rt     ContainerRuntime
+		rt     Runtime
 		id     imageIdentity
 		wantOK bool
 	}{
@@ -162,7 +162,7 @@ func TestCheckRunAsIsIdentity_LocallyBuiltSkips(t *testing.T) {
 func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	resetStrictness(t)
 	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, ContainerRuntime, string) error { return nil }
+	sharedFSCheck = func(context.Context, Runtime, string) error { return nil }
 	t.Cleanup(func() { sharedFSCheck = prevFS })
 
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img")

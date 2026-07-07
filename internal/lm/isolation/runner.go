@@ -25,14 +25,14 @@ import (
 const containerRemoveTimeout = 15 * time.Second
 
 // containerRunner implements go-plugin's runner.Runner by launching the plugin
-// server INSIDE a container via a ContainerRuntime. It mirrors go-plugin's own
+// server INSIDE a container via a Runtime. It mirrors go-plugin's own
 // cmdrunner.CmdRunner shape — a thin lifecycle wrapper over an *exec.Cmd — except
 // the process it manages is `docker/podman run …` and Kill force-removes the
 // container. Stdout() is the CONTAINER's stdout, from which go-plugin reads the
 // plugin handshake line; the embedded containerAddrTranslator maps the plugin's
 // announced unix-socket path from the container namespace to the host bind mount.
 type containerRunner struct {
-	runtime ContainerRuntime
+	runtime Runtime
 	name    string
 	cmd     *exec.Cmd
 
@@ -49,7 +49,7 @@ var _ runner.Runner = (*containerRunner)(nil)
 // the host directory go-plugin created for the unix socket (passed to the
 // RunnerFunc); containerSocketDir is the fixed in-container path it is bind-mounted
 // to — the two seed the AddrTranslator's container↔host path swap.
-func newContainerRunner(rt ContainerRuntime, spec RunSpec, hostSocketDir, containerSocketDir string) (*containerRunner, error) {
+func newContainerRunner(rt Runtime, spec RunSpec, hostSocketDir, containerSocketDir string) (*containerRunner, error) {
 	cmd := exec.Command(rt.Binary(), rt.RunArgs(spec)...)
 	// No Stdin: go-plugin (this version) does not watch stdin for parent-death, so
 	// the plugin runs until the container is removed by Kill. Leaving Stdin nil
@@ -210,7 +210,7 @@ func swapPrefix(path, from, to string) string {
 // hosts): the in-container plugin is told to listen on TCP at that pinned port
 // (PLUGIN_LISTEN_TCP + PLUGIN_MIN_PORT/PLUGIN_MAX_PORT) and the run publishes it
 // to host loopback. 0 keeps the default unix-socket transport (Linux).
-func containerRunnerFunc(rt ContainerRuntime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, loopbackPort int) pb.ContainerRunnerFunc {
+func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, loopbackPort int) pb.ContainerRunnerFunc {
 	return func(_ hclog.Logger, cmd *exec.Cmd, hostSocketDir string) (runner.Runner, error) {
 		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts, loopbackPort)
 		return newContainerRunner(rt, spec, hostSocketDir, containerSocketDir)

@@ -67,7 +67,7 @@ const (
 // host project root — a flagged residue whose fix (relocate via --mcp-config) is a
 // follow-up.
 type Container struct {
-	runtime ContainerRuntime
+	runtime Runtime
 	// base is the injected "where the container's cwd comes from" half: hostBase
 	// mounts the LIVE project dir (the plain container), worktreeBase a fresh
 	// per-agent git worktree (the former ContainerWorktree). It owns the
@@ -108,7 +108,7 @@ var _ Policy = Container{}
 // image the caller names either exists or the gate degrades. Exposed for the
 // docker-gated integration test and callers with a resolved image;
 // Resolve("container", backend) goes through NewContainerFor instead.
-func NewContainer(rt ContainerRuntime, image string) Container {
+func NewContainer(rt Runtime, image string) Container {
 	c := NewContainerFor(rt, "")
 	c.image = image
 	return c
@@ -119,7 +119,7 @@ func NewContainer(rt ContainerRuntime, image string) Container {
 // managed-config overlay set, and the build sources that let ensureImage build
 // the image locally when it is absent. Unknown/empty names get the default
 // profile (the generic agent image + claude auth, no local build).
-func NewContainerFor(rt ContainerRuntime, backend string) Container {
+func NewContainerFor(rt Runtime, backend string) Container {
 	p := containerProfileFor(backend)
 	return Container{
 		runtime:    rt,
@@ -138,7 +138,7 @@ func NewContainerFor(rt ContainerRuntime, backend string) Container {
 // degrades with a warning instead of triggering the on-the-fly build; a base
 // Containerfile (config isolation_base_containerfile) makes the on-the-fly
 // build layer the agent stage onto the user's base instead of the default.
-func containerFor(rt ContainerRuntime, backend string, img ImageConfig) Container {
+func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c := NewContainerFor(rt, backend)
 	c.baseContainerfile = img.BaseContainerfile
 	if img.Image != "" {
@@ -229,7 +229,7 @@ type containerBase interface {
 	// A failure returns the error so the caller removes the scratch and the chain
 	// degrades; a base that already created a resource (a worktree) unwinds it
 	// WIP-safely before returning.
-	prepareBase(ctx context.Context, rt ContainerRuntime, projectDir, agentID, scratchRoot string, profile containerProfile, g git.Git) (dir string, mounts []Mount, cleanup func() error, err error)
+	prepareBase(ctx context.Context, rt Runtime, projectDir, agentID, scratchRoot string, profile containerProfile, g git.Git) (dir string, mounts []Mount, cleanup func() error, err error)
 	// withState stamps the run's session identity onto the base — worktreeBase
 	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
 	// the stamped base (bases are value types).
@@ -257,7 +257,7 @@ func (hostBase) withState(SessionState) containerBase { return hostBase{} }
 // engine's config writers off the host project, and a pointer-file .git gets its
 // common dir mirrored so in-container git resolves. Failure returns the error
 // (the caller removes the scratch); nothing host-side is created to unwind.
-func (hostBase) prepareBase(ctx context.Context, rt ContainerRuntime, projectDir, _, scratchRoot string, profile containerProfile, g git.Git) (string, []Mount, func() error, error) {
+func (hostBase) prepareBase(ctx context.Context, rt Runtime, projectDir, _, scratchRoot string, profile containerProfile, g git.Git) (string, []Mount, func() error, error) {
 	overlays, err := containerConfigOverlay(rt, projectDir, scratchRoot, profile.overlayDirs)
 	if err != nil {
 		return "", nil, nil, err
@@ -284,7 +284,7 @@ func (hostBase) prepareBase(ctx context.Context, rt ContainerRuntime, projectDir
 // when .git is a directory or absent: the common dir is inside the project mount
 // already (a normal main-repo checkout), or there is no repo to mirror. It reuses
 // the same identical-path mirror the worktree base builds (gitCommonDirMount).
-func gitdirMirrorMount(ctx context.Context, rt ContainerRuntime, g git.Git, projectDir string) (Mount, bool, error) {
+func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir string) (Mount, bool, error) {
 	info, err := os.Stat(filepath.Join(projectDir, ".git"))
 	if err != nil || info.IsDir() {
 		return Mount{}, false, nil
@@ -489,7 +489,7 @@ func loopbackPluginPort() (int, error) {
 // Directories only — a single-file overlay would break the atomic write+rename
 // the writers use, which is why the project-root file .mcp.json is deliberately
 // NOT overlaid (flagged residue, see the Container doc).
-func containerConfigOverlay(rt ContainerRuntime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
+func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
 	mounts := make([]Mount, 0, len(overlayDirs))
 	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
@@ -523,7 +523,7 @@ func containerConfigOverlay(rt ContainerRuntime, projectDir, scratchRoot string,
 // worktree base (whose worktree .git is ALWAYS a pointer file) and the host base
 // (only when the live project is itself a linked worktree — see
 // gitdirMirrorMount).
-func gitCommonDirMount(ctx context.Context, rt ContainerRuntime, g git.Git, dir string) (Mount, error) {
+func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (Mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
 		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
@@ -598,7 +598,7 @@ func rootishUser(user string) bool {
 // with the PUID env + baked-entrypoint remap; that governs only images that
 // RUN the entrypoint, so a run-as-is image needs this static contract check —
 // the one pre-start signal, since a wrong-identity container launches cleanly.
-func runAsIsIdentityProblem(rt ContainerRuntime, id imageIdentity) string {
+func runAsIsIdentityProblem(rt Runtime, id imageIdentity) string {
 	if d, ok := rt.(Docker); ok && d.rootless {
 		// Rootless docker passes no PUID: container-ROOT is the one uid that
 		// maps to the launching host user, so the image must run as root.
@@ -705,7 +705,7 @@ func warnCleanupResidue(what, path string, err error) {
 }
 
 // runtimeName renders a possibly-nil runtime for diagnostics.
-func runtimeName(rt ContainerRuntime) string {
+func runtimeName(rt Runtime) string {
 	if rt == nil {
 		return "none"
 	}

@@ -561,7 +561,7 @@ func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, erro
 // is that config, so the stamp always equals what runEnsureImage's staleness
 // check computes for the same config (a mismatch would re-flag the image
 // stale on every run).
-func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src buildSource, selfExe, baseContainerfile string, fresh bool, output io.Writer) error {
+func buildFromSource(ctx context.Context, rt Runtime, image string, src buildSource, selfExe, baseContainerfile string, fresh bool, output io.Writer) error {
 	var buildArgs []string
 	if src.base != nil {
 		baseTag, err := buildBaseImage(ctx, rt, src.base, fresh, output)
@@ -587,7 +587,7 @@ func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src
 // tag it built (baseImageTagFor). A user-provided Containerfile builds with
 // ITS OWN directory as the context (so its COPYs resolve); the embedded
 // default builds from a scratch context.
-func buildBaseImage(ctx context.Context, rt ContainerRuntime, base *baseStage, fresh bool, output io.Writer) (string, error) {
+func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool, output io.Writer) (string, error) {
 	flags := buildFlags{pull: fresh, noCache: fresh}
 	if base.path != "" {
 		abs, err := filepath.Abs(base.path)
@@ -645,7 +645,7 @@ type ImageBuildOptions struct {
 // not find it there). Auto-detect (empty prefer) has nothing to honor and only
 // fails when NO runtime is reachable. Uses the selectRuntimeProbe seam so the
 // choice is unit-testable without a live daemon.
-func selectBuildRuntime(prefer string) (ContainerRuntime, error) {
+func selectBuildRuntime(prefer string) (Runtime, error) {
 	rt := selectRuntimeProbe(prefer)
 	if _, isHost := rt.(Host); isHost {
 		return nil, fmt.Errorf("no container runtime (docker/podman) is available to build with")
@@ -734,7 +734,7 @@ type buildFlags struct {
 
 // buildImage runs one agent/overlay stage over a temp context holding the
 // Containerfile plus the running static ctxloom binary.
-func buildImage(ctx context.Context, rt ContainerRuntime, image string, containerfile []byte, selfExe string, flags buildFlags, output io.Writer) error {
+func buildImage(ctx context.Context, rt Runtime, image string, containerfile []byte, selfExe string, flags buildFlags, output io.Writer) error {
 	dir, err := os.MkdirTemp("", "ctxloom-imgbuild-")
 	if err != nil {
 		return fmt.Errorf("image build context: %w", err)
@@ -759,7 +759,7 @@ func buildImage(ctx context.Context, rt ContainerRuntime, image string, containe
 // runImageBuild executes `<runtime> build -t <image> -f <file> <contextDir>`.
 // output streams the build live when set; otherwise output is captured and
 // surfaced (tail only) on failure. Capped at imageBuildTimeout.
-func runImageBuild(ctx context.Context, rt ContainerRuntime, image, file, contextDir string, flags buildFlags, output io.Writer) error {
+func runImageBuild(ctx context.Context, rt Runtime, image, file, contextDir string, flags buildFlags, output io.Writer) error {
 	args := []string{"build", "-t", image}
 	if flags.pull {
 		args = append(args, "--pull")

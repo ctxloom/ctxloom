@@ -12,13 +12,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// ContainerRuntime is the pluggable container launcher — proper polymorphism, NOT
+// Runtime is the pluggable container launcher — proper polymorphism, NOT
 // an if/else over runtime names. Each implementation (Docker | Podman | Host)
 // knows how to build the `run` argv (image, --rm, --name, -v mounts, -e env, -w
 // workdir), how to tear a container down (rm -f), and whether it can actually
 // launch right now. It is the Phase-0 SpawnClient seam made runtime-swappable: a
 // new runtime is one more implementation, selected by detection/config.
-type ContainerRuntime interface {
+type Runtime interface {
 	// Name identifies the runtime ("docker" | "podman" | "host") for diagnostics.
 	Name() string
 	// Binary is the runtime CLI resolved for exec (e.g. "docker"). Empty for Host.
@@ -80,7 +80,7 @@ type LaunchSpec struct {
 // RunSpec is the runtime-agnostic description of one plugin container: which image
 // to run, the in-container argv, the identical-path project mount + the
 // host↔container socket-dir mount, a fresh HOME, and the curated go-plugin
-// handshake env. A ContainerRuntime renders it into its own `run` argv.
+// handshake env. A Runtime renders it into its own `run` argv.
 type RunSpec struct {
 	Image   string   // image reference to run
 	Name    string   // --name, so teardown can target this exact container
@@ -146,7 +146,7 @@ func (ociRuntime) Expose(host, target string, readOnly bool) Mount {
 // containerRunnerFunc → buildRunSpec → rt.RunArgs, exactly as before. Every
 // container convention arrives on the LaunchSpec, so the body threads image/
 // binaryPath/home/socketDir/workdir/mounts/env identically to spawnInContainer.
-func (ociRuntime) spawn(rt ContainerRuntime, launch LaunchSpec) (pb.Client, error) {
+func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 	command := []string{launch.BinaryPath, "llm", "serve", launch.BackendName}
 	if launch.Label != "" {
 		command = append(command, "--label", launch.Label)
@@ -294,7 +294,7 @@ func podmanIsRootless() bool {
 }
 
 // Host is the non-container runtime: the plugin runs as a bare host subprocess
-// (the None and — Phase 2 — worktree policies). It satisfies ContainerRuntime so
+// (the None and — Phase 2 — worktree policies). It satisfies Runtime so
 // runtime selection is uniform, but it launches nothing itself: the host path
 // spawns via pb.NewSelfInvokingClientForLabel, so RunArgs/RemoveArgs are unused.
 type Host struct{}
@@ -341,7 +341,7 @@ type Chroot struct{}
 
 // Ensure the stub satisfies the runtime interface (the whole point: no further
 // shape change is needed to add a daemonless/imageless runtime).
-var _ ContainerRuntime = Chroot{}
+var _ Runtime = Chroot{}
 
 // Name identifies the runtime.
 func (Chroot) Name() string { return "chroot" }
@@ -472,7 +472,7 @@ func dockerIsRootless() bool {
 // docker is never selected (Available gates selection), so probing it would
 // only manufacture a spurious identity finding on docker-less or daemon-down
 // hosts where podman serves the run.
-func newDockerRuntime(reachable func(string) bool) ContainerRuntime {
+func newDockerRuntime(reachable func(string) bool) Runtime {
 	if !reachable("docker") {
 		return Docker{}
 	}
@@ -537,11 +537,11 @@ func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, err
 // the caller decides the consequence: an EXPLICITLY-requested container that
 // lands on Host is a fatal finding (ClassIsolation) it aborts on unless
 // --degraded, while an ambient default degrades silently to the host.
-func SelectRuntime(prefer string) ContainerRuntime {
-	newDocker := func() ContainerRuntime { return newDockerRuntime(runtimeReachable) }
-	byName := map[string]func() ContainerRuntime{
+func SelectRuntime(prefer string) Runtime {
+	newDocker := func() Runtime { return newDockerRuntime(runtimeReachable) }
+	byName := map[string]func() Runtime{
 		"docker": newDocker,
-		"podman": func() ContainerRuntime { return Podman{rootless: podmanIsRootless()} },
+		"podman": func() Runtime { return Podman{rootless: podmanIsRootless()} },
 	}
 	if prefer != "" {
 		if mk, ok := byName[prefer]; ok {
@@ -551,7 +551,7 @@ func SelectRuntime(prefer string) ContainerRuntime {
 		}
 		// An unknown or unavailable preference falls through to auto-detection.
 	}
-	for _, mk := range []func() ContainerRuntime{newDocker, byName["podman"]} {
+	for _, mk := range []func() Runtime{newDocker, byName["podman"]} {
 		if rt := mk(); rt.Available() {
 			return rt
 		}

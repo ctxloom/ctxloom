@@ -233,10 +233,10 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 // stubRuntimeProbe swaps chainFor's runtime probe for one returning rt, and
 // restores the real SelectRuntime on cleanup. Hermetic: the real probe shells
 // out to docker/podman on the host.
-func stubRuntimeProbe(t *testing.T, rt ContainerRuntime) {
+func stubRuntimeProbe(t *testing.T, rt Runtime) {
 	t.Helper()
 	prev := selectRuntimeProbe
-	selectRuntimeProbe = func(string) ContainerRuntime { return rt }
+	selectRuntimeProbe = func(string) Runtime { return rt }
 	t.Cleanup(func() { selectRuntimeProbe = prev })
 }
 

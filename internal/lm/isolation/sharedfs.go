@@ -74,7 +74,7 @@ func definitiveProbe(err error) bool {
 // nil means shared (plain host, or true docker-in-docker); an error explains
 // the mismatch. Behavior-based on purpose — it also catches sharing gaps
 // InContainer's heuristics can't see. Memoized per (runtime, image).
-func sharedFSProbe(ctx context.Context, rt ContainerRuntime, image string) error {
+func sharedFSProbe(ctx context.Context, rt Runtime, image string) error {
 	key := rt.Binary() + "|" + image
 	sharedFSMu.Lock()
 	res, done := sharedFSResults[key]
@@ -95,7 +95,7 @@ func sharedFSProbe(ctx context.Context, rt ContainerRuntime, image string) error
 }
 
 // runSharedFSProbe performs one un-memoized probe.
-func runSharedFSProbe(ctx context.Context, rt ContainerRuntime, image string) error {
+func runSharedFSProbe(ctx context.Context, rt Runtime, image string) error {
 	dir, err := os.MkdirTemp("", "ctxloom-fsprobe-")
 	if err != nil {
 		return fmt.Errorf("fs probe scratch: %w", err)

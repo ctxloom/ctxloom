@@ -162,7 +162,7 @@ func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
 // then turns what used to be a plugin-handshake hang into a clean fallback.
 func TestPrepareContainerScratch_DegradesOnFSMismatch(t *testing.T) {
 	origCheck := sharedFSCheck
-	sharedFSCheck = func(context.Context, ContainerRuntime, string) error {
+	sharedFSCheck = func(context.Context, Runtime, string) error {
 		return errors.New("marker content mismatch")
 	}
 	t.Cleanup(func() { sharedFSCheck = origCheck })

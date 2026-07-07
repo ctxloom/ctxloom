@@ -198,7 +198,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctxloom-agent-state-test_latest"), nil, 0o644))
 
 	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, ContainerRuntime, string) error { return nil }
+	sharedFSCheck = func(context.Context, Runtime, string) error { return nil }
 	t.Cleanup(func() { sharedFSCheck = prevFS })
 
 	c := Container{
@@ -253,7 +253,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctxloom-agent-state-test_latest"), nil, 0o644))
 
 	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, ContainerRuntime, string) error { return nil }
+	sharedFSCheck = func(context.Context, Runtime, string) error { return nil }
 	t.Cleanup(func() { sharedFSCheck = prevFS })
 
 	cw := Container{

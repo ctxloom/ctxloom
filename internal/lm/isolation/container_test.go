@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeRuntime is a ContainerRuntime stub for the degrade-path tests: it reports a
+// fakeRuntime is a Runtime stub for the degrade-path tests: it reports a
 // configurable availability and binary without touching a real daemon.
 type fakeRuntime struct {
 	name      string

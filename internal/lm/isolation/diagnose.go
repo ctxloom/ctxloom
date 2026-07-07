@@ -81,7 +81,7 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 
 // diagnoseProbe runs the definitive marker probe against the present image
 // and folds the outcome into the diagnosis.
-func diagnoseProbe(ctx context.Context, rt ContainerRuntime, image string, d *Diagnosis) {
+func diagnoseProbe(ctx context.Context, rt Runtime, image string, d *Diagnosis) {
 	perr := sharedFSProbe(ctx, rt, image)
 	if perr == nil {
 		d.SharedFS = "ok"
@@ -111,7 +111,7 @@ func diagnoseProbe(ctx context.Context, rt ContainerRuntime, image string, d *Di
 // whose reported name matches our hostname is almost certainly local (true
 // DinD or a plain host); a differing name inside a container suggests the
 // host's daemon. Labeled advisory — the marker probe is the real answer.
-func diagnoseAdvisory(ctx context.Context, rt ContainerRuntime, d *Diagnosis) {
+func diagnoseAdvisory(ctx context.Context, rt Runtime, d *Diagnosis) {
 	name, err := daemonName(ctx, rt)
 	host, herr := os.Hostname()
 	switch {
@@ -138,7 +138,7 @@ const daemonInfoTimeout = 10 * time.Second
 // runtime) under its own timeout, and selects a template that exists on BOTH
 // docker and podman — docker exposes the name at the top level, podman under
 // Host — so podman does not fail the template and silently break the advisory.
-func daemonName(ctx context.Context, rt ContainerRuntime) (string, error) {
+func daemonName(ctx context.Context, rt Runtime) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, daemonInfoTimeout)
 	defer cancel()
 	out, err := probeExec(cctx, rt.Binary(), []string{"info", "--format", daemonNameTemplate(rt)})
@@ -152,7 +152,7 @@ func daemonName(ctx context.Context, rt ContainerRuntime) (string, error) {
 // host's name per runtime. `docker info` exposes it as top-level {{.Name}};
 // `podman info` has no top-level Name (that template is an execution error) and
 // carries the host name under {{.Host.Hostname}}.
-func daemonNameTemplate(rt ContainerRuntime) string {
+func daemonNameTemplate(rt Runtime) string {
 	if rt.Name() == "podman" {
 		return "{{.Host.Hostname}}"
 	}

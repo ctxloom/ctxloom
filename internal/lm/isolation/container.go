@@ -163,7 +163,7 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	// kiro: .kiro; plus the shared .ctxloom/cache). (The worktree-in-container
 	// composition skips this — its mounted workspace is an ephemeral worktree, so
 	// writes there are torn down.)
-	overlays, err := containerConfigOverlay(projectDir, sc.root, c.profile.overlayDirs)
+	overlays, err := containerConfigOverlay(c.runtime, projectDir, sc.root, c.profile.overlayDirs)
 	if err != nil {
 		_ = os.RemoveAll(sc.root)
 		return nil, err
@@ -215,7 +215,7 @@ func (c Container) gitdirMirrorMount(ctx context.Context, projectDir string) (Mo
 	if err != nil || info.IsDir() {
 		return Mount{}, false, nil
 	}
-	m, err := gitCommonDirMount(ctx, c.gitSeam(), projectDir)
+	m, err := gitCommonDirMount(ctx, c.runtime, c.gitSeam(), projectDir)
 	if err != nil {
 		return Mount{}, false, err
 	}
@@ -346,44 +346,21 @@ func (c Container) SpawnClient(backendName, label string, verbosity int, ws Work
 	if !ok {
 		return nil, fmt.Errorf("container spawn: unexpected workspace %T (expected a container workspace)", ws)
 	}
-	return c.spawnInContainer(backendName, label, verbosity, cw.agentID, cw.dir, cw.socketDir, cw.extraEnv, cw.extraMounts, cw.authMode)
-}
-
-// spawnInContainer launches the plugin inside a container for a prepared run and
-// returns its client (Kill force-removes the container). It is shared by the
-// top-level Container workspace (workDir = the live project) and the
-// worktree-in-container composition (workDir = the per-member worktree): the two
-// differ only in the workDir mounted as cwd and the extra mounts (config overlay
-// vs the .git gitdir mirror), both passed in by the caller. hostSocketDir is the
-// host scratch dir go-plugin created the unix socket under (bind-mounted to the
-// fixed in-container c.socketDir).
-func (c Container) spawnInContainer(backendName, label string, verbosity int, agentID, workDir, hostSocketDir string, extraEnv []string, extraMounts []Mount, authMode containerAuthMode) (pb.Client, error) {
-	command := []string{c.binaryPath, "llm", "serve", backendName}
-	if label != "" {
-		command = append(command, "--label", label)
-	}
-
-	// Diagnostic only (never secrets): how the in-container engine is authenticated.
-	if verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container auth via %s\n", authMode)
-	}
-
-	// Pick the plugin transport: unix socket on Linux (fast, shared kernel), TCP
-	// over host loopback off Linux where a bind-mounted unix socket cannot cross
-	// the Docker Desktop VM boundary. A reservation failure is fatal to this run
-	// (the caller degrades to None) — better than launching a container the host
-	// could never reach.
-	loopbackPort, err := loopbackPluginPort()
-	if err != nil {
-		return nil, err
-	}
-	if verbosity > 0 && loopbackPort > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container plugin transport: TCP loopback 127.0.0.1:%d\n", loopbackPort)
-	}
-
-	name := containerName(agentID)
-	runnerFunc := containerRunnerFunc(c.runtime, c.image, name, workDir, c.home, command, c.socketDir, extraEnv, extraMounts, loopbackPort)
-	return pb.NewContainerClient(backendName, label, verbosity, runnerFunc, hostSocketDir)
+	return c.runtime.Spawn(LaunchSpec{
+		BackendName:        backendName,
+		Label:              label,
+		Verbosity:          verbosity,
+		AgentID:            cw.agentID,
+		Image:              c.image,
+		BinaryPath:         c.binaryPath,
+		Home:               c.home,
+		ContainerSocketDir: c.socketDir,
+		WorkDir:            cw.dir,
+		HostSocketDir:      cw.socketDir,
+		ExtraEnv:           cw.extraEnv,
+		ExtraMounts:        cw.extraMounts,
+		AuthMode:           cw.authMode,
+	})
 }
 
 // loopbackPluginPort decides the plugin transport for a container run and, when
@@ -424,7 +401,7 @@ func loopbackPluginPort() (int, error) {
 // Directories only — a single-file overlay would break the atomic write+rename
 // the writers use, which is why the project-root file .mcp.json is deliberately
 // NOT overlaid (flagged residue, see the Container doc).
-func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
+func containerConfigOverlay(rt ContainerRuntime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
 	mounts := make([]Mount, 0, len(overlayDirs))
 	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
@@ -444,7 +421,7 @@ func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay target: %w", err)
 		}
-		mounts = append(mounts, Mount{Host: host, Container: target})
+		mounts = append(mounts, rt.Expose(host, target, false))
 	}
 	return mounts, nil
 }
@@ -458,12 +435,12 @@ func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string
 // ContainerWorktree (whose worktree .git is ALWAYS a pointer file) and plain
 // Container (only when the live project is itself a linked worktree — see
 // Container.gitdirMirrorMount).
-func gitCommonDirMount(ctx context.Context, g git.Git, dir string) (Mount, error) {
+func gitCommonDirMount(ctx context.Context, rt ContainerRuntime, g git.Git, dir string) (Mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
 		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	return Mount{Host: common, Container: common}, nil
+	return rt.Expose(common, common, false), nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

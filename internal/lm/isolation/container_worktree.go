@@ -136,7 +136,7 @@ func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, age
 // host-native worktree writes to the shared .git — no new blast radius over a bare
 // worktree, which also shares the main repo's .git.
 func (c ContainerWorktree) gitdirMount(ctx context.Context, worktreeDir string) (Mount, error) {
-	return gitCommonDirMount(ctx, c.worktree.git, worktreeDir)
+	return gitCommonDirMount(ctx, c.container.runtime, c.worktree.git, worktreeDir)
 }
 
 // SpawnClient launches the plugin in a container that mounts the member's WORKTREE
@@ -148,7 +148,21 @@ func (c ContainerWorktree) SpawnClient(backendName, label string, verbosity int,
 	if !ok {
 		return nil, fmt.Errorf("container-worktree spawn: unexpected workspace %T (expected a worktree-in-container workspace)", ws)
 	}
-	return c.container.spawnInContainer(backendName, label, verbosity, cw.agentID, cw.wt.dir, cw.socketDir, cw.extraEnv, cw.extraMounts, cw.authMode)
+	return c.container.runtime.Spawn(LaunchSpec{
+		BackendName:        backendName,
+		Label:              label,
+		Verbosity:          verbosity,
+		AgentID:            cw.agentID,
+		Image:              c.container.image,
+		BinaryPath:         c.container.binaryPath,
+		Home:               c.container.home,
+		ContainerSocketDir: c.container.socketDir,
+		WorkDir:            cw.wt.dir,
+		HostSocketDir:      cw.socketDir,
+		ExtraEnv:           cw.extraEnv,
+		ExtraMounts:        cw.extraMounts,
+		AuthMode:           cw.authMode,
+	})
 }
 
 // containerWorktreeWorkspace composes the per-member worktree (Dir + WIP-safe

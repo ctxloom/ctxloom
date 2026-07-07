@@ -97,15 +97,17 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		// only reaches here through a hand-built profile, which then simply
 		// has no native store to persist.
 		if c.profile.transcriptStoreRel != "" {
-			mounts = append(mounts, Mount{
-				Host:      store,
-				Container: filepath.Join(c.home, c.profile.transcriptStoreRel),
-			})
+			mounts = append(mounts, c.runtime.Expose(
+				store,
+				filepath.Join(c.home, c.profile.transcriptStoreRel),
+				false,
+			))
 		}
-		mounts = append(mounts, Mount{
-			Host:      persist,
-			Container: filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, paths.PersistDirName),
-		})
+		mounts = append(mounts, c.runtime.Expose(
+			persist,
+			filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, paths.PersistDirName),
+			false,
+		))
 	}
 	if c.state.ProjectID == "" {
 		// Without a pinned project id the in-container taskloom would MINT a
@@ -127,10 +129,11 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		// guaranteed and interleaved appends can tear. Deliberately no locking
 		// here — the single-writer/lock decision is parked on the macOS
 		// runbook (sudsy-sip).
-		mounts = append(mounts, Mount{
-			Host:      tasksDir,
-			Container: filepath.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir),
-		})
+		mounts = append(mounts, c.runtime.Expose(
+			tasksDir,
+			filepath.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir),
+			false,
+		))
 	}
 	return mounts, nil
 }

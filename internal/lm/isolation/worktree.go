@@ -100,11 +100,11 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	return ws, nil
 }
 
-// SpawnClient launches the bare self-invoked plugin subprocess — identical to
-// None. The worktree is expressed purely via the caller's RunOptions.WorkDir, so
-// no per-workspace launch machinery is needed here.
+// SpawnClient launches the bare self-invoked plugin subprocess via the Host
+// runtime — identical to None. The worktree is expressed purely via the caller's
+// RunOptions.WorkDir, so no per-workspace launch machinery is needed here.
 func (Worktree) SpawnClient(backendName, label string, verbosity int, _ Workspace) (pb.Client, error) {
-	return pb.NewSelfInvokingClientForLabel(backendName, label, verbosity)
+	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity})
 }
 
 // provisionConfigHome creates the per-agent config-home root (P2, T0.6). Returns

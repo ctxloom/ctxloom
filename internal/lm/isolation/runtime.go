@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -35,6 +36,45 @@ type ContainerRuntime interface {
 	RunArgs(spec RunSpec) []string
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
+	// Spawn launches the plugin client for a prepared run per this runtime's
+	// launch convention: Host self-invokes a bare `ctxloom llm serve` subprocess;
+	// the OCI runtimes go-plugin-run the plugin INSIDE a container (the moved
+	// spawnInContainer body). It is the SpawnClient seam pushed onto the runtime,
+	// so a Policy's SpawnClient is just workspace→LaunchSpec adaptation plus
+	// runtime.Spawn — the runtime, not the policy, owns HOW the process starts.
+	Spawn(launch LaunchSpec) (pb.Client, error)
+	// Expose renders one host↔target exposure into a Mount for this runtime. For
+	// the OCI runtimes (and Host) it is the identity bind Mount{host, target,
+	// readOnly}; it exists as a seam so a future daemonless/imageless runtime
+	// (Chroot) can map an exposure differently (e.g. a path under its root) at
+	// the one delivery-layer primitive instead of at every Mount literal.
+	Expose(host, target string, readOnly bool) Mount
+}
+
+// LaunchSpec carries the launch conventions Spawn needs to start one plugin run,
+// independent of which runtime realizes it (SD7). It is the union of what
+// Container.spawnInContainer took as arguments (the per-run BackendName/Label/
+// Verbosity/AgentID, the WorkDir mounted as cwd, the go-plugin HostSocketDir, the
+// scoped auth ExtraEnv + credential/overlay ExtraMounts, and the diagnostic
+// AuthMode) and the container conventions it read off the Container (Image,
+// BinaryPath, Home, ContainerSocketDir). Host ignores every container field and
+// uses only BackendName/Label/Verbosity.
+type LaunchSpec struct {
+	BackendName string // engine backend the plugin serves (`llm serve <backend>`)
+	Label       string // resolved config label (--label; may be empty)
+	Verbosity   int    // plugin log verbosity + auth/transport diagnostics gate
+	AgentID     string // scopes the teardown-targetable container name
+
+	Image              string // OCI: image reference to run
+	BinaryPath         string // OCI: the container's ctxloom path (runs `llm serve`)
+	Home               string // OCI: fresh $HOME inside the container
+	ContainerSocketDir string // OCI: fixed in-container unix-socket bind target
+	WorkDir            string // OCI: cwd + identical-path project/worktree mount
+	HostSocketDir      string // OCI: host scratch dir go-plugin created the socket under
+
+	ExtraEnv    []string          // scoped auth env passthrough threaded into the run
+	ExtraMounts []Mount           // auth credential mounts + config overlays + gitdir mirror
+	AuthMode    containerAuthMode // how auth resolved (diagnostics; no secrets)
 }
 
 // RunSpec is the runtime-agnostic description of one plugin container: which image
@@ -90,6 +130,51 @@ func (ociRuntime) runArgs(head []string, spec RunSpec) []string {
 	return append(head, renderRunSpec(spec)...)
 }
 
+// Expose renders one exposure as an identical-path bind mount — the OCI
+// primitive, shared by Docker and Podman (and matching Host). Centralizing every
+// delivery-layer Mount construction here is what lets a future daemonless runtime
+// remap an exposure without touching each call site.
+func (ociRuntime) Expose(host, target string, readOnly bool) Mount {
+	return Mount{Host: host, Container: target, ReadOnly: readOnly}
+}
+
+// spawn is the moved body of the old Container.spawnInContainer: it launches the
+// plugin INSIDE a container via the go-plugin RunnerFunc + AddrTranslator
+// transport and returns its client (Kill force-removes the container). It is
+// shared by Docker and Podman, which pass themselves as rt so the run argv is
+// built by the CONCRETE runtime's RunArgs (rootless head and all) —
+// containerRunnerFunc → buildRunSpec → rt.RunArgs, exactly as before. Every
+// container convention arrives on the LaunchSpec, so the body threads image/
+// binaryPath/home/socketDir/workdir/mounts/env identically to spawnInContainer.
+func (ociRuntime) spawn(rt ContainerRuntime, launch LaunchSpec) (pb.Client, error) {
+	command := []string{launch.BinaryPath, "llm", "serve", launch.BackendName}
+	if launch.Label != "" {
+		command = append(command, "--label", launch.Label)
+	}
+
+	// Diagnostic only (never secrets): how the in-container engine is authenticated.
+	if launch.Verbosity > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: container auth via %s\n", launch.AuthMode)
+	}
+
+	// Pick the plugin transport: unix socket on Linux (fast, shared kernel), TCP
+	// over host loopback off Linux where a bind-mounted unix socket cannot cross
+	// the Docker Desktop VM boundary. A reservation failure is fatal to this run
+	// (the caller degrades to None) — better than launching a container the host
+	// could never reach.
+	loopbackPort, err := loopbackPluginPort()
+	if err != nil {
+		return nil, err
+	}
+	if launch.Verbosity > 0 && loopbackPort > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: container plugin transport: TCP loopback 127.0.0.1:%d\n", loopbackPort)
+	}
+
+	name := containerName(launch.AgentID)
+	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, loopbackPort)
+	return pb.NewContainerClient(launch.BackendName, launch.Label, launch.Verbosity, runnerFunc, launch.HostSocketDir)
+}
+
 // Docker launches containers via the docker CLI. rootless records whether the
 // daemon is rootless — the axis that decides the run's identity mapping:
 // under rootless docker the container's ROOT user maps to the invoking host
@@ -124,6 +209,11 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 	}
 	return d.runArgs(args, spec)
 }
+
+// Spawn launches the plugin in a docker container. It forwards to the shared
+// ociRuntime.spawn, passing d so the run argv is built by Docker.RunArgs (the
+// rootless-aware head) — embedding alone could not recover the concrete type.
+func (d Docker) Spawn(launch LaunchSpec) (pb.Client, error) { return d.spawn(d, launch) }
 
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
 // entrypoint to remap its generic ctxloom user to the launching uid/gid and
@@ -183,6 +273,11 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 	return p.runArgs(args, spec)
 }
 
+// Spawn launches the plugin in a podman container, forwarding to the shared
+// ociRuntime.spawn with p as rt so the run argv is built by Podman.RunArgs (the
+// keep-id/identity head).
+func (p Podman) Spawn(launch LaunchSpec) (pb.Client, error) { return p.spawn(p, launch) }
+
 // podmanIsRootless reports whether the podman engine is rootless (`podman info`
 // security flag). Best-effort: on any error it returns true — podman is
 // rootless by default, and keep-id under a rootful engine errors loudly at
@@ -219,6 +314,58 @@ func (Host) RunArgs(RunSpec) []string { return nil }
 
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
+
+// Spawn launches the bare self-invoked plugin subprocess — the exact body of
+// pb.DefaultClientFactory that the None and Worktree policies spawn. The
+// workspace is expressed purely via the caller's RunOptions.WorkDir, so only
+// BackendName/Label/Verbosity are consulted; the container fields are ignored.
+func (Host) Spawn(launch LaunchSpec) (pb.Client, error) {
+	return pb.NewSelfInvokingClientForLabel(launch.BackendName, launch.Label, launch.Verbosity)
+}
+
+// Expose renders the identity bind mount, same as the OCI runtimes — the host
+// path IS the exposed path (no container namespace to remap into).
+func (Host) Expose(host, target string, readOnly bool) Mount {
+	return Mount{Host: host, Container: target, ReadOnly: readOnly}
+}
+
+// Chroot is the SHAPED-BUT-UNIMPLEMENTED daemonless/imageless runtime (a
+// fast-follow): the interface accommodates a runtime that isolates the engine in
+// a chroot/namespace WITHOUT a container image or a daemon, proving the Spawn +
+// Expose seam needs no further shape change for it. It is deliberately never
+// selected — Available() is false and SelectRuntime does NOT list it in its
+// byName map — so nothing here runs today. Spawn errors, Expose/RunArgs/
+// RemoveArgs are zero-valued. The real path-under-root exposure and the
+// namespace launch are the fast-follow's work.
+type Chroot struct{}
+
+// Ensure the stub satisfies the runtime interface (the whole point: no further
+// shape change is needed to add a daemonless/imageless runtime).
+var _ ContainerRuntime = Chroot{}
+
+// Name identifies the runtime.
+func (Chroot) Name() string { return "chroot" }
+
+// Binary is empty — a chroot runtime execs no container CLI.
+func (Chroot) Binary() string { return "" }
+
+// Available is always false — Chroot is never selected (not implemented).
+func (Chroot) Available() bool { return false }
+
+// RunArgs is a noop — there is no container `run` argv.
+func (Chroot) RunArgs(RunSpec) []string { return nil }
+
+// RemoveArgs is a noop — there is nothing to force-remove.
+func (Chroot) RemoveArgs(string) []string { return nil }
+
+// Spawn is not implemented — the daemonless launch is the fast-follow's work.
+func (Chroot) Spawn(LaunchSpec) (pb.Client, error) {
+	return nil, fmt.Errorf("chroot runtime: Spawn not implemented")
+}
+
+// Expose is a zero-valued stub — the real path-under-root mapping is the
+// fast-follow's work.
+func (Chroot) Expose(string, string, bool) Mount { return Mount{} }
 
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The

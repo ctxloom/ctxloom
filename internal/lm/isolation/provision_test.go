@@ -98,7 +98,7 @@ func TestBuildRunSpec_LoopbackPortPublishesLoopbackTCP(t *testing.T) {
 func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
 	proj := t.TempDir()
 	root := t.TempDir()
-	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
+	mounts, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 
@@ -126,7 +126,7 @@ func TestContainerConfigOverlay_PrecreatesTargets(t *testing.T) {
 	proj := t.TempDir() // fresh: no .claude, no .ctxloom
 	root := t.TempDir()
 
-	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
+	mounts, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
 	require.NoError(t, err)
 	require.Len(t, mounts, len(defaultOverlayDirs))
 
@@ -157,7 +157,7 @@ func TestContainerConfigOverlay_SeedsFromProject(t *testing.T) {
 	// .ctxloom/cache deliberately absent from the project.
 
 	root := t.TempDir()
-	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
+	mounts, err := containerConfigOverlay(Docker{}, proj, root, defaultOverlayDirs)
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 

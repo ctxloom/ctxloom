@@ -30,11 +30,12 @@ func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace
 	return hostWorkspace{dir: projectDir}, nil
 }
 
-// SpawnClient launches the bare self-invoked plugin subprocess — the exact body
-// of pb.DefaultClientFactory. The workspace is expressed purely via the caller's
-// RunOptions.WorkDir, so no per-workspace launch machinery is needed here.
+// SpawnClient launches the bare self-invoked plugin subprocess via the Host
+// runtime (the exact body of pb.DefaultClientFactory). The workspace is
+// expressed purely via the caller's RunOptions.WorkDir, so no per-workspace
+// launch machinery is needed here.
 func (None) SpawnClient(backendName, label string, verbosity int, _ Workspace) (pb.Client, error) {
-	return pb.NewSelfInvokingClientForLabel(backendName, label, verbosity)
+	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity})
 }
 
 // hostWorkspace is the None policy's workspace: the live project directory with

@@ -211,6 +211,13 @@ func renderRunSpec(spec RunSpec) []string {
 	if spec.Home != "" {
 		args = append(args, "-e", "HOME="+spec.Home)
 	}
+	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
+	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value (the
+	// go-plugin handshake vars, IS_SANDBOX, TERM), while a BARE "KEY" (no '=') is a
+	// name-only passthrough — the runtime forwards the VALUE from its own inherited
+	// environment. Auth SECRETS use the bare-name form (containerAuth.envPassthrough)
+	// so the value never lands in this long-lived `run` argv, which is world-readable
+	// via /proc/<pid>/cmdline; it stays in the launcher's env only.
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}

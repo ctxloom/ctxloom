@@ -574,20 +574,15 @@ func serverListener_tcp() (net.Listener, error) {
 		return nil, fmt.Errorf("PLUGIN_MIN_PORT value of %d is greater than PLUGIN_MAX_PORT value of %d", minPort, maxPort)
 	}
 
-	// ctxloom fork patch (2 of 2): when forced onto TCP for the container
-	// transport (PLUGIN_LISTEN_TCP=1), bind ALL interfaces (0.0.0.0) instead of
-	// container-loopback. A published port (docker/podman `-p 127.0.0.1:P:P`)
-	// DNATs host loopback to the container's ROUTABLE interface, never its
-	// loopback, so a 127.0.0.1-bound listener is unreachable from the host (the
-	// gRPC dial gets an EOF reading the server preface). Binding 0.0.0.0 makes
-	// the published port reach the listener; the host still exposes it on
-	// loopback only. Native-Windows TCP (no env flag) keeps 127.0.0.1 — it is a
-	// same-host transport with no port publish. The host maps the announced
-	// 0.0.0.0:P back to 127.0.0.1:P via its AddrTranslator before dialing.
-	bindHost := "127.0.0.1"
-	if os.Getenv("PLUGIN_LISTEN_TCP") == "1" {
-		bindHost = "0.0.0.0"
-	}
+	// ctxloom fork patch (2 of 2): choose the bind interface. 0.0.0.0 (all
+	// interfaces) is engaged ONLY for the deliberate container transport — see
+	// tcpBindHostFor for the gate and the security invariant. A published port
+	// (docker/podman `-p 127.0.0.1:P:P`) DNATs host loopback to the container's
+	// ROUTABLE interface, never its loopback, so the container listener must bind
+	// 0.0.0.0 to be reachable; the host still exposes it on loopback only and maps
+	// the announced 0.0.0.0:P back to 127.0.0.1:P via its AddrTranslator before
+	// dialing. A bare-host plugin server keeps 127.0.0.1.
+	bindHost := tcpBindHostFor(os.Getenv("PLUGIN_LISTEN_TCP") == "1", minPort, maxPort)
 	for port := minPort; port <= maxPort; port++ {
 		address := fmt.Sprintf("%s:%d", bindHost, port)
 		listener, err := net.Listen("tcp", address)
@@ -597,6 +592,32 @@ func serverListener_tcp() (net.Listener, error) {
 	}
 
 	return nil, errors.New("couldn't bind plugin TCP listener")
+}
+
+// tcpBindHostFor decides the interface the forced-TCP plugin listener binds.
+//
+// ctxloom fork patch (part of hunk 2): 0.0.0.0 (ALL interfaces) is opened ONLY
+// for the deliberate container transport, identified by BOTH PLUGIN_LISTEN_TCP=1
+// AND a PINNED single port (PLUGIN_MIN_PORT == PLUGIN_MAX_PORT, both > 0) — the
+// exact shape ctxloom's containerHandshakeEnv emits, pinning the listener to the
+// one reserved, host-published loopback port so a `-p 127.0.0.1:P:P` publish can
+// reach the container's routable interface.
+//
+// A bare-HOST plugin server (ctxloom's None/Worktree isolation, which wants a
+// PRIVATE unix socket) that merely INHERITS an ambient PLUGIN_LISTEN_TCP=1 (the
+// documented integration-test hook, or a stray export) keeps go-plugin's default
+// port RANGE (10000-25000, so MIN != MAX), so it never trips this gate: it stays
+// on 127.0.0.1 rather than exposing an all-interfaces, mTLS-less listener
+// reachable by any process on the host or the docker bridge network.
+//
+// INVARIANT: 0.0.0.0 is container-only; an ambient PLUGIN_LISTEN_TCP alone never
+// binds all interfaces. Native-Windows TCP reaches serverListener_tcp with the
+// flag UNSET (listenTCP == false here), so it too keeps upstream's 127.0.0.1.
+func tcpBindHostFor(listenTCP bool, minPort, maxPort int64) string {
+	if listenTCP && minPort == maxPort && minPort > 0 {
+		return "0.0.0.0"
+	}
+	return "127.0.0.1"
 }
 
 func serverListener_unix(unixSocketCfg UnixSocketConfig) (net.Listener, error) {

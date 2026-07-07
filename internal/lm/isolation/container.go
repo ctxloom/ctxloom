@@ -189,11 +189,14 @@ type containerScratch struct {
 }
 
 // runEnv composes the per-run env threaded into the container spec: the scoped
-// auth passthrough plus the host terminal description (TERM/COLORTERM), which
-// the curated handshake env deliberately drops. Returns a fresh slice so
-// callers never alias the scratch's fields.
+// auth passthrough (name-only entries — see containerAuth.envPassthrough — so the
+// secret value never enters the argv) plus the host terminal description
+// (TERM/COLORTERM as KEY=VAL, non-secret), which the curated handshake env
+// deliberately drops. Returns a fresh slice so callers never alias the scratch's
+// fields. The two forms mix in one slice and render uniformly through
+// renderRunSpec's `-e <entry>` loop (docker's `-e` grammar accepts both).
 func (sc containerScratch) runEnv() []string {
-	return append(append([]string(nil), sc.auth.env...), sc.termEnv...)
+	return append(append([]string(nil), sc.auth.envPassthrough...), sc.termEnv...)
 }
 
 // containerScratchBase returns the PARENT directory for a run's host-side scratch
@@ -278,10 +281,8 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 // cross verbatim; an unset var is omitted and the image default applies.
 func hostTerminalEnv(getenv func(string) string) []string {
 	var out []string
-	for _, key := range []string{"TERM", "COLORTERM"} {
-		if v := getenv(key); v != "" {
-			out = append(out, key+"="+v)
-		}
+	for _, key := range presentEnvKeys(getenv, []string{"TERM", "COLORTERM"}) {
+		out = append(out, key+"="+getenv(key))
 	}
 	return out
 }

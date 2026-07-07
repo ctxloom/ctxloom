@@ -205,7 +205,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		profile: containerProfile{
 			officialImage: "example/client:1", // buildable → the run-as-is identity inspect is skipped
 			resolveAuth: func(string) (containerAuth, bool) {
-				return containerAuth{mode: authEnv, env: []string{"X=y"}}, true
+				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
 			overlayDirs:        []string{".claude"},
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),

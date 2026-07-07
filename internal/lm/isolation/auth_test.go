@@ -9,12 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScopedEnv_OnlyKnownSetVars: the scoped auth-env set carries ONLY the known
-// auth vars that are actually set — never the host's full environment.
-func TestScopedEnv_OnlyKnownSetVars(t *testing.T) {
+// TestPresentEnvKeys_OnlyKnownSetVars: the scoped auth-env set carries ONLY the
+// NAMES of the known auth vars that are actually set — never a value (the value
+// would leak into the world-readable `run` argv), and never the host's full
+// environment.
+func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	env := map[string]string{"ANTHROPIC_API_KEY": "k", "ANTHROPIC_BASE_URL": "", "PATH": "/x"}
-	out := scopedEnv(func(k string) string { return env[k] }, claudeAuthEnvVars)
-	assert.Equal(t, []string{"ANTHROPIC_API_KEY=k"}, out, "only set, known auth vars cross (empty + unknown dropped)")
+	out := presentEnvKeys(func(k string) string { return env[k] }, claudeAuthEnvVars)
+	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
 // withFakeHome points hostHomeDir at a temp dir for hermetic credential tests.
@@ -91,14 +93,19 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 	require.True(t, ok)
 	assert.Equal(t, authCredentialMount, auth.mode)
 	assert.NotEmpty(t, auth.mounts)
-	assert.Empty(t, auth.env, "credential-mount injects no env")
+	assert.Empty(t, auth.envPassthrough, "credential-mount injects no env")
 
-	// Key present → env passthrough PREFERRED over the mounted creds.
+	// Key present → env passthrough PREFERRED over the mounted creds. The plan
+	// carries the NAME only (never the value): the value is forwarded from the
+	// launcher's env at run time, so it never reaches the world-readable argv.
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	auth, ok = resolveClaudeContainerAuth("/root")
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.env, "ANTHROPIC_API_KEY=sk-test")
+	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the auth var crosses by NAME")
+	for _, e := range auth.envPassthrough {
+		assert.NotContains(t, e, "sk-test", "the secret VALUE must never be stored in the auth plan")
+	}
 	assert.Empty(t, auth.mounts, "env passthrough does not mount credentials")
 }
 

@@ -40,9 +40,16 @@ func (m containerAuthMode) String() string {
 // Only the TRUSTED top-level run reaches it — low-trust fan-out auth
 // (budget-capped per-agent keys, T1.5) is a separate, later concern.
 type containerAuth struct {
-	mode   containerAuthMode
-	env    []string // scoped "KEY=VAL" pairs to add to the container env
-	mounts []Mount  // read-only credential mounts into the container HOME
+	mode containerAuthMode
+	// envPassthrough is the scoped set of auth env var NAMES (never "KEY=VAL")
+	// forwarded name-only into the container via `docker/podman -e NAME`. The
+	// runtime reads each VALUE from the launcher's OWN environment (the container
+	// CLI ctxloom execs inherits os.Environ), so the secret value never lands in
+	// the long-lived `run` argv — /proc/<pid>/cmdline is world-readable, whereas
+	// the launcher's env (/proc/<pid>/environ) is owner-readable only. A value
+	// must NEVER be stored here.
+	envPassthrough []string
+	mounts         []Mount // read-only credential mounts into the container HOME
 }
 
 // claudeAuthEnvVars is the SCOPED set of Anthropic auth/config vars a claude run
@@ -72,8 +79,8 @@ var hostHomeDir = os.UserHomeDir
 // (ClassIsolation) the choke owner aborts on unless --degraded, since the
 // container was EXPLICITLY requested.
 func resolveClaudeContainerAuth(containerHome string) (containerAuth, bool) {
-	if env := scopedEnv(os.Getenv, claudeAuthEnvVars); os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return containerAuth{mode: authEnv, env: env}, true
+	if names := presentEnvKeys(os.Getenv, claudeAuthEnvVars); os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return containerAuth{mode: authEnv, envPassthrough: names}, true
 	}
 	if mounts, ok := claudeCredentialMounts(containerHome); ok {
 		return containerAuth{mode: authCredentialMount, mounts: mounts}, true
@@ -97,20 +104,25 @@ var kiroAuthEnvVars = []string{
 // it is (the same doc-first posture as the kiro settings writer). ok=false →
 // the caller degrades rather than launching an engine stuck at a browser login.
 func resolveKiroContainerAuth(string) (containerAuth, bool) {
-	if env := scopedEnv(os.Getenv, kiroAuthEnvVars); os.Getenv("KIRO_API_KEY") != "" {
-		return containerAuth{mode: authEnv, env: env}, true
+	if names := presentEnvKeys(os.Getenv, kiroAuthEnvVars); os.Getenv("KIRO_API_KEY") != "" {
+		return containerAuth{mode: authEnv, envPassthrough: names}, true
 	}
 	return containerAuth{mode: authNone}, false
 }
 
-// scopedEnv collects "KEY=VAL" for every key in keys that getenv reports as set
-// (non-empty). The result is the scoped auth-env set — only known auth vars, so
-// the host's full environment (secrets, paths) never blanket-crosses.
-func scopedEnv(getenv func(string) string, keys []string) []string {
+// presentEnvKeys returns the subset of keys that getenv reports as set
+// (non-empty), in order. It is the shared filter behind two container-env
+// forwards that differ only in the -e form they emit: the auth passthrough
+// (containerAuth.envPassthrough) forwards each name-only via `docker/podman -e
+// NAME`, so the secret VALUE stays out of the world-readable run argv
+// (/proc/<pid>/cmdline) and lives only in the launcher's env; hostTerminalEnv
+// forwards TERM/COLORTERM as `-e KEY=VAL`. Callers pass a SCOPED key allowlist,
+// so the host's full environment (other secrets, paths) never blanket-crosses.
+func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	var out []string
 	for _, k := range keys {
-		if v := getenv(k); v != "" {
-			out = append(out, k+"="+v)
+		if getenv(k) != "" {
+			out = append(out, k)
 		}
 	}
 	return out

@@ -52,6 +52,32 @@ func TestDockerRootless_RunsAsMappedRoot(t *testing.T) {
 		args[len(args)-5:], "image then in-container argv")
 }
 
+// TestRunArgs_AuthSecretValueNotInArgv is the regression for the world-readable
+// cmdline leak: the resolved auth env crosses into the `docker run` argv
+// NAME-ONLY (`-e ANTHROPIC_API_KEY`), never as `KEY=VAL`, so the secret value
+// never appears in /proc/<pid>/cmdline for the container's whole lifetime. docker
+// forwards the value from its own inherited environment (the docker CLI ctxloom
+// execs inherits os.Environ, where the key was detected) instead.
+func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
+	const secret = "sk-ant-SUPER-SECRET-VALUE"
+	t.Setenv("ANTHROPIC_API_KEY", secret)
+
+	auth, ok := resolveClaudeContainerAuth("/root")
+	require.True(t, ok, "an ANTHROPIC_API_KEY in the env resolves env passthrough")
+	require.Equal(t, authEnv, auth.mode)
+
+	spec := sampleSpec()
+	spec.Env = append(spec.Env, auth.envPassthrough...)
+	args := Docker{rootless: true}.RunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	assert.Contains(t, joined, "-e ANTHROPIC_API_KEY", "the auth var crosses by NAME")
+	assert.NotContains(t, joined, "ANTHROPIC_API_KEY="+secret, "no KEY=VAL form in the argv")
+	for _, a := range args {
+		assert.NotContains(t, a, secret, "the secret VALUE must never appear in the run argv")
+	}
+}
+
 // TestDockerRootful_PassesIdentityEnv: under a rootful daemon the container
 // starts as root and PUID/PGID tell the image entrypoint to remap its ctxloom
 // user to the launching uid/gid and drop to it — so the plugin's bind-mounted

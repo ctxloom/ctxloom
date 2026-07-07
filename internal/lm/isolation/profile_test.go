@@ -69,6 +69,7 @@ func TestResolveKiroContainerAuth(t *testing.T) {
 	auth, ok := resolveKiroContainerAuth("/root")
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.env, "KIRO_API_KEY=kiro-test")
+	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the auth var crosses by NAME only")
+	assert.NotContains(t, auth.envPassthrough, "KIRO_API_KEY=kiro-test", "the secret value must not be stored in the plan")
 	assert.Empty(t, auth.mounts, "kiro env passthrough mounts nothing")
 }

@@ -28,9 +28,11 @@ func TestContainerWorktree_Axes(t *testing.T) {
 // it at its IDENTICAL host path, so the worktree's `gitdir:` pointer resolves
 // inside the container.
 func TestContainerWorktree_GitdirMountIsIdentityPath(t *testing.T) {
-	c := NewContainerWorktree(fakeRuntime{name: "docker", available: true}, "img",
-		&git.Fake{CommonDirValue: "/repo/.git"})
-	m, err := c.gitdirMount(context.Background(), "/tmp/ctxloom-wt-m-abc")
+	// The worktree base mirrors the worktree's .git common-dir identical-path
+	// (gitCommonDirMount) — the collapse of the former ContainerWorktree.gitdirMount.
+	m, err := gitCommonDirMount(context.Background(),
+		fakeRuntime{name: "docker", available: true},
+		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc")
 	require.NoError(t, err)
 	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/repo/.git"}, m,
 		"the .git common-dir is mirrored identical-path so gitdir resolves in-container")
@@ -44,9 +46,9 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 	const common = "/repo/.git"
 	worktreeDir := filepath.Join(os.TempDir(), "ctxloom-wt-m-xyz")
 
-	c := NewContainerWorktree(fakeRuntime{name: "docker", available: true}, "img",
-		&git.Fake{CommonDirValue: common})
-	gitMount, err := c.gitdirMount(context.Background(), worktreeDir)
+	gitMount, err := gitCommonDirMount(context.Background(),
+		fakeRuntime{name: "docker", available: true},
+		&git.Fake{CommonDirValue: common}, worktreeDir)
 	require.NoError(t, err)
 
 	// buildRunSpec is exactly what containerRunnerFunc renders: workDir = the
@@ -85,7 +87,10 @@ func TestContainerWorktreeWorkspace_CleanupOrdering(t *testing.T) {
 	outer := filepath.Join(os.TempDir(), "ctxloom-wt-cwt")
 	f := &git.Fake{Worktrees: []git.Worktree{{Path: outer}}}
 	wt := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
-	ws := &containerWorktreeWorkspace{wt: wt, scratchRoot: scratch, agentID: "m"}
+	// Post-collapse the worktree-in-container workspace IS the unified
+	// containerWorkspace: dir = the worktree checkout, baseCleanup = the worktree's
+	// WIP-safe teardown.
+	ws := &containerWorkspace{dir: outer, scratchRoot: scratch, agentID: "m", baseCleanup: wt.Cleanup}
 
 	assert.Equal(t, outer, ws.Dir(), "Dir() is the worktree checkout, not the live project")
 
@@ -103,7 +108,7 @@ func TestContainerWorktreeWorkspace_CleanupOrdering(t *testing.T) {
 // expose per-agent config-home envs — the engine runs inside the container with a
 // fresh HOME, so those host paths would be meaningless there.
 func TestContainerWorktreeWorkspace_NoConfigHomeEnv(t *testing.T) {
-	ws := &containerWorktreeWorkspace{wt: &worktreeWorkspace{}, agentID: "m"}
+	ws := &containerWorkspace{agentID: "m", baseCleanup: (&worktreeWorkspace{}).Cleanup}
 	assert.Nil(t, WorkspaceEnv(ws), "no host config-home envs cross into the container")
 }
 
@@ -146,7 +151,8 @@ func TestChainFor_Container(t *testing.T) {
 
 	both := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
 	require.Len(t, both, 3)
-	assert.IsType(t, ContainerWorktree{}, both[0], "{worktree, container} leads with worktree-in-container")
+	assert.IsType(t, Container{}, both[0], "{worktree, container} leads with a container (worktree base)")
+	assert.Equal(t, "container-worktree", both[0].Name(), "the worktree-base container reports the composed name")
 	assert.IsType(t, Worktree{}, both[1], "the runtime axis degrades first; the worktree survives")
 	assert.IsType(t, None{}, both[2], "then none")
 

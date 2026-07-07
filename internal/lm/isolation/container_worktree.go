@@ -3,205 +3,117 @@ package isolation
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/git"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// ContainerWorktree is the worktree-in-container policy: the
-// {Workspace} × {Runtime} composition whose Workspace is a per-agent
-// git worktree (Phase 2) and whose Runtime is a container (Phase 1). The axes
-// {workspace: worktree, runtime: container} resolve HERE (via Prepare), NOT to
-// the Container policy (which mounts the LIVE project dir): the run's own
-// worktree is bind-mounted identical-path into a fresh container as cwd, so
-// concurrent runs never share a checkout AND the engine is contained. It REUSES the two proven
-// halves — the Worktree policy's WIP-safe, nested-aware lifecycle (create +
-// excludes/skip-worktree + teardown) and the Container policy's scratch/auth/spawn
-// — rather than duplicating either. (A full orthogonal Workspace×Runtime refactor
-// of all three policies is the cleaner end state, flagged as a follow-up; this
-// targeted composition avoids destabilizing the proven top-level container +
-// worktree + none paths.)
+// worktreeBase is the worktree-in-container base: the {Workspace: worktree} ×
+// {Runtime: container} composition, collapsed from the former ContainerWorktree
+// policy into a Container base. The container's cwd is a per-agent git worktree
+// (Phase 2) rather than the LIVE project dir, so concurrent members never share a
+// checkout AND the engine is contained. It REUSES the two proven halves — the
+// Worktree policy's WIP-safe, nested-aware lifecycle (create + excludes/
+// skip-worktree + teardown) via the wrapped Worktree, and the Container policy's
+// scratch/auth/spawn via the surrounding Container — rather than duplicating
+// either.
 //
 // gitdir-when-mounted: a linked worktree's .git is a FILE
 // (`gitdir: <main>/.git/worktrees/<name>`), so mounting only the worktree breaks
-// git inside the container ("not a git repository"). The fix used here is the
-// identical-path .git mirror — the main repo's git common-dir is ALSO bind-mounted
-// at its identical host path, so the gitdir pointer resolves and `git status`/
-// `git diff`/`git rev-parse` work in-container. This keeps the ENTIRE worktree
-// lifecycle host-side (create + WIP-safe teardown via the unchanged Worktree
-// machinery); the alternative (creating worktrees inside a mounted
-// repo) would split that lifecycle across the boundary and put worktree creation +
-// teardown out of reach of the host-side WIP-safe Git seam. Identical-path is also
-// consistent with the identical-path workspace mount already proven for the
-// top-level container.
+// git inside the container ("not a git repository"). The fix is the identical-path
+// .git mirror — the main repo's git common-dir is ALSO bind-mounted at its
+// identical host path (gitCommonDirMount), so the gitdir pointer resolves and
+// `git status`/`git diff`/`git rev-parse` work in-container. This keeps the ENTIRE
+// worktree lifecycle host-side (create + WIP-safe teardown via the unchanged
+// Worktree machinery); the alternative (creating worktrees inside a mounted repo)
+// would split that lifecycle across the boundary and put worktree creation +
+// teardown out of reach of the host-side WIP-safe Git seam.
 //
 // Approvals bypass (the container is the boundary) and auth (resolveContainerAuth)
-// come from the Container half. Trust caveat: a low-trust fan-out member currently
-// receives the SAME full host creds as the trusted top-level run — per-agent
-// key/budget scoping is a later concern, flagged not solved.
-type ContainerWorktree struct {
-	container Container
-	worktree  Worktree
+// come from the surrounding Container. Trust caveat: a low-trust fan-out member
+// currently receives the SAME full host creds as the trusted top-level run —
+// per-agent key/budget scoping is a later concern, flagged not solved.
+type worktreeBase struct{ wt Worktree }
+
+// name identifies the worktree-in-container policy.
+func (worktreeBase) name() string { return "container-worktree" }
+
+// withState stamps the run's session identity onto the wrapped Worktree, homing
+// its ephemeral per-agent checkout scratch under the session dir (the double-stamp
+// alongside Container.state — see withSessionState). Bases are value types, so the
+// stamped copy is returned.
+func (b worktreeBase) withState(state SessionState) containerBase {
+	b.wt.state = state
+	return b
 }
 
-// Ensure ContainerWorktree satisfies the Policy interface.
-var _ Policy = ContainerWorktree{}
-
-// NewContainerWorktree builds the composition over a container runtime + an
-// EXPLICIT image (default profile, no local build — see NewContainer) and a Git
-// seam (nil → the default git binary; tests pass a git.Fake to drive the
-// worktree lifecycle without a real repo).
-func NewContainerWorktree(rt ContainerRuntime, image string, g git.Git) ContainerWorktree {
-	return ContainerWorktree{
-		container: NewContainer(rt, image),
-		worktree:  NewWorktree(g),
-	}
-}
-
-// NewContainerWorktreeFor builds the composition for a REGISTERED backend name:
-// the container half comes from the backend's container profile (image, auth,
-// build sources — see NewContainerFor) with the user's image configuration
-// applied (image override run as-is / base Containerfile for local builds),
-// the worktree half from the Git seam.
-func NewContainerWorktreeFor(rt ContainerRuntime, backend string, img ImageConfig, g git.Git) ContainerWorktree {
-	return ContainerWorktree{
-		container: containerFor(rt, backend, img),
-		worktree:  NewWorktree(g),
-	}
-}
-
-// Name identifies the policy.
-func (ContainerWorktree) Name() string { return "container-worktree" }
-
-// Approvals bypasses the in-engine prompt — the container is the boundary (like
-// the top-level Container; the worktree half alone would only Prompt).
-func (ContainerWorktree) Approvals() Approvals { return ApprovalsBypass }
-
-// PrepareWorkspace provisions a worktree-in-container workspace. The ordering is
-// load-bearing for the degrade chain (container→worktree→none):
-//  1. the container gate + host scratch FIRST — if the container can't launch (no
-//     runtime/image/auth) it fails BEFORE any worktree is created, so the caller's
-//     chain degrades cleanly to a BARE worktree with nothing to unwind;
-//  2. then the per-member worktree, reusing Worktree.PrepareWorkspace so the
+// prepareBase provisions the per-member worktree-in-container base. The ordering
+// is load-bearing for the degrade chain (container→worktree→none) and for a
+// leak-free unwind — the Container gate + host scratch already ran (this is called
+// only after prepareContainerScratch succeeded):
+//  1. the per-member worktree, reusing Worktree.PrepareWorkspace so the
 //     info/exclude + skip-worktree and the WIP-safe teardown all come for free — a
-//     non-git repo fails here and the chain degrades worktree→none;
-//  3. then the identical-path .git gitdir mirror mount so git resolves in-container.
+//     non-git repo fails HERE (before any resource is created) and the chain
+//     degrades worktree→none;
+//  2. then the identical-path .git gitdir mirror mount so git resolves in-container.
 //
-// Any failure AFTER the worktree exists unwinds both the worktree (WIP-safe) and
-// the scratch before returning, so a degrade never leaks a checkout or a temp dir.
-func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	sc, err := c.container.prepareContainerScratch(ctx)
+// Any failure AFTER the worktree exists tears the worktree down (WIP-safe — it is
+// freshly created, so clean) BEFORE returning, and the caller
+// (Container.PrepareWorkspace) then removes the shared scratch — so a degrade never
+// leaks a checkout or a temp dir. This is the ONE place a botched collapse could
+// leak a checkout, so the unwind order is exact: worktree teardown first (here),
+// scratch removal after (the caller).
+func (b worktreeBase) prepareBase(ctx context.Context, rt ContainerRuntime, projectDir, agentID, _ string, _ containerProfile, _ git.Git) (string, []Mount, func() error, error) {
+	raw, err := b.wt.PrepareWorkspace(ctx, projectDir, agentID)
 	if err != nil {
-		return nil, err
-	}
-
-	raw, err := c.worktree.PrepareWorkspace(ctx, projectDir, agentID)
-	if err != nil {
-		_ = os.RemoveAll(sc.root)
-		return nil, err
+		// The worktree never came up (non-git repo / add failed) — nothing created
+		// to unwind; the caller removes the shared scratch and the chain degrades.
+		return "", nil, nil, err
 	}
 	wt, ok := raw.(*worktreeWorkspace)
 	if !ok {
+		// Defensive: an unexpected workspace type. Tear the worktree down
+		// (WIP-safe) before failing so nothing leaks.
 		_ = raw.Cleanup()
-		_ = os.RemoveAll(sc.root)
-		return nil, fmt.Errorf("container-worktree: unexpected worktree workspace %T", raw)
+		return "", nil, nil, fmt.Errorf("container-worktree: unexpected worktree workspace %T", raw)
 	}
 
-	gitMount, err := c.gitdirMount(ctx, wt.dir)
+	// The worktree's .git is ALWAYS a pointer file, so its common dir is mirrored
+	// identical-path unconditionally (unlike the host base's pointer-only mirror).
+	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, wt.dir)
 	if err != nil {
 		// The worktree just failed to yield a usable gitdir mount; tearing it down
-		// (WIP-safe — freshly created, so clean) lets the chain retry as a bare
-		// host worktree, where git resolves natively (a Tier-0 non-issue).
+		// (WIP-safe — freshly created, so clean) lets the chain retry as a bare host
+		// worktree, where git resolves natively (a Tier-0 non-issue).
 		_ = wt.Cleanup()
-		_ = os.RemoveAll(sc.root)
-		return nil, err
+		return "", nil, nil, err
 	}
 
-	return &containerWorktreeWorkspace{
-		wt:          wt,
-		scratchRoot: sc.root,
-		socketDir:   sc.socketDir,
-		extraEnv:    sc.runEnv(),
-		extraMounts: append(append(append([]Mount(nil), sc.auth.mounts...), sc.stateMounts...), gitMount),
-		authMode:    sc.auth.mode,
-		agentID:     agentID,
-	}, nil
+	// cleanup is the worktree's WIP-safe, nested-aware teardown; the container mounts
+	// wt.dir as cwd. It deliberately exposes NO per-agent config-home env: the engine
+	// runs inside the container with a fresh HOME, so the worktree's host config-home
+	// envs (CLAUDE_CONFIG_DIR/…) would point at unmounted host paths and mean nothing
+	// there — the unified containerWorkspace never implements EnvWorkspace.
+	return wt.dir, []Mount{gitMount}, wt.Cleanup, nil
 }
 
-// gitdirMount builds the identical-path .git mirror mount from the
-// worktree's git common-dir, so the worktree's `gitdir:` pointer resolves inside
-// the container. Read-write by design: the worktree's per-checkout admin files
-// (index, HEAD) under <common>/worktrees/<name> are written there, exactly as a
-// host-native worktree writes to the shared .git — no new blast radius over a bare
-// worktree, which also shares the main repo's .git.
-func (c ContainerWorktree) gitdirMount(ctx context.Context, worktreeDir string) (Mount, error) {
-	return gitCommonDirMount(ctx, c.container.runtime, c.worktree.git, worktreeDir)
+// NewContainerWorktree builds the worktree-in-container policy over a container
+// runtime + an EXPLICIT image (default profile, no local build — see NewContainer)
+// and a Git seam (nil → the default git binary; tests pass a git.Fake to drive the
+// worktree lifecycle without a real repo). It is a plain Container with the
+// worktree base injected.
+func NewContainerWorktree(rt ContainerRuntime, image string, g git.Git) Container {
+	c := NewContainer(rt, image)
+	c.base = worktreeBase{wt: NewWorktree(g)}
+	return c
 }
 
-// SpawnClient launches the plugin in a container that mounts the member's WORKTREE
-// (identical-path) as cwd plus the .git gitdir mirror, delegating to the shared
-// Container spawn — a worktree-in-container run is just a container run whose
-// workDir is the worktree and whose extra mounts include the gitdir mirror.
-func (c ContainerWorktree) SpawnClient(backendName, label string, verbosity int, ws Workspace) (pb.Client, error) {
-	cw, ok := ws.(*containerWorktreeWorkspace)
-	if !ok {
-		return nil, fmt.Errorf("container-worktree spawn: unexpected workspace %T (expected a worktree-in-container workspace)", ws)
-	}
-	return c.container.runtime.Spawn(LaunchSpec{
-		BackendName:        backendName,
-		Label:              label,
-		Verbosity:          verbosity,
-		AgentID:            cw.agentID,
-		Image:              c.container.image,
-		BinaryPath:         c.container.binaryPath,
-		Home:               c.container.home,
-		ContainerSocketDir: c.container.socketDir,
-		WorkDir:            cw.wt.dir,
-		HostSocketDir:      cw.socketDir,
-		ExtraEnv:           cw.extraEnv,
-		ExtraMounts:        cw.extraMounts,
-		AuthMode:           cw.authMode,
-	})
-}
-
-// containerWorktreeWorkspace composes the per-member worktree (Dir + WIP-safe
-// teardown) with the host container scratch. Dir() is the WORKTREE checkout
-// (bind-mounted identical-path into the container as cwd). It deliberately does
-// NOT implement EnvWorkspace: the engine runs inside the container with a fresh
-// HOME, so the worktree's host config-home envs (CLAUDE_CONFIG_DIR/…) would point
-// at unmounted host paths and mean nothing there.
-type containerWorktreeWorkspace struct {
-	wt          *worktreeWorkspace // per-member worktree (Dir + WIP-safe teardown)
-	scratchRoot string             // host container scratch (socket dir), removed on cleanup
-	socketDir   string             // scratchRoot/sock — go-plugin's unix-socket dir
-	extraEnv    []string           // scoped auth env (passthrough)
-	extraMounts []Mount            // auth credential mounts + the .git gitdir mirror
-	authMode    containerAuthMode
-	agentID     string
-}
-
-// Ensure the composed workspace satisfies Workspace (and NOT EnvWorkspace).
-var _ Workspace = (*containerWorktreeWorkspace)(nil)
-
-// Dir returns the per-member worktree checkout (the container mounts it as cwd).
-func (w *containerWorktreeWorkspace) Dir() string { return w.wt.Dir() }
-
-// Cleanup removes the host container scratch FIRST, then runs the worktree's
-// WIP-safe, nested-worktree-aware teardown. The caller kills the client (docker
-// rm -f the container) BEFORE Cleanup, so the worktree is no longer mounted
-// anywhere when it is removed — kill-then-teardown keeps the removal WIP-safe. It
-// never returns an error: a scratch-removal failure is surfaced loudly
-// (warnCleanupResidue — likely wrong-identity root-owned files) and the worktree
-// teardown is itself WIP-safe (an inner worktree with WIP leaves the tree in
-// place). Idempotent (the worktree teardown guards on its own cleared dir).
-func (w *containerWorktreeWorkspace) Cleanup() error {
-	if w.scratchRoot != "" {
-		root := w.scratchRoot
-		w.scratchRoot = ""
-		if err := os.RemoveAll(root); err != nil {
-			warnCleanupResidue("container scratch", root, err)
-		}
-	}
-	return w.wt.Cleanup()
+// NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED
+// backend name: the container half comes from the backend's container profile
+// (image, auth, build sources — see NewContainerFor) with the user's image
+// configuration applied (image override run as-is / base Containerfile for local
+// builds), the worktree half from the Git seam.
+func NewContainerWorktreeFor(rt ContainerRuntime, backend string, img ImageConfig, g git.Git) Container {
+	c := containerFor(rt, backend, img)
+	c.base = worktreeBase{wt: NewWorktree(g)}
+	return c
 }

@@ -185,8 +185,8 @@ const (
 //
 //	{none, host}          → None
 //	{worktree, host}      → Worktree
-//	{none, container}     → Container (the LIVE project dir mounted in)
-//	{worktree, container} → ContainerWorktree
+//	{none, container}     → Container{hostBase} (the LIVE project dir mounted in)
+//	{worktree, container} → Container{worktreeBase} (name "container-worktree")
 type Axes struct {
 	Workspace WorkspaceAxis
 	Runtime   RuntimeAxis
@@ -292,8 +292,8 @@ var selectRuntimeProbe = SelectRuntime
 // chainFor builds the ordered degrade chain for the requested axes. The
 // runtime probe runs ONCE; each degrade step drops exactly one axis:
 //
-//	{worktree, container} → ContainerWorktree → Worktree → None
-//	{none,     container} → Container (live dir) → None
+//	{worktree, container} → Container{worktreeBase} → Worktree → None
+//	{none,     container} → Container{hostBase} (live dir) → None
 //	{worktree, host}      → Worktree → None
 //	{none,     host}      → None
 //
@@ -337,9 +337,11 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 // to detect a degrade that DROPS the container boundary (which warrants a
 // prominent, security-framed warning rather than the generic degrade line), and
 // by the run path to tell a satisfied container request (container OR
-// container-worktree) from one that degraded to the host.
+// container-worktree) from one that degraded to the host. Both container-backed
+// policies are now Container (host vs worktree base), so this matches on the two
+// base NAMES rather than distinct types.
 func IsContainerPolicyName(name string) bool {
-	return name == (Container{}).Name() || name == (ContainerWorktree{}).Name()
+	return name == "container" || name == "container-worktree"
 }
 
 // Prepare prepares a workspace for the requested axes and the run's BACKEND
@@ -370,11 +372,14 @@ func withSessionState(chain []Policy, state SessionState) []Policy {
 	for i, p := range chain {
 		switch v := p.(type) {
 		case Container:
+			// Double-stamp: Container.state scopes the durable state mounts
+			// (sessionStateMounts), and the base's withState stamps a worktree
+			// base's ephemeral checkout home. The nil-base guard is load-bearing —
+			// tests construct bare Container{} — and hostBase.withState is a no-op.
 			v.state = state
-			chain[i] = v
-		case ContainerWorktree:
-			v.container.state = state
-			v.worktree.state = state
+			if v.base != nil {
+				v.base = v.base.withState(state)
+			}
 			chain[i] = v
 		case Worktree:
 			v.state = state

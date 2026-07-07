@@ -120,19 +120,21 @@ func TestContainerWorkspace_CleanupSurfacesResidue(t *testing.T) {
 	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
 }
 
-// TestContainerWorktreeWorkspace_CleanupSurfacesResidue: the composed
-// workspace's scratch removal was a bare `_ = os.RemoveAll` — same residue,
-// same loud surfacing (its Cleanup contract stays never-error: the worktree
-// half's WIP-safety owns that semantic).
-func TestContainerWorktreeWorkspace_CleanupSurfacesResidue(t *testing.T) {
+// TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue: the worktree-base
+// workspace (baseCleanup = the worktree teardown) surfaces the same scratch
+// residue the host base does — post-collapse both bases share one containerWorkspace
+// whose Cleanup always warns AND returns the scratch error (SD3), the base teardown
+// (WIP-safe) contributing no error of its own.
+func TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue(t *testing.T) {
 	root := brokenScratch(t)
-	ws := &containerWorktreeWorkspace{wt: &worktreeWorkspace{}, scratchRoot: root, agentID: "m"}
+	ws := &containerWorkspace{scratchRoot: root, agentID: "m", baseCleanup: (&worktreeWorkspace{}).Cleanup}
 
 	done := captureStderr(t)
 	err := ws.Cleanup()
 	stderr := done()
 
-	assert.NoError(t, err, "the composed cleanup never errors (WIP-safe contract)")
+	require.Error(t, err, "the scratch-removal error returns for callers that check")
+	assert.Contains(t, err.Error(), "remove container scratch")
 	assert.Contains(t, stderr, root, "the warning names the residue path")
 	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
 }
@@ -140,21 +142,21 @@ func TestContainerWorktreeWorkspace_CleanupSurfacesResidue(t *testing.T) {
 // TestContainer_GitdirMirrorMount is finding-2's unit: when the LIVE project is
 // itself a linked worktree (or submodule) its .git is a POINTER FILE whose common
 // dir lives OUTSIDE the identical-path project mount, so the plain container must
-// mirror that common dir (same fix ContainerWorktree uses) — but a normal .git
+// mirror that common dir (same fix the worktree base uses) — but a normal .git
 // DIRECTORY (main-repo checkout) is already covered by the project mount and needs
 // no extra mount, and a non-repo project needs none either.
 func TestContainer_GitdirMirrorMount(t *testing.T) {
 	ctx := context.Background()
 	const common = "/repo/.git"
 
-	c := NewContainer(fakeRuntime{name: "docker", available: true}, "img")
-	c.git = &git.Fake{CommonDirValue: common}
+	rt := fakeRuntime{name: "docker", available: true}
+	g := &git.Fake{CommonDirValue: common}
 
 	// .git is a POINTER FILE → mirror the common dir identical-path.
 	fileProj := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fileProj, ".git"),
 		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
-	m, ok, err := c.gitdirMirrorMount(ctx, fileProj)
+	m, ok, err := gitdirMirrorMount(ctx, rt, g, fileProj)
 	require.NoError(t, err)
 	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
 	assert.Equal(t, Mount{Host: common, Container: common}, m,
@@ -163,13 +165,13 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	// .git is a DIRECTORY → already inside the identical-path project mount.
 	dirProj := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
-	_, ok, err = c.gitdirMirrorMount(ctx, dirProj)
+	_, ok, err = gitdirMirrorMount(ctx, rt, g, dirProj)
 	require.NoError(t, err)
 	assert.False(t, ok, "a normal .git directory is covered by the project mount; no mirror")
 
 	// No repo at all → nothing to mirror.
 	bareProj := t.TempDir()
-	_, ok, err = c.gitdirMirrorMount(ctx, bareProj)
+	_, ok, err = gitdirMirrorMount(ctx, rt, g, bareProj)
 	require.NoError(t, err)
 	assert.False(t, ok, "a non-repo project needs no gitdir mirror")
 }

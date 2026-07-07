@@ -74,7 +74,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	assert.FileExists(t, filepath.Join(ws.Dir(), "README.md"), "the worktree is a checkout of the repo")
 
 	// The composed workspace carries the identical-path .git gitdir mirror mount.
-	cw, ok := ws.(*containerWorktreeWorkspace)
+	cw, ok := ws.(*containerWorkspace)
 	require.True(t, ok, "the workspace is a worktree-in-container workspace")
 	common, err := git.NewExec().CommonDir(ctx, ws.Dir())
 	require.NoError(t, err)

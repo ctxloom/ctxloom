@@ -161,21 +161,23 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 }
 
 // TestWithSessionState_StampsChainPolicies: Prepare's stamping helper carries
-// the session identity onto every policy tier that consumes it — both halves
-// of the worktree-in-container composition included — and leaves None alone.
+// the session identity onto every policy tier that consumes it — the double-stamp
+// of a worktree-base Container (Container.state AND the worktree base's ephemeral
+// home) included — leaves None alone, and NEVER nil-panics on a bare Container{}
+// whose base is nil.
 func TestWithSessionState_StampsChainPolicies(t *testing.T) {
 	state := SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
 	chain := withSessionState([]Policy{
-		ContainerWorktree{container: Container{}, worktree: Worktree{}},
-		Container{},
+		Container{base: worktreeBase{wt: Worktree{}}},
+		Container{}, // bare, nil base — the nil-base guard must not panic
 		Worktree{},
 		None{},
 	}, state)
 
-	cw := chain[0].(ContainerWorktree)
-	assert.Equal(t, state, cw.container.state, "container half stamped")
-	assert.Equal(t, state, cw.worktree.state, "worktree half stamped")
-	assert.Equal(t, state, chain[1].(Container).state)
+	cw := chain[0].(Container)
+	assert.Equal(t, state, cw.state, "container durable-state stamped")
+	assert.Equal(t, state, cw.base.(worktreeBase).wt.state, "worktree base ephemeral home stamped")
+	assert.Equal(t, state, chain[1].(Container).state, "a bare Container's state stamps without a base")
 	assert.Equal(t, state, chain[2].(Worktree).state)
 }
 
@@ -214,6 +216,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
 		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
+		base:       hostBase{},
 	}
 
 	ws, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "member-x")
@@ -253,28 +256,26 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	sharedFSCheck = func(context.Context, ContainerRuntime, string) error { return nil }
 	t.Cleanup(func() { sharedFSCheck = prevFS })
 
-	cw := ContainerWorktree{
-		container: Container{
-			runtime: fakeRuntime{name: "docker", binary: script, available: true},
-			image:   "ctxloom-agent-state-test:latest",
-			profile: containerProfile{
-				officialImage: "example/client:1",
-				resolveAuth: func(string) (containerAuth, bool) {
-					return containerAuth{mode: authEnv}, true
-				},
-				transcriptStoreRel: filepath.FromSlash(".claude/projects"),
+	cw := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-state-test:latest",
+		profile: containerProfile{
+			officialImage: "example/client:1",
+			resolveAuth: func(string) (containerAuth, bool) {
+				return containerAuth{mode: authEnv}, true
 			},
-			binaryPath: defaultContainerBinary,
-			home:       defaultContainerHome,
-			socketDir:  defaultContainerSocketDir,
-			state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
+			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		},
-		worktree: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()}),
+		binaryPath: defaultContainerBinary,
+		home:       defaultContainerHome,
+		socketDir:  defaultContainerSocketDir,
+		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
+		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
 	}
 
 	ws, err := cw.PrepareWorkspace(context.Background(), "/proj", "member-x")
 	require.NoError(t, err)
-	w, ok := ws.(*containerWorktreeWorkspace)
+	w, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
 	t.Cleanup(func() { _ = w.Cleanup() })
 

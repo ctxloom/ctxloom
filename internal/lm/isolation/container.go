@@ -67,7 +67,17 @@ const (
 // host project root — a flagged residue whose fix (relocate via --mcp-config) is a
 // follow-up.
 type Container struct {
-	runtime    ContainerRuntime
+	runtime ContainerRuntime
+	// base is the injected "where the container's cwd comes from" half: hostBase
+	// mounts the LIVE project dir (the plain container), worktreeBase a fresh
+	// per-agent git worktree (the former ContainerWorktree). It owns the
+	// base-specific mounts (config overlay + gitdir mirror for the host; the .git
+	// common-dir mirror for a worktree), the base-specific teardown (noop vs the
+	// WIP-safe worktree teardown), and the policy name ("container" |
+	// "container-worktree"). Default hostBase on every NewContainer* path;
+	// NewContainerWorktree* inject worktreeBase. Nil only on a bare test-built
+	// Container{} — Name()/withSessionState nil-guard it.
+	base       containerBase
 	image      string
 	profile    containerProfile // backend-keyed knobs: auth, overlays, local-build recipe
 	binaryPath string           // the container's ctxloom path (runs `llm serve <backend>`)
@@ -113,6 +123,7 @@ func NewContainerFor(rt ContainerRuntime, backend string) Container {
 	p := containerProfileFor(backend)
 	return Container{
 		runtime:    rt,
+		base:       hostBase{},
 		image:      p.image,
 		profile:    p,
 		binaryPath: defaultContainerBinary,
@@ -138,8 +149,15 @@ func containerFor(rt ContainerRuntime, backend string, img ImageConfig) Containe
 	return c
 }
 
-// Name identifies the policy.
-func (Container) Name() string { return "container" }
+// Name identifies the policy: the injected base names it — "container" for the
+// host base (live project dir) or "container-worktree" for the worktree base. A
+// nil base (a bare test-built Container{}) reports the host name.
+func (c Container) Name() string {
+	if c.base == nil {
+		return "container"
+	}
+	return c.base.name()
+}
 
 // Approvals bypasses the engine's in-tool prompt: the container is the boundary,
 // so isolated runs launch with approvals off (better UX, blast radius contained).
@@ -148,58 +166,114 @@ func (Container) Approvals() Approvals { return ApprovalsBypass }
 // PrepareWorkspace provisions the container run's host-side scratch and doubles as
 // the degrade gate. It fails (→ caller falls back to None) when no runtime can
 // launch, the required image is absent, OR no engine auth can be resolved
-// (resolveContainerAuth). Otherwise it returns a workspace whose Dir() is the
-// identical-path project directory and whose Cleanup() removes the host scratch
-// tree (socket dir + config overlays); the container itself is torn down via the
-// client's Kill. agentID scopes the container name.
+// (resolveContainerAuth). Otherwise it delegates the workspace-flavored tail to
+// the injected base (host → the identical-path project dir; worktree → a per-agent
+// checkout) and returns a workspace whose Dir() is that cwd and whose Cleanup()
+// removes the host scratch tree then runs the base teardown; the container itself
+// is torn down via the client's Kill. agentID scopes the container name.
 func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	sc, err := c.prepareContainerScratch(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// The top-level run bind-mounts the LIVE project rw, so ctxloom's managed-config
-	// writers would land in the host project; shadow each with a scratch overlay to
-	// keep the host clean. The overlay set is the PROFILE's (claude: .claude;
-	// kiro: .kiro; plus the shared .ctxloom/cache). (The worktree-in-container
-	// composition skips this — its mounted workspace is an ephemeral worktree, so
-	// writes there are torn down.)
-	overlays, err := containerConfigOverlay(c.runtime, projectDir, sc.root, c.profile.overlayDirs)
+	// The base provisions the cwd the container mounts and its own mounts: the
+	// host base shadows the LIVE project's managed-config dirs (overlays) and
+	// mirrors a pointer-file .git; the worktree base creates the per-agent
+	// checkout and mirrors its .git common-dir. A base that created a resource
+	// (a worktree) unwinds it WIP-safely before returning the error; the scratch
+	// removal is ours regardless, so a degrade never leaks a temp dir.
+	dir, baseMounts, baseCleanup, err := c.base.prepareBase(ctx, c.runtime, projectDir, agentID, sc.root, c.profile, c.gitSeam())
 	if err != nil {
 		_ = os.RemoveAll(sc.root)
 		return nil, err
 	}
-	extraMounts := append(append(append([]Mount(nil), sc.auth.mounts...), overlays...), sc.stateMounts...)
-	// When the LIVE project is itself a linked worktree (or a submodule) its .git
-	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
-	// covered by the identical-path project mount. Mirror that common dir so
-	// in-container git resolves the repo, exactly as the worktree-in-container
-	// composition does (gitdirMount). A resolution failure fails this workspace so
-	// the chain degrades (fatal-unless-degraded), never a silent broken-git launch.
-	if gitMount, ok, gerr := c.gitdirMirrorMount(ctx, projectDir); gerr != nil {
-		_ = os.RemoveAll(sc.root)
-		return nil, gerr
-	} else if ok {
-		extraMounts = append(extraMounts, gitMount)
-	}
+	// Order is inert (SD4): every mount targets a distinct in-container path and
+	// renders as an independent --mount. auth + scoped state ride every axis; the
+	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
+	extraMounts := append(append(append([]Mount(nil), sc.auth.mounts...), sc.stateMounts...), baseMounts...)
 	return &containerWorkspace{
-		dir:         projectDir,
+		dir:         dir,
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
 		extraEnv:    sc.runEnv(),
 		extraMounts: extraMounts,
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
+		baseCleanup: baseCleanup,
 	}, nil
 }
 
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a
-// git.Fake to drive gitdirMirrorMount without a real linked worktree.
+// git.Fake to drive the host base's gitdir mirror without a real linked worktree.
 func (c Container) gitSeam() git.Git {
 	if c.git == nil {
 		return git.NewExec()
 	}
 	return c.git
+}
+
+// containerBase is the injectable base half the Container policy composes: WHERE
+// the container's cwd comes from and the mounts/teardown/name that follow from
+// it. Two implementations collapse what used to be two policy types: hostBase
+// (the plain Container over the LIVE project dir) and worktreeBase (the former
+// ContainerWorktree, a per-agent git worktree). The shared front-half
+// (prepareContainerScratch — runtime/image/auth gate + host scratch) stays on
+// Container; the base only supplies the workspace-flavored tail.
+type containerBase interface {
+	// prepareBase provisions the base workspace: the cwd dir the container mounts,
+	// the base-specific mounts, and a cleanup that tears the base's own resource
+	// down (called by containerWorkspace.Cleanup AFTER the shared scratch is
+	// removed). rt/g are the runtime + git seams, scratchRoot the already-created
+	// host scratch (the caller removes it), profile the managed-config overlay set.
+	// A failure returns the error so the caller removes the scratch and the chain
+	// degrades; a base that already created a resource (a worktree) unwinds it
+	// WIP-safely before returning.
+	prepareBase(ctx context.Context, rt ContainerRuntime, projectDir, agentID, scratchRoot string, profile containerProfile, g git.Git) (dir string, mounts []Mount, cleanup func() error, err error)
+	// withState stamps the run's session identity onto the base — worktreeBase
+	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
+	// the stamped base (bases are value types).
+	withState(state SessionState) containerBase
+	// name identifies the composed policy: "container" | "container-worktree".
+	name() string
+}
+
+// hostBase is the plain-Container base: the container's cwd IS the LIVE project
+// dir, bind-mounted identical-path. Its mounts are the managed-config scratch
+// overlays (keeping the host project clean while the engine writes to scratch)
+// plus, when the live project is itself a linked worktree/submodule, the .git
+// common-dir mirror. It creates no host-side resource of its own, so its cleanup
+// is a noop (Container removes the shared scratch).
+type hostBase struct{}
+
+// name identifies the plain container policy.
+func (hostBase) name() string { return "container" }
+
+// withState is a no-op: the host base persists no per-session scratch of its own
+// (the container's durable state rides Container.sessionStateMounts).
+func (hostBase) withState(SessionState) containerBase { return hostBase{} }
+
+// prepareBase mounts the LIVE project dir: the managed-config overlays shadow the
+// engine's config writers off the host project, and a pointer-file .git gets its
+// common dir mirrored so in-container git resolves. Failure returns the error
+// (the caller removes the scratch); nothing host-side is created to unwind.
+func (hostBase) prepareBase(ctx context.Context, rt ContainerRuntime, projectDir, _, scratchRoot string, profile containerProfile, g git.Git) (string, []Mount, func() error, error) {
+	overlays, err := containerConfigOverlay(rt, projectDir, scratchRoot, profile.overlayDirs)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	// When the LIVE project is itself a linked worktree (or a submodule) its .git
+	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
+	// covered by the identical-path project mount. Mirror that common dir so
+	// in-container git resolves the repo, exactly as the worktree base does. A
+	// resolution failure fails this workspace so the chain degrades
+	// (fatal-unless-degraded), never a silent broken-git launch.
+	if gitMount, ok, gerr := gitdirMirrorMount(ctx, rt, g, projectDir); gerr != nil {
+		return "", nil, nil, gerr
+	} else if ok {
+		overlays = append(overlays, gitMount)
+	}
+	return projectDir, overlays, func() error { return nil }, nil
 }
 
 // gitdirMirrorMount returns the git common-dir mirror mount the plain container
@@ -209,13 +283,13 @@ func (c Container) gitSeam() git.Git {
 // leaving in-container `git` unable to resolve the repo. ok=false (no extra mount)
 // when .git is a directory or absent: the common dir is inside the project mount
 // already (a normal main-repo checkout), or there is no repo to mirror. It reuses
-// the same identical-path mirror ContainerWorktree builds (gitCommonDirMount).
-func (c Container) gitdirMirrorMount(ctx context.Context, projectDir string) (Mount, bool, error) {
+// the same identical-path mirror the worktree base builds (gitCommonDirMount).
+func gitdirMirrorMount(ctx context.Context, rt ContainerRuntime, g git.Git, projectDir string) (Mount, bool, error) {
 	info, err := os.Stat(filepath.Join(projectDir, ".git"))
 	if err != nil || info.IsDir() {
 		return Mount{}, false, nil
 	}
-	m, err := gitCommonDirMount(ctx, c.runtime, c.gitSeam(), projectDir)
+	m, err := gitCommonDirMount(ctx, rt, g, projectDir)
 	if err != nil {
 		return Mount{}, false, err
 	}
@@ -339,14 +413,28 @@ func hostTerminalEnv(getenv func(string) string) []string {
 
 // SpawnClient launches the plugin inside a container for the prepared workspace
 // via the go-plugin RunnerFunc + AddrTranslator transport. The returned client is
-// an *LLMRunner (pb.Client) whose Kill force-removes the container. The workspace's
-// scoped auth env + credential/overlay mounts are threaded into the run spec.
+// an *LLMRunner (pb.Client) whose Kill force-removes the container. It is the
+// SINGLE spawn path for BOTH bases now that ContainerWorktree collapsed into
+// Container{base}: the workspace→LaunchSpec adaptation is factored into launchSpec
+// (cw.dir is the base-provided cwd — the live project dir for the host base, the
+// per-agent worktree checkout for the worktree base), so no per-policy LaunchSpec
+// construction is duplicated any more.
 func (c Container) SpawnClient(backendName, label string, verbosity int, ws Workspace) (pb.Client, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, fmt.Errorf("container spawn: unexpected workspace %T (expected a container workspace)", ws)
 	}
-	return c.runtime.Spawn(LaunchSpec{
+	return c.runtime.Spawn(c.launchSpec(backendName, label, verbosity, cw))
+}
+
+// launchSpec is the workspace→LaunchSpec adaptation the runtime's Spawn consumes:
+// the container conventions come from the Container (image/binary/home/socket),
+// the per-run cwd + host socket scratch + scoped auth env/credential/overlay/gitdir
+// mounts from the prepared workspace. Centralizing it here is what makes SpawnClient
+// "just adaptation plus runtime.Spawn" — the single builder that replaced the two
+// near-identical per-policy constructions the collapse removed.
+func (c Container) launchSpec(backendName, label string, verbosity int, cw *containerWorkspace) LaunchSpec {
+	return LaunchSpec{
 		BackendName:        backendName,
 		Label:              label,
 		Verbosity:          verbosity,
@@ -360,7 +448,7 @@ func (c Container) SpawnClient(backendName, label string, verbosity int, ws Work
 		ExtraEnv:           cw.extraEnv,
 		ExtraMounts:        cw.extraMounts,
 		AuthMode:           cw.authMode,
-	})
+	}
 }
 
 // loopbackPluginPort decides the plugin transport for a container run and, when
@@ -431,10 +519,10 @@ func containerConfigOverlay(rt ContainerRuntime, projectDir, scratchRoot string,
 // whose common dir lives OUTSIDE the mounted checkout) resolves inside the
 // container. Read-write by design: the per-checkout admin files (index, HEAD)
 // under <common>/worktrees/<name> are written there, exactly as a host-native
-// checkout writes to the shared .git — no new blast radius. Shared by
-// ContainerWorktree (whose worktree .git is ALWAYS a pointer file) and plain
-// Container (only when the live project is itself a linked worktree — see
-// Container.gitdirMirrorMount).
+// checkout writes to the shared .git — no new blast radius. Shared by the
+// worktree base (whose worktree .git is ALWAYS a pointer file) and the host base
+// (only when the live project is itself a linked worktree — see
+// gitdirMirrorMount).
 func gitCommonDirMount(ctx context.Context, rt ContainerRuntime, g git.Git, dir string) (Mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
@@ -554,39 +642,54 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 	}
 }
 
-// containerWorkspace is the container policy's workspace: Dir() is the live
-// project directory (identical-path mounted into the container) and Cleanup()
-// removes the host-side scratch tree (socket dir + config overlays). The container
-// is killed via the client. extraEnv/extraMounts carry the resolved auth env +
-// credential/overlay mounts threaded into the run spec at SpawnClient.
+// containerWorkspace is the container policy's workspace, unified across both
+// bases: Dir() is the cwd the container mounts identical-path — the LIVE project
+// dir (host base) or the per-agent worktree checkout (worktree base) — and
+// Cleanup() removes the host-side scratch tree (socket dir + config overlays)
+// then runs the base's own teardown (a noop for the host base; the WIP-safe,
+// nested-aware worktree teardown for the worktree base). The container is killed
+// via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env
+// + credential/overlay/gitdir mounts threaded into the run spec at SpawnClient.
 type containerWorkspace struct {
-	dir         string            // identical-path project dir (cwd + bind-mount target)
+	dir         string            // identical-path cwd (project dir or worktree checkout)
 	scratchRoot string            // host scratch tree removed by Cleanup
 	socketDir   string            // scratchRoot/sock — go-plugin's unix-socket temp dir
 	extraEnv    []string          // scoped auth env (passthrough)
-	extraMounts []Mount           // auth credential mounts + config overlays
+	extraMounts []Mount           // auth credential mounts + config overlays / gitdir mirror
 	authMode    containerAuthMode // how auth was resolved (diagnostics; no secrets)
 	agentID     string
+	// baseCleanup tears down the base's own resource AFTER the scratch is
+	// removed: a noop for the host base (the live project dir is never torn
+	// down), the worktree's WIP-safe teardown for the worktree base. Nil only on
+	// a bare test-built workspace — Cleanup nil-guards it.
+	baseCleanup func() error
 }
 
-// Dir returns the identical-path project directory (the container mounts it there
-// so cwd + .git resolve unchanged; the caller threads it into RunOptions.WorkDir).
+// Dir returns the identical-path cwd (the container mounts it there so cwd + .git
+// resolve unchanged; the caller threads it into RunOptions.WorkDir).
 func (w *containerWorkspace) Dir() string { return w.dir }
 
-// Cleanup removes the host scratch tree. Idempotent — safe to call once after the
-// run's client is killed. A removal failure is surfaced by warnCleanupResidue
-// (callers discard the returned error by contract).
+// Cleanup removes the host scratch tree, then runs the base teardown. Idempotent —
+// safe to call once after the run's client is killed (a second call skips the
+// already-removed scratch, and the worktree base teardown guards its own cleared
+// dir). A scratch-removal failure is surfaced by warnCleanupResidue AND returned
+// (SD3: the plain-Container always-warn+return semantic now covers both bases;
+// callers discard the returned error by contract). The base teardown is itself
+// WIP-safe / noop and never contributes an error.
 func (w *containerWorkspace) Cleanup() error {
-	if w.scratchRoot == "" {
-		return nil
+	var scratchErr error
+	if w.scratchRoot != "" {
+		dir := w.scratchRoot
+		w.scratchRoot = ""
+		if err := os.RemoveAll(dir); err != nil {
+			warnCleanupResidue("container scratch", dir, err)
+			scratchErr = fmt.Errorf("remove container scratch: %w", err)
+		}
 	}
-	dir := w.scratchRoot
-	w.scratchRoot = ""
-	if err := os.RemoveAll(dir); err != nil {
-		warnCleanupResidue("container scratch", dir, err)
-		return fmt.Errorf("remove container scratch: %w", err)
+	if w.baseCleanup != nil {
+		_ = w.baseCleanup()
 	}
-	return nil
+	return scratchErr
 }
 
 // warnCleanupResidue surfaces a workspace-teardown removal failure: the

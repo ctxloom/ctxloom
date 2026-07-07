@@ -198,7 +198,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		// boundary is lost even though the workspace axis is preserved, so it is
 		// fatal — a container→non-container transition, not the benign
 		// worktree→none workspace-axis degrade.
-		chain := []Policy{failingPolicy{name: (ContainerWorktree{}).Name()}, passingPolicy{name: (Worktree{}).Name()}, None{}}
+		chain := []Policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
 		policy, ws := prepareChain(context.Background(), chain, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")

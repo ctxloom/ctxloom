@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -86,10 +85,17 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
 	}
-	if err := afero.WriteFile(fs, filepath.Join(req.Target, "CLAUDE.md"), []byte(asm.Context), 0o644); err != nil {
-		return nil, fmt.Errorf("write CLAUDE.md: %w", err)
+	// The backend's ContextWriter owns the native context surface (claude-code →
+	// CLAUDE.md, antigravity → .agents/AGENTS.md, kiro → steering); the
+	// orchestrator holds no per-backend file knowledge. A backend without a
+	// native context surface (codex/acp) writes nothing (empty report). This is
+	// the one fatal surface: the caller named these profiles, so a failed write
+	// aborts the export.
+	report, err := backends.WriteContext(backend, req.Target, asm.Context, backends.WithSettingsFS(fs))
+	if err != nil {
+		return nil, err
 	}
-	res.Wrote = append(res.Wrote, "CLAUDE.md")
+	res.Wrote = append(res.Wrote, report.Wrote...)
 
 	// mcp + hooks → the backend's settings + MCP config. contextHash "" omits the
 	// SessionStart context-injection hook — the context is STATIC in CLAUDE.md, so

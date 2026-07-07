@@ -166,6 +166,20 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.
 	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
 }
 
+// WriteContext implements agent.ContextWriter for Claude Code: it writes the
+// assembled context (req.Context) to <projectDir>/CLAUDE.md as raw, whole-file
+// content (0644, no markers). This is the STATIC context surface an
+// externally-launched Claude Code session reads directly — the same payload the
+// SessionStart injection hook delivers at runtime, but written to disk with
+// ctxloom out of the loop. (The framed-cache / --append-system-prompt-file
+// runtime path is separate; managed-section markers arrive later.)
+func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
+	if err := afero.WriteFile(w.getFS(), filepath.Join(req.ProjectDir, "CLAUDE.md"), []byte(req.Context), 0o644); err != nil {
+		return agent.ContextReport{}, fmt.Errorf("write CLAUDE.md: %w", err)
+	}
+	return agent.ContextReport{Wrote: []string{"CLAUDE.md"}}, nil
+}
+
 // loadSettings loads existing settings.json or returns empty settings.
 // This function is fault-tolerant: on parse errors, it logs a warning and
 // returns empty settings rather than failing, allowing ctxloom to continue.

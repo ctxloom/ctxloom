@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -118,6 +119,43 @@ func TestContainerWorktreeWorkspace_CleanupSurfacesResidue(t *testing.T) {
 	assert.NoError(t, err, "the composed cleanup never errors (WIP-safe contract)")
 	assert.Contains(t, stderr, root, "the warning names the residue path")
 	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
+}
+
+// TestContainer_GitdirMirrorMount is finding-2's unit: when the LIVE project is
+// itself a linked worktree (or submodule) its .git is a POINTER FILE whose common
+// dir lives OUTSIDE the identical-path project mount, so the plain container must
+// mirror that common dir (same fix ContainerWorktree uses) — but a normal .git
+// DIRECTORY (main-repo checkout) is already covered by the project mount and needs
+// no extra mount, and a non-repo project needs none either.
+func TestContainer_GitdirMirrorMount(t *testing.T) {
+	ctx := context.Background()
+	const common = "/repo/.git"
+
+	c := NewContainer(fakeRuntime{name: "docker", available: true}, "img")
+	c.git = &git.Fake{CommonDirValue: common}
+
+	// .git is a POINTER FILE → mirror the common dir identical-path.
+	fileProj := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fileProj, ".git"),
+		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
+	m, ok, err := c.gitdirMirrorMount(ctx, fileProj)
+	require.NoError(t, err)
+	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
+	assert.Equal(t, Mount{Host: common, Container: common}, m,
+		"the common dir is mirrored identical-path so gitdir resolves in-container")
+
+	// .git is a DIRECTORY → already inside the identical-path project mount.
+	dirProj := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
+	_, ok, err = c.gitdirMirrorMount(ctx, dirProj)
+	require.NoError(t, err)
+	assert.False(t, ok, "a normal .git directory is covered by the project mount; no mirror")
+
+	// No repo at all → nothing to mirror.
+	bareProj := t.TempDir()
+	_, ok, err = c.gitdirMirrorMount(ctx, bareProj)
+	require.NoError(t, err)
+	assert.False(t, ok, "a non-repo project needs no gitdir mirror")
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,

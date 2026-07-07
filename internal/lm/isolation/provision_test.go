@@ -65,8 +65,9 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 // dir under the root, whose container target shadows the project path — keeping
 // the host project clean of ctxloom's per-run config writes.
 func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
+	proj := t.TempDir()
 	root := t.TempDir()
-	mounts, err := containerConfigOverlay("/proj", root, defaultOverlayDirs)
+	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 
@@ -79,8 +80,37 @@ func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
 		require.NoError(t, statErr, "overlay host scratch dir is created")
 		assert.True(t, info.IsDir())
 	}
-	assert.True(t, targets[filepath.Join("/proj", ".claude")], ".claude shadowed")
-	assert.True(t, targets[filepath.Join("/proj", ".ctxloom/cache")], ".ctxloom/cache shadowed")
+	assert.True(t, targets[filepath.Join(proj, ".claude")], ".claude shadowed")
+	assert.True(t, targets[filepath.Join(proj, ".ctxloom/cache")], ".ctxloom/cache shadowed")
+}
+
+// TestContainerConfigOverlay_PrecreatesTargets: the overlay TARGET (projectDir/rel)
+// is nested inside the identical-path project bind, so if it does not yet exist a
+// rootful docker daemon would create the bind mountpoint AS ROOT — landing a
+// root-owned dir in the real HOST project and EACCES-ing every later host run's
+// managed-config writers. Over a FRESH project (no .claude / .ctxloom), ctxloom
+// must pre-create each target itself (as the invoking user), so docker finds it
+// existing and never root-creates it.
+func TestContainerConfigOverlay_PrecreatesTargets(t *testing.T) {
+	proj := t.TempDir() // fresh: no .claude, no .ctxloom
+	root := t.TempDir()
+
+	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
+	require.NoError(t, err)
+	require.Len(t, mounts, len(defaultOverlayDirs))
+
+	for _, rel := range defaultOverlayDirs {
+		target := filepath.Join(proj, rel)
+		info, statErr := os.Stat(target)
+		require.NoError(t, statErr, "ctxloom pre-creates overlay target %q so docker never root-creates it in the host project", target)
+		assert.True(t, info.IsDir(), "%q is a directory", target)
+	}
+	for _, m := range mounts {
+		assert.True(t, strings.HasPrefix(m.Container, proj), "overlay target is nested under the identical-path project bind")
+		info, statErr := os.Stat(m.Container)
+		require.NoError(t, statErr, "the nested mountpoint exists on the host before the container starts")
+		assert.True(t, info.IsDir())
+	}
 }
 
 // TestContainerConfigOverlay_SeedsFromProject: each overlay scratch dir starts

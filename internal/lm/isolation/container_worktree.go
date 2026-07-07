@@ -136,11 +136,7 @@ func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, age
 // host-native worktree writes to the shared .git — no new blast radius over a bare
 // worktree, which also shares the main repo's .git.
 func (c ContainerWorktree) gitdirMount(ctx context.Context, worktreeDir string) (Mount, error) {
-	common, err := c.worktree.git.CommonDir(ctx, worktreeDir)
-	if err != nil {
-		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
-	}
-	return Mount{Host: common, Container: common}, nil
+	return gitCommonDirMount(ctx, c.worktree.git, worktreeDir)
 }
 
 // SpawnClient launches the plugin in a container that mounts the member's WORKTREE

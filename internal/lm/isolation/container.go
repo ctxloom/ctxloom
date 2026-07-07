@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -81,6 +82,12 @@ type Container struct {
 	// keep transcripts/session artifacts/task writes durable across teardown
 	// (sessionStateMounts). Zero on paths without session accounting.
 	state SessionState
+	// git is the DI seam used to resolve the live project's git common-dir when
+	// the project is itself a LINKED WORKTREE (or submodule) — see
+	// gitdirMirrorMount. Nil on the normal construction paths
+	// (NewContainer/NewContainerFor/containerFor); gitSeam defaults it to the
+	// real git binary. Tests inject a git.Fake.
+	git git.Git
 }
 
 // Ensure Container satisfies the Policy interface.
@@ -161,15 +168,58 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 		_ = os.RemoveAll(sc.root)
 		return nil, err
 	}
+	extraMounts := append(append(append([]Mount(nil), sc.auth.mounts...), overlays...), sc.stateMounts...)
+	// When the LIVE project is itself a linked worktree (or a submodule) its .git
+	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
+	// covered by the identical-path project mount. Mirror that common dir so
+	// in-container git resolves the repo, exactly as the worktree-in-container
+	// composition does (gitdirMount). A resolution failure fails this workspace so
+	// the chain degrades (fatal-unless-degraded), never a silent broken-git launch.
+	if gitMount, ok, gerr := c.gitdirMirrorMount(ctx, projectDir); gerr != nil {
+		_ = os.RemoveAll(sc.root)
+		return nil, gerr
+	} else if ok {
+		extraMounts = append(extraMounts, gitMount)
+	}
 	return &containerWorkspace{
 		dir:         projectDir,
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
 		extraEnv:    sc.runEnv(),
-		extraMounts: append(append(append([]Mount(nil), sc.auth.mounts...), overlays...), sc.stateMounts...),
+		extraMounts: extraMounts,
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
 	}, nil
+}
+
+// gitSeam returns the container's git DI seam, defaulting to the real git binary
+// when unset (the normal construction paths leave it nil). Tests inject a
+// git.Fake to drive gitdirMirrorMount without a real linked worktree.
+func (c Container) gitSeam() git.Git {
+	if c.git == nil {
+		return git.NewExec()
+	}
+	return c.git
+}
+
+// gitdirMirrorMount returns the git common-dir mirror mount the plain container
+// needs when the LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
+// projectDir/.git is a POINTER FILE, not a directory — whose common git dir lives
+// OUTSIDE projectDir and so is NOT covered by the identical-path project mount,
+// leaving in-container `git` unable to resolve the repo. ok=false (no extra mount)
+// when .git is a directory or absent: the common dir is inside the project mount
+// already (a normal main-repo checkout), or there is no repo to mirror. It reuses
+// the same identical-path mirror ContainerWorktree builds (gitCommonDirMount).
+func (c Container) gitdirMirrorMount(ctx context.Context, projectDir string) (Mount, bool, error) {
+	info, err := os.Stat(filepath.Join(projectDir, ".git"))
+	if err != nil || info.IsDir() {
+		return Mount{}, false, nil
+	}
+	m, err := gitCommonDirMount(ctx, c.gitSeam(), projectDir)
+	if err != nil {
+		return Mount{}, false, err
+	}
+	return m, true, nil
 }
 
 // containerScratch is the host-side scratch every container run needs regardless
@@ -381,10 +431,39 @@ func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string
 		if err := os.MkdirAll(host, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay scratch: %w", err)
 		}
-		seedOverlay(filepath.Join(projectDir, rel), host)
-		mounts = append(mounts, Mount{Host: host, Container: filepath.Join(projectDir, rel)})
+		target := filepath.Join(projectDir, rel)
+		seedOverlay(target, host)
+		// Pre-create the overlay TARGET (as the invoking user — this process runs
+		// as it) BEFORE docker sees the mount. The target is nested inside the
+		// identical-path project bind (mounted rw at the SAME host path), so a
+		// still-missing target would make a rootful docker daemon create the bind
+		// mountpoint AS ROOT — and that root-owned dir lands in the real HOST
+		// project through the identical-path bind, EACCES-ing every later host
+		// run's managed-config writers. Creating it ourselves makes docker find it
+		// existing. Idempotent (a no-op — never a chmod — when it already exists).
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return nil, fmt.Errorf("container config overlay target: %w", err)
+		}
+		mounts = append(mounts, Mount{Host: host, Container: target})
 	}
 	return mounts, nil
+}
+
+// gitCommonDirMount builds the identical-path .git mirror mount from a checkout's
+// git common-dir, so a `gitdir:` POINTER FILE (a linked worktree or submodule,
+// whose common dir lives OUTSIDE the mounted checkout) resolves inside the
+// container. Read-write by design: the per-checkout admin files (index, HEAD)
+// under <common>/worktrees/<name> are written there, exactly as a host-native
+// checkout writes to the shared .git — no new blast radius. Shared by
+// ContainerWorktree (whose worktree .git is ALWAYS a pointer file) and plain
+// Container (only when the live project is itself a linked worktree — see
+// Container.gitdirMirrorMount).
+func gitCommonDirMount(ctx context.Context, g git.Git, dir string) (Mount, error) {
+	common, err := g.CommonDir(ctx, dir)
+	if err != nil {
+		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
+	}
+	return Mount{Host: common, Container: common}, nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

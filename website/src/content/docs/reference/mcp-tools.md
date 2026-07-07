@@ -13,6 +13,33 @@ The MCP surface is for **retrieving context during a session**: assembling conte
 
 ## Tools
 
+### agent_recv
+
+Receive pending bus messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish — the coordinator learns from the session record, not from silence.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `wait` | integer | No | Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish |
+
+### agent_run
+
+Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as bus messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `agent` | string | Yes | Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored) |
+| `prompt` | string | Yes | The child's briefing — delivered as its first turn |
+
+### agent_send
+
+Send a bus message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Executors may only address "parent"; peer messaging routes via the coordinator. In-memory, at-most-once: durable results belong in reports/tasks, not the bus.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `body` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
+| `kind` | string | No | Optional message kind (e.g. result, question, error) |
+| `to` | string | Yes | Recipient: a child session harp, or "parent" (executors may ONLY address their parent) |
+
 ### assemble_context
 
 Assemble context from a profile, fragments, and/or tags. Returns the combined context that would be sent to an AI.

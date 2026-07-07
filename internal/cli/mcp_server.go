@@ -26,6 +26,10 @@ import (
 // for the lifetime of the MCP session.
 type ctxServer struct {
 	cfg *config.Config
+	// agents is the delegation state (orchestrator + bus broker, or the
+	// executor-mode forwarder) behind the agent_* tools; nil on the docgen
+	// server, set by registerAgentTools.
+	agents *agentDelegation
 }
 
 // mcpServerInstructions tells the client what this reduced MCP surface is for.
@@ -226,4 +230,5 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
 	s.registerMemoryTools(server)
+	s.registerAgentTools(server)
 }

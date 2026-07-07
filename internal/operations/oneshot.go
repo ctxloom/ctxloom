@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -158,6 +159,10 @@ type resolvedRunRequest struct {
 	// exports gate at their own choke exactly as the top-level run. nil = no gating
 	// (and none members never consult it).
 	Gate bundles.ContentGate
+
+	// ExtraEnv is merged over the workspace env into the member engine's
+	// environment (a delegated child's session harp / bus socket / depth).
+	ExtraEnv map[string]string
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
@@ -315,12 +320,20 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		memberPerm = agent.PermissionBypass
 	}
 
+	env := workspaceEnv
+	if len(req.ExtraEnv) > 0 {
+		merged := make(map[string]string, len(workspaceEnv)+len(req.ExtraEnv))
+		maps.Copy(merged, workspaceEnv)
+		maps.Copy(merged, req.ExtraEnv)
+		env = merged
+	}
+
 	runReq := &pb.RunStart{
 		Fragments: fragments,
 		Prompt:    &pb.Fragment{Content: req.Task},
 		Options: &pb.RunOptions{
 			WorkDir:        workDir,
-			Env:            workspaceEnv,
+			Env:            env,
 			PermissionMode: memberPerm.String(),
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          req.Model,

@@ -123,7 +123,7 @@ func (c ContainerWorktree) PrepareWorkspace(ctx context.Context, projectDir, age
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
 		extraEnv:    sc.runEnv(),
-		extraMounts: append(append([]Mount(nil), sc.auth.mounts...), gitMount),
+		extraMounts: append(append(append([]Mount(nil), sc.auth.mounts...), sc.stateMounts...), gitMount),
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
 	}, nil

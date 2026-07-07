@@ -71,6 +71,11 @@ type Container struct {
 	// layers the agent stage onto (config isolation_base_containerfile;
 	// "" = the embedded default base).
 	baseContainerfile string
+	// state is the run's session identity (harp + project id), stamped by
+	// Prepare (withSessionState); it scopes the read-write state mounts that
+	// keep transcripts/session artifacts/task writes durable across teardown
+	// (sessionStateMounts). Zero on paths without session accounting.
+	state SessionState
 }
 
 // Ensure Container satisfies the Policy interface.
@@ -156,7 +161,7 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
 		extraEnv:    sc.runEnv(),
-		extraMounts: append(append([]Mount(nil), sc.auth.mounts...), overlays...),
+		extraMounts: append(append(append([]Mount(nil), sc.auth.mounts...), overlays...), sc.stateMounts...),
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
 	}, nil
@@ -172,6 +177,10 @@ type containerScratch struct {
 	socketDir string
 	auth      containerAuth
 	termEnv   []string
+	// stateMounts are the scoped RW session-state mounts (transcript store,
+	// session persist dir, shared task log — see sessionStateMounts) every
+	// container run threads into its spec regardless of workspace axis.
+	stateMounts []Mount
 }
 
 // runEnv composes the per-run env threaded into the container spec: the scoped
@@ -235,6 +244,14 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	if !ok {
 		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
 	}
+	// Session-state persistence is part of the container gate: a run whose
+	// state dirs cannot be prepared errors here so the caller's degrade chain
+	// raises the fatal-unless-degraded ClassIsolation finding, exactly like an
+	// absent image or unresolvable auth — never a silent state-losing launch.
+	stateMounts, err := c.sessionStateMounts()
+	if err != nil {
+		return containerScratch{}, err
+	}
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
@@ -244,7 +261,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container socket scratch: %w", err)
 	}
-	return containerScratch{root: root, socketDir: socketDir, auth: auth, termEnv: hostTerminalEnv(os.Getenv)}, nil
+	return containerScratch{root: root, socketDir: socketDir, auth: auth, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
 }
 
 // hostTerminalEnv forwards the host's terminal description into the container

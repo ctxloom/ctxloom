@@ -55,7 +55,7 @@ func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace) (pb.Cl
 func stubPrepareIsolation(t *testing.T, failFor map[string]bool, mk func() pb.Client) {
 	t.Helper()
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
 		if failFor[agentID] {
 			strictness.Fail(strictness.ClassIsolation,
 				"install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",

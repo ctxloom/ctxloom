@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -219,3 +220,28 @@ func indexOf(ss []string, want string) int {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+// TestWorktree_ScratchRelocatesIntoHarpEphemeral: a run that carries a session
+// harp homes BOTH per-agent scratch dirs (the checkout and the config-home)
+// under the session's ephemeral/ dir — the §6d layout: regenerable state in
+// one inspectable per-session place — instead of the OS temp dir. The no-harp
+// case keeps the temp dir (pinned by TestWorktree_PrepareCreatesWorktree).
+func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
+	home := testsupport.Isolate(t)
+	f := &git.Fake{CommonDirValue: t.TempDir()}
+
+	w := NewWorktree(f)
+	w.state = SessionState{Harp: "brisk-teal-otter"}
+	ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-a")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Cleanup() })
+
+	eph := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "ephemeral")
+	assert.True(t, strings.HasPrefix(ws.Dir(), eph+string(os.PathSeparator)),
+		"checkout %q lives under the session ephemeral dir", ws.Dir())
+
+	env := WorkspaceEnv(ws)
+	require.NotNil(t, env)
+	assert.True(t, strings.HasPrefix(env["CLAUDE_CONFIG_DIR"], eph+string(os.PathSeparator)),
+		"config-home %q lives under the session ephemeral dir", env["CLAUDE_CONFIG_DIR"])
+}

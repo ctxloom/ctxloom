@@ -875,7 +875,10 @@ Examples:
 			// that can't be satisfied aborts (exit 3) before an UNSANDBOXED
 			// engine is spawned — unless --degraded, which records nothing and
 			// proceeds on the host per the degrade chain.
-			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp)
+			// The session identity (harp + project id) rides the same runEnv the
+			// engine gets, so the isolation state mounts and the in-container
+			// writers key off one source.
+			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp, isolation.SessionStateFromEnv(runEnv))
 			// The permission posture is resolved once from config/CLI/agent and is
 			// authoritative regardless of how the isolation boundary degrades: a
 			// container that failed to launch does NOT drop a configured bypass —

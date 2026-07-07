@@ -110,7 +110,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	if p.factory == nil {
 		isolationGateMu.Lock()
 		mark := strictness.Checkpoint()
-		policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), req.WorkDir, rs.Name)
+		policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), req.WorkDir, rs.Name, isolation.SessionStateFromEnv(req.Env))
 		found := strictness.Since(mark)
 		isolationGateMu.Unlock()
 		p.workDir = ws.Dir()

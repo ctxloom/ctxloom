@@ -273,7 +273,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// findings list — see the var's doc.
 		isolationGateMu.Lock()
 		mark := strictness.Checkpoint()
-		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
+		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID, isolation.SessionStateFromEnv(req.ExtraEnv))
 		found := strictness.Since(mark)
 		isolationGateMu.Unlock()
 		workDir = ws.Dir()

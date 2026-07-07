@@ -23,7 +23,7 @@ func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
 	resetStrictness(t)
 	var gotAxes isolation.Axes
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
 		gotAxes = axes
 		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
 	}

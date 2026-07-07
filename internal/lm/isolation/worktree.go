@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -37,6 +38,12 @@ const worktreeTeardownTimeout = 30 * time.Second
 type Worktree struct {
 	git     git.Git
 	baseRef string
+	// state is the run's session identity, stamped by Prepare
+	// (withSessionState). A known harp homes the per-agent scratch (checkout +
+	// config-home) under the session's ephemeral/ dir instead of the OS temp
+	// dir — one place to inspect a session's regenerable state (§6d). Zero on
+	// paths without session accounting → the OS temp dir, exactly as before.
+	state SessionState
 }
 
 // Ensure Worktree satisfies the Policy interface.
@@ -75,7 +82,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		return nil, fmt.Errorf("worktree isolation: %q is not a git repository", projectDir)
 	}
 
-	wtPath := worktreeScratchPath("ctxloom-wt", agentID)
+	wtPath := worktreeScratchPath(w.scratchBase(), "ctxloom-wt", agentID)
 	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, w.baseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
@@ -102,8 +109,8 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, _ Workspac
 // "" on failure — the run still proceeds against the shared global config (warn),
 // never blocking. The scoped envs are preferred over a per-session HOME, which
 // would strip ~/.gitconfig/ssh identity the worktree still needs.
-func (Worktree) provisionConfigHome(agentID string) string {
-	home := worktreeScratchPath("ctxloom-cfg", agentID)
+func (w Worktree) provisionConfigHome(agentID string) string {
+	home := worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
 	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
 	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
 	// world-traversable.
@@ -269,14 +276,36 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 	return nested
 }
 
-// worktreeScratchPath builds a unique, ctxloom-managed scratch path under the OS
-// temp dir (NOT inside the repo tree) keyed by prefix + a sanitized agent id + a
-// random suffix, so concurrent members never collide.
-func worktreeScratchPath(prefix, agentID string) string {
+// scratchBase picks where this worktree's per-agent scratch (checkout +
+// config-home) lives: the session's ephemeral/ dir when the run carries a
+// harp — regenerable state belongs in the per-session layout, and cleanup of
+// the session dir sweeps it — else the OS temp dir (no session accounting, or
+// the ephemeral dir cannot be prepared). Best-effort like the rest of the
+// worktree half: a fallback warns and the run proceeds.
+func (w Worktree) scratchBase() string {
+	if !safePathSegment(w.state.Harp) {
+		return os.TempDir()
+	}
+	dir, err := paths.HarpEphemeralDir(w.state.Harp)
+	if err == nil {
+		err = os.MkdirAll(dir, 0o755)
+	}
+	if err != nil {
+		clidiag.Warn("ctxloom", "worktree: session ephemeral dir unavailable (%v); using the OS temp dir", err)
+		return os.TempDir()
+	}
+	return dir
+}
+
+// worktreeScratchPath builds a unique, ctxloom-managed scratch path under base
+// (the session's ephemeral dir, or the OS temp dir — NOT inside the repo tree)
+// keyed by prefix + a sanitized agent id + a random suffix, so concurrent
+// members never collide.
+func worktreeScratchPath(base, prefix, agentID string) string {
 	id := containerNameSafe.ReplaceAllString(agentID, "-")
 	id = strings.Trim(id, "-._")
 	if id == "" {
 		id = "agent"
 	}
-	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s-%s", prefix, id, randToken()))
+	return filepath.Join(base, fmt.Sprintf("%s-%s-%s", prefix, id, randToken()))
 }

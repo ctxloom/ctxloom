@@ -140,3 +140,25 @@ func TestDefaultLockPath(t *testing.T) {
 func TestDefaultVendorPath(t *testing.T) {
 	assert.Equal(t, ".ctxloom/cache/vendor", DefaultVendorPath())
 }
+
+// =============================================================================
+// Per-session state layout (§6d): ephemeral/ vs persist/ under the harp dir
+// =============================================================================
+
+func TestHarpStateDirs_Layout(t *testing.T) {
+	home := testsupport.Isolate(t)
+	root := filepath.Join(home, ".ctxloom", "sessions", "swift-amber-falcon")
+
+	eph, err := HarpEphemeralDir("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "ephemeral"), eph)
+
+	persist, err := HarpPersistDir("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "persist"), persist)
+
+	store, err := HarpTranscriptStoreDir("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "persist", "transcripts"), store,
+		"the transcript store nests under persist/: it must survive teardown")
+}

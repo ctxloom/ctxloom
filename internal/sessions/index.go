@@ -13,9 +13,12 @@ package sessions
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -293,10 +296,88 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 		clidiag.Warn("ctxloom", "transcript link: %v", err)
 		return
 	}
+	// A transcript that already lives INSIDE the session dir needs no
+	// reference link: a containerized run bind-mounts the engine's store root
+	// at persist/transcripts, so the physical file is harp-addressable by
+	// location (LocateTranscript) and a transcript.jsonl symlink would only
+	// add a second name for it inside the same dir.
+	if rel, err := filepath.Rel(dir, transcriptPath); err == nil &&
+		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return
+	}
 	link := filepath.Join(dir, "transcript.jsonl")
 	_ = os.Remove(link) // replace any stale link; ignore absence
 	if err := os.Symlink(transcriptPath, link); err != nil {
 		clidiag.Warn("ctxloom", "transcript link: %v", err)
+	}
+}
+
+// LocateTranscript finds a harp's transcript BY LOCATION: the newest
+// transcript-shaped file under ~/.ctxloom/sessions/<harp>/persist/transcripts,
+// the dir a containerized run bind-mounts to the engine's native transcript
+// store root. A containerized structured child never runs the SessionStart
+// hook, so the normal BindSession path (which records TranscriptPath) never
+// fires — but with the mount, the transcript physically lives in the harp's
+// session dir, so location IS the binding. Engines nest their stores
+// (claude: <encoded-project>/<uuid>.jsonl; antigravity:
+// <uuid>/.system_generated/logs/transcript_full.jsonl), hence the recursive
+// walk. The newest .jsonl wins (claude/codex/antigravity transcripts); .json
+// is the kiro-store fallback considered only when no .jsonl exists.
+func LocateTranscript(harpName string) (string, bool) {
+	if harpName == "" {
+		return "", false
+	}
+	root, err := paths.HarpTranscriptStoreDir(harpName)
+	if err != nil {
+		return "", false
+	}
+	var bestJSONL, bestJSON string
+	var tJSONL, tJSON time.Time
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil // an absent/unreadable subtree degrades to "not found"
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		switch filepath.Ext(p) {
+		case ".jsonl":
+			if bestJSONL == "" || info.ModTime().After(tJSONL) {
+				bestJSONL, tJSONL = p, info.ModTime()
+			}
+		case ".json":
+			if bestJSON == "" || info.ModTime().After(tJSON) {
+				bestJSON, tJSON = p, info.ModTime()
+			}
+		}
+		return nil
+	})
+	if bestJSONL != "" {
+		return bestJSONL, true
+	}
+	if bestJSON != "" {
+		return bestJSON, true
+	}
+	return "", false
+}
+
+// fillTranscriptByLocation resolves a missing (or dangling) transcript binding
+// by location for a returned entry COPY. Computed on read and never persisted
+// — the same posture as the Distilled/EssencePath computed fields — so the
+// on-disk index keeps only what a bind actually recorded. A live host-bound
+// entry short-circuits on the stat and is untouched.
+func fillTranscriptByLocation(e *Entry) {
+	if e == nil || e.HarpName == "" {
+		return
+	}
+	if e.TranscriptPath != "" {
+		if _, err := os.Stat(e.TranscriptPath); err == nil {
+			return
+		}
+	}
+	if p, ok := LocateTranscript(e.HarpName); ok {
+		e.TranscriptPath = p
 	}
 }
 
@@ -307,13 +388,13 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range idx.Sessions {
-		if idx.Sessions[i].HarpName == harpName {
-			out := idx.Sessions[i]
-			return &out, nil
-		}
+	i := slices.IndexFunc(idx.Sessions, func(e Entry) bool { return e.HarpName == harpName })
+	if i < 0 {
+		return nil, nil
 	}
-	return nil, nil
+	out := idx.Sessions[i]
+	fillTranscriptByLocation(&out)
+	return &out, nil
 }
 
 // ListForProject returns entries whose ProjectDir == projectDir, sorted
@@ -326,6 +407,7 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
+			fillTranscriptByLocation(&e)
 			out = append(out, e)
 		}
 	}
@@ -480,6 +562,12 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 		if err := m.saveLocked(idx); err != nil {
 			return nil, err
 		}
+	}
+	// Fill AFTER the save decision so the located path is computed-on-read
+	// only, never persisted; isDead deliberately judged the RAW entries (an
+	// unbound entry with a located transcript is recoverable either way).
+	for i := range survivors {
+		fillTranscriptByLocation(&survivors[i])
 	}
 	return survivors, nil
 }

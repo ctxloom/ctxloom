@@ -331,10 +331,37 @@ func IsContainerPolicyName(name string) bool {
 // prepared workspace. One mechanism serves the top-level session and every
 // fan-out member alike: the workspace axis arrives from the SESSION
 // (invocation flag / project default) and the runtime axis from the AGENT
-// binding — this function just realizes their product. Each degrade warns
-// (CLAUDE.md fault tolerance); the run is never blocked.
-func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string) (Policy, Workspace) {
-	return prepareChain(ctx, chainFor(axes, backend, img), projectDir, agentID)
+// binding — this function just realizes their product. state is the run's
+// session identity (SessionStateFromEnv over the run's env map): it scopes
+// the container policies' durable state mounts and the worktree's ephemeral
+// scratch home. Each degrade warns (CLAUDE.md fault tolerance); the run is
+// never blocked.
+func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
+	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), projectDir, agentID)
+}
+
+// withSessionState stamps the run's session identity onto every policy in the
+// degrade chain that consumes it (the container policies' state mounts, the
+// worktree's ephemeral scratch home). Applied AFTER chainFor so the chain
+// construction — and Resolve, which only needs policy identity — stays
+// state-free. Policies are value types; the stamped copies replace the
+// originals in place.
+func withSessionState(chain []Policy, state SessionState) []Policy {
+	for i, p := range chain {
+		switch v := p.(type) {
+		case Container:
+			v.state = state
+			chain[i] = v
+		case ContainerWorktree:
+			v.container.state = state
+			v.worktree.state = state
+			chain[i] = v
+		case Worktree:
+			v.state = state
+			chain[i] = v
+		}
+	}
+	return chain
 }
 
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first

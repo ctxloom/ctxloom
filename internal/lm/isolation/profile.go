@@ -34,19 +34,28 @@ import (
 //     overlay mounts on the live-project mount so the HOST project stays clean
 //     (see containerConfigOverlay; directories only — single-file overlays would
 //     break the writers' atomic write+rename).
+//   - transcriptStoreRel: the engine's native transcript/session STORE ROOT,
+//     relative to the container HOME — the bind target sessionStateMounts maps
+//     the harp's persist/transcripts dir onto so in-container transcripts
+//     survive teardown. The ROOT, never a leaf: the transcript file name is a
+//     runtime-generated sessionID/uuid the host cannot pre-create, and the
+//     container's fresh HOME already scopes the root to this one run. Resolved
+//     against the CONTAINER home; an engine-home env override (CODEX_HOME &
+//     co.) is deliberately not consulted — the container axis never sets one.
 //
 // Profiles are keyed by the REGISTERED backend name (internal/lm/backends
 // registry: "claude-code", "kiro", ...). The isolation package deliberately does
 // not import the backends registry (it would drag the whole backend tree into
 // the seam); the names are part of the descriptor contract.
 type containerProfile struct {
-	image         string
-	officialImage string
-	containerfile []byte
-	validate      string
-	resolveAuth   func(containerHome string) (containerAuth, bool)
-	authHint      string
-	overlayDirs   []string
+	image              string
+	officialImage      string
+	containerfile      []byte
+	validate           string
+	resolveAuth        func(containerHome string) (containerAuth, bool)
+	authHint           string
+	overlayDirs        []string
+	transcriptStoreRel string
 }
 
 // defaultOverlayDirs is the claude-oriented managed-config overlay set:
@@ -83,11 +92,12 @@ func containerProfileFor(backend string) containerProfile {
 			// most recent claude — is the build source. A user can still
 			// overlay onto any client-shipping base via `container build
 			// --base-image`.
-			containerfile: containerfiles.ClaudeCode,
-			validate:      "claude --version",
-			resolveAuth:   resolveClaudeContainerAuth,
-			authHint:      "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
-			overlayDirs:   defaultOverlayDirs,
+			containerfile:      containerfiles.ClaudeCode,
+			validate:           "claude --version",
+			resolveAuth:        resolveClaudeContainerAuth,
+			authHint:           "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
+			overlayDirs:        defaultOverlayDirs,
+			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
 	case "kiro":
 		return containerProfile{
@@ -100,13 +110,31 @@ func containerProfileFor(backend string) containerProfile {
 			resolveAuth:   resolveKiroContainerAuth,
 			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (subscription credential mounts pend live verification)",
 			overlayDirs:   kiroOverlayDirs,
+			// Kiro keeps its whole session store directly under $KIRO_HOME
+			// (per-session json triples), so the engine home IS the store root.
+			transcriptStoreRel: ".kiro",
 		}
+	// codex and antigravity have no dedicated agent image/auth yet: both
+	// inherit the default (claude-oriented) profile exactly as they did
+	// through the default case — these cases exist ONLY to map each engine's
+	// native transcript store so a containerized run persists it correctly.
+	case "codex":
+		p := containerProfileFor("")
+		p.transcriptStoreRel = filepath.FromSlash(".codex/sessions")
+		return p
+	case "antigravity":
+		p := containerProfileFor("")
+		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
+		return p
 	default:
 		return containerProfile{
 			image:       defaultContainerImage,
 			resolveAuth: resolveClaudeContainerAuth,
 			authHint:    "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
 			overlayDirs: defaultOverlayDirs,
+			// The default profile is claude-oriented throughout (image, auth),
+			// including the store map.
+			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
 	}
 }

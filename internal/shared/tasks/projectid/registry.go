@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -106,13 +107,12 @@ func (m *Manager) ResolveByPath(projectDir string) (*Entry, error) {
 		return nil, err
 	}
 	want := cleanPath(projectDir)
-	for i := range reg.Projects {
-		if cleanPath(reg.Projects[i].Path) == want {
-			out := reg.Projects[i]
-			return &out, nil
-		}
+	i := slices.IndexFunc(reg.Projects, func(e Entry) bool { return cleanPath(e.Path) == want })
+	if i < 0 {
+		return nil, nil
 	}
-	return nil, nil
+	out := reg.Projects[i]
+	return &out, nil
 }
 
 // ResolveByID returns a copy of the entry with the given project-id, or nil.
@@ -121,13 +121,12 @@ func (m *Manager) ResolveByID(id string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range reg.Projects {
-		if reg.Projects[i].ProjectID == id {
-			out := reg.Projects[i]
-			return &out, nil
-		}
+	i := slices.IndexFunc(reg.Projects, func(e Entry) bool { return e.ProjectID == id })
+	if i < 0 {
+		return nil, nil
 	}
-	return nil, nil
+	out := reg.Projects[i]
+	return &out, nil
 }
 
 // Mint generates a fresh project-id (collision-checked against the registry),

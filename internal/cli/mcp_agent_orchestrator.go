@@ -195,6 +195,14 @@ func (o *agentOrchestrator) run(ctx context.Context, agentName, prompt string) (
 			agentDepthEnv:          strconv.Itoa(childDepth),
 		},
 	}
+	// Ambient project identity, inherited from this server's own env (the
+	// parent run exported it): a containerized child's taskloom must key the
+	// SAME shared host log — the isolation task-store mount resolves from this
+	// var, and without it the child's task writes are skipped rather than
+	// minted under a fresh id.
+	if pid := os.Getenv("CTXLOOM_PROJECT_ID"); pid != "" {
+		c.env["CTXLOOM_PROJECT_ID"] = pid
+	}
 	// Enqueue past the cap, never error (D5 queue semantics): claim a free
 	// slot now when one exists so `queued` is truthful at return. Claimed
 	// BEFORE the record is published — after publication slotHeld belongs to

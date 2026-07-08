@@ -30,11 +30,11 @@ func (ClaudeConfig) BackendType() string { return "claude-code" }
 type ClaudeCode struct {
 	agent.LaunchBackend
 	writeSettings agent.WriteSettingsFunc
-	// factory is the delivery factory Setup drives to materialize claude's
-	// surfaces through the runner-side seam. The SAME instance is injected into
-	// the base (via InitLaunch) and held here so buildArgs can read the framed
-	// context file's path (factory.ContextPath) after Setup ran.
-	factory *deliveryFactory
+	// surfaces is the SurfaceSet Setup built for the current run, stashed by the
+	// Build closure so buildArgs can read each out-of-cwd file's Path() (the
+	// --append-system-prompt-file / --mcp-config / --settings scratch a SharedCell
+	// delivered) after Setup ran. Zero value (nil surface fields) before Setup.
+	surfaces Surfaces
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings. The
@@ -44,18 +44,35 @@ func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
 	b := &ClaudeCode{writeSettings: writeSettings}
 	b.BaseBackend = agent.NewBaseBackend("claude-code", "1.0.0")
 	b.BinaryPath = "claude"
-	// claude routes launch-time surface delivery through the seam: context lands
-	// in the session's private ephemeral dir and rides --append-system-prompt-file
-	// (buildArgs), so the SessionStart context-injection hook is suppressed.
-	b.factory = newDeliveryFactory(nil)
+	// claude routes launch-time surface delivery through the surfaces × cells
+	// seam. In a SharedCell context/MCP/settings ride out-of-cwd launch flags (the
+	// SessionStart context-injection hook stays suppressed); in an isolated cell
+	// they land as well-known files in the private working dir. The Build closure
+	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("claude-code", b.writeSettings),
 		&ClaudeSkills{},
 		agent.NewBaseContextProvider(),
 		NewClaudeSessionHistory(b),
-		b.factory,
+		&agent.CellDelivery{Build: b.buildSurfaces},
 	)
 	return b
+}
+
+// buildSurfaces is claude's CellDelivery.Build closure: it maps the shared
+// per-run inputs to claude's SurfaceSet, targeting isolatedDir for the out-of-cwd
+// race-safe files, and stashes the concrete Surfaces on the backend so buildArgs
+// can read Context/MCP/Settings.Path() after a SharedCell delivery.
+func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) agent.SurfaceSet {
+	b.surfaces = NewSurfaces(SurfaceInputs{
+		Context:          in.Context,
+		MCP:              in.MCP,
+		BundleMCP:        in.BundleMCP,
+		Hooks:            in.Hooks,
+		ManageStatusline: in.ManageStatusline,
+		Skills:           in.Skills,
+	}, dirPlacement{dir: isolatedDir}, nil)
+	return b.surfaces
 }
 
 // Configure applies a decoded claude-code config to this backend.
@@ -218,15 +235,32 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 		args = append(args, "--print")
 	}
 
-	// Native context delivery: load ctxloom's assembled context from the framed
-	// file Setup delivered to the session's ephemeral dir, via claude's own
-	// --append-system-prompt-file, in place of a SessionStart injection hook.
-	// Skipped in minimal/distill mode (SkipSetup), which intentionally drops
-	// context. Empty when there was no context, or when delivery fell back to the
-	// injection hook — buildArgs then adds no flag.
-	if !req.SkipSetup {
-		if p := b.factory.ContextPath(); p != "" {
-			args = append(args, "--append-system-prompt-file", p)
+	// Cell-aware native delivery. In a SharedCell (the user's live cwd) Setup
+	// delivered context/MCP/settings as out-of-cwd scratch files, so point claude's
+	// own launch flags at them — --append-system-prompt-file for the framed context
+	// (in place of a SessionStart injection hook), --mcp-config/--strict-mcp-config
+	// for the managed MCP set (replacing, not merging, any project .mcp.json), and
+	// --settings for the managed hooks/statusline. Each Path() is "" when that
+	// surface delivered nothing (empty context/MCP/hooks) or when context fell back
+	// to the injection hook, so buildArgs then adds no flag. In an isolated cell the
+	// surfaces are the engine's well-known files in cwd, so no flags are needed.
+	// Skipped in minimal/distill mode (SkipSetup), which intentionally drops context
+	// and supplies its own --settings/--strict-mcp-config below.
+	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
+		if s := b.surfaces.Context; s != nil {
+			if p := s.Path(); p != "" {
+				args = append(args, "--append-system-prompt-file", p)
+			}
+		}
+		if s := b.surfaces.MCP; s != nil {
+			if p := s.Path(); p != "" {
+				args = append(args, "--mcp-config", p, "--strict-mcp-config")
+			}
+		}
+		if s := b.surfaces.Settings; s != nil {
+			if p := s.Path(); p != "" {
+				args = append(args, "--settings", p)
+			}
 		}
 	}
 

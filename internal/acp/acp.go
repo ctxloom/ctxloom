@@ -91,7 +91,7 @@ func NewACP(writeSettings agent.WriteSettingsFunc) *ACP {
 		&acpSkills{},
 		agent.NewBaseContextProvider(),
 		&acpSessionHistory{},
-		nil, // no delivery seam: acp keeps the legacy lifecycle path
+		nil, // no cell delivery: acp keeps the legacy lifecycle path (setupViaLifecycle)
 	)
 	return b
 }

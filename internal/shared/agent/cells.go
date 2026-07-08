@@ -1,5 +1,11 @@
 package agent
 
+import (
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+)
+
 // This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
 // seam: the two delivery interfaces distinguished by race-safety, the typed
 // isolation cells that dispatch race-safety AT COMPILE TIME, and the Unsafe
@@ -56,6 +62,65 @@ type SurfaceSet interface {
 	// SharedCwdDeliveries returns every surface prepared for a SharedCell at dir,
 	// each as a RaceSafeDelivery (assignable to SharedCell.Deliver).
 	SharedCwdDeliveries(dir string) []RaceSafeDelivery
+}
+
+// SurfaceInputs is the shared, per-run superset of everything a backend's
+// surfaces write: the assembled context (as a string for the ContextWriter-core
+// engines, and the raw fragments for codex's file writer), the merged MCP config
+// + profile/builtin bundle servers, the merged hook set + statusline policy, and
+// the skill exports. Setup fills it once (from req + the merged lifecycle state)
+// and hands it to a backend's CellDelivery.Build closure, which picks the fields
+// IT needs and calls its own NewSurfaces. It is the cross-backend contract that
+// lets the generic Setup build any backend's SurfaceSet without importing the
+// concrete backend.
+type SurfaceInputs struct {
+	Context          string
+	Fragments        []*Fragment
+	MCP              *wire.MCPConfig
+	BundleMCP        map[string]wire.MCPServer
+	Hooks            *wire.HooksConfig
+	ManageStatusline bool
+	Skills           []CommandExport
+}
+
+// CellDelivery configures a launch backend's cell-based surface delivery. A
+// backend that routes launch-time delivery through the typed-cell seam supplies
+// one at InitLaunch; a backend that keeps the legacy lifecycle path (acp) passes
+// nil, and Setup takes setupViaLifecycle instead.
+type CellDelivery struct {
+	// Build maps the shared per-run inputs to the backend's SurfaceSet, targeting
+	// isolatedDir for any out-of-cwd (race-safe) surface — claude's append-flag /
+	// --mcp-config / --settings scratch. Backends that write only well-known files
+	// (codex/antigravity/kiro) ignore isolatedDir. For claude the closure also
+	// stashes the concrete Surfaces on the backend so buildArgs can read each
+	// out-of-cwd file's Path() after delivery.
+	Build func(in SurfaceInputs, isolatedDir string) SurfaceSet
+
+	// RawContext materializes the assembled context into the content-addressed
+	// cache file (agent.WriteContextFile) as a Setup pre-step and sets the
+	// CTXLOOM_CONTEXT_FILE env path — matching the legacy lifecycle path for the
+	// file/hook engines (codex/antigravity/kiro). claude leaves it false: its
+	// context rides an out-of-cwd launch flag or a well-known CLAUDE.md, never the
+	// cache file.
+	RawContext bool
+
+	// ContextHook keys the SessionStart context-injection hook to the cache file's
+	// hash (codex — the one engine that reads context via a hook that fires at run
+	// time). antigravity/kiro divert context to AGENTS.md/steering (their context
+	// surface), so their hook hash stays "". Requires RawContext (the hook reads
+	// the cache file). claude leaves it false (context rides the append flag).
+	ContextHook bool
+}
+
+// BuildWellKnown adapts a well-known-file backend's NewSurfaces into a
+// CellDelivery.Build. Every surface writes its engine well-known path, so the
+// isolated dir is ignored and the constructor runs with the default (OS)
+// filesystem. It is the single source of truth for that adapter, shared by
+// codex/antigravity/kiro — whose Build bodies would otherwise be identical
+// boilerplate. (claude is the exception: it targets the isolated dir and stashes
+// its concrete Surfaces for buildArgs, so it supplies its own Build.)
+func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) func(SurfaceInputs, string) SurfaceSet {
+	return func(in SurfaceInputs, _ string) SurfaceSet { return newSurfaces(in, nil) }
 }
 
 // CellKind is the resolved isolation cell a run executes in, decided host-side

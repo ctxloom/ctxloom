@@ -153,18 +153,6 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// SurfaceInputs carries the per-run data agy's surfaces write. It mirrors what
-// the launch path already assembles — the assembled context text, the merged MCP
-// config + profile/builtin bundle servers, the hook set, and the skill exports.
-// S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup.
-type SurfaceInputs struct {
-	Context   string
-	MCP       *wire.MCPConfig
-	BundleMCP map[string]wire.MCPServer
-	Hooks     *wire.HooksConfig
-	Skills    []agent.CommandExport
-}
-
 // Surfaces is agy's set of delivery surfaces for one run — four surface objects,
 // one per .agents/ file: context (AGENTS.md), MCP (mcp_config.json), hooks
 // (hooks.json), and skills (skills/).
@@ -175,11 +163,13 @@ type Surfaces struct {
 	Skills  *agent.ManagedSkillsDelivery
 }
 
-// NewSurfaces builds agy's surfaces from a run's inputs. A nil fs defaults to the
-// OS filesystem. Every agy surface's Delivery takes its target dir at call time;
-// none is race-safe (agy exposes no out-of-cwd flag), so there is no isolated
-// placement to bind.
-func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
+// NewSurfaces builds agy's surfaces from a run's shared inputs (agy uses the
+// assembled context text, merged MCP + bundle servers, the hook set, and the
+// skill exports; Fragments/ManageStatusline are for other engines). A nil fs
+// defaults to the OS filesystem. Every agy surface's Delivery takes its target
+// dir at call time; none is race-safe (agy exposes no out-of-cwd flag), so there
+// is no isolated placement to bind.
+func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	return Surfaces{
 		Context: &contextSurface{context: in.Context, fs: fs},

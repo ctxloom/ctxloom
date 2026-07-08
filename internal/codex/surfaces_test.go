@@ -34,8 +34,8 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 // sampleInputs is a representative, fully-populated SurfaceInputs.
-func sampleInputs() SurfaceInputs {
-	return SurfaceInputs{
+func sampleInputs() agent.SurfaceInputs {
+	return agent.SurfaceInputs{
 		Fragments: []*agent.Fragment{{Name: "rules", Content: "the secret color is vermilion"}},
 		MCP: &wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -123,7 +123,7 @@ func TestContextSurface_DeliverWritesContextFile(t *testing.T) {
 // Empty context writes nothing and cleans up to a no-op.
 func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	s := NewSurfaces(SurfaceInputs{}, fs)
+	s := NewSurfaces(agent.SurfaceInputs{}, fs)
 
 	handle, err := s.Context.Deliver("/proj")
 	require.NoError(t, err)

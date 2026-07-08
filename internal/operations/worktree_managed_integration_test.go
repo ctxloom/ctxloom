@@ -50,13 +50,16 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 		ManageStatusline: true,
 	}
 
-	// Drive the SAME Setup the plugin runs, targeting the worktree cwd. A real
-	// claude backend writes .mcp.json/.claude/ + the framed context file into WorkDir.
+	// Drive the SAME Setup the plugin runs, targeting the worktree cwd. An ISOLATED
+	// member runs in a DirectoryIsolated cell (as the host maps the worktree policy
+	// via operations.CellKindForPolicy), so a real claude backend writes its
+	// well-known files — .mcp.json / .claude/ / CLAUDE.md — into the private WorkDir.
 	backend := claude.NewClaudeCode(backends.WriteSettings)
 	require.NoError(t, backend.Setup(ctx, &agent.SetupRequest{
 		WorkDir:   ws.Dir(),
 		Fragments: []*agent.Fragment{{Content: "PER-MEMBER CONTEXT BODY"}},
 		Managed:   managed,
+		CellKind:  agent.CellKindDirectoryIsolated,
 	}))
 
 	// Managed config landed in the WORKTREE, not the project dir.

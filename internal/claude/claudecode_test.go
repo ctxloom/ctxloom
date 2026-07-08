@@ -195,7 +195,7 @@ func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   &agent.ManagedConfig{},
 	}))
-	framed := backend.factory.ContextPath()
+	framed := backend.surfaces.Context.Path()
 	require.NotEmpty(t, framed, "Setup must materialize the framed context file for the flag")
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})

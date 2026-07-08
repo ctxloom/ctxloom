@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -14,8 +15,8 @@ import (
 // recordLifecycle captures the contextHash MergeManaged receives so Setup tests
 // can assert whether the SessionStart context-injection hook was suppressed (a
 // "" hash ⇒ no hook appended). It deliberately does NOT expose GetHooks/GetMCP,
-// so the delivery path's mergedState probe reports ok=false and Setup falls back
-// to Flush — isolating the context/skills/teardown mechanics from item 8.
+// so a mergedState probe reports ok=false — isolating the merge/hash contract
+// from the surface plumbing.
 type recordLifecycle struct {
 	merged      bool
 	contextHash string
@@ -32,35 +33,77 @@ type noopSkills struct{}
 
 func (noopSkills) RegisterFromContent(string, []CommandExport) error { return nil }
 
-// ---- delivery-seam test doubles ---------------------------------------------
+// ---- cell-seam test doubles --------------------------------------------------
 
-// recordFactory is a DeliveryFactory that records what each surface strategy was
-// asked to deliver and returns handles that log their Cleanup into a shared
-// order slice, so a test can assert LIFO teardown. contextErr forces a
-// context-delivery failure to exercise the injection-hook fallback.
-type recordFactory struct {
-	order *[]string
-
+// recordSet is a fake SurfaceSet capturing the inputs its Build closure received
+// and, when delivered, logging each surface's cleanup into a shared order slice so
+// a test can assert LIFO teardown. It records which delivery method (isolated vs
+// shared-cwd) the cell used and the dir it targeted. contextErr forces the FIRST
+// surface (context) to fail its delivery, exercising the injection-hook fallback.
+type recordSet struct {
+	order      *[]string
 	contextErr error
 
-	gotContext    string
-	gotContextDir string
-	gotSkills     []CommandExport
-	gotHooks      *wire.HooksConfig
-	gotManage     bool
-	gotMCP        *wire.MCPConfig
-	gotBundleMCP  map[string]wire.MCPServer
+	inputs      SurfaceInputs
+	isolatedDir string
+
+	usedShared  bool
+	usedDir     string // dir SharedCwdDeliveries was called with
+	deliverDirs []string
 }
 
-func (f *recordFactory) ContextDelivery(p Placement) ContextDelivery {
-	return recordContext{f: f, dir: p.Dir()}
+// surfaces returns the four fake surfaces in a stable order (context first).
+func (s *recordSet) surfaces() []*recordSurface {
+	return []*recordSurface{
+		{set: s, label: "context"},
+		{set: s, label: "mcp"},
+		{set: s, label: "settings"},
+		{set: s, label: "skills"},
+	}
 }
-func (f *recordFactory) SkillsDelivery(Placement) SkillsDelivery   { return recordSkills{f: f} }
-func (f *recordFactory) SettingsDelivery(Placement) SettingsDelivery { return recordSettings{f: f} }
-func (f *recordFactory) MCPDelivery(Placement) MCPDelivery         { return recordMCP{f: f} }
 
-func (f *recordFactory) handle(label string) Delivered {
-	return recordDelivered{order: f.order, label: label}
+func (s *recordSet) Deliveries() []Delivery {
+	out := make([]Delivery, 0, 4)
+	for _, sf := range s.surfaces() {
+		out = append(out, sf)
+	}
+	return out
+}
+
+func (s *recordSet) SharedCwdDeliveries(dir string) []RaceSafeDelivery {
+	s.usedShared = true
+	s.usedDir = dir
+	out := make([]RaceSafeDelivery, 0, 4)
+	for _, sf := range s.surfaces() {
+		out = append(out, sf)
+	}
+	return out
+}
+
+func (s *recordSet) handle(label string) Delivered {
+	return recordDelivered{order: s.order, label: label}
+}
+
+// recordSurface is one fake surface implementing both Delivery (isolated cell) and
+// RaceSafeDelivery (shared cell), so the same double works in every cell.
+type recordSurface struct {
+	set   *recordSet
+	label string
+}
+
+func (s *recordSurface) Deliver(dir string) (Delivered, error) {
+	s.set.deliverDirs = append(s.set.deliverDirs, dir)
+	if s.set.contextErr != nil && s.label == "context" {
+		return nil, s.set.contextErr
+	}
+	return s.set.handle(s.label), nil
+}
+
+func (s *recordSurface) DeliverIsolated() (Delivered, error) {
+	if s.set.contextErr != nil && s.label == "context" {
+		return nil, s.set.contextErr
+	}
+	return s.set.handle(s.label), nil
 }
 
 type recordDelivered struct {
@@ -75,43 +118,6 @@ func (d recordDelivered) Cleanup() error {
 	return nil
 }
 
-type recordContext struct {
-	f   *recordFactory
-	dir string
-}
-
-func (c recordContext) DeliverContext(s string) (Delivered, error) {
-	c.f.gotContext = s
-	c.f.gotContextDir = c.dir
-	if c.f.contextErr != nil {
-		return nil, c.f.contextErr
-	}
-	return c.f.handle("context"), nil
-}
-
-type recordSkills struct{ f *recordFactory }
-
-func (s recordSkills) DeliverSkills(cmds []CommandExport) (Delivered, error) {
-	s.f.gotSkills = cmds
-	return s.f.handle("skills"), nil
-}
-
-type recordSettings struct{ f *recordFactory }
-
-func (s recordSettings) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (Delivered, error) {
-	s.f.gotHooks = hooks
-	s.f.gotManage = manageStatusline
-	return s.f.handle("settings"), nil
-}
-
-type recordMCP struct{ f *recordFactory }
-
-func (m recordMCP) DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (Delivered, error) {
-	m.f.gotMCP = mcp
-	m.f.gotBundleMCP = bundle
-	return m.f.handle("mcp"), nil
-}
-
 // ---- helpers ----------------------------------------------------------------
 
 func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
@@ -122,22 +128,44 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 	return b, rec
 }
 
-func newDeliveryBackend(f DeliveryFactory) (*LaunchBackend, *recordLifecycle) {
-	rec := &recordLifecycle{}
+// newCellBackend wires a LaunchBackend onto a fake CellDelivery whose Build
+// returns set (recording the inputs it was handed). rawContext/contextHook mirror
+// the per-engine CellDelivery flags. The lifecycle is a real BaseLifecycle so
+// mergedState resolves the merged hooks/MCP the surface inputs carry.
+func newCellBackend(set *recordSet, rawContext, contextHook bool) (*LaunchBackend, *flushSpy) {
+	spy := &flushSpy{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, f)
-	return b, rec
+	b.InitLaunch(NewBaseLifecycle("test", spy.write), noopSkills{}, NewBaseContextProvider(), nil,
+		&CellDelivery{
+			Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
+				set.inputs = in
+				set.isolatedDir = isolatedDir
+				return set
+			},
+			RawContext:  rawContext,
+			ContextHook: contextHook,
+		})
+	return b, spy
 }
 
-// ---- legacy (antigravity) path ----------------------------------------------
+// flushSpy is a WriteSettingsFunc that records whether Flush called it, so a
+// cell-path test can assert Flush was never invoked (surfaces write settings).
+type flushSpy struct{ called bool }
 
-// TestSetup_LegacyPath_KeepsContextHash proves a backend WITHOUT a delivery
-// factory (antigravity/codex/kiro/acp) takes the unchanged lifecycle path: it
-// keeps the context hash so its SessionStart hook injects context, and flushes.
+func (s *flushSpy) write(_ string, _ *wire.HooksConfig, _ *wire.MCPConfig, _ map[string]wire.MCPServer, _ string, _ ...SettingsOption) error {
+	s.called = true
+	return nil
+}
+
+// ---- legacy (acp) path ------------------------------------------------------
+
+// TestSetup_LegacyPath_KeepsContextHash proves a backend WITHOUT a CellDelivery
+// (acp) takes the unchanged lifecycle path: it keeps the context hash so its
+// SessionStart hook injects context, and flushes.
 func TestSetup_LegacyPath_KeepsContextHash(t *testing.T) {
 	b, rec := newLegacyBackend()
-	require.Nil(t, b.delivery, "legacy backend must have no delivery factory")
+	require.Nil(t, b.delivery, "legacy backend must have no cell delivery")
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
@@ -151,16 +179,18 @@ func TestSetup_LegacyPath_KeepsContextHash(t *testing.T) {
 	assert.Empty(t, b.delivered, "legacy path collects no delivery handles")
 }
 
-// ---- delivery (claude) path -------------------------------------------------
+// ---- cell path: shared cell (claude-like, RawContext=false) -----------------
 
-// TestSetup_DeliveryPath_SuppressesHookAndRoutesContext proves the delivery path
-// hands MergeManaged an empty hash (so no SessionStart context-injection hook is
-// appended — context rides the launch flag), routes the assembled context string
-// to the factory at the harp's ephemeral dir, and delivers skills.
-func TestSetup_DeliveryPath_SuppressesHookAndRoutesContext(t *testing.T) {
+// TestSetup_SharedCell_SuppressesHookRoutesMergedInputs proves the SharedCell
+// path for a flag-context backend: MergeManaged is fed "" (no SessionStart
+// context-injection hook — context rides the launch flag), the Build closure
+// receives the assembled context string + merged state, the isolated dir is the
+// harp's PRIVATE ephemeral dir, and delivery uses the shared-cwd (race-safe) set
+// without touching Flush.
+func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	var order []string
-	f := &recordFactory{order: &order}
-	b, rec := newDeliveryBackend(f)
+	set := &recordSet{order: &order}
+	b, spy := newCellBackend(set, false, false)
 
 	ephem, err := paths.HarpEphemeralDir("perky-same-chevy")
 	require.NoError(t, err)
@@ -169,57 +199,180 @@ func TestSetup_DeliveryPath_SuppressesHookAndRoutesContext(t *testing.T) {
 		WorkDir:   t.TempDir(),
 		Env:       map[string]string{SessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*Fragment{{Content: "project rules"}},
-		Managed:   &ManagedConfig{Skills: []CommandExport{{Name: "demo"}}},
+		CellKind:  CellKindShared,
+		Managed: &ManagedConfig{
+			ManageStatusline: true,
+			Skills:           []CommandExport{{Name: "demo"}},
+			Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
+			}},
+			MCP:       &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run"}}},
+			BundleMCP: map[string]wire.MCPServer{"bundle-srv": {Command: "brun"}},
+		},
 	}))
 
-	require.True(t, rec.merged, "MergeManaged must run to fold hooks/MCP")
-	assert.Equal(t, "", rec.contextHash,
-		"delivery must withhold the hash so no SessionStart context-injection hook is appended")
-	assert.Equal(t, "project rules", f.gotContext, "the assembled context string is routed to the factory")
-	assert.Equal(t, ephem, f.gotContextDir,
-		"context scratch lands in the harp's PRIVATE ephemeral dir, not the project tree")
-	assert.Equal(t, []CommandExport{{Name: "demo"}}, f.gotSkills, "skills are delivered through the seam")
+	assert.False(t, spy.called, "cell path must never call Flush (surfaces write settings)")
+	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to Build")
+	assert.Equal(t, ephem, set.isolatedDir, "the out-of-cwd dir is the harp's PRIVATE ephemeral dir")
+	assert.True(t, set.usedShared, "a SharedCell delivers via the shared-cwd (race-safe) set")
+	assert.Equal(t, []CommandExport{{Name: "demo"}}, set.inputs.Skills, "skills routed through inputs")
+	require.NotNil(t, set.inputs.Hooks, "merged hooks routed through inputs")
+	assert.NotEmpty(t, set.inputs.Hooks.Unified.SessionStart, "merged hooks carry the session-bind hook")
+	assert.True(t, set.inputs.ManageStatusline, "manageStatusline mirrors the managed config")
+	require.NotNil(t, set.inputs.MCP, "merged MCP routed through inputs")
+	assert.Contains(t, set.inputs.MCP.Servers, "srv", "merged MCP carries the managed server")
+	assert.Equal(t, map[string]wire.MCPServer{"bundle-srv": {Command: "brun"}}, set.inputs.BundleMCP,
+		"bundle MCP passed straight through")
+	for _, h := range set.inputs.Hooks.Unified.SessionStart {
+		assert.Empty(t, h.ContextHash,
+			"no context-injection hook: MergeManaged was fed an empty hash")
+	}
+	require.Len(t, b.delivered, 4, "all four surfaces collected via the seam")
 }
 
-// TestSetup_DeliveryPath_ContextFailureFallsBackToHook proves the CLAUDE.md
-// fault tolerance: a context-delivery error keeps the injection hook alive
-// (materialize the raw file via Provide, keep the hash for MergeManaged) so the
-// user never loses context, and collects no context handle.
-func TestSetup_DeliveryPath_ContextFailureFallsBackToHook(t *testing.T) {
+// ---- cell path: isolated cell -----------------------------------------------
+
+// TestSetup_IsolatedCell_UsesWellKnownSet proves an isolated cell delivers the
+// plain (well-known) surface set into the private working dir — not the shared-cwd
+// race-safe set — and records every handle.
+func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	var order []string
-	f := &recordFactory{order: &order, contextErr: errors.New("disk full")}
-	b, rec := newDeliveryBackend(f)
+	set := &recordSet{order: &order}
+	b, _ := newCellBackend(set, false, false)
+	work := t.TempDir()
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   t.TempDir(),
-		Fragments: []*Fragment{{Content: "project rules"}},
+		WorkDir:   work,
+		Fragments: []*Fragment{{Content: "rules"}},
+		CellKind:  CellKindDirectoryIsolated,
 		Managed:   &ManagedConfig{},
 	}))
 
-	assert.NotEmpty(t, rec.contextHash,
-		"a failed context delivery must keep the hash so the SessionStart hook still injects context")
-	assert.NotContains(t, order, "context", "a failed context delivery collects no cleanup handle")
+	assert.False(t, set.usedShared, "an isolated cell must use the well-known Deliveries set")
+	assert.Equal(t, work, set.isolatedDir, "an isolated cell targets the private working dir")
+	for _, dir := range set.deliverDirs {
+		assert.Equal(t, work, dir, "each well-known surface lands in the private working dir")
+	}
+	require.Len(t, b.delivered, 4, "all four surfaces collected")
 }
 
+// ---- cell path: RawContext (codex/agy/kiro) ---------------------------------
+
+// TestSetup_RawContext_WritesCacheFileAndKeysHook proves the RawContext pre-step:
+// the content-addressed cache file is materialized (setting the env path), and for
+// a hook engine (ContextHook) the merge hash is the cache file's hash so the
+// SessionStart injection hook is keyed correctly.
+func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	// Use a recordLifecycle to capture the hash handed to MergeManaged.
+	rec := &recordLifecycle{}
+	b := &LaunchBackend{}
+	b.BaseBackend = NewBaseBackend("test", "1.0.0")
+	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, &CellDelivery{
+		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
+		RawContext:  true,
+		ContextHook: true,
+	})
+
+	work := t.TempDir()
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   work,
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindDirectoryIsolated,
+		Managed:   &ManagedConfig{},
+	}))
+
+	assert.NotEmpty(t, rec.contextHash, "a hook engine keys the injection hook to the cache file hash")
+	assert.NotEmpty(t, b.context.GetContextFilePath(), "RawContext sets the CTXLOOM_CONTEXT_FILE path")
+	// The cache file is on disk under the working dir (so MergeManaged's chunk read
+	// sees it).
+	cachePath := filepath.Join(work, SCMContextSubdir, rec.contextHash+".md")
+	require.FileExists(t, cachePath, "the raw cache file must be materialized before MergeManaged")
+}
+
+// TestSetup_RawContext_ManagedNilShortCircuits proves a nil managed payload
+// short-circuits after the RawContext pre-step: the cache file stands alone (as in
+// the legacy Flush no-op) and no surfaces are built or delivered.
+func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order}
+	b, _ := newCellBackend(set, true, false)
+
+	work := t.TempDir()
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   work,
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindDirectoryIsolated,
+		Managed:   nil,
+	}))
+
+	hash := b.context.GetContextHash()
+	require.NotEmpty(t, hash)
+	assert.FileExists(t, filepath.Join(work, SCMContextSubdir, hash+".md"),
+		"the raw cache file is still written")
+	assert.Empty(t, b.delivered, "no surfaces are delivered when there is no managed payload")
+	assert.Nil(t, set.inputs.Fragments, "Build is never invoked with no managed payload")
+}
+
+// ---- cell path: context-delivery fallback (item 6) --------------------------
+
+// TestSetup_SharedCell_ContextFailureFallsBackToHook proves the CLAUDE.md fault
+// tolerance for a flag-context backend: a SharedCell context DeliverIsolated error
+// keeps context alive via the legacy hook — Provide the raw cache file and append
+// the injection hook onto the shared merged hooks (which the settings surface then
+// writes) — while the failed context handle is skipped and the remaining surfaces
+// still deliver.
+func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
+	var order []string
+	set := &recordSet{order: &order, contextErr: errors.New("disk full")}
+	b, _ := newCellBackend(set, false, false)
+
+	work := t.TempDir()
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir:   work,
+		Fragments: []*Fragment{{Content: "project rules"}},
+		CellKind:  CellKindShared,
+		Managed:   &ManagedConfig{},
+	}))
+
+	hash := b.context.GetContextHash()
+	assert.NotEmpty(t, hash, "the fallback materializes the raw cache file and keeps its hash")
+	// The injection hook was appended onto the shared merged hooks (the settings
+	// surface's own *wire.HooksConfig).
+	hooks, _, ok := b.mergedState()
+	require.True(t, ok)
+	require.NotNil(t, hooks)
+	var injected bool
+	for _, h := range hooks.Unified.SessionStart {
+		if h.ContextHash == hash {
+			injected = true
+		}
+	}
+	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
+	// The failed context handle is not recorded, but the remaining surfaces are.
+	assert.Len(t, b.delivered, 3, "context handle skipped; mcp/settings/skills still delivered")
+}
+
+// ---- cleanup ----------------------------------------------------------------
+
 // TestCleanup_RunsDeliveredHandlesLIFO proves Cleanup reverses every delivered
-// surface in last-in-first-out order (mcp, settings, skills, context here) and
-// clears the handle set.
+// surface in last-in-first-out order and clears the handle set.
 func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	var order []string
-	f := &recordFactory{order: &order}
-	b, _ := newDeliveryBackend(f)
+	set := &recordSet{order: &order}
+	b, _ := newCellBackend(set, false, false)
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
 		Fragments: []*Fragment{{Content: "rules"}},
-		Managed:   &ManagedConfig{Skills: []CommandExport{{Name: "demo"}}},
+		CellKind:  CellKindShared,
+		Managed:   &ManagedConfig{},
 	}))
 
 	require.NoError(t, b.Cleanup(context.Background()))
-	// Delivery order was context, skills, then (recordLifecycle lacks GetHooks so
-	// mergedState is false → Flush fallback, no settings/mcp handles). LIFO ⇒
-	// skills before context.
-	assert.Equal(t, []string{"skills", "context"}, order, "Cleanup runs handles LIFO")
+	// Delivery order was context, mcp, settings, skills → LIFO reverses it.
+	assert.Equal(t, []string{"skills", "settings", "mcp", "context"}, order, "Cleanup runs handles LIFO")
 	assert.Empty(t, b.delivered, "Cleanup clears the handle set")
 }
 
@@ -248,53 +401,19 @@ type deliveredFn func() error
 
 func (d deliveredFn) Cleanup() error { return d() }
 
-// ---- item 8: settings + MCP routed through the seam -------------------------
+// ---- ExecuteEnv seam --------------------------------------------------------
 
-// flushSpy is a WriteSettingsFunc that records whether Flush called it, so a
-// seam-routing test can assert Flush was SKIPPED (no double-write).
-type flushSpy struct{ called bool }
-
-func (s *flushSpy) write(_ string, _ *wire.HooksConfig, _ *wire.MCPConfig, _ map[string]wire.MCPServer, _ string, _ ...SettingsOption) error {
-	s.called = true
-	return nil
-}
-
-// TestSetup_DeliveryPath_RoutesSettingsAndMCPSkippingFlush proves that when the
-// lifecycle exposes its merged state (BaseLifecycle), the delivery path routes
-// the settings + MCP surfaces through the factory and SKIPS Flush entirely (no
-// double-write). The merged hooks and MCP handed to the factory are exactly what
-// Flush would have written; manageStatusline mirrors the managed config.
-func TestSetup_DeliveryPath_RoutesSettingsAndMCPSkippingFlush(t *testing.T) {
-	var order []string
-	f := &recordFactory{order: &order}
-	spy := &flushSpy{}
-
+// TestExecuteEnv_MergesExtraEnv proves the per-backend env contributor
+// (SetExecuteEnv) is merged on top of the request env (the seam codex uses for
+// its cell-scoped CODEX_HOME), and wins on a key clash.
+func TestExecuteEnv_MergesExtraEnv(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test", spy.write), noopSkills{}, NewBaseContextProvider(), nil, f)
+	b.SetExecuteEnv(func(req *ExecuteRequest) map[string]string {
+		return map[string]string{"CODEX_HOME": filepath.Join(req.WorkDir, ".codex")}
+	})
 
-	managed := &ManagedConfig{
-		ManageStatusline: true,
-		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
-		}},
-		MCP:       &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run"}}},
-		BundleMCP: map[string]wire.MCPServer{"bundle-srv": {Command: "brun"}},
-	}
-	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
-		WorkDir:   t.TempDir(),
-		Fragments: []*Fragment{{Content: "rules"}},
-		Managed:   managed,
-	}))
-
-	assert.False(t, spy.called, "seam path must SKIP Flush (no double-write)")
-	require.NotNil(t, f.gotHooks, "settings surface routed through the factory")
-	assert.True(t, f.gotManage, "manageStatusline mirrors the managed config")
-	assert.NotEmpty(t, f.gotHooks.Unified.SessionStart, "merged hooks carry the session-bind hook")
-	require.NotNil(t, f.gotMCP, "MCP surface routed through the factory")
-	assert.Contains(t, f.gotMCP.Servers, "srv", "merged MCP carries the managed server")
-	assert.Equal(t, managed.BundleMCP, f.gotBundleMCP, "bundle MCP is passed straight through")
-	// No skills in this managed config, so the delivered surfaces are context,
-	// settings, MCP (Flush skipped).
-	require.Len(t, b.delivered, 3, "context + settings + MCP handles collected via the seam")
+	env := b.ExecuteEnv(&ExecuteRequest{WorkDir: "/w", Env: map[string]string{"KEEP": "1"}})
+	assert.Equal(t, "1", env["KEEP"], "request env is preserved")
+	assert.Equal(t, filepath.Join("/w", ".codex"), env["CODEX_HOME"], "the contributor's env is merged in")
 }

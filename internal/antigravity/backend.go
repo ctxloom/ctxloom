@@ -34,12 +34,17 @@ func NewAntigravity(writeSettings agent.WriteSettingsFunc) *Antigravity {
 	b := &Antigravity{writeSettings: writeSettings}
 	b.BaseBackend = agent.NewBaseBackend("antigravity", "1.0.0")
 	b.BinaryPath = "agy"
+	// agy routes delivery through the cell seam. RawContext: Setup materializes the
+	// content-addressed cache file (+ CTXLOOM_CONTEXT_FILE) as a pre-step, matching
+	// the legacy lifecycle path. ContextHook stays false — agy fires no SessionStart
+	// hook, so its context surface writes .agents/AGENTS.md (auto-read) directly,
+	// and the merge hash is "" (no injection hook).
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity", b.writeSettings),
 		&AntigravitySkills{},
 		agent.NewBaseContextProvider(),
 		NewAntigravitySessionHistory(b),
-		nil, // no delivery seam: antigravity keeps the legacy lifecycle path
+		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b
 }

@@ -50,12 +50,17 @@ func NewKiro(writeSettings agent.WriteSettingsFunc) *Kiro {
 	b := &Kiro{writeSettings: writeSettings, agentName: defaultAgentName}
 	b.BaseBackend = agent.NewBaseBackend("kiro", "1.0.0")
 	b.BinaryPath = "kiro-cli"
+	// kiro routes delivery through the cell seam. RawContext: Setup materializes the
+	// content-addressed cache file (+ CTXLOOM_CONTEXT_FILE) as a pre-step, matching
+	// the legacy lifecycle path. ContextHook stays false — kiro reads steering
+	// rather than firing a SessionStart hook, so its context surface writes
+	// .kiro/steering/ctxloom-context.md directly, and the merge hash is "".
 	b.InitLaunch(
 		agent.NewBaseLifecycle("kiro", b.writeSettings),
 		&KiroSkills{},
 		agent.NewBaseContextProvider(),
 		newKiroSessionHistory(),
-		nil, // no delivery seam: kiro keeps the legacy lifecycle path
+		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b
 }

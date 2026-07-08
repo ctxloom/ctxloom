@@ -7,6 +7,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
+// backend.go wires codex onto the shared launch core and the surfaces × cells
+// delivery seam.
+
 // CodexConfig is codex's typed LLM config. The backend owns this struct; the
 // config package only carries the raw body that decodes into it.
 type CodexConfig struct {
@@ -36,14 +39,45 @@ func NewCodex(writeSettings agent.WriteSettingsFunc) *Codex {
 	b := &Codex{writeSettings: writeSettings}
 	b.BaseBackend = agent.NewBaseBackend("codex", "1.0.0")
 	b.BinaryPath = "codex"
+	// codex routes delivery through the cell seam. RawContext: its context is the
+	// content-addressed cache file a SessionStart hook reads at run time, so Setup
+	// materializes that file (+ CTXLOOM_CONTEXT_FILE) as a pre-step. ContextHook:
+	// codex is the one engine that fires the SessionStart inject-context hook, so
+	// the hook is keyed to the cache file's hash. The config surface writes the
+	// [hooks] (incl. that hook) + [mcp_servers] tables of .codex/config.toml.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("codex", b.writeSettings),
 		&CodexSkills{},
 		agent.NewBaseContextProvider(),
 		NewCodexSessionHistory(b),
-		nil, // no delivery seam: codex keeps the legacy lifecycle path
+		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true, ContextHook: true},
 	)
+	b.SetExecuteEnv(cellCodexHomeEnv)
 	return b
+}
+
+// cellCodexHomeEnv is codex's per-backend child-env contributor. In an isolated
+// cell codex's config (.codex/config.toml) and cell-scoped prompts
+// (.codex/prompts) live under <WorkDir>/.codex, so point CODEX_HOME there — the
+// one env that makes codex discover the cell-scoped prompts (its config is already
+// cwd-relative). A SharedCell uses the user's global ~/.codex, so no override.
+//
+// OPEN QUESTION (plan risk): a ProcessIsolatedCell (container) already has a fresh
+// $HOME, so a <WorkDir>/.codex CODEX_HOME may be redundant or point at a
+// non-existent in-namespace path. It is set here consistently with the worktree
+// cell (item 4) pending a live container smoke test; revisit if codex resolves its
+// home differently under the container mount model.
+func cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
+	switch req.CellKind {
+	case agent.CellKindDirectoryIsolated, agent.CellKindProcessIsolated:
+		work := req.WorkDir
+		if work == "" {
+			work = "."
+		}
+		return map[string]string{"CODEX_HOME": cellScopedCodexHome(work)}
+	default:
+		return nil
+	}
 }
 
 // Configure applies a decoded codex config to this backend.

@@ -142,18 +142,6 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// SurfaceInputs carries the per-run data codex's surfaces write. It mirrors what
-// the launch path already assembles — the context fragments, the merged MCP
-// config + profile/builtin bundle servers, the hook set, and the skill exports.
-// S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup.
-type SurfaceInputs struct {
-	Fragments []*agent.Fragment
-	MCP       *wire.MCPConfig
-	BundleMCP map[string]wire.MCPServer
-	Hooks     *wire.HooksConfig
-	Skills    []agent.CommandExport
-}
-
 // Surfaces is codex's set of delivery surfaces for one run. codex has three
 // surface objects — context (the raw context file), config (config.toml's folded
 // hooks + MCP), and skills (cell-scoped prompts).
@@ -163,11 +151,13 @@ type Surfaces struct {
 	Skills  *agent.ManagedSkillsDelivery
 }
 
-// NewSurfaces builds codex's surfaces from a run's inputs. A nil fs defaults to
-// the OS filesystem. Every codex surface's Delivery takes its target dir at call
-// time; none is race-safe (codex exposes no out-of-cwd flag), so there is no
-// isolated placement to bind.
-func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
+// NewSurfaces builds codex's surfaces from a run's shared inputs. codex's context
+// is a raw file, so it takes the Fragments (not the assembled Context string); it
+// also uses the merged MCP + bundle servers, the hook set, and the skill exports.
+// A nil fs defaults to the OS filesystem. Every codex surface's Delivery takes its
+// target dir at call time; none is race-safe (codex exposes no out-of-cwd flag),
+// so there is no isolated placement to bind.
+func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	return Surfaces{
 		Context: &contextSurface{fragments: in.Fragments, fs: fs},

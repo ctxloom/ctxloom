@@ -34,8 +34,8 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 // sampleInputs is a representative, fully-populated SurfaceInputs.
-func sampleInputs() SurfaceInputs {
-	return SurfaceInputs{
+func sampleInputs() agent.SurfaceInputs {
+	return agent.SurfaceInputs{
 		Context: "the secret color is vermilion",
 		MCP: &wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{

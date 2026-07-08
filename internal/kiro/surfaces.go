@@ -139,18 +139,6 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// SurfaceInputs carries the per-run data kiro's surfaces write. It mirrors what
-// the launch path already assembles — the assembled context text, the merged MCP
-// config + profile/builtin bundle servers, the hook set, and the skill exports.
-// S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup.
-type SurfaceInputs struct {
-	Context   string
-	MCP       *wire.MCPConfig
-	BundleMCP map[string]wire.MCPServer
-	Hooks     *wire.HooksConfig
-	Skills    []agent.CommandExport
-}
-
 // Surfaces is kiro's set of delivery surfaces for one run — four surface objects:
 // context (steering), MCP (settings/mcp.json), settings (agent JSON + hooks), and
 // skills (.kiro/skills/).
@@ -161,10 +149,12 @@ type Surfaces struct {
 	Skills   *agent.ManagedSkillsDelivery
 }
 
-// NewSurfaces builds kiro's surfaces from a run's inputs. A nil fs defaults to
-// the OS filesystem. Every kiro surface's Delivery takes its target dir at call
-// time; none is modeled as race-safe here (the `--agent` lever is Phase 2).
-func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
+// NewSurfaces builds kiro's surfaces from a run's shared inputs (kiro uses the
+// assembled context text, merged MCP + bundle servers, the hook set, and the
+// skill exports). A nil fs defaults to the OS filesystem. Every kiro surface's
+// Delivery takes its target dir at call time; none is modeled as race-safe here
+// (the `--agent` lever is Phase 2).
+func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	return Surfaces{
 		Context:  &contextSurface{context: in.Context, fs: fs},

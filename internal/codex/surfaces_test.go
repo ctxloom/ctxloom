@@ -195,7 +195,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := agent.UnsafeApply(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", cwd)
+	rs := agent.Unsafe(s.Skills, cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

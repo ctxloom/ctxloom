@@ -48,10 +48,12 @@ type deliveryCall struct {
 // recordingDelivery is a Delivery-ONLY surface (it does NOT implement
 // RaceSafeDelivery): it records the dir passed to Deliver. Because it lacks the
 // isolated mechanism, handing it to a SharedCell is a compile error — see the
-// negative-case note below.
+// negative-case note below. It also self-describes via UnsafeInfo (info), so it is
+// an UnsafeSurface the Unsafe hatch can wrap.
 type recordingDelivery struct {
 	got    *deliveryCall
 	handle Delivered
+	info   string
 }
 
 func (s recordingDelivery) Deliver(dir string) (Delivered, error) {
@@ -61,6 +63,9 @@ func (s recordingDelivery) Deliver(dir string) (Delivered, error) {
 	}
 	return s.handle, nil
 }
+
+// UnsafeInfo returns the surface identity for the Unsafe warning.
+func (s recordingDelivery) UnsafeInfo() string { return s.info }
 
 // recordingRaceSafe is a RaceSafeDelivery surface: it records that its isolated
 // path ran.
@@ -90,6 +95,7 @@ func (dualStub) DeliverIsolated() (Delivered, error) { return stubHandle{}, nil 
 // is the proof the stubs (and Unsafe's wrapper) satisfy the interfaces.
 var (
 	_ Delivery         = recordingDelivery{}
+	_ UnsafeSurface    = recordingDelivery{}
 	_ RaceSafeDelivery = recordingRaceSafe{}
 	_ Delivery         = dualStub{}
 	_ RaceSafeDelivery = dualStub{}
@@ -189,25 +195,22 @@ func TestUnsafe_WarnsThenDeliversWellKnown(t *testing.T) {
 	resetStrictness(t) // strict (non-degraded), clean findings
 
 	var call deliveryCall
-	surface := recordingDelivery{got: &call, handle: stubHandle{}}
-	reason := UnsafeReason{
-		Surface: "settings",
-		Why:     "engine offers no isolated settings mechanism",
-		Dir:     "/work/project",
-		Class:   strictness.ClassApply,
-	}
+	dir := "/work/project"
+	// The surface self-describes via UnsafeInfo — no hand-typed reason.
+	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/settings"}
 
 	// rs is statically a RaceSafeDelivery — that IS Unsafe's declared return type,
 	// the escape-hatch contract that lets a non-race-safe surface reach a
 	// SharedCell (the wrapper's satisfaction is also pinned by the package-scope
 	// `_ RaceSafeDelivery = unsafeDelivery{}` assertion above).
-	rs := Unsafe(surface, reason)
+	rs := Unsafe(surface, dir)
 
 	var (
 		d   Delivered
 		err error
 	)
-	// (1) the WARN streams to stderr, naming the surface and the shared-cwd hazard.
+	// (1) the WARN streams to stderr, naming the surface (via UnsafeInfo) and the
+	// shared-cwd hazard.
 	stderr := captureStderr(t, func() {
 		d, err = rs.DeliverIsolated()
 	})
@@ -215,12 +218,12 @@ func TestUnsafe_WarnsThenDeliversWellKnown(t *testing.T) {
 	require.NotNil(t, d)
 
 	assert.Contains(t, stderr, "warning:", "the loud line uses the family warning prefix")
-	assert.Contains(t, stderr, "settings")
+	assert.Contains(t, stderr, "engine/settings", "the warning names the surface via UnsafeInfo")
 	assert.Contains(t, stderr, "shared cwd")
 
-	// (2) the inner well-known Deliver ran (proceeded), targeting reason.Dir.
+	// (2) the inner well-known Deliver ran (proceeded), targeting dir.
 	assert.True(t, call.called, "inner Deliver must run — Unsafe proceeds, never aborts")
-	assert.Equal(t, reason.Dir, call.dir, "well-known write must target reason.Dir")
+	assert.Equal(t, dir, call.dir, "well-known write must target the shared cwd dir")
 
 	// A sanctioned Unsafe delivery records NO fatal finding, even in strict mode:
 	// there is nothing for the startup choke owner to abort on.
@@ -235,19 +238,14 @@ func TestUnsafe_Degraded_DeliversWithoutRecording(t *testing.T) {
 	strictness.SetDegraded(true)
 
 	var call deliveryCall
-	rs := Unsafe(recordingDelivery{got: &call, handle: stubHandle{}}, UnsafeReason{
-		Surface: "context",
-		Why:     "no isolated mechanism",
-		Dir:     "/w",
-		Class:   strictness.ClassApply,
-	})
+	rs := Unsafe(recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/context"}, "/w")
 
 	stderr := captureStderr(t, func() {
 		_, err := rs.DeliverIsolated()
 		require.NoError(t, err)
 	})
 	assert.Contains(t, stderr, "warning:", "the WARN still streams in degraded mode")
-	assert.Contains(t, stderr, "context")
+	assert.Contains(t, stderr, "engine/context", "the warning names the surface via UnsafeInfo")
 	assert.True(t, call.called, "delivery still proceeds in degraded mode")
 	assert.Equal(t, "/w", call.dir)
 	assert.Empty(t, strictness.All(), "degraded mode records no finding (warn-and-continue)")

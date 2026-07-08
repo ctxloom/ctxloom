@@ -239,8 +239,9 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
-	// agent.UnsafeApply accepts skills (a Delivery) and returns a RaceSafeDelivery.
-	rs := agent.UnsafeApply(s.Skills, "skills", "claude has no out-of-cwd flag for .claude/commands/ slash-commands", cwd)
+	// agent.Unsafe accepts skills (a self-describing UnsafeSurface) and returns a
+	// RaceSafeDelivery.
+	rs := agent.Unsafe(s.Skills, cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

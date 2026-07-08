@@ -168,10 +168,11 @@ func (s *settingsSurface) Path() string { return s.path }
 // skillsSurface is claude's skills surface: the slash-command exports under
 // .claude/commands/. It implements Delivery ONLY — claude has no out-of-cwd flag
 // for slash-commands, so it is deliberately NOT a RaceSafeDelivery. It reaches a
-// SharedCell (the user's live cwd) only via the explicit, warned agent.UnsafeApply
-// adapter (see SharedCwdDeliveries); first preference is always an isolated cell.
-// (Unlike the other engines, claude's skills ride fileTemplateDelivery.DeliverSkills,
-// which owns its own cleanup, so they are NOT the shared agent.ManagedSkillsDelivery.)
+// SharedCell (the user's live cwd) only via the explicit, warned agent.Unsafe
+// hatch, which it self-describes for through UnsafeInfo (see SharedCwdDeliveries);
+// first preference is always an isolated cell. (Unlike the other engines, claude's
+// skills ride fileTemplateDelivery.DeliverSkills, which owns its own cleanup, so
+// they are NOT the shared agent.ManagedSkillsDelivery.)
 type skillsSurface struct {
 	skills []agent.CommandExport
 	fs     afero.Fs
@@ -182,6 +183,9 @@ type skillsSurface struct {
 func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
 	return newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverSkills(s.skills)
 }
+
+// UnsafeInfo returns claude's skills identity for the Unsafe warning.
+func (s *skillsSurface) UnsafeInfo() string { return "claude/skills" }
 
 // SurfaceInputs carries the per-run data claude's surfaces write. It mirrors what
 // the launch path already assembles — the context text, the merged MCP config +
@@ -240,7 +244,7 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 		s.Context,
 		s.MCP,
 		s.Settings,
-		agent.UnsafeApply(s.Skills, "skills", "claude has no out-of-cwd flag for .claude/commands/ slash-commands", dir),
+		agent.Unsafe(s.Skills, dir),
 	}
 }
 
@@ -257,6 +261,7 @@ var (
 	_ agent.Delivery         = (*settingsSurface)(nil)
 	_ agent.RaceSafeDelivery = (*settingsSurface)(nil)
 	_ agent.Delivery         = (*skillsSurface)(nil)
+	_ agent.UnsafeSurface    = (*skillsSurface)(nil)
 	_ agent.Placement        = dirPlacement{}
 	// Surfaces exposes both the isolated (Deliveries) and shared-cwd
 	// (SharedCwdDeliveries) delivery sets, so it satisfies agent.SurfaceSet.

@@ -61,6 +61,9 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
+// UnsafeInfo returns kiro's context identity for the Unsafe warning.
+func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
+
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -78,6 +81,9 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
+
+// UnsafeInfo returns kiro's MCP identity for the Unsafe warning.
+func (s *mcpSurface) UnsafeInfo() string { return "kiro/mcp" }
 
 // settingsSurface is kiro's folded settings + hooks surface: the ctxloom-owned
 // custom-agent config .kiro/agents/<name>.json, written via the reused mapHooks +
@@ -117,6 +123,9 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 		return fs.Remove(path)
 	}), nil
 }
+
+// UnsafeInfo returns kiro's settings identity for the Unsafe warning.
+func (s *settingsSurface) UnsafeInfo() string { return "kiro/settings" }
 
 // kiro's skills surface — the agentskills SKILL.md files under .kiro/skills/ — is
 // the shared agent.ManagedSkillsDelivery bound to kiro's manifest-scoped
@@ -161,7 +170,7 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 		Context:  &contextSurface{context: in.Context, fs: fs},
 		MCP:      &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
 		Settings: &settingsSurface{hooks: in.Hooks, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery(in.Skills, func(dir string, skills []agent.CommandExport) error {
+		Skills: agent.NewManagedSkillsDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
 			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
 		}),
 	}
@@ -185,10 +194,10 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // returned value is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
 func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
-		agent.UnsafeApply(s.Context, "context", "kiro has no out-of-cwd flag for the steering file", dir),
-		agent.UnsafeApply(s.MCP, "mcp", "kiro has no out-of-cwd flag for .kiro/settings/mcp.json", dir),
-		agent.UnsafeApply(s.Settings, "settings", "kiro's --agent name lever is a Phase-2 launch concern, not a delivery flag", dir),
-		agent.UnsafeApply(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", dir),
+		agent.Unsafe(s.Context, dir),
+		agent.Unsafe(s.MCP, dir),
+		agent.Unsafe(s.Settings, dir),
+		agent.Unsafe(s.Skills, dir),
 	}
 }
 
@@ -196,10 +205,10 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 // layer: none is assignable to agent.RaceSafeDelivery, the compile-time guarantee
 // that no kiro surface can enter a SharedCell except through agent.Unsafe.
 var (
-	_ agent.Delivery  = (*contextSurface)(nil)
-	_ agent.Delivery  = (*mcpSurface)(nil)
-	_ agent.Delivery  = (*settingsSurface)(nil)
-	_ agent.Delivered = deliveredFunc(nil)
+	_ agent.UnsafeSurface = (*contextSurface)(nil)
+	_ agent.UnsafeSurface = (*mcpSurface)(nil)
+	_ agent.UnsafeSurface = (*settingsSurface)(nil)
+	_ agent.Delivered     = deliveredFunc(nil)
 	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
 	// it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}

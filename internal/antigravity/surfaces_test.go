@@ -182,7 +182,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := agent.UnsafeApply(s.Skills, "skills", "antigravity has no out-of-cwd flag for .agents/skills/", cwd)
+	rs := agent.Unsafe(s.Skills, cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

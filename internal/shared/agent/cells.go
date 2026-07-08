@@ -1,9 +1,5 @@
 package agent
 
-import (
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-)
-
 // This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
 // seam: the two delivery interfaces distinguished by race-safety, the typed
 // isolation cells that dispatch race-safety AT COMPILE TIME, and the Unsafe
@@ -147,63 +143,47 @@ func (SharedCell) Deliver(s RaceSafeDelivery) (Delivered, error) {
 	return s.DeliverIsolated()
 }
 
-// UnsafeReason is the structured, stable record of ONE sanctioned unsafe
-// delivery: which Surface, Why isolation is genuinely unavoidable, the Dir the
-// well-known write lands in, and the strictness Class of the emitted warning.
-// It is stable on purpose — a later gen-docs pass (plan S3) enumerates every
-// registered UnsafeReason into a reference page of sanctioned unsafe deliveries.
-type UnsafeReason struct {
-	Surface string
-	Why     string
-	Dir     string
-	Class   strictness.Class
+// UnsafeSurface is a Delivery that names ITSELF: UnsafeInfo returns a stable
+// engine/surface identity (e.g. "claude/skills") for the loud warning the Unsafe
+// hatch emits. A surface implements it so the escape hatch is SELF-DESCRIBING —
+// the identity travels with the surface instead of being hand-typed at each wrap
+// site. It is stable on purpose — a later gen-docs pass (plan S3) can enumerate
+// every registered UnsafeSurface into a reference page of sanctioned unsafe
+// deliveries.
+type UnsafeSurface interface {
+	Delivery
+	// UnsafeInfo returns the surface's engine/surface identity (e.g. "claude/skills")
+	// for the Unsafe warning.
+	UnsafeInfo() string
 }
 
-// Unsafe adapts a plain Delivery into a RaceSafeDelivery so it can be handed to
-// a SharedCell where isolation is genuinely unavoidable (the engine offers no
-// isolated mechanism for this surface). It is the fail-loud escape hatch — the
-// delivery analogue of --degraded: never silent, never the default. First
-// preference is always to MAKE a surface race-safe via an engine flag; Unsafe is
-// the documented last resort.
-func Unsafe(s Delivery, r UnsafeReason) RaceSafeDelivery {
-	return unsafeDelivery{s: s, r: r}
+// Unsafe adapts a self-describing Delivery into a RaceSafeDelivery so it can be
+// handed to a SharedCell where isolation is genuinely unavoidable (the engine
+// offers no isolated mechanism for this surface). It is the fail-loud escape
+// hatch — the delivery analogue of --degraded: never silent, never the default.
+// First preference is always to MAKE a surface race-safe via an engine flag;
+// Unsafe is the documented last resort. dir is the shared cwd the well-known
+// write lands in.
+func Unsafe(s UnsafeSurface, dir string) RaceSafeDelivery {
+	return unsafeDelivery{s: s, dir: dir}
 }
 
 // unsafeDelivery is the RaceSafeDelivery wrapper Unsafe returns.
 type unsafeDelivery struct {
-	s Delivery
-	r UnsafeReason
+	s   UnsafeSurface
+	dir string
 }
 
 // DeliverIsolated warns loudly, then performs the wrapped surface's well-known
-// Delivery into the shared cwd (r.Dir). An Unsafe delivery is a SANCTIONED,
+// Delivery into the shared cwd (dir). An Unsafe delivery is a SANCTIONED,
 // permitted action — the delivery analogue of --degraded — NOT a fatal fault, so
 // it must never record a Finding the startup choke owner would abort on. It
-// therefore routes the warning through the non-fatal warn primitive (agent.Warn →
-// clidiag.Warn), which ALWAYS streams the family "<prog>: warning:" line to
-// stderr and records nothing, in BOTH strict and degraded modes; the wrapped
-// well-known Deliver then ALWAYS proceeds. The structured UnsafeReason (incl.
-// r.Class) is retained for the gen-docs pass (plan S3) that enumerates every
-// sanctioned unsafe delivery into a reference page — the class classifies the
-// exception for docs, it no longer gates startup.
+// therefore routes ONE uniform, non-fatal warning through the warn primitive
+// (agent.Warn → clidiag.Warn), which ALWAYS streams the family "<prog>: warning:"
+// line to stderr and records nothing, in BOTH strict and degraded modes; the
+// wrapped well-known Deliver then ALWAYS proceeds. The surface names itself via
+// UnsafeInfo, so the warning needs no hand-typed reason.
 func (u unsafeDelivery) DeliverIsolated() (Delivered, error) {
-	Warn("unsafe delivery of %s into a shared cwd: %s", u.r.Surface, u.r.Why)
-	return u.s.Deliver(u.r.Dir)
-}
-
-// UnsafeApply wraps a plain Delivery as a RaceSafeDelivery for a shared cwd,
-// classified strictness.ClassApply — the hook/config APPLY class every engine's
-// well-known surface writes fall under. It is the shared shorthand a backend
-// reaches for when its engine offers NO out-of-cwd flag for a surface, so the
-// only way that surface reaches a SharedCell is the loud Unsafe hatch. surface,
-// why, and dir fill the sanctioned-unsafe UnsafeReason a gen-docs pass (plan S3)
-// enumerates. It exists so the identical per-backend Unsafe(...) helper no longer
-// has to be mirrored in every engine package.
-func UnsafeApply(d Delivery, surface, why, dir string) RaceSafeDelivery {
-	return Unsafe(d, UnsafeReason{
-		Surface: surface,
-		Why:     why,
-		Dir:     dir,
-		Class:   strictness.ClassApply,
-	})
+	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", u.s.UnsafeInfo(), u.dir)
+	return u.s.Deliver(u.dir)
 }

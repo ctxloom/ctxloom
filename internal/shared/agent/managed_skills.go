@@ -14,19 +14,28 @@ package agent
 // exports are managed files: on Deliver it writes the enabled exports, and its
 // cleanup reverts exactly the manifest-tracked set by re-writing with no exports.
 // It is Delivery-ONLY — managed skill files are cwd-rooted, so a ManagedSkills
-// delivery reaches a SharedCell only through the loud Unsafe hatch.
+// delivery reaches a SharedCell only through the loud Unsafe hatch. It carries an
+// engine/surface name (e.g. "codex/skills") so it self-describes for that hatch
+// (UnsafeInfo).
 type ManagedSkillsDelivery struct {
+	name   string
 	skills []CommandExport
 	write  func(dir string, skills []CommandExport) error
 }
 
-// NewManagedSkillsDelivery builds a managed-skills Delivery from the enabled
-// exports and the engine's manifest-scoped command-file writer, bound so that
-// write(dir, skills) materializes the exports under dir and write(dir, nil)
-// reverts exactly the managed set.
-func NewManagedSkillsDelivery(skills []CommandExport, write func(dir string, skills []CommandExport) error) *ManagedSkillsDelivery {
-	return &ManagedSkillsDelivery{skills: skills, write: write}
+// NewManagedSkillsDelivery builds a managed-skills Delivery from its engine/surface
+// name (e.g. "kiro/skills", for the Unsafe warning), the enabled exports, and the
+// engine's manifest-scoped command-file writer, bound so that write(dir, skills)
+// materializes the exports under dir and write(dir, nil) reverts exactly the
+// managed set.
+func NewManagedSkillsDelivery(name string, skills []CommandExport, write func(dir string, skills []CommandExport) error) *ManagedSkillsDelivery {
+	return &ManagedSkillsDelivery{name: name, skills: skills, write: write}
 }
+
+// UnsafeInfo returns the engine/surface identity for the Unsafe warning, making a
+// managed-skills delivery self-describing when the loud hatch delivers it into a
+// shared cwd.
+func (s *ManagedSkillsDelivery) UnsafeInfo() string { return s.name }
 
 // Deliver writes the enabled skill exports into dir via the injected writer and
 // returns a handle whose Cleanup reverts exactly the manifest-tracked set (a
@@ -46,8 +55,10 @@ type deliveredFunc func() error
 func (f deliveredFunc) Cleanup() error { return f() }
 
 // Compile-time contract: a managed-skills delivery is Delivery-ONLY (no
-// out-of-cwd flag), so it can never enter a SharedCell except through Unsafe.
+// out-of-cwd flag), so it can never enter a SharedCell except through Unsafe —
+// which it satisfies as a self-describing UnsafeSurface.
 var (
-	_ Delivery  = (*ManagedSkillsDelivery)(nil)
-	_ Delivered = deliveredFunc(nil)
+	_ Delivery      = (*ManagedSkillsDelivery)(nil)
+	_ UnsafeSurface = (*ManagedSkillsDelivery)(nil)
+	_ Delivered     = deliveredFunc(nil)
 )

@@ -99,6 +99,9 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return fs.Remove(path) }), nil
 }
 
+// UnsafeInfo returns codex's context identity for the Unsafe warning.
+func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
+
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
 // [hooks] and [mcp_servers] tables together. Delivery-ONLY — codex has no
@@ -120,6 +123,9 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	}
 	return deliveredFunc(func() error { return w.RemoveSettings(dir) }), nil
 }
+
+// UnsafeInfo returns codex's config identity for the Unsafe warning.
+func (s *configSurface) UnsafeInfo() string { return "codex/config" }
 
 // codex's prompts surface is the shared agent.ManagedSkillsDelivery bound to
 // codex's writer (built in NewSurfaces). codex prompts are GLOBAL
@@ -166,7 +172,7 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 	return Surfaces{
 		Context: &contextSurface{fragments: in.Fragments, fs: fs},
 		Config:  &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery(in.Skills, func(dir string, skills []agent.CommandExport) error {
+		Skills: agent.NewManagedSkillsDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.CommandExport) error {
 			return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
 		}),
 	}
@@ -189,9 +195,9 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
 func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
-		agent.UnsafeApply(s.Context, "context", "codex has no out-of-cwd flag for the context file", dir),
-		agent.UnsafeApply(s.Config, "config", "codex has no out-of-cwd flag for .codex/config.toml", dir),
-		agent.UnsafeApply(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", dir),
+		agent.Unsafe(s.Context, dir),
+		agent.Unsafe(s.Config, dir),
+		agent.Unsafe(s.Skills, dir),
 	}
 }
 
@@ -199,9 +205,9 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 // is assignable to agent.RaceSafeDelivery, which is the compile-time guarantee
 // that no codex surface can enter a SharedCell except through agent.Unsafe.
 var (
-	_ agent.Delivery  = (*contextSurface)(nil)
-	_ agent.Delivery  = (*configSurface)(nil)
-	_ agent.Delivered = deliveredFunc(nil)
+	_ agent.UnsafeSurface = (*contextSurface)(nil)
+	_ agent.UnsafeSurface = (*configSurface)(nil)
+	_ agent.Delivered     = deliveredFunc(nil)
 	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
 	// it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}

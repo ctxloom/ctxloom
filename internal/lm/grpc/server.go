@@ -99,6 +99,9 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			// sent none, e.g. skip_setup). Converted from proto back to the
 			// wire-typed Go form the agent's Setup consumes.
 			Managed: managedConfigFromProto(req.GetManagedConfig()),
+			// Resolved isolation cell, decided host-side and carried on the wire.
+			// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
+			CellKind: cellKindFromProto(opts.GetCellKind()),
 		}
 		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
 			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
@@ -174,6 +177,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Permissions: agent.WireMode(opts.GetPermissionMode()),
 		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
+		CellKind:    cellKindFromProto(opts.GetCellKind()),
 		Stdin:       stdinR,
 		Resize:      resizeCh,
 	}
@@ -225,6 +229,35 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Output:    &RunResponse_ExitCode{ExitCode: result.ExitCode},
 		ModelInfo: convertModelInfoToProto(result.ModelInfo),
 	})
+}
+
+// CellKindToProto maps a host-side agent.CellKind to the wire CellKind enum for
+// stamping onto RunOptions. Shared stamps the explicit SHARED value (not
+// UNSPECIFIED) so the wire records a decided cell; the two isolated kinds map
+// one-to-one. Inverse of cellKindFromProto.
+func CellKindToProto(k agent.CellKind) CellKind {
+	switch k {
+	case agent.CellKindDirectoryIsolated:
+		return CellKind_CELL_KIND_DIRECTORY_ISOLATED
+	case agent.CellKindProcessIsolated:
+		return CellKind_CELL_KIND_PROCESS_ISOLATED
+	default:
+		return CellKind_CELL_KIND_SHARED
+	}
+}
+
+// cellKindFromProto maps the wire CellKind enum to the plugin-side agent.CellKind.
+// UNSPECIFIED (and any unknown) decodes to Shared, matching the enum's documented
+// default — a run whose host didn't stamp a cell is treated as the shared cwd.
+func cellKindFromProto(k CellKind) agent.CellKind {
+	switch k {
+	case CellKind_CELL_KIND_DIRECTORY_ISOLATED:
+		return agent.CellKindDirectoryIsolated
+	case CellKind_CELL_KIND_PROCESS_ISOLATED:
+		return agent.CellKindProcessIsolated
+	default: // CELL_KIND_UNSPECIFIED, CELL_KIND_SHARED
+		return agent.CellKindShared
+	}
 }
 
 // convertFragment converts a proto Fragment to a backend Fragment.

@@ -172,18 +172,18 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 // where a well-known write into a private dir is safe. This is the ONLY way
 // kiro's surfaces reach a cell at the delivery layer: none is a RaceSafeDelivery,
 // so a SharedCell can accept a kiro surface only through the loud agent.Unsafe
-// adapter (see UnsafeForSharedCwd). (The `--agent` name lever isolates CONCURRENT
+// adapter (see SharedCwdDeliveries). (The `--agent` name lever isolates CONCURRENT
 // agents at launch — Phase 2 — orthogonally to this seam.)
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Skills}
 }
 
-// UnsafeForSharedCwd wraps every kiro surface in the loud agent.Unsafe adapter for
+// SharedCwdDeliveries wraps every kiro surface in the loud agent.Unsafe adapter for
 // a SharedCell (the user's live cwd) at dir. At the delivery layer kiro offers no
 // out-of-cwd redirect for its files, so a shared cwd is the sanctioned last resort
 // — an isolated cell (worktree/container) is always the first preference. Each
 // returned value is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
 		agent.UnsafeApply(s.Context, "context", "kiro has no out-of-cwd flag for the steering file", dir),
 		agent.UnsafeApply(s.MCP, "mcp", "kiro has no out-of-cwd flag for .kiro/settings/mcp.json", dir),
@@ -200,4 +200,7 @@ var (
 	_ agent.Delivery  = (*mcpSurface)(nil)
 	_ agent.Delivery  = (*settingsSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
+	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
+	// it satisfies agent.SurfaceSet.
+	_ agent.SurfaceSet = Surfaces{}
 )

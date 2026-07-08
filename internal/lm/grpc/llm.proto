@@ -417,6 +417,23 @@ message RunOptions {
   float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
   uint32 max_tokens = 9;  // Maximum response tokens (0=default)
   bool skip_setup = 10;   // Skip context/hooks/skills setup (for distillation)
+  // Resolved isolation CELL for this run, decided host-side by isolation.Prepare
+  // and carried to the plugin so Setup/buildArgs know which cell they run in
+  // (the host resolves it; the plugin can't infer it from WorkDir alone). Shared
+  // is the user's live cwd; DirectoryIsolated a per-agent worktree;
+  // ProcessIsolated a container. Unspecified decodes to Shared at the server.
+  CellKind cell_kind = 11;
+}
+
+// CellKind is the resolved isolation cell for a run, mapped host-side from the
+// isolation.Policy (None→Shared, Worktree→DirectoryIsolated, Container in both
+// its base tiers→ProcessIsolated) and mirrored by agent.CellKind on the plugin
+// side.
+enum CellKind {
+  CELL_KIND_UNSPECIFIED = 0;
+  CELL_KIND_SHARED = 1;              // the user's live cwd (shared directory)
+  CELL_KIND_DIRECTORY_ISOLATED = 2;  // a per-agent git worktree
+  CELL_KIND_PROCESS_ISOLATED = 3;    // a container
 }
 
 enum ExecutionMode {

@@ -177,17 +177,17 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 // where a well-known write into a private dir is safe. This is the ONLY way
 // codex's surfaces reach a cell: none is race-safe, so a SharedCell can accept a
 // codex surface only through the loud agent.Unsafe adapter (see
-// UnsafeForSharedCwd).
+// SharedCwdDeliveries).
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.Config, s.Skills}
 }
 
-// UnsafeForSharedCwd wraps every codex surface in the loud agent.Unsafe adapter
+// SharedCwdDeliveries wraps every codex surface in the loud agent.Unsafe adapter
 // for a SharedCell (the user's live cwd) at dir. codex offers no out-of-cwd flag
 // for ANY surface, so a shared cwd is the sanctioned last resort — an isolated
 // cell (worktree/container) is always the first preference. Each returned value
 // is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
 		agent.UnsafeApply(s.Context, "context", "codex has no out-of-cwd flag for the context file", dir),
 		agent.UnsafeApply(s.Config, "config", "codex has no out-of-cwd flag for .codex/config.toml", dir),
@@ -202,4 +202,7 @@ var (
 	_ agent.Delivery  = (*contextSurface)(nil)
 	_ agent.Delivery  = (*configSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
+	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
+	// it satisfies agent.SurfaceSet.
+	_ agent.SurfaceSet = Surfaces{}
 )

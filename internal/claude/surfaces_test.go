@@ -263,7 +263,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 // ---- cells wiring (the vertical slice) -------------------------------------
 
 // A SharedCell accepts claude's race-safe surfaces (context/MCP/settings via a
-// flag) and, for skills, the Unsafe-wrapped surface — the RaceSafeForSharedCwd
+// flag) and, for skills, the Unsafe-wrapped surface — the SharedCwdDeliveries
 // helper packages exactly that set for iteration.
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd := t.TempDir()
@@ -278,7 +278,7 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	}
 
 	// The helper packages all four for the shared cwd (skills wrapped in Unsafe).
-	rs := s.RaceSafeForSharedCwd(cwd)
+	rs := s.SharedCwdDeliveries(cwd)
 	require.Len(t, rs, 4)
 	stderr := captureStderr(t, func() {
 		for _, surface := range rs {

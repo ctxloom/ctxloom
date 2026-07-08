@@ -250,7 +250,7 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	cwd := "/live"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := s.UnsafeForSharedCwd(cwd)
+	rs := s.SharedCwdDeliveries(cwd)
 	require.Len(t, rs, 3)
 	stderr := captureStderr(t, func() {
 		for _, surface := range rs {

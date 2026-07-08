@@ -186,17 +186,17 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 // for iteration by an isolated cell (worktree / container / materialize target),
 // where a well-known write into a private dir is safe. This is the ONLY way agy's
 // surfaces reach a cell: none is race-safe, so a SharedCell can accept an agy
-// surface only through the loud agent.Unsafe adapter (see UnsafeForSharedCwd).
+// surface only through the loud agent.Unsafe adapter (see SharedCwdDeliveries).
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Skills}
 }
 
-// UnsafeForSharedCwd wraps every agy surface in the loud agent.Unsafe adapter for
+// SharedCwdDeliveries wraps every agy surface in the loud agent.Unsafe adapter for
 // a SharedCell (the user's live cwd) at dir. agy offers no out-of-cwd flag for
 // ANY surface, so a shared cwd is the sanctioned last resort — an isolated cell
 // (worktree/container) is always the first preference. Each returned value is a
 // RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
 		agent.UnsafeApply(s.Context, "context", "antigravity has no out-of-cwd flag for .agents/AGENTS.md", dir),
 		agent.UnsafeApply(s.MCP, "mcp", "antigravity has no out-of-cwd flag for .agents/mcp_config.json", dir),
@@ -213,4 +213,7 @@ var (
 	_ agent.Delivery  = (*mcpSurface)(nil)
 	_ agent.Delivery  = (*hooksSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
+	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
+	// it satisfies agent.SurfaceSet.
+	_ agent.SurfaceSet = Surfaces{}
 )

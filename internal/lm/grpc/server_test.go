@@ -134,6 +134,10 @@ type fakeBackend struct {
 	captureStderr string
 	history       agent.SessionHistory
 	capturedPerm  agent.PermissionMode // posture the server decoded into the request
+	// Cells the server decoded into the Setup / Execute requests, so a test can
+	// prove cell_kind flows onto BOTH.
+	capturedSetupCell   agent.CellKind
+	capturedExecuteCell agent.CellKind
 }
 
 func (f *fakeBackend) Name() string                          { return f.name }
@@ -143,11 +147,13 @@ func (f *fakeBackend) History() agent.SessionHistory         { return f.history 
 
 func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	f.setupCalled = true
+	f.capturedSetupCell = req.CellKind
 	return nil
 }
 
 func (f *fakeBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	f.capturedPerm = req.Permissions
+	f.capturedExecuteCell = req.CellKind
 	if f.captureStdout != "" {
 		_, _ = stdout.Write([]byte(f.captureStdout))
 	}

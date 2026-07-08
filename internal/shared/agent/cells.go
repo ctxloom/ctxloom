@@ -45,6 +45,52 @@ type RaceSafeDelivery interface {
 	DeliverIsolated() (Delivered, error)
 }
 
+// SurfaceSet is the per-backend set of delivery surfaces for one run, exposed so
+// a cell can drive delivery without importing the concrete backend. Every
+// backend's `Surfaces` value satisfies it. Deliveries feeds an ISOLATED cell
+// (worktree/container/materialize) where a well-known write into a private dir
+// is safe; SharedCwdDeliveries feeds a SHARED cell (the user's live cwd) at dir,
+// returning each surface as a RaceSafeDelivery — genuinely race-safe where the
+// engine offers an out-of-cwd flag, else wrapped in the loud agent.Unsafe adapter
+// (each backend's method doc records which surfaces are which). This is additive
+// substrate for the delivery cutover — no cell consumes it yet (plan S4b).
+type SurfaceSet interface {
+	// Deliveries returns every surface as a plain Delivery for an isolated cell.
+	Deliveries() []Delivery
+	// SharedCwdDeliveries returns every surface prepared for a SharedCell at dir,
+	// each as a RaceSafeDelivery (assignable to SharedCell.Deliver).
+	SharedCwdDeliveries(dir string) []RaceSafeDelivery
+}
+
+// CellKind is the resolved isolation cell a run executes in, decided host-side
+// (mapped from the isolation.Policy) and carried to the plugin over the wire so
+// Setup/buildArgs know which cell they run in. It is the plugin-side mirror of
+// the grpc CellKind enum. The zero value is CellKindShared, matching the wire's
+// UNSPECIFIED→Shared decode. It names the same three cells as the typed cell
+// values above (SharedCell / DirectoryIsolatedCell / ProcessIsolatedCell).
+type CellKind int
+
+const (
+	// CellKindShared is the user's live cwd — a shared directory (isolation None).
+	CellKindShared CellKind = iota
+	// CellKindDirectoryIsolated is a per-agent git worktree (isolation Worktree).
+	CellKindDirectoryIsolated
+	// CellKindProcessIsolated is a container (isolation Container, both tiers).
+	CellKindProcessIsolated
+)
+
+// String renders the CellKind for diagnostics.
+func (k CellKind) String() string {
+	switch k {
+	case CellKindDirectoryIsolated:
+		return "directory-isolated"
+	case CellKindProcessIsolated:
+		return "process-isolated"
+	default:
+		return "shared"
+	}
+}
+
 // isolatedCell is the shared base for cells that own a PRIVATE directory (a
 // per-agent worktree, or a container's in-namespace filesystem). A well-known
 // write into a private dir cannot race another session, so an isolated cell

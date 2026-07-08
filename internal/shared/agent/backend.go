@@ -205,6 +205,11 @@ type SetupRequest struct {
 	// so the backend plugin never imports ctxloom config/bundles. Nil for
 	// skip_setup/distill paths.
 	Managed *ManagedConfig
+	// CellKind is the resolved isolation cell this run executes in, decided
+	// host-side (isolation.Prepare) and carried over the wire. Setup does not
+	// consume it yet (plan S4b); it is plumbed here so a later slice can switch
+	// delivery on the cell instead of inferring it from WorkDir.
+	CellKind CellKind
 }
 
 // ManagedConfig is the host-assembled setup payload: ctxloom config, profile,
@@ -240,6 +245,11 @@ type ExecuteRequest struct {
 	Permissions PermissionMode
 	Temperature float32
 	SkipSetup   bool // Minimal mode - skip hooks/skills/context in backend
+	// CellKind is the resolved isolation cell this run executes in, decided
+	// host-side (isolation.Prepare) and carried over the wire alongside SetupRequest.
+	// buildArgs does not consume it yet (plan S4b); it is plumbed here so a later
+	// slice can switch on the cell instead of inferring it from WorkDir.
+	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive
 	// run (over the bidi Run stream): Stdin is the keystroke byte stream, Resize

@@ -178,6 +178,24 @@ func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageCon
 	}
 }
 
+// CellKindForPolicy maps a resolved isolation.Policy to the agent.CellKind the
+// host stamps onto RunOptions.CellKind, so the plugin learns which cell it runs
+// in (it can't infer that from WorkDir alone). It lives HERE — at the run
+// boundary where both isolation and agent are already imported — rather than in
+// isolation, so isolation need not depend on agent. None → Shared, Worktree →
+// DirectoryIsolated, and either container base (container / container-worktree)
+// → ProcessIsolated. Both cli/run.go and oneshot.go stamp through this one map.
+func CellKindForPolicy(p isolation.Policy) agent.CellKind {
+	switch {
+	case isolation.IsContainerPolicyName(p.Name()):
+		return agent.CellKindProcessIsolated
+	case isolation.Isolated(p): // a worktree (isolated, but not container)
+		return agent.CellKindDirectoryIsolated
+	default: // none — the shared live project dir
+		return agent.CellKindShared
+	}
+}
+
 // prepareIsolation is runResolvedAgent's seam onto isolation.Prepare — a
 // package var so tests simulate a container degrade (which records
 // ClassIsolation findings) without probing the real host's container
@@ -255,6 +273,11 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// isolated cwd (set below).
 	skipSetup := true
 	var managed *pb.ManagedConfig
+	// Resolved isolation cell stamped onto RunOptions below so the plugin knows
+	// which cell it runs in. Defaults to Shared: the injected-Factory test path
+	// (and a none member) share the live cwd; the isolation branch overwrites it
+	// from the resolved policy. Setup does not consume it yet (plan S4b).
+	cellKind := agent.CellKindShared
 	if factory == nil {
 		// Member isolation. Prepare realizes the per-axis degrade chain: a
 		// runtime-axis failure drops only the container dimension (a requested
@@ -296,6 +319,11 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			return nil, gerr
 		}
 		factory = isolation.FactoryForWorkspace(policy, ws)
+		// Stamp the resolved cell (none→Shared, worktree→DirectoryIsolated,
+		// container→ProcessIsolated) — set unconditionally from the actual policy,
+		// not gated on Isolated, so a none member is explicitly Shared too. This
+		// complements the SkipSetup-as-proxy below (which S4b will supersede).
+		cellKind = CellKindForPolicy(policy)
 
 		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written
 		// into its isolated cwd (the point of the worktree, plan §2b). Assemble it
@@ -344,6 +372,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			Model:          req.Model,
 			Verbosity:      uint32(req.Verbosity * 16),
 			SkipSetup:      skipSetup,
+			CellKind:       pb.CellKindToProto(cellKind),
 		},
 		ManagedConfig: managed,
 	}

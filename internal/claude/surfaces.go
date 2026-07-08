@@ -169,7 +169,7 @@ func (s *settingsSurface) Path() string { return s.path }
 // .claude/commands/. It implements Delivery ONLY — claude has no out-of-cwd flag
 // for slash-commands, so it is deliberately NOT a RaceSafeDelivery. It reaches a
 // SharedCell (the user's live cwd) only via the explicit, warned agent.UnsafeApply
-// adapter (see RaceSafeForSharedCwd); first preference is always an isolated cell.
+// adapter (see SharedCwdDeliveries); first preference is always an isolated cell.
 // (Unlike the other engines, claude's skills ride fileTemplateDelivery.DeliverSkills,
 // which owns its own cleanup, so they are NOT the shared agent.ManagedSkillsDelivery.)
 type skillsSurface struct {
@@ -198,7 +198,7 @@ type SurfaceInputs struct {
 
 // Surfaces is claude's set of delivery surfaces for one run, exposed so a caller
 // can iterate them and hand each to a cell (Deliveries for an isolated cell,
-// RaceSafeForSharedCwd for the shared live cwd). claude has four surface objects
+// SharedCwdDeliveries for the shared live cwd). claude has four surface objects
 // — context, MCP, settings (which carries hooks), and skills.
 type Surfaces struct {
 	Context  *contextSurface
@@ -229,13 +229,13 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Skills}
 }
 
-// RaceSafeForSharedCwd returns every surface prepared for a SharedCell (the
+// SharedCwdDeliveries returns every surface prepared for a SharedCell (the
 // user's live cwd) at dir: the three flag-backed surfaces as-is, and skills
 // wrapped in the loud agent.Unsafe adapter (claude offers no out-of-cwd flag for
 // slash-commands, so this is the sanctioned last resort — an isolated cell is
 // always the first preference). Each returned value is a RaceSafeDelivery, so it
 // is assignable to SharedCell.Deliver.
-func (s Surfaces) RaceSafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
 		s.Context,
 		s.MCP,
@@ -258,4 +258,7 @@ var (
 	_ agent.RaceSafeDelivery = (*settingsSurface)(nil)
 	_ agent.Delivery         = (*skillsSurface)(nil)
 	_ agent.Placement        = dirPlacement{}
+	// Surfaces exposes both the isolated (Deliveries) and shared-cwd
+	// (SharedCwdDeliveries) delivery sets, so it satisfies agent.SurfaceSet.
+	_ agent.SurfaceSet = Surfaces{}
 )

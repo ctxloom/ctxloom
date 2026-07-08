@@ -935,6 +935,12 @@ Examples:
 			// The engine's cwd lands in the prepared workspace (identical-path for
 			// container/none; a worktree in Phase 2).
 			req.Options.WorkDir = ws.Dir()
+			// Stamp the resolved isolation cell so the plugin knows which cell it
+			// runs in (it can't infer it from WorkDir alone). The external-plugin
+			// path above never reaches here, so it leaves cell_kind unset →
+			// UNSPECIFIED → Shared, which is correct: that path stays none. Setup
+			// does not consume this yet (plan S4b).
+			req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(policy))
 			// Spawn through the policy, carrying the resolved label so serve
 			// configures exactly this entry (not the first map-ordered entry of the
 			// same type).

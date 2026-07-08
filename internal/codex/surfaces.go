@@ -1,0 +1,235 @@
+package codex
+
+import (
+	"path/filepath"
+
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+)
+
+// This file lands codex's package on the unified surface-delivery seam
+// (internal/shared/agent/cells.go): each of codex's surfaces as an object that
+// implements agent.Delivery (the engine's well-known write). It is ADDITIVE:
+// every surface object WRAPS an existing codex writer verbatim — the shared
+// context-file writer (agent.WriteContextFile), the config.toml writer
+// (CodexHookWriter.WriteSettings), and the managed-command writer
+// (agent.WriteManagedCommandFiles + codexPromptFile). Nothing here is wired into
+// the launch path (launch_backend.go / Setup / buildArgs); that cutover is
+// Phase 2 (plan S4).
+//
+// Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
+// race-safe coverage"): codex exposes NO out-of-cwd redirect (no
+// --mcp-config / --settings / --append-system-prompt equivalent), so EVERY codex
+// surface is WELL-KNOWN-ONLY — a plain agent.Delivery, never a
+// agent.RaceSafeDelivery. Per-agent CONCURRENT isolation for codex therefore
+// requires a private cwd (worktree) or container cell, never a SharedCell.
+//
+//	surface  | well-known target                         | also RaceSafeDelivery?
+//	---------|-------------------------------------------|-----------------------
+//	context  | .ctxloom/cache/context/<hash>.md (file)   | ❌ no flag
+//	config   | .codex/config.toml (hooks + MCP)          | ❌ no flag
+//	skills   | $CODEX_HOME/prompts/<name>.md             | ❌ no flag
+//
+// Two codex realities shape the decomposition:
+//
+//  1. config.toml is FOLDED. codex has a single atomic writer (WriteSettings)
+//     that owns the [hooks] AND [mcp_servers] tables of one file. Splitting MCP
+//     from hooks would mean two partial load-modify-save passes over the same
+//     file — so, exactly as claude folds "settings + hooks" into one surface,
+//     codex folds "settings + hooks + MCP" into one config surface.
+//
+//  2. context is a FILE, read via a hook. codex has no ContextWriter; its
+//     context reaches the model as a raw context file (agent.WriteContextFile)
+//     that a SessionStart hook in config.toml reads. The contextSurface here
+//     writes ONLY that file — the SessionStart context-injection hook that
+//     consumes it is one of the hooks the config surface delivers. This mirrors
+//     the existing Setup split (BaseContextProvider.Provide writes the file;
+//     BaseLifecycle.Flush → WriteSettings writes config.toml with the hook). The
+//     hash-linkage between the file and that hook is a Phase-2 wiring concern.
+//
+//  3. skills are GLOBAL. codex discovers prompts only from $CODEX_HOME/prompts
+//     (default ~/.codex/prompts) — NOT cwd-relative — so an isolated *directory*
+//     would not isolate them. The skillsSurface therefore writes prompts under a
+//     CELL-SCOPED $CODEX_HOME derived from the delivery dir (<dir>/.codex/prompts,
+//     i.e. CODEX_HOME=<dir>/.codex), so a DirectoryIsolatedCell genuinely
+//     isolates them. Exporting CODEX_HOME=<dir>/.codex to the launched codex is
+//     the Phase-2 buildArgs/env concern.
+
+// cellScopedCodexHome derives a per-cell $CODEX_HOME from the delivery dir. In an
+// isolated cell (worktree / container mount) at dir, <dir>/.codex is both the
+// project config dir codex reads AND the CODEX_HOME its global prompts/sessions
+// hang off — so pointing CODEX_HOME here keeps prompts cell-local. It matches
+// codexHome()'s output when CODEX_HOME=<dir>/.codex (CODEX_HOME IS the .codex
+// dir, not its parent), so codexPromptsDir would resolve to cellScopedPromptsDir.
+func cellScopedCodexHome(dir string) string { return filepath.Join(dir, ".codex") }
+
+// cellScopedPromptsDir is the prompts directory under the cell-scoped
+// $CODEX_HOME — the isolated stand-in for the global codexPromptsDir().
+func cellScopedPromptsDir(dir string) string {
+	return filepath.Join(cellScopedCodexHome(dir), "prompts")
+}
+
+// contextSurface is codex's context surface. codex has no ContextWriter: its
+// context is a raw file (agent.WriteContextFile) that a SessionStart hook in
+// config.toml reads. Deliver writes that file into dir's well-known context
+// cache; the SessionStart hook that consumes it is delivered by the config
+// surface (it is one of the hooks). Delivery-ONLY — codex has no out-of-cwd
+// context flag.
+type contextSurface struct {
+	fragments []*agent.Fragment
+	fs        afero.Fs
+}
+
+// Deliver writes the assembled context file into dir via agent.WriteContextFile
+// (the same writer BaseContextProvider.Provide uses) and returns a handle whose
+// Cleanup removes it. Empty/absent content writes nothing and cleans up to a
+// no-op.
+func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
+	hash, err := agent.WriteContextFile(dir, s.fragments, agent.WithContextFS(s.fs))
+	if err != nil {
+		return nil, err
+	}
+	if hash == "" {
+		return deliveredFunc(func() error { return nil }), nil
+	}
+	fs := s.fs
+	path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
+	return deliveredFunc(func() error { return fs.Remove(path) }), nil
+}
+
+// configSurface is codex's folded settings + hooks + MCP surface: the single
+// .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
+// [hooks] and [mcp_servers] tables together. Delivery-ONLY — codex has no
+// per-invocation config redirect.
+type configSurface struct {
+	hooks     *wire.HooksConfig
+	mcp       *wire.MCPConfig
+	bundleMCP map[string]wire.MCPServer
+	fs        afero.Fs
+}
+
+// Deliver writes .codex/config.toml into dir via the reused WriteSettings and
+// returns a handle whose Cleanup reverts the ctxloom-managed hooks and servers
+// via RemoveSettings (user keys preserved).
+func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
+	w := &CodexHookWriter{FS: s.fs}
+	if err := w.WriteSettings(s.hooks, s.mcp, s.bundleMCP, dir); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error { return w.RemoveSettings(dir) }), nil
+}
+
+// skillsSurface is codex's prompts surface. codex prompts are GLOBAL
+// ($CODEX_HOME/prompts), so Deliver writes them under a CELL-SCOPED $CODEX_HOME
+// derived from dir (cellScopedPromptsDir) — this is what lets a
+// DirectoryIsolatedCell isolate them. It reuses the shared managed-command
+// writer + codexPromptFile mapper verbatim; only the target dir is cell-scoped.
+// Delivery-ONLY.
+type skillsSurface struct {
+	skills []agent.CommandExport
+	fs     afero.Fs
+}
+
+// Deliver writes the enabled prompt exports into <dir>/.codex/prompts via the
+// shared manifest-scoped writer and returns a handle whose Cleanup reverts
+// exactly the manifest-tracked set (writing with no exports).
+func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
+	promptsDir := cellScopedPromptsDir(dir)
+	fs := s.fs
+	if err := agent.WriteManagedCommandFiles(fs, promptsDir, codexManifest, s.skills, codexPromptFile); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error {
+		return agent.WriteManagedCommandFiles(fs, promptsDir, codexManifest, nil, codexPromptFile)
+	}), nil
+}
+
+// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
+// return its teardown inline without a bespoke handle type.
+type deliveredFunc func() error
+
+// Cleanup runs the wrapped cleanup closure.
+func (f deliveredFunc) Cleanup() error { return f() }
+
+// SurfaceInputs carries the per-run data codex's surfaces write. It mirrors what
+// the launch path already assembles — the context fragments, the merged MCP
+// config + profile/builtin bundle servers, the hook set, and the skill exports.
+// S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup.
+type SurfaceInputs struct {
+	Fragments []*agent.Fragment
+	MCP       *wire.MCPConfig
+	BundleMCP map[string]wire.MCPServer
+	Hooks     *wire.HooksConfig
+	Skills    []agent.CommandExport
+}
+
+// Surfaces is codex's set of delivery surfaces for one run. codex has three
+// surface objects — context (the raw context file), config (config.toml's folded
+// hooks + MCP), and skills (cell-scoped prompts).
+type Surfaces struct {
+	Context *contextSurface
+	Config  *configSurface
+	Skills  *skillsSurface
+}
+
+// NewSurfaces builds codex's surfaces from a run's inputs. A nil fs defaults to
+// the OS filesystem. Every codex surface's Delivery takes its target dir at call
+// time; none is race-safe (codex exposes no out-of-cwd flag), so there is no
+// isolated placement to bind.
+func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
+	fs = agent.GetFS(fs)
+	return Surfaces{
+		Context: &contextSurface{fragments: in.Fragments, fs: fs},
+		Config:  &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
+		Skills:  &skillsSurface{skills: in.Skills, fs: fs},
+	}
+}
+
+// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
+// for iteration by an isolated cell (worktree / container / materialize target),
+// where a well-known write into a private dir is safe. This is the ONLY way
+// codex's surfaces reach a cell: none is race-safe, so a SharedCell can accept a
+// codex surface only through the loud agent.Unsafe adapter (see
+// UnsafeForSharedCwd).
+func (s Surfaces) Deliveries() []agent.Delivery {
+	return []agent.Delivery{s.Context, s.Config, s.Skills}
+}
+
+// UnsafeForSharedCwd wraps every codex surface in the loud agent.Unsafe adapter
+// for a SharedCell (the user's live cwd) at dir. codex offers no out-of-cwd flag
+// for ANY surface, so a shared cwd is the sanctioned last resort — an isolated
+// cell (worktree/container) is always the first preference. Each returned value
+// is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
+func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+	return []agent.RaceSafeDelivery{
+		Unsafe(s.Context, "context", "codex has no out-of-cwd flag for the context file", dir),
+		Unsafe(s.Config, "config", "codex has no out-of-cwd flag for .codex/config.toml", dir),
+		Unsafe(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", dir),
+	}
+}
+
+// Unsafe wraps a codex Delivery-only surface as a RaceSafeDelivery for a shared
+// cwd, tagging the sanctioned-unsafe reason a gen-docs pass (plan S3) enumerates.
+// codex uses agent.ClassApply for every surface — its writes are the hook/config
+// apply class.
+func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
+	return agent.Unsafe(d, agent.UnsafeReason{
+		Surface: surface,
+		Why:     why,
+		Dir:     dir,
+		Class:   strictness.ClassApply,
+	})
+}
+
+// Compile-time capability contracts. Every codex surface is Delivery-ONLY: none
+// is assignable to agent.RaceSafeDelivery, which is the compile-time guarantee
+// that no codex surface can enter a SharedCell except through agent.Unsafe.
+var (
+	_ agent.Delivery  = (*contextSurface)(nil)
+	_ agent.Delivery  = (*configSurface)(nil)
+	_ agent.Delivery  = (*skillsSurface)(nil)
+	_ agent.Delivered = deliveredFunc(nil)
+)

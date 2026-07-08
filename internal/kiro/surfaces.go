@@ -1,0 +1,229 @@
+package kiro
+
+import (
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+)
+
+// This file lands kiro's package on the unified surface-delivery seam
+// (internal/shared/agent/cells.go): each of kiro's surfaces as an object that
+// implements agent.Delivery (the engine's well-known write). It is ADDITIVE:
+// every surface object WRAPS an existing kiro writer verbatim — the ContextWriter
+// core (KiroWriter.WriteContext → .kiro/steering/ctxloom-context.md), the shared
+// MCP-file reconciler (mcpFile().WriteServers → .kiro/settings/mcp.json), the
+// agent-config writer (mapHooks + writeAgentConfig → .kiro/agents/<name>.json),
+// and the managed-command writer (WriteCommandFiles → .kiro/skills/). Nothing
+// here is wired into the launch path (launch_backend.go / Setup / buildArgs);
+// that cutover is Phase 2 (plan S4).
+//
+// Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
+// race-safe coverage"): kiro's context, MCP, and skills surfaces are
+// WELL-KNOWN-ONLY (plain agent.Delivery). kiro DOES have a per-agent lever — the
+// settings + hooks live in .kiro/agents/<name>.json, selected at launch by
+// `--agent <name>` — but that is NAME-based isolation resolved in buildArgs, a
+// Phase-2 launch concern; at the delivery layer every kiro surface is still a
+// well-known write into a project-rooted file, so ALL FOUR are modeled as plain
+// agent.Delivery here. (Concurrent per-agent isolation via distinct `--agent`
+// names is noted for Phase 2, not implemented as a RaceSafeDelivery.)
+//
+//	surface  | well-known target                       | also RaceSafeDelivery?
+//	---------|-----------------------------------------|-----------------------
+//	context  | .kiro/steering/ctxloom-context.md       | ❌ (steering, auto-loaded)
+//	MCP      | .kiro/settings/mcp.json                 | ❌ no flag
+//	settings | .kiro/agents/<name>.json (hooks)        | ❌ (--agent is Phase 2)
+//	skills   | .kiro/skills/<name>/SKILL.md            | ❌ no flag
+//
+// kiro reads steering rather than firing a SessionStart hook for context (the
+// context surface is a whole-file steering write, not a hook), and its hooks live
+// inside the agent JSON (settings + hooks fold into one surface, as claude folds
+// settings + hooks into settings.json).
+
+// contextSurface is kiro's context surface: the ctxloom-owned steering file
+// (.kiro/steering/ctxloom-context.md), written via the reused ContextWriter core
+// (WriteContext). Delivery-ONLY.
+type contextSurface struct {
+	context string
+	fs      afero.Fs
+}
+
+// Deliver writes the steering file via WriteContext and returns a handle whose
+// Cleanup removes it (writing empty context).
+func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
+	w := &KiroWriter{FS: s.fs}
+	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error {
+		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
+		return err
+	}), nil
+}
+
+// mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
+// shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
+type mcpSurface struct {
+	mcp       *wire.MCPConfig
+	bundleMCP map[string]wire.MCPServer
+	fs        afero.Fs
+}
+
+// Deliver writes .kiro/settings/mcp.json via the reused reconciler and returns a
+// handle whose Cleanup drops the ctxloom-managed servers (RemoveServers).
+func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
+	w := &KiroWriter{FS: s.fs}
+	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
+}
+
+// settingsSurface is kiro's folded settings + hooks surface: the ctxloom-owned
+// custom-agent config .kiro/agents/<name>.json, written via the reused mapHooks +
+// writeAgentConfig. kiro's hooks live inside this agent JSON, so settings + hooks
+// are one surface. Delivery-ONLY.
+//
+// NOTE (Phase 2): the agent's NAME (defaultAgentName) is what `--agent <name>`
+// selects at launch — kiro's per-agent isolation lever. Writing distinct
+// per-agent JSON files and passing the matching --agent is a buildArgs concern
+// deferred to the launch-path cutover; this surface only materializes the file.
+type settingsSurface struct {
+	hooks *wire.HooksConfig
+	fs    afero.Fs
+}
+
+// Deliver maps the hooks into kiro's agent-JSON hook block and writes
+// .kiro/agents/<name>.json via the reused writer; Cleanup removes that
+// ctxloom-owned file (mirroring RemoveSettings' agent-config portion). The
+// context-injection hash mapHooks diverts is the context surface's concern
+// (kiro delivers context via steering, not a hook), so it is ignored here.
+func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
+	hooks := s.hooks
+	if hooks == nil {
+		hooks = &wire.HooksConfig{}
+	}
+	w := &KiroWriter{FS: s.fs}
+	_, agentHooks := w.mapHooks(hooks.Unified, hooks.Plugins["kiro"])
+	if err := w.writeAgentConfig(dir, agentHooks); err != nil {
+		return nil, err
+	}
+	fs := s.fs
+	path := w.agentPath(dir)
+	return deliveredFunc(func() error {
+		if exists, _ := afero.Exists(fs, path); !exists {
+			return nil
+		}
+		return fs.Remove(path)
+	}), nil
+}
+
+// skillsSurface is kiro's skills surface: the agentskills SKILL.md files under
+// .kiro/skills/, written via the reused WriteCommandFiles. Delivery-ONLY.
+type skillsSurface struct {
+	skills []agent.CommandExport
+	fs     afero.Fs
+}
+
+// Deliver writes the enabled skill exports into .kiro/skills/ via the reused
+// manifest-scoped writer and returns a handle whose Cleanup reverts exactly the
+// manifest-tracked set (writing with no exports).
+func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
+	fs := s.fs
+	if err := WriteCommandFiles(dir, s.skills, agent.WithCommandFS(fs)); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error {
+		return WriteCommandFiles(dir, nil, agent.WithCommandFS(fs))
+	}), nil
+}
+
+// deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
+// return its teardown inline without a bespoke handle type.
+type deliveredFunc func() error
+
+// Cleanup runs the wrapped cleanup closure.
+func (f deliveredFunc) Cleanup() error { return f() }
+
+// SurfaceInputs carries the per-run data kiro's surfaces write. It mirrors what
+// the launch path already assembles — the assembled context text, the merged MCP
+// config + profile/builtin bundle servers, the hook set, and the skill exports.
+// S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup.
+type SurfaceInputs struct {
+	Context   string
+	MCP       *wire.MCPConfig
+	BundleMCP map[string]wire.MCPServer
+	Hooks     *wire.HooksConfig
+	Skills    []agent.CommandExport
+}
+
+// Surfaces is kiro's set of delivery surfaces for one run — four surface objects:
+// context (steering), MCP (settings/mcp.json), settings (agent JSON + hooks), and
+// skills (.kiro/skills/).
+type Surfaces struct {
+	Context  *contextSurface
+	MCP      *mcpSurface
+	Settings *settingsSurface
+	Skills   *skillsSurface
+}
+
+// NewSurfaces builds kiro's surfaces from a run's inputs. A nil fs defaults to
+// the OS filesystem. Every kiro surface's Delivery takes its target dir at call
+// time; none is modeled as race-safe here (the `--agent` lever is Phase 2).
+func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
+	fs = agent.GetFS(fs)
+	return Surfaces{
+		Context:  &contextSurface{context: in.Context, fs: fs},
+		MCP:      &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
+		Settings: &settingsSurface{hooks: in.Hooks, fs: fs},
+		Skills:   &skillsSurface{skills: in.Skills, fs: fs},
+	}
+}
+
+// Deliveries returns every surface as a plain agent.Delivery, in a stable order,
+// for iteration by an isolated cell (worktree / container / materialize target),
+// where a well-known write into a private dir is safe. This is the ONLY way
+// kiro's surfaces reach a cell at the delivery layer: none is a RaceSafeDelivery,
+// so a SharedCell can accept a kiro surface only through the loud agent.Unsafe
+// adapter (see UnsafeForSharedCwd). (The `--agent` name lever isolates CONCURRENT
+// agents at launch — Phase 2 — orthogonally to this seam.)
+func (s Surfaces) Deliveries() []agent.Delivery {
+	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Skills}
+}
+
+// UnsafeForSharedCwd wraps every kiro surface in the loud agent.Unsafe adapter for
+// a SharedCell (the user's live cwd) at dir. At the delivery layer kiro offers no
+// out-of-cwd redirect for its files, so a shared cwd is the sanctioned last resort
+// — an isolated cell (worktree/container) is always the first preference. Each
+// returned value is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
+func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
+	return []agent.RaceSafeDelivery{
+		Unsafe(s.Context, "context", "kiro has no out-of-cwd flag for the steering file", dir),
+		Unsafe(s.MCP, "mcp", "kiro has no out-of-cwd flag for .kiro/settings/mcp.json", dir),
+		Unsafe(s.Settings, "settings", "kiro's --agent name lever is a Phase-2 launch concern, not a delivery flag", dir),
+		Unsafe(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", dir),
+	}
+}
+
+// Unsafe wraps a kiro Delivery-only surface as a RaceSafeDelivery for a shared
+// cwd, tagging the sanctioned-unsafe reason a gen-docs pass (plan S3) enumerates.
+func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
+	return agent.Unsafe(d, agent.UnsafeReason{
+		Surface: surface,
+		Why:     why,
+		Dir:     dir,
+		Class:   strictness.ClassApply,
+	})
+}
+
+// Compile-time capability contracts. Every kiro surface is Delivery-ONLY at this
+// layer: none is assignable to agent.RaceSafeDelivery, the compile-time guarantee
+// that no kiro surface can enter a SharedCell except through agent.Unsafe.
+var (
+	_ agent.Delivery  = (*contextSurface)(nil)
+	_ agent.Delivery  = (*mcpSurface)(nil)
+	_ agent.Delivery  = (*settingsSurface)(nil)
+	_ agent.Delivery  = (*skillsSurface)(nil)
+	_ agent.Delivered = deliveredFunc(nil)
+)

@@ -53,11 +53,18 @@ func codexPromptsDir() string {
 // shared mechanics). Only exports with Enabled == true are written.
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
-	return agent.WriteManagedCommandFiles(fs, codexPromptsDir(), codexManifest, cmds,
-		func(c agent.CommandExport) (string, []byte, error) {
-			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
-			return filename, []byte(TransformToCodexPrompt(c)), nil
-		})
+	return agent.WriteManagedCommandFiles(fs, codexPromptsDir(), codexManifest, cmds, codexPromptFile)
+}
+
+// codexPromptFile maps one command export to its Codex prompt file: a flat
+// `<name>.md` (slashes flattened to dashes, since Codex scans only top-level
+// markdown) whose bytes are TransformToCodexPrompt's rendering. It is the single
+// source of truth for the prompt-file shape, shared by WriteCommandFiles (global
+// $CODEX_HOME/prompts) and the cell-scoped skills surface (surfaces.go) so the
+// two can never drift.
+func codexPromptFile(c agent.CommandExport) (string, []byte, error) {
+	filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
+	return filename, []byte(TransformToCodexPrompt(c)), nil
 }
 
 // TransformToCodexPrompt converts a command export to a Codex prompt: optional

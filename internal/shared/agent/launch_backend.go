@@ -6,7 +6,14 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
+
+// SessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.
+// "fair-pushy-cable"). The host sets it on the run env; Setup reads it to place
+// session-scoped delivery scratch under the harp's private ephemeral dir.
+const SessionHarpEnv = "CTXLOOM_SESSION_HARP"
 
 // ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks
 // and flushes them to the agent's settings file. BaseLifecycle implements it.
@@ -45,34 +52,27 @@ type LaunchBackend struct {
 	context   HashedContext
 	history   SessionHistory
 
-	// nativeContextDelivery marks a backend (claude) that loads ctxloom's
-	// assembled context from a launch flag (--append-system-prompt-file) rather
-	// than the SessionStart injection hook. When set, Setup materializes the
-	// framed context file and omits the context-injection hook.
-	nativeContextDelivery bool
-	// nativeContextPath is the framed context file Setup materialized for
-	// launch-flag delivery, read by the concrete backend's buildArgs.
-	nativeContextPath string
+	// delivery routes launch-time surface delivery through the runner-side
+	// delivery seam (claude). When nil (antigravity/codex/kiro/acp) Setup takes
+	// the legacy lifecycle path (Provide + MergeManaged + skills + Flush). When
+	// set, Setup materializes each surface through the injected factory and
+	// records the returned handles in delivered for teardown.
+	delivery DeliveryFactory
+	// delivered accumulates the handles Setup materialized through the delivery
+	// seam, in delivery order. Cleanup reverses them LIFO.
+	delivered []Delivered
 }
-
-// EnableNativeContextDelivery marks this backend as delivering ctxloom's
-// assembled context via a launch flag (claude's --append-system-prompt-file)
-// instead of the SessionStart context-injection hook. Call from the concrete
-// constructor; Setup then materializes the framed file and suppresses the hook.
-func (b *LaunchBackend) EnableNativeContextDelivery() { b.nativeContextDelivery = true }
-
-// NativeContextFilePath returns the framed context file Setup materialized for
-// launch-flag delivery, or "" (native delivery off, or no context this run).
-func (b *LaunchBackend) NativeContextFilePath() string { return b.nativeContextPath }
 
 // InitLaunch wires the constructed capabilities into the base. Call it from the
 // concrete constructor once the capabilities (which usually close over the
-// concrete backend) have been built.
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, skills ContentSkills, ctxProvider HashedContext, history SessionHistory) {
+// concrete backend) have been built. delivery is the runner-side delivery
+// factory (claude); pass nil for a backend that keeps the legacy lifecycle path.
+func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, skills ContentSkills, ctxProvider HashedContext, history SessionHistory, delivery DeliveryFactory) {
 	b.lifecycle = lifecycle
 	b.skills = skills
 	b.context = ctxProvider
 	b.history = history
+	b.delivery = delivery
 }
 
 // History returns the session history accessor.
@@ -147,32 +147,29 @@ func (b *LaunchBackend) ContextFilePath() string {
 
 // Setup prepares the backend for execution. The host resolves ctxloom
 // config/bundles and ships the result in req.Managed, so Setup consumes only the
-// wire-typed payload — it never imports config/bundles. It provides context,
-// registers host-resolved slash commands, folds the host-assembled hooks + MCP
-// into the lifecycle (appending the agent's own context-injection hook from the
-// plugin-side context hash), and flushes hooks to the settings file. This flow
-// is identical across launch agents, so it lives here.
+// wire-typed payload — it never imports config/bundles. A backend without a
+// delivery factory takes the legacy lifecycle path (Provide + MergeManaged +
+// skills + Flush); a backend with one (claude) materializes each surface through
+// the runner-side delivery seam and records the handles for teardown.
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
+	if b.delivery != nil {
+		return b.setupViaDelivery(req)
+	}
+	return b.setupViaLifecycle(req)
+}
 
+// setupViaLifecycle is the legacy path for backends without a delivery factory
+// (antigravity/codex/kiro/acp): provide context, register slash commands, fold
+// the host-assembled hooks + MCP into the lifecycle (appending the agent's own
+// SessionStart context-injection hook from the plugin-side context hash), and
+// flush hooks + MCP to the settings file. Behavior is unchanged from before the
+// delivery seam.
+func (b *LaunchBackend) setupViaLifecycle(req *SetupRequest) error {
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
 		return fmt.Errorf("failed to provide context: %w", err)
 	}
-
-	// Native context delivery (claude): materialize the framed context file for
-	// --append-system-prompt-file and suppress the SessionStart injection hook by
-	// withholding the hash from MergeManaged. If materialization fails, keep the
-	// hash so the hook still delivers context — never lose the user's context
-	// (CLAUDE.md fault tolerance).
 	contextHash := b.context.GetContextHash()
-	if b.nativeContextDelivery && contextHash != "" {
-		if path, err := WriteFramedContextFile(b.WorkDir(), contextHash); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: framed context materialize failed; keeping the injection hook: %v\n", err)
-		} else if path != "" {
-			b.nativeContextPath = path
-			contextHash = ""
-		}
-	}
 
 	if req.Managed != nil {
 		if len(req.Managed.Skills) > 0 {
@@ -186,10 +183,148 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	if err := b.lifecycle.Flush(b.WorkDir()); err != nil {
 		return fmt.Errorf("failed to write hooks: %w", err)
 	}
-
 	return nil
 }
 
-// Cleanup releases resources after execution. Local-CLI agents hold none, so
-// this is a no-op; an agent that needs teardown can override it.
-func (b *LaunchBackend) Cleanup(ctx context.Context) error { return nil }
+// setupViaDelivery materializes the loadout's surfaces through the injected
+// delivery factory (claude). Context lands in the session's PRIVATE ephemeral
+// dir (not the project tree) and rides claude's --append-system-prompt-file, so
+// the SessionStart context-injection hook is suppressed (contextHash ""); the
+// remaining surfaces (skills/settings/MCP) land in the working dir where the
+// engine looks. Every delivered handle is recorded so Cleanup can reverse it.
+//
+// Fault tolerance (CLAUDE.md): if context delivery fails, fall back to the
+// legacy SessionStart hook — materialize the raw cache file via Provide and keep
+// the hash so MergeManaged re-appends the injection hook. Never lose the user's
+// context to a scratch-write hiccup.
+func (b *LaunchBackend) setupViaDelivery(req *SetupRequest) error {
+	// Context surface → the session's private ephemeral dir (contextHash "" unless
+	// delivery failed and fell back to the injection hook).
+	contextHash := b.deliverContext(req)
+
+	if req.Managed == nil {
+		return nil
+	}
+
+	// Skills surface → the working directory (.claude/commands).
+	if err := b.deliverSkills(req.Managed); err != nil {
+		return err
+	}
+
+	// Fold the host-assembled hooks + MCP into the lifecycle. This performs the
+	// same config/profile/bundle merge as the legacy path (so the merged set is
+	// identical), with contextHash "" unless the context fallback kept it.
+	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
+
+	// Settings + MCP surfaces → the working directory.
+	return b.deliverSettingsAndMCP(req.Managed)
+}
+
+// deliverContext materializes the context surface into the session's PRIVATE
+// ephemeral dir and returns the hash to hand MergeManaged. The deduped assembly
+// yields the exact string the framing wraps WITHOUT writing the raw cache file
+// into the project tree. On success it records the handle and returns "" (the
+// SessionStart context-injection hook is suppressed; context rides claude's
+// --append-system-prompt-file). On a delivery error it falls back to the legacy
+// hook — materialize the raw cache file via Provide and return its hash so
+// MergeManaged re-appends the injection hook (CLAUDE.md fault tolerance: never
+// lose the user's context to a scratch-write hiccup).
+func (b *LaunchBackend) deliverContext(req *SetupRequest) string {
+	strat := b.delivery.ContextDelivery(ephemeralPlacement{harp: req.Env[SessionHarpEnv]})
+	if strat == nil {
+		return ""
+	}
+	d, err := strat.DeliverContext(assembleDedupedContext(req.Fragments))
+	if err == nil {
+		b.delivered = append(b.delivered, d)
+		return ""
+	}
+	fmt.Fprintf(os.Stderr, "ctxloom: warning: context delivery failed; keeping the injection hook: %v\n", err)
+	if perr := b.context.Provide(b.WorkDir(), req.Fragments); perr == nil {
+		return b.context.GetContextHash()
+	}
+	return ""
+}
+
+// deliverSkills materializes the skills surface (slash-command exports) into the
+// working directory and records the handle.
+func (b *LaunchBackend) deliverSkills(m *ManagedConfig) error {
+	if len(m.Skills) == 0 {
+		return nil
+	}
+	strat := b.delivery.SkillsDelivery(cwdPlacement{dir: b.WorkDir()})
+	if strat == nil {
+		return nil
+	}
+	d, err := strat.DeliverSkills(m.Skills)
+	if err != nil {
+		return fmt.Errorf("failed to deliver skills: %w", err)
+	}
+	b.delivered = append(b.delivered, d)
+	return nil
+}
+
+// deliverSettingsAndMCP materializes the settings (hooks + statusline) and MCP
+// surfaces into the working directory. When the lifecycle exposes its merged
+// state, both ride the seam — writing byte-identical files to Flush and
+// recording handles Cleanup can reverse — and Flush is SKIPPED (no
+// double-write). Otherwise it falls back to Flush.
+func (b *LaunchBackend) deliverSettingsAndMCP(m *ManagedConfig) error {
+	workDir := b.WorkDir()
+	hooks, mcp, ok := b.mergedState()
+	settingsStrat := b.delivery.SettingsDelivery(cwdPlacement{dir: workDir})
+	mcpStrat := b.delivery.MCPDelivery(cwdPlacement{dir: workDir})
+	if !ok || settingsStrat == nil || mcpStrat == nil {
+		if err := b.lifecycle.Flush(workDir); err != nil {
+			return fmt.Errorf("failed to write hooks: %w", err)
+		}
+		return nil
+	}
+
+	d, err := settingsStrat.DeliverSettings(hooks, m.ManageStatusline)
+	if err != nil {
+		return fmt.Errorf("failed to deliver settings: %w", err)
+	}
+	b.delivered = append(b.delivered, d)
+
+	dm, err := mcpStrat.DeliverMCP(mcp, m.BundleMCP)
+	if err != nil {
+		return fmt.Errorf("failed to deliver mcp: %w", err)
+	}
+	b.delivered = append(b.delivered, dm)
+	return nil
+}
+
+// mergedState reads the lifecycle's merged hooks + MCP so the delivery seam can
+// materialize the settings/MCP surfaces itself (in place of Flush). It probes by
+// capability — mirroring ManagedChatMCPServers — so a bare ManagedLifecycle fake
+// that lacks the accessors stays valid; ok is false then and Setup falls back to
+// Flush. BaseLifecycle (every real launch backend's lifecycle) satisfies both.
+func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, mcp *wire.MCPConfig, ok bool) {
+	lh, ok1 := b.lifecycle.(interface {
+		GetHooks() *wire.HooksConfig
+	})
+	lm, ok2 := b.lifecycle.(interface {
+		GetMCP() *wire.MCPConfig
+	})
+	if !ok1 || !ok2 {
+		return nil, nil, false
+	}
+	return lh.GetHooks(), lm.GetMCP(), true
+}
+
+// Cleanup reverses the surfaces Setup delivered through the seam, in LIFO order
+// (last delivered, first undone). It attempts every handle and returns the first
+// error, so one surface's failed teardown never strands the rest. A backend that
+// delivered nothing (the legacy lifecycle path, or a skip-setup run) holds no
+// handles, so this is a no-op there.
+func (b *LaunchBackend) Cleanup(ctx context.Context) error {
+	var firstErr error
+	for i := len(b.delivered) - 1; i >= 0; i-- {
+		if err := b.delivered[i].Cleanup(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	b.delivered = nil
+	return firstErr
+}

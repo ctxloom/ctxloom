@@ -55,6 +55,7 @@ func NewKiro(writeSettings agent.WriteSettingsFunc) *Kiro {
 		&KiroSkills{},
 		agent.NewBaseContextProvider(),
 		newKiroSessionHistory(),
+		nil, // no delivery seam: kiro keeps the legacy lifecycle path
 	)
 	return b
 }

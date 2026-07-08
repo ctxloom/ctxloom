@@ -51,6 +51,12 @@ type agentDescriptor struct {
 	// writeCommands writes the backend's slash-command files (the module's
 	// WriteCommandFiles). nil = no command export.
 	writeCommands func(string, []agent.CommandExport, ...agent.CommandFileOption) error
+	// homeCommandsDir returns the user-global command directory this backend also
+	// loads alongside the project scope (claude: ~/.claude/commands). When set,
+	// WriteCommandFilesFor threads it in so a project copy byte-identical to a
+	// global one is skipped rather than shipped as a duplicate. nil = no global
+	// command scope to dedup against.
+	homeCommandsDir func() (string, error)
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
 	// branch). false backends have no read-only tier, so plan would run
@@ -167,7 +173,8 @@ func init() {
 		newWriter:            claude.NewWriter,
 		exports:              claudeExports,
 		writeCommands:        claude.WriteCommandFiles,
-		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
+		homeCommandsDir:      claude.GlobalCommandsDir, // ~/.claude/commands, deduped against
+		enforcesReadOnlyPlan: true,                     // --permission-mode plan is read-only
 	})
 
 	registerDescriptor(agentDescriptor{

@@ -121,7 +121,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "get_previous_session",
-			Description: "Get the previous session's distilled content by looking up the session registry. Use this to recover context from before /clear.",
+			Description: "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead.",
 		},
 		s.handleGetPreviousSession)
 }

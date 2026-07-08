@@ -20,6 +20,14 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 	if !ok || d.exports == nil || d.writeCommands == nil {
 		return nil
 	}
+	// Supply the backend's user-global command dir so the writer can dedup a
+	// project copy that is byte-identical to a global one (claude loads both
+	// scopes). Best-effort: a home-dir resolution error just disables the dedup.
+	if d.homeCommandsDir != nil {
+		if home, err := d.homeCommandsDir(); err == nil && home != "" {
+			opts = append(opts, agent.WithHomeCommandsDir(home))
+		}
+	}
 	return d.writeCommands(workDir, d.exports(prompts), opts...)
 }
 

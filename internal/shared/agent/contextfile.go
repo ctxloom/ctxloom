@@ -72,13 +72,17 @@ func applyContextOptions(opts []ContextFileOption) *contextFileOptions {
 	return options
 }
 
-// WriteContextFile writes the assembled context to a hashed filename in .ctxloom/context/.
-// Returns the hash (used as filename without .md extension).
-// workDir is the directory where the .ctxloom/ directory exists.
-// Use WithContextFS to provide a custom filesystem for testing.
-func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFileOption) (string, error) {
+// assembleDedupedContext joins the fragment contents into the single context
+// string ctxloom delivers, deduplicating by content hash (so the same fragment
+// reached through multiple bundles/paths appears once) and emitting the oversize
+// warning. It is the assembly half of WriteContextFile, factored out so a
+// delivery strategy can obtain the exact string WriteContextFile would frame —
+// WITHOUT writing the raw cache file into the project tree. Returns "" when
+// there is no content. It differs from the simpler exported AssembleContext (no
+// dedup, no warning) whose output the raw context file must NOT diverge from.
+// Use WithContextStderr to redirect the warning in tests.
+func assembleDedupedContext(fragments []*Fragment, opts ...ContextFileOption) string {
 	options := applyContextOptions(opts)
-	fs := options.fs
 
 	// Assemble the context content, deduplicating by content hash.
 	// This prevents duplicate content even when the same fragment exists
@@ -101,8 +105,7 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	}
 
 	if len(parts) == 0 {
-		// No content - nothing to write
-		return "", nil
+		return ""
 	}
 
 	content := strings.Join(parts, contextSectionSep)
@@ -122,6 +125,23 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	if len(content) > MaxRecommendedContextSize {
 		_, _ = fmt.Fprintf(options.stderr, WarnContextSizeExceeded, len(content)/1024)
 		_, _ = fmt.Fprint(options.stderr, WarnContextEffectiveness)
+	}
+
+	return content
+}
+
+// WriteContextFile writes the assembled context to a hashed filename in .ctxloom/context/.
+// Returns the hash (used as filename without .md extension).
+// workDir is the directory where the .ctxloom/ directory exists.
+// Use WithContextFS to provide a custom filesystem for testing.
+func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFileOption) (string, error) {
+	options := applyContextOptions(opts)
+	fs := options.fs
+
+	content := assembleDedupedContext(fragments, opts...)
+	if content == "" {
+		// No content - nothing to write
+		return "", nil
 	}
 
 	// Generate hash-based filename from content

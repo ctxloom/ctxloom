@@ -39,6 +39,7 @@ func NewAntigravity(writeSettings agent.WriteSettingsFunc) *Antigravity {
 		&AntigravitySkills{},
 		agent.NewBaseContextProvider(),
 		NewAntigravitySessionHistory(b),
+		nil, // no delivery seam: antigravity keeps the legacy lifecycle path
 	)
 	return b
 }

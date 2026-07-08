@@ -181,18 +181,21 @@ func TestClaudeCode_BuildArgs_Model(t *testing.T) {
 
 // TestClaudeCode_BuildArgs_NativeContextFlag verifies that after Setup a normal
 // run loads ctxloom's assembled context via --append-system-prompt-file pointing
-// at the framed file, while the minimal/distill path (which drops context) does
-// not. This is the SessionStart-injection replacement for claude.
+// at the framed file the delivery seam materialized, while the minimal/distill
+// path (which drops context) does not. This is the SessionStart-injection
+// replacement for claude.
 func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // keep HarpEphemeralDir under a temp home
 	backend := NewClaudeCode(writeClaudeSettings)
 	work := t.TempDir()
 
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
+		Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
 		Fragments: []*agent.Fragment{{Content: "project rules"}},
 		Managed:   &agent.ManagedConfig{},
 	}))
-	framed := backend.NativeContextFilePath()
+	framed := backend.factory.ContextPath()
 	require.NotEmpty(t, framed, "Setup must materialize the framed context file for the flag")
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})

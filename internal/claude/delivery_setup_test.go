@@ -1,0 +1,183 @@
+package claude
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// dirPlace is a minimal agent.Placement writing into a fixed directory, used by
+// the focused delivery tests to target an explicit dir without the agent
+// package's unexported placement types.
+type dirPlace struct{ dir string }
+
+func (p dirPlace) Dir() string { return p.dir }
+
+// setupClaudeInTempHome runs a claude Setup for the given harp/work with the
+// managed payload, keeping HarpEphemeralDir under a temp home so the framed
+// context scratch never touches the real ~/.ctxloom. Returns the ephemeral dir.
+func setupClaudeInTempHome(t *testing.T, work, harp string, managed *agent.ManagedConfig) (*ClaudeCode, string) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	backend := NewClaudeCode(writeClaudeSettings)
+	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   work,
+		Env:       map[string]string{sessionHarpEnv: harp},
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		Managed:   managed,
+	}))
+	ephem, err := paths.HarpEphemeralDir(harp)
+	require.NoError(t, err)
+	return backend, ephem
+}
+
+// TestSetup_ContextScratchUnderEphemeralDir_ProjectTreeClean pins the relocation:
+// the framed context file lands under the harp's PRIVATE ephemeral dir, NOT under
+// the project tree's .ctxloom/cache/context, and no framed sysprompt file leaks
+// into the working directory.
+func TestSetup_ContextScratchUnderEphemeralDir_ProjectTreeClean(t *testing.T) {
+	work := t.TempDir()
+	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", &agent.ManagedConfig{})
+
+	framed := backend.factory.ContextPath()
+	require.NotEmpty(t, framed, "Setup must materialize the framed context file")
+
+	// Lands under the harp ephemeral dir.
+	assert.True(t, strings.HasPrefix(framed, ephem),
+		"framed context must land under HarpEphemeralDir: got %q, want prefix %q", framed, ephem)
+	data, err := os.ReadFile(framed)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "project rules")
+	assert.Contains(t, string(data), agent.ProjectContextHeader, "the framed file carries the ctxloom framing")
+
+	// NOT under the project tree's context cache, and no .sysprompt.md anywhere
+	// beneath the working directory.
+	cacheDir := filepath.Join(work, agent.SCMContextSubdir)
+	assert.False(t, strings.HasPrefix(framed, cacheDir),
+		"framed context must NOT land under the project-tree context cache")
+	assertNoSyspromptUnder(t, work)
+}
+
+// assertNoSyspromptUnder walks dir and fails if any .sysprompt.md file exists —
+// the project tree must stay free of the context scratch.
+func assertNoSyspromptUnder(t *testing.T, dir string) {
+	t.Helper()
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, agent.SCMFramedContextSuffix) {
+			t.Errorf("context scratch leaked into the project tree: %s", path)
+		}
+		return nil
+	})
+}
+
+// TestSetup_InjectContextHookAbsent_SessionBindPresent proves the declarative
+// unwiring: claude's SessionStart carries the builtin session-bind hook but NOT
+// the context-injection hook (context rides --append-system-prompt-file, so
+// MergeManaged is fed an empty hash).
+func TestSetup_InjectContextHookAbsent_SessionBindPresent(t *testing.T) {
+	work := t.TempDir()
+	managed := &agent.ManagedConfig{
+		ManageStatusline: true,
+		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
+		}},
+	}
+	setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+
+	data, err := os.ReadFile(filepath.Join(work, ".claude", "settings.json"))
+	require.NoError(t, err, "Setup must write settings.json via the delivery seam")
+	settings := string(data)
+	assert.Contains(t, settings, "session-bind", "the builtin session-bind hook must survive")
+	assert.NotContains(t, settings, "inject-context",
+		"the context-injection hook must NOT be wired for claude")
+}
+
+// TestSetup_DeliversMCPAndSkills proves the MCP + skills surfaces are
+// materialized in the working directory through the seam.
+func TestSetup_DeliversMCPAndSkills(t *testing.T) {
+	work := t.TempDir()
+	managed := &agent.ManagedConfig{
+		Skills: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
+		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"srv": {Command: "run-srv"},
+		}},
+	}
+	setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+
+	mcpData, err := os.ReadFile(filepath.Join(work, ".mcp.json"))
+	require.NoError(t, err, "Setup must write .mcp.json via the seam")
+	assert.Contains(t, string(mcpData), "srv", "the managed MCP server must be written")
+
+	entries, err := os.ReadDir(filepath.Join(work, ".claude", "commands"))
+	require.NoError(t, err, "Setup must write skill exports into .claude/commands")
+	assert.NotEmpty(t, entries, "the demo skill must be materialized")
+}
+
+// TestCleanup_RemovesDeliveredSurfaces proves teardown reverses the delivered
+// surfaces: the framed context scratch is removed, and the ctxloom-written
+// .mcp.json / .claude/settings.json entries are reverted.
+func TestCleanup_RemovesDeliveredSurfaces(t *testing.T) {
+	work := t.TempDir()
+	managed := &agent.ManagedConfig{
+		ManageStatusline: true,
+		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
+		}},
+		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "run-srv"}}},
+	}
+	backend, _ := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+
+	framed := backend.factory.ContextPath()
+	require.FileExists(t, framed, "context scratch must exist after Setup")
+
+	require.NoError(t, backend.Cleanup(context.Background()))
+
+	assert.NoFileExists(t, framed, "Cleanup must remove the context scratch")
+
+	// The ctxloom-managed MCP server and hooks are stripped back out.
+	if data, err := os.ReadFile(filepath.Join(work, ".mcp.json")); err == nil {
+		assert.NotContains(t, string(data), "run-srv", "Cleanup must strip the ctxloom MCP server")
+	}
+	if data, err := os.ReadFile(filepath.Join(work, ".claude", "settings.json")); err == nil {
+		assert.NotContains(t, string(data), "session-bind", "Cleanup must strip the ctxloom hooks")
+	}
+}
+
+// TestContextDelivery_DistinctHarpsDistinctScratch is the focused concurrency
+// guard: two deliveries with DIFFERENT harps + DIFFERENT context strings write
+// to DIFFERENT scratch paths under their own ephemeral roots — no collision, no
+// shared-root write.
+func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	deliver := func(harp, content string) string {
+		ephem, err := paths.HarpEphemeralDir(harp)
+		require.NoError(t, err)
+		strat := newDeliveryFactory(nil).ContextDelivery(dirPlace{dir: ephem})
+		_, err = strat.DeliverContext(content)
+		require.NoError(t, err)
+		p := strat.(*appendFlagDelivery).Path()
+		require.NotEmpty(t, p)
+		assert.True(t, strings.HasPrefix(p, ephem), "scratch must live under its own harp ephemeral dir")
+		return p
+	}
+
+	a := deliver("harp-alpha", "context for alpha")
+	b := deliver("harp-bravo", "context for bravo")
+
+	assert.NotEqual(t, a, b, "distinct harps + content must write to distinct scratch paths")
+	assert.NotEqual(t, filepath.Dir(a), filepath.Dir(b), "no shared scratch root across harps")
+	require.FileExists(t, a)
+	require.FileExists(t, b)
+}

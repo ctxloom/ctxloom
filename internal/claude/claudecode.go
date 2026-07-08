@@ -30,6 +30,11 @@ func (ClaudeConfig) BackendType() string { return "claude-code" }
 type ClaudeCode struct {
 	agent.LaunchBackend
 	writeSettings agent.WriteSettingsFunc
+	// factory is the delivery factory Setup drives to materialize claude's
+	// surfaces through the runner-side seam. The SAME instance is injected into
+	// the base (via InitLaunch) and held here so buildArgs can read the framed
+	// context file's path (factory.ContextPath) after Setup ran.
+	factory *deliveryFactory
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings. The
@@ -39,16 +44,17 @@ func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
 	b := &ClaudeCode{writeSettings: writeSettings}
 	b.BaseBackend = agent.NewBaseBackend("claude-code", "1.0.0")
 	b.BinaryPath = "claude"
+	// claude routes launch-time surface delivery through the seam: context lands
+	// in the session's private ephemeral dir and rides --append-system-prompt-file
+	// (buildArgs), so the SessionStart context-injection hook is suppressed.
+	b.factory = newDeliveryFactory(nil)
 	b.InitLaunch(
 		agent.NewBaseLifecycle("claude-code", b.writeSettings),
 		&ClaudeSkills{},
 		agent.NewBaseContextProvider(),
 		NewClaudeSessionHistory(b),
+		b.factory,
 	)
-	// claude loads ctxloom's assembled context natively via
-	// --append-system-prompt-file (buildArgs), so Setup materializes the framed
-	// context file and omits the SessionStart context-injection hook.
-	b.EnableNativeContextDelivery()
 	return b
 }
 
@@ -159,9 +165,10 @@ func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
 
 // sessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.
 // "fair-pushy-cable"). The host sets it on the run env; the backend reads it to
-// name the launched claude session. Duplicated here rather than shared so the
-// backend module stays decoupled from the host's session machinery.
-const sessionHarpEnv = "CTXLOOM_SESSION_HARP"
+// name the launched claude session. Aliases the shared const in the agent
+// substrate (which Setup also reads to place delivery scratch) so the two can't
+// drift.
+const sessionHarpEnv = agent.SessionHarpEnv
 
 // sessionNameArgs returns the `--name <harp>` flag pair that labels the launched
 // claude session with ctxloom's harp name, or nil when no harp is set. claude's
@@ -212,11 +219,13 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	}
 
 	// Native context delivery: load ctxloom's assembled context from the framed
-	// file Setup materialized, via claude's own --append-system-prompt-file, in
-	// place of a SessionStart injection hook. Skipped in minimal/distill mode
-	// (SkipSetup), which intentionally drops context.
+	// file Setup delivered to the session's ephemeral dir, via claude's own
+	// --append-system-prompt-file, in place of a SessionStart injection hook.
+	// Skipped in minimal/distill mode (SkipSetup), which intentionally drops
+	// context. Empty when there was no context, or when delivery fell back to the
+	// injection hook — buildArgs then adds no flag.
 	if !req.SkipSetup {
-		if p := b.NativeContextFilePath(); p != "" {
+		if p := b.factory.ContextPath(); p != "" {
 			args = append(args, "--append-system-prompt-file", p)
 		}
 	}

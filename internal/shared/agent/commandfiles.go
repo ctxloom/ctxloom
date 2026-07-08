@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -30,7 +31,8 @@ type CommandExport struct {
 type CommandFileOption func(*commandFileOptions)
 
 type commandFileOptions struct {
-	fs afero.Fs
+	fs              afero.Fs
+	homeCommandsDir string
 }
 
 // WithCommandFS sets the filesystem for command file operations.
@@ -38,6 +40,29 @@ func WithCommandFS(fs afero.Fs) CommandFileOption {
 	return func(o *commandFileOptions) {
 		o.fs = fs
 	}
+}
+
+// WithHomeCommandsDir names the user-global command directory the target agent
+// also loads alongside the project scope (Claude Code: ~/.claude/commands). The
+// per-agent writer forwards it to WriteManagedCommandFiles as WithDedupHomeDir so
+// a project copy byte-identical to a global one is skipped rather than shipped as
+// a duplicate slash-command. Empty (the default) disables the dedup.
+func WithHomeCommandsDir(dir string) CommandFileOption {
+	return func(o *commandFileOptions) {
+		o.homeCommandsDir = dir
+	}
+}
+
+// ResolveHomeCommandsDir applies the options and returns the configured global
+// command directory to dedup against, or "" when none was set. The per-agent
+// writers call this to bridge a WithHomeCommandsDir CommandFileOption into a
+// WithDedupHomeDir ManagedWriteOption.
+func ResolveHomeCommandsDir(opts ...CommandFileOption) string {
+	options := &commandFileOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	return options.homeCommandsDir
 }
 
 // SafeCommandRelPath validates name as a relative path confined to dir and
@@ -83,6 +108,7 @@ type ManagedWriteOption func(*managedWriteOptions)
 
 type managedWriteOptions struct {
 	manifestTrailingNewline bool
+	dedupHomeDir            string
 }
 
 // WithManifestTrailingNewline makes the manifest end with a trailing newline
@@ -91,6 +117,16 @@ type managedWriteOptions struct {
 // option only preserves each agent's existing on-disk bytes.
 func WithManifestTrailingNewline() ManagedWriteOption {
 	return func(o *managedWriteOptions) { o.manifestTrailingNewline = true }
+}
+
+// WithDedupHomeDir names a user-global command directory the agent also loads
+// alongside dir. When set and distinct from dir, a file byte-identical to the
+// same-named one already in this dir is skipped (not written, not tracked in the
+// manifest), so a "home/global wins" copy isn't duplicated into the project
+// scope. Only byte-identical files are skipped — a divergent file is still
+// written so version skew is never silently hidden. Empty disables the dedup.
+func WithDedupHomeDir(dir string) ManagedWriteOption {
+	return func(o *managedWriteOptions) { o.dedupHomeDir = dir }
 }
 
 // WriteManagedCommandFiles is the manifest-scoped slash-command/skill file
@@ -160,6 +196,21 @@ func WriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []Comm
 		if !ok {
 			Warn("skipping command %q: rendered path %q is not a relative path inside %s", c.Name, relPath, dir)
 			continue
+		}
+		// Cross-scope dedup ("home/global wins"): when writing into a NON-home
+		// commands dir, skip a file byte-identical to the same-named one already in
+		// the global dir — the agent loads both, so a project copy would surface a
+		// duplicate slash-command. Conservative: ONLY a byte-identical match skips;
+		// a divergent file (version skew/drift) is still written so a difference is
+		// never silently hidden. A skip is normal behavior, so it is omitted from
+		// `written` (and thus the manifest) to keep manifest-scoped cleanup correct
+		// — no fault, no strictness. Writing into the home dir itself never dedups.
+		if o.dedupHomeDir != "" && filepath.Clean(dir) != filepath.Clean(o.dedupHomeDir) {
+			if homePath, ok := SafeCommandRelPath(o.dedupHomeDir, relPath); ok {
+				if existing, rerr := afero.ReadFile(fs, homePath); rerr == nil && bytes.Equal(existing, content) {
+					continue
+				}
+			}
 		}
 		if len(written) == 0 {
 			if err := fs.MkdirAll(dir, 0755); err != nil {

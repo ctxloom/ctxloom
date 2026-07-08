@@ -23,12 +23,20 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 	// that wrote commands there instead of flat with a manifest.
 	_ = fs.RemoveAll(filepath.Join(commandsDir, "ctxloom"))
 
+	// Claude Code loads ~/.claude/commands alongside this project scope, so when
+	// the dispatch layer supplies that global dir, dedup project copies that are
+	// byte-identical to a global one (see agent.WriteManagedCommandFiles).
+	var mwOpts []agent.ManagedWriteOption
+	if home := agent.ResolveHomeCommandsDir(opts...); home != "" {
+		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
+	}
+
 	return agent.WriteManagedCommandFiles(fs, commandsDir, ".ctxloom-manifest", cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.
 			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
 			return filename, []byte(TransformToClaudeCommand(c)), nil
-		})
+		}, mwOpts...)
 }
 
 // TransformToClaudeCommand converts a command export to Claude Code command

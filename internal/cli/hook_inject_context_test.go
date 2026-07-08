@@ -261,8 +261,8 @@ func TestResolveInjectContextWorkDir(t *testing.T) {
 }
 
 // TestClearRecoveryMessage covers the user-facing /recover nudge gate: it fires
-// only on a /clear, only on the first chunk, and only when a prior session is
-// recoverable.
+// only on a /clear, only on the first chunk, and only when the current session's
+// pre-clear transcript is recoverable.
 func TestClearRecoveryMessage(t *testing.T) {
 	msg := clearRecoveryMessage("clear", 1, true)
 	assert.Contains(t, msg, "/recover", "the nudge must name the /recover command")
@@ -275,6 +275,27 @@ func TestClearRecoveryMessage(t *testing.T) {
 		assert.Empty(t, clearRecoveryMessage(src, 1, true),
 			"source %q retains or re-injects context — nothing to recover", src)
 	}
+}
+
+// TestCurrentSessionRecoverable covers the transcript gate behind the /clear
+// recovery nudge: only a present, non-empty transcript file signals that
+// recover_session has something to bring back; an empty path, a missing file,
+// or an empty file all read as not-recoverable.
+func TestCurrentSessionRecoverable(t *testing.T) {
+	assert.False(t, currentSessionRecoverable(""),
+		"an empty transcript path is never recoverable")
+	assert.False(t, currentSessionRecoverable(filepath.Join(t.TempDir(), "nope.jsonl")),
+		"a non-existent transcript is not recoverable")
+
+	nonEmpty := filepath.Join(t.TempDir(), "transcript.jsonl")
+	require.NoError(t, os.WriteFile(nonEmpty, []byte(`{"role":"user"}`), 0644))
+	assert.True(t, currentSessionRecoverable(nonEmpty),
+		"a present, non-empty transcript is recoverable")
+
+	empty := filepath.Join(t.TempDir(), "empty.jsonl")
+	require.NoError(t, os.WriteFile(empty, nil, 0644))
+	assert.False(t, currentSessionRecoverable(empty),
+		"an empty transcript has nothing to re-distill")
 }
 
 // TestComposeSystemMessage proves the two SessionStart nudges (clear-recovery +

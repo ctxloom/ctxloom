@@ -41,6 +41,7 @@ func NewCodex(writeSettings agent.WriteSettingsFunc) *Codex {
 		&CodexSkills{},
 		agent.NewBaseContextProvider(),
 		NewCodexSessionHistory(b),
+		nil, // no delivery seam: codex keeps the legacy lifecycle path
 	)
 	return b
 }

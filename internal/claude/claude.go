@@ -52,6 +52,19 @@ func GlobalSettingsPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
+// GlobalCommandsDir returns the user-global Claude Code slash-command directory
+// (~/.claude/commands). Claude Code loads this alongside the project-scoped
+// <workdir>/.claude/commands, so a project copy byte-identical to a global one
+// surfaces as a duplicate slash-command; the command writer dedups against this
+// dir (see agent.WriteManagedCommandFiles).
+func GlobalCommandsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude", "commands"), nil
+}
+
 // SettingsPath returns the path to Claude Code's settings.json file.
 func (w *ClaudeCodeHookWriter) SettingsPath(projectDir string) string {
 	return ProjectSettingsPath(projectDir)
@@ -124,6 +137,22 @@ type claudeCodeHook struct {
 // Hooks are written to .claude/settings.json
 // MCP servers are written to .mcp.json (where variable expansion works)
 func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+	// Write hooks + statusline to settings.json
+	if err := w.writeSettingsFile(hooks, projectDir); err != nil {
+		return err
+	}
+
+	// Write MCP servers to .mcp.json (separate file where variable expansion works)
+	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
+}
+
+// writeSettingsFile writes the settings.json half of WriteSettings: it replaces
+// ctxloom-managed hooks and (re)configures the managed statusline under
+// projectDir, preserving user-authored entries. It is factored out of
+// WriteSettings — same bytes, same effects — so the delivery seam can
+// materialize the settings surface (hooks + statusline) independently of the
+// .mcp.json surface (writeMCPConfig); WriteSettings composes the two.
+func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, projectDir string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
@@ -158,12 +187,7 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.
 	w.ensureStatusLine(settings)
 
 	// Write hooks to settings.json
-	if err := w.saveSettings(settingsPath, settings); err != nil {
-		return err
-	}
-
-	// Write MCP servers to .mcp.json (separate file where variable expansion works)
-	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
+	return w.saveSettings(settingsPath, settings)
 }
 
 // WriteContext implements agent.ContextWriter for Claude Code: it writes the
@@ -569,39 +593,56 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 // ctxloom-managed hooks and statusline from settings.json and ctxloom-marked
 // servers from .mcp.json, touching neither file when it does not already exist.
 func (w *ClaudeCodeHookWriter) RemoveSettings(projectDir string) error {
+	if err := w.removeSettingsFile(projectDir); err != nil {
+		return err
+	}
+	return w.removeMCPConfig(projectDir)
+}
+
+// removeSettingsFile clears ctxloom-managed hooks and the managed statusline
+// from settings.json under projectDir, preserving user-authored entries; a
+// missing file is left absent. It is the settings.json half of RemoveSettings —
+// same behavior — factored out so the delivery seam can revert the settings
+// surface (hooks + statusline) independently of the .mcp.json surface.
+func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
-
 	settingsPath := w.SettingsPath(projectDir)
-	if exists, _ := afero.Exists(fs, settingsPath); exists {
-		settings, err := w.loadSettings(settingsPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing settings: %w", err)
-		}
-		w.removeCtxloomHooks(settings)
-		if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
-			settings.StatusLine = nil
-		}
-		if err := w.saveSettings(settingsPath, settings); err != nil {
-			return err
-		}
+	exists, _ := afero.Exists(fs, settingsPath)
+	if !exists {
+		return nil
 	}
+	settings, err := w.loadSettings(settingsPath)
+	if err != nil {
+		return fmt.Errorf("failed to load existing settings: %w", err)
+	}
+	w.removeCtxloomHooks(settings)
+	if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+		settings.StatusLine = nil
+	}
+	return w.saveSettings(settingsPath, settings)
+}
 
+// removeMCPConfig strips ctxloom-marked servers from .mcp.json under projectDir,
+// preserving user-defined servers; a missing file is left absent. It is the
+// .mcp.json half of RemoveSettings — same behavior — factored out so the
+// delivery seam can revert the MCP surface independently of settings.json.
+func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
+	fs := w.getFS()
 	mcpPath := w.MCPConfigPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
-		mcpConfig, err := w.loadMCPConfig(mcpPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing .mcp.json: %w", err)
-		}
-		for name, server := range mcpConfig.MCPServers {
-			if server.SCM != "" {
-				delete(mcpConfig.MCPServers, name)
-			}
-		}
-		if err := w.saveMCPConfig(mcpPath, mcpConfig); err != nil {
-			return err
+	exists, _ := afero.Exists(fs, mcpPath)
+	if !exists {
+		return nil
+	}
+	mcpConfig, err := w.loadMCPConfig(mcpPath)
+	if err != nil {
+		return fmt.Errorf("failed to load existing .mcp.json: %w", err)
+	}
+	for name, server := range mcpConfig.MCPServers {
+		if server.SCM != "" {
+			delete(mcpConfig.MCPServers, name)
 		}
 	}
-	return nil
+	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
 // Status implements SettingsWriter for Claude Code.

@@ -1,0 +1,87 @@
+package claude
+
+import (
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+)
+
+// fileTemplateDelivery is claude's file-template delivery strategy for the
+// CWD-BOUND surfaces — MCP (.mcp.json), skills (.claude/commands/), and settings
+// (.claude/settings.json). Each surface must be materialized where the engine
+// already looks (a project-rooted config file), so this strategy holds a cwd
+// Placement and writes into place.Dir(). Every DeliverX delegates to claude's
+// EXISTING writer targeted at that directory and returns a Delivered whose
+// Cleanup reverts exactly what that call wrote — ctxloom-owned entries removed,
+// user-authored entries preserved on the marker-merged surfaces.
+//
+// It implements agent.MCPDelivery, agent.SkillsDelivery, and
+// agent.SettingsDelivery; per the delivery-seam design the Delivered handles it
+// returns stay Cleanup-only. Additive only: wiring into Setup/buildArgs is a
+// later slice.
+type fileTemplateDelivery struct {
+	place agent.Placement
+	fs    afero.Fs
+}
+
+// newFileTemplateDelivery constructs the file-template strategy writing into
+// place. A nil fs defaults to the OS filesystem (agent.GetFS), matching claude's
+// settings/context writers so delivery and cleanup share one fs mechanism.
+func newFileTemplateDelivery(place agent.Placement, fs afero.Fs) *fileTemplateDelivery {
+	return &fileTemplateDelivery{place: place, fs: agent.GetFS(fs)}
+}
+
+// DeliverMCP materializes the MCP surface by delegating to writeMCPConfig
+// targeted at place.Dir(): it merges ctxloom's own server, the profile+builtin
+// bundle servers, and the unified/backend servers into .mcp.json, preserving any
+// user-authored servers. Cleanup reverts via removeMCPConfig, which strips the
+// ctxloom-marked servers back out while leaving user servers in place.
+func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (agent.Delivered, error) {
+	dir := d.place.Dir()
+	w := &ClaudeCodeHookWriter{FS: d.fs}
+	if err := w.writeMCPConfig(dir, mcp, bundle); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
+}
+
+// DeliverSkills materializes the skills surface by delegating to
+// WriteCommandFiles targeted at place.Dir(): it writes the enabled skill exports
+// into .claude/commands/ under a ctxloom manifest, sharing the directory with the
+// user's own commands. Cleanup reverts via the same manifest-scoped writer with
+// no exports (WriteCommandFiles(dir, nil, …)), which removes exactly the
+// manifest-tracked set and the manifest, leaving user commands untouched.
+func (d *fileTemplateDelivery) DeliverSkills(skills []agent.CommandExport) (agent.Delivered, error) {
+	dir := d.place.Dir()
+	fs := d.fs
+	if err := WriteCommandFiles(dir, skills, agent.WithCommandFS(fs)); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error {
+		return WriteCommandFiles(dir, nil, agent.WithCommandFS(fs))
+	}), nil
+}
+
+// DeliverSettings materializes the settings surface (hooks + statusline) by
+// delegating to writeSettingsFile targeted at place.Dir(): it replaces
+// ctxloom-managed hooks and (re)configures the managed statusline in
+// .claude/settings.json, preserving user-authored entries. manageStatusline maps
+// to the writer's statusLineDisabled inverse — when false the managed statusline
+// is cleared rather than set. Cleanup reverts via removeSettingsFile, which
+// strips the ctxloom hooks and managed statusline while leaving user entries in
+// place. This surface never touches .mcp.json (that is DeliverMCP's surface).
+func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
+	dir := d.place.Dir()
+	w := &ClaudeCodeHookWriter{FS: d.fs, statusLineDisabled: !manageStatusline}
+	if err := w.writeSettingsFile(hooks, dir); err != nil {
+		return nil, err
+	}
+	return deliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
+}
+
+var (
+	_ agent.MCPDelivery      = (*fileTemplateDelivery)(nil)
+	_ agent.SkillsDelivery   = (*fileTemplateDelivery)(nil)
+	_ agent.SettingsDelivery = (*fileTemplateDelivery)(nil)
+)

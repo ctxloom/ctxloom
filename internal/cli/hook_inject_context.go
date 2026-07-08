@@ -115,16 +115,17 @@ Output format (JSON to stdout):
 		// name) is unit-testable without the surrounding hook plumbing.
 		output := buildInjectContextOutput(content, resumedEssence, part, total)
 
-		// After a /clear with a recoverable prior session, nudge the USER (not
-		// the model) toward /recover via the systemMessage channel, independent
-		// of the injected context. Only the first chunk checks (the message also
-		// guards part>1); ResolvePreviousSession is local file I/O, and on any
-		// error we stay silent rather than promise a recovery we can't confirm.
+		// After a /clear, nudge the USER (not the model) toward /recover via the
+		// systemMessage channel, independent of the injected context. /clear keeps
+		// the SAME session alive — its transcript still holds the pre-clear
+		// conversation, which recover_session re-distills — so the gate is the
+		// CURRENT session being recoverable (a present, non-empty transcript), NOT
+		// a prior session existing. Only the first chunk checks (the message also
+		// guards part>1); the stat is local, and on a missing/empty transcript we
+		// stay silent rather than promise a recovery that would come back empty.
 		clearRecoverable := false
 		if hookInput.Source == "clear" && part <= 1 {
-			if ref, err := operations.ResolvePreviousSession(workDir, os.Getenv("CTXLOOM_SESSION_HARP")); err == nil && ref != nil {
-				clearRecoverable = true
-			}
+			clearRecoverable = currentSessionRecoverable(hookInput.TranscriptPath)
 		}
 		// Compose the user-facing SessionStart nudges: the clear-recovery hint
 		// (when a /clear left a recoverable prior session) and the agent-setup
@@ -147,15 +148,30 @@ Output format (JSON to stdout):
 	},
 }
 
-// clearRecoveryMessage returns the user-facing nudge shown after a /clear when a
-// prior session is recoverable, or "" otherwise. It rides SessionStartOutput's
-// systemMessage channel (surfaced to the user, not the model), and fires once
-// per clear: only on the first chunk (part<=1) and only for source=="clear".
+// clearRecoveryMessage returns the user-facing nudge shown after a /clear when
+// the current session's pre-clear transcript is recoverable, or "" otherwise. It
+// rides SessionStartOutput's systemMessage channel (surfaced to the user, not the
+// model), and fires once per clear: only on the first chunk (part<=1) and only
+// for source=="clear".
 func clearRecoveryMessage(source string, part int, recoverable bool) string {
 	if part > 1 || source != "clear" || !recoverable {
 		return ""
 	}
-	return "ctxloom: context cleared. Run /recover to bring your previous session's context back."
+	return "ctxloom: context cleared. Run /recover to bring your pre-clear context back."
+}
+
+// currentSessionRecoverable reports whether the still-live current session has a
+// transcript worth re-distilling — a present, non-empty transcript file. After a
+// /clear the session stays alive and its transcript still holds the pre-clear
+// conversation, so this is the signal that /recover (recover_session) has
+// something to bring back. A missing/empty transcript or an unstattable path
+// yields false, so the nudge never promises a recovery that would come back empty.
+func currentSessionRecoverable(transcriptPath string) bool {
+	if transcriptPath == "" {
+		return false
+	}
+	info, err := os.Stat(transcriptPath)
+	return err == nil && info.Size() > 0
 }
 
 // agentSetupNudge returns the Phase F "profiles but no agents" nudge for

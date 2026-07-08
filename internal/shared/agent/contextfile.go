@@ -180,30 +180,3 @@ func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, e
 	}
 	return string(content), nil
 }
-
-// WriteFramedContextFile materializes the assembled context for the given hash,
-// wrapped in the ctxloom framing (FrameProjectContext), to a sibling of the raw
-// context file (<hash>.sysprompt.md). This is the whole-file form claude loads
-// natively via --append-system-prompt-file — no SessionStart hook, no chunking.
-// Returns the path written (absolute when workDir is absolute), or "" with a nil
-// error when there is no context to frame (empty or missing raw file). Use
-// WithContextFS to provide a custom filesystem for testing.
-func WriteFramedContextFile(workDir, hash string, opts ...ContextFileOption) (string, error) {
-	options := applyContextOptions(opts)
-	fs := options.fs
-
-	raw, err := ReadContextFile(workDir, hash, opts...)
-	if err != nil {
-		return "", err
-	}
-	framed := FrameProjectContext(raw)
-	if framed == "" {
-		return "", nil
-	}
-
-	contextPath := filepath.Join(workDir, SCMContextSubdir, hash+SCMFramedContextSuffix)
-	if err := afero.WriteFile(fs, contextPath, []byte(framed), 0644); err != nil {
-		return "", fmt.Errorf("failed to write framed context file: %w", err)
-	}
-	return contextPath, nil
-}

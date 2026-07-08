@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -119,25 +118,10 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// skillsSurface is kiro's skills surface: the agentskills SKILL.md files under
-// .kiro/skills/, written via the reused WriteCommandFiles. Delivery-ONLY.
-type skillsSurface struct {
-	skills []agent.CommandExport
-	fs     afero.Fs
-}
-
-// Deliver writes the enabled skill exports into .kiro/skills/ via the reused
-// manifest-scoped writer and returns a handle whose Cleanup reverts exactly the
-// manifest-tracked set (writing with no exports).
-func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
-	fs := s.fs
-	if err := WriteCommandFiles(dir, s.skills, agent.WithCommandFS(fs)); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		return WriteCommandFiles(dir, nil, agent.WithCommandFS(fs))
-	}), nil
-}
+// kiro's skills surface — the agentskills SKILL.md files under .kiro/skills/ — is
+// the shared agent.ManagedSkillsDelivery bound to kiro's manifest-scoped
+// WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
+// is identical across engines, so it lives in internal/shared/agent, not here.
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -165,7 +149,7 @@ type Surfaces struct {
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Settings *settingsSurface
-	Skills   *skillsSurface
+	Skills   *agent.ManagedSkillsDelivery
 }
 
 // NewSurfaces builds kiro's surfaces from a run's inputs. A nil fs defaults to
@@ -177,7 +161,9 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 		Context:  &contextSurface{context: in.Context, fs: fs},
 		MCP:      &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
 		Settings: &settingsSurface{hooks: in.Hooks, fs: fs},
-		Skills:   &skillsSurface{skills: in.Skills, fs: fs},
+		Skills: agent.NewManagedSkillsDelivery(in.Skills, func(dir string, skills []agent.CommandExport) error {
+			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
+		}),
 	}
 }
 
@@ -199,22 +185,11 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // returned value is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
 func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
-		Unsafe(s.Context, "context", "kiro has no out-of-cwd flag for the steering file", dir),
-		Unsafe(s.MCP, "mcp", "kiro has no out-of-cwd flag for .kiro/settings/mcp.json", dir),
-		Unsafe(s.Settings, "settings", "kiro's --agent name lever is a Phase-2 launch concern, not a delivery flag", dir),
-		Unsafe(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", dir),
+		agent.UnsafeApply(s.Context, "context", "kiro has no out-of-cwd flag for the steering file", dir),
+		agent.UnsafeApply(s.MCP, "mcp", "kiro has no out-of-cwd flag for .kiro/settings/mcp.json", dir),
+		agent.UnsafeApply(s.Settings, "settings", "kiro's --agent name lever is a Phase-2 launch concern, not a delivery flag", dir),
+		agent.UnsafeApply(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", dir),
 	}
-}
-
-// Unsafe wraps a kiro Delivery-only surface as a RaceSafeDelivery for a shared
-// cwd, tagging the sanctioned-unsafe reason a gen-docs pass (plan S3) enumerates.
-func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
-	return agent.Unsafe(d, agent.UnsafeReason{
-		Surface: surface,
-		Why:     why,
-		Dir:     dir,
-		Class:   strictness.ClassApply,
-	})
 }
 
 // Compile-time capability contracts. Every kiro surface is Delivery-ONLY at this
@@ -224,6 +199,5 @@ var (
 	_ agent.Delivery  = (*contextSurface)(nil)
 	_ agent.Delivery  = (*mcpSurface)(nil)
 	_ agent.Delivery  = (*settingsSurface)(nil)
-	_ agent.Delivery  = (*skillsSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
 )

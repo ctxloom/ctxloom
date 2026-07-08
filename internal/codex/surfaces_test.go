@@ -66,7 +66,7 @@ func sampleInputs() SurfaceInputs {
 var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*configSurface)(nil)
-	_ agent.Delivery = (*skillsSurface)(nil)
+	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // codex's prompts surface
 )
 
 // Negative case — the compile-time guarantee, which cannot be asserted at
@@ -195,7 +195,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := Unsafe(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", cwd)
+	rs := agent.UnsafeApply(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

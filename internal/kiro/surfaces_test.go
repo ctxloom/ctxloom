@@ -65,7 +65,7 @@ var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*mcpSurface)(nil)
 	_ agent.Delivery = (*settingsSurface)(nil)
-	_ agent.Delivery = (*skillsSurface)(nil)
+	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // kiro's skills surface
 )
 
 // Negative case — the compile-time guarantee, documented since it cannot be
@@ -186,7 +186,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := Unsafe(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", cwd)
+	rs := agent.UnsafeApply(s.Skills, "skills", "kiro has no out-of-cwd flag for .kiro/skills/", cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

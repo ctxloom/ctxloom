@@ -64,7 +64,7 @@ var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*mcpSurface)(nil)
 	_ agent.Delivery = (*hooksSurface)(nil)
-	_ agent.Delivery = (*skillsSurface)(nil)
+	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // agy's skills surface
 )
 
 // Negative case — the compile-time guarantee, which cannot be asserted at
@@ -182,7 +182,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := Unsafe(s.Skills, "skills", "antigravity has no out-of-cwd flag for .agents/skills/", cwd)
+	rs := agent.UnsafeApply(s.Skills, "skills", "antigravity has no out-of-cwd flag for .agents/skills/", cwd)
 
 	stderr := captureStderr(t, func() {
 		handle, err := rs.DeliverIsolated()

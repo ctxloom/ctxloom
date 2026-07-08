@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -133,25 +132,10 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// skillsSurface is agy's skills surface: the markdown skill files under
-// .agents/skills/, written via the reused WriteCommandFiles. Delivery-ONLY.
-type skillsSurface struct {
-	skills []agent.CommandExport
-	fs     afero.Fs
-}
-
-// Deliver writes the enabled skill exports into .agents/skills/ via the reused
-// manifest-scoped writer and returns a handle whose Cleanup reverts exactly the
-// manifest-tracked set (writing with no exports).
-func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
-	fs := s.fs
-	if err := WriteCommandFiles(dir, s.skills, agent.WithCommandFS(fs)); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		return WriteCommandFiles(dir, nil, agent.WithCommandFS(fs))
-	}), nil
-}
+// agy's skills surface — the markdown skill files under .agents/skills/ — is the
+// shared agent.ManagedSkillsDelivery bound to agy's manifest-scoped
+// WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
+// is identical across engines, so it lives in internal/shared/agent, not here.
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -179,7 +163,7 @@ type Surfaces struct {
 	Context *contextSurface
 	MCP     *mcpSurface
 	Hooks   *hooksSurface
-	Skills  *skillsSurface
+	Skills  *agent.ManagedSkillsDelivery
 }
 
 // NewSurfaces builds agy's surfaces from a run's inputs. A nil fs defaults to the
@@ -192,7 +176,9 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 		Context: &contextSurface{context: in.Context, fs: fs},
 		MCP:     &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
 		Hooks:   &hooksSurface{hooks: in.Hooks, fs: fs},
-		Skills:  &skillsSurface{skills: in.Skills, fs: fs},
+		Skills: agent.NewManagedSkillsDelivery(in.Skills, func(dir string, skills []agent.CommandExport) error {
+			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
+		}),
 	}
 }
 
@@ -212,22 +198,11 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
 func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
-		Unsafe(s.Context, "context", "antigravity has no out-of-cwd flag for .agents/AGENTS.md", dir),
-		Unsafe(s.MCP, "mcp", "antigravity has no out-of-cwd flag for .agents/mcp_config.json", dir),
-		Unsafe(s.Hooks, "hooks", "antigravity has no out-of-cwd flag for .agents/hooks.json", dir),
-		Unsafe(s.Skills, "skills", "antigravity has no out-of-cwd flag for .agents/skills/", dir),
+		agent.UnsafeApply(s.Context, "context", "antigravity has no out-of-cwd flag for .agents/AGENTS.md", dir),
+		agent.UnsafeApply(s.MCP, "mcp", "antigravity has no out-of-cwd flag for .agents/mcp_config.json", dir),
+		agent.UnsafeApply(s.Hooks, "hooks", "antigravity has no out-of-cwd flag for .agents/hooks.json", dir),
+		agent.UnsafeApply(s.Skills, "skills", "antigravity has no out-of-cwd flag for .agents/skills/", dir),
 	}
-}
-
-// Unsafe wraps an agy Delivery-only surface as a RaceSafeDelivery for a shared
-// cwd, tagging the sanctioned-unsafe reason a gen-docs pass (plan S3) enumerates.
-func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
-	return agent.Unsafe(d, agent.UnsafeReason{
-		Surface: surface,
-		Why:     why,
-		Dir:     dir,
-		Class:   strictness.ClassApply,
-	})
 }
 
 // Compile-time capability contracts. Every agy surface is Delivery-ONLY: none is
@@ -237,6 +212,5 @@ var (
 	_ agent.Delivery  = (*contextSurface)(nil)
 	_ agent.Delivery  = (*mcpSurface)(nil)
 	_ agent.Delivery  = (*hooksSurface)(nil)
-	_ agent.Delivery  = (*skillsSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
 )

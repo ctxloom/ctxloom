@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -169,8 +168,10 @@ func (s *settingsSurface) Path() string { return s.path }
 // skillsSurface is claude's skills surface: the slash-command exports under
 // .claude/commands/. It implements Delivery ONLY — claude has no out-of-cwd flag
 // for slash-commands, so it is deliberately NOT a RaceSafeDelivery. It reaches a
-// SharedCell (the user's live cwd) only via the explicit, warned agent.Unsafe
-// adapter (see UnsafeSkillsReason); first preference is always an isolated cell.
+// SharedCell (the user's live cwd) only via the explicit, warned agent.UnsafeApply
+// adapter (see RaceSafeForSharedCwd); first preference is always an isolated cell.
+// (Unlike the other engines, claude's skills ride fileTemplateDelivery.DeliverSkills,
+// which owns its own cleanup, so they are NOT the shared agent.ManagedSkillsDelivery.)
 type skillsSurface struct {
 	skills []agent.CommandExport
 	fs     afero.Fs
@@ -180,21 +181,6 @@ type skillsSurface struct {
 // writer.
 func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
 	return newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverSkills(s.skills)
-}
-
-// UnsafeSkillsReason is the sanctioned-unsafe reason for claude's skills surface:
-// claude exposes no out-of-cwd flag for .claude/commands/ slash-commands, so
-// landing them in a shared cwd is permitted only through the loud agent.Unsafe
-// adapter. dir is the shared cwd the well-known write lands in. The stable
-// UnsafeReason is what a gen-docs pass (plan S3) enumerates into the reference
-// page of sanctioned unsafe deliveries.
-func UnsafeSkillsReason(dir string) agent.UnsafeReason {
-	return agent.UnsafeReason{
-		Surface: "skills",
-		Why:     "claude has no out-of-cwd flag for .claude/commands/ slash-commands",
-		Dir:     dir,
-		Class:   strictness.ClassApply,
-	}
 }
 
 // SurfaceInputs carries the per-run data claude's surfaces write. It mirrors what
@@ -254,7 +240,7 @@ func (s Surfaces) RaceSafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
 		s.Context,
 		s.MCP,
 		s.Settings,
-		agent.Unsafe(s.Skills, UnsafeSkillsReason(dir)),
+		agent.UnsafeApply(s.Skills, "skills", "claude has no out-of-cwd flag for .claude/commands/ slash-commands", dir),
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -122,30 +121,13 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return w.RemoveSettings(dir) }), nil
 }
 
-// skillsSurface is codex's prompts surface. codex prompts are GLOBAL
-// ($CODEX_HOME/prompts), so Deliver writes them under a CELL-SCOPED $CODEX_HOME
-// derived from dir (cellScopedPromptsDir) — this is what lets a
-// DirectoryIsolatedCell isolate them. It reuses the shared managed-command
-// writer + codexPromptFile mapper verbatim; only the target dir is cell-scoped.
-// Delivery-ONLY.
-type skillsSurface struct {
-	skills []agent.CommandExport
-	fs     afero.Fs
-}
-
-// Deliver writes the enabled prompt exports into <dir>/.codex/prompts via the
-// shared manifest-scoped writer and returns a handle whose Cleanup reverts
-// exactly the manifest-tracked set (writing with no exports).
-func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
-	promptsDir := cellScopedPromptsDir(dir)
-	fs := s.fs
-	if err := agent.WriteManagedCommandFiles(fs, promptsDir, codexManifest, s.skills, codexPromptFile); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		return agent.WriteManagedCommandFiles(fs, promptsDir, codexManifest, nil, codexPromptFile)
-	}), nil
-}
+// codex's prompts surface is the shared agent.ManagedSkillsDelivery bound to
+// codex's writer (built in NewSurfaces). codex prompts are GLOBAL
+// ($CODEX_HOME/prompts), so the bound writer targets a CELL-SCOPED $CODEX_HOME
+// derived from the delivery dir (cellScopedPromptsDir) via the shared
+// manifest-scoped writer + codexPromptFile mapper — that cell-scoping is what
+// lets a DirectoryIsolatedCell isolate them. The write-then-revert-with-nil shape
+// is identical across engines, so it lives in internal/shared/agent, not here.
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -172,7 +154,7 @@ type SurfaceInputs struct {
 type Surfaces struct {
 	Context *contextSurface
 	Config  *configSurface
-	Skills  *skillsSurface
+	Skills  *agent.ManagedSkillsDelivery
 }
 
 // NewSurfaces builds codex's surfaces from a run's inputs. A nil fs defaults to
@@ -184,7 +166,9 @@ func NewSurfaces(in SurfaceInputs, fs afero.Fs) Surfaces {
 	return Surfaces{
 		Context: &contextSurface{fragments: in.Fragments, fs: fs},
 		Config:  &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Skills:  &skillsSurface{skills: in.Skills, fs: fs},
+		Skills: agent.NewManagedSkillsDelivery(in.Skills, func(dir string, skills []agent.CommandExport) error {
+			return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
+		}),
 	}
 }
 
@@ -205,23 +189,10 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
 func (s Surfaces) UnsafeForSharedCwd(dir string) []agent.RaceSafeDelivery {
 	return []agent.RaceSafeDelivery{
-		Unsafe(s.Context, "context", "codex has no out-of-cwd flag for the context file", dir),
-		Unsafe(s.Config, "config", "codex has no out-of-cwd flag for .codex/config.toml", dir),
-		Unsafe(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", dir),
+		agent.UnsafeApply(s.Context, "context", "codex has no out-of-cwd flag for the context file", dir),
+		agent.UnsafeApply(s.Config, "config", "codex has no out-of-cwd flag for .codex/config.toml", dir),
+		agent.UnsafeApply(s.Skills, "skills", "codex has no out-of-cwd flag for $CODEX_HOME/prompts", dir),
 	}
-}
-
-// Unsafe wraps a codex Delivery-only surface as a RaceSafeDelivery for a shared
-// cwd, tagging the sanctioned-unsafe reason a gen-docs pass (plan S3) enumerates.
-// codex uses agent.ClassApply for every surface — its writes are the hook/config
-// apply class.
-func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
-	return agent.Unsafe(d, agent.UnsafeReason{
-		Surface: surface,
-		Why:     why,
-		Dir:     dir,
-		Class:   strictness.ClassApply,
-	})
 }
 
 // Compile-time capability contracts. Every codex surface is Delivery-ONLY: none
@@ -230,6 +201,5 @@ func Unsafe(d agent.Delivery, surface, why, dir string) agent.RaceSafeDelivery {
 var (
 	_ agent.Delivery  = (*contextSurface)(nil)
 	_ agent.Delivery  = (*configSurface)(nil)
-	_ agent.Delivery  = (*skillsSurface)(nil)
 	_ agent.Delivered = deliveredFunc(nil)
 )

@@ -144,3 +144,20 @@ func (u unsafeDelivery) DeliverIsolated() (Delivered, error) {
 	Warn("unsafe delivery of %s into a shared cwd: %s", u.r.Surface, u.r.Why)
 	return u.s.Deliver(u.r.Dir)
 }
+
+// UnsafeApply wraps a plain Delivery as a RaceSafeDelivery for a shared cwd,
+// classified strictness.ClassApply — the hook/config APPLY class every engine's
+// well-known surface writes fall under. It is the shared shorthand a backend
+// reaches for when its engine offers NO out-of-cwd flag for a surface, so the
+// only way that surface reaches a SharedCell is the loud Unsafe hatch. surface,
+// why, and dir fill the sanctioned-unsafe UnsafeReason a gen-docs pass (plan S3)
+// enumerates. It exists so the identical per-backend Unsafe(...) helper no longer
+// has to be mirrored in every engine package.
+func UnsafeApply(d Delivery, surface, why, dir string) RaceSafeDelivery {
+	return Unsafe(d, UnsafeReason{
+		Surface: surface,
+		Why:     why,
+		Dir:     dir,
+		Class:   strictness.ClassApply,
+	})
+}

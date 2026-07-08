@@ -129,16 +129,18 @@ type unsafeDelivery struct {
 	r UnsafeReason
 }
 
-// DeliverIsolated warns loudly through strictness, then performs the wrapped
-// surface's well-known Delivery into the shared cwd (r.Dir). The warning is
-// routed through strictness (never a hand-rolled Fprintf) per the fault-handling
-// philosophy (CLAUDE.md): it always streams to stderr, and in strict mode
-// records a Finding carrying r.Class + a fix-it that the startup choke owner
-// surfaces — the family escape hatch (--degraded) downgrades it to
-// warn-and-continue.
+// DeliverIsolated warns loudly, then performs the wrapped surface's well-known
+// Delivery into the shared cwd (r.Dir). An Unsafe delivery is a SANCTIONED,
+// permitted action — the delivery analogue of --degraded — NOT a fatal fault, so
+// it must never record a Finding the startup choke owner would abort on. It
+// therefore routes the warning through the non-fatal warn primitive (agent.Warn →
+// clidiag.Warn), which ALWAYS streams the family "<prog>: warning:" line to
+// stderr and records nothing, in BOTH strict and degraded modes; the wrapped
+// well-known Deliver then ALWAYS proceeds. The structured UnsafeReason (incl.
+// r.Class) is retained for the gen-docs pass (plan S3) that enumerates every
+// sanctioned unsafe delivery into a reference page — the class classifies the
+// exception for docs, it no longer gates startup.
 func (u unsafeDelivery) DeliverIsolated() (Delivered, error) {
-	strictness.Fail(u.r.Class,
-		"isolate this run (worktree/container), or pass --degraded to permit the shared-cwd write",
-		"unsafe delivery of %s into a shared cwd: %s", u.r.Surface, u.r.Why)
+	Warn("unsafe delivery of %s into a shared cwd: %s", u.r.Surface, u.r.Why)
 	return u.s.Deliver(u.r.Dir)
 }

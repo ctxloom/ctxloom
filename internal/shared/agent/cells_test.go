@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +10,27 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// captureStderr redirects os.Stderr around fn and returns everything written to
+// it. Unsafe's WARN streams through clidiag.Warn → os.Stderr, so this is how the
+// tests observe the loud line without any recorded finding to inspect. (Package
+// tests run sequentially unless they opt into t.Parallel, so the global swap is
+// safe here.)
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+
+	fn()
+
+	require.NoError(t, w.Close())
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return string(out)
+}
 
 // ---- stubs ----------------------------------------------------------------
 
@@ -156,11 +179,14 @@ func resetStrictness(t *testing.T) {
 	})
 }
 
-// Unsafe wraps a Delivery-only surface into a RaceSafeDelivery. DeliverIsolated
-// must (1) fire a WARN through strictness carrying the reason's Class, then
-// (2) call through to the inner well-known Deliver targeting reason.Dir.
+// Unsafe wraps a Delivery-only surface into a RaceSafeDelivery. An Unsafe
+// delivery is a SANCTIONED, permitted action — not a fatal fault — so
+// DeliverIsolated must, in STRICT mode, (1) stream a WARN to stderr WITHOUT
+// recording any finding (nothing for the startup choke owner to abort on), and
+// (2) proceed with the inner well-known Deliver targeting reason.Dir. It warns
+// AND proceeds; it does NOT abort startup.
 func TestUnsafe_WarnsThenDeliversWellKnown(t *testing.T) {
-	resetStrictness(t)
+	resetStrictness(t) // strict (non-degraded), clean findings
 
 	var call deliveryCall
 	surface := recordingDelivery{got: &call, handle: stubHandle{}}
@@ -177,26 +203,33 @@ func TestUnsafe_WarnsThenDeliversWellKnown(t *testing.T) {
 	// `_ RaceSafeDelivery = unsafeDelivery{}` assertion above).
 	rs := Unsafe(surface, reason)
 
-	d, err := rs.DeliverIsolated()
+	var (
+		d   Delivered
+		err error
+	)
+	// (1) the WARN streams to stderr, naming the surface and the shared-cwd hazard.
+	stderr := captureStderr(t, func() {
+		d, err = rs.DeliverIsolated()
+	})
 	require.NoError(t, err)
 	require.NotNil(t, d)
 
-	// (2) the inner well-known Deliver ran, targeting reason.Dir.
-	assert.True(t, call.called, "inner Deliver must run")
+	assert.Contains(t, stderr, "warning:", "the loud line uses the family warning prefix")
+	assert.Contains(t, stderr, "settings")
+	assert.Contains(t, stderr, "shared cwd")
+
+	// (2) the inner well-known Deliver ran (proceeded), targeting reason.Dir.
+	assert.True(t, call.called, "inner Deliver must run — Unsafe proceeds, never aborts")
 	assert.Equal(t, reason.Dir, call.dir, "well-known write must target reason.Dir")
 
-	// (1) the WARN fired through strictness: exactly one Finding with the reason's
-	// Class and a message naming the surface and the shared-cwd hazard.
-	findings := strictness.All()
-	require.Len(t, findings, 1, "Unsafe must record exactly one finding in strict mode")
-	assert.Equal(t, strictness.ClassApply, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "settings")
-	assert.Contains(t, findings[0].Message, "shared cwd")
-	assert.NotEmpty(t, findings[0].FixIt, "the finding carries a fix-it hint")
+	// A sanctioned Unsafe delivery records NO fatal finding, even in strict mode:
+	// there is nothing for the startup choke owner to abort on.
+	assert.Empty(t, strictness.All(), "Unsafe must not record a fatal finding in strict mode")
 }
 
-// In degraded mode the WARN still streams to stderr but records NO finding, and
-// the well-known write still proceeds — the delivery analogue of --degraded.
+// In degraded mode the behavior is identical — the WARN still streams to stderr,
+// no finding is recorded, and the well-known write still proceeds — because Unsafe
+// is warn-and-proceed in BOTH modes.
 func TestUnsafe_Degraded_DeliversWithoutRecording(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
@@ -209,8 +242,12 @@ func TestUnsafe_Degraded_DeliversWithoutRecording(t *testing.T) {
 		Class:   strictness.ClassApply,
 	})
 
-	_, err := rs.DeliverIsolated()
-	require.NoError(t, err)
+	stderr := captureStderr(t, func() {
+		_, err := rs.DeliverIsolated()
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, "warning:", "the WARN still streams in degraded mode")
+	assert.Contains(t, stderr, "context")
 	assert.True(t, call.called, "delivery still proceeds in degraded mode")
 	assert.Equal(t, "/w", call.dir)
 	assert.Empty(t, strictness.All(), "degraded mode records no finding (warn-and-continue)")

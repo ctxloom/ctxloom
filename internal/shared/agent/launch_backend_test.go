@@ -158,14 +158,19 @@ func (s *flushSpy) write(_ string, _ *wire.HooksConfig, _ *wire.MCPConfig, _ map
 	return nil
 }
 
-// ---- legacy (acp) path ------------------------------------------------------
+// ---- empty-set path (acp) + nil delivery ------------------------------------
 
-// TestSetup_LegacyPath_KeepsContextHash proves a backend WITHOUT a CellDelivery
-// (acp) takes the unchanged lifecycle path: it keeps the context hash so its
-// SessionStart hook injects context, and flushes.
-func TestSetup_LegacyPath_KeepsContextHash(t *testing.T) {
-	b, rec := newLegacyBackend()
-	require.Nil(t, b.delivery, "legacy backend must have no cell delivery")
+// TestSetup_EmptySurfaceSet_MergesNoFiles proves the protocol-only path (acp):
+// an EmptySurfaceSet still runs MergeManaged (so ManagedChatMCPServers has the
+// merged servers to inject over the wire) but materializes no files — no Provide,
+// no delivered handles.
+func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
+	rec := &recordLifecycle{}
+	b := &LaunchBackend{}
+	b.BaseBackend = NewBaseBackend("test", "1.0.0")
+	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, &CellDelivery{
+		Build: func(SurfaceInputs, string) SurfaceSet { return EmptySurfaceSet{} },
+	})
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),
@@ -173,10 +178,22 @@ func TestSetup_LegacyPath_KeepsContextHash(t *testing.T) {
 		Managed:   &ManagedConfig{},
 	}))
 
-	assert.NotEmpty(t, rec.contextHash,
-		"a legacy backend keeps the hash so its SessionStart hook injects context")
-	assert.True(t, rec.flushed, "legacy path flushes hooks + MCP to the settings file")
-	assert.Empty(t, b.delivered, "legacy path collects no delivery handles")
+	assert.True(t, rec.merged, "MergeManaged runs so ManagedChatMCPServers has the merged set")
+	assert.Empty(t, rec.contextHash, "no Provide: context rides the ACP protocol, not a cache file")
+	assert.Empty(t, b.delivered, "an empty surface set materializes no files")
+}
+
+// TestSetup_NilDelivery_NoOp proves a misconfigured backend (no CellDelivery)
+// no-ops rather than panicking.
+func TestSetup_NilDelivery_NoOp(t *testing.T) {
+	b, rec := newLegacyBackend()
+	require.Nil(t, b.delivery)
+	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
+		WorkDir: t.TempDir(),
+		Managed: &ManagedConfig{},
+	}))
+	assert.False(t, rec.merged, "a nil delivery does nothing")
+	assert.Empty(t, b.delivered)
 }
 
 // ---- cell path: shared cell (claude-like, RawContext=false) -----------------

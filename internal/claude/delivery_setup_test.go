@@ -253,10 +253,10 @@ func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
 	deliver := func(harp, content string) string {
 		ephem, err := paths.HarpEphemeralDir(harp)
 		require.NoError(t, err)
-		strat := newDeliveryFactory(nil).ContextDelivery(dirPlace{dir: ephem})
+		strat := newAppendFlagDelivery(dirPlace{dir: ephem}, nil)
 		_, err = strat.DeliverContext(content)
 		require.NoError(t, err)
-		p := strat.(*appendFlagDelivery).Path()
+		p := strat.Path()
 		require.NotEmpty(t, p)
 		assert.True(t, strings.HasPrefix(p, ephem), "scratch must live under its own harp ephemeral dir")
 		return p

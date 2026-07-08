@@ -91,7 +91,12 @@ func NewACP(writeSettings agent.WriteSettingsFunc) *ACP {
 		&acpSkills{},
 		agent.NewBaseContextProvider(),
 		&acpSessionHistory{},
-		nil, // no cell delivery: acp keeps the legacy lifecycle path (setupViaLifecycle)
+		// acp materializes no files (its loadout rides the ACP protocol, see
+		// surfaces.go), so it delivers an EMPTY surface set: Setup still runs the
+		// lifecycle merge that populates ManagedChatMCPServers, but writes nothing.
+		&agent.CellDelivery{Build: func(agent.SurfaceInputs, string) agent.SurfaceSet {
+			return agent.EmptySurfaceSet{}
+		}},
 	)
 	return b
 }

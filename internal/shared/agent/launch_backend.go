@@ -167,17 +167,17 @@ func (b *LaunchBackend) ContextFilePath() string {
 
 // Setup prepares the backend for execution. The host resolves ctxloom
 // config/bundles and ships the result in req.Managed, so Setup consumes only the
-// wire-typed payload — it never imports config/bundles. A backend with a
-// CellDelivery (claude/codex/antigravity/kiro) builds its SurfaceSet from the
-// merged state and delivers it through the cell named by req.CellKind; a backend
-// without one (acp) keeps the legacy lifecycle path (Provide + MergeManaged +
-// skills + Flush).
+// wire-typed payload — it never imports config/bundles. Every launch backend
+// supplies a CellDelivery at InitLaunch (a protocol-only backend like acp an empty
+// one), so Setup builds the backend's SurfaceSet from the merged state and
+// delivers it through the cell named by req.CellKind. A nil delivery is a
+// misconfigured backend — nothing to set up — so it no-ops rather than panics.
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
-	if b.delivery != nil {
-		return b.setupViaCells(req)
+	if b.delivery == nil {
+		return nil
 	}
-	return b.setupViaLifecycle(req)
+	return b.setupViaCells(req)
 }
 
 // setupViaCells is the generic surfaces × typed-cells Setup shared by every
@@ -326,33 +326,6 @@ func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest) bool {
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,
 		NewContextInjectionHooks(hash, b.WorkDir())...)
 	return true
-}
-
-// setupViaLifecycle is the legacy path for backends without a delivery factory
-// (antigravity/codex/kiro/acp): provide context, register slash commands, fold
-// the host-assembled hooks + MCP into the lifecycle (appending the agent's own
-// SessionStart context-injection hook from the plugin-side context hash), and
-// flush hooks + MCP to the settings file. Behavior is unchanged from before the
-// delivery seam.
-func (b *LaunchBackend) setupViaLifecycle(req *SetupRequest) error {
-	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
-		return fmt.Errorf("failed to provide context: %w", err)
-	}
-	contextHash := b.context.GetContextHash()
-
-	if req.Managed != nil {
-		if len(req.Managed.Skills) > 0 {
-			if err := b.skills.RegisterFromContent(b.WorkDir(), req.Managed.Skills); err != nil {
-				return fmt.Errorf("failed to register skills: %w", err)
-			}
-		}
-		b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
-	}
-
-	if err := b.lifecycle.Flush(b.WorkDir()); err != nil {
-		return fmt.Errorf("failed to write hooks: %w", err)
-	}
-	return nil
 }
 
 // mergedState reads the lifecycle's merged hooks + MCP so the delivery seam can

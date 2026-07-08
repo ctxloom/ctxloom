@@ -63,28 +63,6 @@ type SettingsDelivery interface {
 	DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (Delivered, error)
 }
 
-// DeliveryFactory builds the per-surface delivery strategies of a loadout, each
-// targeted at a given Placement. A launch backend that routes its launch-time
-// surface delivery through the seam injects one (via InitLaunch); Setup asks it
-// for the strategy per surface. A factory returns nil for a surface it does not
-// deliver through the seam, and Setup skips that surface. It is deliberately
-// per-Placement: the caller owns WHERE each surface lands (ephemeral scratch vs
-// the working dir) and the factory owns HOW (the concrete write mechanism).
-type DeliveryFactory interface {
-	// ContextDelivery returns the strategy that materializes the context surface
-	// into place, or nil when the backend does not deliver context via the seam.
-	ContextDelivery(place Placement) ContextDelivery
-	// MCPDelivery returns the strategy that materializes the MCP surface into
-	// place, or nil when the backend does not deliver MCP via the seam.
-	MCPDelivery(place Placement) MCPDelivery
-	// SkillsDelivery returns the strategy that materializes the skills surface
-	// into place, or nil when the backend does not deliver skills via the seam.
-	SkillsDelivery(place Placement) SkillsDelivery
-	// SettingsDelivery returns the strategy that materializes the settings surface
-	// into place, or nil when the backend does not deliver settings via the seam.
-	SettingsDelivery(place Placement) SettingsDelivery
-}
-
 // Placement is where a file-writing mechanism strategy writes its surface. It is
 // injected into the strategy at construction — never passed as a method
 // parameter: a file/template strategy holds the Placement it writes into, while

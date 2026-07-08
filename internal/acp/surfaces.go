@@ -1,8 +1,11 @@
 package acp
 
 // Surface-delivery seam assessment: the generic ACP backend has NO filesystem
-// surfaces and deliberately OPTS OUT of the cell/surface model
-// (internal/shared/agent/cells.go).
+// surfaces. It shares the one cell-based Setup path (so there is a single Setup),
+// but delivers an agent.EmptySurfaceSet — Setup runs the lifecycle merge that
+// feeds ManagedChatMCPServers, and materializes NOTHING to the filesystem. There
+// are still no agent.Delivery surface objects here (an empty set is not a surface),
+// consistent with the opt-out this file records.
 //
 // The other launch backends (claude, codex, antigravity, kiro) each materialize
 // their loadout as files at engine-native well-known paths — CLAUDE.md, .mcp.json,

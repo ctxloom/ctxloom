@@ -123,6 +123,19 @@ func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) f
 	return func(in SurfaceInputs, _ string) SurfaceSet { return newSurfaces(in, nil) }
 }
 
+// EmptySurfaceSet is a SurfaceSet with no surfaces. A protocol-only backend (acp)
+// uses it so Setup still runs the lifecycle merge — populating the managed MCP set
+// its structured chat injects over the wire (ManagedChatMCPServers) — while
+// materializing no files. It lets acp share the one cell-based Setup path without
+// inventing well-known files no ACP agent reads.
+type EmptySurfaceSet struct{}
+
+// Deliveries returns no surfaces (nothing to write into an isolated cell).
+func (EmptySurfaceSet) Deliveries() []Delivery { return nil }
+
+// SharedCwdDeliveries returns no surfaces (nothing to write into the shared cwd).
+func (EmptySurfaceSet) SharedCwdDeliveries(string) []RaceSafeDelivery { return nil }
+
 // CellKind is the resolved isolation cell a run executes in, decided host-side
 // (mapped from the isolation.Policy) and carried to the plugin over the wire so
 // Setup/buildArgs know which cell they run in. It is the plugin-side mirror of

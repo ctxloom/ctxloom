@@ -56,28 +56,30 @@ func NewCodex(writeSettings agent.WriteSettingsFunc) *Codex {
 	return b
 }
 
-// cellCodexHomeEnv is codex's per-backend child-env contributor. In an isolated
-// cell codex's config (.codex/config.toml) and cell-scoped prompts
-// (.codex/prompts) live under <WorkDir>/.codex, so point CODEX_HOME there — the
-// one env that makes codex discover the cell-scoped prompts (its config is already
-// cwd-relative). A SharedCell uses the user's global ~/.codex, so no override.
+// cellCodexHomeEnv is codex's per-backend child-env contributor. Setup delivers
+// codex's config (.codex/config.toml) and cell-scoped prompts (.codex/prompts)
+// under <WorkDir>/.codex in EVERY cell (they ride the delivery dir), so point
+// CODEX_HOME there — the one env that makes codex discover them (its project
+// config is cwd-relative, but its prompts/sessions hang off CODEX_HOME). This
+// applies to a SharedCell too: without it, codex would read prompts from the
+// user's global ~/.codex and miss the cell-scoped skills. Skipped for a minimal/
+// distill run (SkipSetup), which delivers no surfaces and should keep codex's
+// global home.
 //
 // OPEN QUESTION (plan risk): a ProcessIsolatedCell (container) already has a fresh
 // $HOME, so a <WorkDir>/.codex CODEX_HOME may be redundant or point at a
-// non-existent in-namespace path. It is set here consistently with the worktree
-// cell (item 4) pending a live container smoke test; revisit if codex resolves its
-// home differently under the container mount model.
+// non-existent in-namespace path. It is set here consistently pending a live
+// container smoke test; revisit if codex resolves its home differently under the
+// container mount model.
 func cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
-	switch req.CellKind {
-	case agent.CellKindDirectoryIsolated, agent.CellKindProcessIsolated:
-		work := req.WorkDir
-		if work == "" {
-			work = "."
-		}
-		return map[string]string{"CODEX_HOME": cellScopedCodexHome(work)}
-	default:
+	if req.SkipSetup {
 		return nil
 	}
+	work := req.WorkDir
+	if work == "" {
+		work = "."
+	}
+	return map[string]string{"CODEX_HOME": cellScopedCodexHome(work)}
 }
 
 // Configure applies a decoded codex config to this backend.

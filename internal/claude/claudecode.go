@@ -238,14 +238,17 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// Cell-aware native delivery. In a SharedCell (the user's live cwd) Setup
 	// delivered context/MCP/settings as out-of-cwd scratch files, so point claude's
 	// own launch flags at them — --append-system-prompt-file for the framed context
-	// (in place of a SessionStart injection hook), --mcp-config/--strict-mcp-config
-	// for the managed MCP set (replacing, not merging, any project .mcp.json), and
-	// --settings for the managed hooks/statusline. Each Path() is "" when that
-	// surface delivered nothing (empty context/MCP/hooks) or when context fell back
-	// to the injection hook, so buildArgs then adds no flag. In an isolated cell the
-	// surfaces are the engine's well-known files in cwd, so no flags are needed.
-	// Skipped in minimal/distill mode (SkipSetup), which intentionally drops context
-	// and supplies its own --settings/--strict-mcp-config below.
+	// (in place of a SessionStart injection hook), --mcp-config for the managed MCP
+	// set, and --settings for the managed hooks/statusline. --mcp-config is used
+	// WITHOUT --strict-mcp-config so claude LAYERS ctxloom's out-of-cwd servers on
+	// top of (i.e. merges them with) the user's project .mcp.json rather than
+	// replacing it — ctxloom stays out of the cwd while the user's own servers still
+	// load. (--settings likewise layers over the user's .claude/settings.json.) Each
+	// Path() is "" when that surface delivered nothing (empty context/MCP/hooks) or
+	// when context fell back to the injection hook, so buildArgs then adds no flag.
+	// In an isolated cell the surfaces are the engine's well-known files in cwd, so
+	// no flags are needed. Skipped in minimal/distill mode (SkipSetup), which drops
+	// context and supplies its own --settings/--strict-mcp-config below.
 	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
 		if s := b.surfaces.Context; s != nil {
 			if p := s.Path(); p != "" {
@@ -254,7 +257,7 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 		}
 		if s := b.surfaces.MCP; s != nil {
 			if p := s.Path(); p != "" {
-				args = append(args, "--mcp-config", p, "--strict-mcp-config")
+				args = append(args, "--mcp-config", p)
 			}
 		}
 		if s := b.surfaces.Settings; s != nil {

@@ -137,8 +137,9 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 }
 
 // TestSetup_SharedCell_MCPOutOfCwd proves the approved SharedCell change for MCP:
-// the managed .mcp.json rides an OUT-OF-CWD --mcp-config file (with
-// --strict-mcp-config), not the live cwd, while skills — which have no out-of-cwd
+// the managed .mcp.json rides an OUT-OF-CWD --mcp-config file, not the live cwd,
+// and WITHOUT --strict-mcp-config so claude LAYERS ctxloom's servers on top of the
+// user's project .mcp.json (merge, not replace). skills — which have no out-of-cwd
 // flag — still land in the well-known .claude/commands via the loud Unsafe hatch.
 func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	work := t.TempDir()
@@ -169,8 +170,8 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
 	assert.True(t, argPair(args, "--mcp-config", mcpPath),
 		"a SharedCell run loads MCP via --mcp-config")
-	assert.Contains(t, args, "--strict-mcp-config",
-		"--mcp-config is paired with --strict-mcp-config (replace, not merge)")
+	assert.NotContains(t, args, "--strict-mcp-config",
+		"--mcp-config is NOT strict — ctxloom's servers merge with the user's project .mcp.json")
 }
 
 // TestSetup_IsolatedCell_WellKnownFilesNoFlags proves the isolated-cell path:

@@ -67,6 +67,25 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 		"an isolated cell scopes CODEX_HOME to <WorkDir>/.codex")
 }
 
+// TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup proves CODEX_HOME is scoped to
+// <WorkDir>/.codex in EVERY cell (including SharedCell, so codex finds the
+// cell-scoped prompts in the live cwd), and is left unset for a minimal/distill
+// (SkipSetup) run so codex keeps its global ~/.codex home.
+func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
+	b := NewCodex(nil)
+	work := "/proj"
+	want := filepath.Join(work, ".codex")
+
+	for _, cell := range []agent.CellKind{agent.CellKindShared, agent.CellKindDirectoryIsolated, agent.CellKindProcessIsolated} {
+		env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: cell})
+		assert.Equal(t, want, env["CODEX_HOME"], "CODEX_HOME is set for cell %v", cell)
+	}
+
+	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindShared, SkipSetup: true})
+	_, ok := env["CODEX_HOME"]
+	assert.False(t, ok, "a SkipSetup run keeps codex's global home (no CODEX_HOME override)")
+}
+
 // TestCodex_Setup_ConfigByteIdenticalToLegacyFlush pins byte-identity: the
 // config.toml the cell path's config surface writes is exactly what the legacy
 // Flush (BaseLifecycle + CodexHookWriter.WriteSettings) would have written for the

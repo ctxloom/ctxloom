@@ -84,15 +84,17 @@ type contextSurface struct {
 
 // Deliver writes the assembled context file into dir via agent.WriteContextFile
 // (the same writer BaseContextProvider.Provide uses) and returns a handle whose
-// Cleanup removes it. Empty/absent content writes nothing and cleans up to a
-// no-op.
+// Cleanup removes it. Empty/absent content writes nothing and returns a NIL handle
+// (there is nothing to clean up and nothing was delivered) — which is how a caller
+// distinguishes "codex wrote a context file" from "no-op", e.g. materialize (no
+// fragments) reports no context surface for codex.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	hash, err := agent.WriteContextFile(dir, s.fragments, agent.WithContextFS(s.fs))
 	if err != nil {
 		return nil, err
 	}
 	if hash == "" {
-		return deliveredFunc(func() error { return nil }), nil
+		return nil, nil
 	}
 	fs := s.fs
 	path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
@@ -101,6 +103,9 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns codex's context identity for the Unsafe warning.
 func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
+
+// Kind reports codex's context surface (the raw context cache file).
+func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
@@ -126,6 +131,11 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns codex's config identity for the Unsafe warning.
 func (s *configSurface) UnsafeInfo() string { return "codex/config" }
+
+// Kind reports codex's config surface as the settings surface — it folds codex's
+// [hooks] AND [mcp_servers] tables into one config.toml, so a caller selecting
+// either Settings or MCP gets the whole file.
+func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // codex's prompts surface is the shared agent.ManagedSkillsDelivery bound to
 // codex's writer (built in NewSurfaces). codex prompts are GLOBAL
@@ -197,7 +207,9 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 var (
 	_ agent.UnsafeSurface = (*contextSurface)(nil)
 	_ agent.UnsafeSurface = (*configSurface)(nil)
-	_ agent.Delivered     = deliveredFunc(nil)
+	_ agent.KindedDelivery = (*contextSurface)(nil)
+	_ agent.KindedDelivery = (*configSurface)(nil)
+	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
 	// it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}

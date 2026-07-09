@@ -30,13 +30,11 @@ const defaultCodexModel = "o3-mini"
 // agent.LaunchBackend; Codex adds only the Codex-specific Configure/Execute.
 type Codex struct {
 	agent.LaunchBackend
-	writeSettings agent.WriteSettingsFunc
 }
 
-// NewCodex creates a new Codex backend with default settings. The writeSettings
-// dispatch is injected (the registry supplies it).
-func NewCodex(writeSettings agent.WriteSettingsFunc) *Codex {
-	b := &Codex{writeSettings: writeSettings}
+// NewCodex creates a new Codex backend with default settings.
+func NewCodex() *Codex {
+	b := &Codex{}
 	b.BaseBackend = agent.NewBaseBackend("codex", "1.0.0")
 	b.BinaryPath = "codex"
 	// codex routes delivery through the cell seam. RawContext: its context is the
@@ -46,7 +44,7 @@ func NewCodex(writeSettings agent.WriteSettingsFunc) *Codex {
 	// the hook is keyed to the cache file's hash. The config surface writes the
 	// [hooks] (incl. that hook) + [mcp_servers] tables of .codex/config.toml.
 	b.InitLaunch(
-		agent.NewBaseLifecycle("codex", b.writeSettings),
+		agent.NewBaseLifecycle("codex"),
 		&CodexSkills{},
 		agent.NewBaseContextProvider(),
 		NewCodexSessionHistory(b),

@@ -64,6 +64,9 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns kiro's context identity for the Unsafe warning.
 func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
 
+// Kind reports kiro's context surface (.kiro/steering/ctxloom-context.md).
+func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
+
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -84,6 +87,9 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns kiro's MCP identity for the Unsafe warning.
 func (s *mcpSurface) UnsafeInfo() string { return "kiro/mcp" }
+
+// Kind reports kiro's MCP surface (.kiro/settings/mcp.json).
+func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // settingsSurface is kiro's folded settings + hooks surface: the ctxloom-owned
 // custom-agent config .kiro/agents/<name>.json, written via the reused mapHooks +
@@ -126,6 +132,9 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns kiro's settings identity for the Unsafe warning.
 func (s *settingsSurface) UnsafeInfo() string { return "kiro/settings" }
+
+// Kind reports kiro's settings surface (.kiro/agents/<name>.json — hooks folded in).
+func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // kiro's skills surface — the agentskills SKILL.md files under .kiro/skills/ — is
 // the shared agent.ManagedSkillsDelivery bound to kiro's manifest-scoped
@@ -195,10 +204,13 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 // layer: none is assignable to agent.RaceSafeDelivery, the compile-time guarantee
 // that no kiro surface can enter a SharedCell except through agent.Unsafe.
 var (
-	_ agent.UnsafeSurface = (*contextSurface)(nil)
-	_ agent.UnsafeSurface = (*mcpSurface)(nil)
-	_ agent.UnsafeSurface = (*settingsSurface)(nil)
-	_ agent.Delivered     = deliveredFunc(nil)
+	_ agent.UnsafeSurface  = (*contextSurface)(nil)
+	_ agent.UnsafeSurface  = (*mcpSurface)(nil)
+	_ agent.UnsafeSurface  = (*settingsSurface)(nil)
+	_ agent.KindedDelivery = (*contextSurface)(nil)
+	_ agent.KindedDelivery = (*mcpSurface)(nil)
+	_ agent.KindedDelivery = (*settingsSurface)(nil)
+	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
 	// it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}

@@ -20,14 +20,12 @@ import (
 type recordLifecycle struct {
 	merged      bool
 	contextHash string
-	flushed     bool
 }
 
 func (r *recordLifecycle) MergeManaged(_ *ManagedConfig, _ string, contextHash string) {
 	r.merged = true
 	r.contextHash = contextHash
 }
-func (r *recordLifecycle) Flush(string) error { r.flushed = true; return nil }
 
 type noopSkills struct{}
 
@@ -106,6 +104,22 @@ func (s *recordSurface) DeliverIsolated() (Delivered, error) {
 	return s.set.handle(s.label), nil
 }
 
+// Kind maps the fake's label to its SurfaceKind so the SurfaceSelection the launch
+// path now drives (WithEverything) includes it — mirroring the real surfaces, which
+// are all KindedDelivery.
+func (s *recordSurface) Kind() SurfaceKind {
+	switch s.label {
+	case "context":
+		return SurfaceContext
+	case "mcp":
+		return SurfaceMCP
+	case "settings":
+		return SurfaceSettings
+	default:
+		return SurfaceSkills
+	}
+}
+
 type recordDelivered struct {
 	order *[]string
 	label string
@@ -132,11 +146,10 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 // returns set (recording the inputs it was handed). rawContext/contextHook mirror
 // the per-engine CellDelivery flags. The lifecycle is a real BaseLifecycle so
 // mergedState resolves the merged hooks/MCP the surface inputs carry.
-func newCellBackend(set *recordSet, rawContext, contextHook bool) (*LaunchBackend, *flushSpy) {
-	spy := &flushSpy{}
+func newCellBackend(set *recordSet, rawContext, contextHook bool) *LaunchBackend {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test", spy.write), noopSkills{}, NewBaseContextProvider(), nil,
+	b.InitLaunch(NewBaseLifecycle("test"), noopSkills{}, NewBaseContextProvider(), nil,
 		&CellDelivery{
 			Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
 				set.inputs = in
@@ -146,16 +159,7 @@ func newCellBackend(set *recordSet, rawContext, contextHook bool) (*LaunchBacken
 			RawContext:  rawContext,
 			ContextHook: contextHook,
 		})
-	return b, spy
-}
-
-// flushSpy is a WriteSettingsFunc that records whether Flush called it, so a
-// cell-path test can assert Flush was never invoked (surfaces write settings).
-type flushSpy struct{ called bool }
-
-func (s *flushSpy) write(_ string, _ *wire.HooksConfig, _ *wire.MCPConfig, _ map[string]wire.MCPServer, _ string, _ ...SettingsOption) error {
-	s.called = true
-	return nil
+	return b
 }
 
 // ---- empty-set path (acp) + nil delivery ------------------------------------
@@ -207,7 +211,7 @@ func TestSetup_NilDelivery_NoOp(t *testing.T) {
 func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b, spy := newCellBackend(set, false, false)
+	b := newCellBackend(set, false, false)
 
 	ephem, err := paths.HarpEphemeralDir("perky-same-chevy")
 	require.NoError(t, err)
@@ -228,7 +232,6 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 		},
 	}))
 
-	assert.False(t, spy.called, "cell path must never call Flush (surfaces write settings)")
 	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to Build")
 	assert.Equal(t, ephem, set.isolatedDir, "the out-of-cwd dir is the harp's PRIVATE ephemeral dir")
 	assert.True(t, set.usedShared, "a SharedCell delivers via the shared-cwd (race-safe) set")
@@ -255,7 +258,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b, _ := newCellBackend(set, false, false)
+	b := newCellBackend(set, false, false)
 	work := t.TempDir()
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -314,7 +317,7 @@ func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
 func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b, _ := newCellBackend(set, true, false)
+	b := newCellBackend(set, true, false)
 
 	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -343,7 +346,7 @@ func TestSetup_RawContext_ManagedNilShortCircuits(t *testing.T) {
 func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order, contextErr: errors.New("disk full")}
-	b, _ := newCellBackend(set, false, false)
+	b := newCellBackend(set, false, false)
 
 	work := t.TempDir()
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
@@ -378,7 +381,7 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
-	b, _ := newCellBackend(set, false, false)
+	b := newCellBackend(set, false, false)
 
 	require.NoError(t, b.Setup(context.Background(), &SetupRequest{
 		WorkDir:   t.TempDir(),

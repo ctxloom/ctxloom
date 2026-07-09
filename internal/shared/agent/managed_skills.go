@@ -37,6 +37,9 @@ func NewManagedSkillsDelivery(name string, skills []CommandExport, write func(di
 // shared cwd.
 func (s *ManagedSkillsDelivery) UnsafeInfo() string { return s.name }
 
+// Kind reports this as the skills surface (codex/antigravity/kiro all share it).
+func (s *ManagedSkillsDelivery) Kind() SurfaceKind { return SurfaceSkills }
+
 // Deliver writes the enabled skill exports into dir via the injected writer and
 // returns a handle whose Cleanup reverts exactly the manifest-tracked set (a
 // re-write with no exports).
@@ -58,7 +61,8 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // out-of-cwd flag), so it can never enter a SharedCell except through Unsafe —
 // which it satisfies as a self-describing UnsafeSurface.
 var (
-	_ Delivery      = (*ManagedSkillsDelivery)(nil)
-	_ UnsafeSurface = (*ManagedSkillsDelivery)(nil)
-	_ Delivered     = deliveredFunc(nil)
+	_ Delivery        = (*ManagedSkillsDelivery)(nil)
+	_ UnsafeSurface   = (*ManagedSkillsDelivery)(nil)
+	_ KindedDelivery  = (*ManagedSkillsDelivery)(nil)
+	_ Delivered       = deliveredFunc(nil)
 )

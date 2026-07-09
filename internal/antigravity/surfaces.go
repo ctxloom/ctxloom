@@ -70,6 +70,9 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 // UnsafeInfo returns agy's context identity for the Unsafe warning.
 func (s *contextSurface) UnsafeInfo() string { return "antigravity/context" }
 
+// Kind reports agy's context surface (.agents/AGENTS.md).
+func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
+
 // mcpSurface is agy's MCP surface: .agents/mcp_config.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
@@ -91,6 +94,9 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns agy's MCP identity for the Unsafe warning.
 func (s *mcpSurface) UnsafeInfo() string { return "antigravity/mcp" }
+
+// Kind reports agy's MCP surface (.agents/mcp_config.json).
+func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // hooksSurface is agy's hooks surface: the ctxloom-managed entries of
 // .agents/hooks.json. It reuses the SAME writer helpers WriteSettings composes
@@ -140,6 +146,10 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns agy's hooks identity for the Unsafe warning.
 func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
+
+// Kind reports agy's hooks surface (.agents/hooks.json) as the settings surface —
+// agy's hooks file IS its settings, so a caller selecting Settings gets it.
+func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
 // agy's skills surface — the markdown skill files under .agents/skills/ — is the
 // shared agent.ManagedSkillsDelivery bound to agy's manifest-scoped
@@ -208,10 +218,13 @@ func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
 // assignable to agent.RaceSafeDelivery, the compile-time guarantee that no agy
 // surface can enter a SharedCell except through agent.Unsafe.
 var (
-	_ agent.UnsafeSurface = (*contextSurface)(nil)
-	_ agent.UnsafeSurface = (*mcpSurface)(nil)
-	_ agent.UnsafeSurface = (*hooksSurface)(nil)
-	_ agent.Delivered     = deliveredFunc(nil)
+	_ agent.UnsafeSurface  = (*contextSurface)(nil)
+	_ agent.UnsafeSurface  = (*mcpSurface)(nil)
+	_ agent.UnsafeSurface  = (*hooksSurface)(nil)
+	_ agent.KindedDelivery = (*contextSurface)(nil)
+	_ agent.KindedDelivery = (*mcpSurface)(nil)
+	_ agent.KindedDelivery = (*hooksSurface)(nil)
+	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
 	// it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}

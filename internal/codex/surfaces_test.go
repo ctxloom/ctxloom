@@ -127,7 +127,7 @@ func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 
 	handle, err := s.Context.Deliver("/proj")
 	require.NoError(t, err)
-	require.NoError(t, handle.Cleanup())
+	assert.Nil(t, handle, "empty context delivers nothing, so no cleanup handle")
 
 	exists, _ := afero.Exists(fs, filepath.Join("/proj", agent.SCMContextSubdir))
 	assert.False(t, exists, "no context, nothing written")

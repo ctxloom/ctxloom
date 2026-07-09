@@ -2,57 +2,21 @@ package backends
 
 import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 )
 
 // Settings options + shared write helpers live in shared/agent (the
 // engine-agnostic core) so the per-agent writers can use them without importing
 // backends. SettingsOption and the With* funcs are re-exported for external
-// callers (internal/operations).
+// callers (internal/operations) that reach the KEPT settings-writer dispatch —
+// GetSettingsWriter / RemoveSettings / BackendStatus. (The cross-backend settings
+// WRITE now rides the surfaces × cells seam — see BuildSurfaces + agent.Select.)
 type SettingsOption = agent.SettingsOption
 
 var (
 	WithSettingsFS         = agent.WithSettingsFS
 	WithStatusLineDisabled = agent.WithStatusLineDisabled
 )
-
-// WriteSettings writes hooks and MCP servers for the specified backend.
-// If the backend doesn't support settings, this is a no-op.
-// bundleMCP contains MCP servers resolved from profile bundles.
-// Use WithSettingsFS to provide a custom filesystem for testing.
-func WriteSettings(backendName string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...SettingsOption) error {
-	options := &agent.SettingsOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	writer := newSettingsWriter(backendName, options)
-	if writer == nil {
-		return nil // Backend doesn't support settings
-	}
-	return writer.WriteSettings(hooks, mcp, bundleMCP, projectDir)
-}
-
-// WriteContext writes the assembled context to the named backend's native
-// context surface (CLAUDE.md, .agents/AGENTS.md, steering, …). The writer is the
-// same struct the settings dispatch builds; backends that carry a native context
-// surface implement the sibling agent.ContextWriter facet. Backends with none
-// (codex/acp/mock) don't implement it — the type assertion fails (a nil writer
-// asserts false too) and this returns an empty report and nil (opt-out).
-// Use WithSettingsFS to provide a custom filesystem for testing.
-func WriteContext(backendName, projectDir, context string, opts ...SettingsOption) (agent.ContextReport, error) {
-	options := &agent.SettingsOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	cw, ok := newSettingsWriter(backendName, options).(agent.ContextWriter)
-	if !ok {
-		return agent.ContextReport{}, nil // backend has no native context surface
-	}
-	return cw.WriteContext(agent.ContextWriteRequest{ProjectDir: projectDir, Context: context})
-}
 
 // newSettingsWriter constructs the named backend's writer from the resolved
 // options, or nil if the backend doesn't support settings. The per-backend

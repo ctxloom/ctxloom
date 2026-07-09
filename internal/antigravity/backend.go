@@ -25,13 +25,11 @@ func (AntigravityConfig) BackendType() string { return "antigravity" }
 // Configure/Execute.
 type Antigravity struct {
 	agent.LaunchBackend
-	writeSettings agent.WriteSettingsFunc
 }
 
-// NewAntigravity creates a new Antigravity backend with default settings. The
-// writeSettings dispatch is injected (the registry supplies it).
-func NewAntigravity(writeSettings agent.WriteSettingsFunc) *Antigravity {
-	b := &Antigravity{writeSettings: writeSettings}
+// NewAntigravity creates a new Antigravity backend with default settings.
+func NewAntigravity() *Antigravity {
+	b := &Antigravity{}
 	b.BaseBackend = agent.NewBaseBackend("antigravity", "1.0.0")
 	b.BinaryPath = "agy"
 	// agy routes delivery through the cell seam. RawContext: Setup materializes the
@@ -40,7 +38,7 @@ func NewAntigravity(writeSettings agent.WriteSettingsFunc) *Antigravity {
 	// hook, so its context surface writes .agents/AGENTS.md (auto-read) directly,
 	// and the merge hash is "" (no injection hook).
 	b.InitLaunch(
-		agent.NewBaseLifecycle("antigravity", b.writeSettings),
+		agent.NewBaseLifecycle("antigravity"),
 		&AntigravitySkills{},
 		agent.NewBaseContextProvider(),
 		NewAntigravitySessionHistory(b),

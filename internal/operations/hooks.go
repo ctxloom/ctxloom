@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -46,7 +47,6 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	}
 
 	fs := getFS(req.FS)
-	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
 
 	// Set executable path for testing if provided
@@ -66,8 +66,9 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// land in the written settings with no run-only resolution step needed
 	// (profiles.defaults + its home-inheritance were retired).
 
-	// Honor the statusline opt-out (config: settings.statusline: false).
-	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
+	// The statusline opt-out (config: settings.statusline: false) rides
+	// SurfaceInputs.ManageStatusline into the settings surface, read per backend in
+	// applyHooksToBackend from freshCfg.Settings.ShouldManageStatusline().
 
 	workDir := resolveHookWorkDir(req)
 
@@ -84,6 +85,20 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
+	// The native-context backends (antigravity/kiro) read context from their own
+	// file, not the injection hook, so apply materializes it from the assembled
+	// context STRING — the same content regenerateContext hashed into the cache the
+	// hook backends (claude/codex) read, so the two paths agree. Assembled only when
+	// context was regenerated this round (contextHash != ""); otherwise "" strips
+	// their managed native-context section. Fault tolerant: a failed assembly leaves
+	// it "" (the native surface then strips), never blocking the apply.
+	var assembledContext string
+	if contextHash != "" {
+		if asm, aerr := AssembleContext(ctx, freshCfg, AssembleContextRequest{Profiles: freshCfg.DefaultAgentProfiles()}); aerr == nil {
+			assembledContext = asm.Context
+		}
+	}
+
 	// MCP servers from profile bundles + prompts for command files, shared
 	// across backends. ApplyHooks writes the project's STATIC managed config
 	// (the `manage hooks install` path) for the configured DEFAULT profiles —
@@ -92,14 +107,14 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	prompts := backends.LoadSkillExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
-		backendNames: hookBackendNames(backend),
-		freshCfg:     freshCfg,
-		workDir:      workDir,
-		contextHash:  contextHash,
-		bundleMCP:    bundleMCP,
-		prompts:      prompts,
-		fs:           fs,
-		settingsOpts: settingsOpts,
+		backendNames:     hookBackendNames(backend),
+		freshCfg:         freshCfg,
+		workDir:          workDir,
+		contextHash:      contextHash,
+		assembledContext: assembledContext,
+		bundleMCP:        bundleMCP,
+		prompts:          prompts,
+		fs:               fs,
 	})
 	if err != nil {
 		return nil, err
@@ -193,14 +208,14 @@ func hookBackendNames(backend string) []string {
 
 // hookApplyParams bundles the per-backend apply inputs (shared across the loop).
 type hookApplyParams struct {
-	backendNames []string
-	freshCfg     *config.Config
-	workDir      string
-	contextHash  string
-	bundleMCP    map[string]wire.MCPServer
-	prompts      []*bundles.LoadedContent
-	fs           afero.Fs
-	settingsOpts []backends.SettingsOption
+	backendNames     []string
+	freshCfg         *config.Config
+	workDir          string
+	contextHash      string
+	assembledContext string
+	bundleMCP        map[string]wire.MCPServer
+	prompts          []*bundles.LoadedContent
+	fs               afero.Fs
 }
 
 // applyHooksToBackends applies hooks to each backend, returning the backends
@@ -225,22 +240,52 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 	return applied, applyErrors, nil
 }
 
-// applyHooksToBackend writes one backend's settings and command files. The hook
-// set is assembled fresh per backend (config + default-profile + bundle-shipped
-// + context-injection, via AssembleManagedHooks) so this write matches the
-// `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
-// freshCfg.Hooks across the loop.
+// applyHooksToBackend writes one backend's managed config into the project via
+// the surfaces × cells seam: settings (hooks) + MCP + skills, but NEVER a native
+// context file. The hook set is assembled fresh per backend (config +
+// default-profile + bundle-shipped + context-injection, via AssembleManagedHooks)
+// so this write matches the `ctxloom run` Setup path and avoids duplicate-hook
+// accumulation from aliasing freshCfg.Hooks across the loop.
+//
+// Apply INSTALLS runtime context injection for the HOOK backends (claude/codex):
+// the regenerated contextHash keys the SessionStart inject-context hook INTO their
+// settings/config surface (the crucial difference from materialize, which passes ""
+// so context stays static). Their context reaches a launched agent via that hook +
+// the regenerated cache file, NOT a native file, so the selection omits .WithContext()
+// for them — a static claude CLAUDE.md alongside the hook would double the context.
+//
+// The NATIVE-file backends (antigravity/kiro) read context from .agents/AGENTS.md /
+// .kiro/steering and DIVERT the injection hook, so for them apply DOES materialize
+// the context surface with the assembled context (contextViaNativeFile). Skills are
+// delivered only when there are prompts, preserving the prior guard (no prompts ⇒
+// command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
-	if err := backends.WriteSettings(backendName, hooksCfg, &p.freshCfg.MCP, p.bundleMCP, p.workDir, p.settingsOpts...); err != nil {
-		return fmt.Errorf("failed to apply %s settings: %w", backendName, err)
-	}
+	nativeContext := backends.ContextViaNativeFile(backendName)
 
+	inputs := agent.SurfaceInputs{
+		MCP:              &p.freshCfg.MCP,
+		BundleMCP:        p.bundleMCP,
+		Hooks:            hooksCfg,
+		ManageStatusline: p.freshCfg.Settings.ShouldManageStatusline(),
+		Skills:           backends.CommandExportsFor(backendName, p.prompts),
+	}
+	if nativeContext {
+		// Empty when context was not regenerated this round, which strips the
+		// backend's managed native-context section — matching the prior write.
+		inputs.Context = p.assembledContext
+	}
+	set := backends.BuildSurfaces(backendName, inputs, p.fs)
+
+	sel := agent.Select(set).WithSettings().WithMCP()
+	if nativeContext {
+		sel = sel.WithContext()
+	}
 	if len(p.prompts) > 0 {
-		cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(p.fs)}
-		if err := backends.WriteCommandFilesFor(backendName, p.workDir, p.prompts, cmdOpts...); err != nil {
-			return fmt.Errorf("failed to write %s commands: %w", backendName, err)
-		}
+		sel = sel.WithSkills()
+	}
+	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
+		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
 	return nil
 }

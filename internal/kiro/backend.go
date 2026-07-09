@@ -38,16 +38,14 @@ func (KiroConfig) BackendType() string { return "kiro" }
 // Kiro implements the Backend interface for the Kiro CLI.
 type Kiro struct {
 	agent.LaunchBackend
-	writeSettings agent.WriteSettingsFunc
-	effort        string
-	agentName     string
-	agentEngine   string
+	effort      string
+	agentName   string
+	agentEngine string
 }
 
-// NewKiro creates a new Kiro backend with default settings. The writeSettings
-// dispatch is injected (the registry supplies it).
-func NewKiro(writeSettings agent.WriteSettingsFunc) *Kiro {
-	b := &Kiro{writeSettings: writeSettings, agentName: defaultAgentName}
+// NewKiro creates a new Kiro backend with default settings.
+func NewKiro() *Kiro {
+	b := &Kiro{agentName: defaultAgentName}
 	b.BaseBackend = agent.NewBaseBackend("kiro", "1.0.0")
 	b.BinaryPath = "kiro-cli"
 	// kiro routes delivery through the cell seam. RawContext: Setup materializes the
@@ -56,7 +54,7 @@ func NewKiro(writeSettings agent.WriteSettingsFunc) *Kiro {
 	// rather than firing a SessionStart hook, so its context surface writes
 	// .kiro/steering/ctxloom-context.md directly, and the merge hash is "".
 	b.InitLaunch(
-		agent.NewBaseLifecycle("kiro", b.writeSettings),
+		agent.NewBaseLifecycle("kiro"),
 		&KiroSkills{},
 		agent.NewBaseContextProvider(),
 		newKiroSessionHistory(),

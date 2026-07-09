@@ -47,6 +47,56 @@ type RaceSafeDelivery interface {
 	DeliverIsolated() (Delivered, error)
 }
 
+// SurfaceKind names the CROSS-BACKEND category a delivery surface belongs to —
+// the union over every engine's surfaces. It exists for exactly two purposes:
+// (1) the opt-in SurfaceSelection builder (a caller states which kinds it
+// delivers), and (2) reporting which surfaces a delivery actually wrote. It is
+// deliberately NOT a dispatch key — no code branches on a surface's kind to
+// decide HOW to write it (that stays each surface's own Deliver). Engines fold
+// several concerns into one file (claude/kiro settings carry hooks; codex config
+// carries hooks + MCP; antigravity's hooks file is its settings) — those all map
+// to SurfaceSettings, so a caller selecting Settings gets the whole folded file.
+type SurfaceKind int
+
+const (
+	// SurfaceContext is the engine's context surface (CLAUDE.md, .agents/AGENTS.md,
+	// steering, or codex's context cache file).
+	SurfaceContext SurfaceKind = iota
+	// SurfaceMCP is the engine's MCP server config (.mcp.json, mcp_config.json,
+	// .kiro/settings/mcp.json). codex folds MCP into its config surface (Settings).
+	SurfaceMCP
+	// SurfaceSettings is the engine's settings/hooks surface (.claude/settings.json,
+	// codex config.toml, .agents/hooks.json, kiro agent JSON).
+	SurfaceSettings
+	// SurfaceSkills is the engine's slash-command / skill / prompt files.
+	SurfaceSkills
+)
+
+// String renders the kind as the stable lowercase label used in delivery reports.
+func (k SurfaceKind) String() string {
+	switch k {
+	case SurfaceContext:
+		return "context"
+	case SurfaceMCP:
+		return "mcp"
+	case SurfaceSettings:
+		return "settings"
+	case SurfaceSkills:
+		return "skills"
+	default:
+		return "unknown"
+	}
+}
+
+// KindedDelivery is a Delivery that knows its SurfaceKind, so the SurfaceSelection
+// builder can opt kinds in without a per-backend type switch (it asks each surface
+// its kind). Every concrete backend surface implements it.
+type KindedDelivery interface {
+	Delivery
+	// Kind reports which cross-backend surface category this delivery is.
+	Kind() SurfaceKind
+}
+
 // SurfaceSet is the per-backend set of delivery surfaces for one run, exposed so
 // a cell can drive delivery without importing the concrete backend. Every
 // backend's `Surfaces` value satisfies it. Deliveries feeds an ISOLATED cell
@@ -201,6 +251,119 @@ func NewDirectoryIsolatedCell(dir string) DirectoryIsolatedCell {
 	return DirectoryIsolatedCell{isolatedCell{dir: dir}}
 }
 
+// SurfaceSelection is an OPT-IN builder over a SurfaceSet: the default selects
+// NOTHING, and each chainable .WithX() opts one SurfaceKind in. Opt-in (no
+// opt-out / "except") is deliberate — every caller states EXACTLY which surfaces
+// it delivers, so a future surface kind can never silently ride along a broad
+// selection. Build it with Select(set), chain the kinds, then call the terminal
+// DeliverUnder.
+type SurfaceSelection struct {
+	set   SurfaceSet
+	kinds map[SurfaceKind]bool
+}
+
+// Select begins an opt-in selection over set with NOTHING selected.
+func Select(set SurfaceSet) *SurfaceSelection {
+	return &SurfaceSelection{set: set, kinds: map[SurfaceKind]bool{}}
+}
+
+// WithContext opts the context surface into the selection.
+func (s *SurfaceSelection) WithContext() *SurfaceSelection { s.kinds[SurfaceContext] = true; return s }
+
+// WithMCP opts the MCP surface into the selection.
+func (s *SurfaceSelection) WithMCP() *SurfaceSelection { s.kinds[SurfaceMCP] = true; return s }
+
+// WithSettings opts the settings/hooks surface into the selection (for engines
+// that fold MCP or context into it, the whole folded file rides along).
+func (s *SurfaceSelection) WithSettings() *SurfaceSelection { s.kinds[SurfaceSettings] = true; return s }
+
+// WithSkills opts the skills / slash-command surface into the selection.
+func (s *SurfaceSelection) WithSkills() *SurfaceSelection { s.kinds[SurfaceSkills] = true; return s }
+
+// WithEverything opts every surface kind in — the materialize selection (a full
+// native surface tree), and the selection the launch path will borrow.
+func (s *SurfaceSelection) WithEverything() *SurfaceSelection {
+	return s.WithContext().WithMCP().WithSettings().WithSkills()
+}
+
+// selected reports whether d is opted in, returning its kind when so. It is the
+// single membership predicate both Selected and DeliverUnder read.
+func (s *SurfaceSelection) selected(d Delivery) (SurfaceKind, bool) {
+	kd, ok := d.(KindedDelivery)
+	if !ok || !s.kinds[kd.Kind()] {
+		return 0, false
+	}
+	return kd.Kind(), true
+}
+
+// Selected returns the set's surfaces whose Kind is opted in, in the set's stable
+// delivery order. It is the MECHANISM-INDEPENDENT core of a selection: this type
+// expresses only WHICH surfaces, never WHERE they land, so a delivery site with its
+// own cell logic (the launch path, which routes surfaces through Shared /
+// Directory / Process cells and the race-safe DeliverIsolated path) can apply the
+// SAME selection to its own mechanism. DeliverUnder is the convenience terminal
+// over this for the at-rest callers.
+func (s *SurfaceSelection) Selected() []Delivery {
+	var out []Delivery
+	for _, d := range s.set.Deliveries() {
+		if _, ok := s.selected(d); ok {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// DeliverUnder is the convenience terminal for at-rest callers (materialize,
+// apply): it delivers the Selected surfaces into a DirectoryIsolatedCell rooted at
+// dir. The cell is built HERE, not held by the selection (selection ≠ cell). It
+// ATTEMPTS every selected surface and COLLECTS per-surface failures rather than
+// stopping at the first — the surfaces under one root are independent, so a partial
+// delivery is still useful and the caller routes the failures through its own fault
+// policy (fatal-by-default, or warn-and-continue under --degraded). It returns the
+// handles for the surfaces that actually delivered (in order, for teardown), the
+// kinds those surfaces are (for a delivery report), and the errors for the failures.
+// A surface whose Deliver is a no-op (writes nothing, returns a nil handle — e.g.
+// codex's context surface with no fragments) is neither reported nor held, so the
+// report reflects what was actually written. An unselected kind, or an unregistered
+// backend's EmptySurfaceSet, yields nothing.
+func (s *SurfaceSelection) DeliverUnder(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
+	cell := NewDirectoryIsolatedCell(dir)
+	for _, d := range s.set.Deliveries() {
+		kind, ok := s.selected(d)
+		if !ok {
+			continue
+		}
+		handle, err := cell.Deliver(d)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if handle != nil {
+			delivered = append(delivered, handle)
+			kinds = append(kinds, kind)
+		}
+	}
+	return delivered, kinds, errs
+}
+
+// SelectedRaceSafe returns the SHARED-cwd (race-safe) deliveries of the set whose
+// Kind is opted in, in the set's stable order. It is the shared-cell counterpart of
+// Selected: it filters set.SharedCwdDeliveries(dir) — which binds each surface to the
+// live cwd (out-of-cwd flag file, or the loud Unsafe wrapper) — WITHOUT touching that
+// binding, so the launch path can drive its SharedCell over the same selection it
+// would drive an isolated cell over. Each element carries its Kind (the flag-backed
+// surfaces are KindedDelivery; an Unsafe wrapper forwards its wrapped surface's kind),
+// so membership is decided the same way as Selected.
+func (s *SurfaceSelection) SelectedRaceSafe(dir string) []RaceSafeDelivery {
+	var out []RaceSafeDelivery
+	for _, rs := range s.set.SharedCwdDeliveries(dir) {
+		if k, ok := rs.(interface{ Kind() SurfaceKind }); ok && s.kinds[k.Kind()] {
+			out = append(out, rs)
+		}
+	}
+	return out
+}
+
 // NewProcessIsolatedCell builds a container cell that writes surfaces into the
 // in-namespace mount dir.
 func NewProcessIsolatedCell(dir string) ProcessIsolatedCell {
@@ -264,4 +427,14 @@ type unsafeDelivery struct {
 func (u unsafeDelivery) DeliverIsolated() (Delivered, error) {
 	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", u.s.UnsafeInfo(), u.dir)
 	return u.s.Deliver(u.dir)
+}
+
+// Kind forwards the wrapped surface's SurfaceKind so an Unsafe delivery filters the
+// same way as a plain one in a SurfaceSelection (every UnsafeSurface is also a
+// KindedDelivery). It falls back to the wrapped Delivery's kind only if present.
+func (u unsafeDelivery) Kind() SurfaceKind {
+	if k, ok := u.s.(interface{ Kind() SurfaceKind }); ok {
+		return k.Kind()
+	}
+	return SurfaceContext
 }

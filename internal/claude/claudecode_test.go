@@ -19,7 +19,7 @@ import (
 // TestNewClaudeCode_DefaultValues verifies that a new Claude Code backend
 // is created with sensible defaults for binary path and capabilities.
 func TestNewClaudeCode_DefaultValues(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	assert.Equal(t, "claude-code", backend.Name())
 	assert.Equal(t, "1.0.0", backend.Version())
@@ -30,7 +30,7 @@ func TestNewClaudeCode_DefaultValues(t *testing.T) {
 // TestNewClaudeCode_SupportedModes verifies that Claude Code supports both
 // interactive and oneshot execution modes.
 func TestNewClaudeCode_SupportedModes(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	modes := backend.SupportedModes()
 
 	assert.Len(t, modes, 2)
@@ -47,7 +47,7 @@ func TestNewClaudeCode_SupportedModes(t *testing.T) {
 // TestClaudeCode_Configure_BinaryPath verifies that custom binary paths
 // override the default "claude" command.
 func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	cfg := &ClaudeConfig{
 		BinaryPath: "/custom/path/to/claude",
@@ -60,7 +60,7 @@ func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 // TestClaudeCode_Configure_Args verifies that custom arguments are applied
 // to the backend configuration.
 func TestClaudeCode_Configure_Args(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	cfg := &ClaudeConfig{
 		Args: []string{"--no-telemetry", "--config", "/custom/config"},
@@ -73,7 +73,7 @@ func TestClaudeCode_Configure_Args(t *testing.T) {
 // TestClaudeCode_Configure_Env verifies that environment variables are
 // merged into the backend's environment.
 func TestClaudeCode_Configure_Env(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	cfg := &ClaudeConfig{
 		Env: map[string]string{
@@ -91,7 +91,7 @@ func TestClaudeCode_Configure_Env(t *testing.T) {
 // a non-nil config. Callers should check for nil before calling Configure.
 // ApplyLLMConfig in registry.go handles the nil check.
 func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	// Configure with empty config (not nil) should work
 	cfg := &ClaudeConfig{}
@@ -104,7 +104,7 @@ func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 // TestClaudeCode_Configure_EmptyFields verifies that empty config fields
 // preserve existing values rather than clearing them.
 func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	cfg := &ClaudeConfig{
 		// BinaryPath, Args, Env all empty
@@ -124,7 +124,7 @@ func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 // TestClaudeCode_BuildArgs_AutoApprove verifies that auto-approve mode
 // adds the --dangerously-skip-permissions flag for non-interactive use.
 func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Permissions: agent.PermissionBypass,
@@ -137,7 +137,7 @@ func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
 // TestClaudeCode_BuildArgs_PermissionModes verifies the non-bypass postures map
 // to --permission-mode, and the default posture adds no permission flag at all.
 func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	cases := []struct {
 		perm     agent.PermissionMode
 		wantFlag string // "" = no --permission-mode flag
@@ -162,7 +162,7 @@ func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 // TestClaudeCode_BuildArgs_Model verifies that a custom model is passed
 // via the --model flag.
 func TestClaudeCode_BuildArgs_Model(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Model: "claude-3-sonnet",
@@ -186,7 +186,7 @@ func TestClaudeCode_BuildArgs_Model(t *testing.T) {
 // replacement for claude.
 func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // keep HarpEphemeralDir under a temp home
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	work := t.TempDir()
 
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
@@ -210,7 +210,7 @@ func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
 // TestClaudeCode_BuildArgs_OneshotMode verifies that oneshot mode adds
 // the --print flag for single-response execution.
 func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeOneshot,
@@ -225,7 +225,7 @@ func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
 // the OS argv length limit — the E2BIG that broke `ctxloom weave` synthesis),
 // while an interactive run still passes its initial prompt as a positional arg.
 func TestClaudeCode_BuildArgs_OneshotPromptOffArgv(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	const task = "review this enormous diff please"
 	prompt := &agent.Fragment{Content: task}
 
@@ -248,7 +248,7 @@ func TestClaudeCode_PromptStdin_NilWhenNoPrompt(t *testing.T) {
 // oneshot mode (distillation/compaction) requests the JSON envelope so Execute
 // can read the resolved model id instead of guessing.
 func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode:      agent.ModeOneshot,
@@ -265,7 +265,7 @@ func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
 // mode with no explicit model adds no --model flag: the model is resolved by
 // the caller from the fast role's labeled config, not defaulted in the backend.
 func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true})
 
@@ -276,7 +276,7 @@ func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
 // TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode verifies that a
 // configured fast model (passed as req.Model) overrides the backend default.
 func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Model: "sonnet"})
 
@@ -289,7 +289,7 @@ func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
 // "" (an empty source list drops the model config and routes generation to the
 // CLI's fast model regardless of --model).
 func TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Model: "claude-opus-4-8"})
 
@@ -321,7 +321,7 @@ func TestMinimalSettings(t *testing.T) {
 // ordinary oneshot (e.g. `ctxloom run --print`) keeps streaming text output and
 // does not switch to the JSON envelope.
 func TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeOneshot,
@@ -335,7 +335,7 @@ func TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON(t *testing.T) {
 // TestClaudeCode_BuildArgs_InteractiveMode verifies that interactive mode
 // does not add the --print flag.
 func TestClaudeCode_BuildArgs_InteractiveMode(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeInteractive,
@@ -349,7 +349,7 @@ func TestClaudeCode_BuildArgs_InteractiveMode(t *testing.T) {
 // session is named after ctxloom's harp via --name so claude's prompt box,
 // /resume picker, and terminal title match the session identity.
 func TestClaudeCode_BuildArgs_InteractiveNamesSession(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeInteractive,
@@ -364,7 +364,7 @@ func TestClaudeCode_BuildArgs_InteractiveNamesSession(t *testing.T) {
 // TestClaudeCode_BuildArgs_NoHarpNoName verifies that with no harp in env the
 // session is left unnamed rather than passing an empty --name.
 func TestClaudeCode_BuildArgs_NoHarpNoName(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})
 
@@ -375,7 +375,7 @@ func TestClaudeCode_BuildArgs_NoHarpNoName(t *testing.T) {
 // TestClaudeCode_BuildArgs_MinimalModeNoName verifies that throwaway minimal
 // oneshot runs are not named even when a harp is present in env.
 func TestClaudeCode_BuildArgs_MinimalModeNoName(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Mode:      agent.ModeOneshot,
@@ -391,7 +391,7 @@ func TestClaudeCode_BuildArgs_MinimalModeNoName(t *testing.T) {
 // TestClaudeCode_BuildArgs_Prompt verifies that prompt content is appended
 // as the final argument.
 func TestClaudeCode_BuildArgs_Prompt(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Prompt: &agent.Fragment{Content: "Review this code"},
@@ -404,7 +404,7 @@ func TestClaudeCode_BuildArgs_Prompt(t *testing.T) {
 // TestClaudeCode_BuildArgs_NoPrompt verifies that missing prompt doesn't
 // add empty arguments.
 func TestClaudeCode_BuildArgs_NoPrompt(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 
 	req := &agent.ExecuteRequest{
 		Prompt: nil,
@@ -420,7 +420,7 @@ func TestClaudeCode_BuildArgs_NoPrompt(t *testing.T) {
 // TestClaudeCode_BuildArgs_Combined verifies that multiple options are
 // combined correctly into the argument list.
 func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	backend.Args = []string{"--existing-arg"}
 
 	req := &agent.ExecuteRequest{

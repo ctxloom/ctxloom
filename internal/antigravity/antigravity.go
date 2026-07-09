@@ -591,6 +591,12 @@ func (w *AntigravityHookWriter) writeManagedContext(projectDir, content string) 
 		}
 		return agent.ContextReport{Removed: []string{rel}}, nil
 	}
+	// Ensure .agents/ exists: as its own delivery surface, the context write can run
+	// BEFORE the hooks surface that used to create the dir (surfaces × cells delivers
+	// context first), so it can no longer assume the directory is present.
+	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return agent.ContextReport{}, fmt.Errorf("failed to create %s directory: %w", AgentsDir, err)
+	}
 	if err := agent.AtomicWriteFile(fs, path, []byte(merged), "AGENTS.md"); err != nil {
 		return agent.ContextReport{}, err
 	}

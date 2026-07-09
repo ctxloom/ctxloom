@@ -25,7 +25,7 @@ func codexSessionsDir(homeDir string) string {
 // =============================================================================
 
 func TestNewCodexSessionHistory_Defaults(t *testing.T) {
-	b := NewCodex(nil)
+	b := NewCodex()
 	h := NewCodexSessionHistory(b)
 
 	assert.Same(t, b, h.backend, "backend must be wired through")
@@ -35,7 +35,7 @@ func TestNewCodexSessionHistory_Defaults(t *testing.T) {
 
 func TestNewCodexSessionHistory_WithOptions(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/synthetic/home"),
 	)
@@ -49,7 +49,7 @@ func TestNewCodexSessionHistory_WithOptions(t *testing.T) {
 
 func TestCodexSessionHistory_SessionsDir_MissingErrors(t *testing.T) {
 	fs := afero.NewMemMapFs() // empty fs — no sessions dir
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -62,7 +62,7 @@ func TestCodexSessionHistory_SessionsDir_FoundWhenPresent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(codexSessionsDir("/h"), 0755))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -88,7 +88,7 @@ func TestCodexSessionHistory_ListSessions_FiltersAndWalks(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(day, "notes.txt"), []byte(""), 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(day, "rollout-c.txt"), []byte(""), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -119,7 +119,7 @@ func TestCodexSessionHistory_GetSession_ParsesUserAndAssistant(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(day, "rollout-x.jsonl"), []byte(content), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -153,7 +153,7 @@ func TestCodexSessionHistory_GetSession_ParsesToolUseAndResult(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(root, "rollout-t.jsonl"), []byte(content), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -192,7 +192,7 @@ func TestCodexSessionHistory_GetSession_SkipsUnknownAndMalformed(t *testing.T) {
 		`{"type":"message","role":"user","content":"survived","timestamp":"2026-05-27T10:00:00Z"}` + "\n"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(root, "rollout-s.jsonl"), []byte(content), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -206,7 +206,7 @@ func TestCodexSessionHistory_GetSession_MissingFileErrors(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(codexSessionsDir("/h"), 0755))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -223,7 +223,7 @@ func TestCodexSessionHistory_GetCurrentSession_NoneFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(codexSessionsDir("/h"), 0755))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -240,7 +240,7 @@ func TestCodexSessionHistory_GetCurrentSession_ReturnsAvailable(t *testing.T) {
 	content := `{"type":"message","role":"user","content":"hi","timestamp":"2026-05-27T10:00:00Z"}` + "\n"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(root, "rollout-cur.jsonl"), []byte(content), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil),
+	h := NewCodexSessionHistory(NewCodex(),
 		WithCodexSessionFS(fs),
 		WithCodexSessionHomeDir("/h"),
 	)
@@ -258,7 +258,7 @@ func TestCodexSessionHistory_GetSessionByPath(t *testing.T) {
 	content := `{"type":"message","role":"assistant","content":"direct","timestamp":"2026-05-27T10:00:00Z"}` + "\n"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0644))
 
-	h := NewCodexSessionHistory(NewCodex(nil), WithCodexSessionFS(fs))
+	h := NewCodexSessionHistory(NewCodex(), WithCodexSessionFS(fs))
 	got, err := h.GetSessionByPath(path)
 	require.NoError(t, err)
 	require.Len(t, got.Entries, 1)
@@ -270,7 +270,7 @@ func TestCodexSessionHistory_GetSessionByPath(t *testing.T) {
 // =============================================================================
 
 func TestCodexSessionHistory_TranscriptPathFromHook(t *testing.T) {
-	h := NewCodexSessionHistory(NewCodex(nil))
+	h := NewCodexSessionHistory(NewCodex())
 
 	// Codex passes transcript_path on every hook's stdin; the reader returns it
 	// verbatim (enables /clear recovery + session-bind).

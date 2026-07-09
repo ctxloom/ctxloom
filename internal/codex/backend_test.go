@@ -13,13 +13,13 @@ import (
 // =============================================================================
 
 func TestCodex_Capabilities(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	assert.Equal(t, "codex", codex.Name())
 	assert.NotNil(t, codex.History(), "session history")
 }
 
 func TestCodex_Configure(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	codex.Configure(&CodexConfig{
 		BinaryPath: "/custom/codex",
 		Args:       []string{"--foo"},
@@ -36,7 +36,7 @@ func TestCodex_Configure(t *testing.T) {
 // =============================================================================
 
 func TestCodex_buildArgs_InteractiveBasic(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 
 	req := &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: &agent.Fragment{Content: "test prompt"}}
@@ -50,7 +50,7 @@ func TestCodex_buildArgs_InteractiveBasic(t *testing.T) {
 }
 
 func TestCodex_buildArgs_OneshotUsesExec(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	req := &agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "summarize"}}
 	args := codex.buildArgs(req)
 
@@ -59,7 +59,7 @@ func TestCodex_buildArgs_OneshotUsesExec(t *testing.T) {
 }
 
 func TestCodex_buildArgs_SkipSetupIsolated(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	req := &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Prompt: &agent.Fragment{Content: "distill"}}
 	args := codex.buildArgs(req)
 
@@ -71,13 +71,13 @@ func TestCodex_buildArgs_SkipSetupIsolated(t *testing.T) {
 }
 
 func TestCodex_buildArgs_AutoApprove(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	req := &agent.ExecuteRequest{Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "test"}}
 	assert.Contains(t, codex.buildArgs(req), "--full-auto")
 }
 
 func TestCodex_buildArgs_PermissionModes(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 
 	// plan → the read-only sandbox that never prompts, like minimal mode.
 	planArgs := codex.buildArgs(&agent.ExecuteRequest{Permissions: agent.PermissionPlan, Prompt: &agent.Fragment{Content: "x"}})
@@ -91,21 +91,21 @@ func TestCodex_buildArgs_PermissionModes(t *testing.T) {
 }
 
 func TestCodex_buildArgs_EmptyPrompt(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 	req := &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: &agent.Fragment{Content: ""}}
 	assert.Equal(t, []string{"--model", "gpt-4"}, codex.buildArgs(req))
 }
 
 func TestCodex_buildArgs_NilPrompt(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 	req := &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: nil}
 	assert.Equal(t, []string{"--model", "gpt-4"}, codex.buildArgs(req))
 }
 
 func TestCodex_buildArgs_PreservesBaseArgs(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	codex.Args = []string{"--arg1", "--arg2"}
 	req := &agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: &agent.Fragment{Content: "test"}}
 
@@ -118,7 +118,7 @@ func TestCodex_buildArgs_PreservesBaseArgs(t *testing.T) {
 }
 
 func TestCodex_buildArgs_Model(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	req := &agent.ExecuteRequest{Model: "gpt-5-codex", Prompt: &agent.Fragment{Content: "x"}}
 	args := codex.buildArgs(req)
 
@@ -132,7 +132,7 @@ func TestCodex_buildArgs_Model(t *testing.T) {
 }
 
 func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
-	codex := NewCodex(nil)
+	codex := NewCodex()
 	req := &agent.ExecuteRequest{Prompt: &agent.Fragment{Content: "x"}}
 	assert.NotContains(t, codex.buildArgs(req), "--model", "no --model when none requested (codex uses its default)")
 }

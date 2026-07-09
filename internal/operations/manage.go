@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/afero"
@@ -36,7 +37,6 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
-	cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
 
 	removed := []string{}
 	var errs []string
@@ -44,7 +44,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
-		if err := removeBackendHarness(name, workDir, settingsOpts, cmdOpts); err != nil {
+		if err := removeBackendHarness(name, workDir, fs, settingsOpts); err != nil {
 			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
@@ -59,14 +59,21 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
 }
 
-// removeBackendHarness strips one backend's settings and clears the command
-// files it generated (writing an empty prompt set triggers manifest cleanup).
-func removeBackendHarness(name, workDir string, settingsOpts []backends.SettingsOption, cmdOpts []agent.CommandFileOption) error {
+// removeBackendHarness strips one backend's ctxloom harness: RemoveSettings
+// reverts the per-backend hooks/MCP (unchanged), and the skills surface — built
+// from an EMPTY export set and delivered — clears ONLY ctxloom-managed command
+// files. That clear routes through the same manifest-scoped writer the old
+// WriteCommandFilesFor(nil) used: it removes exactly the .ctxloom-manifest-tracked
+// files ctxloom wrote and leaves user-authored commands untouched (never a blanket
+// wipe of the commands dir). Context is deliberately NOT selected, so CLAUDE.md and
+// the other native context files are left in place.
+func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []backends.SettingsOption) error {
 	if err := backends.RemoveSettings(name, workDir, settingsOpts...); err != nil {
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}
-	if err := backends.WriteCommandFilesFor(name, workDir, nil, cmdOpts...); err != nil {
-		return fmt.Errorf("failed to remove %s commands: %w", name, err)
+	set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
+	if _, _, errs := agent.Select(set).WithSkills().DeliverUnder(workDir); len(errs) > 0 {
+		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
 	}
 	return nil
 }

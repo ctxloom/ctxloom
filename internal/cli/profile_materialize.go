@@ -2,12 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var (
@@ -41,6 +43,11 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
+		// Fail-loudly choke owner (CLAUDE.md): checkpoint before materialize so every
+		// fatal surface-write finding it records through strictness is caught here and
+		// aborts the command (exit 3) unless --degraded downgrades them — mirroring
+		// how `ctxloom run`/`mcp`/`acp` gate their own startup findings.
+		mark := strictness.Checkpoint()
 		res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
 			Profiles: args,
 			Target:   materializeTarget,
@@ -48,6 +55,9 @@ Examples:
 		})
 		if err != nil {
 			return err
+		}
+		if ferr := failOnFindings(os.Stderr, mark); ferr != nil {
+			return ferr
 		}
 		return emit(cmd, res, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())

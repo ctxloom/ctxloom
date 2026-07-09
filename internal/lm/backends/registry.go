@@ -3,6 +3,8 @@ package backends
 import (
 	"os/exec"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -26,11 +28,12 @@ type Configurable interface {
 // not touching four separate maps/switches.
 //
 // Only name and newBackend are mandatory. The optional fields gate
-// capability-specific dispatch: a nil newWriter means the backend doesn't
-// support settings (WriteSettings no-ops, BackendsWithSettings omits it); nil
-// exports/writeCommands mean no slash-command export (WriteCommandFilesFor
-// and commandExportsFor no-op). The mock backend registers only
-// backend+config.
+// capability-specific dispatch: a nil newSurfaces means the backend materializes
+// no surfaces (BuildSurfaces returns an EmptySurfaceSet); a nil newWriter means it
+// has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
+// returns nil); a nil exports means no slash-command export (CommandExportsFor
+// yields nil, so the skills surface has nothing to write). The mock backend
+// registers only backend+config.
 type agentDescriptor struct {
 	// name is the backend's registry key and must match its module's Name().
 	name string
@@ -43,26 +46,36 @@ type agentDescriptor struct {
 	// newWriter constructs the backend's settings writer from resolved
 	// options. nil = backend has no settings support.
 	newWriter func(agent.SettingsOptions) agent.SettingsWriter
+	// newSurfaces builds the backend's SurfaceSet from a run's shared inputs and a
+	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
+	// every native surface through a cell without importing the concrete backend.
+	// It is the delivery-seam counterpart of newWriter. nil = backend materializes
+	// no surfaces (acp/mock); BuildSurfaces then returns an EmptySurfaceSet.
+	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
-	// Shared by WriteCommandFilesFor and commandExportsFor so the two paths
-	// can't diverge.
+	// Read by commandExportsFor / CommandExportsFor, which feed the skills surface
+	// (SurfaceInputs.Skills) the enabled exports for the delivery seam.
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
-	// writeCommands writes the backend's slash-command files (the module's
-	// WriteCommandFiles). nil = no command export.
-	writeCommands func(string, []agent.CommandExport, ...agent.CommandFileOption) error
-	// homeCommandsDir returns the user-global command directory this backend also
-	// loads alongside the project scope (claude: ~/.claude/commands). When set,
-	// WriteCommandFilesFor threads it in so a project copy byte-identical to a
-	// global one is skipped rather than shipped as a duplicate. nil = no global
-	// command scope to dedup against.
-	homeCommandsDir func() (string, error)
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
 	// branch). false backends have no read-only tier, so plan would run
 	// unrestrained — the run resolver collapses plan to default for them. Keep in
 	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
 	enforcesReadOnlyPlan bool
+	// contextViaNativeFile is true when ctxloom delivers this backend's managed
+	// context through its NATIVE context file — which the agent reads directly —
+	// rather than a runtime SessionStart injection hook. antigravity (.agents/
+	// AGENTS.md) and kiro (.kiro/steering) read a native file and DIVERT the
+	// injection hook, so hook apply must materialize their context surface. claude
+	// and codex instead deliver context via the SessionStart inject-context hook (in
+	// their settings/config surface) reading the regenerated cache file, so hook
+	// apply must NOT also write their native context file (a static claude CLAUDE.md
+	// alongside the hook would DOUBLE the context). It gates whether ApplyHooks opts
+	// the context surface into the per-backend surface selection. (Materialize always
+	// selects context — it writes a static native file with NO injection hook, so no
+	// doubling.)
+	contextViaNativeFile bool
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -126,6 +139,18 @@ func EnforcesReadOnlyPlan(name string) bool {
 	return ok && d.enforcesReadOnlyPlan
 }
 
+// ContextViaNativeFile reports whether ctxloom delivers the named backend's
+// managed context through its NATIVE context file (antigravity AGENTS.md, kiro
+// steering) rather than a runtime SessionStart injection hook. Hook apply uses it
+// to decide whether to opt the context surface into the backend's surface
+// selection: true → the native context file is the ONLY context path and must be
+// written; false (claude/codex) → context rides the injection hook, so writing a
+// native file too would double it. An unregistered name reports false.
+func ContextViaNativeFile(name string) bool {
+	d, ok := descriptors[name]
+	return ok && d.contextViaNativeFile
+}
+
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so every
 // backend embedding it is a provider.
@@ -163,39 +188,52 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "claude-code",
 		newBackend: func() agent.Backend {
-			b := claude.NewClaudeCode(WriteSettings)
+			b := claude.NewClaudeCode()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &claude.ClaudeConfig{})
 		},
-		newWriter:            claude.NewWriter,
+		newWriter: claude.NewWriter,
+		// claude's NewSurfaces adapts the shared inputs to its LOCAL SurfaceInputs
+		// and binds an out-of-cwd placement for the race-safe variants; the
+		// well-known Deliveries() path materialize drives never dereferences it, so
+		// a wellKnownPlacement is fine.
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			return claude.NewSurfaces(claude.SurfaceInputs{
+				Context:          in.Context,
+				MCP:              in.MCP,
+				BundleMCP:        in.BundleMCP,
+				Hooks:            in.Hooks,
+				ManageStatusline: in.ManageStatusline,
+				Skills:           in.Skills,
+			}, wellKnownPlacement{}, fs)
+		},
 		exports:              claudeExports,
-		writeCommands:        claude.WriteCommandFiles,
-		homeCommandsDir:      claude.GlobalCommandsDir, // ~/.claude/commands, deduped against
-		enforcesReadOnlyPlan: true,                     // --permission-mode plan is read-only
+		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
 	})
 
 	registerDescriptor(agentDescriptor{
 		name: "antigravity",
 		newBackend: func() agent.Backend {
-			b := antigravity.NewAntigravity(WriteSettings)
+			b := antigravity.NewAntigravity()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &antigravity.AntigravityConfig{})
 		},
-		newWriter:     antigravity.NewWriter,
-		exports:       antigravityExports,
-		writeCommands: antigravity.WriteCommandFiles,
+		newWriter:            antigravity.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
+		exports:              antigravityExports,
+		contextViaNativeFile: true, // agy reads .agents/AGENTS.md, no injection hook
 	})
 
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
-			b := codex.NewCodex(WriteSettings)
+			b := codex.NewCodex()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
@@ -203,8 +241,8 @@ func init() {
 			return decodeBody(body, &codex.CodexConfig{})
 		},
 		newWriter:            codex.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return codex.NewSurfaces(in, fs) },
 		exports:              codexExports,
-		writeCommands:        codex.WriteCommandFiles,
 		enforcesReadOnlyPlan: true, // --sandbox read-only --ask-for-approval never
 	})
 
@@ -215,16 +253,17 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "kiro",
 		newBackend: func() agent.Backend {
-			b := kiro.NewKiro(WriteSettings)
+			b := kiro.NewKiro()
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &kiro.KiroConfig{})
 		},
-		newWriter:     kiro.NewWriter,
-		exports:       kiroExports,
-		writeCommands: kiro.WriteCommandFiles,
+		newWriter:            kiro.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:              kiroExports,
+		contextViaNativeFile: true, // kiro reads .kiro/steering, no injection hook
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
@@ -239,10 +278,13 @@ func init() {
 	// per-target "acp-<agent>" descriptors exist.
 	registerDescriptor(agentDescriptor{
 		name:       "acp",
-		newBackend: func() agent.Backend { return acp.NewACP(WriteSettings) },
+		newBackend: func() agent.Backend { return acp.NewACP() },
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &acp.ACPConfig{})
 		},
+		// A GENERIC ACP agent has no known native config format to materialize, so
+		// it opts out with an empty surface set (mirrors its nil settings writer).
+		newSurfaces: func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

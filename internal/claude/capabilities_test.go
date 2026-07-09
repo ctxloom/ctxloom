@@ -16,9 +16,10 @@ import (
 )
 
 // newClaudeLifecycle constructs the lifecycle the claude backend wires in
-// NewClaudeCode: the shared BaseLifecycle bound to the claude settings writer.
+// NewClaudeCode: the shared BaseLifecycle for claude, which folds the
+// host-assembled managed config into its merged hooks/MCP for the surface path.
 func newClaudeLifecycle() *agent.BaseLifecycle {
-	return agent.NewBaseLifecycle("claude-code", writeClaudeSettings)
+	return agent.NewBaseLifecycle("claude-code")
 }
 
 // TestClaudeSkills_RegisterFromContent covers the host-resolved export path: the
@@ -158,32 +159,29 @@ func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }
 
-// TestClaudeLifecycle_MergeManaged_Statusline verifies the manage_statusline
-// payload bit drives the writer end-to-end through the real settings.json write:
-// ManageStatusline=true installs the ctxloom statusline, false omits it. This is
-// the statusline's full path now that the host (not the plugin reading config)
-// decides whether to manage it.
+// TestClaudeLifecycle_MergeManaged_Statusline verifies the ManageStatusline bit
+// drives the settings surface end-to-end through the real settings.json write:
+// true installs the ctxloom statusline, false omits it. The settings surface (not
+// the lifecycle) owns this write now that delivery rides the surfaces × cells
+// seam; the surface receives the bit from SurfaceInputs.ManageStatusline.
 func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
-	t.Run("managed installs statusline", func(t *testing.T) {
+	deliverSettings := func(t *testing.T, manage bool) string {
+		t.Helper()
 		fs := afero.NewMemMapFs()
-		lifecycle := agent.NewBaseLifecycle("claude-code", memWriteClaudeSettings(fs))
-		lifecycle.MergeManaged(&agent.ManagedConfig{ManageStatusline: true}, "/proj", "")
-		require.NoError(t, lifecycle.Flush("/proj"))
-
+		surfaces := NewSurfaces(SurfaceInputs{Hooks: &wire.HooksConfig{}, ManageStatusline: manage}, dirPlacement{}, fs)
+		_, err := surfaces.Settings.Deliver("/proj")
+		require.NoError(t, err)
 		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
 		require.NoError(t, err)
-		assert.Contains(t, string(data), "statusLine", "ManageStatusline=true must write a ctxloom statusline")
+		return string(data)
+	}
+
+	t.Run("managed installs statusline", func(t *testing.T) {
+		assert.Contains(t, deliverSettings(t, true), "statusLine", "ManageStatusline=true must write a ctxloom statusline")
 	})
 
 	t.Run("opt-out omits statusline", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lifecycle := agent.NewBaseLifecycle("claude-code", memWriteClaudeSettings(fs))
-		lifecycle.MergeManaged(&agent.ManagedConfig{ManageStatusline: false}, "/proj", "")
-		require.NoError(t, lifecycle.Flush("/proj"))
-
-		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
-		require.NoError(t, err)
-		assert.NotContains(t, string(data), "statusLine", "ManageStatusline=false must not write a statusline")
+		assert.NotContains(t, deliverSettings(t, false), "statusLine", "ManageStatusline=false must not write a statusline")
 	})
 }
 
@@ -208,7 +206,7 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 }
 
 func TestClaudeCode_History(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	history := backend.History()
 	assert.NotNil(t, history)
 }

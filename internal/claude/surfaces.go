@@ -92,6 +92,9 @@ func (s *contextSurface) DeliverIsolated() (agent.Delivered, error) {
 // --append-system-prompt-file), or "" before delivery / for empty context.
 func (s *contextSurface) Path() string { return s.appendD.Path() }
 
+// Kind reports claude's context surface (CLAUDE.md).
+func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
+
 // mcpSurface is claude's MCP surface.
 //
 // Delivery (well-known) writes .mcp.json into the target dir via the reused
@@ -127,6 +130,9 @@ func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 // Path returns the out-of-cwd .mcp.json written by DeliverIsolated (for
 // --mcp-config <file>), or "" before delivery.
 func (s *mcpSurface) Path() string { return s.path }
+
+// Kind reports claude's MCP surface (.mcp.json).
+func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 
 // settingsSurface is claude's settings surface (hooks + statusline; claude keeps
 // them in a single .claude/settings.json).
@@ -165,6 +171,9 @@ func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 // --settings <file>), or "" before delivery.
 func (s *settingsSurface) Path() string { return s.path }
 
+// Kind reports claude's settings surface (.claude/settings.json — hooks + statusline).
+func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
+
 // skillsSurface is claude's skills surface: the slash-command exports under
 // .claude/commands/. It implements Delivery ONLY — claude has no out-of-cwd flag
 // for slash-commands, so it is deliberately NOT a RaceSafeDelivery. It reaches a
@@ -186,6 +195,9 @@ func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
 
 // UnsafeInfo returns claude's skills identity for the Unsafe warning.
 func (s *skillsSurface) UnsafeInfo() string { return "claude/skills" }
+
+// Kind reports claude's skills surface (.claude/commands/).
+func (s *skillsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSkills }
 
 // SurfaceInputs carries the per-run data claude's surfaces write. It mirrors what
 // the launch path already assembles — the context text, the merged MCP config +
@@ -262,6 +274,10 @@ var (
 	_ agent.RaceSafeDelivery = (*settingsSurface)(nil)
 	_ agent.Delivery         = (*skillsSurface)(nil)
 	_ agent.UnsafeSurface    = (*skillsSurface)(nil)
+	_ agent.KindedDelivery   = (*contextSurface)(nil)
+	_ agent.KindedDelivery   = (*mcpSurface)(nil)
+	_ agent.KindedDelivery   = (*settingsSurface)(nil)
+	_ agent.KindedDelivery   = (*skillsSurface)(nil)
 	_ agent.Placement        = dirPlacement{}
 	// Surfaces exposes both the isolated (Deliveries) and shared-cwd
 	// (SharedCwdDeliveries) delivery sets, so it satisfies agent.SurfaceSet.

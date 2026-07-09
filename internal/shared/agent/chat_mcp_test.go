@@ -100,7 +100,7 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 // TestBaseLifecycle_ChatMCPServers: the lifecycle composes from its merged
 // managed payload; one that never saw MergeManaged (skip-setup) yields nil.
 func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
-	l := NewBaseLifecycle("acp", nil)
+	l := NewBaseLifecycle("acp")
 	assert.Nil(t, l.ChatMCPServers(), "no managed payload merged → nothing to inject")
 
 	l.MergeManaged(&ManagedConfig{

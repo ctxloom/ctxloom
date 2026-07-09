@@ -48,7 +48,7 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-code", res.Backend, "backend defaults to claude-code")
-	assert.Contains(t, res.Wrote, "CLAUDE.md")
+	assert.Contains(t, res.Wrote, "context", "the assembled context surface is reported")
 
 	data, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	require.NoError(t, err, "CLAUDE.md must be written to the target dir")

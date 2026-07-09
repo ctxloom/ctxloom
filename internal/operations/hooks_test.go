@@ -137,12 +137,24 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 // WriteSettings tests
 // ==========================================================================
 //
-// WriteSettings is the lower-level function that creates backend-specific
-// settings files. ApplyHooks calls this internally.
+// deliverManagedSettings materializes a backend's settings + MCP surfaces into dir
+// via the surface selection — the test replacement for the removed WriteSettings
+// facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
+func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
+	t.Helper()
+	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
+		Hooks:            hooks,
+		MCP:              mcp,
+		BundleMCP:        bundleMCP,
+		ManageStatusline: manageStatusline,
+	}, fs)
+	_, _, errs := agent.Select(set).WithSettings().WithMCP().DeliverUnder(dir)
+	require.Empty(t, errs)
+}
 
-// TestWriteSettings_ClaudeCode verifies Claude Code settings file creation.
-// Claude Code reads .claude/settings.json for hooks, customization, etc.
-func TestWriteSettings_ClaudeCode(t *testing.T) {
+// TestManagedSettings_ClaudeCode verifies Claude Code settings file creation via
+// the settings + MCP surfaces. Claude Code reads .claude/settings.json for hooks.
+func TestManagedSettings_ClaudeCode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	hooks := &wire.HooksConfig{
@@ -153,9 +165,7 @@ func TestWriteSettings_ClaudeCode(t *testing.T) {
 		},
 	}
 
-	err := backends.WriteSettings("claude-code", hooks, nil, nil, "/project",
-		backends.WithSettingsFS(fs))
-	require.NoError(t, err)
+	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
 
 	// Verify settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -174,8 +184,8 @@ func TestWriteSettings_ClaudeCode(t *testing.T) {
 	assert.Contains(t, string(content), "SessionStart")
 }
 
-// TestWriteSettings_Antigravity tests writing Antigravity hooks with FS injection.
-func TestWriteSettings_Antigravity(t *testing.T) {
+// TestManagedSettings_Antigravity tests writing Antigravity hooks with FS injection.
+func TestManagedSettings_Antigravity(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	hooks := &wire.HooksConfig{
@@ -186,9 +196,7 @@ func TestWriteSettings_Antigravity(t *testing.T) {
 		},
 	}
 
-	err := backends.WriteSettings("antigravity", hooks, nil, nil, "/project",
-		backends.WithSettingsFS(fs))
-	require.NoError(t, err)
+	deliverManagedSettings(t, "antigravity", hooks, nil, nil, true, "/project", fs)
 
 	// Verify hooks file was created
 	exists, err := afero.Exists(fs, "/project/.agents/hooks.json")
@@ -201,18 +209,15 @@ func TestWriteSettings_Antigravity(t *testing.T) {
 	assert.Contains(t, string(content), "hooks")
 }
 
-// TestWriteSettings_UnsupportedBackend tests that unsupported backends are no-ops.
-func TestWriteSettings_UnsupportedBackend(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	err := backends.WriteSettings("unknown-backend", nil, nil, nil, "/project",
-		backends.WithSettingsFS(fs))
-
-	// Should not error, just be a no-op
-	assert.NoError(t, err)
+// TestManagedSettings_UnsupportedBackend tests that unsupported backends deliver
+// nothing (EmptySurfaceSet) rather than erroring.
+func TestManagedSettings_UnsupportedBackend(t *testing.T) {
+	set := backends.BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
+	_, _, errs := agent.Select(set).WithEverything().DeliverUnder("/project")
+	assert.Empty(t, errs, "unsupported backend materializes nothing")
 }
 
-// TestWriteSettings_PreservesExistingSettings verifies that user customizations survive.
+// TestManagedSettings_PreservesExistingSettings verifies that user customizations survive.
 //
 // NON-OBVIOUS: When ctxloom writes hooks to settings.json, it MERGES with existing
 // content rather than overwriting. User's custom settings (like theme preferences)
@@ -220,7 +225,7 @@ func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 //
 // This is important because users may have manually configured settings that
 // they don't want ctxloom to destroy on each hook application.
-func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
+func TestManagedSettings_PreservesExistingSettings(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create existing settings with custom user config
@@ -239,9 +244,7 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 		},
 	}
 
-	err := backends.WriteSettings("claude-code", hooks, nil, nil, "/project",
-		backends.WithSettingsFS(fs))
-	require.NoError(t, err)
+	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
 
 	// Read and verify user settings are preserved
 	content, err := afero.ReadFile(fs, "/project/.claude/settings.json")

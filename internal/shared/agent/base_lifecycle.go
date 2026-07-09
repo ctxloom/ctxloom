@@ -4,38 +4,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// BaseLifecycle provides shared lifecycle handler logic for backends.
-// It manages hooks and MCP configuration that are written to backend settings files.
+// BaseLifecycle provides shared lifecycle handler logic for backends: it folds
+// the host-assembled ManagedConfig (hooks + MCP + bundle servers) into its merged
+// state (MergeManaged), which the surfaces × cells Setup then reads via GetHooks /
+// GetMCP to write each settings/config surface. The statusline policy travels on
+// ManagedConfig itself (read directly by Setup), not through the lifecycle.
 type BaseLifecycle struct {
-	backendName        string
-	hooks              *wire.HooksConfig
-	mcp                *wire.MCPConfig
-	bundleMCP          map[string]wire.MCPServer
-	statusLineDisabled bool
-	writeSettings      WriteSettingsFunc
+	backendName string
+	hooks       *wire.HooksConfig
+	mcp         *wire.MCPConfig
+	bundleMCP   map[string]wire.MCPServer
 }
 
-// settingsOpts returns the write options reflecting accumulated lifecycle state
-// (currently the statusline opt-out).
-func (l *BaseLifecycle) settingsOpts() []SettingsOption {
-	return []SettingsOption{WithStatusLineDisabled(l.statusLineDisabled)}
-}
-
-// NewBaseLifecycle creates a new lifecycle handler for the given backend. The
-// writeSettings dispatch is injected so the base does not import the registry.
-func NewBaseLifecycle(backendName string, writeSettings WriteSettingsFunc) *BaseLifecycle {
+// NewBaseLifecycle creates a new lifecycle handler for the given backend.
+func NewBaseLifecycle(backendName string) *BaseLifecycle {
 	return &BaseLifecycle{
-		backendName:   backendName,
-		writeSettings: writeSettings,
+		backendName: backendName,
 	}
-}
-
-// Flush writes accumulated hooks and MCP config to the settings file.
-func (l *BaseLifecycle) Flush(workDir string) error {
-	if l.hooks == nil && l.mcp == nil && l.bundleMCP == nil {
-		return nil
-	}
-	return l.writeSettings(l.backendName, l.hooks, l.mcp, l.bundleMCP, workDir, l.settingsOpts()...)
 }
 
 // MergeManaged folds the host-assembled ManagedConfig into this lifecycle and
@@ -57,7 +42,6 @@ func (l *BaseLifecycle) MergeManaged(m *ManagedConfig, workDir string, contextHa
 	}
 	l.ensureHooks()
 	l.ensureMCP()
-	l.statusLineDisabled = !m.ManageStatusline
 
 	if m.Hooks != nil {
 		MergeHooksConfig(l.hooks, m.Hooks)
@@ -101,8 +85,8 @@ func (l *BaseLifecycle) ensureMCP() {
 
 // ChatMCPServers composes the managed MCP set this lifecycle holds into
 // chat-injectable server entries (see ComposeChatMCPServers). nil until
-// MergeManaged has folded a managed payload in — a skip-setup run injects
-// nothing, mirroring Flush's no-op.
+// MergeManaged has folded a managed payload in — a skip-setup run merges nothing,
+// so it injects nothing.
 func (l *BaseLifecycle) ChatMCPServers() []ChatMCPServer {
 	return ComposeChatMCPServers(l.backendName, l.mcp, l.bundleMCP, nil)
 }

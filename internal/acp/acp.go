@@ -51,7 +51,6 @@ func (ACPConfig) BackendType() string { return "acp" }
 // itself — it spawns `<agent> acp` and drives it over JSON-RPC.
 type ACP struct {
 	agent.LaunchBackend
-	writeSettings agent.WriteSettingsFunc
 
 	// config knobs applied by Configure.
 	command     string
@@ -74,20 +73,18 @@ type ACP struct {
 // only speaks the protocol, which is exactly why the delegation keeps the
 // target's native config correct (see doc.go).
 func NewChatDriver(cfg ACPConfig) *ACP {
-	b := NewACP(nil)
+	b := NewACP()
 	b.Configure(&cfg)
 	return b
 }
 
-// NewACP constructs a generic ACP client backend. The writeSettings dispatch is
-// injected for parity with the other backends (nil for an embedded chat driver,
-// whose owner runs its own lifecycle — see NewChatDriver).
-func NewACP(writeSettings agent.WriteSettingsFunc) *ACP {
-	b := &ACP{writeSettings: writeSettings}
+// NewACP constructs a generic ACP client backend.
+func NewACP() *ACP {
+	b := &ACP{}
 	b.BaseBackend = agent.NewBaseBackend("acp", "1.0.0")
 	b.BinaryPath = "" // resolved from ACPConfig.Command / BinaryPath at Configure time
 	b.InitLaunch(
-		agent.NewBaseLifecycle("acp", b.writeSettings),
+		agent.NewBaseLifecycle("acp"),
 		&acpSkills{},
 		agent.NewBaseContextProvider(),
 		&acpSessionHistory{},

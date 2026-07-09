@@ -65,9 +65,7 @@ type sessionNewMCP struct {
 // through session/new mcpServers: the structured path reads no engine settings
 // file, so the injection is its counterpart of Setup's settings write.
 func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
-	b := NewACP(func(string, *wire.HooksConfig, *wire.MCPConfig, map[string]wire.MCPServer, string, ...agent.SettingsOption) error {
-		return nil
-	})
+	b := NewACP()
 	fa := executeHarness(t, b)
 
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
@@ -99,7 +97,7 @@ func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
 // (the skip-setup fan-out), Execute injects no servers — mirroring the
 // settings write that never happened.
 func TestExecute_NoSetupInjectsNothing(t *testing.T) {
-	b := NewACP(nil)
+	b := NewACP()
 	fa := executeHarness(t, b)
 	newParams := captureSessionNew(fa)
 

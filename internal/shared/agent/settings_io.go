@@ -32,13 +32,6 @@ type SettingsOptions struct {
 // SettingsOption is a functional option for settings operations.
 type SettingsOption func(*SettingsOptions)
 
-// WriteSettingsFunc writes a backend's hooks + MCP servers to its settings
-// files. It is the settings-writer dispatch, injected into the launch bases
-// (lifecycle/MCP) so they don't import the registry — which would cycle, since
-// the registry imports the agent packages. The wiring layer (backends registry)
-// supplies the concrete implementation.
-type WriteSettingsFunc func(backendName string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...SettingsOption) error
-
 // WithSettingsFS sets the filesystem used for settings operations. If not
 // provided, the real OS filesystem is used.
 func WithSettingsFS(fs afero.Fs) SettingsOption {

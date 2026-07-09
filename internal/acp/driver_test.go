@@ -33,6 +33,6 @@ func TestNewChatDriver_AdapterBinary(t *testing.T) {
 
 // TestACPSupportedModes: the generic backend is oneshot-only (no TUI).
 func TestACPSupportedModes(t *testing.T) {
-	b := NewACP(nil)
+	b := NewACP()
 	assert.Equal(t, []agent.ExecutionMode{agent.ModeOneshot}, b.SupportedModes())
 }

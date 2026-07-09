@@ -13,13 +13,13 @@ func TestKiroConfig_BackendType(t *testing.T) {
 }
 
 func TestNewKiro_Defaults(t *testing.T) {
-	b := NewKiro(nil)
+	b := NewKiro()
 	assert.Equal(t, "kiro", b.Name())
 	assert.Equal(t, "kiro-cli", b.BinaryPath)
 }
 
 func TestKiro_Configure(t *testing.T) {
-	b := NewKiro(nil)
+	b := NewKiro()
 	b.Configure(&KiroConfig{
 		BinaryPath:  "/opt/kiro-cli",
 		Args:        []string{"-v"},
@@ -37,7 +37,7 @@ func TestKiro_Configure(t *testing.T) {
 }
 
 func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {
-	b := NewKiro(nil)
+	b := NewKiro()
 	b.Configure(nil)
 	assert.Equal(t, "kiro-cli", b.BinaryPath)
 	assert.Equal(t, defaultAgentName, b.agentName)
@@ -92,7 +92,7 @@ func TestKiro_BuildArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := NewKiro(nil)
+			b := NewKiro()
 			if tt.configure != nil {
 				b.Configure(tt.configure)
 			}

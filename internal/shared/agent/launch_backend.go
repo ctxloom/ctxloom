@@ -15,11 +15,11 @@ import (
 // session-scoped delivery scratch under the harp's private ephemeral dir.
 const SessionHarpEnv = "CTXLOOM_SESSION_HARP"
 
-// ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks
-// and flushes them to the agent's settings file. BaseLifecycle implements it.
+// ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks +
+// MCP; the surfaces × cells Setup then reads the merged state (GetHooks/GetMCP)
+// to write each settings/config surface. BaseLifecycle implements it.
 type ManagedLifecycle interface {
 	MergeManaged(m *ManagedConfig, workDir, contextHash string)
-	Flush(workDir string) error
 }
 
 // HashedContext is a ContextProvider that exposes the content hash and on-disk
@@ -53,11 +53,11 @@ type LaunchBackend struct {
 	history   SessionHistory
 
 	// delivery routes launch-time surface delivery through the surfaces × typed-
-	// cells seam (claude/codex/antigravity/kiro). When nil (acp) Setup takes the
-	// legacy lifecycle path (Provide + MergeManaged + skills + Flush). When set,
-	// Setup builds the backend's SurfaceSet from the merged state and delivers it
-	// through the cell named by req.CellKind, recording the returned handles in
-	// delivered for teardown.
+	// cells seam. Every launch backend supplies one at InitLaunch (acp an empty-set
+	// one — it materializes no files); Setup builds the backend's SurfaceSet from
+	// the merged state and delivers it through the cell named by req.CellKind,
+	// recording the returned handles in delivered for teardown. A nil delivery is a
+	// misconfigured backend, so Setup no-ops rather than panics.
 	delivery *CellDelivery
 	// extraEnv, when set, contributes per-backend child-env entries on top of the
 	// shared ExecuteEnv (the request env + the SCM context-file path) — the seam a
@@ -181,21 +181,21 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 }
 
 // setupViaCells is the generic surfaces × typed-cells Setup shared by every
-// launch backend that routes delivery through the seam. It reproduces the two
-// legacy paths byte-for-byte on the engine-consumed files:
+// launch backend that routes delivery through the seam. It prepares the
+// engine-consumed files in three steps:
 //
 //  1. RawContext pre-step — the file/hook engines (codex/antigravity/kiro)
 //     materialize the content-addressed cache file (agent.WriteContextFile via
-//     Provide) and the CTXLOOM_CONTEXT_FILE env path, exactly as the legacy
-//     lifecycle path did. codex ALSO keys the SessionStart context-injection hook
-//     to that hash (ContextHook) — and because the cache file is on disk BEFORE
-//     MergeManaged runs, NewContextInjectionHooks reads it and makes the same
-//     chunk decision the legacy Flush did. antigravity/kiro divert context to
-//     AGENTS.md/steering (their context surface), so their hook hash stays "".
-//     claude leaves RawContext false: its context rides an out-of-cwd flag or a
-//     well-known CLAUDE.md, never the cache file.
+//     Provide) and the CTXLOOM_CONTEXT_FILE env path. codex ALSO keys the
+//     SessionStart context-injection hook to that hash (ContextHook) — and because
+//     the cache file is on disk BEFORE MergeManaged runs, NewContextInjectionHooks
+//     reads it and makes its chunk decision against the actual file.
+//     antigravity/kiro divert context to AGENTS.md/steering (their context
+//     surface), so their hook hash stays "". claude leaves RawContext false: its
+//     context rides an out-of-cwd flag or a well-known CLAUDE.md, never the cache
+//     file.
 //  2. MergeManaged folds the host-assembled config/bundle payload into the
-//     lifecycle (the merge engine, unchanged) keyed by contextHash.
+//     lifecycle (the merge engine) keyed by contextHash.
 //  3. The backend's Build closure turns the merged state into its SurfaceSet, and
 //     the cell named by req.CellKind delivers each surface — a SharedCell over the
 //     race-safe set (out-of-cwd flag files / warned Unsafe), an isolated cell over
@@ -216,20 +216,19 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		}
 	}
 
-	// Nothing managed → no surfaces to deliver (mirrors the legacy Flush no-op:
-	// with no hooks/MCP/skills to write, WriteSettings was skipped). The RawContext
-	// cache file, when written above, stands alone — as it did in the legacy path.
+	// Nothing managed → no surfaces to deliver: with no hooks/MCP/skills to write,
+	// there are no settings/config surfaces. The RawContext cache file, when written
+	// above, stands alone.
 	if req.Managed == nil {
 		return nil
 	}
 
-	// 2. Fold the host-assembled hooks + MCP into the lifecycle (the merge engine;
-	// output stays byte-identical to Flush). contextHash appends the injection hook
-	// only for the hook engine (codex).
+	// 2. Fold the host-assembled hooks + MCP into the lifecycle (the merge engine).
+	// contextHash appends the injection hook only for the hook engine (codex).
 	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
 
 	// 3. Read the merged hooks + MCP so the settings/config surfaces write exactly
-	// what Flush would have.
+	// the merged state.
 	hooks, mcp, _ := b.mergedState()
 
 	inputs := SurfaceInputs{
@@ -268,8 +267,15 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 // hook to the shared merged hooks, which the not-yet-delivered settings surface
 // then writes — rather than launching a context-less session.
 func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
+	// Launch delivers the WHOLE surface set, so it drives the builder over the same
+	// full selection materialize/apply use — the builder is the single selection
+	// input everywhere. Launch KEEPS its own cell machinery (a SharedCell over the
+	// race-safe set, an isolated cell over the well-known set): only the surface
+	// LIST is derived from the selection, not the cell/placement choice.
+	sel := Select(set).WithEverything()
+
 	if req.CellKind == CellKindShared {
-		for i, s := range set.SharedCwdDeliveries(b.WorkDir()) {
+		for i, s := range sel.SelectedRaceSafe(b.WorkDir()) {
 			d, err := (SharedCell{}).Deliver(s)
 			if err != nil {
 				if i == 0 && !b.delivery.RawContext && b.recoverContextViaHook(req) {
@@ -277,7 +283,9 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 				}
 				return fmt.Errorf("failed to deliver surface into shared cwd: %w", err)
 			}
-			b.delivered = append(b.delivered, d)
+			if d != nil { // a no-op delivery (wrote nothing) holds no cleanup handle
+				b.delivered = append(b.delivered, d)
+			}
 		}
 		return nil
 	}
@@ -290,12 +298,14 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	} else {
 		cell = NewDirectoryIsolatedCell(b.WorkDir())
 	}
-	for _, s := range set.Deliveries() {
+	for _, s := range sel.Selected() {
 		d, err := cell.Deliver(s)
 		if err != nil {
 			return fmt.Errorf("failed to deliver surface: %w", err)
 		}
-		b.delivered = append(b.delivered, d)
+		if d != nil { // a no-op delivery (wrote nothing) holds no cleanup handle
+			b.delivered = append(b.delivered, d)
+		}
 	}
 	return nil
 }
@@ -329,7 +339,7 @@ func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest) bool {
 }
 
 // mergedState reads the lifecycle's merged hooks + MCP so the delivery seam can
-// materialize the settings/MCP surfaces itself (in place of Flush). It probes by
+// materialize the settings/MCP surfaces itself. It probes by
 // capability — mirroring ManagedChatMCPServers — so a bare ManagedLifecycle fake
 // that lacks the accessors stays valid; ok is false then. BaseLifecycle (every
 // real launch backend's lifecycle) satisfies both, so ok is true in practice.

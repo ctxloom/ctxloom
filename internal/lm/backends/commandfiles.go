@@ -7,30 +7,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// WriteCommandFilesFor writes slash-command files for the named backend,
-// dispatching to the per-agent writer via the descriptor table (registry.go).
-// This is the cross-backend dispatch (like WriteSettings): it lives in the
-// wiring layer because it maps ctxloom's bundle content to the agent-agnostic
-// agent.CommandExport for the target backend — resolving that backend's
-// enablement + metadata — so the per-agent writers (claude.WriteCommandFiles,
-// antigravity.WriteCommandFiles) never import bundles. Unsupported backends
-// silently succeed.
-func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...agent.CommandFileOption) error {
-	d, ok := descriptors[backendName]
-	if !ok || d.exports == nil || d.writeCommands == nil {
-		return nil
-	}
-	// Supply the backend's user-global command dir so the writer can dedup a
-	// project copy that is byte-identical to a global one (claude loads both
-	// scopes). Best-effort: a home-dir resolution error just disables the dedup.
-	if d.homeCommandsDir != nil {
-		if home, err := d.homeCommandsDir(); err == nil && home != "" {
-			opts = append(opts, agent.WithHomeCommandsDir(home))
-		}
-	}
-	return d.writeCommands(workDir, d.exports(prompts), opts...)
-}
-
 // buildExports is the shared export loop: names + content are engine-agnostic
 // plumbing, and pick projects the prompt's per-engine LLM export config into
 // the engine-specific fields (enablement, description, hints). Each engine's

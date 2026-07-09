@@ -29,7 +29,6 @@ func (ClaudeConfig) BackendType() string { return "claude-code" }
 // agent.LaunchBackend; ClaudeCode adds only the Claude-specific Configure/Execute.
 type ClaudeCode struct {
 	agent.LaunchBackend
-	writeSettings agent.WriteSettingsFunc
 	// surfaces is the SurfaceSet Setup built for the current run, stashed by the
 	// Build closure so buildArgs can read each out-of-cwd file's Path() (the
 	// --append-system-prompt-file / --mcp-config / --settings scratch a SharedCell
@@ -37,11 +36,9 @@ type ClaudeCode struct {
 	surfaces Surfaces
 }
 
-// NewClaudeCode creates a new Claude Code backend with default settings. The
-// writeSettings dispatch is injected (the registry supplies it) so the launch
-// bases can write settings without importing the registry.
-func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
-	b := &ClaudeCode{writeSettings: writeSettings}
+// NewClaudeCode creates a new Claude Code backend with default settings.
+func NewClaudeCode() *ClaudeCode {
+	b := &ClaudeCode{}
 	b.BaseBackend = agent.NewBaseBackend("claude-code", "1.0.0")
 	b.BinaryPath = "claude"
 	// claude routes launch-time surface delivery through the surfaces × cells
@@ -50,7 +47,7 @@ func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
 	// they land as well-known files in the private working dir. The Build closure
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
-		agent.NewBaseLifecycle("claude-code", b.writeSettings),
+		agent.NewBaseLifecycle("claude-code"),
 		&ClaudeSkills{},
 		agent.NewBaseContextProvider(),
 		NewClaudeSessionHistory(b),

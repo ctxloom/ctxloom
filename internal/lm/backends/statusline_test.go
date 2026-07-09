@@ -27,38 +27,35 @@ func statusLineCommand(t *testing.T, fs afero.Fs, dir string) string {
 	return cmd
 }
 
-func TestWriteSettings_StatusLineEnabled_InstallsHud(t *testing.T) {
+func TestManagedSettings_StatusLineEnabled_InstallsHud(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, "/p", WithSettingsFS(fs)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, "/p", fs)
 	assert.Equal(t, "ctxloom hook hud", statusLineCommand(t, fs, "/p"))
 }
 
-func TestWriteSettings_StatusLineDisabled_DoesNotInstall(t *testing.T) {
+func TestManagedSettings_StatusLineDisabled_DoesNotInstall(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, "/p",
-		WithSettingsFS(fs), WithStatusLineDisabled(true)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
 	assert.Empty(t, statusLineCommand(t, fs, "/p"), "no HUD statusline when disabled")
 }
 
-func TestWriteSettings_StatusLineDisabled_ClearsPreviouslyManaged(t *testing.T) {
+func TestManagedSettings_StatusLineDisabled_ClearsPreviouslyManaged(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// First install with the HUD, then re-apply with the opt-out.
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, "/p", WithSettingsFS(fs)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, "/p", fs)
 	require.Equal(t, "ctxloom hook hud", statusLineCommand(t, fs, "/p"))
 
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, "/p",
-		WithSettingsFS(fs), WithStatusLineDisabled(true)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
 	assert.Empty(t, statusLineCommand(t, fs, "/p"), "a ctxloom-managed statusline is cleared on opt-out")
 }
 
-func TestWriteSettings_StatusLineDisabled_PreservesUserStatusline(t *testing.T) {
+func TestManagedSettings_StatusLineDisabled_PreservesUserStatusline(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/p/.claude", 0755))
 	user := `{"statusLine":{"type":"command","command":"my-own-statusline"}}`
 	require.NoError(t, afero.WriteFile(fs, "/p/.claude/settings.json", []byte(user), 0644))
 
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, "/p",
-		WithSettingsFS(fs), WithStatusLineDisabled(true)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, false, "/p", fs)
 
 	assert.Equal(t, "my-own-statusline", statusLineCommand(t, fs, "/p"),
 		"a user's own statusline is never touched")

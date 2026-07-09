@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -54,7 +53,7 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	// member runs in a DirectoryIsolated cell (as the host maps the worktree policy
 	// via operations.CellKindForPolicy), so a real claude backend writes its
 	// well-known files — .mcp.json / .claude/ / CLAUDE.md — into the private WorkDir.
-	backend := claude.NewClaudeCode(backends.WriteSettings)
+	backend := claude.NewClaudeCode()
 	require.NoError(t, backend.Setup(ctx, &agent.SetupRequest{
 		WorkDir:   ws.Dir(),
 		Fragments: []*agent.Fragment{{Content: "PER-MEMBER CONTEXT BODY"}},

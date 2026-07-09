@@ -28,7 +28,7 @@ func (p dirPlace) Dir() string { return p.dir }
 func setupClaudeInTempHome(t *testing.T, work, harp string, managed *agent.ManagedConfig) (*ClaudeCode, string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
 		Env:       map[string]string{sessionHarpEnv: harp},
@@ -47,7 +47,7 @@ func setupClaudeInTempHome(t *testing.T, work, harp string, managed *agent.Manag
 func setupClaudeIsolated(t *testing.T, work string, managed *agent.ManagedConfig) *ClaudeCode {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	backend := NewClaudeCode(writeClaudeSettings)
+	backend := NewClaudeCode()
 	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
 		Fragments: []*agent.Fragment{{Content: "project rules"}},

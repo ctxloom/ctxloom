@@ -36,7 +36,7 @@ func startChatWithClock(t *testing.T, req agent.ChatRequest, now func() time.Tim
 	c2aR, c2aW := io.Pipe() // client → agent
 	a2cR, a2cW := io.Pipe() // agent → client
 
-	b := NewACP(nil)
+	b := NewACP()
 	b.now = now
 	b.openTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*transport, error) {
 		return &transport{
@@ -575,7 +575,7 @@ func TestChat_MCPServersAtSessionNew(t *testing.T) {
 // TestChat_TransportError surfaces a spawn failure as a Chat error (and still
 // closes out per the contract).
 func TestChat_TransportError(t *testing.T) {
-	b := NewACP(nil)
+	b := NewACP()
 	b.openTransport = func(context.Context, []string, map[string]string, string) (*transport, error) {
 		return nil, io.ErrUnexpectedEOF
 	}

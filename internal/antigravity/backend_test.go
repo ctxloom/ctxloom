@@ -13,13 +13,13 @@ func TestAntigravityConfig_BackendType(t *testing.T) {
 }
 
 func TestNewAntigravity_Defaults(t *testing.T) {
-	b := NewAntigravity(nil)
+	b := NewAntigravity()
 	assert.Equal(t, "antigravity", b.Name())
 	assert.Equal(t, "agy", b.BinaryPath)
 }
 
 func TestAntigravity_Configure(t *testing.T) {
-	b := NewAntigravity(nil)
+	b := NewAntigravity()
 	b.Configure(&AntigravityConfig{
 		BinaryPath: "/opt/agy",
 		Args:       []string{"--sandbox"},
@@ -31,7 +31,7 @@ func TestAntigravity_Configure(t *testing.T) {
 }
 
 func TestAntigravity_ConfigureIgnoresForeignConfig(t *testing.T) {
-	b := NewAntigravity(nil)
+	b := NewAntigravity()
 	b.Configure(nil)
 	assert.Equal(t, "agy", b.BinaryPath)
 }
@@ -75,7 +75,7 @@ func TestAntigravity_BuildArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := NewAntigravity(nil)
+			b := NewAntigravity()
 			assert.Equal(t, tt.want, b.buildArgs(tt.req, tt.model))
 		})
 	}

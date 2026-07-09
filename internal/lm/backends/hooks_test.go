@@ -21,6 +21,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// deliverManagedSettings materializes a backend's settings + MCP surfaces into dir
+// via the surface selection — the test replacement for the removed WriteSettings
+// facade. manageStatusline mirrors the old WithStatusLineDisabled inverse (the old
+// facade default, with no opt, MANAGED the statusline, so pass true there).
+func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
+	t.Helper()
+	set := BuildSurfaces(backend, agent.SurfaceInputs{
+		Hooks:            hooks,
+		MCP:              mcp,
+		BundleMCP:        bundleMCP,
+		ManageStatusline: manageStatusline,
+	}, fs)
+	_, _, errs := agent.Select(set).WithSettings().WithMCP().DeliverUnder(dir)
+	require.Empty(t, errs)
+}
+
 // =============================================================================
 // Hash Computation Tests
 // =============================================================================
@@ -132,13 +148,17 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 // =============================================================================
 // Top-level WriteSettings dispatches to appropriate backend writer.
 
-func TestWriteSettings_UnsupportedBackend(t *testing.T) {
-	// Unsupported backends should silently succeed (no-op)
-	err := WriteSettings("unknown-backend", nil, nil, nil, "/project")
-	assert.NoError(t, err)
+func TestBuildSurfaces_UnsupportedBackend(t *testing.T) {
+	// Unsupported backends materialize no surfaces (EmptySurfaceSet), so a full
+	// selection delivers nothing and reports no errors — the opt-out no-op the old
+	// WriteSettings dispatch gave.
+	set := BuildSurfaces("unknown-backend", agent.SurfaceInputs{}, afero.NewMemMapFs())
+	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder("/project")
+	assert.Empty(t, errs)
+	assert.Empty(t, kinds)
 }
 
-func TestWriteSettings_WithFS(t *testing.T) {
+func TestDeliverManagedSettings_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	hooks := &wire.HooksConfig{
@@ -147,8 +167,7 @@ func TestWriteSettings_WithFS(t *testing.T) {
 		},
 	}
 
-	err := WriteSettings("claude-code", hooks, nil, nil, "/project", WithSettingsFS(fs))
-	require.NoError(t, err)
+	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, "/project", fs)
 
 	// Verify settings were written
 	exists, _ := afero.Exists(fs, "/project/.claude/settings.json")

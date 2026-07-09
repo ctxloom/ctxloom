@@ -30,7 +30,7 @@ func contextCacheHash(t *testing.T, work string) string {
 // CODEX_HOME env pointing there.
 func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 	work := t.TempDir()
-	b := NewCodex(nil)
+	b := NewCodex()
 
 	managed := &agent.ManagedConfig{
 		Skills: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
@@ -72,7 +72,7 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 // cell-scoped prompts in the live cwd), and is left unset for a minimal/distill
 // (SkipSetup) run so codex keeps its global ~/.codex home.
 func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
-	b := NewCodex(nil)
+	b := NewCodex()
 	work := "/proj"
 	want := filepath.Join(work, ".codex")
 
@@ -86,13 +86,13 @@ func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
 	assert.False(t, ok, "a SkipSetup run keeps codex's global home (no CODEX_HOME override)")
 }
 
-// TestCodex_Setup_ConfigByteIdenticalToLegacyFlush pins byte-identity: the
-// config.toml the cell path's config surface writes is exactly what the legacy
-// Flush (BaseLifecycle + CodexHookWriter.WriteSettings) would have written for the
-// same merged state and workDir — same [hooks] (incl. the inject-context hook
-// keyed to the same hash) and [mcp_servers]. Both run in the SAME workDir so the
-// inject-context hook's --project path matches.
-func TestCodex_Setup_ConfigByteIdenticalToLegacyFlush(t *testing.T) {
+// TestCodex_Setup_ConfigByteIdenticalToDirectWrite pins byte-identity: the
+// config.toml the cell path's config surface writes is exactly what a direct
+// MergeManaged + CodexHookWriter.WriteSettings on the merged state produces for
+// the same workDir — same [hooks] (incl. the inject-context hook keyed to the
+// same hash) and [mcp_servers]. Both run in the SAME workDir so the inject-context
+// hook's --project path matches.
+func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	managed := &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
@@ -104,7 +104,7 @@ func TestCodex_Setup_ConfigByteIdenticalToLegacyFlush(t *testing.T) {
 	configPath := filepath.Join(work, ".codex", "config.toml")
 
 	// New path: the cell delivery writes config.toml via the config surface.
-	b := NewCodex(nil)
+	b := NewCodex()
 	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
 		WorkDir:   work,
 		Fragments: fragments,
@@ -115,18 +115,16 @@ func TestCodex_Setup_ConfigByteIdenticalToLegacyFlush(t *testing.T) {
 	require.NoError(t, err)
 	hash := contextCacheHash(t, work)
 
-	// Legacy path in the SAME dir: delete the config surface's file, then reproduce
-	// it via a fresh BaseLifecycle + CodexHookWriter.WriteSettings (Flush) keyed to
-	// the same hash.
+	// Direct path in the SAME dir: delete the config surface's file, then reproduce
+	// it via a fresh BaseLifecycle merge + CodexHookWriter.WriteSettings on the
+	// merged hooks/MCP, keyed to the same hash — the write the config surface wraps.
 	require.NoError(t, os.Remove(configPath))
-	life := agent.NewBaseLifecycle("codex", func(_ string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundle map[string]wire.MCPServer, dir string, _ ...agent.SettingsOption) error {
-		return (&CodexHookWriter{}).WriteSettings(hooks, mcp, bundle, dir)
-	})
+	life := agent.NewBaseLifecycle("codex")
 	life.MergeManaged(managed, work, hash)
-	require.NoError(t, life.Flush(work))
-	legacyCfg, err := os.ReadFile(configPath)
+	require.NoError(t, (&CodexHookWriter{}).WriteSettings(life.GetHooks(), life.GetMCP(), nil, work))
+	directCfg, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 
-	assert.Equal(t, string(legacyCfg), string(newCfg),
-		"the cell path's config.toml is byte-identical to the legacy Flush output")
+	assert.Equal(t, string(directCfg), string(newCfg),
+		"the cell path's config.toml is byte-identical to a direct merged-state write")
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // DefaultMaterializeBackend is the backend whose native on-disk agent surface a
@@ -45,9 +46,12 @@ type MaterializeProfileResult struct {
 //   - hooks   → the backend settings hooks (config + profile + bundle hooks, gated)
 //   - skills  → the backend slash-command dir
 //
-// Fault tolerant (CLAUDE.md philosophy): a per-surface write failure warns and
-// continues rather than aborting the whole export; only bad arguments and a
-// failed context assembly (the core payload) are hard errors.
+// Fail-loudly (CLAUDE.md philosophy): a surface-write failure is a fatal-class
+// finding recorded through strictness — the `profile materialize` choke owner
+// aborts on it (exit 3) so no half-materialized target ships silently. --degraded
+// downgrades every finding to a loud warning and keeps the partial target
+// ("partial success is success"). Bad arguments and a failed context assembly
+// (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -79,50 +83,59 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	execGate := NewExecutableTrustGate(cfg)
 	cfg.SetExecutableTrustGate(execGate.Gate())
 
-	// context → CLAUDE.md. An explicit profile set makes resolution failures hard
-	// errors (the caller named these profiles), so this is the one fatal surface.
+	// context is the one HARD-error surface: an explicit profile set makes
+	// resolution failures fatal (the caller named these profiles), and the
+	// assembled context is the core payload every native surface is built from.
 	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: req.Profiles})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
 	}
-	// The backend's ContextWriter owns the native context surface (claude-code →
-	// CLAUDE.md, antigravity → .agents/AGENTS.md, kiro → steering); the
-	// orchestrator holds no per-backend file knowledge. A backend without a
-	// native context surface (codex/acp) writes nothing (empty report). This is
-	// the one fatal surface: the caller named these profiles, so a failed write
-	// aborts the export.
-	report, err := backends.WriteContext(backend, req.Target, asm.Context, backends.WithSettingsFS(fs))
-	if err != nil {
-		return nil, err
-	}
-	res.Wrote = append(res.Wrote, report.Wrote...)
 
-	// mcp + hooks → the backend's settings + MCP config. contextHash "" omits the
-	// SessionStart context-injection hook — the context is STATIC in CLAUDE.md, so
-	// re-injecting it at launch would double it. WriteSettings reconciles (removes
-	// prior ctxloom-managed entries, preserves foreign ones) → overwrite semantics.
+	// Build the backend's OWN SurfaceSet from the assembled pieces and deliver
+	// every native surface into the target as an isolated cell — the single,
+	// per-provider-correct delivery path (claude → CLAUDE.md + .mcp.json +
+	// .claude/settings.json + .claude/commands; antigravity → .agents/…; kiro →
+	// .kiro/…). codex opts out of a NATIVE context file, writing only its
+	// config/cache surfaces. The orchestrator holds no per-backend file knowledge:
+	// correctness comes from routing through backends.BuildSurfaces.
 	//
-	// AssembleManagedMCP (not &cfg.MCP) so a profile's OWN inline mcp: block reaches
-	// the exported .mcp.json — it merges config-level MCP then the selected
-	// profiles' inline/directory servers (directory ones pass the exec gate set
-	// above), mirroring what a live `run` assembles. bundleMCP is passed separately.
+	// contextHash "" omits the SessionStart context-injection hook — the context is
+	// STATIC in the native file, so re-injecting it at launch would double it.
+	// AssembleManagedMCP (not &cfg.MCP) folds a profile's OWN inline mcp: block into
+	// the exported config, mirroring what a live run assembles; bundleMCP rides
+	// alongside. Each write reconciles (managed entries overwritten, foreign ones
+	// preserved).
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles)
 	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
-	if err := backends.WriteSettings(backend, hooks, mcp, bundleMCP, req.Target, backends.WithSettingsFS(fs)); err != nil {
-		res.Warnings = append(res.Warnings, fmt.Sprintf("settings/mcp: %v", err))
-	} else {
-		res.Wrote = append(res.Wrote, "settings", "mcp")
-	}
+	skills := backends.CommandExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
 
-	// skills → the backend's slash-command surface (manifest-scoped overwrite).
-	prompts := backends.LoadSkillExports(cfg, req.Profiles)
-	if len(prompts) > 0 {
-		if err := backends.WriteCommandFilesFor(backend, req.Target, prompts, agent.WithCommandFS(fs)); err != nil {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("skills: %v", err))
-		} else {
-			res.Wrote = append(res.Wrote, "skills")
-		}
+	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
+		Context:          asm.Context,
+		MCP:              mcp,
+		BundleMCP:        bundleMCP,
+		Hooks:            hooks,
+		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
+		Skills:           skills,
+	}, fs)
+
+	// Materialize delivers EVERY native surface (the full opt-in selection). Fail
+	// loud, fail early (CLAUDE.md): each surface is attempted and each write failure
+	// is a fatal-class finding the `profile materialize` choke owner aborts on;
+	// --degraded downgrades every finding to a loud warning (strictness.record
+	// no-ops) and keeps the partial target. Collecting ALL failures (not stopping at
+	// the first) is what lets degraded mode produce maximal output. res.Wrote lists
+	// the kinds that ACTUALLY delivered — codex's context surface is a no-op here (no
+	// fragments → no native context file), so codex reports settings + skills only.
+	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(req.Target)
+	for _, e := range errs {
+		strictness.Fail(strictness.ClassApply,
+			"fix the write failure, then re-run (ctxloom profile materialize)",
+			"materialize %s surface: %v", backend, e)
+		res.Warnings = append(res.Warnings, e.Error())
+	}
+	for _, k := range kinds {
+		res.Wrote = append(res.Wrote, k.String())
 	}
 
 	// Surface (content-free) any executable the trust gate withheld.

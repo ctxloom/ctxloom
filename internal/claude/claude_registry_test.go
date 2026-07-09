@@ -15,7 +15,7 @@ import (
 // =============================================================================
 
 func TestClaudeSessionHistory_TranscriptPathFromHook_BuildsExpectedPath(t *testing.T) {
-	h := NewClaudeSessionHistory(NewClaudeCode(writeClaudeSettings),
+	h := NewClaudeSessionHistory(NewClaudeCode(),
 		WithClaudeSessionHomeDir("/synthetic/home"),
 	)
 
@@ -28,7 +28,7 @@ func TestClaudeSessionHistory_TranscriptPathFromHook_BuildsExpectedPath(t *testi
 }
 
 func TestClaudeSessionHistory_TranscriptPathFromHook_EmptySessionIDReturnsEmpty(t *testing.T) {
-	h := NewClaudeSessionHistory(NewClaudeCode(writeClaudeSettings),
+	h := NewClaudeSessionHistory(NewClaudeCode(),
 		WithClaudeSessionHomeDir("/synthetic/home"),
 	)
 	assert.Empty(t, h.TranscriptPathFromHook("/p", "", "x"),

@@ -41,6 +41,35 @@ func TestGetBuiltinCommand(t *testing.T) {
 	}
 }
 
+func TestGetBuiltinCommand_Recover(t *testing.T) {
+	// /recover ships as a built-in so every ctxloom project gets it, not just
+	// the ctxloom repo's own .claude/commands. It wraps the recover_session
+	// MCP tool.
+	content, err := GetBuiltinCommand("recover")
+	if err != nil {
+		t.Fatalf("GetBuiltinCommand(recover): %v", err)
+	}
+	if !strings.Contains(string(content), "description:") {
+		t.Error("Expected description in frontmatter")
+	}
+	if !strings.Contains(string(content), "recover_session") {
+		t.Error("recover command should drive the recover_session MCP tool")
+	}
+}
+
+func TestListBuiltinCommands_IncludesRecover(t *testing.T) {
+	names, err := ListBuiltinCommands()
+	if err != nil {
+		t.Fatalf("ListBuiltinCommands: %v", err)
+	}
+	for _, name := range names {
+		if name == "recover" {
+			return
+		}
+	}
+	t.Errorf("expected 'recover' built-in command, got: %v", names)
+}
+
 func TestGetBuiltinCommand_Unknown(t *testing.T) {
 	_, err := GetBuiltinCommand("nope-no-such-command")
 	if err == nil {
@@ -164,6 +193,8 @@ func TestListBuiltinBundles(t *testing.T) {
 func TestGetPromptText(t *testing.T) {
 	for _, name := range []string{
 		"profile-discovery",
+		"agent-setup",
+		"tooling",
 		"distill-default",
 		"mcp-server-instructions",
 		"session-distill",
@@ -184,5 +215,61 @@ func TestGetPromptText(t *testing.T) {
 
 	if _, err := GetPromptText("does-not-exist"); err == nil {
 		t.Error("GetPromptText(missing) returned nil error")
+	}
+}
+
+// TestSetupPrompts_ContentContract pins the tokens the collapsed init
+// interview depends on: the agent-setup prompt must lead with the standard
+// trio and teach the write surface (`agent set`, `--isolation`), and the
+// profile-discovery prompt must bridge into agent setup rather than ending
+// the conversation after profiles. A drift here silently breaks the merged
+// discovery session (internal/cli.discoverySessionPrompt) without any
+// compile-time signal.
+func TestSetupPrompts_ContentContract(t *testing.T) {
+	setup, err := GetPromptText("agent-setup")
+	if err != nil {
+		t.Fatalf("GetPromptText(agent-setup): %v", err)
+	}
+	for _, want := range []string{
+		"coordinator",
+		"developer",
+		"finder",
+		"--runtime container",
+		"--workspace worktree",
+		"ctxloom container check",
+		"ctxloom agent set",
+		"ctxloom agent list",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("agent-setup prompt lost required token %q", want)
+		}
+	}
+
+	tooling, err := GetPromptText("tooling")
+	if err != nil {
+		t.Fatalf("GetPromptText(tooling): %v", err)
+	}
+	for _, want := range []string{
+		"ctxloom container scaffold",
+		"ctxloom container build",
+		"explicit approval",
+		"Never apply tooling automatically",
+	} {
+		if !strings.Contains(tooling, want) {
+			t.Errorf("tooling prompt lost required token %q", want)
+		}
+	}
+
+	discovery, err := GetPromptText("profile-discovery")
+	if err != nil {
+		t.Fatalf("GetPromptText(profile-discovery): %v", err)
+	}
+	for _, want := range []string{
+		"agent setup",
+		"one continuous setup interview",
+	} {
+		if !strings.Contains(discovery, want) {
+			t.Errorf("profile-discovery prompt lost the agent-setup bridge token %q", want)
+		}
 	}
 }

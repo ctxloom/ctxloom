@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,12 +32,12 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, dir+"/.mcp.json", []byte(userMCP), 0644))
 
 	// Wire ctxloom hooks, statusline (auto), and the auto-registered MCP server.
-	require.NoError(t, WriteSettings("claude-code", ctxloomManagedHooks(), nil, nil, dir, WithSettingsFS(fs)))
+	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), nil, nil, true, dir, fs)
 
 	// Sanity: ctxloom is wired before removal.
 	before, err := BackendStatus("claude-code", dir, WithSettingsFS(fs))
 	require.NoError(t, err)
-	require.True(t, before.Wired(), "ctxloom should be wired after WriteSettings")
+	require.True(t, before.Wired(), "ctxloom should be wired after delivery")
 	require.True(t, before.StatusLine)
 	require.True(t, before.MCPPresent)
 
@@ -79,7 +79,7 @@ func TestAntigravityRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	userMCP := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
 	require.NoError(t, afero.WriteFile(fs, dir+"/.agents/mcp_config.json", []byte(userMCP), 0644))
 
-	require.NoError(t, WriteSettings("antigravity", ctxloomManagedHooks(), nil, nil, dir, WithSettingsFS(fs)))
+	deliverManagedSettings(t, "antigravity", ctxloomManagedHooks(), nil, nil, true, dir, fs)
 
 	before, err := BackendStatus("antigravity", dir, WithSettingsFS(fs))
 	require.NoError(t, err)

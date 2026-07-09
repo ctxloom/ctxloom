@@ -9,6 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
@@ -236,6 +239,129 @@ var _ VCS = (*fsVCS)(nil)
 func FSVCSFactory(fs afero.Fs) VCSFactory {
 	return func(loc string) (VCS, error) {
 		return &fsVCS{fs: fs, root: loc}, nil
+	}
+}
+
+// localGitVCS is a working-copy VCS over a directory that lives INSIDE a git
+// project (the committed .ctxloom/local/ tree). It reads the directory's CURRENT
+// state from the filesystem exactly like fsVCS (embedded), but because the
+// enclosing project is itself under git it ALSO satisfies Versioned: a pinned
+// read returns the file's bytes as of a revision in the PROJECT'S OWN history —
+// the local equivalent of `git show <rev>:<path>`. That is precisely what
+// "version" means for project-authored ctxloom:local content: the surrounding
+// project's VCS state, which you are already inside.
+//
+// The historical read is inherently OS-backed (go-git opens the on-disk .git),
+// so it does NOT honor the embedded fsVCS's afero.Fs; that fs backs only the
+// current-state reads (ReadFile/ListItems), matching fsVCS.
+type localGitVCS struct {
+	fsVCS                    // current-state ReadFile + ListItems (filesystem)
+	repo     *git.Repository // the enclosing project repository
+	repoRoot string          // its worktree root, for repo-relative path lookups
+}
+
+// repoRelPath rebases a local-content-relative path (e.g. "bundles/x.yaml",
+// relative to the local-content root) onto the project repo root and returns it
+// as a forward-slash, repo-relative path — the shape a go-git tree lookup wants.
+func (v *localGitVCS) repoRelPath(path string) (string, error) {
+	abs := filepath.Join(v.root, filepath.FromSlash(path))
+	rel, err := filepath.Rel(v.repoRoot, abs)
+	if err != nil {
+		return "", fmt.Errorf("locate %s under repo root %s: %w", abs, v.repoRoot, err)
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+// ReadFileAt returns path's bytes as of git revision rev in the project repo.
+// path is relative to the local-content root; it is rebased onto the repo root
+// before the tree lookup. A rev that won't resolve, or a path absent at that rev,
+// errors (fail-closed) — the caller withholds rather than serving a wrong or
+// current-state version.
+func (v *localGitVCS) ReadFileAt(_ context.Context, path, rev string) ([]byte, error) {
+	repoPath, err := v.repoRelPath(path)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := v.repo.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return nil, fmt.Errorf("resolve revision %q: %w", rev, err)
+	}
+	commit, err := v.repo.CommitObject(*hash)
+	if err != nil {
+		return nil, fmt.Errorf("load commit %s: %w", hash, err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("load tree at %s: %w", rev, err)
+	}
+	file, err := tree.File(repoPath)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) {
+			return nil, fmt.Errorf("%s not present at %s: %w", repoPath, rev, errs.ErrRemoteContentNotFound)
+		}
+		return nil, fmt.Errorf("read %s at %s: %w", repoPath, rev, err)
+	}
+	contents, err := file.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("read %s at %s: %w", repoPath, rev, err)
+	}
+	return []byte(contents), nil
+}
+
+// ResolveRevision resolves a symbolic project revision (branch/tag/short SHA) to
+// its concrete commit id. Unlike the remote clone backend, a local working copy's
+// refs ARE the project's own — there is no origin/ remote-tracking indirection —
+// so go-git's rev-parse resolution is correct directly.
+func (v *localGitVCS) ResolveRevision(_ context.Context, rev string) (string, error) {
+	hash, err := v.repo.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return "", fmt.Errorf("resolve revision %q: %w", rev, err)
+	}
+	return hash.String(), nil
+}
+
+// ListDeletedItems is the history-walk capability of Versioned. Project-authored
+// local content has no "upstream" to be removed from — the project IS the source —
+// so it surfaces no deletions, implemented only to satisfy Versioned alongside the
+// load-bearing ReadFileAt/ResolveRevision.
+func (v *localGitVCS) ListDeletedItems(_ context.Context, _ ItemType) ([]string, error) {
+	return nil, nil
+}
+
+var (
+	_ VCS       = (*localGitVCS)(nil)
+	_ Versioned = (*localGitVCS)(nil)
+)
+
+// LocalGitVCSFactory builds a VCSFactory for project-authored ctxloom:local
+// content that adds revision history + pinning WHEN the project is itself under
+// git — the "working-copy VCS" the local RefFetcher's doc anticipates. For each
+// opened source (loc = the committed local-content root) it locates the enclosing
+// git repository:
+//
+//   - inside a git repo  → a Versioned localGitVCS, so a pinned ref reads the
+//     item bytes at that project revision;
+//   - not a git repo, or git won't open → a plain current-only fsVCS, so a pinned
+//     read fails closed via readItemAt (the historical fetch is withheld) while
+//     the unversioned working-copy path keeps working.
+//
+// Like the remote clone cache, the historical read is OS-backed (go-git opens the
+// real .git), so it does not honor fs; fs backs only the current-state fallback,
+// matching FSVCSFactory.
+func LocalGitVCSFactory(fs afero.Fs) VCSFactory {
+	return func(loc string) (VCS, error) {
+		base := fsVCS{fs: fs, root: loc}
+		repo, err := git.PlainOpenWithOptions(loc, &git.PlainOpenOptions{DetectDotGit: true})
+		if err != nil {
+			// Not under version control (or unreadable .git): degrade to
+			// current-only. A pinned read then fails closed via readItemAt.
+			return &base, nil
+		}
+		wt, err := repo.Worktree()
+		if err != nil {
+			return &base, nil
+		}
+		return &localGitVCS{fsVCS: base, repo: repo, repoRoot: wt.Filesystem.Root()}, nil
 	}
 }
 

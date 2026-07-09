@@ -1,12 +1,48 @@
 package operations
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIsUnrecoverable(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "transcript.jsonl")
+	require.NoError(t, os.WriteFile(present, []byte("{}"), 0o644))
+	missing := filepath.Join(dir, "gone.jsonl")
+
+	t.Run("bound transcript missing, not distilled -> unrecoverable", func(t *testing.T) {
+		assert.True(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing}))
+	})
+
+	t.Run("bound transcript present -> recoverable", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: present}))
+	})
+
+	t.Run("pending entry with no transcript -> recoverable (still in flight)", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{}))
+	})
+
+	t.Run("distilled with missing transcript -> recoverable (essence stays)", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Summary: "did things"}))
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Detail: []string{"open item"}}))
+	})
+
+	t.Run("non-ENOENT stat error -> recoverable (transient hiccup, don't forget it)", func(t *testing.T) {
+		// A path whose parent component is a regular file makes os.Stat fail
+		// with ENOTDIR — a non-ENOENT error standing in for any transient I/O
+		// failure (permission denied, network-mount hiccup). Only genuine
+		// absence (ENOENT) may mark a bound transcript unrecoverable, so this
+		// must stay recoverable rather than be silently forgotten.
+		notDir := filepath.Join(present, "child.jsonl")
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: notDir}))
+	})
+}
 
 func TestSelectPreviousEntry(t *testing.T) {
 	// Entries arrive most-recent-first; the active harp ("self") is index 0.

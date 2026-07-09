@@ -12,11 +12,28 @@ var (
 	// ErrFragmentNotFound indicates a fragment could not be located.
 	ErrFragmentNotFound = errors.New("fragment not found")
 
-	// ErrPromptNotFound indicates a prompt could not be located.
-	ErrPromptNotFound = errors.New("prompt not found")
+	// ErrSkillNotFound indicates a skill could not be located.
+	ErrSkillNotFound = errors.New("skill not found")
 
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
+
+	// ErrFragmentWithheld indicates a fragment resolved but the per-item trust
+	// gate (trust rework, TR5) withheld it: it exists but is not exposed because
+	// the effective-content trust cascade denied it (untrusted, blacklisted, or
+	// fail-closed on an evaluation error). Distinct from ErrFragmentNotFound so a
+	// caller can tell "missing" from "exists-but-withheld" via errors.Is.
+	ErrFragmentWithheld = errors.New("fragment withheld by trust gate")
+
+	// ErrSkillWithheld indicates a skill resolved but the per-item trust gate
+	// (trust rework, TR5) withheld it. See ErrFragmentWithheld.
+	ErrSkillWithheld = errors.New("skill withheld by trust gate")
+
+	// ErrNoVersionResolver indicates a per-commit-version resolution was
+	// requested (multi-version coexistence, trust rework, TR5) but the loader
+	// has no version resolver wired. A pinned historical version cannot be
+	// materialized without one, so the version is withheld (fail-closed).
+	ErrNoVersionResolver = errors.New("no bundle version resolver configured")
 
 	// ErrRemoteNotFound indicates a remote could not be located.
 	ErrRemoteNotFound = errors.New("remote not found")
@@ -38,6 +55,11 @@ var (
 var (
 	// ErrCircularInheritance indicates a cycle in profile inheritance.
 	ErrCircularInheritance = errors.New("circular profile inheritance detected")
+
+	// ErrProfileDepthExceeded indicates profile inheritance nested past the
+	// maximum allowed depth — a structural misconfiguration kept fatal (unlike a
+	// merely missing/corrupt parent) so it is not masked by warn-and-continue.
+	ErrProfileDepthExceeded = errors.New("profile inheritance depth exceeds maximum")
 
 	// ErrInvalidReference indicates a malformed bundle/profile reference.
 	ErrInvalidReference = errors.New("invalid reference")

@@ -181,12 +181,6 @@ func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
-	if opts.ItemType == ItemTypeProfile {
-		content, err = transformProfileForExport(content, pm.lockfileManager)
-		if err != nil {
-			return nil, fmt.Errorf("failed to transform profile for export: %w", err)
-		}
-	}
 	return content, nil
 }
 
@@ -237,7 +231,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, err
 	}
 
-	contentWithMeta, err := addPublishMetadata(content, localPath)
+	contentWithMeta, err := addPublishMetadata(content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add metadata: %w", err)
 	}
@@ -392,30 +386,41 @@ func buildPublishPath(itemType ItemType, name string) string {
 	switch itemType {
 	case ItemTypeBundle:
 		dir = "bundles"
-	case ItemTypeProfile:
-		dir = "profiles"
 	default:
 		dir = "bundles"
 	}
 	return path.Join("ctxloom", dir, name+".yaml")
 }
 
-// addPublishMetadata adds _source metadata to content for tracking.
-func addPublishMetadata(content []byte, localPath string) ([]byte, error) {
-	// Parse YAML
-	var data map[string]interface{}
-	if err := yaml.Unmarshal(content, &data); err != nil {
-		// Not valid YAML, return as-is
-		return content, nil
+// addPublishMetadata appends a `_published` provenance block to content. It
+// edits the YAML node tree rather than round-tripping through a map, so the
+// author's key order and comments survive (yaml.v3 sorts map keys and strips
+// comments). Only published_at is recorded: the author's local filesystem path
+// is deliberately NOT embedded — it leaks the username/directory layout into
+// shared (often public) content and nothing in the codebase consumes it.
+func addPublishMetadata(content []byte) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(content, &doc); err != nil {
+		return content, nil // Not valid YAML, return as-is
+	}
+	root := documentMapping(&doc)
+	if root == nil {
+		return content, nil // Not a mapping document, leave it untouched
 	}
 
-	// Add publish metadata
-	data["_published"] = map[string]interface{}{
-		"from":         localPath,
-		"published_at": time.Now().UTC().Format(time.RFC3339),
-	}
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "_published"},
+		&yaml.Node{
+			Kind: yaml.MappingNode,
+			Tag:  "!!map",
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "published_at"},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: time.Now().UTC().Format(time.RFC3339)},
+			},
+		},
+	)
 
-	return yaml.Marshal(data)
+	return yaml.Marshal(&doc)
 }
 
 // NewPublisher creates a publisher for the given repository URL.
@@ -435,86 +440,15 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	}
 }
 
-// profileHasLocalBundleRefs reports whether any bundle entry is a local name
-// (i.e. needs canonicalization before export).
-func profileHasLocalBundleRefs(bundles []interface{}) bool {
-	for _, b := range bundles {
-		if s, ok := b.(string); ok && !IsCanonicalRef(s) {
-			return true
-		}
+// documentMapping returns the top-level mapping node of a parsed YAML document,
+// or nil when the document is empty or its root is not a mapping.
+func documentMapping(doc *yaml.Node) *yaml.Node {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil
 	}
-	return false
-}
-
-// canonicalizeBundleRef resolves a single local bundle name to its canonical
-// URL via the lockfile, preserving any #item-path suffix. Canonical refs are
-// returned unchanged by the caller, so this is only invoked for local names.
-func canonicalizeBundleRef(ref string, lockfile *Lockfile) (string, error) {
-	localName, itemPath := splitItemPath(ref)
-
-	canonicalURL, found, err := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
-	if err != nil {
-		return "", err
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
 	}
-	if !found {
-		return "", fmt.Errorf("bundle %q not found in lockfile; pull it first before publishing", localName)
-	}
-	return canonicalURL + itemPath, nil
-}
-
-// transformBundleRefs maps each profile bundle entry to its canonical form:
-// already-canonical refs pass through, local names resolve via the lockfile.
-func transformBundleRefs(bundles []interface{}, lockfile *Lockfile) ([]string, error) {
-	out := make([]string, 0, len(bundles))
-	for _, b := range bundles {
-		ref, ok := b.(string)
-		if !ok {
-			continue
-		}
-		if IsCanonicalRef(ref) {
-			out = append(out, ref)
-			continue
-		}
-		canonical, err := canonicalizeBundleRef(ref, lockfile)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, canonical)
-	}
-	return out, nil
-}
-
-// transformProfileForExport converts local bundle references to canonical URLs.
-// This is used when publishing/exporting a profile for sharing.
-func transformProfileForExport(content []byte, lm *LockfileManager) ([]byte, error) {
-	var rawProfile map[string]interface{}
-	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
-		return content, nil // Not valid YAML, return as-is
-	}
-
-	bundlesRaw, ok := rawProfile["bundles"]
-	if !ok {
-		return content, nil // No bundles, return as-is
-	}
-	bundles, ok := bundlesRaw.([]interface{})
-	if !ok {
-		return content, nil // Not a list, return as-is
-	}
-
-	if !profileHasLocalBundleRefs(bundles) {
-		return content, nil // All already canonical
-	}
-
-	lockfile, err := lm.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load lockfile: %w", err)
-	}
-
-	transformed, err := transformBundleRefs(bundles, lockfile)
-	if err != nil {
-		return nil, err
-	}
-
-	rawProfile["bundles"] = transformed
-	return yaml.Marshal(rawProfile)
+	return root
 }

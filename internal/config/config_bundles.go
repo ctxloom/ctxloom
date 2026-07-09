@@ -1,9 +1,7 @@
 package config
 
 import (
-	"fmt"
 	"maps"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -12,12 +10,30 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/wire"
 )
 
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
+
+// SetExecutableTrustGate injects the trust gate consulted when resolving the
+// bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
+// bundle hooks (ResolveBundleHooks), and prompt command-file exports
+// (backends.LoadSkillExports). The operations/run consumers set it before
+// writing backend settings (trust rework, TR5) so an untrusted bundle's
+// executables are omitted; management/listing paths leave it nil (no gating).
+// Builtin bundles are always exempt regardless of the gate.
+func (c *Config) SetExecutableTrustGate(gate bundles.ContentGate) {
+	c.execGate = gate
+}
+
+// ExecutableTrustGate returns the injected executable trust gate (nil when none
+// was set — no gating).
+func (c *Config) ExecutableTrustGate() bundles.ContentGate {
+	return c.execGate
+}
 
 // SetLookPathForTesting overrides the companion-binary PATH-resolution seam and
 // returns a restore function. Tests in other packages use it to make companion
@@ -70,19 +86,20 @@ func warnMissingCompanion(bin, hint string) {
 		return
 	}
 	missingWarned[bin] = true
-	msg := "ctxloom: warning: " + bin + " not found on PATH; its tools are disabled for this session"
+	msg := bin + " not found on PATH; its tools are disabled for this session"
 	if hint != "" {
 		msg += " (" + strings.TrimSpace(hint) + ")"
 	}
-	fmt.Fprintln(os.Stderr, msg)
+	clidiag.Warn("ctxloom", "%s", msg)
 }
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
-// default profiles, plus servers shipped by built-in bundles embedded in
-// the binary (resources/builtin_bundles). Mirrors ResolveBundleHooks: any
-// future built-in that ships an MCP server is picked up automatically,
-// tagged with SCM="builtin:<name>" so reconciliation can identify it.
-func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
+// caller's selected profiles (or the configured defaults when none are passed),
+// plus servers shipped by built-in bundles embedded in the binary
+// (resources/builtin_bundles). Mirrors ResolveBundleHooks: any future built-in
+// that ships an MCP server is picked up automatically, tagged with
+// SCM="bundle:builtin:<name>" so reconciliation can identify it.
+func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
 	// Built-in bundles are unconditional — they ship core ctxloom
@@ -90,8 +107,11 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 	// first so profile-sourced servers can intentionally override.
 	maps.Copy(result, resolveBuiltinBundleMCPServers())
 
-	defaultProfiles := c.GetDefaultProfiles()
-	if len(defaultProfiles) == 0 {
+	// Scope to the caller's selected profiles (e.g. `run -p`); when none are
+	// passed, fall back to the configured defaults so the `manage`/apply-hooks
+	// path keeps its project-default behavior.
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 {
 		return result
 	}
 
@@ -100,21 +120,21 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 		return result
 	}
 
-	// Load each default profile and collect MCP servers.
+	// Load each profile and collect MCP servers.
 	// SeededBundleLoader includes remote bundles from the active lockfile;
 	// without it, MCP servers shipped in remote bundles silently disappear
 	// after extraction is removed (see docs/bundle-review-plan.md Phase 1.2).
 	profileLoader := c.GetProfileLoader()
 	bundleLoader := c.SeededBundleLoader(false)
 
-	for _, defaultProfile := range defaultProfiles {
+	for _, profileName := range profiles {
 		// Resolve through the recursive resolver so bundles inherited from
 		// parent profiles are included — a flat Load would only see this
 		// profile's direct Bundles, silently dropping MCP servers shipped by
 		// an inherited bundle (while the fragment path, which resolves
 		// recursively, still picks them up). See ResolveBundleHooks for the
 		// matching pattern.
-		resolved, err := profileLoader.ResolveProfile(defaultProfile, nil)
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
 		if err != nil {
 			continue
 		}
@@ -127,7 +147,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 			excluded[name] = true
 		}
 		for _, bundleRef := range resolved.Bundles {
-			servers := loadMCPFromBundleRef(bundleRef, bundleLoader)
+			servers := loadMCPFromBundleRef(bundleRef, bundleLoader, c.execGate)
 			for name, server := range servers {
 				if excluded[name] {
 					continue
@@ -143,28 +163,31 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 // resolveBuiltinBundleMCPServers parses every YAML under
 // resources/builtin_bundles/ (embedded at build time) and returns the
 // merged MCP-server map. Mirrors resolveBuiltinBundleHooks. Each server
-// is tagged with SCM="builtin:<name>" so apply-* reconciliation can
+// is tagged with SCM="bundle:builtin:<name>" so apply-* reconciliation can
 // identify built-in entries. Failures on individual bundles are logged
 // to stderr and skipped — built-in bundles must never block startup.
 func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return out
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name) {
+		// Builtin bundles are in-binary and never pass the trust resolver — gate
+		// nil (they ship with ctxloom; trusting the binary trusts them). This
+		// mirrors the baseline, which also excludes builtins.
+		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name, nil) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -183,21 +206,21 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader) map[string]wire.MCPServer {
+func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.ContentGate) map[string]wire.MCPServer {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
 		return nil
 	}
-	return extractMCPFromBundle(bundle, bundleRef)
+	return extractMCPFromBundle(bundle, bundleRef, gate)
 }
 
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
-// in the active default profiles, plus the always-on hooks shipped by
-// built-in bundles embedded in the binary (resources/builtin_bundles).
-// Mirrors ResolveBundleMCPServers. Each emitted hook carries SCM source
-// info so apply-hooks can identify ctxloom-managed entries when
-// reconciling the backend's settings.json.
-func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
+// in the caller's selected profiles (or the configured defaults when none
+// are passed), plus the always-on hooks shipped by built-in bundles embedded
+// in the binary (resources/builtin_bundles). Mirrors ResolveBundleMCPServers.
+// Each emitted hook carries SCM source info so apply-hooks can identify
+// ctxloom-managed entries when reconciling the backend's settings.json.
+func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	var result wire.UnifiedHooks
 
 	// Built-in bundles are unconditional — they ship core ctxloom
@@ -205,32 +228,82 @@ func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
 	// gating, no remote pull.
 	result.Append(resolveBuiltinBundleHooks())
 
-	defaultProfiles := c.GetDefaultProfiles()
-	if len(defaultProfiles) == 0 || len(c.AppPaths) == 0 {
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 || len(c.AppPaths) == 0 {
 		return result
 	}
 	profileLoader := c.GetProfileLoader()
 	bundleLoader := c.SeededBundleLoader(false)
 
-	for _, defaultProfile := range defaultProfiles {
+	for _, profileName := range profiles {
 		// Resolve recursively so hooks shipped by bundles inherited from
 		// parent profiles are included (matches ResolveBundleMCPServers and
 		// the fragment resolution path); a flat Load would drop them.
-		resolved, err := profileLoader.ResolveProfile(defaultProfile, nil)
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
 		if err != nil {
 			continue
 		}
 		for _, bundleRef := range resolved.Bundles {
-			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader)
+			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader, c.execGate)
 			result.Append(hooks)
 		}
 	}
 	return result
 }
 
+// resolveProfileScope returns the profile set a bundle-resolution call should
+// use: the caller's explicit selection (e.g. `run -p`) when non-empty, else the
+// configured defaults. This is the seam that makes mcp/skills/hooks follow the
+// SELECTED profile (the same set AssembleContext scopes context to) instead of
+// always the defaults, while preserving the default-scoped behavior for the
+// `manage`/apply-hooks path that passes nothing.
+func (c *Config) resolveProfileScope(profileNames []string) []string {
+	if len(profileNames) > 0 {
+		return profileNames
+	}
+	return c.DefaultAgentProfiles()
+}
+
+// ResolveBundleSkills aggregates the prompts (slash-command/skill exports)
+// shipped by every bundle referenced in the caller's selected profiles (or the
+// configured defaults when none are passed), in deterministic order, deduped by
+// prompt name (first profile/bundle wins). Mirrors ResolveBundleMCPServers /
+// ResolveBundleHooks — the profile-scoped replacement for the global
+// ListAllSkills sweep, so a session only carries the skills its profile pulls
+// in. Built-in embedded commands are added by the caller (LoadSkillExports),
+// not here, since they are not bundle-shipped. The opts thread the executable
+// trust gate (WithTrustGate) so a withheld skill is not exported.
+func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 || len(c.AppPaths) == 0 {
+		return nil
+	}
+	profileLoader := c.GetProfileLoader()
+	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
+
+	seen := make(map[string]bool)
+	var out []*bundles.LoadedContent
+	for _, profileName := range profiles {
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
+		if err != nil {
+			continue
+		}
+		for _, bundleRef := range resolved.Bundles {
+			for _, prompt := range bundleLoader.SkillsFromBundleRef(bundleRef) {
+				if seen[prompt.Item] {
+					continue
+				}
+				seen[prompt.Item] = true
+				out = append(out, prompt)
+			}
+		}
+	}
+	return out
+}
+
 // resolveBuiltinBundleHooks parses every YAML under
 // resources/builtin_bundles/ (embedded at build time) and returns the
-// merged hook set. Each hook is tagged with SCM="builtin:<name>" so the
+// merged hook set. Each hook is tagged with SCM="bundle:builtin:<name>" so the
 // apply-hooks reconciliation can identify built-in entries. Failures on
 // individual bundles are logged to stderr and skipped — built-in bundles
 // must never block startup.
@@ -238,21 +311,23 @@ func resolveBuiltinBundleHooks() wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return out
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name)))
+		// Builtin bundles are in-binary and exempt from the trust gate (nil) —
+		// they ship with ctxloom and the baseline excludes them.
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name, nil)))
 	}
 	return out
 }
@@ -304,19 +379,19 @@ type BuiltinFragment struct {
 func (c *Config) ResolveBuiltinBundleFragments() []BuiltinFragment {
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return nil
 	}
 	var out []BuiltinFragment
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		if _, missing := builtinBundleCompanionMissing(&b); missing {
@@ -369,26 +444,47 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader) wire.UnifiedHooks {
+func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.ContentGate) wire.UnifiedHooks {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
 		return wire.UnifiedHooks{}
 	}
-	return extractHooksFromBundle(bundle, bundleRef)
+	return extractHooksFromBundle(bundle, bundleRef, gate)
 }
 
-func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedHooks {
+// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate is
+// non-nil (the executable trust gate, TR5), each hook's executable surface is
+// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed
+// "<bundle>#hooks/<event>/<index>"; a DENY omits the hook — a bundle hook is an
+// arbitrary-command executable that must never be applied unevaluated
+// (fail-closed). Builtin callers pass nil (in-binary, exempt). The identity
+// scheme is bundles.HookEntry, shared with the migration baseline so a baselined
+// hook's ref matches.
+func extractHooksFromBundle(bundle *bundles.Bundle, source string, gate bundles.ContentGate) wire.UnifiedHooks {
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
 	}
 	marker := "bundle:" + source
-	convert := func(in []bundles.BundleHook) []wire.Hook {
+	convert := func(event string, in []bundles.BundleHook) []wire.Hook {
 		if len(in) == 0 {
 			return nil
 		}
-		out := make([]wire.Hook, len(in))
-		for i, h := range in {
-			out[i] = wire.Hook{
+		out := make([]wire.Hook, 0, len(in))
+		for i := range in {
+			h := in[i]
+			if gate != nil {
+				// Key by the bundle's source ref (canonical for a remote/cloned
+				// bundle, the local name for a project bundle) — NOT bundle.Name,
+				// whose short form is ambiguous across local and cloned bundles.
+				// This makes the cascade's IsLocal/RepoURL honest (local hooks
+				// auto-trust; cloned ones follow their remote's TrustBundles) and
+				// aligns the gate key with the baseline/grant key (both source).
+				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
+				if !gate(ref, h.ComputeContentHash(), string(bundles.FormRaw)) {
+					continue // withheld by the trust gate
+				}
+			}
+			out = append(out, wire.Hook{
 				Matcher:         h.Matcher,
 				Command:         h.Command,
 				Type:            h.Type,
@@ -397,25 +493,39 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedH
 				Async:           h.Async,
 				SCM:             marker,
 				PreToolFallback: h.PreToolFallback,
-			}
+			})
 		}
 		return out
 	}
 	return wire.UnifiedHooks{
-		PreTool:      convert(bundle.Hooks.PreTool),
-		PostTool:     convert(bundle.Hooks.PostTool),
-		SessionStart: convert(bundle.Hooks.SessionStart),
-		SessionEnd:   convert(bundle.Hooks.SessionEnd),
-		PreShell:     convert(bundle.Hooks.PreShell),
-		PostFileEdit: convert(bundle.Hooks.PostFileEdit),
+		PreTool:      convert(bundles.HookEventPreTool, bundle.Hooks.PreTool),
+		PostTool:     convert(bundles.HookEventPostTool, bundle.Hooks.PostTool),
+		SessionStart: convert(bundles.HookEventSessionStart, bundle.Hooks.SessionStart),
+		SessionEnd:   convert(bundles.HookEventSessionEnd, bundle.Hooks.SessionEnd),
+		PreShell:     convert(bundles.HookEventPreShell, bundle.Hooks.PreShell),
+		PostFileEdit: convert(bundles.HookEventPostFileEdit, bundle.Hooks.PostFileEdit),
 	}
 }
 
-// extractMCPFromBundle extracts MCP servers from a loaded bundle.
-func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]wire.MCPServer {
+// extractMCPFromBundle extracts MCP servers from a loaded bundle. When gate is
+// non-nil (the executable trust gate, TR5), each server's executable surface
+// (Command+Args+Env+Installation) is hashed and run through the cascade keyed
+// "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
+// executable must never reach settings unevaluated (fail-closed). Builtin
+// callers pass nil (in-binary, exempt).
+func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.ContentGate) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
+		if gate != nil {
+			// Key by the source ref (canonical for a cloned bundle, local name for
+			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
+			// gate key matches the baseline/grant key. See extractHooksFromBundle.
+			ref := source + "#mcp/" + name
+			if !gate(ref, mcp.ComputeContentHash(), string(bundles.FormRaw)) {
+				continue // withheld by the trust gate
+			}
+		}
 		result[name] = wire.MCPServer{
 			Command:      mcp.Command,
 			Args:         mcp.Args,

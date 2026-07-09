@@ -2,15 +2,16 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from
@@ -36,7 +37,6 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
-	cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
 
 	removed := []string{}
 	var errs []string
@@ -44,8 +44,8 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
-		if err := removeBackendHarness(name, workDir, settingsOpts, cmdOpts); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", err)
+		if err := removeBackendHarness(name, workDir, fs, settingsOpts); err != nil {
+			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
 		}
@@ -59,14 +59,21 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
 }
 
-// removeBackendHarness strips one backend's settings and clears the command
-// files it generated (writing an empty prompt set triggers manifest cleanup).
-func removeBackendHarness(name, workDir string, settingsOpts []backends.SettingsOption, cmdOpts []agent.CommandFileOption) error {
+// removeBackendHarness strips one backend's ctxloom harness: RemoveSettings
+// reverts the per-backend hooks/MCP (unchanged), and the skills surface — built
+// from an EMPTY export set and delivered — clears ONLY ctxloom-managed command
+// files. That clear routes through the same manifest-scoped writer the old
+// WriteCommandFilesFor(nil) used: it removes exactly the .ctxloom-manifest-tracked
+// files ctxloom wrote and leaves user-authored commands untouched (never a blanket
+// wipe of the commands dir). Context is deliberately NOT selected, so CLAUDE.md and
+// the other native context files are left in place.
+func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []backends.SettingsOption) error {
 	if err := backends.RemoveSettings(name, workDir, settingsOpts...); err != nil {
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}
-	if err := backends.WriteCommandFilesFor(name, workDir, nil, cmdOpts...); err != nil {
-		return fmt.Errorf("failed to remove %s commands: %w", name, err)
+	set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
+	if _, _, errs := agent.Select(set).WithSkills().DeliverUnder(workDir); len(errs) > 0 {
+		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
 	}
 	return nil
 }
@@ -92,6 +99,16 @@ type HarnessStatusResult struct {
 	AutoRegisterMCP  bool            `json:"auto_register_mcp"`
 	ManageStatusline bool            `json:"manage_statusline"`
 	Backends         []BackendWiring `json:"backends"`
+	// RootFallback reports that WorkDir is the bare cwd fallback — no
+	// CTXLOOM_ROOT override and not inside a git repository — so tasks, plans,
+	// and sessions are keyed off the launch directory rather than a stable repo
+	// root. The single source of truth for the not-a-stable-root warning, shared
+	// by `ctxloom run` and the VSCode companion's title-bar warning.
+	RootFallback bool `json:"root_fallback"`
+	// Errors records per-backend status-read failures; non-empty means the
+	// report is partial. One backend's corrupt/unreadable settings.json no
+	// longer blacks out the status of every other backend.
+	Errors []string `json:"errors,omitempty"`
 }
 
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
@@ -106,11 +123,17 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 		AutoRegisterMCP:  cfg.MCP.ShouldAutoRegisterCtxloom(),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 		Backends:         []BackendWiring{},
+		RootFallback:     projectroot.RootFromFallback(),
 	}
 	for _, name := range backends.BackendsWithSettings() {
 		status, err := backends.BackendStatus(name, workDir, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read %s status: %w", name, err)
+			// Warn-and-continue like the sibling RemoveHooks: one backend's
+			// unreadable settings.json must not abort the whole read-only status
+			// report and hide every other backend's wiring.
+			clidiag.Warn("ctxloom", "failed to read %s status: %v", name, err)
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to read %s status: %v", name, err))
+			continue
 		}
 		result.Backends = append(result.Backends, BackendWiring{
 			Backend:        name,

@@ -18,13 +18,31 @@ type = 'command'
 command = 'ctxloom hook session-bind'
 type = 'command'
 
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+command = "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 3 e698b561eecad23a"
+timeout = 60
+type = 'command'
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+command = "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 3 e698b561eecad23a"
+timeout = 60
+type = 'command'
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+command = "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 3 e698b561eecad23a"
+timeout = 60
+type = 'command'
+
 [mcp_servers]
 [mcp_servers.ctxloom]
 args = ['mcp']
 command = 'ctxloom'
 
 [mcp_servers.sequential-thinking]
-args = ['-y', '@anthropics/mcp-server-sequential-thinking']
+args = ['-y', '@modelcontextprotocol/server-sequential-thinking']
 command = 'npx'
 
 [mcp_servers.taskloom]

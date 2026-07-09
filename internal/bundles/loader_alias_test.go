@@ -7,26 +7,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestListAllPrompts_TagsDoNotAliasBundleTags is a regression guard:
-// ListAllPrompts previously built each prompt's tag list with
+// TestListAllSkills_TagsDoNotAliasBundleTags is a regression guard:
+// ListAllSkills previously built each prompt's tag list with
 // append(bundle.Tags, prompt.Tags...), which writes into bundle.Tags' spare
 // capacity — two prompts in one bundle would then share (and clobber) the same
 // backing array. ListAllFragments already used slices.Concat; this pins the
 // prompt side to the same non-aliasing behavior.
-func TestListAllPrompts_TagsDoNotAliasBundleTags(t *testing.T) {
+func TestListAllSkills_TagsDoNotAliasBundleTags(t *testing.T) {
 	bundleTags := make([]string, 1, 4) // spare capacity makes aliasing observable
 	bundleTags[0] = "shared"
 	b := &Bundle{
 		Version: "1.0.0",
 		Tags:    bundleTags,
-		Prompts: map[string]BundlePrompt{
+		Skills: map[string]BundleSkill{
 			"alpha": {Content: "a", Tags: []string{"alpha-tag"}},
 			"beta":  {Content: "b", Tags: []string{"beta-tag"}},
 		},
 	}
 	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{"seeded": b}))
 
-	infos, err := loader.ListAllPrompts()
+	infos, err := loader.ListAllSkills()
 	require.NoError(t, err)
 	require.Len(t, infos, 2)
 

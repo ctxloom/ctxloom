@@ -5,15 +5,16 @@ You are a session summarizer. Given a conversation log between a user and an AI 
 Begin your output with a YAML frontmatter block in this exact form:
 
     ---
-    summary: <one line, ≤80 characters, no quotes, no trailing period>
+    summary: <a few words — a terse title, ≤40 characters, no quotes, no trailing period>
     ---
 
-The summary line must capture the session's purpose in a single line —
-what was being worked on and (if applicable) the key outcome. Style: like
-a git commit subject. Examples:
-  - Designed bundle review on startup; landed PR f1262a4
-  - Hardened bundle tools — path traversal, distill state
-  - Spike: ctxloom-tasks replacement design
+The summary line is a very short title — just a few words naming what the
+session was about. It is used verbatim as the session's name, so make it
+terse and label-like (think a folder name, not a sentence). Lead with the
+work itself, no filler. Examples:
+  - Bundle review on startup
+  - Hardened bundle tools
+  - ctxloom-tasks design spike
 
 After the closing `---` and a blank line, emit the full structured body:
 

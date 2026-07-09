@@ -1,0 +1,384 @@
+package operations
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+)
+
+// AgentEntry is one agent's declared definition, the listing/show shape.
+// It carries only what the user wrote — no resolution — so listing many
+// agents stays cheap.
+type AgentEntry struct {
+	Name     string   `json:"name"`
+	Engine   string   `json:"engine,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+	// Runtime is the agent's declared runtime axis (host | container), as
+	// written; empty inherits the project `runtime:` default.
+	Runtime string `json:"runtime,omitempty"`
+	// Permissions is the agent's declared permission posture
+	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
+	// label's default and finally the built-in default.
+	Permissions string `json:"permissions,omitempty"`
+	// Source is "config" for a config.yaml `agents:` entry, otherwise the
+	// .ctxloom/agents/*.yaml file path it was read from.
+	Source string `json:"source,omitempty"`
+}
+
+// ListAgents returns every locally-defined agent (config key + directory),
+// merged and sorted by name. Definitions only — no profile composition or engine
+// resolution — so it is cheap over many agents.
+func ListAgents(cfg *config.Config) []AgentEntry {
+	subs := cfg.LoadAgents()
+	out := make([]AgentEntry, 0, len(subs))
+	for _, s := range subs {
+		out = append(out, AgentEntry{
+			Name:        s.Name,
+			Engine:      s.Engine,
+			Profiles:    s.Profiles,
+			Runtime:     s.Runtime,
+			Permissions: s.Permissions,
+			Source:      s.Source,
+		})
+	}
+	return out
+}
+
+// GetAgent returns one agent's declared definition, or an error if no
+// agent of that name is defined locally. Definition only (no resolution).
+func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	sub, ok := cfg.Agent(name)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", name)
+	}
+	return &AgentEntry{
+		Name:        sub.Name,
+		Engine:      sub.Engine,
+		Profiles:    sub.Profiles,
+		Runtime:     sub.Runtime,
+		Permissions: sub.Permissions,
+		Source:      sub.Source,
+	}, nil
+}
+
+// SetAgentRequest is the input for SetAgent: the binding to add or update
+// under the local `agents:` config key. Engine is optional (empty = project
+// default / the composed profiles' llm); Profiles compose into one context;
+// Runtime is optional (host | container; empty inherits the project
+// `runtime:` default); Permissions is optional (default|acceptEdits|plan|bypass;
+// empty inherits the engine label's default). The workspace axis is deliberately
+// NOT settable here — it is a session trait chosen at invocation time, never
+// stored on a binding.
+type SetAgentRequest struct {
+	Name        string   `json:"name"`
+	Engine      string   `json:"engine,omitempty"`
+	Profiles    []string `json:"profiles,omitempty"`
+	Runtime     string   `json:"runtime,omitempty"`
+	Permissions string   `json:"permissions,omitempty"`
+}
+
+// SetAgent adds or updates a LOCAL agent under the `agents:` config key
+// and persists it through config.Save's round-trip (config_save folds c.Agents
+// back into config.yaml). It is the write half the agent-assisted setup calls to
+// record the engine↔profile binding the user chose.
+//
+// Name-agnostic by construction: it stores whatever name/engine/profiles the
+// caller passes — the role taxonomy (developer/finder/code-review, per-language ×
+// lens) is the user's choice from the live scan, never enumerated here. Engine
+// is accepted as-is (the user's call); resolution/backend mapping happens later
+// in ResolveAgent. The full binding REPLACES any existing one of the same
+// name (an update is a whole-binding rewrite, not a merge).
+func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	name := req.Name
+	if name == "" {
+		return nil, fmt.Errorf("agent name is required")
+	}
+
+	// A directory-sourced agent of the same name would be shadowed by this
+	// config-key entry (config wins, see config.LoadAgents). Surface it so the
+	// user knows the file is now inert rather than silently double-defining.
+	if existing, ok := cfg.Agent(name); ok && existing.Source != agents.SourceConfig {
+		clidiag.Warn("ctxloom",
+			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
+			name, existing.Source)
+	}
+
+	// Runtime is stored as written — validation is advisory only (an unknown
+	// value acts as host at resolve time, per fault tolerance), but warn NOW
+	// so a typo is caught at write time rather than at the first run.
+	if req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), req.Runtime) {
+		clidiag.Warn("ctxloom",
+			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
+			name, req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
+	}
+
+	// Permissions is likewise stored as written; validation is advisory (an
+	// unknown value resolves to the default posture at run time), but warn NOW so
+	// a typo is caught at write time rather than at the first run.
+	if req.Permissions != "" {
+		if _, ok := agent.ParsePermissionMode(req.Permissions); !ok {
+			clidiag.Warn("ctxloom",
+				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
+				name, req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
+		}
+	}
+
+	// Canonicalize-on-store (decision B): a per-remote short profile ref
+	// ("<remote>/<bundle>#profiles/<name>") is expanded to its canonical URL so the
+	// binding persists a stable identity, not a machine-local alias that a later
+	// remote rename would strand. Bare/local names stay verbatim (decision A). This
+	// replaces the old verbatim store.
+	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
+
+	if cfg.Agents == nil {
+		cfg.Agents = make(map[string]agents.Agent)
+	}
+	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
+
+	if err := cfg.Save(); err != nil {
+		return nil, fmt.Errorf("save agent %q: %w", name, err)
+	}
+	return &AgentEntry{
+		Name:        name,
+		Engine:      req.Engine,
+		Profiles:    profiles,
+		Runtime:     req.Runtime,
+		Permissions: req.Permissions,
+		Source:      agents.SourceConfig,
+	}, nil
+}
+
+// RemoveAgent deletes a LOCAL agent from the `agents:` config key and
+// persists the removal. Only config-key agents are removable here: a
+// directory-sourced agent (.ctxloom/agents/<name>.yaml) is its own file and
+// is reported as such rather than silently left in place (the caller deletes the
+// file). An unknown name errors.
+func RemoveAgent(cfg *config.Config, name string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
+	}
+	if name == "" {
+		return fmt.Errorf("agent name is required")
+	}
+	if _, ok := cfg.Agents[name]; !ok {
+		// Distinguish "defined as a file" from "not defined at all" for a clear
+		// message — the config-key write path cannot delete a file.
+		if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
+			return fmt.Errorf("agent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
+		}
+		return fmt.Errorf("agent %q not found in config.yaml", name)
+	}
+	delete(cfg.Agents, name)
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("save after removing agent %q: %w", name, err)
+	}
+	return nil
+}
+
+// AgentSetupNudge returns a one-line, user-facing nudge toward
+// `ctxloom agent setup` when the project HAS profiles but NO agents
+// configured, or "" otherwise. It is the detection signal Phase F wires into the
+// SessionStart message path: once the user has profiles worth orchestrating but
+// hasn't bound any engine↔profile agents, ctxloom prompts them to set them up
+// WITH the agent. The moment any agent exists, the nudge goes silent.
+//
+// Fault-tolerant and name-agnostic: it inspects only counts (profiles present?
+// agents present?), never any role/lens/engine names, and never blocks.
+func AgentSetupNudge(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if len(cfg.LoadAgents()) > 0 {
+		return "" // already orchestrating — nothing to nudge
+	}
+	if !hasAnyProfiles(cfg) {
+		return "" // nothing to bind engines to yet
+	}
+	return "ctxloom: this project has profiles but no agents configured. " +
+		"Run `ctxloom agent setup` (or ask your agent to) to bind engines to profiles — " +
+		"the standard trio is a coordinator you drive, a containerized developer, and a cheap finder, " +
+		"plus code-review lenses and any other roles you want to orchestrate."
+}
+
+// hasAnyProfiles reports whether the project has any profile to bind an agent
+// to: a configured default, an inline definition, or a directory profile. Used
+// only to gate the setup nudge, so a directory-scan failure degrades to "none"
+// (the nudge simply stays quiet) rather than erroring.
+func hasAnyProfiles(cfg *config.Config) bool {
+	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
+		return true
+	}
+	list, _ := cfg.GetProfileLoader().List()
+	return len(list) > 0
+}
+
+// ResolvedAgent is an agent resolved into something run / map / weave can
+// consume: its profiles composed into ONE assembled context, plus the engine
+// applied as the backend (overriding the composed profiles' llm). Phase C wires
+// map/weave to fan across these; Phase B provides the resolver and the entity.
+type ResolvedAgent struct {
+	Name string `json:"name"`
+	// Engine is the agent's DECLARED engine (may be empty); Label is the
+	// engine actually resolved after applying the override precedence.
+	Engine   string   `json:"engine,omitempty"`
+	Profiles []string `json:"profiles"`
+	// Label is the resolved LLM config label, and Backend/Model the transport it
+	// maps to — the same (label → backend, model) resolution run/oneshot use.
+	Label   string `json:"label"`
+	Backend string `json:"backend"`
+	Model   string `json:"model,omitempty"`
+	// Context is the assembled context composed from the agent's profiles;
+	// Fragments names what loaded into it.
+	Context   string   `json:"context,omitempty"`
+	Fragments []string `json:"fragments,omitempty"`
+	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
+	// project `runtime:` default → ""). Empty means "host" — today's
+	// behaviour. Only the runtime axis resolves here: the WORKSPACE axis is a
+	// session trait the invocation supplies; the two meet in isolation.Axes at
+	// launch.
+	Runtime string `json:"runtime,omitempty"`
+	// Permissions is the agent's DECLARED launch-time permission posture (may be
+	// empty). The run resolver applies the engine-label default and the built-in
+	// fallback on top; the `run --permissions` flag overrides it.
+	Permissions string `json:"permissions,omitempty"`
+	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
+	// --permissions flag: declared → engine-label config → built-in default
+	// (claude-code → bypass, else prompt). It makes a blank-declared claude-code
+	// agent's real host-bypass posture visible. A headless run may floor this up to
+	// bypass; --permissions overrides it.
+	EffectivePermissions string `json:"effectivePermissions,omitempty"`
+}
+
+// ResolveAgent resolves the named agent into a composed context + an
+// applied engine:
+//
+//  1. compose the agent's profiles[] into one assembled context, via the
+//     shared multi-profile assembly path (AssembleContext with Profiles) — the
+//     same profile loader run/map/weave resolve through, so local, top-level
+//     remote, and bundle profiles ("<bundle>#profiles/<name>") all work, and the
+//     merge mirrors profile-parent semantics (later wins / union);
+//  2. apply the agent's engine as the backend, OVERRIDING the composed
+//     profiles' llm. Precedence (resolveOneshotLabel, shared with run/oneshot):
+//     engineOverride (a caller-level -l/--llm) wins over the declared engine;
+//     either wins over the composed profiles' llm, then the project's
+//     primary/default backend ("default = the project backend"). Pass "" for no
+//     override.
+//
+// The agent DEFINITION is ungated config: resolution touches no trust gate
+// and no baseline. (Its constituent fragments/mcp/hooks still gate downstream
+// when the composed context is actually assembled/applied.)
+func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride string) (*ResolvedAgent, error) {
+	sub, ok := cfg.Agent(name)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", name)
+	}
+	return resolveAgentBinding(ctx, cfg, name, sub, engineOverride, nil)
+}
+
+// resolveAgentBinding is the shared compose+engine core ResolveAgent and
+// the map/weave fan both go through, so the engine-override precedence and the
+// profile composition live in exactly one place (no duplication across the
+// named-agent path and the bare-profile-sugar path).
+//
+//   - name is the member identifier (a real agent name, or a bare profile
+//     used as sugar); it labels the result and the no-profiles warning.
+//   - sub is the binding to resolve: a configured agent, or a synthetic
+//     single-profile/empty-engine agent the fan builds for a bare profile.
+//   - engineOverride, when non-empty, REPLACES the agent's declared engine for
+//     this resolution (the map/weave -l/--llm member override wins over the
+//     binding's own engine). Empty leaves the binding's engine in force.
+//   - loader, when non-nil, is the bundle loader used to assemble the context (a
+//     test seam / shared loader); nil falls back to the gated exposure loader.
+//
+// Engine precedence (resolveOneshotLabel): the effective engine (override else
+// the binding's engine) wins; an empty effective engine falls back to the
+// composed profiles' llm, then the project default backend.
+func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, loader *bundles.Loader) (*ResolvedAgent, error) {
+	if len(sub.Profiles) == 0 && name != "" {
+		// A NAMED agent with no profiles composes empty context — surface it
+		// (the binding is almost certainly a mistake) but don't fail: fault
+		// tolerance. The synthetic default-profile member (empty name, no
+		// profiles → composes the configured defaults) is intentional, so it is
+		// excluded from the warning.
+		clidiag.Warn("ctxloom", "agent %q declares no profiles; composing empty context", name)
+	}
+
+	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: sub.Profiles, Loader: loader})
+	if err != nil {
+		return nil, fmt.Errorf("agent %q: compose profiles: %w", name, err)
+	}
+
+	// Effective engine: an explicit override (map/weave --llm) wins over the
+	// binding's declared engine; either then beats the composed profiles' llm,
+	// then the project default — the same precedence run/oneshot use.
+	engine := sub.Engine
+	if engineOverride != "" {
+		engine = engineOverride
+	}
+	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
+	backend, model := ResolveBackend(cfg, label)
+
+	// Effective runtime axis: the agent's own choice wins, else the project's
+	// `runtime:` default (cfg.Runtime), else empty (→ host downstream). Empty
+	// is byte-identical to today's host behaviour.
+	runtime := sub.Runtime
+	if runtime == "" {
+		runtime = cfg.Runtime
+	}
+
+	return &ResolvedAgent{
+		Name:        name,
+		Engine:      sub.Engine,
+		Profiles:    sub.Profiles,
+		Label:       label,
+		Backend:     backend,
+		Model:       model,
+		Context:     ctxResult.Context,
+		Fragments:   ctxResult.FragmentsLoaded,
+		Runtime:     runtime,
+		Permissions: sub.Permissions,
+		// The interactive base an unflagged run resolves to (declared → label →
+		// built-in default), so a blank claude-code posture shows its real bypass.
+		EffectivePermissions: agent.ResolveDefault(
+			[]string{sub.Permissions, cfg.LM.Configs[label].Permissions},
+			backend == config.BackendClaudeCode).String(),
+	}, nil
+}
+
+// resolveMember resolves one map/weave member identifier into the engine +
+// composed context it runs with. A name matching a configured agent resolves
+// via that agent's {engine, profiles}; any other name is a BARE PROFILE used
+// as sugar — an implicit single-profile, default-engine agent (compose just
+// that profile; its engine falls back to the profile's own llm then the project
+// default, i.e. exactly the pre-Phase-C member behavior). An empty member is the
+// default-profile member: it composes the configured default profiles.
+//
+// Both paths route through resolveAgentBinding, so a bare profile reuses the
+// agent compose/engine logic verbatim rather than re-deriving it.
+func resolveMember(ctx context.Context, cfg *config.Config, member, engineOverride string, loader *bundles.Loader) (*ResolvedAgent, error) {
+	if sub, ok := cfg.Agent(member); ok {
+		return resolveAgentBinding(ctx, cfg, member, sub, engineOverride, loader)
+	}
+	// Bare-profile sugar: a synthetic single-profile, empty-engine agent. An
+	// empty member carries no profile so the composition degrades to the
+	// configured defaults (matching the old RunOneshot(Profile:"") member).
+	syn := agents.Agent{Name: member}
+	if member != "" {
+		syn.Profiles = []string{member}
+	}
+	return resolveAgentBinding(ctx, cfg, member, syn, engineOverride, loader)
+}

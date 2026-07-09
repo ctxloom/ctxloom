@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // profileUpgrades is the canonical, ordered profile schema upgrade pipeline,
@@ -23,10 +23,116 @@ import (
 // Remote-dependent upgrades self-gate when they have no resolution context (a
 // local project profile has no remote), so the pipeline is always built — that
 // keeps future remote-independent upgrades from being skipped for local profiles.
-func profileUpgrades(ownURL string, aliasToURL func(string) string) upgrade.Pipeline {
+//
+// seeded is the loader's bundle-profile seed ("<bundle>#profiles/<name>" keys):
+// the discovery surface for rewriting retired top-level @profiles/ parents to
+// their bundle-shipped successors.
+func profileUpgrades(ownURL string, aliasToURL func(string) string, seeded map[string]*Profile) upgrade.Pipeline {
 	return upgrade.Pipeline{
+		promptSelectorUpgrade{},
+		retiredParentUpgrade{seeded: seeded},
 		bundleRefCanonicalizeUpgrade{ownURL: ownURL, aliasToURL: aliasToURL},
 	}
+}
+
+// promptSelectorUpgrade rewrites legacy item selectors that targeted a bundle
+// prompt ("<bundle>#prompts/<name>" or the ":prompts/" alias) to the skills
+// section, matching the prompt→skill item-kind rename. It runs BEFORE
+// bundleRefCanonicalizeUpgrade so the ':' alias it preserves is then normalized
+// to the canonical '#' form by that later stage. Idempotent: a ref already
+// pointing at "#skills/"/":skills/" (or with no item selector) is untouched.
+type promptSelectorUpgrade struct{}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (promptSelectorUpgrade) Name() string { return "rename prompt selectors to skills" }
+
+// Apply rewrites prompt selectors in the bundles and bundle_items sequences.
+func (u promptSelectorUpgrade) Apply(root *yaml.Node) bool {
+	bundlesChanged := mapScalarSeq(root, "bundles", rewriteSkillSelector)
+	itemsChanged := mapScalarSeq(root, "bundle_items", rewriteSkillSelector)
+	return bundlesChanged || itemsChanged
+}
+
+// rewriteSkillSelector migrates a single ref's legacy prompt item selector to
+// the skills section, preserving the selector's separator ('#' or ':'). Returns
+// the ref unchanged (false) when it carries no prompt selector.
+func rewriteSkillSelector(ref string) (string, bool) {
+	for _, sep := range []string{"#prompts/", ":prompts/"} {
+		if strings.Contains(ref, sep) {
+			return strings.Replace(ref, sep, sep[:1]+"skills/", 1), true
+		}
+	}
+	return ref, false
+}
+
+// retiredParentUpgrade rewrites a parent written in the RETIRED top-level
+// profile distribution grammar ("<url>@profiles/<name>") to its bundle-shipped
+// successor ("<url>@bundles/<bundle>#profiles/<name>"). Top-level @profiles/
+// distribution was removed with ItemTypeProfile: the retired form can no longer
+// resolve, sync, or lock. The rewrite is discovery-based, not syntactic — which
+// bundle now ships the profile is unknowable from the ref alone — so it targets
+// the one seeded bundle profile the same repo ships under that name
+// (FindBundleProfileKey). An unmatched parent (successor bundle not yet pulled,
+// profile dropped upstream, or ambiguous) is left verbatim per the
+// fault-tolerance rule of this pipeline: persist the authored form and let the
+// resolver warn, rather than guess. Idempotent: successor-form ("#profiles/")
+// and local parents never match the retired grammar.
+//
+// It runs BEFORE bundleRefCanonicalizeUpgrade so the successor ref it emits is
+// re-normalized (legacy "v1/" collapse) by that later stage like any other
+// canonical parent.
+type retiredParentUpgrade struct {
+	seeded map[string]*Profile
+}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (retiredParentUpgrade) Name() string {
+	return "rewrite retired @profiles/ parents to bundle profiles"
+}
+
+// Apply rewrites retired parents in the top-level parents sequence.
+func (u retiredParentUpgrade) Apply(root *yaml.Node) bool {
+	if len(u.seeded) == 0 {
+		return false
+	}
+	return mapScalarSeq(root, "parents", u.rewrite)
+}
+
+// rewrite migrates a single retired parent ref to its seeded successor,
+// reporting whether it changed. Non-retired refs pass through untouched.
+func (u retiredParentUpgrade) rewrite(ref string) (string, bool) {
+	url, name, ok := remote.SplitRetiredProfileRef(ref)
+	if !ok {
+		return ref, false
+	}
+	successor, found := FindBundleProfileKey(u.seeded, url, name)
+	if !found {
+		return ref, false
+	}
+	return successor, true
+}
+
+// FindBundleProfileKey returns the canonical "<bundle>#profiles/<name>" key in
+// seeded for the profile shipped by repo url under the bare name, when exactly
+// one bundle from that repo ships it. Ambiguity — two bundles from the same
+// repo shipping the same profile name — yields false: a migration must not
+// guess between them. Exported so the config bundle-profile seed applies the
+// same retired-parent rewrite to profiles that arrive already parsed (inside
+// bundles) and never pass through the loader's document pipeline.
+func FindBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
+	prefix := url + "@" + remote.ItemTypeBundle.DirName() + "/"
+	suffix := remote.ProfileSelector + name
+	var match string
+	for key := range seeded {
+		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+			continue
+		}
+		if match != "" {
+			return "", false
+		}
+		match = key
+	}
+	return match, match != ""
 }
 
 // bundleRefCanonicalizeUpgrade rewrites non-canonical bundle references to their
@@ -45,7 +151,7 @@ func profileUpgrades(ownURL string, aliasToURL func(string) string) upgrade.Pipe
 //     aliasToURL — including the common case where the alias is the profile's
 //     own remote (a redundant prefix the old qualifier produced).
 //   - An already-canonical ref is left untouched, so the upgrade is idempotent.
-//   - A legacy ":fragments/…" / ":prompts/…" / ":mcp" item selector is rewritten
+//   - A legacy ":fragments/…" / ":skills/…" / ":mcp" item selector is rewritten
 //     to the canonical "#…" form; a "#…" selector is preserved verbatim.
 //   - Anything that cannot be resolved (no context, unknown alias, or a result
 //     that fails to parse) is left unchanged — fault tolerant: persist the
@@ -174,7 +280,7 @@ func splitBundleSelector(ref string) (base, item string) {
 	if i := strings.Index(ref, "#"); i != -1 {
 		return ref[:i], ref[i:]
 	}
-	for _, marker := range []string{":fragments/", ":prompts/", ":mcp"} {
+	for _, marker := range []string{":fragments/", ":skills/", ":mcp"} {
 		if i := strings.Index(ref, marker); i != -1 {
 			// Drop the ':' and reintroduce the selector under the canonical '#'.
 			return ref[:i], "#" + ref[i+1:]

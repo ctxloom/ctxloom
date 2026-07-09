@@ -36,7 +36,7 @@ notes: |
 
 installation: |
   The ctxloom install script and `brew install ctxloom/tap/ltk` ship the ltk
-  binary (fallback: go install github.com/ctxloom/llm-tool-killer/cmd/ltk@latest).
+  binary (fallback: go install github.com/ctxloom/ctxloom/cmd/ltk@latest).
   A missing binary degrades to no hook, never a blocked startup. To activate
   rules for a project, scaffold .ltk/config.yaml with
   `ltk manage install --config .ltk/config.yaml --print` or write

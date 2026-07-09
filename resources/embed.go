@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-//go:embed all:schema all:commands all:builtin_bundles all:prompts example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
+//go:embed all:schema all:commands all:builtin_bundles all:prompts all:profiles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetPromptText returns an embedded prompt/instruction template by name
@@ -70,6 +70,14 @@ func GetInitConfig() ([]byte, error) {
 // GetDefaultRemotes returns the embedded default remotes file.
 func GetDefaultRemotes() ([]byte, error) {
 	return resourcesFS.ReadFile("default-remotes.yaml")
+}
+
+// GetSeedProfile returns an embedded profile template `ctxloom init` scaffolds
+// into a fresh project's .ctxloom/profiles/<name>.yaml. These are starting-point
+// LOCAL profiles (not bare remote refs), so the user owns and can edit the
+// default that `ctxloom run` assembles.
+func GetSeedProfile(name string) ([]byte, error) {
+	return resourcesFS.ReadFile("profiles/" + name + ".yaml")
 }
 
 // GetBuiltinCommand returns an embedded builtin command by name.

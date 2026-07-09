@@ -1,0 +1,200 @@
+package git
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// execGit is the default Git: it shells out to the system git binary. Stateless —
+// every method receives its working directory, so one instance is safe to share
+// across the concurrent fan-out.
+type execGit struct{}
+
+// NewExec returns the default git binary-backed implementation.
+func NewExec() Git { return execGit{} }
+
+// isRepoTimeout bounds the non-context IsRepo probe (it satisfies a bool-returning
+// signature, so it self-limits rather than blocking indefinitely).
+const isRepoTimeout = 5 * time.Second
+
+// IsRepo reports whether dir is inside a working tree via rev-parse (which handles
+// linked worktrees, where .git is a file). Any error → false (fault tolerant).
+func (execGit) IsRepo(dir string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), isRepoTimeout)
+	defer cancel()
+	out, err := output(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+// Toplevel returns the working-tree root of the repo containing dir.
+func (execGit) Toplevel(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// CommonDir returns the absolute common git dir. rev-parse yields it relative to
+// dir for the main repo (".git") and absolute for a linked worktree, so resolve
+// the relative form against dir.
+func (execGit) CommonDir(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	p := strings.TrimSpace(out)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	return filepath.Clean(p), nil
+}
+
+// WorktreeAdd creates a detached worktree at path checked out to ref.
+func (execGit) WorktreeAdd(ctx context.Context, repoDir, path, ref string) error {
+	return run(ctx, repoDir, "worktree", "add", "--detach", path, ref)
+}
+
+// WorktreeRemove removes the worktree at path; force adds --force (skips git's
+// dirty/locked refusal — callers pass false to keep the WIP-safe default).
+func (execGit) WorktreeRemove(ctx context.Context, repoDir, path string, force bool) error {
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, path)
+	return run(ctx, repoDir, args...)
+}
+
+// WorktreeList parses the repo-global porcelain worktree list.
+func (execGit) WorktreeList(ctx context.Context, repoDir string) ([]Worktree, error) {
+	out, err := output(ctx, repoDir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktreeList(out), nil
+}
+
+// WorktreePrune drops stale worktree admin files.
+func (execGit) WorktreePrune(ctx context.Context, repoDir string) error {
+	return run(ctx, repoDir, "worktree", "prune")
+}
+
+// UpdateIndexSkipWorktree toggles the skip-worktree bit on a tracked file.
+func (execGit) UpdateIndexSkipWorktree(ctx context.Context, dir, file string, skip bool) error {
+	flag := "--no-skip-worktree"
+	if skip {
+		flag = "--skip-worktree"
+	}
+	return run(ctx, dir, "update-index", flag, file)
+}
+
+// ListTracked returns the tracked files under dir matching pathspecs, parsed from
+// NUL-separated `git ls-files -z` output (so paths with spaces/newlines survive).
+// An empty pathspec list matches nothing (git would list every tracked file, which
+// the callers never want), so it short-circuits to no results.
+func (execGit) ListTracked(ctx context.Context, dir string, pathspecs ...string) ([]string, error) {
+	if len(pathspecs) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"ls-files", "-z", "--"}, pathspecs...)
+	out, err := output(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
+// IsDirty reports whether the working tree at dir has uncommitted OR untracked
+// changes (porcelain output non-empty).
+func (execGit) IsDirty(ctx context.Context, dir string) (bool, error) {
+	out, err := output(ctx, dir, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// parseWorktreeList parses `git worktree list --porcelain`. Records are separated
+// by blank lines; each begins with a `worktree <path>` line and may carry HEAD,
+// branch/detached, and bare markers.
+func parseWorktreeList(out string) []Worktree {
+	var (
+		list []Worktree
+		cur  *Worktree
+	)
+	flush := func() {
+		if cur != nil {
+			list = append(list, *cur)
+			cur = nil
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case line == "":
+			flush()
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			cur = &Worktree{Path: strings.TrimPrefix(line, "worktree ")}
+		case cur == nil:
+			// Stray line before any worktree header — ignore.
+		case strings.HasPrefix(line, "HEAD "):
+			cur.Head = strings.TrimPrefix(line, "HEAD ")
+		case strings.HasPrefix(line, "branch "):
+			cur.Branch = strings.TrimPrefix(line, "branch ")
+		case line == "detached":
+			cur.Detached = true
+		case line == "bare":
+			cur.Bare = true
+		}
+	}
+	flush()
+	return list
+}
+
+// run invokes git in dir, discarding stdout and folding stderr into any error.
+// Mirrors internal/remote's runGit: per-command Dir (never os.Chdir), stderr
+// captured, ctx cancellation surfaced, a missing binary reported clearly.
+func run(ctx context.Context, dir string, args ...string) error {
+	_, err := output(ctx, dir, args...)
+	return err
+}
+
+// output invokes git in dir and returns its stdout, folding stderr into any error.
+func output(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = os.Environ()
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		label := strings.Join(args, " ")
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", fmt.Errorf("git binary not found on PATH: %w", err)
+		}
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git %s: %w", label, ctx.Err())
+		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", fmt.Errorf("git %s: %s: %w", label, msg, err)
+		}
+		return "", fmt.Errorf("git %s: %w", label, err)
+	}
+	return stdout.String(), nil
+}

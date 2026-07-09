@@ -29,11 +29,12 @@ jobs:
           if [ -z "$V" ]; then
             echo "::error::VERSION file is empty"; exit 1
           fi
-          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
-            echo "::error file=VERSION::VERSION $V is already tagged. Bump it (versionator set <next>) before merging."
+          TAG="v${V#v}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error file=VERSION::VERSION $V is already tagged ($TAG). Bump it (versionator set <next>) before merging."
             exit 1
           fi
-          echo "VERSION $V is not yet tagged — OK to merge and release."
+          echo "VERSION $V ($TAG) is not yet tagged — OK to merge and release."
 
   build-container:
     name: Build Dev Container
@@ -139,6 +140,15 @@ jobs:
 
       - name: Generate JSON Schemas (verify the generator runs clean)
         run: just -f justfile.container gen-schemas
+
+      # Drift gate for the generated CLI reference: regenerate from the cobra
+      # command tree and fail if the checked-in website pages are stale. The
+      # safe.directory mark is needed because the recipe runs `git diff` inside
+      # the devcontainer image.
+      - name: Check generated CLI docs are current
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          just -f justfile.container gen-docs-check
 
   build-and-integration:
     name: Build & Integration Tests

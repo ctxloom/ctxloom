@@ -1,0 +1,88 @@
+---
+title: "CLI Reference"
+sidebar:
+  order: 0
+---
+
+Complete reference for all ctxloom commands.
+
+The per-command pages in this section are **generated** from the command definitions in `internal/cli` (`just gen-docs`) — the same text as `ctxloom <command> --help` and `man ctxloom`, so they always match the binary. This page keeps the narrative that doesn't fit a `--help` screen.
+
+Every command accepts the global `--format text|json` flag; `json` emits machine-readable output for scripting and frontends.
+
+## Command groups
+
+- **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/), [`map`](/reference/cli/ctxloom_map/), [`weave`](/reference/cli/ctxloom_weave/)
+- **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`skill`](/reference/cli/ctxloom_skill/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
+- **Agents** — [`agent`](/reference/cli/ctxloom_agent/), [`container`](/reference/cli/ctxloom_container/), [`acp`](/reference/cli/ctxloom_acp/)
+- **Remotes & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`bundle`](/reference/cli/ctxloom_bundle/), [`trust`](/reference/cli/ctxloom_trust/), [`blacklist`](/reference/cli/ctxloom_blacklist/), [`tooling`](/reference/cli/ctxloom_tooling/)
+- **Infrastructure** — [`manage`](/reference/cli/ctxloom_manage/), [`mcp`](/reference/cli/ctxloom_mcp/)
+- **Sessions & utilities** — [`session`](/reference/cli/ctxloom_session/), [`memory`](/reference/cli/ctxloom_memory/), [`llm`](/reference/cli/ctxloom_llm/), [`harp`](/reference/cli/ctxloom_harp/), [`version`](/reference/cli/ctxloom_version/), [`completion`](/reference/cli/ctxloom_completion/)
+
+## Workflow guidance
+
+With no `-p`/`-f`/`-t` and no default profile configured, `ctxloom run` shows an interactive picker of installed profiles (skipped when not on a terminal).
+
+With `--print` and no prompt argument, the prompt is read from **stdin** when piped — making `run --print` a universal reducer over any input (e.g. the output of `ctxloom map`, or text from another tool):
+
+```bash
+# Synthesize piped input with a high-power profile:
+cat findings.txt | ctxloom run -p code-review/synthesis --print
+```
+
+`weave` is equivalent to `ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print`, but portable and single-invocation. Use the components directly when you want to inspect or post-process the intermediate parts; use `weave --part` / `--parts-from` to synthesize **non-ctxloom outputs** alongside (or instead of) live members:
+
+```bash
+git diff | ctxloom map -p code-review/security -p code-review/performance
+ctxloom map -p a -p b -p c --concurrency 3 "review this change" \
+  | ctxloom run -p code-review/synthesis --print
+ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
+```
+
+A profile may declare its own preferred LLM (`llm:`); `run -l`/`--llm` overrides it. In an ensemble, each member runs on its own `llm:` and the synthesizer on its own (typically high-power) one.
+
+## Reference grammar
+
+Bundle-item references follow one grammar everywhere:
+
+```
+bundle#fragments/name     # Fragment in bundle
+bundle#skills/name        # Skill in bundle
+bundle#mcp/name           # MCP config in bundle
+bundle#profiles/name      # Profile shipped by bundle (local bundle short form;
+                          # remote bundles use the canonical URL)
+remote/bundle             # Bundle from a configured remote
+remote/bundle@v1.0.0      # Versioned bundle
+https://github.com/o/r@bundles/b#profiles/n   # Bundle-shipped profile (canonical)
+```
+
+`profile create` and `profile modify` accept **bare convenience refs** for `-b`/`--bundle` (e.g. `-b code-review-base#fragments/conduct`). Bare refs are expanded against the configured default remote into canonical URLs. Full URLs (`https://github.com/owner/repo@bundles/name`) and `ctxloom:local@...` refs pass through unchanged.
+
+`--parent` refs are deliberately **not** alias-expanded — a bare name always means a local profile (subdirectory paths like `personal/go-developer` work); remote parents use the bundle-qualified canonical URL.
+
+**Consuming remote content is reference-only** — you don't "install" remote items. Author a local profile that references remote content, then pull:
+
+```bash
+ctxloom profile create testing -b ctxloom-default/testing
+ctxloom profile create security -b ctxloom-default/security#fragments/owasp-top-10
+ctxloom remote pull
+```
+
+## Remote verbs (the apt model)
+
+The `remote` verbs mirror apt: [`pull`](/reference/cli/ctxloom_remote_pull/) installs exactly what is already pinned, [`update`](/reference/cli/ctxloom_remote_update/) refreshes and checks, [`upgrade`](/reference/cli/ctxloom_remote_upgrade/) advances your pins. Upgrades from untrusted remotes are staged in the pending lockfile for review (`ctxloom bundle review`), never applied silently.
+
+A reference's `@version` is a **constraint** — a semver range (`@^1.2`), a branch (`@main`), an exact tag/SHA (`@v1.2.3`), or empty (default branch). `upgrade` moves only the lockfile, never your profile YAML. Freeze an item with `ctxloom bundle hold <name>` (alias `pin`); release with `unhold`. See [Versioning, locking, and holds](/concepts/remotes/#versioning-locking-and-holds).
+
+## Forges
+
+A remote binds to a **forge** — the adapter ctxloom uses to read and publish. `github` is the rich adapter over the GitHub REST API (file reads, ref resolution, repo search, PR publish; serves github.com and GitHub Enterprise). `git` is the generic adapter that clones over HTTPS/SSH and reads the working copy — it works against any git host (GitLab, Gitea, Bitbucket, self-hosted) for consumption, with ambient git auth, but has no API search or PR publish.
+
+Without `--forge`, the forge resolves from the URL host: github.com uses `github`, every other host uses `git`. Pass `--forge` to override with `github`, `git`, or a `forges:` label configured in `remotes.yaml` (e.g. a GitHub Enterprise instance with its own `base_url`/`token_env`).
+
+| URL format | Example |
+|------------|---------|
+| GitHub shorthand | `alice/ctxloom` |
+| Full HTTPS | `https://github.com/alice/ctxloom` |
+| Any other git host | `https://git.example.com/corp/ctxloom` |
+| SSH (converted to HTTPS) | `git@github.com:alice/ctxloom.git` |

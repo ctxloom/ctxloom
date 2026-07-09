@@ -13,35 +13,58 @@ package sessions
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
-	"github.com/ctxloom/shared/filelock"
-	"github.com/ctxloom/shared/harp"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// Entry is one row in index.yaml.
+// Entry is one row in index.yaml. The json tags mirror the yaml keys so
+// `ctxloom session list --format json` and any frontend reading it (the VSCode
+// companion) share the same snake_case contract as the on-disk index.
 type Entry struct {
-	HarpName       string     `yaml:"harp_name"`
-	SessionID      string     `yaml:"session_id,omitempty"` // empty until backend binds on initialize
-	Backend        string     `yaml:"backend,omitempty"`
-	ProjectDir     string     `yaml:"project_dir"`
-	StartedAt      time.Time  `yaml:"started_at"`
-	EndedAt        *time.Time `yaml:"ended_at,omitempty"`
-	TranscriptPath string     `yaml:"transcript_path,omitempty"`
-	Summary        string     `yaml:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
+	HarpName       string     `yaml:"harp_name" json:"harp_name"`
+	SessionID      string     `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize
+	Backend        string     `yaml:"backend,omitempty" json:"backend,omitempty"`
+	ProjectDir     string     `yaml:"project_dir" json:"project_dir"`
+	StartedAt      time.Time  `yaml:"started_at" json:"started_at"`
+	EndedAt        *time.Time `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
+	TranscriptPath string     `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
+	Summary        string     `yaml:"summary,omitempty" json:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
 	// Detail holds extra picker lines (the distilled Open Items) shown under the
 	// summary. Kept separate from Summary so the single-line consumers (session
 	// list table, MCP resource) stay one line while the picker can render more.
-	Detail []string `yaml:"detail,omitempty"`
+	Detail []string `yaml:"detail,omitempty" json:"detail,omitempty"`
+	// SourceSize is the byte size of the backend transcript at the moment this
+	// session was last distilled — the staleness fingerprint. `session list` and
+	// the resume picker stat the live transcript (TranscriptPath) and flag the
+	// row "out of date" once the size has moved past this. Append-only
+	// transcripts only grow, so any change means the essence covers an earlier
+	// slice. Zero when never distilled (or distilled before staleness tracking);
+	// omitempty keeps those rows clean.
+	SourceSize int64 `yaml:"source_size,omitempty" json:"source_size,omitempty"`
+
+	// Distilled and EssencePath are COMPUTED at list/show time from the essence
+	// file's presence on disk — never persisted (yaml:"-"), so the index stays the
+	// source of truth for stored fields only. They let a client tell whether a
+	// session has an essence and open it, without reconstructing the backend's
+	// ~/.ctxloom/sessions/<harp>/essence.md layout. EssencePath is "" (and omitted)
+	// when the session isn't distilled.
+	Distilled   bool   `yaml:"-" json:"distilled"`
+	EssencePath string `yaml:"-" json:"essence_path,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -266,17 +289,106 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 	dir, err := paths.HarpDir(harpName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
 		return
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
+		return
+	}
+	// A transcript that already lives INSIDE the session dir needs no
+	// reference link: a containerized run bind-mounts the engine's store root
+	// at persist/transcripts, so the physical file is harp-addressable by
+	// location (LocateTranscript) and a transcript.jsonl symlink would only
+	// add a second name for it inside the same dir.
+	if rel, err := filepath.Rel(dir, transcriptPath); err == nil &&
+		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
 	}
 	link := filepath.Join(dir, "transcript.jsonl")
 	_ = os.Remove(link) // replace any stale link; ignore absence
 	if err := os.Symlink(transcriptPath, link); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
+	}
+}
+
+// LocateTranscript finds a harp's transcript BY LOCATION: the newest
+// transcript-shaped file under ~/.ctxloom/sessions/<harp>/persist/transcripts,
+// the dir a containerized run bind-mounts to the engine's native transcript
+// store root. A containerized structured child never runs the SessionStart
+// hook, so the normal BindSession path (which records TranscriptPath) never
+// fires — but with the mount, the transcript physically lives in the harp's
+// session dir, so location IS the binding. Engines nest their stores
+// (claude: <encoded-project>/<uuid>.jsonl; antigravity:
+// <uuid>/.system_generated/logs/transcript_full.jsonl), hence the recursive
+// walk. The newest .jsonl wins (claude/codex/antigravity transcripts); .json
+// is the kiro-store fallback considered only when no .jsonl exists.
+func LocateTranscript(harpName string) (string, bool) {
+	if harpName == "" {
+		return "", false
+	}
+	root, err := paths.HarpTranscriptStoreDir(harpName)
+	if err != nil {
+		return "", false
+	}
+	var bestJSONL, bestJSON string
+	var tJSONL, tJSON time.Time
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // an absent/unreadable subtree degrades to "not found"
+		}
+		if d.IsDir() {
+			// claude-code records each in-harness subagent's interior under
+			// <session>/subagents/agent-<id>.jsonl. Those files are often the
+			// newest in the store while a subagent runs, but they are not the
+			// session's transcript — skip the subtree so "newest wins" cannot
+			// resolve a harp to a subagent interior.
+			if d.Name() == "subagents" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		switch filepath.Ext(p) {
+		case ".jsonl":
+			if bestJSONL == "" || info.ModTime().After(tJSONL) {
+				bestJSONL, tJSONL = p, info.ModTime()
+			}
+		case ".json":
+			if bestJSON == "" || info.ModTime().After(tJSON) {
+				bestJSON, tJSON = p, info.ModTime()
+			}
+		}
+		return nil
+	})
+	if bestJSONL != "" {
+		return bestJSONL, true
+	}
+	if bestJSON != "" {
+		return bestJSON, true
+	}
+	return "", false
+}
+
+// fillTranscriptByLocation resolves a missing (or dangling) transcript binding
+// by location for a returned entry COPY. Computed on read and never persisted
+// — the same posture as the Distilled/EssencePath computed fields — so the
+// on-disk index keeps only what a bind actually recorded. A live host-bound
+// entry short-circuits on the stat and is untouched.
+func fillTranscriptByLocation(e *Entry) {
+	if e == nil || e.HarpName == "" {
+		return
+	}
+	if e.TranscriptPath != "" {
+		if _, err := os.Stat(e.TranscriptPath); err == nil {
+			return
+		}
+	}
+	if p, ok := LocateTranscript(e.HarpName); ok {
+		e.TranscriptPath = p
 	}
 }
 
@@ -287,13 +399,13 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range idx.Sessions {
-		if idx.Sessions[i].HarpName == harpName {
-			out := idx.Sessions[i]
-			return &out, nil
-		}
+	i := slices.IndexFunc(idx.Sessions, func(e Entry) bool { return e.HarpName == harpName })
+	if i < 0 {
+		return nil, nil
 	}
-	return nil, nil
+	out := idx.Sessions[i]
+	fillTranscriptByLocation(&out)
+	return &out, nil
 }
 
 // ListForProject returns entries whose ProjectDir == projectDir, sorted
@@ -306,11 +418,39 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
+			fillTranscriptByLocation(&e)
 			out = append(out, e)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
 	return out, nil
+}
+
+// TranscriptStale compares a transcript file's current byte size to the size
+// stamped when an essence was distilled from it (Entry.SourceSize). It reports
+// whether the essence is out of date and whether that could be determined at
+// all: known=false (stale=false) when there is no stamped size (never distilled,
+// or distilled before staleness tracking), no transcript path, or the stat
+// fails. Append-only transcripts only grow, so any size difference means the
+// essence covers an earlier slice. Read-only and best-effort per the
+// fault-tolerance philosophy — an unreadable transcript degrades to "can't
+// tell", never an error.
+func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known bool) {
+	if stampedSize == 0 || transcriptPath == "" {
+		return false, false
+	}
+	info, err := os.Stat(transcriptPath)
+	if err != nil {
+		return false, false
+	}
+	return info.Size() != stampedSize, true
+}
+
+// SourceStale reports whether this entry's distilled essence is out of date
+// relative to its source transcript, and whether that could be determined (see
+// TranscriptStale). The picker and `session list` use it to badge stale rows.
+func (e Entry) SourceStale() (stale, known bool) {
+	return TranscriptStale(e.TranscriptPath, e.SourceSize)
 }
 
 // MarkEnded sets EndedAt on the named entry. Idempotent.
@@ -402,10 +542,54 @@ func (m *Manager) Forget(harpName string) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
-// SetSummary updates the cached summary and detail lines on the index entry.
-// summary mirrors the `summary:` line from the compacted essence.md frontmatter;
-// detail holds the extra picker lines (Open Items). Passing nil detail clears it.
-func (m *Manager) SetSummary(harpName, summary string, detail []string) error {
+// Reconcile drops the entries that isDead reports as unrecoverable, persisting
+// the pruned index, and returns the survivors. The list path runs this so a dead
+// pointer — e.g. an entry whose bound transcript file has since been deleted,
+// with no distilled essence to fall back on — never reaches a frontend; the
+// removal is silent because such an entry is already unactionable. One atomic
+// load+save under the lock, and a no-op write when nothing is dead.
+func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := filelock.Lock(m.path + ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	survivors := make([]Entry, 0, len(idx.Sessions))
+	for _, e := range idx.Sessions {
+		if !isDead(e) {
+			survivors = append(survivors, e)
+		}
+	}
+	if len(survivors) != len(idx.Sessions) {
+		idx.Sessions = survivors
+		if err := m.saveLocked(idx); err != nil {
+			return nil, err
+		}
+	}
+	// Fill AFTER the save decision so the located path is computed-on-read
+	// only, never persisted; isDead deliberately judged the RAW entries (an
+	// unbound entry with a located transcript is recoverable either way).
+	for i := range survivors {
+		fillTranscriptByLocation(&survivors[i])
+	}
+	return survivors, nil
+}
+
+// SetSummary updates the cached summary, detail lines, and source-size
+// fingerprint on the index entry. summary mirrors the `summary:` line from the
+// compacted essence.md frontmatter; detail holds the extra picker lines (Open
+// Items); sourceSize is the transcript byte size the essence was distilled from,
+// used for staleness detection (see TranscriptStale). Passing nil detail clears
+// it; a zero sourceSize leaves the fingerprint unset (no staleness badge).
+func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSize int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -425,6 +609,7 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string) error {
 		}
 		idx.Sessions[i].Summary = summary
 		idx.Sessions[i].Detail = detail
+		idx.Sessions[i].SourceSize = sourceSize
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

@@ -23,8 +23,8 @@ Feature: Editing content
   Scenario: Editing a prompt lands the change in the bundle
     Given a ctxloom project with a marker editor
     And a bundle "demo" exists
-    And a prompt "review" in bundle "demo" exists
-    When I run "ctxloom prompt edit demo#prompts/review"
+    And a skill "review" in bundle "demo" exists
+    When I run "ctxloom skill edit demo#skills/review"
     Then the command succeeds
     And the file ".ctxloom/cache/bundles/demo.yaml" contains "EDITED-BY-TEST"
 

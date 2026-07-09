@@ -11,7 +11,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // SyncDependenciesRequest contains parameters for syncing dependencies.
@@ -32,26 +34,17 @@ type SyncDependenciesRequest struct {
 	FS       afero.Fs         `json:"-"`
 	Registry *remote.Registry `json:"-"`
 	Puller   Puller           `json:"-"`
-	// BundleReader / ProfileReader probe whether an item's content is
-	// retrievable at its locked address (the reference-only "installed"
-	// check). Nil in production (built from cfg); injected in tests.
-	BundleReader  remote.BundleByteSource `json:"-"`
-	ProfileReader ProfileByteSource       `json:"-"`
-}
-
-// ProfileByteSource is the profile-side read surface the installed-probe
-// needs: remote profiles are pure references (never materialized to disk), so
-// installed-ness is proven by reading the bytes back from the clone cache at
-// the locked address. remote.ProfileReader is the canonical implementation.
-type ProfileByteSource interface {
-	ReadProfileBytes(ctx context.Context, name string) ([]byte, error)
+	// BundleReader probes whether a bundle's content is retrievable at its
+	// locked address (the reference-only "installed" check). Nil in production
+	// (built from cfg); injected in tests.
+	BundleReader remote.BundleByteSource `json:"-"`
 }
 
 // SyncItem represents an item that was synced.
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "updated", "skipped", "staged", "failed"
+	Status    string `json:"status"` // "installed", "updated", "skipped", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 }
@@ -62,19 +55,11 @@ type SyncDependenciesResult struct {
 	Synced    []SyncItem `json:"synced,omitempty"`
 	Skipped   []SyncItem `json:"skipped,omitempty"`
 	Failed    []SyncItem `json:"failed,omitempty"`
-	Staged    []SyncItem `json:"staged,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
 	Updated   int        `json:"updated"`
 	Errors    int        `json:"errors"`
 	Message   string     `json:"message,omitempty"`
-
-	// Changes lists the bundle-level delta between active and pending
-	// lockfiles after this sync. Non-empty only when a bundle was added
-	// or its SHA changed AND its source remote is not TrustBundles=true.
-	// Consumed by the MCP review state in ctxServer (see
-	// docs/bundle-review-plan.md Phase 3). nil for non-bundle syncs.
-	Changes *BundleChangeSet `json:"-"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -83,20 +68,22 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
-	// Collect all remote bundle references from profiles
-	bundleRefs, profileRefs, err := collectRemoteReferences(cfg, req.Profiles, fs)
+	// Collect all remote bundle references from profiles. Bundle profiles used
+	// as parents contribute their underlying bundle; top-level remote profiles
+	// were retired, so there is no separate profile-ref set.
+	bundleRefs, err := collectRemoteReferences(cfg, req.Profiles, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect references: %w", err)
 	}
 
-	if len(bundleRefs) == 0 && len(profileRefs) == 0 {
+	if len(bundleRefs) == 0 {
 		return &SyncDependenciesResult{
 			Status:  "empty",
 			Message: "No remote references found in profiles",
 		}, nil
 	}
 
-	registry, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
+	_, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
 	if err != nil {
 		return nil, err
 	}
@@ -110,36 +97,22 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// for the same reason. Skipped when a Puller is injected (tests drive a mock
 	// fetcher with no real clone to advance); per-URL failures warn and continue.
 	if req.Puller == nil {
-		refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs, profileRefs))
+		refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs))
 	}
 
-	// Installed-probe sources (reference-only model: lockfile entry + content
+	// Installed-probe source (reference-only model: lockfile entry + content
 	// retrievable from the clone cache, never a disk check).
 	bundleReader := req.BundleReader
 	if bundleReader == nil {
 		bundleReader = NewBundleReaderForConfig(cfg)
-	}
-	profileReader := req.ProfileReader
-	if profileReader == nil {
-		profileReader = NewProfileReaderForConfig(cfg)
 	}
 
 	result := &SyncDependenciesResult{
 		Status: "completed",
 	}
 
-	// Sync profiles first (they may reference bundles), then bundles.
-	if err := syncRefs(ctx, puller, profileRefs, remote.ItemTypeProfile, baseDir, req.Force, bundleReader, profileReader, result); err != nil {
+	if err := syncRefs(ctx, puller, bundleRefs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
 		return result, err
-	}
-	if err := syncRefs(ctx, puller, bundleRefs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, profileReader, result); err != nil {
-		return result, err
-	}
-
-	// SECURITY: surface staged first-installs loudly — they are inert (no
-	// hooks/MCP/context) until the user reviews and approves them.
-	if n := len(result.Staged); n > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %d new bundle(s)/profile(s) staged pending review — run 'ctxloom bundle review'\n", n)
 	}
 
 	runSyncPostSteps(ctx, cfg, req, result, fs)
@@ -148,22 +121,19 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		result.Status = "completed_with_errors"
 	}
 
-	recordReviewState(cfg, registry, fs, result)
-
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d staged for review, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Staged), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
+		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
 
 	return result, nil
 }
 
 // resolveSyncDeps returns the registry and puller for a sync, preferring
-// injected (test) instances. Sync installs exactly the pinned set; surfacing
-// an upstream change to an already-locked item is `remote upgrade`'s job
-// (operations.StageUpgrade), and the post-sync lock rebuilds the active
-// lockfile from the pinned closure. The one exception is a FIRST install from
-// an untrusted remote: sync pulls are Blind (no security review), so syncItem
-// sets StageUntrustedNew and the puller stages such items into the pending
-// lockfile for `bundle review` instead of activating them.
+// injected (test) instances. Sync installs exactly the pinned set and writes
+// each pin straight to the active lockfile; surfacing an upstream change to an
+// already-locked item is `remote upgrade`'s job (operations.UpgradeDependencies),
+// and the post-sync lock rebuilds the active lockfile from the pinned closure.
+// Whether pulled content ever reaches the agent is decided per item at exposure
+// by the content-hash trust gate, so sync itself needs no review ceremony.
 func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
 	registry := req.Registry
 	if registry == nil {
@@ -187,12 +157,12 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 
 // syncRefs syncs each ref of one item type into result, checking for context
 // cancellation between items (returns ctx.Err() to abort the whole sync).
-func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, profiles ProfileByteSource, result *SyncDependenciesResult) error {
+func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, result *SyncDependenciesResult) error {
 	for _, ref := range refs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles, profiles)
+		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles)
 		result.Total++
 		addSyncItem(result, item)
 	}
@@ -221,77 +191,28 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	if req.Lock && result.Installed+result.Updated > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
-		// second sync pass. StageUntrustedNew keeps the closure rebuild from
-		// activating untrusted first-installs the puller just staged for review.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true, StageUntrustedNew: true}); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to generate lockfile after sync: %v\n", err)
+		// second sync pass.
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true}); err != nil {
+			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
 
 	// Apply hooks whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
+	// A wholesale apply failure is fatal-class in strict mode (hook/MCP/
+	// settings apply — per-backend partial failures are already instrumented
+	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
 		if _, err := syncHooksStep(ctx, cfg, ApplyHooksRequest{
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks after sync: %v\n", err)
+			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+				"failed to apply hooks after sync: %v", err)
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}
-}
-
-// recordReviewState records the active↔pending bundle delta on result so the MCP
-// review surface can show any changes a `remote upgrade` staged for review.
-// Sync itself never stages (it installs exactly the pinned set) and never
-// auto-applies trust — trusted changes are applied coherently by StageUpgrade,
-// which rewrites the refs. result.Changes is empty when pending is empty.
-func recordReviewState(cfg *config.Config, registry *remote.Registry, fs afero.Fs, result *SyncDependenciesResult) {
-	result.Changes = computeBundleChanges(cfg, registry, fs)
-}
-
-// computeBundleChanges loads the active + pending lockfiles and diffs them.
-// nil result means "nothing to review" — either no pending file exists or
-// every change was filtered out by TrustBundles.
-func computeBundleChanges(cfg *config.Config, registry *remote.Registry, fs afero.Fs) *BundleChangeSet {
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
-
-	active, err := activeMgr.Load()
-	if err != nil {
-		return nil
-	}
-	pending, err := pendingMgr.Load()
-	if err != nil || pending.IsEmpty() {
-		return nil
-	}
-	cs := DiffLockfiles(active, pending, registry)
-	if cs.IsEmpty() {
-		return nil
-	}
-	return cs
-}
-
-// PendingBundleChanges returns the active↔pending diff for cfg using the
-// real OS filesystem. Used by the MCP startup path so review state gets
-// populated even when no fresh sync ran this session (e.g. the user
-// restarted while pending was still on disk from a previous run). nil
-// when there's nothing to review.
-func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
-	if cfg == nil {
-		return nil
-	}
-	registry, err := getRegistry(cfg)
-	if err != nil {
-		registry = nil // diff degrades to "no trust filter" rather than aborting
-	}
-	fs := afero.NewOsFs()
-	// Trusted changes are applied coherently by StageUpgrade (it rewrites the
-	// refs), and DiffLockfiles filters trusted entries from review regardless, so
-	// there is nothing to promote here — just report the reviewable delta.
-	return computeBundleChanges(cfg, registry, fs)
 }
 
 // syncRefURLs returns the unique repo URLs behind the given canonical refs, in
@@ -318,9 +239,8 @@ func syncRefURLs(refSets ...[]string) []string {
 // collectRemoteReferences collects all remote bundle and profile references from config.
 // This recursively follows local parent profiles to find remote dependencies anywhere
 // in the inheritance chain.
-func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero.Fs) (bundleRefs []string, profileRefs []string, err error) {
+func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero.Fs) (bundleRefs []string, err error) {
 	bundleSet := collections.NewSet[string]()
-	profileSet := collections.NewSet[string]()
 
 	// Get profiles to process
 	profilesToProcess := profileNames
@@ -351,31 +271,24 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 	// Collect references from each profile, recursively following local parents
 	visited := collections.NewSet[string]()
 	for _, profileName := range uniqueProfiles {
-		collectProfileReferencesRecursive(cfg, profileName, bundleSet, profileSet, visited)
+		collectProfileReferencesRecursive(cfg, profileName, bundleSet, visited)
 	}
 
-	// Config-level default profiles are dependency roots too: the init-seeded
-	// default (and home-config defaults) may name remote profiles that no
-	// local profile references. A remote profile resolves only through its
-	// lockfile entry, so a default that is never collected here can never be
-	// pulled — and the first `ctxloom run` after init fails to assemble.
+	// The default agent's composed profiles are dependency roots too: the
+	// init-seeded default agent may name a remote bundle profile that no local
+	// profile references. A bundle-profile default/parent
+	// (<url>@bundles/x#profiles/y) resolves through its bundle's lockfile entry,
+	// so sync (and lock) the underlying bundle by stripping the selector — else
+	// the first `ctxloom run` after init fails to assemble the default.
 	if len(profileNames) == 0 {
-		defaults := cfg.ExplicitDefaultProfiles()
-		if len(defaults) == 0 {
-			defaults = homeDefaultProfiles()
-		}
-		for _, name := range defaults {
+		for _, name := range cfg.DefaultAgentProfiles() {
 			if isRemoteReference(name) {
-				profileSet.Add(name)
+				addRemoteBundleBase(bundleSet, name, "default profile")
 			}
 		}
 	}
 
-	// Convert sets to slices
-	bundleRefs = bundleSet.Items()
-	profileRefs = profileSet.Items()
-
-	return bundleRefs, profileRefs, nil
+	return bundleSet.Items(), nil
 }
 
 // collectProfileReferences collects bundle and parent profile references from a profile.
@@ -402,7 +315,7 @@ func collectProfileReferences(cfg *config.Config, profileName string) (bundles [
 // collectProfileReferencesRecursive recursively collects remote bundle and profile
 // references from a profile and all its local parent profiles.
 // This ensures remote dependencies in nested local profiles are discovered.
-func collectProfileReferencesRecursive(cfg *config.Config, profileName string, bundleSet, profileSet, visited collections.Set[string]) {
+func collectProfileReferencesRecursive(cfg *config.Config, profileName string, bundleSet, visited collections.Set[string]) {
 	// Prevent infinite loops
 	if visited.Has(profileName) {
 		return
@@ -416,23 +329,49 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 	// selector is re-applied at assembly time by the bundle loader.
 	for _, b := range bundles {
 		if isRemoteReference(b) {
-			base, _, _ := strings.Cut(b, "#")
-			bundleSet.Add(base)
+			addRemoteBundleBase(bundleSet, b, fmt.Sprintf("profile %q", profileName))
 		}
 	}
 
-	// Process parents
+	// Process parents.
 	for _, parent := range parents {
 		if isRemoteReference(parent) {
-			// Remote parent - add to profile refs for syncing
-			profileSet.Add(parent)
+			// The only remote profile parents are bundle profiles
+			// (<url>@bundles/x#profiles/y) — top-level @profiles/ was retired.
+			// Sync (and lock) the underlying bundle by stripping the selector,
+			// mirroring the #fragments/ handling above; the bundle profile's own
+			// composed bundles are closed by FlattenDependencies.
+			addRemoteBundleBase(bundleSet, parent, fmt.Sprintf("profile %q", profileName))
 		} else {
-			// Local parent - recursively collect its references
-			// Strip "profile:" prefix if present (used to distinguish profile refs from bundle refs)
+			// Local parent - recursively collect its references. Strip "profile:"
+			// prefix if present (distinguishes a profile ref from a bundle ref).
 			localName := strings.TrimPrefix(parent, "profile:")
-			collectProfileReferencesRecursive(cfg, localName, bundleSet, profileSet, visited)
+			collectProfileReferencesRecursive(cfg, localName, bundleSet, visited)
 		}
 	}
+}
+
+// addRemoteBundleBase adds ref's bundle base (item selector stripped) to
+// bundleSet after checking the base still parses as a distributable reference.
+// A ref in the retired top-level "@profiles/" grammar — or otherwise
+// unparseable — must never enter the install plan: it cannot pull, so planning
+// it walks the user into a confirmed install that then fails with "unknown
+// item type". Warn once and keep collecting (CLAUDE.md fault tolerance:
+// report the failure, continue with what works). owner names the referencing
+// profile for the diagnostic.
+func addRemoteBundleBase(bundleSet collections.Set[string], ref, owner string) {
+	base, _, _ := strings.Cut(ref, "#")
+	if _, _, retired := remote.SplitRetiredProfileRef(base); retired {
+		clidiag.WarnOnce("ctxloom",
+			"%s references %s in the retired top-level @profiles/ grammar; profiles ship inside bundles now — point the parent at \"<url>@bundles/<bundle>#profiles/<name>\" (or install a bundle that ships it, which auto-rewrites the parent on load); skipping from sync",
+			owner, ref)
+		return
+	}
+	if _, err := remote.ParseReference(base); err != nil {
+		clidiag.WarnOnce("ctxloom", "%s references invalid ref %s (%v); skipping from sync", owner, ref, err)
+		return
+	}
+	bundleSet.Add(base)
 }
 
 // isRemoteReference checks if a reference points to a remote source. Remote
@@ -449,7 +388,7 @@ func isRemoteReference(ref string) bool {
 }
 
 // syncItem syncs a single item and returns the result.
-func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, profiles ProfileByteSource) SyncItem {
+func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource) SyncItem {
 	item := SyncItem{
 		Reference: ref,
 		Type:      string(itemType),
@@ -465,28 +404,22 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// Skip already-installed items (unless force): lockfile entry + content
 	// retrievable from the clone cache, same probe CheckMissingDependencies
 	// uses. Nothing lives on disk in the reference-only model.
-	if !force && isInstalled(ctx, ref, itemType, bundles, profiles) {
+	if !force && isInstalled(ctx, ref, bundles) {
 		item.Status = "skipped"
 		return item
 	}
 
-	// Pull the item. The pull must be Blind: there is no interactive
-	// confirmation to give — the bundle-review gate is the confirmation — and
-	// any content display would be premature. Because Blind skips the security
-	// review entirely, StageUntrustedNew is the compensating gate: a FIRST
-	// install from an untrusted remote lands in the pending lockfile for
-	// `ctxloom bundle review` instead of the active one, so its hooks/MCP/
-	// context cannot activate until approved. Stdout is pinned to stderr
-	// because sync runs inside the MCP server, whose process stdout carries
-	// the JSON-RPC stream; pull's informational output (Blind-mode notice,
-	// lockfile warnings) must never land there.
+	// Pull the item. Force so the non-interactive sync never blocks on a
+	// retraction prompt (there is no other confirmation gate — exposure of the
+	// pulled content is decided per item by the content trust gate). Stdout is
+	// pinned to stderr because sync runs inside the MCP server, whose process
+	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
+	// warnings) must never land there.
 	opts := remote.PullOptions{
-		LocalDir:          baseDir,
-		Force:             force,
-		Blind:             true,
-		StageUntrustedNew: true,
-		ItemType:          itemType,
-		Stdout:            os.Stderr,
+		LocalDir: baseDir,
+		Force:    true,
+		ItemType: itemType,
+		Stdout:   os.Stderr,
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)
@@ -497,12 +430,9 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	item.LocalPath = result.LocalPath
-	switch {
-	case result.Staged:
-		item.Status = "staged"
-	case result.Overwritten:
+	if result.Overwritten {
 		item.Status = "updated"
-	default:
+	} else {
 		item.Status = "installed"
 	}
 
@@ -520,8 +450,6 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 		result.Updated++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
-	case "staged":
-		result.Staged = append(result.Staged, item)
 	case "failed":
 		result.Failed = append(result.Failed, item)
 		result.Errors++
@@ -531,11 +459,9 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 // CheckMissingDependenciesRequest contains parameters for checking missing deps.
 type CheckMissingDependenciesRequest struct {
 	Profiles []string `json:"profiles,omitempty"`
-	// BundleReader / ProfileReader probe whether an item's content is
-	// retrievable at its locked address. Nil in production (built from cfg);
-	// injected in tests.
-	BundleReader  remote.BundleByteSource `json:"-"`
-	ProfileReader ProfileByteSource       `json:"-"`
+	// BundleReader probes whether a bundle's content is retrievable at its
+	// locked address. Nil in production (built from cfg); injected in tests.
+	BundleReader remote.BundleByteSource `json:"-"`
 }
 
 // MissingDependency represents a dependency that is not installed locally.
@@ -561,18 +487,29 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	if bundleReader == nil {
 		bundleReader = NewBundleReaderForConfig(cfg)
 	}
-	profileReader := req.ProfileReader
-	if profileReader == nil {
-		profileReader = NewProfileReaderForConfig(cfg)
-	}
-
 	var missing []MissingDependency
 	seen := collections.NewSet[string]()
 
 	for _, profileName := range resolveProfilesToCheck(cfg, req.Profiles) {
-		bundles, parentProfiles := collectProfileReferences(cfg, profileName)
-		missing = append(missing, collectMissingRefs(ctx, bundles, remote.ItemTypeBundle, "bundle", profileName, bundleReader, profileReader, seen)...)
-		missing = append(missing, collectMissingRefs(ctx, parentProfiles, remote.ItemTypeProfile, "profile", profileName, bundleReader, profileReader, seen)...)
+		bundles, parents := collectProfileReferences(cfg, profileName)
+		// A bundle-profile parent (<url>@bundles/x#profiles/y) contributes its
+		// underlying bundle to the installed-check; top-level @profiles/ parents
+		// were retired. Local parents are separate profiles, probed in their own
+		// iteration of resolveProfilesToCheck.
+		refs := append(append([]string(nil), bundles...), parentBundleRefs(parents)...)
+		missing = append(missing, collectMissingRefs(ctx, refs, "bundle", profileName, bundleReader, seen)...)
+	}
+
+	// The default agent's composed profiles are dependency roots too — mirror
+	// collectRemoteReferences. An init-seeded default agent may name a bundle
+	// profile that no local profile references; resolveProfilesToCheck only
+	// enumerates Definitions keys and directory profiles, so such a default is
+	// never probed. Without this, the SyncOnStartup gate reports Count 0 and
+	// short-circuits to "up_to_date", leaving the default's bundle never
+	// auto-installed. Only probe defaults when no explicit profiles were
+	// requested; collectMissingRefs filters to remote refs and dedupes via seen.
+	if len(req.Profiles) == 0 {
+		missing = append(missing, collectMissingRefs(ctx, parentBundleRefs(cfg.DefaultAgentProfiles()), "bundle", "", bundleReader, seen)...)
 	}
 
 	if len(missing) == 0 {
@@ -609,16 +546,42 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 	return names
 }
 
-// collectMissingRefs returns the not-yet-installed remote refs among refs,
-// skipping local refs and any ref already in seen (marking the rest seen).
-func collectMissingRefs(ctx context.Context, refs []string, itemType remote.ItemType, typeName, profileName string, bundles remote.BundleByteSource, profiles ProfileByteSource, seen collections.Set[string]) []MissingDependency {
+// parentBundleRefs maps remote profile-parent / config-default refs to the
+// bundle whose installation they require: a bundle-profile ref
+// (<url>@bundles/x#profiles/y) yields its bundle <url>@bundles/x. Non-remote
+// (local) refs are dropped — they are probed as their own profiles. Top-level
+// @profiles/ refs were retired; carrying no selector they map to themselves and
+// resolve as "not installed".
+func parentBundleRefs(refs []string) []string {
+	var out []string
+	for _, r := range refs {
+		if !isRemoteReference(r) {
+			continue
+		}
+		// Retired top-level @profiles/ refs carry no selector, so they would map
+		// to themselves and read as "not installed" — the actual sync
+		// (addRemoteBundleBase) skips them, so they must never be offered as a
+		// missing dependency (the user would be prompted for a dep sync then
+		// rejects).
+		if _, _, ok := remote.SplitRetiredProfileRef(r); ok {
+			continue
+		}
+		base, _, _ := strings.Cut(r, "#")
+		out = append(out, base)
+	}
+	return out
+}
+
+// collectMissingRefs returns the not-yet-installed remote bundle refs among
+// refs, skipping local refs and any ref already in seen (marking the rest seen).
+func collectMissingRefs(ctx context.Context, refs []string, typeName, profileName string, bundles remote.BundleByteSource, seen collections.Set[string]) []MissingDependency {
 	var missing []MissingDependency
 	for _, ref := range refs {
 		if !isRemoteReference(ref) || seen.Has(ref) {
 			continue
 		}
 		seen.Add(ref)
-		if !isInstalled(ctx, ref, itemType, bundles, profiles) {
+		if !isInstalled(ctx, ref, bundles) {
 			missing = append(missing, MissingDependency{
 				Reference: ref,
 				Type:      typeName,
@@ -629,37 +592,26 @@ func collectMissingRefs(ctx context.Context, refs []string, itemType remote.Item
 	return missing
 }
 
-// isInstalled reports whether a reference is installed.
+// isInstalled reports whether a bundle reference is installed.
 //
-// An item is installed only when the active lockfile holds an entry AND the
-// content is retrievable at that entry's address (URL + SHA): remote items are
+// A bundle is installed only when the active lockfile holds an entry AND the
+// content is retrievable at that entry's address (URL + SHA): remote bundles are
 // pure references, never written to disk, so a file check can never see them.
-// The byte-source read proves both — ErrBundleNotInLockfile /
-// ErrProfileNotInLockfile with no entry, a fetch error when the locked SHA is
-// absent from the clone cache.
+// The byte-source read proves both — ErrBundleNotInLockfile with no entry, a
+// fetch error when the locked SHA is absent from the clone cache.
 //
-// The probe key is the ref's canonical string: lockfile keys carry no version
-// constraint and no fragment selector, while profile refs may carry either.
-func isInstalled(ctx context.Context, ref string, itemType remote.ItemType, bundles remote.BundleByteSource, profiles ProfileByteSource) bool {
+// The probe key is the ref's canonical string (no version constraint, no
+// selector). A bundle-profile ref must be stripped to its bundle before probing.
+func isInstalled(ctx context.Context, ref string, bundles remote.BundleByteSource) bool {
 	parsedRef, err := remote.ParseReference(ref)
 	if err != nil {
 		return false
 	}
-	key := parsedRef.CanonicalString()
-
-	if itemType == remote.ItemTypeBundle {
-		if bundles == nil {
-			return false
-		}
-		_, err := bundles.ReadBundleBytes(ctx, key)
-		return err == nil
-	}
-
-	if profiles == nil {
+	if bundles == nil {
 		return false
 	}
-	_, err = profiles.ReadProfileBytes(ctx, key)
-	return err == nil
+	_, rerr := bundles.ReadBundleBytes(ctx, parsedRef.CanonicalString())
+	return rerr == nil
 }
 
 // AutoSyncConfig holds configuration for auto-sync behavior.
@@ -674,9 +626,36 @@ type AutoSyncConfig struct {
 	ApplyHooks bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
 }
 
+// startupCloneRefresh is the seam over the pre-probe clone refresh (test
+// injection point; production = refreshReferencedClones).
+var startupCloneRefresh = refreshReferencedClones
+
+// refreshReferencedClones advances every remote clone the config references
+// (the bundle refs collectRemoteReferences gathers across profiles and config
+// defaults) to its live tip. Best-effort throughout: a collect or fetch
+// failure leaves the cache as-is; the probe and sync paths surface any real
+// problem.
+func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
+	bundleRefs, err := collectRemoteReferences(cfg, nil, getFS(nil))
+	if err != nil {
+		return
+	}
+	refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs))
+}
+
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.
 // This is meant to be called during MCP server initialization or CLI startup.
 func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesResult, error) {
+	// Refresh every referenced clone to its live tip BEFORE the
+	// missing-dependency probe. In steady state (everything installed) the probe
+	// reports Count 0 and short-circuits below — so this is the ONLY fetch a
+	// healthy startup performs; without it a project's clone cache goes stale
+	// indefinitely (SyncDependencies' own refresh is unreachable then, and the
+	// probe itself reads the possibly-stale cache to decide "missing"). Failures
+	// warn and continue inside refreshRepoCaches — an offline startup must never
+	// block the LLM (CLAUDE.md).
+	startupCloneRefresh(ctx, cfg)
+
 	// Check for missing dependencies first
 	checkResult, err := CheckMissingDependencies(ctx, cfg, CheckMissingDependenciesRequest{})
 	if err != nil {

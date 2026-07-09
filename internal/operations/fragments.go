@@ -116,7 +116,10 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 
 	loader := req.Loader
 	if loader == nil {
-		loader = bundleLoader(cfg)
+		// Exposure surface (ctxloom://fragments/{name}, saved-prompt runs): gate
+		// the resolved content (trust rework, TR5). A withheld fragment surfaces
+		// as errs.ErrFragmentWithheld so the resource omits it.
+		loader = exposureLoader(cfg)
 	}
 
 	content, err := loader.GetFragment(req.Name)

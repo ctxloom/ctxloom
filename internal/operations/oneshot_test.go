@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,22 +11,33 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // stubClient is a minimal pb.Client for testing RunOneshot without a real
 // backend: Run records the request and emits canned stdout.
 type stubClient struct {
-	out    string
-	echo   bool // when true, write the request prompt back as output
-	gotReq *pb.RunStart
+	out  string
+	echo bool // when true, write the request prompt back as output
+	// emitFragments writes the run's assembled context (its lead fragments) back
+	// as output, so a fan member's composed profile-context is observable in its
+	// Part.Output. Wins over echo/out.
+	emitFragments bool
+	gotReq        *pb.RunStart
 }
 
 func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
 	s.gotReq = req
-	if s.echo && req.Prompt != nil {
+	switch {
+	case s.emitFragments:
+		var parts []string
+		for _, f := range req.Fragments {
+			parts = append(parts, f.Content)
+		}
+		_, _ = io.WriteString(stdout, strings.Join(parts, "\n"))
+	case s.echo && req.Prompt != nil:
 		_, _ = io.WriteString(stdout, req.Prompt.Content)
-	} else {
+	default:
 		_, _ = io.WriteString(stdout, s.out)
 	}
 	return 0, nil
@@ -35,6 +47,12 @@ func (s *stubClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, 
 	return &pb.RunResult{}, nil
 }
 func (s *stubClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
+func (s *stubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
+	return nil, nil, nil
+}
+func (s *stubClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	return nil, nil, nil, nil
+}
 func (s *stubClient) ListSessions(context.Context) ([]agent.SessionMeta, error)  { return nil, nil }
 func (s *stubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
 func (s *stubClient) Kill()                                                      {}
@@ -91,6 +109,50 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	require.NotEmpty(t, stub.gotReq.Fragments)
 	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
+}
+
+// TestRunOneshot_ResolvesHeadlessPosture pins fix C: a headless oneshot/fan member
+// honors a declared read-only plan on a backend that enforces it, but floors a
+// would-block or unenforceable posture up to bypass so the member can't hang.
+func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		LM: config.LMConfig{
+			Configs: map[string]config.LLMConfig{
+				"claude-plan": {Type: "claude-code", Permissions: "plan"},
+				"claude-none": {Type: "claude-code"},
+				"agy-plan":    {Type: "antigravity", Permissions: "plan"},
+			},
+			Defaults: config.RoleDefaults{Primary: "claude-none"},
+		},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"keep-plan":     {LLM: "claude-plan"},
+			"floor-default": {LLM: "claude-none"},
+			"collapse-agy":  {LLM: "agy-plan"},
+		}},
+	}
+	cases := []struct {
+		name    string
+		profile string
+		want    string
+	}{
+		{"enforcing backend keeps declared plan", "keep-plan", agent.PermissionPlan.String()},
+		{"no posture floors to bypass", "floor-default", agent.PermissionBypass.String()},
+		{"unenforceable plan collapses then floors to bypass", "collapse-agy", agent.PermissionBypass.String()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubClient{out: "ok"}
+			factory := func(string, string, int) (pb.Client, error) { return stub, nil }
+			_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
+				Profile: tc.profile, Task: "t", Loader: loader, Factory: factory,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, stub.gotReq.Options)
+			assert.Equal(t, tc.want, stub.gotReq.Options.PermissionMode)
+		})
+	}
 }
 
 func TestResolveBackend(t *testing.T) {

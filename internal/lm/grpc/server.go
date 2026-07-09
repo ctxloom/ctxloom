@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sync"
+	"time"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -35,6 +36,9 @@ func (p *LLMGRPCPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroke
 type GRPCServer struct {
 	UnimplementedLLMServer
 	Impl agent.Backend
+	// watchPoll overrides the WatchSession poll cadence; zero means the default.
+	// Tests set a small value to drive the loop quickly.
+	watchPoll time.Duration
 }
 
 // Info returns metadata about the plugin.
@@ -95,6 +99,9 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			// sent none, e.g. skip_setup). Converted from proto back to the
 			// wire-typed Go form the agent's Setup consumes.
 			Managed: managedConfigFromProto(req.GetManagedConfig()),
+			// Resolved isolation cell, decided host-side and carried on the wire.
+			// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
+			CellKind: cellKindFromProto(opts.GetCellKind()),
 		}
 		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
 			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
@@ -104,7 +111,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			// agent unlaunchable. Warn and proceed to Execute rather than aborting,
 			// matching the documented startup sequence ("apply hooks: warn on
 			// errors, continue" / "always respond with initialized").
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: backend setup failed (launching anyway): %v\n", err)
+			clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
 		}
 	}
 
@@ -161,16 +168,37 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// Build execute request from RunStart
 	execReq := &agent.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
+		WorkDir:     workDir,
 		Mode:        agent.ExecutionMode(opts.GetMode()),
 		Model:       opts.GetModel(),
 		Env:         env,
 		Verbosity:   verbosity,
 		DryRun:      opts.GetDryRun(),
-		AutoApprove: opts.GetAutoApprove(),
+		Permissions: agent.WireMode(opts.GetPermissionMode()),
 		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
+		CellKind:    cellKindFromProto(opts.GetCellKind()),
 		Stdin:       stdinR,
 		Resize:      resizeCh,
+	}
+
+	// Defense in depth: a ONESHOT has no human to answer the engine, so a
+	// would-block posture (default/acceptEdits) must not reach the backend and
+	// hang. The CLI resolver already floors this, but a direct gRPC caller might
+	// not, so enforce the "headless can't hang" invariant at the decode boundary.
+	if execReq.Mode == agent.ModeOneshot && !execReq.Permissions.SafeHeadless() {
+		execReq.Permissions = agent.PermissionBypass
+	}
+
+	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
+	// SkipSetup fan-out (oneshot/map/weave) skips Setup — so without this the
+	// passed WorkDir is dropped and the engine runs in the plugin's inherited
+	// "." (the isolation-blocking cwd bug). SetWorkDir lives on BaseBackend
+	// (every real backend embeds it) but not the Backend interface, and a
+	// bare test fake may lack it, so apply it by capability check. Idempotent
+	// with Setup's own SetWorkDir on the non-skip path (same value).
+	if w, ok := s.Impl.(interface{ SetWorkDir(string) }); ok {
+		w.SetWorkDir(execReq.WorkDir)
 	}
 
 	// Execute the backend
@@ -183,10 +211,17 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// failed one it would bury the real error. Warn and carry on, matching how
 	// Setup degrades above.
 	if cerr := s.Impl.Cleanup(stream.Context()); cerr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: backend cleanup failed: %v\n", cerr)
+		clidiag.Warn("ctxloom", "backend cleanup failed: %v", cerr)
 	}
 	if err != nil {
 		return err
+	}
+	// A buggy backend that returns (nil, nil) must not panic the serving
+	// goroutine (CLAUDE.md: log, don't crash). Degrade to a zero-value result
+	// so the final message still sends rather than nil-dereferencing below.
+	if result == nil {
+		clidiag.Warn("ctxloom", "backend returned a nil result with no error; defaulting to exit code 0")
+		result = &agent.ExecuteResult{}
 	}
 
 	// Send the exit code and model info as the final message
@@ -194,6 +229,35 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Output:    &RunResponse_ExitCode{ExitCode: result.ExitCode},
 		ModelInfo: convertModelInfoToProto(result.ModelInfo),
 	})
+}
+
+// CellKindToProto maps a host-side agent.CellKind to the wire CellKind enum for
+// stamping onto RunOptions. Shared stamps the explicit SHARED value (not
+// UNSPECIFIED) so the wire records a decided cell; the two isolated kinds map
+// one-to-one. Inverse of cellKindFromProto.
+func CellKindToProto(k agent.CellKind) CellKind {
+	switch k {
+	case agent.CellKindDirectoryIsolated:
+		return CellKind_CELL_KIND_DIRECTORY_ISOLATED
+	case agent.CellKindProcessIsolated:
+		return CellKind_CELL_KIND_PROCESS_ISOLATED
+	default:
+		return CellKind_CELL_KIND_SHARED
+	}
+}
+
+// cellKindFromProto maps the wire CellKind enum to the plugin-side agent.CellKind.
+// UNSPECIFIED (and any unknown) decodes to Shared, matching the enum's documented
+// default — a run whose host didn't stamp a cell is treated as the shared cwd.
+func cellKindFromProto(k CellKind) agent.CellKind {
+	switch k {
+	case CellKind_CELL_KIND_DIRECTORY_ISOLATED:
+		return agent.CellKindDirectoryIsolated
+	case CellKind_CELL_KIND_PROCESS_ISOLATED:
+		return agent.CellKindProcessIsolated
+	default: // CELL_KIND_UNSPECIFIED, CELL_KIND_SHARED
+		return agent.CellKindShared
+	}
 }
 
 // convertFragment converts a proto Fragment to a backend Fragment.

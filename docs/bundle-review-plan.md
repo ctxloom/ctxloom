@@ -120,12 +120,15 @@ Current state (raw, post-2026-05-27 coverage push):
 
 None standing. The bundle.go create/edit/delete/export/import RunE bodies all have afero seams as of 2026-05-27. What's left is either explicit anti-goal territory (see below) or genuinely covered.
 
-### What stops us going further
+Still deferred (cosmetic / platform):
 
-- **PTY syscalls** in `ptyrunner` — platform-conditional, requires real terminals or significant fakery
-- **End-to-end LLM-driven flows** (`compact_session` against a real plugin) — would need a fake-plugin server fixture
-- **`internal/lm/grpc::NewPluginClient`** still has hashicorp/go-plugin internals we don't mock; the cheaply-mockable surface is already covered via `dialPluginConnection`
-- **`exec.Cmd` lifecycle** in claudecode.go (Setup/Execute/Cleanup) — wrapping `exec.Cmd` is an anti-goal: too thick a seam for too little signal, since the value is the actual subprocess behavior
+- **PTY syscalls** in `ptyrunner` — platform-conditional; Windows ConPTY coverage requires real terminals or significant fakery
+- **`exec.Cmd` lifecycle** in claudecode.go (Setup/Execute/Cleanup) — wrapping `exec.Cmd` is an anti-goal: too thick a seam for too little signal; the subprocess behavior is exercised via integration instead
+
+Addressed:
+
+- **End-to-end LLM-driven flows** (`compact_session`) run against the `MockLM` fixture (`tests/integration/testenv/mock_lm.go`) plus the `@live` acceptance suite (`tests/acceptance`).
+- **`internal/lm/grpc` plugin dial** — the seam was renamed `dialLLMConnection`; its mockable surface (`llmConnection`) is covered by `client_test.go`.
 
 ---
 

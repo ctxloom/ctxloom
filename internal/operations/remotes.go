@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
@@ -173,7 +173,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	valid, _ := fetcher.ValidateRepo(ctx, owner, repo)
+	valid, validErr := fetcher.ValidateRepo(ctx, owner, repo)
 
 	// Trust on add (e.g. the user's own personal repos during init): bundle
 	// changes from a trusted remote auto-apply without review. Roll the
@@ -198,7 +198,15 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		URL:    rem.URL,
 	}
 	if !valid {
-		result.Warning = "repository does not have a ctxloom/ directory structure"
+		// A false result can mean either a genuinely-missing ctxloom/ directory
+		// (validErr nil) or that validation itself failed (network/auth). Don't
+		// report the "no directory structure" text when the real cause was an
+		// error — that would mislead the user into thinking the repo is wrong.
+		if validErr != nil {
+			result.Warning = fmt.Sprintf("could not validate repository: %v", validErr)
+		} else {
+			result.Warning = "repository does not have a ctxloom/ directory structure"
+		}
 	}
 
 	// Eagerly clone the remote into the local cache so a bad URL, missing auth,
@@ -212,7 +220,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	}
 	if msg := ensureClone(ctx, cache, rem); msg != "" {
 		result.Warning = appendWarning(result.Warning, msg)
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+		clidiag.Warn("ctxloom", "%s", msg)
 	}
 
 	return result, nil
@@ -611,15 +619,10 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 }
 
 // browseTypeList maps the request item_type filter to the item types to browse.
+// Only bundles are distributed at the top level now (top-level profile
+// distribution was retired; profiles ship inside bundles).
 func browseTypeList(itemType string) []remote.ItemType {
-	switch itemType {
-	case "bundle":
-		return []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		return []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
+	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
@@ -638,7 +641,7 @@ func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, r
 			return nil, ""
 		}
 		warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		clidiag.Warn("ctxloom", "%s", warning)
 		return nil, warning
 	}
 
@@ -737,7 +740,7 @@ func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteC
 		if msg := ensureClone(ctx, cache, rem); msg != "" {
 			result.Failed = append(result.Failed, rem.Name)
 			result.Warnings = append(result.Warnings, msg)
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			clidiag.Warn("ctxloom", "%s", msg)
 			continue
 		}
 		result.Cloned = append(result.Cloned, rem.Name)
@@ -854,16 +857,11 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 }
 
 // searchTypeList maps the request item_type filter to the item types to search.
-// "fragment" searches bundles (fragments live inside bundles).
+// Only bundles are distributed at the top level now (top-level profile
+// distribution was retired); "fragment" also searches bundles (fragments live
+// inside bundles).
 func searchTypeList(itemType string) []remote.ItemType {
-	switch itemType {
-	case "bundle", "fragment":
-		return []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		return []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
+	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // prewarmRemoteClones ensures each remote's clone exists BEFORE the parallel
@@ -922,19 +920,16 @@ func fanOutRemoteSearch(ctx context.Context, cfg *config.Config, remotes []*remo
 func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
 	entries := make([]SearchRemoteEntry, 0, len(results))
 	for _, r := range results {
-		itemType := "bundle"
-		if r.ItemType == remote.ItemTypeProfile {
-			itemType = "profile"
-		}
-
 		entries = append(entries, SearchRemoteEntry{
 			Remote:      r.Remote,
 			Name:        r.Entry.Name,
-			Type:        itemType,
+			Type:        "bundle",
 			Tags:        r.Entry.Tags,
 			Description: r.Entry.Description,
 			Author:      r.Entry.Author,
-			PullRef:     fmt.Sprintf("%s@%ss/%s", r.RemoteURL, itemType, r.Entry.Name),
+			// Canonicalize through Reference so all sites share one format
+			// (consistent with browseEntry) rather than the ad-hoc "%ss" pluralize.
+			PullRef: (&remote.Reference{URL: r.RemoteURL, ItemType: r.ItemType, Path: r.Entry.Name}).CanonicalString(),
 		})
 	}
 	return entries
@@ -980,8 +975,6 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 	switch itemType {
 	case remote.ItemTypeBundle:
 		entries = manifest.Bundles
-	case remote.ItemTypeProfile:
-		entries = manifest.Profiles
 	}
 
 	var results []remote.SearchResult

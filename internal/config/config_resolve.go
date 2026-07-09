@@ -3,12 +3,12 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
@@ -16,16 +16,20 @@ type profileBuilder struct {
 	Description string
 	LLM         string
 	Tags        collections.Set[string]
+	SelectTags  collections.Set[string]
 	Bundles     collections.Set[string]
 	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
+	Prompts     collections.Set[string]
 	Variables   map[string]string
 	Hooks       wire.HooksConfig
 	MCP         wire.MCPConfig
 	// Track insertion order for stable output
 	tagsOrder        []string
+	selectTagsOrder  []string
 	bundlesOrder     []string
 	bundleItemsOrder []string
+	promptsOrder     []string
 	fragmentsOrder   []FragmentRef
 	// Track fragment priorities (keep highest when same fragment referenced multiple times)
 	fragmentPriorities map[string]int
@@ -39,9 +43,11 @@ type profileBuilder struct {
 func newProfileBuilder() *profileBuilder {
 	return &profileBuilder{
 		Tags:               collections.NewSet[string](),
+		SelectTags:         collections.NewSet[string](),
 		Bundles:            collections.NewSet[string](),
 		BundleItems:        collections.NewSet[string](),
 		Fragments:          collections.NewSet[string](),
+		Prompts:            collections.NewSet[string](),
 		Variables:          make(map[string]string),
 		fragmentPriorities: make(map[string]int),
 		Hooks: wire.HooksConfig{
@@ -64,6 +70,13 @@ func (b *profileBuilder) addTag(tag string) {
 	}
 }
 
+func (b *profileBuilder) addSelectTag(tag string) {
+	if !b.SelectTags.Has(tag) {
+		b.SelectTags.Add(tag)
+		b.selectTagsOrder = append(b.selectTagsOrder, tag)
+	}
+}
+
 func (b *profileBuilder) addBundle(bundle string) {
 	if !b.Bundles.Has(bundle) {
 		b.Bundles.Add(bundle)
@@ -75,6 +88,17 @@ func (b *profileBuilder) addBundleItem(item string) {
 	if !b.BundleItems.Has(item) {
 		b.BundleItems.Add(item)
 		b.bundleItemsOrder = append(b.bundleItemsOrder, item)
+	}
+}
+
+// addPrompt accumulates a curated prompt ref, deduping by its authored string
+// (the version-agnostic identity is the stored ref) so a profile and its
+// parents union without repeating an entry. Insertion order is preserved for a
+// stable export set.
+func (b *profileBuilder) addPrompt(prompt string) {
+	if !b.Prompts.Has(prompt) {
+		b.Prompts.Add(prompt)
+		b.promptsOrder = append(b.promptsOrder, prompt)
 	}
 }
 
@@ -96,14 +120,21 @@ func (b *profileBuilder) addFragment(frag FragmentRef) {
 	}
 }
 
-// hookKey returns a unique key for deduplication based on command and matcher.
+// hookKey returns a unique key for deduplication. Type and Prompt are folded in
+// alongside Command and Matcher so that prompt/agent hooks (which carry an empty
+// Command) are keyed on their differing Prompt text rather than all collapsing
+// to the same "|<matcher>" key.
 func hookKey(h wire.Hook) string {
-	return h.Command + "|" + h.Matcher
+	return h.Type + "|" + h.Command + "|" + h.Prompt + "|" + h.Matcher
 }
 
-// addHook adds a hook if not already present (by command+matcher key).
-func (b *profileBuilder) addHook(hooks *[]wire.Hook, h wire.Hook) {
-	key := hookKey(h)
+// addHook adds a hook if not already present, keyed by the lifecycle event plus
+// the hook key. The event discriminator keeps the same command+matcher
+// registered on two different lifecycles (e.g. a notify hook on both
+// SessionStart and SessionEnd) from collapsing onto whichever list merges
+// first, mirroring the plugin-specific dedup path below.
+func (b *profileBuilder) addHook(event string, hooks *[]wire.Hook, h wire.Hook) {
+	key := event + "|" + hookKey(h)
 	if !b.seenHooks.Has(key) {
 		b.seenHooks.Add(key)
 		*hooks = append(*hooks, h)
@@ -116,22 +147,23 @@ func (b *profileBuilder) mergeMCP(source wire.MCPConfig) {
 	wire.MergeMCPConfig(&b.MCP, &source)
 }
 
-// mergeHookSlice merges source hooks into dest.
-func (b *profileBuilder) mergeHookSlice(source []wire.Hook, dest *[]wire.Hook) {
+// mergeHookSlice merges source hooks into dest, deduping within the given
+// lifecycle event so the same hook is not collapsed across distinct events.
+func (b *profileBuilder) mergeHookSlice(event string, source []wire.Hook, dest *[]wire.Hook) {
 	for _, h := range source {
-		b.addHook(dest, h)
+		b.addHook(event, dest, h)
 	}
 }
 
 // mergeHooks merges hooks from source into the builder.
 func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 	// Merge unified hooks
-	b.mergeHookSlice(source.Unified.PreTool, &b.Hooks.Unified.PreTool)
-	b.mergeHookSlice(source.Unified.PostTool, &b.Hooks.Unified.PostTool)
-	b.mergeHookSlice(source.Unified.SessionStart, &b.Hooks.Unified.SessionStart)
-	b.mergeHookSlice(source.Unified.SessionEnd, &b.Hooks.Unified.SessionEnd)
-	b.mergeHookSlice(source.Unified.PreShell, &b.Hooks.Unified.PreShell)
-	b.mergeHookSlice(source.Unified.PostFileEdit, &b.Hooks.Unified.PostFileEdit)
+	b.mergeHookSlice("PreTool", source.Unified.PreTool, &b.Hooks.Unified.PreTool)
+	b.mergeHookSlice("PostTool", source.Unified.PostTool, &b.Hooks.Unified.PostTool)
+	b.mergeHookSlice("SessionStart", source.Unified.SessionStart, &b.Hooks.Unified.SessionStart)
+	b.mergeHookSlice("SessionEnd", source.Unified.SessionEnd, &b.Hooks.Unified.SessionEnd)
+	b.mergeHookSlice("PreShell", source.Unified.PreShell, &b.Hooks.Unified.PreShell)
+	b.mergeHookSlice("PostFileEdit", source.Unified.PostFileEdit, &b.Hooks.Unified.PostFileEdit)
 
 	// Merge plugin-specific hooks
 	for pluginName, backendHooks := range source.Plugins {
@@ -209,9 +241,11 @@ func (b *profileBuilder) toProfile() *Profile {
 		Description:      b.Description,
 		LLM:              b.LLM,
 		Tags:             b.tagsOrder,
+		SelectTags:       b.selectTagsOrder,
 		Bundles:          b.bundlesOrder,
 		BundleItems:      b.bundleItemsOrder,
 		Fragments:        filteredFragments,
+		Prompts:          b.promptsOrder,
 		Variables:        b.Variables,
 		Hooks:            b.Hooks,
 		MCP:              filteredMCP,
@@ -270,12 +304,15 @@ func guardProfileResolution(profiles map[string]Profile, name string, visited co
 	return profile, nil
 }
 
-// resolveProfileParents resolves each parent depth-first. Per ctxloom's
-// fault-tolerance philosophy (CLAUDE.md) — and matching
-// profiles.Loader.ResolveProfile — an unresolvable parent is a stderr warning
-// and that branch is skipped, so the rest of the profile still resolves and the
-// user reaches their LLM. Circular references and depth overruns stay fatal:
-// continuing would mask a real misconfiguration or risk runaway recursion.
+// resolveProfileParents resolves each parent depth-first. An unresolvable
+// parent is fatal-class in strict mode (the configured chain is an explicit
+// ask; a silently thinner profile is what fail-loudly exists to catch): the
+// branch is skipped so the rest still resolves, the warning streams either
+// way, and the startup choke owner aborts on the collected finding. In
+// degraded mode this stays warn-and-skip, matching
+// profiles.Loader.ResolveProfile. Circular references and depth overruns stay
+// hard errors in both modes: continuing would mask a real misconfiguration or
+// risk runaway recursion.
 func resolveProfileParents(profiles map[string]Profile, profile Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
 	for _, parentName := range profile.Parents {
 		err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)
@@ -283,8 +320,8 @@ func resolveProfileParents(profiles map[string]Profile, profile Profile, name st
 			continue
 		}
 		if errors.Is(err, errs.ErrProfileNotFound) {
-			fmt.Fprintf(os.Stderr,
-				"ctxloom: warning: profile %q: parent %q not found; skipping\n",
+			strictness.Fail(strictness.ClassRef, "fix the parents of the inline profile in .ctxloom/config.yaml",
+				"profile %q: parent %q not found; skipping",
 				name, parentName)
 			continue
 		}
@@ -300,6 +337,9 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	for _, tag := range profile.Tags {
 		builder.addTag(tag)
 	}
+	for _, tag := range profile.SelectTags {
+		builder.addSelectTag(tag)
+	}
 	for _, bundle := range profile.Bundles {
 		builder.addBundle(bundle)
 	}
@@ -308,6 +348,9 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	}
 	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
+	}
+	for _, prompt := range profile.Prompts {
+		builder.addPrompt(prompt)
 	}
 	for k, v := range profile.Variables {
 		builder.Variables[k] = v

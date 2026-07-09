@@ -1,5 +1,5 @@
 # Binaries
-ctxloom
+/ctxloom
 bin/
 scm-linux-amd64
 scm-darwin-amd64
@@ -22,9 +22,18 @@ go.work.sum
 
 # Generated protobuf (source .proto files are kept)
 *.pb.go
+# ...except in the vendored go-plugin fork: the root go.mod `replace` points at
+# it, so a fresh clone cannot build without its generated files committed.
+!third_party/go-plugin/**/*.pb.go
 
 # Local config
-.ctxloom/
+.ctxloom/*
+# ...but keep the consolidation/design plans under version control
+!.ctxloom/plans/
+# Defense-in-depth: a NESTED .ctxloom under a package dir is test/tool pollution
+# (the root `.ctxloom/*` above is anchored by its slash, so nested dirs slip
+# through). The operations TestMain also prevents + guards this at its source.
+internal/**/.ctxloom/
 .mcp.json
 .tasks/
 
@@ -73,3 +82,6 @@ resources/schema/gen/
 
 # ctxloom private working state (synced bundles, session/context, project id)
 .agents/
+
+# ctxloom private working state (synced bundles, session/context, project id)
+.ctxloom/project-id

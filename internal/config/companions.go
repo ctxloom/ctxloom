@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -61,18 +62,18 @@ func BuiltinCompanionBins() []string {
 	seen := map[string]bool{}
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return nil
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		for _, hs := range [][]bundles.BundleHook{
@@ -103,16 +104,29 @@ func BuiltinCompanionBins() []string {
 // its version. Missing binaries yield Path == "" (their bundle entries are
 // skipped by the resolvers, which also emit the install hint); a present
 // binary whose probe fails carries the error. Reporting only — never fatal.
+//
+// Probes run concurrently: each is bounded by companionProbeTimeout, so a
+// sequential loop would add that bound per wedged companion to startup. Running
+// them in parallel keeps the worst-case wall-clock to ~one timeout (CLAUDE.md:
+// never block startup). Output order is preserved (sorted by bin) since each
+// goroutine writes its own slot.
 func ProbeCompanions() []CompanionStatus {
-	var out []CompanionStatus
-	for _, bin := range BuiltinCompanionBins() {
-		st := CompanionStatus{Bin: bin}
-		if path, err := lookPath(bin); err == nil {
-			st.Path = path
-			st.Version, st.Err = companionVersion(path)
-		}
-		out = append(out, st)
+	bins := BuiltinCompanionBins()
+	out := make([]CompanionStatus, len(bins))
+	var wg sync.WaitGroup
+	for i, bin := range bins {
+		wg.Add(1)
+		go func(i int, bin string) {
+			defer wg.Done()
+			st := CompanionStatus{Bin: bin}
+			if path, err := lookPath(bin); err == nil {
+				st.Path = path
+				st.Version, st.Err = companionVersion(path)
+			}
+			out[i] = st
+		}(i, bin)
 	}
+	wg.Wait()
 	return out
 }
 

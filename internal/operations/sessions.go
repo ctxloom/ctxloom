@@ -1,11 +1,14 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Session operations wrap the harp-keyed session index so frontends never touch
@@ -13,28 +16,58 @@ import (
 // open it per call. Entries are returned as-is — a domain type a frontend may
 // render, which 0019 permits; only the IO and decisions live here.
 
-func openSessions() (*sessions.Manager, error) {
+func openSessions() (sessions.Store, error) {
 	return sessions.Open("")
 }
 
-// ListSessions returns every session index entry.
+// isUnrecoverable reports whether a session index entry can never be acted on
+// again, so listing should silently drop it (and forget the dangling row): its
+// transcript was bound but the file is now gone, AND it has no distilled essence
+// to fall back on. A still-pending entry (no transcript bound yet — a run in
+// flight) and a distilled entry are recoverable, so both are kept.
+func isUnrecoverable(e sessions.Entry) bool {
+	if e.Summary != "" || len(e.Detail) > 0 {
+		return false // distilled: essence.md is still viewable
+	}
+	if e.TranscriptPath == "" {
+		return false // pending/unbound: the session is still in progress
+	}
+	return transcriptGone(e.TranscriptPath)
+}
+
+// transcriptGone reports whether the transcript file is genuinely absent
+// (ENOENT). Any other os.Stat error — permission denied, a transient I/O hiccup
+// on a network mount, EINTR, a temporarily-unavailable parent dir — is treated
+// as "not gone" so a degraded environment never permanently forgets a still-
+// recoverable session (CLAUDE.md fault tolerance: tolerate transient failures,
+// never destructive action). Only true non-existence makes a bound transcript
+// unrecoverable.
+func transcriptGone(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+// ListSessions returns every session index entry, after reconciling away any
+// that have become unrecoverable (see isUnrecoverable) so a dead pointer never
+// reaches a frontend.
 func ListSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return nil, err
 	}
-	idx, err := mgr.Load()
-	if err != nil {
-		return nil, err
-	}
-	return idx.Sessions, nil
+	return mgr.Reconcile(isUnrecoverable)
 }
 
 // ListSessionsForProject returns the entries whose project dir matches,
-// most-recent-first.
+// most-recent-first, after reconciling the index so unrecoverable sessions are
+// silently dropped here too (the resume picker and the VSCode companion both
+// arrive through this path).
 func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
+		return nil, err
+	}
+	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
 		return nil, err
 	}
 	return mgr.ListForProject(projectDir)

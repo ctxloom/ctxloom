@@ -25,15 +25,18 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool call succeeds$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if e := w.lastTool.Raw["error"]; e != nil {
-			return fmt.Errorf("tool call returned an error: %v", e)
+		// Inspect the CallToolResult's isError flag, not just the JSON-RPC
+		// envelope error: the MCP SDK reports handler/validation failures as a
+		// result with isError=true and a nil envelope error.
+		if isErr, msg := w.lastTool.IsError(); isErr {
+			return fmt.Errorf("tool call returned an error: %s\nresult:\n%s", msg, w.lastTool.JSON())
 		}
 		return nil
 	})
 
 	ctx.Step(`^the tool call fails$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if _, err := w.lastTool.Inner(); err == nil {
+		if isErr, _ := w.lastTool.IsError(); !isErr {
 			return fmt.Errorf("expected tool call to fail; result:\n%s", w.lastTool.JSON())
 		}
 		return nil

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -243,7 +244,6 @@ func TestBuildPublishPath(t *testing.T) {
 	}{
 		{ItemTypeBundle, "security", "ctxloom/bundles/security.yaml"},
 		{ItemTypeBundle, "testing", "ctxloom/bundles/testing.yaml"},
-		{ItemTypeProfile, "development", "ctxloom/profiles/development.yaml"},
 		{ItemType(""), "unknown", "ctxloom/bundles/unknown.yaml"}, // defaults to bundles
 	}
 
@@ -258,98 +258,44 @@ func TestBuildPublishPath(t *testing.T) {
 func TestAddPublishMetadata(t *testing.T) {
 	t.Run("adds metadata to valid YAML", func(t *testing.T) {
 		content := []byte("description: Test bundle\n")
-		result, err := addPublishMetadata(content, "/path/to/local.yaml")
+		result, err := addPublishMetadata(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, string(result), "_published")
-		assert.Contains(t, string(result), "/path/to/local.yaml")
+		assert.Contains(t, string(result), "published_at")
+	})
+
+	t.Run("does not embed the author's local path", func(t *testing.T) {
+		content := []byte("description: Test bundle\n")
+		result, err := addPublishMetadata(content)
+
+		require.NoError(t, err)
+		// The local filesystem path leaks the author's username/layout into
+		// shared content and nothing consumes it; it must not be published.
+		assert.NotContains(t, string(result), "from:")
+	})
+
+	t.Run("preserves author key order and comments", func(t *testing.T) {
+		content := []byte("# leading comment\nzebra: 1 # inline\nalpha: 2\n")
+		result, err := addPublishMetadata(content)
+
+		require.NoError(t, err)
+		out := string(result)
+		// A map round-trip would sort alpha before zebra and drop comments; the
+		// node-level edit must keep the author's order and comments intact.
+		assert.Less(t, strings.Index(out, "zebra"), strings.Index(out, "alpha"),
+			"author key order must be preserved")
+		assert.Contains(t, out, "# leading comment")
+		assert.Contains(t, out, "# inline")
+		assert.Contains(t, out, "_published")
 	})
 
 	t.Run("returns invalid YAML as-is", func(t *testing.T) {
 		content := []byte("invalid: yaml: [[")
-		result, err := addPublishMetadata(content, "/path/to/local.yaml")
+		result, err := addPublishMetadata(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, content, result)
-	})
-}
-
-func TestTransformProfileForExport(t *testing.T) {
-	t.Run("returns unchanged for canonical URLs", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("bundles:\n  - https://github.com/owner/repo@bundles/name\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("returns unchanged for profiles without bundles", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("name: test-profile\ndescription: A profile\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("returns invalid YAML as-is", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("invalid: yaml: [[")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("transforms local refs to canonical URLs", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		// Create lockfile with canonical-keyed entry; the profile references it
-		// by the remote-prefixed short form.
-		lockfile := &Lockfile{
-			Version: 1,
-			Bundles: map[string]LockEntry{
-				"https://github.com/alice/ctxloom@bundles/security": {
-					SHA: "abc123",
-					URL: "https://github.com/alice/ctxloom",
-				},
-			},
-			Profiles: make(map[string]LockEntry),
-		}
-		require.NoError(t, lm.Save(lockfile))
-
-		content := []byte("bundles:\n  - alice/security\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Contains(t, string(result), "https://github.com/alice/ctxloom@bundles/security")
-	})
-
-	t.Run("returns error for unknown local ref", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		// Create empty lockfile
-		lockfile := &Lockfile{
-			Version:  1,
-			Bundles:  make(map[string]LockEntry),
-			Profiles: make(map[string]LockEntry),
-		}
-		require.NoError(t, lm.Save(lockfile))
-
-		content := []byte("bundles:\n  - unknown/bundle\n")
-		_, err := transformProfileForExport(content, lm)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found in lockfile")
 	})
 }
 

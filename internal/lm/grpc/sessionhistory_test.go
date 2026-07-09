@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,10 +20,19 @@ type fakeHistory struct {
 	metasErr   error
 	gotWorkDir string
 	gotID      string
+	// getSessionFunc, when set, overrides the static session/sessionErr so a
+	// test can script behavior across successive calls (WatchSession polls).
+	getSessionFunc func(workDir, id string) (*agent.Session, error)
+	// getSessionByPathFunc, when set, scripts the by-path reads
+	// (WatchHistoryByPath polls); nil falls back to (nil, nil).
+	getSessionByPathFunc func(path string) (*agent.Session, error)
 }
 
 func (h *fakeHistory) GetSession(workDir, id string) (*agent.Session, error) {
 	h.gotWorkDir, h.gotID = workDir, id
+	if h.getSessionFunc != nil {
+		return h.getSessionFunc(workDir, id)
+	}
 	return h.session, h.sessionErr
 }
 func (h *fakeHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
@@ -31,8 +40,13 @@ func (h *fakeHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) 
 	return h.metas, h.metasErr
 }
 func (h *fakeHistory) GetCurrentSession(string) (*agent.Session, error) { return nil, nil }
-func (h *fakeHistory) GetSessionByPath(string) (*agent.Session, error)  { return nil, nil }
-func (h *fakeHistory) TranscriptPathFromHook(_, _, _ string) string     { return "" }
+func (h *fakeHistory) GetSessionByPath(path string) (*agent.Session, error) {
+	if h.getSessionByPathFunc != nil {
+		return h.getSessionByPathFunc(path)
+	}
+	return nil, nil
+}
+func (h *fakeHistory) TranscriptPathFromHook(_, _, _ string) string { return "" }
 
 func TestSessionRoundTrip(t *testing.T) {
 	ts := time.Unix(1_700_000_000, 0).UTC()
@@ -44,6 +58,7 @@ func TestSessionRoundTrip(t *testing.T) {
 			{Timestamp: ts, Type: agent.EntryTypeUser, Content: "hi"},
 			{Timestamp: ts, Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: json.RawMessage(`{"cmd":"ls"}`)},
 			{Timestamp: ts, Type: agent.EntryTypeToolResult, ToolOutput: "files", IsError: true},
+			{Timestamp: ts, Type: agent.EntryTypeAssistant, Content: "interior", Sidechain: true},
 		},
 	}
 
@@ -52,13 +67,15 @@ func TestSessionRoundTrip(t *testing.T) {
 	assert.Equal(t, in.ID, got.ID)
 	assert.Equal(t, in.StartTime, got.StartTime)
 	assert.Equal(t, in.EndTime, got.EndTime)
-	require.Len(t, got.Entries, 3)
+	require.Len(t, got.Entries, 4)
 	assert.Equal(t, agent.EntryTypeUser, got.Entries[0].Type)
 	assert.Equal(t, "hi", got.Entries[0].Content)
+	assert.False(t, got.Entries[0].Sidechain)
 	assert.Equal(t, "Bash", got.Entries[1].ToolName)
 	assert.JSONEq(t, `{"cmd":"ls"}`, string(got.Entries[1].ToolInput))
 	assert.True(t, got.Entries[2].IsError)
 	assert.Equal(t, "files", got.Entries[2].ToolOutput)
+	assert.True(t, got.Entries[3].Sidechain, "sidechain attribution must survive the wire")
 }
 
 func TestSessionRoundTrip_ZeroTimesAndNil(t *testing.T) {

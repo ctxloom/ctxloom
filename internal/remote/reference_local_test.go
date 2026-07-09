@@ -18,10 +18,8 @@ func TestParseReference_Local(t *testing.T) {
 		wantVersion string
 	}{
 		{"bundle, versionless", "ctxloom:local@bundles/foo", ItemTypeBundle, "foo", ""},
-		{"profile, versionless", "ctxloom:local@profiles/dev", ItemTypeProfile, "dev", ""},
 		{"bundle, pinned", "ctxloom:local@bundles/foo@abc123", ItemTypeBundle, "foo", "abc123"},
 		{"nested path", "ctxloom:local@bundles/team/standards", ItemTypeBundle, "team/standards", ""},
-		{"nested path pinned", "ctxloom:local@profiles/team/dev@v2", ItemTypeProfile, "team/dev", "v2"},
 		// Opaque versions: a name, an hg-style changeset, an svn rev all pass through.
 		{"branch-name version", "ctxloom:local@bundles/foo@feature/x", ItemTypeBundle, "foo", "feature/x"},
 		{"numeric svn-style version", "ctxloom:local@bundles/foo@1492", ItemTypeBundle, "foo", "1492"},
@@ -56,7 +54,6 @@ func TestParseReference_Local_Errors(t *testing.T) {
 func TestReference_Local_StringRoundTrip(t *testing.T) {
 	for _, ref := range []string{
 		"ctxloom:local@bundles/foo",
-		"ctxloom:local@profiles/dev",
 		"ctxloom:local@bundles/foo@abc123",
 		"ctxloom:local@bundles/team/standards@v2",
 	} {
@@ -74,10 +71,6 @@ func TestReference_Local_BuildFilePath(t *testing.T) {
 	bundle, err := ParseReference("ctxloom:local@bundles/foo")
 	require.NoError(t, err)
 	assert.Equal(t, "bundles/foo.yaml", bundle.BuildFilePath(ItemTypeBundle))
-
-	profile, err := ParseReference("ctxloom:local@profiles/team/dev")
-	require.NoError(t, err)
-	assert.Equal(t, "profiles/team/dev.yaml", profile.BuildFilePath(ItemTypeProfile))
 }
 
 func TestParseReference_NonLocalUnaffected(t *testing.T) {

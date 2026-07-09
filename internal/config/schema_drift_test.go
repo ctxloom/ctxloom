@@ -113,6 +113,42 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"llm config entry with explicit type",
 			"llm:\n  configs:\n    main:\n      type: codex\n      model: gpt-codex\n",
 		},
+		{
+			"top-level workspace default (session axis)",
+			"workspace: worktree\n",
+		},
+		{
+			"top-level runtime default (agent axis)",
+			"runtime: container\n",
+		},
+		{
+			"agent-level runtime override",
+			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    runtime: container\n",
+		},
+		{
+			"llm config entry with permissions posture",
+			"llm:\n  configs:\n    main:\n      type: codex\n      permissions: plan\n",
+		},
+		{
+			"kiro llm config entry with its native fields",
+			"llm:\n  configs:\n    k:\n      type: kiro\n      model: kiro-model\n      effort: high\n      agent: ctxloom\n      agent_engine: v2\n      permissions: plan\n",
+		},
+		{
+			"agent-level permissions posture",
+			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    permissions: bypass\n",
+		},
+		{
+			"per-backend isolation image overrides",
+			"isolation_images:\n  kiro: registry.example.com/my-kiro:v2\n  claude-code: my-claude:latest\n",
+		},
+		{
+			"user base containerfile for local agent-image builds",
+			"isolation_base_containerfile: container/base.Containerfile\n",
+		},
+		{
+			"terminal-ui section (viewer prefix key + surround toggle)",
+			"ui:\n  prefix_key: ctrl-t\n  surround: false\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

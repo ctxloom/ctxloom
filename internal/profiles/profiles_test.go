@@ -20,13 +20,13 @@
 package profiles
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -376,6 +376,36 @@ variables:
 	assert.Equal(t, "child-only", resolved.Variables["new_var"])
 }
 
+// TestLoader_ResolveProfile_Prompts verifies a directory profile's curated
+// prompts: list round-trips through resolution and unions with a parent's, the
+// directory-side mirror of config.Profile.Prompts (b626431) that feeds
+// backends.LoadSkillExports' opt-in prompt curation.
+func TestLoader_ResolveProfile_Prompts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `description: Parent profile
+prompts:
+  - "tools#prompts/review"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `description: Child profile
+parents:
+  - parent
+prompts:
+  - "tools#prompts/explain"
+  - "tools#prompts/review"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	// Parent prompt first (depth-first), then the child's, deduped by stored ref.
+	assert.Equal(t, []string{"tools#prompts/review", "tools#prompts/explain"}, resolved.Prompts)
+}
+
 // TestLoader_ResolveProfile_LLM verifies the preferred-LLM field round-trips
 // through save/load and inheritance: a child's llm overrides its parent's, and
 // a child without one inherits the parent's.
@@ -455,6 +485,30 @@ bundles:
 	resolved, err := loader.ResolveProfile("child", nil)
 
 	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
+}
+
+// TestLoader_ResolveProfile_CorruptParent verifies that a parent which fails to
+// parse (invalid YAML) is treated like a missing parent: warn-and-continue, the
+// rest of the profile still resolves. Per CLAUDE.md fault tolerance, a corrupt
+// file must not block the user from reaching their LLM.
+func TestLoader_ResolveProfile_CorruptParent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Invalid YAML (unterminated flow sequence) for the parent.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "broken.yaml"), []byte("parents: [oops\n  bad: : :\n"), 0644))
+	child := `parents:
+  - broken
+bundles:
+  - own-bundle
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+
+	require.NoError(t, err, "a corrupt parent must degrade to warn-and-continue, not abort")
 	require.NotNil(t, resolved)
 	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
 }
@@ -599,15 +653,19 @@ func TestLoader_ResolveProfile_DepthLimit(t *testing.T) {
 //   - Merge: profile1 + profile2 (first wins)
 func TestResolvedProfile_Merge(t *testing.T) {
 	r1 := &ResolvedProfile{
-		Bundles:   []string{"b1"},
-		Tags:      []string{"t1"},
-		Variables: map[string]string{"v1": "value1", "shared": "r1"},
+		Bundles:    []string{"b1"},
+		Tags:       []string{"t1"},
+		SelectTags: []string{"s1"},
+		Prompts:    []string{"p1"},
+		Variables:  map[string]string{"v1": "value1", "shared": "r1"},
 	}
 
 	r2 := &ResolvedProfile{
-		Bundles:   []string{"b2", "b1"}, // b1 is duplicate
-		Tags:      []string{"t2"},
-		Variables: map[string]string{"v2": "value2", "shared": "r2"},
+		Bundles:    []string{"b2", "b1"}, // b1 is duplicate
+		Tags:       []string{"t2"},
+		SelectTags: []string{"s2"},
+		Prompts:    []string{"p2", "p1"}, // p1 is duplicate
+		Variables:  map[string]string{"v2": "value2", "shared": "r2"},
 	}
 
 	r1.Merge(r2)
@@ -616,6 +674,10 @@ func TestResolvedProfile_Merge(t *testing.T) {
 	assert.Equal(t, []string{"b1", "b2"}, r1.Bundles)
 	// Tags combined
 	assert.Equal(t, []string{"t1", "t2"}, r1.Tags)
+	// SelectTags combined (content-selecting tags accumulate through inheritance)
+	assert.Equal(t, []string{"s1", "s2"}, r1.SelectTags)
+	// Curated prompts combined + deduped (union across active profiles).
+	assert.Equal(t, []string{"p1", "p2"}, r1.Prompts)
 	// Variables: r1 keeps its value for "shared" (first wins for variables during merge)
 	assert.Equal(t, "r1", r1.Variables["shared"])
 	assert.Equal(t, "value1", r1.Variables["v1"])
@@ -673,153 +735,12 @@ func TestNewLoader_WithFS(t *testing.T) {
 	assert.Equal(t, fs, loader.fs)
 }
 
-// =============================================================================
-// toLocalProfileName Tests
-// =============================================================================
-
-func TestToLocalProfileName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple name unchanged",
-			input:    "my-profile",
-			expected: "my-profile",
-		},
-		{
-			name:     "remote/name unchanged",
-			input:    "github/go-developer",
-			expected: "github/go-developer",
-		},
-		{
-			name:     "https URL converted to local path",
-			input:    "https://github.com/owner/repo@profiles/go-developer",
-			expected: "github.com/owner/repo/go-developer",
-		},
-		{
-			name:     "git@ SSH URL converted to local path",
-			input:    "git@github.com:owner/repo@profiles/go-developer",
-			expected: "github.com/owner/repo/go-developer",
-		},
-		{
-			name:     "file:// URL converted to local path",
-			input:    "file:///home/user/ctxloom-content@profiles/test",
-			expected: "user/ctxloom-content/test",
-		},
-		{
-			name:     "nested path in URL",
-			input:    "https://github.com/org/subgroup/repo@profiles/base",
-			expected: "github.com/org/subgroup/repo/base",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := toLocalProfileName(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// =============================================================================
-// URL Parent Resolution Tests
-// =============================================================================
-
-// TestLoader_ResolveProfile_URLParent verifies that URL parent references are
-// resolved to their local storage paths.
-//
-// When a profile has a parent like:
-//   - https://github.com/owner/repo@profiles/base
-//
-// The resolver should look for the profile at:
-//   - .ctxloom/persistent/profiles/github.com/owner/repo/base.yaml
-func TestLoader_ResolveProfile_URLParent(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create directories
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/owner/repo", 0755))
-
-	// Create the "remote" parent profile (as if synced from URL)
-	baseProfile := `description: Base Go profile
-bundles:
-  - go-tools
-tags:
-  - golang
-variables:
-  go_version: "1.21"
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/github.com/owner/repo/go-base.yaml",
-		[]byte(baseProfile), 0644))
-
-	// Create child profile that references the parent via URL
-	childProfile := `description: Project profile
-parents:
-  - https://github.com/owner/repo@profiles/go-base
-bundles:
-  - project-tools
-variables:
-  project_name: my-project
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/project-dev.yaml",
-		[]byte(childProfile), 0644))
-
-	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
-
-	// Resolve the child profile
-	resolved, err := loader.ResolveProfile("project-dev", nil)
-	require.NoError(t, err)
-
-	// Should have bundles from both profiles
-	assert.Contains(t, resolved.Bundles, "go-tools")
-	assert.Contains(t, resolved.Bundles, "project-tools")
-
-	// Should have tags from parent
-	assert.Contains(t, resolved.Tags, "golang")
-
-	// Should have variables from both (child overrides parent)
-	assert.Equal(t, "1.21", resolved.Variables["go_version"])
-	assert.Equal(t, "my-project", resolved.Variables["project_name"])
-}
-
-// TestLoader_ResolveProfile_URLParentNotSynced verifies that an unsynced URL
-// parent is skipped with a warning rather than aborting resolution. The child's
-// own settings still apply so the user can reach their LLM even when remote
-// dependencies haven't been pulled yet.
-func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
+// TestLoader_ResolveProfile_LocalParents verifies resolution with local parent
+// references (bundle-shipped and top-level URL parents are covered elsewhere).
+func TestLoader_ResolveProfile_LocalParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-
-	// Create child profile that references an unsynced parent
-	childProfile := `parents:
-  - https://github.com/nonexistent/repo@profiles/missing
-tags:
-  - own-tag
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/child.yaml",
-		[]byte(childProfile), 0644))
-
-	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
-
-	resolved, err := loader.ResolveProfile("child", nil)
-	require.NoError(t, err)
-	require.NotNil(t, resolved)
-	assert.Equal(t, []string{"own-tag"}, resolved.Tags)
-}
-
-// TestLoader_ResolveProfile_MixedParents verifies resolution with both local
-// and URL parent references.
-func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/ctxloom/ctxloom-default", 0755))
 
 	// Local parent
 	localParent := `bundles:
@@ -829,18 +750,9 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 		"/project/.ctxloom/persistent/profiles/local-base.yaml",
 		[]byte(localParent), 0644))
 
-	// Remote parent (synced)
-	remoteParent := `bundles:
-  - remote-tools
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/github.com/ctxloom/ctxloom-default/go-base.yaml",
-		[]byte(remoteParent), 0644))
-
-	// Child with both parents
+	// Child with a local parent
 	childProfile := `parents:
   - local-base
-  - https://github.com/ctxloom/ctxloom-default@profiles/go-base
 bundles:
   - child-tools
 `
@@ -854,95 +766,7 @@ bundles:
 	require.NoError(t, err)
 
 	assert.Contains(t, resolved.Bundles, "local-tools")
-	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
-}
-
-// =============================================================================
-// Seeded Remote Profile Tests
-// =============================================================================
-
-// seededGoBase is a remote profile as the config seed builds it: keyed and
-// named by its version-less canonical ref, never materialized to disk.
-func seededGoBase(canonical string) map[string]*Profile {
-	return map[string]*Profile{
-		canonical: {
-			Name:      canonical,
-			Path:      "<remote>:" + canonical + "@abc1234",
-			Bundles:   []string{"go-tools"},
-			Tags:      []string{"golang"},
-			Variables: map[string]string{"go_version": "1.21"},
-		},
-	}
-}
-
-// TestLoader_Load_SeededCanonicalRef verifies that Load finds a seeded remote
-// profile under its version-less canonical key, including when the requested
-// ref carries a content version ("...@<sha>"). Remote profiles are never
-// written to disk, so this seed lookup is the only way they resolve.
-func TestLoader_Load_SeededCanonicalRef(t *testing.T) {
-	const canonical = "https://github.com/owner/repo@profiles/go-base"
-	loader := NewLoader([]string{t.TempDir()}, WithSeededProfiles(seededGoBase(canonical)))
-
-	exact, err := loader.Load(canonical)
-	require.NoError(t, err)
-	assert.Equal(t, canonical, exact.Name)
-
-	versioned, err := loader.Load(canonical + "@abc1234")
-	require.NoError(t, err)
-	assert.Equal(t, canonical, versioned.Name, "versioned ref should normalize to the seed key")
-}
-
-// TestLoader_ResolveProfile_SeededCanonicalParent is the regression test for
-// remote parent profiles never resolving: the seed map keys by version-less
-// canonical ref, but parent resolution used to convert the ref to its local
-// materialized name ("github.com/owner/repo/go-base") — which matched neither
-// the seed nor any file on disk, so the parent's content silently vanished
-// behind a "not installed" warning.
-func TestLoader_ResolveProfile_SeededCanonicalParent(t *testing.T) {
-	const canonical = "https://github.com/owner/repo@profiles/go-base"
-
-	for _, tc := range []struct {
-		name      string
-		parentRef string
-	}{
-		{"version-less canonical ref", canonical},
-		{"version-suffixed ref", canonical + "@abc1234"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-			require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-			child := "parents:\n  - " + tc.parentRef + "\nbundles:\n  - project-tools\n"
-			require.NoError(t, afero.WriteFile(fs,
-				"/project/.ctxloom/persistent/profiles/project-dev.yaml",
-				[]byte(child), 0644))
-
-			loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"},
-				WithFS(fs), WithSeededProfiles(seededGoBase(canonical)))
-
-			// Capture stderr: a regression re-introduces the
-			// "parent ... not installed; skipping" warning.
-			oldStderr := os.Stderr
-			r, w, err := os.Pipe()
-			require.NoError(t, err)
-			os.Stderr = w
-			resolved, resolveErr := loader.ResolveProfile("project-dev", nil)
-			require.NoError(t, w.Close())
-			os.Stderr = oldStderr
-			captured, err := io.ReadAll(r)
-			require.NoError(t, err)
-
-			require.NoError(t, resolveErr)
-			assert.NotContains(t, string(captured), "not installed",
-				"seeded parent must resolve without a skip warning")
-
-			// Parent content merged with the child's own.
-			assert.Contains(t, resolved.Bundles, "go-tools")
-			assert.Contains(t, resolved.Bundles, "project-tools")
-			assert.Contains(t, resolved.Tags, "golang")
-			assert.Equal(t, "1.21", resolved.Variables["go_version"])
-		})
-	}
 }
 
 // =============================================================================
@@ -979,4 +803,142 @@ exclude_fragments:
 	assert.ElementsMatch(t, []string{"verbose-logging", "deprecated-style"}, resolved.ExcludeFragments,
 		"exclusions accumulate from parent and child")
 	assert.Equal(t, []string{"slow-server"}, resolved.ExcludeMCP)
+}
+
+// fragNames extracts the ordered fragment-ref names from a ResolvedProfile.
+func fragNames(frags []FragmentRef) []string {
+	out := make([]string, 0, len(frags))
+	for _, f := range frags {
+		out = append(out, f.Name)
+	}
+	return out
+}
+
+// preToolCommands extracts the ordered pre_tool hook commands.
+func preToolCommands(h wire.HooksConfig) []string {
+	out := make([]string, 0, len(h.Unified.PreTool))
+	for _, hook := range h.Unified.PreTool {
+		out = append(out, hook.Command)
+	}
+	return out
+}
+
+// TestLoader_ResolveProfile_InlineFields verifies a directory profile's inline
+// fragments:/bundle_items:/hooks:/mcp: round-trip through resolution and union
+// with a parent's — the directory-side mirror of config.Profile's fields that
+// brings directory profiles to parity with inline profiles. Parent items come
+// first (depth-first), then the child's; a "@<commit>" pin stays in the stored
+// fragment Name (version-agnostic identity; split transiently downstream).
+func TestLoader_ResolveProfile_InlineFields(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `description: Parent
+fragments:
+  - base-frag
+bundle_items:
+  - remote/b:fragments/x
+hooks:
+  unified:
+    pre_tool:
+      - command: parent-hook
+        type: command
+mcp:
+  servers:
+    parent-srv:
+      command: parent-cmd
+    shared-srv:
+      command: parent-shared
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `description: Child
+parents:
+  - parent
+fragments:
+  - "remote/b@c1#fragments/pinned"
+  - name: pri-frag
+    priority: 7
+bundle_items:
+  - remote/b:fragments/y
+hooks:
+  unified:
+    pre_tool:
+      - command: child-hook
+        type: command
+mcp:
+  servers:
+    child-srv:
+      command: child-cmd
+    shared-srv:
+      command: child-shared
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	// Fragments union: parent first (depth-first), then child; the "@<commit>"
+	// pin stays in the stored Name.
+	assert.Equal(t, []string{"base-frag", "remote/b@c1#fragments/pinned", "pri-frag"},
+		fragNames(resolved.Fragments))
+	for _, f := range resolved.Fragments {
+		if f.Name == "pri-frag" {
+			assert.Equal(t, 7, f.Priority, "child fragment priority is preserved")
+		}
+	}
+
+	// bundle_items union, parent then child.
+	assert.Equal(t, []string{"remote/b:fragments/x", "remote/b:fragments/y"}, resolved.BundleItems)
+
+	// Hooks union (parent then child).
+	assert.Equal(t, []string{"parent-hook", "child-hook"}, preToolCommands(resolved.Hooks))
+
+	// MCP: both distinct servers present; for a name in both, the child (applied
+	// after parents) wins — "later wins per server name", matching the inline
+	// mergeMCP semantics.
+	assert.Contains(t, resolved.MCP.Servers, "parent-srv")
+	assert.Contains(t, resolved.MCP.Servers, "child-srv")
+	assert.Equal(t, "child-shared", resolved.MCP.Servers["shared-srv"].Command,
+		"a server declared by both parent and child resolves to the child's")
+}
+
+// TestResolvedProfile_Merge_InlineFields verifies Merge unions the new
+// directly-declared fields across resolved profiles (the cross-default-profile
+// fold), deduping fragments by Name, unioning bundle_items, appending hooks, and
+// letting a later MCP server name win — parity with how Bundles/Tags/Prompts merge.
+func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
+	r1 := &ResolvedProfile{
+		Fragments:   []FragmentRef{{Name: "f1"}},
+		BundleItems: []string{"bi1"},
+		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "h1", Type: "command"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"s1":     {Command: "s1-cmd"},
+			"shared": {Command: "from-r1"},
+		}},
+		Variables: map[string]string{},
+	}
+	r2 := &ResolvedProfile{
+		Fragments:   []FragmentRef{{Name: "f2"}, {Name: "f1"}}, // f1 duplicate
+		BundleItems: []string{"bi2", "bi1"},                    // bi1 duplicate
+		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "h2", Type: "command"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"s2":     {Command: "s2-cmd"},
+			"shared": {Command: "from-r2"},
+		}},
+		Variables: map[string]string{},
+	}
+
+	r1.Merge(r2)
+
+	assert.Equal(t, []string{"f1", "f2"}, fragNames(r1.Fragments), "fragments union, deduped by Name")
+	assert.Equal(t, []string{"bi1", "bi2"}, r1.BundleItems, "bundle_items union, deduped")
+	assert.Equal(t, []string{"h1", "h2"}, preToolCommands(r1.Hooks), "hooks accumulate across profiles")
+	assert.Contains(t, r1.MCP.Servers, "s1")
+	assert.Contains(t, r1.MCP.Servers, "s2")
+	assert.Equal(t, "from-r2", r1.MCP.Servers["shared"].Command, "later (merged-in) server name wins")
 }

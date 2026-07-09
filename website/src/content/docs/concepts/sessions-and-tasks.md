@@ -11,7 +11,7 @@ attached to your project that outlive any single session.
 
 Tasks are tracked by the standalone [`taskloom` binary](https://github.com/ctxloom/taskloom),
 which ships an MCP server (`taskloom mcp`) registered for agents by ctxloom's
-built-in tasks bundle:
+built-in taskloom bundle:
 
 ```
 task_add          # add a task
@@ -20,8 +20,8 @@ task_set_status   # move a task between statuses
 task_edit         # replace a task's text
 ```
 
-The same store is scriptable from your shell (`tasks add`, `tasks list`,
-`tasks status`, `tasks summary`, `tasks run`).
+The same store is scriptable from your shell (`taskloom add`, `taskloom list`,
+`taskloom status`, `taskloom edit`, `taskloom summary`, `taskloom statuses`).
 
 They live in a per-project task log, and each task is attributed to the session
 that created it. A task has a status — `To Do`, `In Progress`, `Done`,

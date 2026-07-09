@@ -14,28 +14,33 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// failAfterNWritesFs fails every write-opening OpenFile/Create call after the
-// first n succeed. It lets a test allow the registry persist for Add and fail
-// the one for SetTrustBundles within a single AddRemote call.
-type failAfterNWritesFs struct {
+// failAtWriteFs fails exactly the Nth write-opening OpenFile/Create call and
+// lets every other write through. This fails only the SetTrustBundles persist
+// (the 2nd registry save) within a single AddRemote call, while allowing both
+// the initial Add persist (#1) and the rollback Remove persist (#3) — so the
+// rollback genuinely clears the registration from disk and memory. (registry
+// Remove rolls back its in-memory delete if its own save fails, so an fs that
+// also failed the rollback write would leave the remote registered on disk
+// anyway — an unrealistic all-writes-fail case, not the contract under test.)
+type failAtWriteFs struct {
 	afero.Fs
-	allowed int
-	writes  int
+	failAt int
+	writes int
 }
 
-func (f *failAfterNWritesFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+func (f *failAtWriteFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
 	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
 		f.writes++
-		if f.writes > f.allowed {
+		if f.writes == f.failAt {
 			return nil, fmt.Errorf("simulated write failure")
 		}
 	}
 	return f.Fs.OpenFile(name, flag, perm)
 }
 
-func (f *failAfterNWritesFs) Create(name string) (afero.File, error) {
+func (f *failAtWriteFs) Create(name string) (afero.File, error) {
 	f.writes++
-	if f.writes > f.allowed {
+	if f.writes == f.failAt {
 		return nil, fmt.Errorf("simulated write failure")
 	}
 	return f.Fs.Create(name)
@@ -46,7 +51,7 @@ func (f *failAfterNWritesFs) Create(name string) (afero.File, error) {
 // SetTrustBundles cannot persist, the freshly added remote must be removed so
 // a retry of the same `remote add` does not fail on the duplicate name.
 func TestAddRemote_TrustFailureRollsBack(t *testing.T) {
-	fs := &failAfterNWritesFs{Fs: afero.NewMemMapFs(), allowed: 1} // Add persists; trust persist fails
+	fs := &failAtWriteFs{Fs: afero.NewMemMapFs(), failAt: 2} // Add (#1) persists; trust persist (#2) fails; rollback Remove (#3) persists
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0o755))
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)

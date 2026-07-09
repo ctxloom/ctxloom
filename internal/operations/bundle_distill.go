@@ -77,8 +77,8 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		}
 	}
 	for _, name := range bundle.PromptNames() {
-		p := bundle.Prompts[name]
-		if item, ok := planBundleItemDistill(ItemKindPrompt, name, p.NoDistill, p.NeedsDistill(), req.Force); ok {
+		p := bundle.Skills[name]
+		if item, ok := planBundleItemDistill(ItemKindSkill, name, p.NoDistill, p.NeedsDistill(), req.Force); ok {
 			res.Items = append(res.Items, item)
 		} else {
 			promptTargets = append(promptTargets, name)
@@ -87,12 +87,12 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 
 	if req.DryRun {
 		appendStatus(&res.Items, ItemKindFragment, fragTargets, DistillStatusPlanned, "")
-		appendStatus(&res.Items, ItemKindPrompt, promptTargets, DistillStatusPlanned, "")
+		appendStatus(&res.Items, ItemKindSkill, promptTargets, DistillStatusPlanned, "")
 		return res, nil
 	}
 	if req.Distiller == nil {
 		appendStatus(&res.Items, ItemKindFragment, fragTargets, DistillStatusSkipped, "no_distiller")
-		appendStatus(&res.Items, ItemKindPrompt, promptTargets, DistillStatusSkipped, "no_distiller")
+		appendStatus(&res.Items, ItemKindSkill, promptTargets, DistillStatusSkipped, "no_distiller")
 		return res, nil
 	}
 
@@ -102,7 +102,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy, failedFrags.Has(n)))
 	}
 	for _, n := range promptTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindPrompt, n, bundle.Prompts[n].DistilledBy, failedPrompts.Has(n)))
+		res.Items = append(res.Items, distillOutcome(ItemKindSkill, n, bundle.Skills[n].DistilledBy, failedPrompts.Has(n)))
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {

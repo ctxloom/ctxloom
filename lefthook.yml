@@ -1,0 +1,15 @@
+# Git hooks, managed by lefthook (`lefthook install` wires .git/hooks).
+# A failing hook is a finding: read its output and fix the cause, then retry
+# the commit — never bypass with --no-verify / LEFTHOOK=0 unless the human
+# driving explicitly says so.
+pre-commit:
+  commands:
+    reprise:
+      # Duplicate-detection gate: findings involving units changed since HEAD
+      # fail unless baselined (reprise-baseline.json, checked in) and
+      # unworsened. On an inconsistent-update finding, apply the change to
+      # every copy of the group (or extract the shared helper); on a new
+      # duplicate, call the existing unit instead. Refresh the baseline only
+      # for deliberate, reviewed adoptions — never to make a failing check
+      # pass.
+      run: reprise check --base HEAD .

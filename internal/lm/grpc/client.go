@@ -10,9 +10,17 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	"github.com/hashicorp/go-plugin/runner"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 )
+
+// ContainerRunnerFunc is go-plugin's RunnerFunc shape: given the (env-populated)
+// spec command and the host temp dir go-plugin created for unix sockets, it
+// returns a runner.Runner that launches the plugin — for the container transport,
+// inside a container. Aliased so callers (internal/lm/isolation) name the
+// contract without importing go-plugin's exact signature at every call site.
+type ContainerRunnerFunc = func(l hclog.Logger, cmd *exec.Cmd, tmpDir string) (runner.Runner, error)
 
 // GRPCClient is the client-side implementation that communicates with the plugin.
 type GRPCClient struct {
@@ -180,32 +188,52 @@ var dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llm
 	})}
 }
 
-// NewLLMRunner creates a new plugin client that spawns the given command.
-// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
-// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
-func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) {
-	level := verbosityToHclogLevel(verbosity)
+// dialContainerConnection is the container-transport analogue of
+// dialLLMConnection: instead of a Cmd it wires a RunnerFunc (the caller's
+// container launcher) plus a UnixSocketConfig so the plugin creates its socket in
+// socketTempDir — a host directory the runner bind-mounts into the container and
+// whose container→host path the runner's AddrTranslator maps. This is the
+// canonical go-plugin plugin-in-container transport (RunnerFunc + AddrTranslator);
+// see NewContainerClient. It is a package var so tests can override it.
+var dialContainerConnection = func(runnerFunc ContainerRunnerFunc, socketTempDir string, logger hclog.Logger) llmConnection {
+	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig:  HandshakeConfig,
+		Plugins:          PluginMap,
+		RunnerFunc:       runnerFunc,
+		UnixSocketConfig: &plugin.UnixSocketConfig{TempDir: socketTempDir},
+		AllowedProtocols: []plugin.Protocol{
+			plugin.ProtocolGRPC,
+		},
+		Logger: logger,
+	})}
+}
+
+// newPluginLogger builds the hclog logger the plugin machinery uses. Verbosity 0
+// discards output (quiet); >0 forwards plugin logs to stderr at the mapped level.
+func newPluginLogger(verbosity int) hclog.Logger {
 	output := io.Discard
 	if verbosity > 0 {
 		output = os.Stderr
 	}
-
-	logger := hclog.New(&hclog.LoggerOptions{
+	return hclog.New(&hclog.LoggerOptions{
 		Name:   "plugin",
 		Output: output,
-		Level:  level,
+		Level:  verbosityToHclogLevel(verbosity),
 	})
+}
 
-	conn := dialLLMConnection(cmd, args, logger)
-
-	// Connect via gRPC
+// runnerFromConn completes plugin startup on an established connection: dial the
+// gRPC client, dispense the LLM plugin, wrap it in an *LLMRunner. On any failure
+// it kills the connection so a half-started plugin (or container) never leaks.
+// Shared by the host (NewLLMRunner) and container (NewContainerClient) paths so
+// the dispense/type-assert dance lives in one place.
+func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 	rpcClient, err := conn.Client()
 	if err != nil {
 		conn.Kill()
 		return nil, err
 	}
 
-	// Dispense the plugin
 	raw, err := rpcClient.Dispense(LLMPluginKey)
 	if err != nil {
 		conn.Kill()
@@ -222,6 +250,28 @@ func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) 
 		conn: conn,
 		grpc: grpcClient,
 	}, nil
+}
+
+// NewLLMRunner creates a new plugin client that spawns the given command.
+// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
+// Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
+func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) {
+	conn := dialLLMConnection(cmd, args, newPluginLogger(verbosity))
+	return runnerFromConn(conn)
+}
+
+// NewContainerClient creates a plugin client whose backend server runs INSIDE a
+// container, launched by the caller-provided RunnerFunc. It is the container
+// analogue of NewSelfInvokingClientForLabel: same *LLMRunner (hence pb.Client),
+// but Kill tears down the container via the runner. socketTempDir is a host
+// directory under which go-plugin creates the unix-socket dir it bind-mounts into
+// the container; the runner's AddrTranslator maps the plugin's announced
+// container-namespace socket path back to that host mount. backendName/label are
+// carried for parity/diagnostics — the actual in-container argv is built by the
+// RunnerFunc (which knows the container's ctxloom path).
+func NewContainerClient(backendName, label string, verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
+	conn := dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity))
+	return runnerFromConn(conn)
 }
 
 // NewSelfInvokingClient creates a plugin client that invokes "ctxloom llm serve <backend>".

@@ -1,5 +1,7 @@
 # P0 execution — extract `ctxloom/agent` + agent packages
 
+> **Status: SUPERSEDED by the monorepo consolidation.** The agent substrate lives at `internal/shared/agent`, with per-engine packages at `internal/{claude,codex,antigravity}` in a single module (no separate `ctxloom/agent`/`ctxloom/<engine>` modules). Historical body retained below.
+
 Status: in progress · 2026-06-05 · session `tiny-loud-lark`
 Parent: `./decoupling-shared-substrate.plan.md` (phase P0)
 

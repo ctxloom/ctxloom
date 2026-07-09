@@ -16,11 +16,6 @@ func TestItemType_DirName(t *testing.T) {
 			itemType: ItemTypeBundle,
 			want:     "bundles",
 		},
-		{
-			name:     "profile",
-			itemType: ItemTypeProfile,
-			want:     "profiles",
-		},
 	}
 
 	for _, tt := range tests {
@@ -42,11 +37,6 @@ func TestItemType_Plural(t *testing.T) {
 			name:     "bundle plural",
 			itemType: ItemTypeBundle,
 			want:     "bundles",
-		},
-		{
-			name:     "profile plural",
-			itemType: ItemTypeProfile,
-			want:     "profiles",
 		},
 	}
 

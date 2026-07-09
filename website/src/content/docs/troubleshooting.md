@@ -105,20 +105,22 @@ cat .claude/settings.json | jq '.hooks'
 **Expected output:**
 ```json
 {
-  "SessionStart": {
-    "hooks": [
-      {
-        "type": "command",
-        "command": "ctxloom hook inject-context <hash>"
-      }
-    ]
-  }
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "ctxloom hook inject-context --project /path/to/project <hash>"
+        }
+      ]
+    }
+  ]
 }
 ```
 
 **Fix:**
 ```bash
-ctxloom init
+ctxloom manage hooks install
 ```
 
 ### Context File Missing
@@ -127,12 +129,12 @@ ctxloom init
 
 **Check context file:**
 ```bash
-ls -la .ctxloom/context/
+ls -la .ctxloom/cache/context/
 ```
 
 **Regenerate:**
 ```bash
-ctxloom init
+ctxloom manage hooks install
 ```
 
 ### Wrong Directory
@@ -156,12 +158,11 @@ ctxloom init
 
 **Solution - Set authentication token:**
 ```bash
-# GitHub
+# GitHub (the github forge)
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-
-# GitLab
-export GITLAB_TOKEN=glpat-xxxxxxxxxxxx
 ```
+
+Non-GitHub hosts (GitLab, Gitea, self-hosted) go through the generic `git` forge, which uses ambient git auth — a credential helper, ssh-agent, or `~/.ssh/config` — so fix authentication the same way you would for a plain `git clone` of that host.
 
 **Verify token:**
 ```bash
@@ -246,7 +247,7 @@ ctxloom profile show myprofile
 
 **Check what bundles are available:**
 ```bash
-ctxloom fragment list
+ctxloom bundle list
 ```
 
 **Pull missing bundles:** reference the remote bundle from a local profile, then
@@ -282,7 +283,7 @@ ctxloom fragment show fragname  # searches all bundles
 **Validate YAML syntax:**
 ```bash
 # Use a YAML linter
-yamllint .ctxloom/bundles/mybundle.yaml
+yamllint .ctxloom/cache/bundles/mybundle.yaml
 
 # Or try loading the bundle
 ctxloom fragment list --bundle mybundle
@@ -301,7 +302,8 @@ ctxloom fragment list --bundle mybundle
 
 1. **Distill verbose fragments:**
 ```bash
-ctxloom fragment distill mybundle
+ctxloom fragment distill mybundle#fragments/verbose-fragment   # one fragment
+ctxloom bundle distill .ctxloom/cache/bundles/mybundle.yaml    # whole bundle
 ```
 
 2. **Use fewer fragments:**
@@ -340,13 +342,13 @@ CTXLOOM_VERBOSE=1 ctxloom mcp serve
 
 **Check MCP configuration:**
 ```bash
-cat .claude/settings.json | jq '.mcpServers'
+cat .mcp.json | jq '.mcpServers'
 ```
 
 **Ensure ctxloom is registered:**
 ```bash
 ctxloom manage mcp install
-ctxloom init
+ctxloom manage hooks install
 ```
 
 **Restart Claude Code** after configuration changes.

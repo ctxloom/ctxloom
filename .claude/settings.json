@@ -28,6 +28,21 @@
           {
             "command": "ctxloom hook session-bind",
             "type": "command"
+          },
+          {
+            "command": "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 3 e698b561eecad23a",
+            "timeout": 60,
+            "type": "command"
+          },
+          {
+            "command": "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 3 e698b561eecad23a",
+            "timeout": 60,
+            "type": "command"
+          },
+          {
+            "command": "ctxloom hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 3 e698b561eecad23a",
+            "timeout": 60,
+            "type": "command"
           }
         ]
       }

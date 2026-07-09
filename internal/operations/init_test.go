@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -43,6 +44,59 @@ func TestInitializeProject(t *testing.T) {
 func TestInitializeProject_RequiresAppDir(t *testing.T) {
 	_, err := InitializeProject(context.Background(), InitializeProjectRequest{Engine: "claude-code", FS: afero.NewMemMapFs()})
 	require.Error(t, err)
+}
+
+// TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent proves init's shape:
+// a LOCAL default coding profile is scaffolded (inheriting ctxloom-default
+// content) AND bound as the always-bound default agent (agents.default +
+// default_agent, carrying the selected engine). profiles.defaults was retired,
+// so the default context is now whatever the default agent composes.
+func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
+	require.NoError(t, err)
+
+	// The local default coding profile file is written.
+	profilePath := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
+	data, err := afero.ReadFile(fs, profilePath)
+	require.NoError(t, err, "seed profile should be scaffolded locally")
+	body := string(data)
+	assert.Contains(t, body, "ctxloom/ctxloom-default@bundles/", "seed profile wires ctxloom-default bundle content")
+	assert.Contains(t, body, "#profiles/", "seed profile inherits ctxloom-default bundle profiles")
+	assert.Contains(t, body, "parents:", "seed profile inherits remote baseline content")
+
+	// The config binds the LOCAL profile as the default AGENT and points
+	// default_agent at it, carrying the selected engine.
+	cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
+	require.NoError(t, err)
+	assert.Contains(t, string(cfgData), "default_agent: default", "init writes the default_agent key")
+	assert.Contains(t, string(cfgData), "agents:", "init seeds the default agent block")
+	cfg, err := config.ParseConfig(cfgData)
+	require.NoError(t, err)
+	assert.Equal(t, SeedProfileName, cfg.DefaultAgent, "default_agent names the seeded agent")
+	assert.Equal(t, []string{SeedProfileName}, cfg.DefaultAgentProfiles(), "the default agent composes the local seed profile")
+	require.Contains(t, cfg.Agents, SeedProfileName, "init seeds the default agent")
+	assert.Equal(t, "claude-code", cfg.Agents[SeedProfileName].Engine, "the default agent carries the selected primary engine")
+	assert.Equal(t, "host", cfg.Agents[SeedProfileName].Runtime)
+}
+
+// TestScaffoldSeedProfile_WriteIfAbsent proves a re-init does not clobber a
+// default profile the user has since edited (profiles are user content, unlike
+// the config/remotes scaffolding which is overwritten).
+func TestScaffoldSeedProfile_WriteIfAbsent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	profilePath := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, profilePath, []byte("# my edits\n"), 0644))
+
+	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, profilePath)
+	require.NoError(t, err)
+	assert.Equal(t, "# my edits\n", string(data), "an existing seed profile must not be overwritten")
 }
 
 func TestBuildInitialConfig(t *testing.T) {

@@ -39,7 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // TestMCPServerEntry_Fields verifies the MCPServerEntry struct stores all
@@ -270,6 +270,55 @@ func createTestMCPConfig() *config.Config {
 			},
 		},
 	}
+}
+
+func TestGetMCPServer_UnifiedScope(t *testing.T) {
+	cfg := createTestMCPConfig()
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "github", TestConfig: cfg})
+	require.NoError(t, err)
+	assert.True(t, result.Found)
+	require.Len(t, result.Entries, 1)
+	assert.Equal(t, "github", result.Entries[0].Name)
+	assert.Equal(t, "unified", result.Entries[0].Backend)
+	assert.Equal(t, "npx", result.Entries[0].Command)
+}
+
+func TestGetMCPServer_BackendScope(t *testing.T) {
+	cfg := createTestMCPConfig()
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "custom-server", TestConfig: cfg})
+	require.NoError(t, err)
+	assert.True(t, result.Found)
+	require.Len(t, result.Entries, 1)
+	assert.Equal(t, "claude-code", result.Entries[0].Backend)
+}
+
+func TestGetMCPServer_NotFound(t *testing.T) {
+	cfg := createTestMCPConfig()
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "absent", TestConfig: cfg})
+	require.NoError(t, err)
+	assert.False(t, result.Found)
+	assert.Empty(t, result.Entries, "not-found yields an empty (non-nil) entry list")
+}
+
+func TestGetMCPServer_MultipleScopes(t *testing.T) {
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
+				"shared": {Command: "unified-cmd"},
+			},
+			Plugins: map[string]map[string]wire.MCPServer{
+				"claude-code": {"shared": {Command: "backend-cmd"}},
+			},
+		},
+	}
+	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "shared", TestConfig: cfg})
+	require.NoError(t, err)
+	assert.True(t, result.Found)
+	require.Len(t, result.Entries, 2, "configured in both the unified and a backend scope")
+	// Sorted by backend scope: "claude-code" < "unified".
+	assert.Equal(t, "claude-code", result.Entries[0].Backend)
+	assert.Equal(t, "unified", result.Entries[1].Backend)
 }
 
 func TestListMCPServers_AllServers(t *testing.T) {

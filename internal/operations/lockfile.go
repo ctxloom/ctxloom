@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Puller interface for pulling remote items (allows mocking in tests).
@@ -29,16 +29,6 @@ type LockDependenciesRequest struct {
 	// warned and the conflicted items are dropped, never blocking the session
 	// (CLAUDE.md).
 	FailOnConflict bool `json:"-"`
-
-	// StageUntrustedNew routes a FIRST INSTALL (a closure pin with no existing
-	// active lockfile entry) from an untrusted remote into the pending lockfile
-	// for `ctxloom bundle review` instead of the active one. SECURITY: the
-	// startup auto-lock (runSyncPostSteps) sets this so never-reviewed remote
-	// content cannot reach the active lockfile — and so cannot activate its
-	// hooks/MCP/context — without approval. Trust follows the registry's
-	// TrustBundles flag, mirroring StageUpgrade. A deliberate, explicit lock
-	// (the default) applies the full closure as before.
-	StageUntrustedNew bool `json:"-"`
 
 	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
 }
@@ -78,19 +68,18 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		if req.FailOnConflict {
 			return nil, ConflictError(conflicts)
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", ConflictError(conflicts))
+		clidiag.Warn("ctxloom", "%v", ConflictError(conflicts))
 		pins = dropConflicted(pins, conflicts)
 	}
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	// The previous lockfile anchors two safety nets across the closure rebuild:
-	// the per-item Pinned flag (the user's "do not upgrade this" mark must
-	// survive a relock), the first-install detection for StageUntrustedNew, and
-	// the preserved entries when the closure is incomplete. An unreadable
-	// previous lockfile degrades to an empty one.
+	// the per-item Pinned flag (the user's "do not upgrade this" hold must
+	// survive a relock), and the preserved entries when the closure is
+	// incomplete. An unreadable previous lockfile degrades to an empty one.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
-		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 	}
 	prevPinned := map[string]bool{}
 	for _, e := range prev.AllEntries() {
@@ -99,33 +88,15 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		}
 	}
 
-	// Trust is only consulted for the StageUntrustedNew gate; registry load is
-	// best-effort (nil registry → nothing is trusted, the safe default).
-	var registry *remote.Registry
-	if req.StageUntrustedNew {
-		registry, _ = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
-	}
-
 	lockfile := &remote.Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]remote.LockEntry),
-		Profiles: make(map[string]remote.LockEntry),
+		Version: 1,
+		Bundles: make(map[string]remote.LockEntry),
 	}
-	var staged []PinnedRef
 	for _, p := range pins {
-		// SECURITY: a first install from an untrusted remote is staged for
-		// review, never activated (see LockDependenciesRequest.StageUntrustedNew).
-		if req.StageUntrustedNew {
-			if _, had := prev.GetEntry(p.Type, p.Identity); !had &&
-				!isTrustedRemote(registry, remoteNameForKey(registry, p.Identity)) {
-				staged = append(staged, p)
-				continue
-			}
-		}
 		// RequestedVersion records the manifest constraint so a later relock can
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
-		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version}
+		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 		if prevPinned[string(p.Type)+"\x00"+p.Identity] {
 			entry.Pinned = true
 		}
@@ -145,11 +116,9 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 			}
 		}
 		if preserved > 0 {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)\n", len(unexpanded), preserved)
+			clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", len(unexpanded), preserved)
 		}
 	}
-
-	stageNewForReview(baseDir, fs, staged)
 
 	if lockfile.IsEmpty() {
 		return &LockDependenciesResult{
@@ -167,30 +136,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Path:      lockManager.Path(),
 		ItemCount: len(lockfile.AllEntries()),
 	}, nil
-}
-
-// stageNewForReview merges untrusted first-install pins into the pending
-// lockfile and warns that they await `ctxloom bundle review`. Best-effort:
-// a pending load/save failure warns but never blocks the lock (CLAUDE.md) —
-// the entries simply stay out of the active lockfile either way.
-func stageNewForReview(baseDir string, fs afero.Fs, staged []PinnedRef) {
-	if len(staged) == 0 {
-		return
-	}
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load pending lockfile: %v\n", err)
-		return
-	}
-	for _, p := range staged {
-		pending.AddEntry(p.Type, p.Identity, remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version})
-	}
-	if err := pendingMgr.Save(pending); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to stage new bundles for review: %v\n", err)
-		return
-	}
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: %d new bundle(s) staged pending review — run 'ctxloom bundle review'\n", len(staged))
 }
 
 // dropConflicted removes every pin whose identity is in conflicts — used by the
@@ -214,10 +159,10 @@ type InstallDependenciesRequest struct {
 	Force bool `json:"force"`
 
 	// Testing injection points
-	FS          afero.Fs                `json:"-"` // Optional filesystem for testing
-	LockManager *remote.LockfileManager `json:"-"` // Optional lock manager for testing
-	Registry    *remote.Registry        `json:"-"` // Optional registry for testing
-	Puller      Puller                  `json:"-"` // Optional puller for testing
+	FS          afero.Fs             `json:"-"` // Optional filesystem for testing
+	LockManager remote.LockfileStore `json:"-"` // Optional lock manager for testing
+	Registry    *remote.Registry     `json:"-"` // Optional registry for testing
+	Puller      Puller               `json:"-"` // Optional puller for testing
 }
 
 // InstallDependenciesResult contains the result of installing from lockfile.
@@ -276,7 +221,10 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 	var errors []string
 
 	for _, e := range entries {
-		ref := fmt.Sprintf("%s@%s", e.Ref, shortSHA(e.Entry.SHA))
+		// Pin to the full locked SHA, not the 7-char abbreviation: the puller
+		// resolves an exact commit, and an abbreviated SHA is a weaker (and
+		// ambiguity-prone) reference than what the lockfile actually recorded.
+		ref := fmt.Sprintf("%s@%s", e.Ref, e.Entry.SHA)
 
 		opts := remote.PullOptions{
 			Force:    req.Force,
@@ -317,11 +265,11 @@ type RepoUpdater interface {
 // CheckOutdatedRequest contains parameters for checking outdated items.
 type CheckOutdatedRequest struct {
 	// Testing injection points
-	FS             afero.Fs                `json:"-"` // Optional filesystem for testing
-	LockManager    *remote.LockfileManager `json:"-"` // Optional lock manager for testing
-	Registry       *remote.Registry        `json:"-"` // Optional registry for testing
-	FetcherFactory FetcherFactory          `json:"-"` // Optional fetcher factory for testing
-	RepoCache      RepoUpdater             `json:"-"` // Optional repo updater for testing the per-URL refresh dedup
+	FS             afero.Fs             `json:"-"` // Optional filesystem for testing
+	LockManager    remote.LockfileStore `json:"-"` // Optional lock manager for testing
+	Registry       *remote.Registry     `json:"-"` // Optional registry for testing
+	FetcherFactory FetcherFactory       `json:"-"` // Optional fetcher factory for testing
+	RepoCache      RepoUpdater          `json:"-"` // Optional repo updater for testing the per-URL refresh dedup
 }
 
 // OutdatedItem represents an item with a newer version available.
@@ -437,6 +385,10 @@ func findOutdatedEntries(ctx context.Context, entries []struct {
 	var outdated []OutdatedItem
 	fetcherByURL := map[string]remote.Fetcher{}
 	for _, e := range entries {
+		// A sha/tag pin never goes outdated; skip the re-resolve entirely.
+		if e.Entry.SelectorKind().IsPin() {
+			continue
+		}
 		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
 		if repoURL == "" {
 			continue
@@ -496,11 +448,11 @@ func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
 	for _, url := range urls {
 		forgeType, _, err := remote.DetectForge(url)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, err)
+			clidiag.Warn("ctxloom", "detect forge for %s: %v", url, err)
 			continue
 		}
 		if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, err)
+			clidiag.Warn("ctxloom", "fetch %s: %v", url, err)
 		}
 	}
 }

@@ -123,14 +123,8 @@
     },
     "profiles": {
       "type": "object",
-      "description": "Profile defaults and named definitions",
+      "description": "Named profile definitions",
       "properties": {
-        "defaults": {
-          "type": "array",
-          "description": "Default profiles to load when none is specified",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        },
         "definitions": {
           "type": "object",
           "description": "Named collections of context fragments and variables",
@@ -240,6 +234,76 @@
         }
       },
       "additionalProperties": false
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
+      "enum": ["none", "worktree"]
+    },
+    "runtime": {
+      "type": "string",
+      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together.",
+      "enum": ["host", "container"]
+    },
+    "isolation_images": {
+      "type": "object",
+      "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity.",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "isolation_base_containerfile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of using the embedded default base. Relative paths resolve against the project root."
+    },
+    "agents": {
+      "type": "object",
+      "description": "Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "description": "LLM config label/backend hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend)"
+          },
+          "profiles": {
+            "type": "array",
+            "description": "Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>).",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "runtime": {
+            "type": "string",
+            "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent.",
+            "enum": ["host", "container"]
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
+            "enum": ["default", "acceptEdits", "plan", "bypass"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "default_agent": {
+      "type": "string",
+      "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
+    },
+    "ui": {
+      "type": "object",
+      "description": "Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section.",
+      "properties": {
+        "prefix_key": {
+          "type": "string",
+          "pattern": "^ctrl[-+].$",
+          "description": "Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-].",
+          "examples": ["ctrl-]", "ctrl-t"]
+        },
+        "surround": {
+          "type": "boolean",
+          "description": "Persistent bottom status bar (harp · agent · engine │ children digest │ prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {
@@ -251,6 +315,7 @@
           "title": "claude-code",
           "properties": {
             "type": { "const": "claude-code" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -262,6 +327,7 @@
           "title": "antigravity",
           "properties": {
             "type": { "const": "antigravity" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["gemini-3-pro"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -273,6 +339,7 @@
           "title": "codex",
           "properties": {
             "type": { "const": "codex" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -281,9 +348,25 @@
           "additionalProperties": false
         },
         {
+          "title": "kiro",
+          "properties": {
+            "type": { "const": "kiro" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
+            "model": { "type": "string" },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
+            "agent": { "type": "string", "description": "Kiro custom agent selected via --agent (default \"ctxloom\")." },
+            "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." }
+          },
+          "additionalProperties": false
+        },
+        {
           "title": "mock",
           "properties": {
             "type": { "const": "mock" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },

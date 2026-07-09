@@ -1,0 +1,314 @@
+package operations
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+)
+
+// writeFile is a small helper for the agent fixtures.
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, []byte(body), 0644))
+}
+
+// writeAgentProfileFixture lays down two local bundles (each one fragment) and
+// three local profiles composing them, so agent resolution can be exercised
+// end to end without any remote/network. Real tempdirs (GetBundleDirs/
+// GetProfileDirs stat the real fs).
+//
+//	p1: bundle kit1 (FRAG-ONE), llm: fast
+//	p2: bundle kit2 (FRAG-TWO), llm: slow
+//	p3: bundle kit1 (FRAG-ONE), no llm
+func writeAgentProfileFixture(t *testing.T, root string) {
+	t.Helper()
+	app := filepath.Join(root, ".ctxloom")
+	writeFile(t, filepath.Join(app, "cache", "bundles", "kit1.yaml"),
+		"version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
+	writeFile(t, filepath.Join(app, "cache", "bundles", "kit2.yaml"),
+		"version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
+	writeFile(t, filepath.Join(app, "profiles", "p1.yaml"),
+		"llm: fast\nbundles:\n  - ctxloom:local@bundles/kit1\n")
+	writeFile(t, filepath.Join(app, "profiles", "p2.yaml"),
+		"llm: slow\nbundles:\n  - ctxloom:local@bundles/kit2\n")
+	writeFile(t, filepath.Join(app, "profiles", "p3.yaml"),
+		"bundles:\n  - ctxloom:local@bundles/kit1\n")
+}
+
+// agentTestConfig builds a Config over root with a small mock LLM registry and
+// the given config-key agents.
+func agentTestConfig(root string, subs map[string]agents.Agent) *config.Config {
+	return &config.Config{
+		AppPaths: []string{filepath.Join(root, ".ctxloom")},
+		LM: config.LMConfig{
+			Configs: map[string]config.LLMConfig{
+				"fast":    {Type: "mock", Body: map[string]any{"model": "m-fast"}},
+				"slow":    {Type: "mock", Body: map[string]any{"model": "m-slow"}},
+				"primary": {Type: "claude-code"},
+			},
+			Defaults: config.RoleDefaults{Primary: "primary"},
+		},
+		Agents: subs,
+	}
+}
+
+// TestResolveAgent_ComposesAndOverridesEngine is the core of the entity:
+// multiple profiles compose into ONE context (union of their fragments), and the
+// agent's engine OVERRIDES the constituent profiles' llm.
+func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"dev": {Engine: "slow", Profiles: []string{"p1", "p2"}},
+	})
+
+	res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+	require.NoError(t, err)
+
+	// Compose: both profiles' fragments reach the one assembled context.
+	assert.Contains(t, res.Context, "FRAG-ONE")
+	assert.Contains(t, res.Context, "FRAG-TWO")
+	assert.Equal(t, []string{"p1", "p2"}, res.Profiles)
+
+	// Engine override: the agent's engine ("slow") beats p1's declared llm
+	// ("fast", the first non-empty composed profile llm).
+	assert.Equal(t, "slow", res.Label, "engine overrides the composed profiles' llm")
+	assert.Equal(t, "mock", res.Backend)
+	assert.Equal(t, "m-slow", res.Model)
+}
+
+// TestResolveAgent_BareLaunchBindsDefaultAgent is the resolution-layer contract
+// behind a bare `ctxloom run` (internal/cli/run.go): the bare-launch else branch
+// resolves cfg.DefaultAgent through ResolveAgent, inheriting the agent's composed
+// profiles + engine + runtime + permissions exactly like --agent. profiles.defaults
+// was retired — DefaultAgentProfiles is the same set.
+func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"default": {Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
+	})
+	cfg.DefaultAgent = "default"
+
+	// The "default profile set" every non-run consumer reads matches the agent.
+	assert.Equal(t, []string{"p1", "p2"}, cfg.DefaultAgentProfiles())
+
+	// A bare run resolves cfg.DefaultAgent — profiles compose, engine/runtime/
+	// permissions ride along.
+	res, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+	require.NoError(t, err)
+	assert.Contains(t, res.Context, "FRAG-ONE")
+	assert.Contains(t, res.Context, "FRAG-TWO")
+	assert.Equal(t, "slow", res.Label)
+	assert.Equal(t, "container", res.Runtime, "the default agent's runtime rides the bare launch")
+	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
+}
+
+// TestResolveAgent_MissingDefaultAgentDegrades pins the fault-tolerant half: a
+// bare run resolves an empty or unknown cfg.DefaultAgent, and ResolveAgent must
+// return an error the run path degrades on (warn + empty context, never a hard
+// stop — CLAUDE.md). Unlike --agent, this is not a fatal condition.
+func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+
+	t.Run("empty default_agent", func(t *testing.T) {
+		cfg := agentTestConfig(root, nil) // no DefaultAgent set
+		assert.Nil(t, cfg.DefaultAgentProfiles())
+		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		require.Error(t, err, "an empty default_agent is the run path's degrade signal")
+	})
+
+	t.Run("default_agent names an undefined agent", func(t *testing.T) {
+		cfg := agentTestConfig(root, nil)
+		cfg.DefaultAgent = "ghost"
+		assert.Nil(t, cfg.DefaultAgentProfiles())
+		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		require.Error(t, err, "an unresolvable default_agent is the run path's degrade signal")
+	})
+}
+
+// TestResolveAgent_EffectivePermissions pins the resolved posture surfaced by
+// `agent show`: a declared value wins; a blank claude-code agent resolves to the
+// host-bypass stopgap (not ""); a blank non-claude agent resolves to default.
+func TestResolveAgent_EffectivePermissions(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"claude-blank": {Engine: "primary", Profiles: []string{"p1"}},
+		"mock-plan":    {Engine: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
+		"mock-blank":   {Engine: "fast", Profiles: []string{"p1"}},
+	})
+	cases := map[string]string{
+		"claude-blank": "bypass",  // claude-code host stopgap made visible
+		"mock-plan":    "plan",    // declared value surfaces
+		"mock-blank":   "default", // non-claude blank → prompt
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := ResolveAgent(context.Background(), cfg, name, "")
+			require.NoError(t, err)
+			assert.Equal(t, want, res.EffectivePermissions)
+		})
+	}
+}
+
+// TestResolveAgent_ExplicitEngineOverrideWins proves a caller-supplied
+// engine override (ACP --llm, the map/weave -l member override) beats the
+// agent's own declared engine — the same precedence the fan-out members use.
+func TestResolveAgent_ExplicitEngineOverrideWins(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"dev": {Engine: "slow", Profiles: []string{"p1"}},
+	})
+
+	res, err := ResolveAgent(context.Background(), cfg, "dev", "fast")
+	require.NoError(t, err)
+	assert.Equal(t, "fast", res.Label, "explicit override beats the declared engine")
+	assert.Equal(t, "m-fast", res.Model)
+	assert.Equal(t, "slow", res.Engine, "the DECLARED engine is still reported as written")
+}
+
+// TestResolveAgent_EngineUnsetFallsBackToProfileLLM proves an empty engine
+// falls back to the composed profiles' llm (first non-empty).
+func TestResolveAgent_EngineUnsetFallsBackToProfileLLM(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"dev": {Profiles: []string{"p1", "p2"}}, // no engine
+	})
+
+	res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+	require.NoError(t, err)
+	assert.Equal(t, "fast", res.Label, "no engine → the composed profiles' llm (p1's 'fast')")
+}
+
+// TestResolveAgent_EngineUnsetNoProfileLLMUsesProjectDefault proves the
+// terminal fallback: no engine and no profile llm → the project's primary label
+// ("default = the project backend").
+func TestResolveAgent_EngineUnsetNoProfileLLMUsesProjectDefault(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"plain": {Profiles: []string{"p3"}}, // p3 declares no llm
+	})
+
+	res, err := ResolveAgent(context.Background(), cfg, "plain", "")
+	require.NoError(t, err)
+	assert.Contains(t, res.Context, "FRAG-ONE")
+	assert.Equal(t, "primary", res.Label, "no engine, no profile llm → project primary")
+	assert.Equal(t, "claude-code", res.Backend)
+}
+
+// TestListAgents_MultipleNamedBothSources proves several named agents list
+// from BOTH local sources (config key + .ctxloom/agents/*.yaml).
+func TestListAgents_MultipleNamedBothSources(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"dev": {Engine: "primary", Profiles: []string{"p1"}},
+	})
+	// A second agent from the directory source.
+	writeFile(t, filepath.Join(root, ".ctxloom", "agents", "finder.yaml"),
+		"engine: fast\nprofiles: [p2]\n")
+
+	list := ListAgents(cfg)
+	require.Len(t, list, 2)
+	assert.Equal(t, "dev", list[0].Name)
+	assert.Equal(t, agents.SourceConfig, list[0].Source)
+	assert.Equal(t, "finder", list[1].Name)
+	assert.Equal(t, filepath.Join(root, ".ctxloom", "agents", "finder.yaml"), list[1].Source)
+
+	// Both resolve.
+	for _, name := range []string{"dev", "finder"} {
+		_, err := ResolveAgent(context.Background(), cfg, name, "")
+		require.NoErrorf(t, err, "agent %q must resolve", name)
+	}
+}
+
+// TestResolveAgent_BundleProfileMember proves an agent may reference a
+// PHASE-A bundle profile ("<bundle>#profiles/<name>") as a member, resolving it
+// through the same shared profile loader.
+func TestResolveAgent_BundleProfileMember(t *testing.T) {
+	root := t.TempDir()
+	writeBundleProfileFixture(t, root) // ships bundle profile kitProfileKey (llm: fast)
+	cfg := &config.Config{
+		AppPaths: []string{filepath.Join(root, ".ctxloom")},
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},
+			Defaults: config.RoleDefaults{Primary: "fast"},
+		},
+		Agents: map[string]agents.Agent{
+			"reviewer": {Profiles: []string{kitProfileKey}},
+		},
+	}
+
+	res, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
+	require.NoError(t, err)
+	assert.Contains(t, res.Context, "FRAG-ONE", "bundle profile's composed fragment reaches context")
+	assert.Equal(t, "fast", res.Label, "bundle profile's llm flows through when engine is unset")
+}
+
+// TestResolveAgent_NotFound is the unknown-name error path.
+func TestResolveAgent_NotFound(t *testing.T) {
+	root := t.TempDir()
+	cfg := agentTestConfig(root, nil)
+	_, err := ResolveAgent(context.Background(), cfg, "nope", "")
+	assert.Error(t, err)
+}
+
+// --- LOCAL-ONLY invariant -------------------------------------------------
+
+// TestAgent_LocalOnly_NeverFromBundle is the structural + behavioral proof
+// that agents are LOCAL ONLY: bundles carry no Agents field, and a bundle
+// that (illegitimately) declares a `agents:` key contributes nothing.
+func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
+	// Structural: there is no Bundle.Agents — agents can never be a bundle
+	// item kind. (If someone adds the field, this fails and forces a redesign.)
+	_, hasField := reflect.TypeOf(bundles.Bundle{}).FieldByName("Agents")
+	assert.False(t, hasField, "bundles.Bundle must have no Agents field")
+
+	// Behavioral: a bundle YAML carrying a `agents:` key surfaces NO agent —
+	// the agent loader reads only the config key + .ctxloom/agents/, never a
+	// bundle.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".ctxloom", "cache", "bundles", "evil.yaml"),
+		"version: \"1.0.0\"\nagents:\n  smuggled:\n    engine: attacker\n    profiles: [x]\n")
+	cfg := agentTestConfig(root, nil) // no config-key, no agents dir
+
+	assert.Empty(t, ListAgents(cfg), "a bundle cannot define an agent")
+	_, ok := cfg.Agent("smuggled")
+	assert.False(t, ok, "a bundle-declared agent is never loadable")
+}
+
+// --- UNGATED invariant ----------------------------------------------------
+
+// TestAgent_Ungated proves the agent DEFINITION is ungated orchestration/
+// config: it resolves with no trust state whatsoever (a fresh, empty store) —
+// only its constituent bundle items go through the review model. (The
+// enumeration half of the old assertion rode on the retired TR6 baseline; the
+// structural "agents are never a bundle item kind" guard lives in
+// TestAgent_LocalOnly_NeverFromBundle above.)
+func TestAgent_Ungated(t *testing.T) {
+	root := t.TempDir()
+	writeBundleProfileFixture(t, root) // kit: 1 fragment + 1 mcp + 1 hook + 1 profile
+	cfg := &config.Config{
+		AppPaths: []string{filepath.Join(root, ".ctxloom")},
+		Agents:   map[string]agents.Agent{"reviewer": {Profiles: []string{kitProfileKey}}},
+	}
+
+	// Ungated: resolves with no trust setup whatsoever.
+	_, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
+	require.NoError(t, err)
+}

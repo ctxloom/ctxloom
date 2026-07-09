@@ -13,22 +13,20 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-const (
-	lockfileName        = paths.LockFileName + ".yaml"
-	pendingLockfileName = paths.LockFileName + ".pending.yaml"
-)
+const lockfileName = paths.LockFileName + ".yaml"
 
-// LockfileManager handles reading and writing lockfiles. Each manager is
-// scoped to one role: "active" (lock.yaml — what BundleReader reads
-// against) or "pending" (lock.pending.yaml — proposed updates from a sync
-// that have not yet been approved through the review flow).
+// LockfileManager handles reading and writing the active lockfile (lock.yaml —
+// what BundleReader reads against). It is pure dependency pinning; there is no
+// pending-review split (trust-simplify slice 3) — exposure of pulled content is
+// gated per item by the content-hash trust gate.
 type LockfileManager struct {
 	baseDir  string
 	fs       afero.Fs
-	filename string // lockfileName or pendingLockfileName
+	filename string
 }
 
 // LockfileOption is a functional option for configuring a LockfileManager.
@@ -41,19 +39,8 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 	}
 }
 
-// WithPendingLockfile re-points the manager at lock.pending.yaml instead of
-// the active lock.yaml. Used by SyncOnStartup so changed/added bundles
-// land in pending; the active file is left untouched until the user
-// approves the review.
-func WithPendingLockfile() LockfileOption {
-	return func(m *LockfileManager) {
-		m.filename = pendingLockfileName
-	}
-}
-
 // NewLockfileManager creates a new lockfile manager for the active lockfile.
-// If baseDir is empty, uses the current directory's .ctxloom folder. Pass
-// WithPendingLockfile to operate on the pending file instead.
+// If baseDir is empty, uses the current directory's .ctxloom folder.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
 		baseDir = paths.AppDirName
@@ -69,30 +56,9 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 	return m
 }
 
-// Path returns the path to the managed lockfile (active or pending).
+// Path returns the path to the managed (active) lockfile.
 func (m *LockfileManager) Path() string {
 	return filepath.Join(m.baseDir, m.filename)
-}
-
-// IsPending reports whether this manager operates on lock.pending.yaml.
-func (m *LockfileManager) IsPending() bool { return m.filename == pendingLockfileName }
-
-// PendingCounterpart returns a manager over the pending lockfile in the same
-// directory and filesystem. Used by the puller to stage an untrusted first
-// install for review instead of writing it to the active lockfile.
-func (m *LockfileManager) PendingCounterpart() *LockfileManager {
-	return &LockfileManager{baseDir: m.baseDir, fs: m.fs, filename: pendingLockfileName}
-}
-
-// Delete removes the lockfile from disk (no-op if it doesn't exist). Used
-// after acknowledge_bundle_review to drop the pending file once its
-// contents have been merged into active.
-func (m *LockfileManager) Delete() error {
-	err := m.fs.Remove(m.Path())
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete lockfile: %w", err)
-	}
-	return nil
 }
 
 // Load reads the lockfile from disk.
@@ -103,9 +69,8 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	data, err := afero.ReadFile(m.fs, path)
 	if os.IsNotExist(err) {
 		return &Lockfile{
-			Version:  1,
-			Bundles:  make(map[string]LockEntry),
-			Profiles: make(map[string]LockEntry),
+			Version: 1,
+			Bundles: make(map[string]LockEntry),
 		}, nil
 	}
 	if err != nil {
@@ -121,9 +86,6 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	if lockfile.Bundles == nil {
 		lockfile.Bundles = make(map[string]LockEntry)
 	}
-	if lockfile.Profiles == nil {
-		lockfile.Profiles = make(map[string]LockEntry)
-	}
 
 	// Self-heal legacy schema-version residue (ctxloom_version: v1). The field no
 	// longer exists on LockEntry, so re-marshalling drops it; persist the cleaned
@@ -131,7 +93,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// failure leaves the (still-valid) in-memory lockfile untouched.
 	if strings.Contains(string(data), "ctxloom_version") {
 		if err := m.write(&lockfile); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clean legacy lockfile %s: %v\n", path, err)
+			clidiag.Warn("ctxloom", "failed to clean legacy lockfile %s: %v", path, err)
 		}
 	}
 
@@ -166,37 +128,27 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 	return nil
 }
 
-// AddEntry adds or updates an entry in the lockfile.
+// AddEntry adds or updates an entry in the lockfile. Only bundles are locked now
+// (top-level profile distribution was retired); a non-bundle itemType is a no-op.
 func (l *Lockfile) AddEntry(itemType ItemType, ref string, entry LockEntry) {
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		l.Bundles[ref] = entry
-	case ItemTypeProfile:
-		l.Profiles[ref] = entry
 	}
 }
 
 // GetEntry retrieves an entry from the lockfile.
 func (l *Lockfile) GetEntry(itemType ItemType, ref string) (LockEntry, bool) {
-	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
-		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
+	if itemType != ItemTypeBundle {
+		return LockEntry{}, false
 	}
-
-	entry, ok := entries[ref]
+	entry, ok := l.Bundles[ref]
 	return entry, ok
 }
 
 // RemoveEntry removes an entry from the lockfile.
 func (l *Lockfile) RemoveEntry(itemType ItemType, ref string) {
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		delete(l.Bundles, ref)
-	case ItemTypeProfile:
-		delete(l.Profiles, ref)
 	}
 }
 
@@ -219,25 +171,18 @@ func (l *Lockfile) AllEntries() []struct {
 			Entry LockEntry
 		}{ItemTypeBundle, ref, entry})
 	}
-	for ref, entry := range l.Profiles {
-		results = append(results, struct {
-			Type  ItemType
-			Ref   string
-			Entry LockEntry
-		}{ItemTypeProfile, ref, entry})
-	}
 
 	return results
 }
 
 // IsEmpty returns true if the lockfile has no entries.
 func (l *Lockfile) IsEmpty() bool {
-	return len(l.Bundles) == 0 && len(l.Profiles) == 0
+	return len(l.Bundles) == 0
 }
 
 // Count returns the total number of entries.
 func (l *Lockfile) Count() int {
-	return len(l.Bundles) + len(l.Profiles)
+	return len(l.Bundles)
 }
 
 // GetCanonicalURL builds a canonical URL from a lockfile entry.
@@ -261,26 +206,36 @@ func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string,
 		return canonicalURLFor(itemType, ref.Path, entry), true, nil
 	}
 
-	// Short name: resolve against the canonical keys of this item type.
+	// Short name: resolve against the canonical bundle keys.
 	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
 	}
-	// A "remote/path" ref matches on the path after its remote-alias prefix;
-	// the ambiguity error below guards same-path collisions across remotes.
-	_, prefixStripped, hasPrefix := strings.Cut(localName, "/")
+	// Match the exact path first (full or basename). Only when nothing matches do
+	// we reinterpret a leading segment as a remote-alias prefix ("remote/path") —
+	// otherwise a genuine nested path like "lang/go" would also collide with a
+	// sibling "go" entry and be wrongly reported as ambiguous.
 	var keys []string
 	for key := range entries {
 		ref, err := ParseReference(key)
 		if err != nil {
 			continue
 		}
-		if ref.Path == localName || path.Base(ref.Path) == localName ||
-			(hasPrefix && ref.Path == prefixStripped) {
+		if ref.Path == localName || path.Base(ref.Path) == localName {
 			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		if _, prefixStripped, hasPrefix := strings.Cut(localName, "/"); hasPrefix {
+			for key := range entries {
+				ref, err := ParseReference(key)
+				if err != nil {
+					continue
+				}
+				if ref.Path == prefixStripped {
+					keys = append(keys, key)
+				}
+			}
 		}
 	}
 	switch len(keys) {
@@ -305,21 +260,13 @@ func canonicalURLFor(itemType ItemType, itemPath string, entry LockEntry) string
 	return fmt.Sprintf("%s@%s/%s@%s", entry.URL, itemType.DirName(), itemPath, contentVersion)
 }
 
-// FindByURL searches for a lockfile entry by repository URL.
+// FindByURL searches for a bundle lockfile entry by repository URL.
 // Returns the local name (key), entry, and whether it was found.
-// Searches both bundles and profiles.
 func (l *Lockfile) FindByURL(repoURL string, itemType ItemType) (localName string, entry LockEntry, found bool) {
-	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
-		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
-	default:
+	if itemType != ItemTypeBundle {
 		return "", LockEntry{}, false
 	}
-
-	for name, e := range entries {
+	for name, e := range l.Bundles {
 		if e.URL == repoURL {
 			return name, e, true
 		}
@@ -347,15 +294,6 @@ func (l *Lockfile) FindAllByURL(repoURL string) []struct {
 				LocalName string
 				Entry     LockEntry
 			}{ItemTypeBundle, name, entry})
-		}
-	}
-	for name, entry := range l.Profiles {
-		if entry.URL == repoURL {
-			results = append(results, struct {
-				Type      ItemType
-				LocalName string
-				Entry     LockEntry
-			}{ItemTypeProfile, name, entry})
 		}
 	}
 

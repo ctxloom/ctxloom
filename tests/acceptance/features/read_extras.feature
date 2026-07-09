@@ -20,8 +20,8 @@ Feature: Additional read and configuration commands
   Scenario: Show a prompt's content
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    And a prompt "review" in bundle "demo" exists
-    When I run "ctxloom prompt show demo#prompts/review"
+    And a skill "review" in bundle "demo" exists
+    When I run "ctxloom skill show demo#skills/review"
     Then the command succeeds
     And the output contains "review"
 
@@ -38,12 +38,12 @@ Feature: Additional read and configuration commands
     Given an initialized ctxloom project
     When I run "ctxloom manage hooks install"
     Then the command succeeds
-    And the file ".mcp.json" contains "ctxloom"
+    And the file ".mcp.json" contains "ctxloom-auto"
     When I run "ctxloom manage mcp uninstall"
     Then the command succeeds
     When I run "ctxloom manage hooks install"
     Then the command succeeds
-    And the file ".mcp.json" does not contain "ctxloom"
+    And the file ".mcp.json" does not contain "ctxloom-auto"
     When I run "ctxloom manage mcp install"
     Then the command succeeds
     When I run "ctxloom manage hooks install"

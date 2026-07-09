@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // wireClaudeHarness writes a ctxloom-managed hook set into dir's claude-code
@@ -22,7 +21,7 @@ func wireClaudeHarness(t *testing.T, fs afero.Fs, dir string) {
 			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 		},
 	}
-	require.NoError(t, backends.WriteSettings("claude-code", hooks, nil, nil, dir, backends.WithSettingsFS(fs)))
+	deliverManagedSettings(t, "claude-code", hooks, nil, nil, true, dir, fs)
 }
 
 func TestHarnessStatus_ReportsWiringAndAutoRegister(t *testing.T) {

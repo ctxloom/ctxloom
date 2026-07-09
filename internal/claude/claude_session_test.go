@@ -1,0 +1,496 @@
+package claude
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// =============================================================================
+// Claude Session History Tests
+// =============================================================================
+
+func TestClaudeSessionHistory_New(t *testing.T) {
+	backend := NewClaudeCode()
+	history := NewClaudeSessionHistory(backend)
+
+	assert.NotNil(t, history)
+	assert.Equal(t, backend, history.backend)
+	assert.NotNil(t, history.FS)
+}
+
+func TestClaudeSessionHistory_WithOptions(t *testing.T) {
+	backend := NewClaudeCode()
+	fs := afero.NewMemMapFs()
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir("/test/home"),
+	)
+
+	assert.NotNil(t, history)
+	assert.Equal(t, fs, history.FS)
+	assert.Equal(t, "/test/home", history.HomeDir)
+}
+
+func TestClaudeSessionHistory_ListSessions(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	// Setup test directory structure
+	// Claude uses: ~/.claude/projects/-<path-with-dashes>/
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project" // Claude converts /test/project -> -test-project
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	// Create session files with different times
+	session1 := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Hello"}}
+{"type":"assistant","timestamp":"2024-01-15T10:00:01Z","message":{"content":"Hi there!"}}`
+
+	session2 := `{"type":"user","timestamp":"2024-01-15T11:00:00Z","message":{"content":"Second session"}}
+{"type":"assistant","timestamp":"2024-01-15T11:00:01Z","message":{"content":"Response"}}`
+
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "session1.jsonl"), []byte(session1), 0644))
+	time.Sleep(10 * time.Millisecond) // Ensure different mod times
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "session2.jsonl"), []byte(session2), 0644))
+
+	// Also create a non-session file that should be ignored
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "config.json"), []byte("{}"), 0644))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	sessions, err := history.ListSessions(workDir)
+	require.NoError(t, err)
+
+	assert.Len(t, sessions, 2)
+	// Sessions must be sorted most-recent-first. session2 is written later (newer
+	// mod time; the 10ms sleep above guarantees a distinct one) and also carries
+	// the later transcript timestamps, so it must come first. Asserting the exact
+	// order — not just set membership — is what actually pins the sort so a
+	// regression that dropped or reversed it would fail here.
+	assert.Equal(t, "session2", sessions[0].ID)
+	assert.Equal(t, "session1", sessions[1].ID)
+}
+
+func TestClaudeSessionHistory_ListSessions_Empty(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	sessions, err := history.ListSessions(workDir)
+	require.NoError(t, err)
+	assert.Empty(t, sessions)
+}
+
+func TestClaudeSessionHistory_ListSessions_ProjectNotFound(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir("/test/home"),
+	)
+
+	_, err := history.ListSessions("/test/project")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "project directory not found")
+}
+
+func TestClaudeSessionHistory_GetSession(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	sessionContent := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Hello"}}
+{"type":"assistant","timestamp":"2024-01-15T10:00:01Z","message":{"content":"Hi there!"}}
+{"type":"tool_use","timestamp":"2024-01-15T10:00:02Z","name":"Read","input":{"path":"/test"}}
+{"type":"tool_result","timestamp":"2024-01-15T10:00:03Z","name":"Read","output":"file contents"}`
+
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "test-session.jsonl"), []byte(sessionContent), 0644))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	session, err := history.GetSession(workDir, "test-session")
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-session", session.ID)
+	assert.Len(t, session.Entries, 4)
+
+	// Verify entry types
+	assert.Equal(t, agent.EntryTypeUser, session.Entries[0].Type)
+	assert.Equal(t, "Hello", session.Entries[0].Content)
+
+	assert.Equal(t, agent.EntryTypeAssistant, session.Entries[1].Type)
+	assert.Equal(t, "Hi there!", session.Entries[1].Content)
+
+	assert.Equal(t, agent.EntryTypeToolUse, session.Entries[2].Type)
+	assert.Equal(t, "Read", session.Entries[2].ToolName)
+
+	assert.Equal(t, agent.EntryTypeToolResult, session.Entries[3].Type)
+	assert.Equal(t, "file contents", session.Entries[3].ToolOutput)
+
+	// Verify timestamps
+	assert.False(t, session.StartTime.IsZero())
+	assert.False(t, session.EndTime.IsZero())
+}
+
+func TestClaudeSessionHistory_GetSession_NotFound(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	_, err := history.GetSession(workDir, "nonexistent")
+	assert.Error(t, err)
+}
+
+func TestClaudeSessionHistory_GetSessionByPath(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	sessionPath := "/some/path/session.jsonl"
+	sessionContent := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Test"}}`
+
+	require.NoError(t, fs.MkdirAll(filepath.Dir(sessionPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte(sessionContent), 0644))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir("/test/home"),
+	)
+
+	session, err := history.GetSessionByPath(sessionPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "session", session.ID)
+	assert.Len(t, session.Entries, 1)
+}
+
+// TestClaudeSessionHistory_ModernBlockSchema covers the CURRENT Claude Code
+// transcript schema, where `message.content` is an array of typed blocks
+// (text / thinking / tool_use for assistant; tool_result for user) rather than
+// a plain string, the top-level type is only user/assistant, and sub-agent
+// lines carry `isSidechain: true`. The pre-fix parser read content only as a
+// string, so it produced empty entries and never surfaced tool blocks — the
+// ~99% under-read behind the broken /recover distillation. Sidechain lines
+// parse like any other but are MARKED (not dropped), so a watch viewer can
+// attribute an engine subagent's interior events; main-thread-only consumers
+// go through agent.MainThreadEntries.
+func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	// One JSONL line per entry. Mirrors real shapes sampled from a live
+	// transcript: assistant content = [thinking, text, tool_use]; the tool
+	// result comes back as a user message with a tool_result block; metadata
+	// lines (mode/file-history-snapshot) are excluded; the isSidechain
+	// sub-agent line yields a sidechain-marked entry. A thinking block becomes
+	// its own thinking entry (preserving block order), so a frontend can
+	// style/toggle it.
+	content := `{"type":"file-history-snapshot","timestamp":"2026-06-01T10:00:00Z"}
+{"type":"user","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"Merge PR 8"}}
+{"type":"assistant","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"internal reasoning"},{"type":"text","text":"I'll check PR 8 first."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr view 8"}}]}}
+{"type":"user","timestamp":"2026-06-01T10:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"PR 8 is open","is_error":false}]}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"SIDECHAIN_INTERIOR_TEXT"}]}}`
+
+	sessionPath := "/p/modern.jsonl"
+	require.NoError(t, fs.MkdirAll("/p", 0755))
+	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte(content), 0644))
+
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+	session, err := history.GetSessionByPath(sessionPath)
+	require.NoError(t, err)
+
+	require.Len(t, session.Entries, 6)
+
+	assert.Equal(t, agent.EntryTypeUser, session.Entries[0].Type)
+	assert.Equal(t, "Merge PR 8", session.Entries[0].Content)
+	assert.False(t, session.Entries[0].Sidechain)
+
+	// thinking precedes the prose it produced, as its own entry.
+	assert.Equal(t, agent.EntryTypeThinking, session.Entries[1].Type)
+	assert.Equal(t, "internal reasoning", session.Entries[1].Content)
+
+	assert.Equal(t, agent.EntryTypeAssistant, session.Entries[2].Type)
+	assert.Equal(t, "I'll check PR 8 first.", session.Entries[2].Content)
+
+	assert.Equal(t, agent.EntryTypeToolUse, session.Entries[3].Type)
+	assert.Equal(t, "Bash", session.Entries[3].ToolName)
+	assert.Contains(t, string(session.Entries[3].ToolInput), "gh pr view 8")
+
+	assert.Equal(t, agent.EntryTypeToolResult, session.Entries[4].Type)
+	assert.Equal(t, "PR 8 is open", session.Entries[4].ToolOutput)
+	assert.False(t, session.Entries[4].IsError)
+
+	// The sub-agent interior entry is present, attributed off the main thread.
+	assert.Equal(t, agent.EntryTypeAssistant, session.Entries[5].Type)
+	assert.Equal(t, "SIDECHAIN_INTERIOR_TEXT", session.Entries[5].Content)
+	assert.True(t, session.Entries[5].Sidechain)
+
+	// Main-thread consumers (distillation, session-load replay) see exactly
+	// the pre-marking view.
+	main := agent.MainThreadEntries(session.Entries)
+	require.Len(t, main, 5)
+	for _, e := range main {
+		assert.NotContains(t, e.Content, "SIDECHAIN_INTERIOR_TEXT", "sidechain content must stay off the main thread")
+	}
+}
+
+// TestClaudeSessionHistory_SubagentFileAllSidechain: current claude-code
+// records each in-harness subagent's interior in its own
+// <session>/subagents/agent-<id>.jsonl file, every line isSidechain:true. A
+// by-path read of one (the viewer's drill-in) yields all-sidechain entries,
+// including tool_use blocks.
+func TestClaudeSessionHistory_SubagentFileAllSidechain(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	content := `{"type":"user","isSidechain":true,"timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"audit the parser"}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Grep","input":{"pattern":"parse"}}]}}`
+
+	path := "/p/sess/subagents/agent-a1b2.jsonl"
+	require.NoError(t, fs.MkdirAll("/p/sess/subagents", 0755))
+	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0644))
+
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+	session, err := history.GetSessionByPath(path)
+	require.NoError(t, err)
+
+	require.Len(t, session.Entries, 2)
+	for i, e := range session.Entries {
+		assert.True(t, e.Sidechain, "entry %d must be sidechain-marked", i)
+	}
+	assert.Equal(t, agent.EntryTypeToolUse, session.Entries[1].Type)
+	assert.Equal(t, "Grep", session.Entries[1].ToolName)
+}
+
+// Previous-session resolution moved to ctxloom (operations.ResolvePreviousSession,
+// index-authoritative + cross-agent); the per-backend marker-scan readers
+// (GetPreviousSession / harpFromTranscript) and their tests were removed with it.
+
+func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	sessionContent := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Current"}}`
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(projectDir, "current.jsonl"), []byte(sessionContent), 0644))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	session, err := history.GetCurrentSession(workDir)
+	require.NoError(t, err)
+
+	assert.Equal(t, "current", session.ID)
+}
+
+func TestClaudeSessionHistory_GetCurrentSession_NoSessions(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	_, err := history.GetCurrentSession(workDir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no sessions found")
+}
+
+func TestClaudeSessionHistory_ParseEntry_UserMessage(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+
+	tests := []struct {
+		name     string
+		input    string
+		expected agent.SessionEntryType
+		content  string
+	}{
+		{
+			name:     "user type",
+			input:    `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Hello"}}`,
+			expected: agent.EntryTypeUser,
+			content:  "Hello",
+		},
+		{
+			name:     "human type",
+			input:    `{"type":"human","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Hello human"}}`,
+			expected: agent.EntryTypeUser,
+			content:  "Hello human",
+		},
+		{
+			name:     "assistant type",
+			input:    `{"type":"assistant","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Response"}}`,
+			expected: agent.EntryTypeAssistant,
+			content:  "Response",
+		},
+		{
+			name:     "tool_use type",
+			input:    `{"type":"tool_use","timestamp":"2024-01-15T10:00:00Z","name":"Bash","input":{"command":"ls"}}`,
+			expected: agent.EntryTypeToolUse,
+		},
+		{
+			name:     "tool_result type",
+			input:    `{"type":"tool_result","timestamp":"2024-01-15T10:00:00Z","name":"Bash","output":"file.txt"}`,
+			expected: agent.EntryTypeToolResult,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entries, err := history.parseEntries([]byte(tt.input))
+			require.NoError(t, err)
+			require.Len(t, entries, 1)
+			assert.Equal(t, tt.expected, entries[0].Type)
+			if tt.content != "" {
+				assert.Equal(t, tt.content, entries[0].Content)
+			}
+		})
+	}
+}
+
+func TestClaudeSessionHistory_ParseEntry_MalformedJSON(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+
+	_, err := history.parseEntries([]byte("not json"))
+	assert.Error(t, err)
+}
+
+func TestClaudeSessionHistory_ParseSession_SkipsMalformed(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	sessionPath := "/test/session.jsonl"
+	// Mix of valid and invalid lines
+	sessionContent := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Valid"}}
+not valid json
+{"type":"assistant","timestamp":"2024-01-15T10:00:01Z","message":{"content":"Also valid"}}`
+
+	require.NoError(t, fs.MkdirAll(filepath.Dir(sessionPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte(sessionContent), 0644))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir("/test/home"),
+	)
+
+	session, err := history.GetSessionByPath(sessionPath)
+	require.NoError(t, err)
+
+	// Should have 2 entries, skipping the malformed one
+	assert.Len(t, session.Entries, 2)
+}
+
+func TestClaudeSessionHistory_FindProjectDir(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectName := "-test-project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	result, err := history.findProjectDir(workDir)
+	require.NoError(t, err)
+	assert.Equal(t, projectDir, result)
+}
+
+// Claude Code names a project's transcript dir by replacing EVERY non-alphanumeric
+// byte of the absolute cwd with '-' (no run collapsing), not just the path
+// separator. A workDir containing '.', '_', and a space must therefore resolve to
+// the dir where '/.' became '--', '_' became '-', and ' ' became '-'. The pre-fix
+// '/'-only encoding derived a directory that does not exist for any such path,
+// silently breaking session history/recovery. claude-code-01-001 / dry-claude-002.
+func TestClaudeSessionHistory_ProjectDirEncoding_NonAlnum(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	homeDir := "/home/user"
+	workDir := "/home/user/.config/my_proj v2"
+	projectName := "-home-user--config-my-proj-v2"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	result, err := history.findProjectDir(workDir)
+	require.NoError(t, err)
+	assert.Equal(t, projectDir, result)
+
+	// TranscriptPathFromHook must use the same encoding so the SessionStart hook
+	// resolves to the same file findProjectDir/ListSessions read.
+	got := history.TranscriptPathFromHook(workDir, "sess1", "")
+	assert.Equal(t, filepath.Join(projectDir, "sess1.jsonl"), got)
+}

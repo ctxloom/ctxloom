@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // PurgeExtractedBundles removes the on-disk extracted YAML copies of
@@ -64,7 +64,7 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 			return nil // Local bundle — leave it alone.
 		}
 		if rmErr := os.Remove(path); rmErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to remove legacy bundle %s: %v\n", path, rmErr)
+			clidiag.Warn("ctxloom", "failed to remove legacy bundle %s: %v", path, rmErr)
 			return nil
 		}
 		removed++

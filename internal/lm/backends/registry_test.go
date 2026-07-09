@@ -7,8 +7,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,11 +120,11 @@ func TestDecodeLLMConfig(t *testing.T) {
 
 // TestDescriptorTable_Invariants pins the descriptor registry's shape: every
 // built-in agent is registered as ONE complete descriptor (backend ctor +
-// config decoder + settings writer + command export/writer), keyed by the
-// name its module's Name() reports. The mock backend is the deliberate
-// exception — it registers only backend+config (no settings, no commands).
-// A descriptor that loses a capability field silently degrades that backend
-// (WriteSettings/WriteCommandFilesFor no-op), so this must fail loudly.
+// config decoder + settings writer + surface builder + command-export mapper),
+// keyed by the name its module's Name() reports. The mock backend is the
+// deliberate exception — it registers only backend+config (no settings, no
+// surfaces, no exports). A descriptor that loses a capability field silently
+// degrades that backend, so this must fail loudly.
 func TestDescriptorTable_Invariants(t *testing.T) {
 	require.NotEmpty(t, descriptors)
 	for name, d := range descriptors {
@@ -135,15 +135,20 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			assert.Equal(t, name, d.newBackend().Name(),
 				"registry name must match the module's Name()")
 
-			if name == "mock" {
-				assert.Nil(t, d.newWriter, "mock must not gain settings support silently")
-				assert.Nil(t, d.exports, "mock must not gain command export silently")
-				assert.Nil(t, d.writeCommands, "mock must not gain command export silently")
+			// Deliberate exemptions: mock is the test double; acp is the GENERIC
+			// ACP client, which has no native config format to write — the known
+			// agents' ACP paths ride their own descriptors (kiro/codex Chat
+			// delegates to the acp driver), so materialization stays with the
+			// target's writer, never this descriptor. (acp still registers a
+			// newSurfaces that yields an EmptySurfaceSet so BuildSurfaces is total.)
+			if name == "mock" || name == "acp" {
+				assert.Nil(t, d.newWriter, "%s must not gain settings support silently", name)
+				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
 				return
 			}
-			assert.NotNil(t, d.newWriter, "non-mock backend must have a settings writer")
-			assert.NotNil(t, d.exports, "non-mock backend must have a command-export mapper")
-			assert.NotNil(t, d.writeCommands, "non-mock backend must have a command-file writer")
+			assert.NotNil(t, d.newWriter, "backend must have a settings writer")
+			assert.NotNil(t, d.newSurfaces, "backend must build a surface set")
+			assert.NotNil(t, d.exports, "backend must have a command-export mapper")
 		})
 	}
 }

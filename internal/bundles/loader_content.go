@@ -8,7 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // LoadedContent is a fully resolved fragment or prompt with its bundle
@@ -92,12 +92,25 @@ func (c CodexConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
+// KiroConfig holds configuration for exporting prompts as Kiro CLI skills
+// (agentskills.io SKILL.md files, invocable as /<name> slash commands).
+type KiroConfig struct {
+	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
+	Description string `yaml:"description"` // For skill discovery + /help
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c KiroConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
 	ClaudeCode  ClaudeCodeConfig  `yaml:"claude-code"`
 	Antigravity AntigravityConfig `yaml:"antigravity"`
 	Codex       CodexConfig       `yaml:"codex"`
+	Kiro        KiroConfig        `yaml:"kiro"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.
@@ -108,7 +121,7 @@ type ContentInfo struct {
 	Source   string // "bundle:name" or legacy path
 	Tags     []string
 	Bundle   string // Bundle name this came from
-	ItemType string // "fragment" or "prompt"
+	ItemType string // "fragment" or "skill"
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
@@ -149,8 +162,8 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 	return infos, nil
 }
 
-// ListAllPrompts returns info about all prompts across all bundles.
-func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
+// ListAllSkills returns info about all prompts across all bundles.
+func (l *Loader) ListAllSkills() ([]ContentInfo, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
@@ -164,7 +177,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 			continue
 		}
 
-		for name, prompt := range bundle.Prompts {
+		for name, prompt := range bundle.Skills {
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
 			key := bundleInfo.Name + "/" + name
 			if seen.Has(key) {
@@ -178,7 +191,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 				Source:   bundleInfo.Name,
 				Tags:     slices.Concat(bundle.Tags, prompt.Tags),
 				Bundle:   bundleInfo.Name,
-				ItemType: "prompt",
+				ItemType: "skill",
 			})
 		}
 	}
@@ -214,15 +227,23 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 	return bundleName, parts[1], true, nil
 }
 
-// fragmentContent builds a LoadedContent for a fragment.
+// fragmentContent builds a LoadedContent for a fragment, or returns nil when the
+// trust gate withholds it (trust rework, TR5). The gate hashes the EXACT
+// effective-content bytes this returns (pre-mustache), so the decision keys on
+// what the agent would actually see.
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
+	content := frag.EffectiveContent(l.preferDistilled)
+	hash, form := frag.EffectiveContentHash(l.preferDistilled)
+	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, hash, form) {
+		return nil
+	}
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
 		Item:         fragName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, frag.Tags),
-		Content:      frag.EffectiveContent(l.preferDistilled),
+		Content:      content,
 		Installation: frag.Installation,
 		IsDistilled:  l.preferDistilled && frag.Distilled != "",
 		DistilledBy:  frag.DistilledBy,
@@ -239,7 +260,11 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent
 	if !ok {
 		return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
 	}
-	return l.fragmentContent(bundle, fragName, frag), nil
+	lc := l.fragmentContent(bundle, fragName, frag)
+	if lc == nil {
+		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
+	}
+	return lc, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -277,46 +302,65 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 	return matches[0] + remote.FragmentSelector + name
 }
 
-// searchFragment scans every bundle for a fragment with the given name.
+// searchFragment scans every bundle for a fragment with the given name. A match
+// the trust gate withholds (trust rework, TR5) does not end the scan — a trusted
+// copy in another bundle still wins; only when every match is withheld does it
+// report ErrFragmentWithheld (distinct from not-found).
 func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
+	withheld := false
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if frag, ok := bundle.Fragments[name]; ok {
-			return l.fragmentContent(bundle, name, frag), nil
+			if lc := l.fragmentContent(bundle, name, frag); lc != nil {
+				return lc, nil
+			}
+			withheld = true
 		}
+	}
+	if withheld {
+		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 }
 
-// GetPrompt finds and loads a prompt by name.
-// Name can be "prompt-name" (searches all bundles) or "bundle#prompts/name".
-func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
-	bundleName, promptName, isRef, err := splitItemRef(name, "prompts")
+// GetSkill finds and loads a prompt by name.
+// Name can be "prompt-name" (searches all bundles) or "bundle#skills/name".
+func (l *Loader) GetSkill(name string) (*LoadedContent, error) {
+	bundleName, promptName, isRef, err := splitItemRef(name, "skills")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.promptFromBundle(bundleName, promptName)
+		return l.skillFromBundle(bundleName, promptName)
 	}
-	return l.searchPrompt(name)
+	return l.searchSkill(name)
 }
 
-// promptContent builds a LoadedContent for a prompt (prompts also carry Plugins).
-func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundlePrompt) *LoadedContent {
+// skillContent builds a LoadedContent for a prompt (prompts also carry Plugins),
+// or returns nil when the trust gate withholds it (trust rework, TR5). See
+// fragmentContent — the gate hashes the exact effective-content bytes returned.
+// The gate ref keeps the "prompts" kind segment (trust.KindPrompt.Dir()), so the
+// item-kind rename does not invalidate existing trust grants.
+func (l *Loader) skillContent(bundle *Bundle, promptName string, prompt BundleSkill) *LoadedContent {
+	content := prompt.EffectiveContent(l.preferDistilled)
+	hash, form := prompt.EffectiveContentHash(l.preferDistilled)
+	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, hash, form) {
+		return nil
+	}
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
 		Item:         promptName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
-		Content:      prompt.EffectiveContent(l.preferDistilled),
+		Content:      content,
 		Installation: prompt.Installation,
 		IsDistilled:  l.preferDistilled && prompt.Distilled != "",
 		DistilledBy:  prompt.DistilledBy,
@@ -324,35 +368,75 @@ func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundleP
 	}
 }
 
-// promptFromBundle loads a specific bundle and returns the named prompt.
-func (l *Loader) promptFromBundle(bundleName, promptName string) (*LoadedContent, error) {
+// SkillsFromBundleRef returns every prompt shipped by the bundle at bundleRef
+// as fully-resolved LoadedContent, in deterministic (name-sorted) order, or nil
+// if the bundle can't be loaded. This is the prompt analog of the per-bundle
+// MCP/hook resolution (loadMCPFromBundleRef): it lets prompt/skill exports be
+// scoped to a specific profile's bundles instead of the global ListAllSkills
+// sweep. Deterministic order matters so downstream command-file writes are
+// reproducible. A skill the trust gate withholds (skillContent returns nil) is
+// skipped, so a withheld skill is never exported as a slash command.
+func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedContent {
+	bundle, err := l.Load(bundleRef)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(bundle.Skills))
+	for name := range bundle.Skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*LoadedContent, 0, len(names))
+	for _, name := range names {
+		if lc := l.skillContent(bundle, name, bundle.Skills[name]); lc != nil {
+			out = append(out, lc)
+		}
+	}
+	return out
+}
+
+// skillFromBundle loads a specific bundle and returns the named prompt.
+func (l *Loader) skillFromBundle(bundleName, promptName string) (*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
 	}
-	prompt, ok := bundle.Prompts[promptName]
+	prompt, ok := bundle.Skills[promptName]
 	if !ok {
-		return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
+		return nil, fmt.Errorf("skill %q not found in bundle %q", promptName, bundleName)
 	}
-	return l.promptContent(bundle, promptName, prompt), nil
+	lc := l.skillContent(bundle, promptName, prompt)
+	if lc == nil {
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, promptName)
+	}
+	return lc, nil
 }
 
-// searchPrompt scans every bundle for a prompt with the given name.
-func (l *Loader) searchPrompt(name string) (*LoadedContent, error) {
+// searchSkill scans every bundle for a prompt with the given name. A gate-
+// withheld match (trust rework, TR5) does not end the scan; only when every
+// match is withheld does it report ErrSkillWithheld (distinct from not-found).
+func (l *Loader) searchSkill(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
+	withheld := false
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
-		if prompt, ok := bundle.Prompts[name]; ok {
-			return l.promptContent(bundle, name, prompt), nil
+		if prompt, ok := bundle.Skills[name]; ok {
+			if lc := l.skillContent(bundle, name, prompt); lc != nil {
+				return lc, nil
+			}
+			withheld = true
 		}
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
+	if withheld {
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, name)
+	}
+	return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
 }
 
 // ListByTags returns fragments matching any of the given tags.
@@ -393,46 +477,68 @@ func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
 	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
 }
 
+// ExpandedRef is one fragment produced by expanding a profile bundle reference.
+// Name is the version-AGNOSTIC canonical fragment identity
+// ("<canonical-bundle>#fragments/<name>") used for dedup/exclusion/ordering;
+// Version is the optional "@<commit>" content version the originating ref pinned
+// (empty = the lockfile-pinned default). The version is honored only at the
+// read/resolution path (GetFragmentAtVersion), so the identity stays
+// version-agnostic — two spellings of the same item dedup regardless of version.
+type ExpandedRef struct {
+	Name    string
+	Version string
+}
+
 // ExpandBundleRefs expands profile bundle references into canonical fragment
-// names usable with GetFragment. See the Profile.Bundles documentation in
-// internal/profiles for the supported reference syntax.
+// refs usable with GetFragment / GetFragmentAtVersion. See the Profile.Bundles
+// documentation in internal/profiles for the supported reference syntax.
 //
-// Supported reference forms:
+// Supported reference forms (each may carry a trailing "@<commit>" on the
+// bundle part to pin that item to a historical version):
 //
 //	"bundle"                        // every fragment in the bundle
 //	"bundle#fragments/name"         // a single fragment (canonical syntax)
 //	"bundle:fragments/name"         // a single fragment (profile syntax alias)
+//	"bundle@<commit>"               // every fragment at that commit
+//	"bundle@<commit>:fragments/name"// a single fragment at that commit
 //
-// Refs that target prompts or MCP servers (e.g. "bundle:prompts/x",
+// Refs that target prompts or MCP servers (e.g. "bundle:skills/x",
 // "bundle:mcp") are skipped, because they do not resolve to fragments.
-// Bundles that cannot be loaded are also skipped, mirroring the tolerant
-// behavior of LoadMultiple/GetFragment so a missing bundle does not abort
-// the whole assembly.
+// Bundles that cannot be loaded — including a pinned version that fails to
+// fetch — are skipped, mirroring the tolerant behavior of LoadMultiple/
+// GetFragment so a missing bundle does not abort the whole assembly.
 //
-// The returned names are deduplicated and stable: whole-bundle expansions
-// are sorted alphabetically by fragment name so the resulting context hash
-// is reproducible. Bundle identities are canonicalized
-// (remote.CanonicalBundleRef) — remote refs to their version-less canonical
-// URL, plain local names to ctxloom:local form — so names from different
-// reference spellings of the same bundle compare and dedupe exactly.
-func (l *Loader) ExpandBundleRefs(refs []string) []string {
-	seen := collections.NewSet[string]()
-	var out []string
+// The returned refs are deduplicated and stable: whole-bundle expansions are
+// sorted alphabetically by fragment name so the resulting context hash is
+// reproducible. Bundle identities are canonicalized (remote.CanonicalBundleRef)
+// — remote refs to their version-less canonical URL, plain local names to
+// ctxloom:local form — so names from different reference spellings of the same
+// bundle compare and dedupe exactly. Dedup is version-agnostic: when the same
+// item is produced more than once an explicit "@<commit>" wins over a
+// default-version entry (one version per item).
+func (l *Loader) ExpandBundleRefs(refs []string) []ExpandedRef {
+	index := make(map[string]int)
+	var out []ExpandedRef
 	for _, ref := range refs {
-		for _, name := range l.expandBundleRef(ref) {
-			if seen.Has(name) {
+		for _, er := range l.expandBundleRef(ref) {
+			if i, ok := index[er.Name]; ok {
+				// Same item already present: an explicit @commit upgrades a
+				// default-version entry; never carry two versions of one item.
+				if out[i].Version == "" && er.Version != "" {
+					out[i].Version = er.Version
+				}
 				continue
 			}
-			seen.Add(name)
-			out = append(out, name)
+			index[er.Name] = len(out)
+			out = append(out, er)
 		}
 	}
 	return out
 }
 
-// expandBundleRef returns the canonical fragment names for a single ref.
+// expandBundleRef returns the canonical fragment refs for a single ref.
 // See ExpandBundleRefs for the supported syntax.
-func (l *Loader) expandBundleRef(ref string) []string {
+func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	if ref == "" {
 		return nil
 	}
@@ -447,7 +553,7 @@ func (l *Loader) expandBundleRef(ref string) []string {
 	// dropping every URL-form cherry-pick.)
 	sep := strings.Index(ref, "#")
 	if sep == -1 {
-		for _, marker := range []string{":fragments/", ":prompts/", ":mcp"} {
+		for _, marker := range []string{":fragments/", ":skills/", ":mcp"} {
 			if i := strings.Index(ref, marker); i != -1 {
 				sep = i
 				break
@@ -461,24 +567,43 @@ func (l *Loader) expandBundleRef(ref string) []string {
 			// Targeted at prompts, mcp, or unknown — not a fragment ref.
 			return nil
 		}
-		return []string{remote.CanonicalBundleRef(bundleName) + "#" + rest}
+		// The bundle part may pin a content version ("bundle@<commit>"); keep it
+		// (the read path resolves the cherry-pick at that commit) while the
+		// emitted Name stays the version-agnostic canonical identity.
+		canonical, version := splitBundleVersion(bundleName)
+		return []ExpandedRef{{Name: canonical + "#" + rest, Version: version}}
 	}
 
-	// Whole-bundle ref: enumerate every fragment in the bundle.
-	b, err := l.Load(ref)
+	// Whole-bundle ref: enumerate every fragment in the bundle. A pinned
+	// "@<commit>" enumerates that historical version (its fragment set may
+	// differ from the default) and stamps every item with the commit so each
+	// resolves at that version.
+	canonical, version := splitBundleVersion(ref)
+	b, err := l.wholeBundleForExpansion(ref, version)
 	if err != nil {
-		// A profile referenced this bundle but it didn't resolve. Warn so the
-		// gap is diagnosable — silently dropping it produces context that is
-		// missing content with no error (fault-tolerance: log, don't crash).
-		// Deduped process-wide: startup assembles context more than once.
+		// A profile referenced this bundle but it didn't resolve (missing, or a
+		// pinned version that failed to fetch). Warn so the gap is diagnosable —
+		// silently dropping it produces context that is missing content with no
+		// error (fault-tolerance: log, don't crash). Deduped process-wide:
+		// startup assembles context more than once.
 		unresolvedBundleWarner.unresolved(ref, err)
 		return nil
 	}
-	names := make([]string, 0, len(b.Fragments))
-	canonical := remote.CanonicalBundleRef(ref)
+	out := make([]ExpandedRef, 0, len(b.Fragments))
 	for fragName := range b.Fragments {
-		names = append(names, canonical+remote.FragmentSelector+fragName)
+		out = append(out, ExpandedRef{Name: canonical + remote.FragmentSelector + fragName, Version: version})
 	}
-	sort.Strings(names)
-	return names
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// wholeBundleForExpansion materializes a whole-bundle ref for fragment
+// enumeration: the lockfile-pinned default when no version is pinned (the
+// unchanged path), or the exact historical version via the wired version
+// resolver when a "@<commit>" is present.
+func (l *Loader) wholeBundleForExpansion(ref, version string) (*Bundle, error) {
+	if version == "" {
+		return l.Load(ref)
+	}
+	return l.bundleAtVersion(ref, "")
 }

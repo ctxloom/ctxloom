@@ -9,7 +9,7 @@ Get up and running with ctxloom in minutes.
 | Capability | Description |
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, inject into Claude/Antigravity via MCP |
-| **Slash Commands** | Prompts become `/commands` in Claude Code and Antigravity automatically |
+| **Slash Commands** | Skills become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
@@ -23,6 +23,15 @@ ctxloom init
 # Or create a global config at ~/.ctxloom
 ctxloom init --home
 ```
+
+`init` scaffolds a local default profile (`.ctxloom/profiles/default.yaml`,
+inheriting the ctxloom-default baseline) and wires the trusted `ctxloom-default`
+remote. Run interactively, it walks you through one merged interview: pick an AI
+engine, optionally add a personal remote, then launch your AI for an
+agent-assisted setup. Useful flags: `--engine` to pre-select the engine,
+`--remote` to add a personal repo as a trusted remote (repeatable), `--forge` to
+bind those remotes to a specific forge, `--non-interactive` to skip all prompts,
+and `--skip-launch` to skip the auto-launch.
 
 ## Browse Available Content
 
@@ -40,11 +49,15 @@ ctxloom fragment list --bundle go-development
 
 Example output:
 ```
-BUNDLE          FRAGMENT            TAGS
-go-development  error-handling      [golang, patterns]
-go-development  testing             [golang, testing]
-go-development  project-structure   [golang, organization]
-security        owasp-top-10        [security, web]
+Fragments (4):
+
+  go-development:
+    - error-handling [golang, patterns]
+    - testing [golang, testing]
+    - project-structure [golang, organization]
+
+  security:
+    - owasp-top-10 [security, web]
 ```
 
 ### View Fragment Content
@@ -57,29 +70,33 @@ ctxloom fragment show go-development#fragments/testing
 ctxloom fragment show go-development#fragments/testing --distilled
 ```
 
-### List Prompts (Slash Commands)
+### List Skills (Slash Commands)
 
 ```bash
-# List all prompts
-ctxloom prompt list
+# List all skills
+ctxloom skill list
 
 # Filter by bundle
-ctxloom prompt list --bundle my-tools
+ctxloom skill list --bundle my-tools
 ```
 
 Example output:
 ```
-BUNDLE      PROMPT        DESCRIPTION
-my-tools    code-review   Review code for issues
-my-tools    refactor      Suggest refactoring improvements
-core        commit        Generate commit message
+Skills (3):
+
+  core:
+    - commit [git]
+
+  my-tools:
+    - code-review [review]
+    - refactor [refactoring]
 ```
 
-### View Prompt Content
+### View Skill Content
 
 ```bash
-# Show a specific prompt
-ctxloom prompt show my-tools#prompts/code-review
+# Show a specific skill
+ctxloom skill show my-tools#skills/code-review
 ```
 
 ## Run with Context
@@ -101,11 +118,11 @@ ctxloom run -f go-development --dry-run --print
 
 ## Use Slash Commands
 
-Prompts in bundles become slash commands in Claude Code and Antigravity CLI:
+Skills in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
-# .ctxloom/bundles/my-tools.yaml
-prompts:
+# .ctxloom/cache/bundles/my-tools.yaml
+skills:
   code-review:
     description: "Review code for issues"
     content: |

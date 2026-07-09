@@ -1,0 +1,84 @@
+# ctxloom Glossary
+
+Canonical vocabulary for ctxloom's launch/execution architecture. Use these
+terms in code, comments, docs, and plans. Where the industry has a standard we
+comply with it; where it doesn't, we coin a collision-free term and say so.
+
+## The launch pipeline
+
+```
+control-plane  ──wire──►  runner  ──drives──►  engine ── (provider, model)
+  (user config,          (materializes,        (claude-code / codex /
+   isolation,             launches)             gemini-cli / direct API)
+   assembly)
+```
+
+*The **control-plane** assembles a user's configuration into a **loadout** (the
+**context**, **MCP**, **hooks**, **skills**, and **settings** surfaces) for a
+**session** and, over the **wire**, hands it to a **runner**, which composes its
+isolation/containerization objects, **injects each surface** into the environment,
+and drives the **engine** (whose own **engine agents** we merely pass through).*
+
+## Terms
+
+| term | meaning | maps to today |
+|---|---|---|
+| **control-plane** | Everything before the wire: user-facing configuration & setup, profile/bundle/context assembly, isolation policy, and spawning the runner into its worktree/container. Owns what the user configures; transmits it. | `internal/cli/run.go`, `internal/config`, `internal/lm/isolation`, `internal/lm/backends` (assembly) |
+| **wire** | The network-agnostic control-plane→runner transport. Carries **all** data the runner needs; assumes **no** shared filesystem (the runner may be remote). | gRPC (`SetupRequest`, plugin server) |
+| **runner** | Everything after the wire: receives transmitted config/content, **materializes it locally** (the delivery seam), and drives the engine. Neutral about mechanism — it may spawn a process or call an API. | `internal/shared/agent` (`LaunchBackend`) + the per-engine backends |
+| **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / kiro / antigravity backends |
+| **provider** / **model** | Standard sub-terms *beneath* an engine, for the model/API layer: `provider` = the vendor (Anthropic/OpenAI), `model` = the specific LLM. Industry-standard pair (Vercel AI SDK, opencode, Goose, Cline, LiteLLM, OpenRouter) — do not coin here. | (config for API-backed engines) |
+| **loadout** | The full set of **surfaces** the control-plane assembles and the runner injects for a session — the composed delivery payload transmitted over the wire. | context assembly + `internal/lm/backends` (`AssembleManagedConfig`) |
+| **surface** | One managed deliverable within a loadout. Five: the **context**, **MCP**, **hooks**, **skills**, and **settings** surfaces. Each is delivered by a mechanism strategy into a runner-side isolation placement. | `ManagedConfig` fields + framed context + `.mcp.json` / `.claude/*` |
+| **context** | The model-facing instructions **surface** (the sysprompt / `CLAUDE.md` text). **Narrow** — one surface, never the umbrella (that's the loadout). Matches industry "context" = what's in the model's context window. | assembled context; framed sysprompt; `CLAUDE.md` |
+| **agent** | A **ctxloom actor**: a profile-in-action — the primary you launch *and* each delegated worker (coordinator, finder, programmer, reviewer). What `run --agent` selects and what delegation spawns. **Reserved** — bare "agent" always means this. | the `subagent→agent` rename; `run --agent` |
+| **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family", the ACP `agent` field). Always qualified; never bare "agent." | claude `--agent`, ACP descriptor `agent` |
+| **session** | A launched ctxloom run (harp-named). Hosts the primary agent and its delegated agents. | `~/.ctxloom/sessions/<harp>`; harp IDs |
+| **profile** | An agent's *definition* (config). `agent` = profile-in-action. | `internal/config` profiles |
+
+## Naming decisions (why these words)
+
+- **"agent" is reserved for the ctxloom actor.** It was the most user-facing sense
+  and matches the `subagent→agent` rename. Every other "agent" meaning gets a
+  distinct name so bare "agent" is never ambiguous.
+- **"engine" is a deliberate coinage.** There is *no* established, collision-free
+  noun for "the CLI-product-or-direct-API backend a tool drives." The category
+  words ("coding agent", "CLI agent", Zed/ACP "external agent") all collide with
+  "agent." "engine" is unclaimed at this layer, so we use it.
+- **"provider" + "model" comply with industry** for the model/API sub-layer only.
+  We do *not* stretch "provider" to mean the engine — established "provider" means
+  the vendor (Anthropic), not the product (claude-code), and would imply API-first.
+- **"context" is one surface, not the umbrella.** "context" was overloaded (the
+  whole payload vs. the model-facing text). We reserve it for the model-facing
+  instructions surface (industry usage), name each deliverable a **surface**, and
+  call the composed set a **loadout**. So: surfaces compose into a loadout; context
+  is the context surface.
+- **ACP impedance:** ACP (a dependency) calls the driven backend **"agent"**
+  (Zed: "external agent"). That is our **engine**, not our agent. We map ACP's
+  "agent" → our "engine" at the boundary and never adopt ACP's noun internally.
+
+## Invariants that ride on this vocabulary
+
+- **The wire is network-agnostic.** The control-plane transmits everything the
+  runner needs over the wire (data, not file handles); nothing reaches across it
+  to touch the other side's filesystem. Delivery never bind-mounts a
+  control-plane file into a (possibly remote) runner.
+- **Delivery (materialization) is runner-side.** Each surface of the loadout is
+  materialized by the runner into its own local, isolation-private location via a
+  per-surface mechanism strategy (file template / append-flag / inject-hook /
+  in-band) — fed by the wire.
+- **Isolation (worktree / container / bind matrix) is runner-side.** The runner
+  composes its own isolation/containerization objects and injects the surfaces into
+  them — this is what makes the wire network-agnostic (a remote runner composes its
+  own isolation; the control-plane cannot reach across the wire to mount anything).
+  NOTE: today's code arranges isolation *control-plane-side*
+  (`PrepareWorkspace`/`Spawn` in `internal/cli/run.go`, before the runner exists);
+  relocating it runner-side is planned, not yet done.
+
+## Implied code renames (consequences; schedule separately, not blockers)
+
+- package `internal/shared/agent` → `runner` (biggest bare-"agent" offender).
+- `agent_engine` config key → `engine`.
+- ACP/descriptor `agent` field → `engine_agent`.
+- audit `ctxloom agents` / `acp agents` — name each by whether it lists
+  *ctxloom agents* or *engine agents*.

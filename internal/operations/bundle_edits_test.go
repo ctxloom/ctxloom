@@ -90,11 +90,11 @@ func TestApplyFragmentEdits(t *testing.T) {
 // applyPromptEdits mirrors applyFragmentEdits and also carries Description.
 func TestApplyPromptEdits(t *testing.T) {
 	b := &bundles.Bundle{Name: "b"}
-	changes, distill := applyPromptEdits(b, map[string]BundlePromptInput{
+	changes, distill := applyPromptEdits(b, map[string]BundleSkillInput{
 		"p1": {Content: "c", Description: "d"},
 	}, nil, nil)
 
-	if got := b.Prompts["p1"]; got.Content != "c" || got.Description != "d" {
+	if got := b.Skills["p1"]; got.Content != "c" || got.Description != "d" {
 		t.Fatalf("prompt = %+v, want content c / description d", got)
 	}
 	wantContains(t, changes, "set prompt: p1")
@@ -103,7 +103,7 @@ func TestApplyPromptEdits(t *testing.T) {
 	}
 
 	changes, _ = applyPromptEdits(b, nil, []string{"p1"}, nil)
-	if _, ok := b.Prompts["p1"]; ok {
+	if _, ok := b.Skills["p1"]; ok {
 		t.Error("p1 should be removed")
 	}
 	wantContains(t, changes, "removed prompt: p1")

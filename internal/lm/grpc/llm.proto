@@ -23,6 +23,24 @@ service LLM {
   // locating, reassembling, and translating its own native transcript format.
   rpc GetSession(GetSessionRequest) returns (SessionData);
 
+  // WatchSession streams a session's transcript as structured turns as they
+  // appear, so a frontend can render a native chat UI (messages, not raw pty
+  // bytes). The server polls the same GetSession reassembly and diffs against a
+  // high-water mark: each poll's new entries stream as `entry` events; when the
+  // transcript stops growing for a settle interval, that stable index is a
+  // stopping point and the server emits a `boundary` marking the just-completed
+  // response `[from,to)`. `heartbeat` keeps the stream warm while idle. Purely
+  // additive: no SessionHistory change, every backend gets it for free.
+  rpc WatchSession(WatchSessionRequest) returns (stream WatchEvent);
+
+  // Chat runs a structured, multi-turn conversation over the backend's NATIVE
+  // programmatic protocol (e.g. claude-code's stream-json mode) — messages in,
+  // normalized turn events out, no pty/TUI. It is OPTIONAL: the server checks
+  // whether the backend implements the StructuredChat capability and returns
+  // UNIMPLEMENTED if not. The first ChatInput MUST carry `start`; subsequent
+  // ones carry `user_message`. The frontend half-closes the stream to end input.
+  rpc Chat(stream ChatInput) returns (stream ChatEvent);
+
   // ListSessions returns metadata for the backend's transcripts (its raw store
   // view), used by ctxloom to adopt sessions its index has not bound.
   rpc ListSessions(ListSessionsRequest) returns (SessionList);
@@ -78,6 +96,154 @@ message SessionEntry {
   string tool_output = 5;   // for tool_result
   bool is_error = 6;        // for tool_result
   int64 timestamp_unix = 7;
+  bool sidechain = 8;       // entry belongs to an engine-side subagent, not the main thread
+}
+
+// WatchSessionRequest locates the session to tail by its agent-agnostic id (the
+// same locator GetSession takes).
+message WatchSessionRequest {
+  string session_id = 1;
+}
+
+// WatchEvent is one message on the WatchSession stream: either a newly-appeared
+// transcript entry, a stopping-point boundary marking a completed response, or a
+// heartbeat keepalive while the session is idle.
+message WatchEvent {
+  oneof event {
+    SessionEntry     entry     = 1; // a newly-appended normalized turn
+    ResponseBoundary boundary  = 2; // the just-completed response: entries[from,to)
+    Heartbeat        heartbeat = 3; // idle keepalive
+  }
+}
+
+// ResponseBoundary marks a stopping point: entries[from_index, to_index) is the
+// response that just completed (growth stalled past the settle interval).
+message ResponseBoundary {
+  int32 from_index = 1;
+  int32 to_index = 2;
+}
+
+// Heartbeat is an empty keepalive emitted on a slow cadence while idle.
+message Heartbeat {}
+
+// ChatInput is one message on the Chat stream. The first MUST carry `start`;
+// thereafter the frontend sends `user_message` turns (plus `permission_answer`
+// / `cancel_turn` control messages) and half-closes to end input.
+message ChatInput {
+  oneof input {
+    ChatStart            start             = 1; // first message only
+    ChatUserMessage      user_message      = 2; // a structured user turn
+    ChatPermissionAnswer permission_answer = 3; // answers a ChatPermissionRequest
+    ChatCancelTurn       cancel_turn       = 4; // abandon the in-flight turn, keep the conversation
+  }
+}
+
+// ChatStart configures a structured chat (mirrors the subset of RunStart a
+// programmatic, non-pty conversation needs).
+message ChatStart {
+  string work_dir = 1;
+  string model = 2;
+  map<string, string> env = 3;
+  // Launch-time permission posture (default|acceptEdits|plan|bypass). For the
+  // per-request decision it collapses to allow-without-prompt only under bypass.
+  // Field 4 was the retired bool auto_approve; the wire-type change
+  // (varint→string) is safe because host and plugin are version-locked (always
+  // built and launched together) and ChatStart is never persisted.
+  string permission_mode = 4;
+  // Surface engine permission requests as ChatPermissionRequest events and
+  // park until the ChatPermissionAnswer arrives, instead of auto-deciding
+  // (bypass → allow, otherwise reject).
+  bool forward_permissions = 5;
+  // Caller-supplied MCP servers to attach to the conversation, in addition to
+  // whatever native config the engine reads from its cwd.
+  repeated ChatMCPServer mcp_servers = 6;
+}
+
+// ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
+message ChatMCPServer {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+}
+
+// ChatUserMessage is one inbound user turn (plain text in v1).
+message ChatUserMessage {
+  string text = 1;
+}
+
+// ChatPermissionAnswer resolves the ChatPermissionRequest with the same id:
+// option_id names the chosen option; empty means dismissed/cancelled.
+message ChatPermissionAnswer {
+  string id = 1;
+  string option_id = 2;
+}
+
+// ChatCancelTurn asks the backend to abandon the in-flight turn; the
+// conversation stays alive and the turn completes with stop reason "cancelled".
+message ChatCancelTurn {}
+
+// ChatEvent is one normalized outbound event; exactly one is set. `entry` is
+// conversation content (many per response), `complete` the response's
+// completion + accounting (one per response), `session` one-time session info,
+// `permission` a forwarded mid-turn engine permission request (only under
+// ChatStart.forward_permissions; answered via ChatPermissionAnswer).
+message ChatEvent {
+  oneof event {
+    SessionEntry          entry      = 1;
+    TurnMeta              complete   = 2;
+    ChatSessionInfo       session    = 3;
+    ChatPermissionRequest permission = 4;
+  }
+}
+
+// ChatPermissionRequest is a forwarded engine permission request: the engine
+// wants to run tool_name and offers the given decision options. id correlates
+// the eventual ChatPermissionAnswer.
+message ChatPermissionRequest {
+  string id = 1;
+  string tool_name = 2;
+  bytes  tool_input = 3; // raw JSON, may be empty
+  repeated ChatPermissionOption options = 4;
+}
+
+// ChatPermissionOption is one decision the engine offers. kind is the ACP
+// option-kind vocabulary: allow_once | allow_always | reject_once | reject_always.
+message ChatPermissionOption {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+}
+
+// TurnMeta is per-response completion metadata a client can surface (context
+// gauge, cost, timing). Mirrors agent.TurnMeta.
+message TurnMeta {
+  int32  input_tokens          = 1;
+  int32  output_tokens         = 2;
+  int32  cache_read_tokens     = 3;
+  int32  cache_creation_tokens = 4;
+  int32  context_window        = 5;
+  int32  max_output_tokens     = 6;
+  double cost_usd              = 7;
+  string model                 = 8;
+  string stop_reason           = 9;
+  int32  duration_ms           = 10;
+  int32  num_turns             = 11;
+}
+
+// ChatSessionInfo is one-time session metadata emitted at chat start. Mirrors
+// agent.ChatSessionInfo.
+message ChatSessionInfo {
+  string model           = 1;
+  string permission_mode = 2;
+  int32  context_window  = 3;
+  repeated MCPStatus mcp_servers = 4;
+}
+
+// MCPStatus is the connection status of one MCP server at session start.
+message MCPStatus {
+  string name = 1;
+  string status = 2;
 }
 
 // ListSessionsRequest is empty: the self-situated agent server lists its own
@@ -110,10 +276,12 @@ message LLMInfo {
 // `start`; thereafter the frontend sends `stdin` (keystrokes) and `resize`
 // (SIGWINCH). Non-interactive/oneshot callers send only `start`.
 message RunInput {
+  reserved 4;                  // was user_message (pty-injection chat); see Chat RPC
+  reserved "user_message";
   oneof input {
-    RunStart   start  = 1; // first message only
-    bytes      stdin  = 2; // terminal keystrokes for the agent's pty
-    WindowSize resize = 3; // terminal size change
+    RunStart    start  = 1; // first message only
+    bytes       stdin  = 2; // terminal keystrokes for the agent's pty
+    WindowSize  resize = 3; // terminal size change
   }
 }
 
@@ -139,14 +307,14 @@ message RunStart {
 // config+profile+bundle set WITHOUT context-injection — the agent appends its
 // own context-injection hook from its plugin-side context hash.
 message ManagedConfig {
-  repeated CommandExport prompts = 1;   // per-target-agent slash-command exports
+  repeated CommandExport skills = 1;    // per-target-agent skill (slash-command) exports
   HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
   MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
   map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
 }
 
-// CommandExport mirrors agent.CommandExport: one prompt's agent-agnostic
+// CommandExport mirrors agent.CommandExport: one skill's agent-agnostic
 // slash-command export spec, with the target agent's enablement+metadata already
 // resolved host-side.
 message CommandExport {
@@ -233,7 +401,14 @@ message Fragment {
 
 message RunOptions {
   string work_dir = 1;
-  bool auto_approve = 2;
+  // Launch-time permission posture (default|acceptEdits|plan|bypass); each
+  // backend maps it to its own mechanism. Empty decodes to default (prompt) at
+  // the server (agent.WireMode) — the CLI-side host-bypass default is resolved
+  // before this is set, not on the server. Field 2 was the retired bool
+  // auto_approve; the wire-type change (varint→string) is safe because host and
+  // plugin are always built and launched together and RunOptions is never
+  // persisted across versions.
+  string permission_mode = 2;
   ExecutionMode mode = 3;
   map<string, string> env = 4;
   bool dry_run = 5;       // Validate without executing
@@ -242,6 +417,23 @@ message RunOptions {
   float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
   uint32 max_tokens = 9;  // Maximum response tokens (0=default)
   bool skip_setup = 10;   // Skip context/hooks/skills setup (for distillation)
+  // Resolved isolation CELL for this run, decided host-side by isolation.Prepare
+  // and carried to the plugin so Setup/buildArgs know which cell they run in
+  // (the host resolves it; the plugin can't infer it from WorkDir alone). Shared
+  // is the user's live cwd; DirectoryIsolated a per-agent worktree;
+  // ProcessIsolated a container. Unspecified decodes to Shared at the server.
+  CellKind cell_kind = 11;
+}
+
+// CellKind is the resolved isolation cell for a run, mapped host-side from the
+// isolation.Policy (None→Shared, Worktree→DirectoryIsolated, Container in both
+// its base tiers→ProcessIsolated) and mirrored by agent.CellKind on the plugin
+// side.
+enum CellKind {
+  CELL_KIND_UNSPECIFIED = 0;
+  CELL_KIND_SHARED = 1;              // the user's live cwd (shared directory)
+  CELL_KIND_DIRECTORY_ISOLATED = 2;  // a per-agent git worktree
+  CELL_KIND_PROCESS_ISOLATED = 3;    // a container
 }
 
 enum ExecutionMode {

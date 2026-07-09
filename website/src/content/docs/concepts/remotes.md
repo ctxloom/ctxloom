@@ -6,11 +6,11 @@ A **remote** is a Git repository for sharing bundles and profiles across teams a
 
 ## Pre-configured Remote
 
-After `ctxloom init`, the `ctxloom-default` remote is pre-configured, providing community bundles and profiles.
+After `ctxloom init`, the `ctxloom-default` remote is pre-configured, providing community bundles (which can also ship profiles).
 
 ```bash
-# Use remote profiles directly
-ctxloom run -p ctxloom-default/python-developer "help with Python code"
+# Run a bundle-shipped profile directly
+ctxloom run -p 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer' "help with Go"
 ```
 
 ## Managing Remotes
@@ -21,7 +21,14 @@ ctxloom remote add <name> <url>         # Register a remote source
 ctxloom remote remove <name>            # Remove a remote
 ctxloom remote browse <name>            # Browse remote contents
 ctxloom remote discover                 # Find public ctxloom repositories
+ctxloom remote trust <name>             # Apply this remote's upgrades without review
+ctxloom remote untrust <name>           # Gate this remote's upgrades behind review
 ```
+
+Content from a trusted remote reaches the agent automatically; content from an
+untrusted remote lands as **pending** and is withheld per item until you accept
+it with `ctxloom review` — see
+[Review and trust](/concepts/review-and-trust/).
 
 ### Add a Remote
 
@@ -31,6 +38,17 @@ ctxloom remote add myteam myorg/ctxloom-team
 
 # Full URL
 ctxloom remote add corp https://gitlab.com/corp/ctxloom
+```
+
+The forge resolves from the URL host: github.com (and the `owner/repo`
+shorthand) uses the GitHub API adapter; every other host — GitLab, Gitea,
+self-hosted — uses the generic `git` adapter (clone + local read, with your
+ambient git authentication). Pass `--forge` to override: `github`, `git`, or
+the label of a `forges:` entry in `remotes.yaml` (for example a GitHub
+Enterprise instance).
+
+```bash
+ctxloom remote add corp https://git.example.com/corp/ctxloom --forge git
 ```
 
 ## Consuming Remote Content
@@ -43,10 +61,10 @@ applies hooks — it takes no item argument.
 ```bash
 # Consume a remote bundle (or one fragment of it)
 ctxloom profile create testing -b ctxloom-default/testing
-ctxloom profile create audit -b ctxloom-default/security#fragments/owasp
+ctxloom profile create tdd -b ctxloom-default/testing#fragments/tdd
 
-# Inherit a remote profile
-ctxloom profile create my-dev --parent ctxloom-default/python-developer
+# Inherit a bundle-shipped profile (canonical URL ref)
+ctxloom profile create my-dev --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer'
 
 # Fetch everything your profiles reference
 ctxloom remote pull
@@ -61,21 +79,21 @@ Pulled content is saved locally in your `.ctxloom/` directory.
 Reference remote content directly without authoring a profile:
 
 ```bash
-# Use remote profile
-ctxloom run -p ctxloom-default/python-developer "help me"
+# Use a bundle-shipped profile
+ctxloom run -p 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer' "help me"
 
-# Use remote fragment
-ctxloom run -f ctxloom-default/security#fragments/owasp "audit this"
+# Use a remote fragment
+ctxloom run -f 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragments/tdd' "add tests for this"
 ```
 
 ### In Profiles
 
-Reference remote profiles as parents:
+Reference bundle-shipped profiles as parents:
 
 ```yaml
 description: "My custom profile"
 parents:
-  - ctxloom-default/python-developer
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
 bundles:
   - my-local-additions
 ```
@@ -116,7 +134,8 @@ ctxloom remote pull      # resolve every constraint → lock.yaml and fetch exac
                          # constraint is unchanged)
 ctxloom remote update    # report the newest commit available within each constraint
 ctxloom remote upgrade   # re-resolve within constraints and move the LOCK (never the
-                         # manifest); trusted remotes apply, others stage for review
+                         # manifest); whether changed content reaches the agent is
+                         # decided per item at exposure (ctxloom review)
 ```
 
 Locking happens automatically as part of `pull` — there is no separate lock step.
@@ -124,8 +143,9 @@ Locking happens automatically as part of `pull` — there is no separate lock st
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It writes only
 the lockfile — your profile YAML is never rewritten, so a version bump is a clean
-`lock.yaml` diff. Changes from an untrusted remote are staged for `ctxloom bundle
-review` / `approve`; see [Review and trust](/concepts/review-and-trust/).
+`lock.yaml` diff. Whether any changed content reaches the agent is decided per
+item at exposure and reviewed with `ctxloom review`; see
+[Review and trust](/concepts/review-and-trust/).
 
 ### Holds
 
@@ -151,20 +171,19 @@ Find public ctxloom repositories:
 ctxloom remote discover
 ```
 
-This searches GitHub and GitLab for repositories with ctxloom content.
+This searches GitHub for repositories with ctxloom content.
 
 ## Creating Your Own Remote
 
-Any Git repository with `.ctxloom/` structure can be a remote:
+Any Git repository with a `ctxloom/` content root can be a remote:
 
 ```
 my-ctxloom-repo/
-├── .ctxloom/
-│   ├── bundles/
-│   │   └── my-bundle.yaml
-│   └── profiles/
-│       └── my-profile.yaml
+├── ctxloom/
+│   └── bundles/
+│       └── my-bundle.yaml
 └── README.md
 ```
 
-Push to GitHub/GitLab and share the repository URL.
+Remotes distribute bundles; a profile you want to share ships inside a bundle
+under its `profiles:` key. Push to any git host and share the repository URL.

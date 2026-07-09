@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/ptyrunner"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 )
 
 // nonInteractiveWaitDelay bounds how long a non-interactive run waits for its
@@ -39,14 +39,17 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 		return int32(result.ExitCode), nil
 	}
 
-	// Non-interactive: no stdin (don't wait for input). Output goes ONLY to
-	// the caller's writers (the gRPC stream) — this code runs inside the
-	// go-plugin subprocess, whose own stdout is discarded by the host and
-	// whose stderr is re-surfaced through the plugin logger, so teeing to
-	// os.Stdout/os.Stderr was dead weight that could double-print child
-	// stderr under -v. The interactive branch likewise never touches the
-	// process's own stdio (the frontend renders).
-	cmd.Stdin = nil
+	// Non-interactive: stdin is the caller's reader when provided (a backend
+	// delivering a large oneshot prompt pipes it here so it can't blow the argv
+	// length limit), else nil so the child reads from the null device and never
+	// blocks waiting for input. A finite reader hands the child EOF after the
+	// prompt, so it can't hang either. Output goes ONLY to the caller's writers
+	// (the gRPC stream) — this code runs inside the go-plugin subprocess, whose
+	// own stdout is discarded by the host and whose stderr is re-surfaced through
+	// the plugin logger, so teeing to os.Stdout/os.Stderr was dead weight that
+	// could double-print child stderr under -v. The interactive branch likewise
+	// never touches the process's own stdio (the frontend renders).
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	// Held-fd hang guard: see nonInteractiveWaitDelay.

@@ -198,6 +198,22 @@ func TestPicker_MKeystrokeExpandsHorizon(t *testing.T) {
 	assert.Contains(t, out, "old")
 }
 
+func TestPicker_AllEntriesBeyondHorizon_MRevealsAndResumes(t *testing.T) {
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	entries := []Entry{
+		{HarpName: "old-a", ProjectDir: "/proj", StartedAt: now.Add(-10 * 24 * time.Hour), Summary: "summary a"},
+		{HarpName: "old-b", ProjectDir: "/proj", StartedAt: now.Add(-12 * 24 * time.Hour), Summary: "summary b"},
+	}
+	// Every entry predates the default 7-day horizon, so visible() starts empty.
+	// The picker must still render (showing the hidden-count hint) so `m` can
+	// expand the horizon and reach them — rather than short-circuiting to a
+	// fresh session and leaving the indexed sessions unreachable.
+	dec, out := runPicker(t, entries, "m\n1\n")
+	assert.Equal(t, ResumeAction, dec.Action, "m + row number must resume, not start fresh")
+	assert.Equal(t, "old-a", dec.FromHarp)
+	assert.Contains(t, out, "older sessions hidden")
+}
+
 func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
 	// Hermetic index: the picker's post-distill reload must hit the injected
 	// index, never the real user-global ~/.ctxloom one.
@@ -219,7 +235,7 @@ func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
 		Distill: func(harp string) error {
 			called = true
 			gotHarp = harp
-			return mgr.SetSummary(harp, "freshly distilled summary", nil)
+			return mgr.SetSummary(harp, "freshly distilled summary", nil, 0)
 		},
 	}
 	dec, err := p.Run()

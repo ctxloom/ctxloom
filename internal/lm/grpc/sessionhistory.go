@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // This file carries the session-history transport: the backend (plugin) is
@@ -32,6 +32,23 @@ func unixToTime(u int64) time.Time {
 	return time.Unix(u, 0).UTC()
 }
 
+// EntryToProto converts one normalized turn to its proto form. Shared by
+// sessionToProto (whole-transcript reassembly), WatchSession (per-entry
+// streaming), and the operations feed resolver (live-tap normalization) so
+// all encode entries identically.
+func EntryToProto(e agent.SessionEntry) *SessionEntry {
+	return &SessionEntry{
+		Type:          string(e.Type),
+		Content:       e.Content,
+		ToolName:      e.ToolName,
+		ToolInput:     e.ToolInput,
+		ToolOutput:    e.ToolOutput,
+		IsError:       e.IsError,
+		TimestampUnix: timeToUnix(e.Timestamp),
+		Sidechain:     e.Sidechain,
+	}
+}
+
 func sessionToProto(s *agent.Session) *SessionData {
 	if s == nil {
 		return nil
@@ -43,15 +60,7 @@ func sessionToProto(s *agent.Session) *SessionData {
 		Entries:   make([]*SessionEntry, 0, len(s.Entries)),
 	}
 	for _, e := range s.Entries {
-		out.Entries = append(out.Entries, &SessionEntry{
-			Type:          string(e.Type),
-			Content:       e.Content,
-			ToolName:      e.ToolName,
-			ToolInput:     e.ToolInput,
-			ToolOutput:    e.ToolOutput,
-			IsError:       e.IsError,
-			TimestampUnix: timeToUnix(e.Timestamp),
-		})
+		out.Entries = append(out.Entries, EntryToProto(e))
 	}
 	return out
 }
@@ -67,21 +76,28 @@ func sessionFromProto(p *SessionData) *agent.Session {
 		Entries:   make([]agent.SessionEntry, 0, len(p.GetEntries())),
 	}
 	for _, e := range p.GetEntries() {
-		var ti json.RawMessage
-		if in := e.GetToolInput(); len(in) > 0 {
-			ti = json.RawMessage(in)
-		}
-		s.Entries = append(s.Entries, agent.SessionEntry{
-			Timestamp:  unixToTime(e.GetTimestampUnix()),
-			Type:       agent.SessionEntryType(e.GetType()),
-			Content:    e.GetContent(),
-			ToolName:   e.GetToolName(),
-			ToolInput:  ti,
-			ToolOutput: e.GetToolOutput(),
-			IsError:    e.GetIsError(),
-		})
+		s.Entries = append(s.Entries, entryFromProto(e))
 	}
 	return s
+}
+
+// entryFromProto converts one proto SessionEntry to its normalized form. Shared
+// by sessionFromProto and the Chat client (chat.go) so both decode identically.
+func entryFromProto(e *SessionEntry) agent.SessionEntry {
+	var ti json.RawMessage
+	if in := e.GetToolInput(); len(in) > 0 {
+		ti = json.RawMessage(in)
+	}
+	return agent.SessionEntry{
+		Timestamp:  unixToTime(e.GetTimestampUnix()),
+		Type:       agent.SessionEntryType(e.GetType()),
+		Content:    e.GetContent(),
+		ToolName:   e.GetToolName(),
+		ToolInput:  ti,
+		ToolOutput: e.GetToolOutput(),
+		IsError:    e.GetIsError(),
+		Sidechain:  e.GetSidechain(),
+	}
 }
 
 func sessionMetaToProto(m agent.SessionMeta) *SessionMeta {

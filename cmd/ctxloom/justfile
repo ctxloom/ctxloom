@@ -1,0 +1,19 @@
+# ctxloom — the main binary (CGO + tree-sitter), built to the repo root.
+#
+# Shared build/version/compress logic comes from build/common.justfile (just
+# `import`). This module owns ONLY what is specific to ctxloom: the build flags
+# and output path. Codegen prerequisites (validate/proto/gen-schemas) stay in
+# justfile.container and are run there before this module's build is delegated to
+# (see justfile.container `build`). Recipes here run inside the devcontainer via
+# the root `_run`; module recipes run with the working directory set to this dir
+# (cmd/ctxloom/), so paths are {{TOP}}-relative.
+import "../../build/common.justfile"
+
+# Build ctxloom (CGO, tree-sitter) to {{TOP}}/ctxloom.
+build: (_go-build (TOP / "cmd/ctxloom") (TOP / "ctxloom") "github.com/ctxloom/ctxloom/internal/cli.Version" "treesitter" "1")
+
+# Compress the built ctxloom binary with UPX.
+compress: (_compress (TOP / "ctxloom"))
+
+# Build then compress.
+build-compressed: build compress

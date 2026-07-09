@@ -5,14 +5,17 @@ project_name: ctxloom
 
 before:
   hooks:
-    - go mod tidy
-    - go run ./scripts/genman
+    # `go mod download` (not `go mod tidy`): tidy is module-scoped and would drop
+    # the deliberately-retained pre-split genproto monolith pin (see go.mod),
+    # rewriting go.mod/go.sum mid-release. download only hydrates the cache.
+    - go mod download
+    - go run ./scripts/gendocs --man man/man1
 
 builds:
   # Standard build - includes memory and vectors (no CGO required)
   # Recommended for most users
   - id: ctxloom
-    main: ./main.go
+    main: ./cmd/ctxloom
     binary: ctxloom
     tags:
       - memory
@@ -27,14 +30,14 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
 
   # Full build - includes memory, vectors, and tree-sitter (31MB)
   # Requires CGO and cross-compilers. Statically linked on linux/windows (see
   # ldflags below); netgo/osusergo force the pure-Go resolver and user lookups
   # so static glibc linking doesn't break DNS or os/user.
   - id: ctxloom-full
-    main: ./main.go
+    main: ./cmd/ctxloom
     binary: ctxloom
     tags:
       - memory
@@ -66,10 +69,68 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
+
+  # ltk companion (llm-tool-killer): pre-tool command/edit guardrail hook.
+  # Pure-Go (CGO off) → statically linked on every target. Folded into this
+  # repo, so it now ships from the one ctxloom release/tag.
+  - id: ltk
+    main: ./cmd/ltk
+    binary: ltk
+    env:
+      - CGO_ENABLED=0 # no libc linkage at all → static on every target
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # not a release target
+    # Pure-Go resolvers (no libc) so linux/windows binaries are unambiguously
+    # static even if CGO ever gets re-enabled.
+    tags:
+      - netgo
+      - osusergo
+    flags:
+      - -trimpath
+    # Stamp main.Version with the release version, matching `ltk version`.
+    ldflags:
+      - -s -w -extldflags=-static -X main.Version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
+
+  # taskloom companion: per-project task store CLI + MCP server. Pure-Go,
+  # statically linked. Folded into this repo; ships from the one ctxloom release.
+  - id: taskloom
+    main: ./cmd/taskloom
+    binary: taskloom
+    env:
+      - CGO_ENABLED=0 # no libc linkage at all → static on every target
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # not a release target
+    tags:
+      - netgo
+      - osusergo
+    flags:
+      - -trimpath
+    # Stamp main.version (lowercase) with the release version, matching
+    # `taskloom version`.
+    ldflags:
+      - -s -w -extldflags=-static -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
 # UPX compression for smaller binaries
 # NOTE: UPX is disabled for darwin - it breaks code signing and causes
@@ -125,6 +186,42 @@ archives:
       - README.md
       - man/man1/*.1
 
+  # ltk companion archives (ltk_<version>_<os>_<arch>) — the name install.sh
+  # fetches from this unified release. Literal "ltk_" prefix because
+  # .ProjectName is "ctxloom" here.
+  - id: ltk
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    ids:
+      - ltk
+    name_template: >-
+      ltk_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE*
+      - README.md
+
+  # taskloom companion archives (taskloom_<version>_<os>_<arch>).
+  - id: taskloom
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    ids:
+      - taskloom
+    name_template: >-
+      taskloom_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE*
+      - README.md
+
 # Homebrew casks published to ctxloom/homebrew-tap. Two casks mirror the two
 # builds; they install the same `ctxloom` binary, so each declares a conflict
 # with the other. Casks are macOS-only — Linux users install via scripts/install.sh.
@@ -140,7 +237,6 @@ homebrew_casks:
   - name: ctxloom
     ids:
       - default
-    binary: ctxloom
     repository:
       owner: ctxloom
       name: homebrew-tap
@@ -163,7 +259,6 @@ homebrew_casks:
   - name: ctxloom-full
     ids:
       - full
-    binary: ctxloom
     repository:
       owner: ctxloom
       name: homebrew-tap
@@ -179,6 +274,48 @@ homebrew_casks:
         install: |
           if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ctxloom"]
+          end
+
+  # ltk companion cask: brew install ctxloom/tap/ltk
+  - name: ltk
+    ids:
+      - ltk
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Pre-tool hook that redirects an LLM agent's shell commands to the project's preferred command"
+    license: "BSD-3-Clause"
+    # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots.
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ltk"]
+          end
+
+  # taskloom companion cask: brew install ctxloom/tap/taskloom
+  - name: taskloom
+    ids:
+      - taskloom
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Per-project task store for AI coding agents: append-only log, CLI, and MCP server"
+    license: "BSD-3-Clause"
+    # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots.
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/taskloom"]
           end
 
 checksum:
@@ -221,9 +358,9 @@ release:
     irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
     ```
 
-    Both scripts also install the companion tools [taskloom](https://github.com/ctxloom/taskloom)
-    (task tracking) and [ltk](https://github.com/ctxloom/llm-tool-killer) (command
-    guardrails); opt out with `--no-companions` / `-NoCompanions`.
+    Both scripts also install the companion tools `taskloom` (task tracking) and
+    `ltk` (command guardrails). All three now ship from this single ctxloom
+    release — no separate downloads.
 
     **macOS (Homebrew), everything:**
     ```bash
@@ -244,7 +381,7 @@ release:
 
     **Go Install:**
     ```bash
-    go install github.com/ctxloom/ctxloom@v{{.Version}}
+    go install github.com/ctxloom/ctxloom/cmd/ctxloom@v{{.Version}}
     ```
 
     **Manual Download:**

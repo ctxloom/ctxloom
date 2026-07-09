@@ -1,13 +1,13 @@
 package backends
 
 import (
-	"fmt"
-	"os"
+	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles
@@ -25,21 +25,32 @@ import (
 //
 // Fault tolerant per CLAUDE.md: a config load failure yields a nil payload — the
 // agent's Setup then writes an empty managed set rather than blocking launch.
-func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
+// The gate gates the executable surfaces (bundle MCP servers + hooks + prompt
+// exports) for the `ctxloom run` setup payload (trust rework, TR5). It is built
+// by the run command (which can reach operations.EffectiveTrust); attaching it
+// to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
+// / LoadSkillExports. nil = no gating.
+//
+// profileNames is the run's SELECTED profile set (the same set AssembleContext
+// scoped context to), so the managed mcp/skills/hooks track the chosen profile
+// rather than always the configured defaults. An empty set falls back to the
+// defaults inside each resolver (scopedProfiles / resolveProfileScope).
+func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate, profileNames []string) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
 		// The agent's Setup writes an EMPTY managed set from a nil payload —
 		// the reconciling writers then remove every previously-installed
 		// ctxloom hook/command for this run. Degrading is right (never block
 		// launch), but it must not be silent.
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: config load failed; launching without managed hooks/commands: %v\n", err)
+		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
 		return nil
 	}
+	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
-		Prompts:          commandExportsFor(backendName, LoadPromptExports(cfg)),
-		Hooks:            AssembleManagedHooks(cfg, workDir, ""),
-		MCP:              assembleManagedMCP(cfg),
-		BundleMCP:        cfg.ResolveBundleMCPServers(),
+		Skills:           commandExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
+		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
+		MCP:              assembleManagedMCP(cfg, profileNames),
+		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 	}
 }
@@ -57,11 +68,28 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 	return d.exports(prompts)
 }
 
+// AssembleManagedMCP is the exported seam over assembleManagedMCP for callers
+// that already hold a resolved *config.Config with its executable trust gate set
+// (e.g. operations.MaterializeProfile). Unlike AssembleManagedConfig it does not
+// config.Load() from disk, so the caller's in-memory cfg and gate are honored.
+func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
+	return assembleManagedMCP(cfg, profileNames)
+}
+
 // assembleManagedMCP builds the merged MCP server set: config-level servers then
 // each default profile's servers (later wins). This is the MCP half of the old
 // BaseLifecycle.MergeConfigHooks, lifted host-side now that ctxloom owns config
 // resolution.
-func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
+//
+// A default profile resolves the SAME way operations.resolveProfile does:
+// inline definitions (config.yaml profiles: map) win, and a name that isn't an
+// inline profile falls back to a directory profile (.ctxloom/profiles/<name>.yaml
+// via the profile loader) — so a directory profile's inline mcp: servers reach
+// the managed set, parity with an inline profile. An inline profile's servers are
+// trusted-local config (ungated); a directory profile may be remote-sourced, so
+// ITS directly-declared servers pass the executable trust gate first (the SAME
+// gate bundle MCP servers pass), never reaching settings unevaluated.
+func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
 	mcp := &wire.MCPConfig{
 		Servers: make(map[string]wire.MCPServer),
 		Plugins: make(map[string]map[string]wire.MCPServer),
@@ -69,15 +97,40 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 	if cfg == nil {
 		return mcp
 	}
+	// Config-level MCP is the project-wide baseline (always merged). The
+	// per-profile inline MCP is scoped to the SELECTED profiles, falling back
+	// to the configured defaults when none are passed.
 	wire.MergeMCPConfig(mcp, &cfg.MCP)
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
-		if err != nil {
+	gate := cfg.ExecutableTrustGate()
+	for _, profileName := range scopedProfiles(cfg, profileNames) {
+		// Inline profile (config.yaml) wins, trusted-local (ungated).
+		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+			wire.MergeMCPConfig(mcp, &resolved.MCP)
 			continue
 		}
-		wire.MergeMCPConfig(mcp, &resolved.MCP)
+		// Directory profile fallback: drop servers its exclude_mcp removes (parity
+		// with the inline toProfile filter), then gate the directly-declared
+		// servers before merging.
+		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
+		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its MCP servers omitted: %v", profileName, err)
+			continue
+		}
+		gated := gateProfileMCP(profileName, excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
+		wire.MergeMCPConfig(mcp, &gated)
 	}
 	return mcp
+}
+
+// scopedProfiles returns the caller's selected profiles, or the default agent's
+// composed profiles when none are passed — the host-side mirror of
+// config.resolveProfileScope (MUST stay byte-identical to it), so the
+// managed-config assembly scopes to the SAME set the bundle resolvers do.
+func scopedProfiles(cfg *config.Config, profileNames []string) []string {
+	if len(profileNames) > 0 {
+		return profileNames
+	}
+	return cfg.DefaultAgentProfiles()
 }
 
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
@@ -97,23 +150,37 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 // Returns a fresh HooksConfig each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
-func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire.HooksConfig {
+func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *wire.HooksConfig {
 	hooks := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
 	if cfg == nil {
 		return hooks
 	}
 	// Config-level hooks.
 	agent.MergeHooksConfig(hooks, &cfg.Hooks)
-	// Default-profile-shipped hooks.
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
-		if err != nil {
+	// Selected-profile-shipped hooks (defaults when none are passed). A profile
+	// resolves the SAME way operations.resolveProfile / assembleManagedMCP do:
+	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
+	// that isn't inline falls back to a directory profile, whose directly-declared
+	// hooks pass the executable trust gate first (the SAME gate bundle hooks pass)
+	// since the profile may be remote-sourced — so an inline hooks: block reaches
+	// the managed set with parity to an inline profile, but never unevaluated.
+	gate := cfg.ExecutableTrustGate()
+	profiles := scopedProfiles(cfg, profileNames)
+	for _, profileName := range profiles {
+		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+			agent.MergeHooksConfig(hooks, &resolved.Hooks)
 			continue
 		}
-		agent.MergeHooksConfig(hooks, &resolved.Hooks)
+		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
+		if err != nil {
+			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)
+			continue
+		}
+		gated := gateProfileHooks(profileName, resolved.Hooks, gate)
+		agent.MergeHooksConfig(hooks, &gated)
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash)
+	appendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash, profiles)
 	return hooks
 }
 
@@ -123,12 +190,146 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire
 // when contextHash is non-empty, the SessionStart context-injection hook. The
 // `ctxloom run` path passes contextHash "" here and lets the agent append its
 // own injection hook from the plugin-side hash; apply-hooks passes the hash.
-func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string) {
+func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
 	if unified == nil || cfg == nil {
 		return
 	}
-	unified.Append(cfg.ResolveBundleHooks())
+	unified.Append(cfg.ResolveBundleHooks(profileNames))
 	if contextHash != "" {
 		unified.SessionStart = append(unified.SessionStart, agent.NewContextInjectionHooks(contextHash, workDir)...)
 	}
+}
+
+// excludeMCPServers drops the named unified servers from a directory profile's
+// MCP (its exclude_mcp list), mirroring the inline profileBuilder.toProfile
+// filter so the directory path honors exclude_mcp on its own declared servers
+// exactly like the inline path. Backend-passthrough Plugins are left untouched,
+// matching the inline filter's Servers-only scope.
+func excludeMCPServers(mcp wire.MCPConfig, exclude []string) wire.MCPConfig {
+	if len(exclude) == 0 || len(mcp.Servers) == 0 {
+		return mcp
+	}
+	excluded := make(map[string]bool, len(exclude))
+	for _, n := range exclude {
+		excluded[n] = true
+	}
+	out := mcp
+	out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
+	for name, srv := range mcp.Servers {
+		if excluded[name] {
+			continue
+		}
+		out.Servers[name] = srv
+	}
+	return out
+}
+
+// gateProfileMCP returns the MCP servers of a directory-resolved profile that the
+// executable trust gate allows. A directory profile may be remote-sourced, so its
+// directly-declared MCP servers — unlike a trusted-local config.yaml inline
+// profile's — pass the SAME per-item executable gate as bundle MCP servers
+// (config.extractMCPFromBundle), keyed "<profile>#mcp/<name>" with the server's
+// executable-surface hash. A DENY omits the server (fail-closed). A nil gate
+// (management paths) admits everything unchanged.
+func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.ContentGate) wire.MCPConfig {
+	if gate == nil {
+		return mcp
+	}
+	out := wire.MCPConfig{AutoRegisterCtxloom: mcp.AutoRegisterCtxloom}
+	if len(mcp.Servers) > 0 {
+		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
+		for name, srv := range mcp.Servers {
+			if gateProfileExec(gate, profileName+"#mcp/"+name, mcpExecHash(srv)) {
+				out.Servers[name] = srv
+			}
+		}
+	}
+	// Plugin-specific (backend-passthrough) servers gate too — an arbitrary-command
+	// executable must never bypass the gate; keyed "<profile>#mcp/<backend>/<name>".
+	if len(mcp.Plugins) > 0 {
+		out.Plugins = make(map[string]map[string]wire.MCPServer, len(mcp.Plugins))
+		for backend, servers := range mcp.Plugins {
+			gated := make(map[string]wire.MCPServer)
+			for name, srv := range servers {
+				if gateProfileExec(gate, profileName+"#mcp/"+backend+"/"+name, mcpExecHash(srv)) {
+					gated[name] = srv
+				}
+			}
+			if len(gated) > 0 {
+				out.Plugins[backend] = gated
+			}
+		}
+	}
+	return out
+}
+
+// gateProfileHooks returns the hooks of a directory-resolved profile that the
+// executable trust gate allows. Each hook is keyed "<profile>#hooks/<event>/
+// <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
+// its executable-surface hash; a DENY omits it (fail-closed). A nil gate
+// (management paths) admits everything unchanged.
+func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.ContentGate) wire.HooksConfig {
+	if gate == nil {
+		return h
+	}
+	keep := func(event string, hooks []wire.Hook) []wire.Hook {
+		var out []wire.Hook
+		for i, hook := range hooks {
+			ref := profileName + "#hooks/" + event + "/" + strconv.Itoa(i)
+			if gateProfileExec(gate, ref, hookExecHash(hook)) {
+				out = append(out, hook)
+			}
+		}
+		return out
+	}
+	out := wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool:      keep(bundles.HookEventPreTool, h.Unified.PreTool),
+			PostTool:     keep(bundles.HookEventPostTool, h.Unified.PostTool),
+			SessionStart: keep(bundles.HookEventSessionStart, h.Unified.SessionStart),
+			SessionEnd:   keep(bundles.HookEventSessionEnd, h.Unified.SessionEnd),
+			PreShell:     keep(bundles.HookEventPreShell, h.Unified.PreShell),
+			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
+		},
+	}
+	// Plugin-specific (backend-native) hooks gate too; keyed
+	// "<profile>#hooks/<plugin>/<event>/<index>".
+	if len(h.Plugins) > 0 {
+		out.Plugins = make(map[string]wire.BackendHooks, len(h.Plugins))
+		for plugin, backend := range h.Plugins {
+			bh := make(wire.BackendHooks)
+			for event, hooks := range backend {
+				if kept := keep(plugin+"/"+event, hooks); len(kept) > 0 {
+					bh[event] = kept
+				}
+			}
+			if len(bh) > 0 {
+				out.Plugins[plugin] = bh
+			}
+		}
+	}
+	return out
+}
+
+// gateProfileExec consults the executable trust gate for one directly-declared
+// profile executable, binding the raw form (no distilled variant for executables,
+// matching config.extractMCPFromBundle / extractHooksFromBundle).
+func gateProfileExec(gate bundles.ContentGate, ref, hash string) bool {
+	return gate(ref, hash, string(bundles.FormRaw))
+}
+
+// mcpExecHash hashes a profile MCP server's executable surface via the shared
+// bundle primitive (Command+Args+Env+Installation), so a profile-declared server
+// and an identical bundle-declared one bind to the SAME content hash.
+func mcpExecHash(s wire.MCPServer) string {
+	bm := bundles.BundleMCP{Command: s.Command, Args: s.Args, Env: s.Env, Installation: s.Installation}
+	return bm.ComputeContentHash()
+}
+
+// hookExecHash hashes a profile hook's executable surface via the shared bundle
+// primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a profile-declared
+// hook and an identical bundle-declared one bind to the SAME content hash.
+func hookExecHash(h wire.Hook) string {
+	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
+	return bh.ComputeContentHash()
 }

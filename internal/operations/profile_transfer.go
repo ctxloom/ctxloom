@@ -24,6 +24,23 @@ func profileLoaderFS(cfg *config.Config, fs afero.Fs) *profiles.Loader {
 	return profiles.NewLoader(dirs, profiles.WithFS(fs))
 }
 
+// loadLocalProfile loads a profile for the edit/export flow, which is
+// deliberately local-only: profileLoaderFS seeds no remote resolvers, so a
+// remote (locked) profile can't be edited or exported in place. On a load
+// failure, distinguish a remote reference — whose "not found" was misleading,
+// since it exists, just not as a local file — from a genuinely absent local
+// profile, and point the user at pulling it first.
+func loadLocalProfile(cfg *config.Config, fs afero.Fs, name string) (*profiles.Profile, error) {
+	profile, err := profileLoaderFS(cfg, fs).Load(name)
+	if err != nil {
+		if isRemoteReference(name) {
+			return nil, fmt.Errorf("profile %q is a remote reference; the edit/export flow is local-only (pull it first, then edit the local copy)", name)
+		}
+		return nil, fmt.Errorf("profile %q not found", name)
+	}
+	return profile, nil
+}
+
 // ExportProfileRequest is the input for ExportProfile.
 type ExportProfileRequest struct {
 	Name    string `json:"name"`
@@ -48,9 +65,9 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 		return nil, fmt.Errorf("destination directory is required")
 	}
 	fs := getFS(req.FS)
-	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
+	profile, err := loadLocalProfile(cfg, fs, req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found", req.Name)
+		return nil, err
 	}
 	srcData, err := afero.ReadFile(fs, profile.Path)
 	if err != nil {
@@ -100,7 +117,7 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 		return nil, fmt.Errorf("invalid profile file: %w", err)
 	}
 
-	profileDir := filepath.Join(cfg.AppPaths[0], "profiles")
+	profileDir := paths.ProfilesPath(cfg.AppPaths[0])
 	if err := fs.MkdirAll(profileDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
 	}
@@ -133,9 +150,9 @@ type GetProfileContentResult struct {
 // GetProfileContent returns a profile's raw YAML file content.
 func GetProfileContent(_ context.Context, cfg *config.Config, req GetProfileContentRequest) (*GetProfileContentResult, error) {
 	fs := getFS(req.FS)
-	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
+	profile, err := loadLocalProfile(cfg, fs, req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found", req.Name)
+		return nil, err
 	}
 	data, err := afero.ReadFile(fs, profile.Path)
 	if err != nil {
@@ -164,9 +181,9 @@ type SetProfileContentResult struct {
 // file. Invalid YAML is rejected so a botched edit doesn't corrupt the profile.
 func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileContentRequest) (*SetProfileContentResult, error) {
 	fs := getFS(req.FS)
-	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
+	profile, err := loadLocalProfile(cfg, fs, req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found", req.Name)
+		return nil, err
 	}
 	var probe config.Profile
 	if err := yaml.Unmarshal([]byte(req.Content), &probe); err != nil {

@@ -1,0 +1,17 @@
+# taskloom — the task-tracking companion (pure-Go, no CGO), built to bin/taskloom.
+#
+# taskloom ships from the unified ctxloom release and stamps the lowercase
+# main.version (matching `taskloom version`). Shared build/version/compress logic
+# comes from build/common.justfile (just `import`); this module supplies only
+# what differs. Recipes run inside the devcontainer via the root `_run`, with the
+# working directory set to this dir (cmd/taskloom/), so paths are {{TOP}}-relative.
+import "../../build/common.justfile"
+
+# Build taskloom (no CGO) to {{TOP}}/bin/taskloom.
+build: (_go-build (TOP / "cmd/taskloom") (TOP / "bin/taskloom") "main.version" "" "0")
+
+# Compress the built taskloom binary with UPX.
+compress: (_compress (TOP / "bin/taskloom"))
+
+# Build then compress.
+build-compressed: build compress

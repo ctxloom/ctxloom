@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"unicode"
 
-	"github.com/ctxloom/ctxloom/internal/textutil"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 // JSONCompressor compresses JSON while preserving structure (keys, types).
@@ -23,9 +24,6 @@ type JSONCompressor struct {
 	// EntropyThreshold determines what counts as a high-entropy value (0.0-1.0).
 	// High-entropy values (UUIDs, hashes) are preserved.
 	EntropyThreshold float64
-
-	// PreserveNumbers keeps all numeric values (useful for IDs).
-	PreserveNumbers bool
 }
 
 // NewJSONCompressor creates a JSON compressor with default settings.
@@ -34,7 +32,6 @@ func NewJSONCompressor() *JSONCompressor {
 		MaxValueLength:   30,
 		MaxArrayItems:    3,
 		EntropyThreshold: 0.75,
-		PreserveNumbers:  true,
 	}
 }
 
@@ -47,13 +44,22 @@ func (c *JSONCompressor) CanHandle(ct ContentType) bool {
 func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content string, ratio float64) (Result, error) {
 	// Parse JSON with UseNumber so integers beyond float64's 2^53 mantissa
 	// (snowflake IDs, hashes-as-ints) round-trip verbatim instead of being
-	// re-marshaled in scientific notation — PreserveNumbers exists exactly
-	// for IDs. Fault tolerance: invalid JSON degrades to verbatim
-	// pass-through rather than failing the caller.
+	// re-marshaled in scientific notation — numbers are always preserved, for
+	// IDs. Fault tolerance: invalid JSON degrades to verbatim pass-through
+	// rather than failing the caller.
 	dec := json.NewDecoder(strings.NewReader(content))
 	dec.UseNumber()
 	var data any
 	if err := dec.Decode(&data); err != nil {
+		return verbatimResult(content, "json-compressor"), nil
+	}
+
+	// json.Decoder.Decode reads exactly one value and does NOT error on
+	// trailing data, so NDJSON/JSONL or a value followed by garbage would
+	// otherwise be silently truncated to its first record. Require the stream
+	// to be exhausted (only trailing whitespace, i.e. io.EOF); anything else
+	// degrades to verbatim pass-through rather than dropping content.
+	if _, err := dec.Token(); err != io.EOF {
 		return verbatimResult(content, "json-compressor"), nil
 	}
 
@@ -140,9 +146,9 @@ func (c *JSONCompressor) compressValue(v any, depth int, stats *compressStats) a
 		return c.compressString(val, stats)
 
 	case float64, json.Number:
-		if c.PreserveNumbers {
-			stats.numbers++
-		}
+		// Numbers are always preserved verbatim (UseNumber keeps big integer
+		// IDs exact); count them for the preserved summary.
+		stats.numbers++
 		return val
 
 	case bool, nil:

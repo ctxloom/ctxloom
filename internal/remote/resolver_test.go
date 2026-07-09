@@ -140,6 +140,16 @@ func TestRemoteRefFetcher_FetchItem_RejectsUnhandled(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestRemoteRefFetcher_FetchItem_NilRef(t *testing.T) {
+	f := NewRemoteRefFetcher(func(string) (VCS, error) { return &stubVCS{}, nil })
+
+	// The Handles guard rejects a nil ref; formatting it in the error path must
+	// return an error, not panic (Reference.String() is nil-safe).
+	_, err := f.FetchItem(context.Background(), nil, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "<nil>")
+}
+
 func TestRemoteRefFetcher_FetchItem_PropagatesReadError(t *testing.T) {
 	vcs := &stubVCS{err: errors.New("boom")}
 	f := NewRemoteRefFetcher(func(string) (VCS, error) { return vcs, nil })

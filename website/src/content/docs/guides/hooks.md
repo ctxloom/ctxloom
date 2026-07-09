@@ -12,7 +12,7 @@ When you start a Claude Code session, ctxloom automatically injects your configu
 
 1. You run `ctxloom run` or start Claude Code in a project with ctxloom configured
 2. ctxloom assembles context from your default profile, bundles, and tags
-3. Context is written to a temporary file in `.ctxloom/context/`
+3. Context is written to a temporary file in `.ctxloom/cache/context/`
 4. The SessionStart hook injects this context into the AI session
 5. The context file is deleted after injection (one-time use)
 
@@ -55,26 +55,20 @@ Antigravity has **no SessionStart event**, so context injection works differentl
 
 Hooks are applied automatically when you run `ctxloom init` or start `ctxloom mcp serve`.
 
-To manually reapply hooks, you can:
+To manually reapply hooks:
 
-1. **Re-run init** (simplest approach):
 ```bash
-ctxloom init
+# Reapply hooks and regenerate context (all backends)
+ctxloom manage hooks install
+
+# Target one backend
+ctxloom manage hooks install --backend claude-code
+
+# Or run the full one-shot setup (hooks, MCP, statusline, gitignore)
+ctxloom manage install
 ```
 
-2. **Use the MCP tool** (if ctxloom is running as MCP server):
-
-### Via MCP
-
-```json
-{
-  "tool": "apply_hooks",
-  "arguments": {
-    "backend": "claude-code",
-    "regenerate_context": true
-  }
-}
-```
+Applying hooks also writes the command files exported from skills, the MCP server config, and the HUD statusline (honoring `config.statusline`). There is no MCP tool for this — hook management is CLI-only.
 
 ## Context Assembly
 
@@ -138,7 +132,7 @@ ctxloom hook inject-context <hash>
 ```
 
 - `<hash>` - Content hash identifying the context file
-- Reads from `.ctxloom/context/<hash>.md`
+- Reads from `.ctxloom/cache/context/<hash>.md`
 - Outputs context to stdout for the AI to consume
 - Deletes the context file after reading
 
@@ -160,7 +154,7 @@ The hook system uses:
 cat .claude/settings.json | jq '.hooks'
 
 # View current context file
-ls -la .ctxloom/context/
+ls -la .ctxloom/cache/context/
 ```
 
 ### Test Context Assembly
@@ -211,15 +205,15 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 ### Context Not Injected
 
 1. Check hooks are applied: `cat .claude/settings.json`
-2. Verify context file exists: `ls .ctxloom/context/`
+2. Verify context file exists: `ls .ctxloom/cache/context/`
 3. Run with verbose: `CTXLOOM_VERBOSE=1 ctxloom run`
 
 ### Stale Context
 
-If context seems outdated, re-run init to regenerate context and reapply hooks:
+If context seems outdated, regenerate context and reapply hooks:
 
 ```bash
-ctxloom init
+ctxloom manage hooks install
 ```
 
 ### Hook Timeout

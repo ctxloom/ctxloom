@@ -87,7 +87,7 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
 
-	assert.Equal(t, 4, root["version"], "full pipeline lands on the current version")
+	assert.Equal(t, 6, root["version"], "full pipeline lands on the current version")
 
 	llm := llmMap(t, root)
 	// default → defaults.primary
@@ -112,11 +112,19 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	assert.Equal(t, 4096, cfgBlock["compaction_chunks"])
 	assert.Equal(t, false, cfgBlock["use_distilled"])
 
-	// profiles.defaults + profiles.definitions
+	// profiles.definitions survives; v5→v6 retired profiles.defaults, moving it
+	// into the synthesized default agent (asserted below).
 	prof := root["profiles"].(map[string]any)
-	assert.Contains(t, prof["defaults"], "proj/dev")
+	assert.NotContains(t, prof, "defaults", "v5→v6 retires profiles.defaults")
 	defs := prof["definitions"].(map[string]any)
 	assert.Contains(t, defs, "my-profile")
+
+	// v5→v6: profiles.defaults → agents.default + default_agent, engine ← primary.
+	assert.Equal(t, "default", root["default_agent"])
+	agent := root["agents"].(map[string]any)["default"].(map[string]any)
+	assert.Contains(t, agent["profiles"], "proj/dev")
+	assert.Equal(t, "claude-code", agent["engine"], "default agent engine ← llm.defaults.primary")
+	assert.Equal(t, "host", agent["runtime"])
 
 	// top-level defaults bag is gone
 	assert.NotContains(t, root, "defaults")
@@ -141,7 +149,7 @@ func TestConfigUpgrades_V2toV3_PreservesComments(t *testing.T) {
 	require.NotEmpty(t, applied)
 	assert.Contains(t, string(out), "# header", "top-level comment survives")
 	assert.Contains(t, string(out), "# keep me", "relocated use_distilled keeps its comment")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 6")
 }
 
 func TestConfigUpgrades_V2toV3_Idempotent(t *testing.T) {
@@ -184,7 +192,7 @@ func TestConfigUpgrades_V3toV4_GeminiToAntigravity(t *testing.T) {
 
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
-	assert.Equal(t, 4, root["version"])
+	assert.Equal(t, 6, root["version"])
 
 	llm := llmMap(t, root)
 	configs := llm["configs"].(map[string]any)
@@ -221,7 +229,7 @@ func TestConfigUpgrades_V3toV4_ChainsFromV2BackendKey(t *testing.T) {
 	in := "version: 2\nllm:\n  default: gemini\n  configs:\n    gemini:\n      model: gemini-2.5-flash\n      approval_mode: auto\n"
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
-	assert.Equal(t, 4, root["version"])
+	assert.Equal(t, 6, root["version"])
 
 	llm := llmMap(t, root)
 	// The label stays "gemini" — it is just a label; only the type changes.
@@ -253,7 +261,7 @@ func TestConfigUpgrades_V3toV4_PreservesComments(t *testing.T) {
 	assert.Contains(t, string(out), "# my gemini entry", "comment on the retyped entry survives")
 	assert.Contains(t, string(out), "type: antigravity")
 	assert.NotContains(t, string(out), "trust_workspace")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 6")
 }
 
 func TestConfigUpgrades_V3toV4_Idempotent(t *testing.T) {
@@ -273,8 +281,85 @@ func TestConfigUpgrades_V3toV4_CleanConfigOnlyGainsVersionStamp(t *testing.T) {
 	in := "version: 3\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n  defaults:\n    primary: claude-code\nhooks:\n  plugins:\n    claude-code:\n      PreToolUse: []\n"
 	out, applied := configUpgrades.Run([]byte(in))
 	require.NotEmpty(t, applied, "stamping the version is itself a valid upgrade")
-	assert.Equal(t, strings.Replace(in, "version: 3", "version: 4", 1), string(out),
+	assert.Equal(t, strings.Replace(in, "version: 3", "version: 6", 1), string(out),
 		"a gemini-free config changes only its version stamp")
+}
+
+// TestConfigUpgrades_V4toV5_ProfilePromptSelectors pins the inline-profile prompt
+// selector migration: an inline profile cherry-picking a bundle prompt via the
+// legacy "#prompts/" selector is migrated to the skills section and stamped v5.
+func TestConfigUpgrades_V4toV5_ProfilePromptSelectors(t *testing.T) {
+	in := "version: 4\nprofiles:\n  definitions:\n    dev:\n      bundle_items:\n        - core#prompts/review\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	assert.Contains(t, applied, "rename profile prompt selectors to skills (v4→v5)")
+	assert.Contains(t, string(out), "core#skills/review")
+	assert.NotContains(t, string(out), "prompts/")
+	assert.Contains(t, string(out), "version: 6")
+}
+
+// TestConfigUpgrades_V5toV6_DefaultAgent pins the profiles.defaults → default
+// agent migration: a v5 config's default profile list becomes the synthesized
+// "default" agent's profiles, default_agent points at it, and the agent carries
+// the primary LLM label as its engine + host runtime.
+func TestConfigUpgrades_V5toV6_DefaultAgent(t *testing.T) {
+	in := "version: 5\n" +
+		"llm:\n  configs:\n    big: { type: claude-code }\n  defaults:\n    primary: big\n" +
+		"profiles:\n  defaults:\n    - dev\n    - go\n  definitions:\n    dev:\n      bundles: [a/b]\n"
+	root, applied := runConfigUpgrades(in)
+	require.Contains(t, applied, "profiles.defaults → default agent (v5→v6)")
+
+	assert.Equal(t, 6, root["version"])
+	assert.Equal(t, "default", root["default_agent"])
+
+	agent := root["agents"].(map[string]any)["default"].(map[string]any)
+	assert.Equal(t, []any{"dev", "go"}, agent["profiles"])
+	assert.Equal(t, "big", agent["engine"], "engine ← llm.defaults.primary")
+	assert.Equal(t, "host", agent["runtime"])
+
+	// profiles.defaults is gone; definitions survive.
+	prof := root["profiles"].(map[string]any)
+	assert.NotContains(t, prof, "defaults")
+	assert.Contains(t, prof["definitions"].(map[string]any), "dev")
+}
+
+// A v5 config without profiles.defaults only gains the version stamp.
+func TestConfigUpgrades_V5toV6_NoDefaultsOnlyStamps(t *testing.T) {
+	in := "version: 5\nllm:\n  configs:\n    big: { type: claude-code }\n  defaults:\n    primary: big\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied)
+	assert.Contains(t, string(out), "version: 6")
+	assert.NotContains(t, string(out), "default_agent")
+	assert.NotContains(t, string(out), "agents:")
+}
+
+func TestConfigUpgrades_V5toV6_PreservesComments(t *testing.T) {
+	in := "# header\nversion: 5\nllm:\n  defaults:\n    primary: big\nprofiles:\n  defaults:\n    # keep me\n    - dev\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied)
+	assert.Contains(t, string(out), "# header", "top-level comment survives")
+	assert.Contains(t, string(out), "# keep me", "the moved defaults-seq item comment survives")
+	assert.Contains(t, string(out), "version: 6")
+}
+
+func TestConfigUpgrades_V5toV6_Idempotent(t *testing.T) {
+	in := "version: 5\nllm:\n  defaults:\n    primary: big\nprofiles:\n  defaults:\n    - dev\n"
+	once, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied)
+	twice, again := configUpgrades.Run(once)
+	assert.Empty(t, again, "already-v6 config must pass through unchanged")
+	assert.Equal(t, string(once), string(twice))
+}
+
+// A hand-authored agents.default / default_agent wins; the retired
+// profiles.defaults is still dropped.
+func TestConfigUpgrades_V5toV6_DoesNotClobberExistingDefaultAgent(t *testing.T) {
+	in := "version: 5\ndefault_agent: mine\nagents:\n  default:\n    profiles: [keep]\nprofiles:\n  defaults:\n    - dev\n"
+	root, _ := runConfigUpgrades(in)
+	assert.Equal(t, "mine", root["default_agent"], "existing default_agent is not clobbered")
+	agent := root["agents"].(map[string]any)["default"].(map[string]any)
+	assert.Equal(t, []any{"keep"}, agent["profiles"], "existing agents.default is not clobbered")
+	// The retired profiles.defaults is dropped; the profiles map (empty here) is pruned.
+	assert.NotContains(t, root, "profiles")
 }
 
 func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
@@ -282,7 +367,7 @@ func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 	// current schema version stamp.
 	out, applied := configUpgrades.Run([]byte("llm:\n  configs:\n    claude-code: { type: claude-code }\n"))
 	require.NotEmpty(t, applied, "unversioned config must upgrade (stamp version)")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 6")
 
 	var root map[string]any
 	require.NoError(t, yaml.Unmarshal(out, &root))
@@ -291,7 +376,7 @@ func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 
 func TestConfigUpgrades_NoOpWhenCurrent(t *testing.T) {
 	// A config already at the current version is returned verbatim (no rewrite).
-	in := []byte("version: 4\nllm:\n  defaults:\n    primary: claude-code\n")
+	in := []byte("version: 6\nllm:\n  defaults:\n    primary: claude-code\n")
 	out, applied := configUpgrades.Run(in)
 	assert.Empty(t, applied)
 	assert.Equal(t, string(in), string(out), "current config must not be reserialized")

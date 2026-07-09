@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // SearchResult represents a single search result.
@@ -57,7 +57,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Determine which types to search
-	searchTypes := collections.NewSetFrom("fragment", "prompt", "profile", "mcp_server")
+	searchTypes := collections.NewSetFrom("fragment", "skill", "profile", "mcp_server")
 	if len(req.Types) > 0 {
 		searchTypes = collections.NewSetFrom(req.Types...)
 	}
@@ -81,14 +81,25 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 			run func() []SearchResult
 		}{
 			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
-			{"prompt", func() []SearchResult { return searchPrompts(loader, query) }},
+			{"skill", func() []SearchResult { return searchSkills(loader, query) }},
 			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
 			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 		}
 		for _, s := range searchers {
-			if searchTypes.Has(s.typ) {
-				results = append(results, s.run()...)
+			if !searchTypes.Has(s.typ) {
+				continue
 			}
+			// A tags-only search (empty query) is fragment-scoped: tags filter
+			// fragments only, and the prompt/profile/mcp_server matchers gate
+			// solely on strings.Contains(name/desc/command, query), which is
+			// unconditionally true for an empty query — so they would flood the
+			// results with every item. Skip them, mirroring the empty-query
+			// guard searchRemoteEntries already uses. searchFragments handles
+			// the tag-filtered set itself.
+			if query == "" && s.typ != "fragment" {
+				continue
+			}
+			results = append(results, s.run()...)
 		}
 	}
 	if req.SearchRemote {
@@ -150,10 +161,10 @@ func searchFragments(loader *bundles.Loader, query string, tags []string) []Sear
 	return results
 }
 
-// searchPrompts returns prompts whose name matches query. Loader errors yield no
+// searchSkills returns prompts whose name matches query. Loader errors yield no
 // results.
-func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
-	prompts, err := loader.ListAllPrompts()
+func searchSkills(loader *bundles.Loader, query string) []SearchResult {
+	prompts, err := loader.ListAllSkills()
 	if err != nil {
 		return nil
 	}
@@ -161,7 +172,7 @@ func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
 	for _, p := range prompts {
 		if strings.Contains(strings.ToLower(p.Name), query) {
 			results = append(results, SearchResult{
-				Type:   "prompt",
+				Type:   "skill",
 				Name:   p.Name,
 				Source: p.Source,
 				Match:  "name",
@@ -238,7 +249,7 @@ func searchRemoteEntries(ctx context.Context, cfg *config.Config, req SearchCont
 	}
 	res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: req.Query, ItemType: itemType})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: remote search failed: %v\n", err)
+		clidiag.Warn("ctxloom", "remote search failed: %v", err)
 		return nil
 	}
 	out := make([]SearchResult, 0, len(res.Results))

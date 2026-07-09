@@ -3,13 +3,19 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"strings"
+	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
@@ -61,28 +67,317 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 
-	var fragments []*pb.Fragment
-	if ctxResult.Context != "" {
-		fragments = append(fragments, &pb.Fragment{Content: ctxResult.Context})
+	// The single-profile oneshot's axes: the session-level workspace default
+	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
+	// profile has no agent binding to declare one). Build the shared
+	// executable trust gate ONLY when some isolation is actually requested (an
+	// all-defaults oneshot writes no per-member config and must stay
+	// byte-identical to pre-P3; gate construction runs the trust baseline +
+	// opens the store). Ignored on the injected-Factory path.
+	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.Workspace), Runtime: isolation.RuntimeAxis(cfg.Runtime)}
+	var gate bundles.ContentGate
+	if !axes.Zero() {
+		gate = NewExecutableTrustGate(cfg).Gate()
 	}
+	// The single-profile oneshot's profile set is just req.Profile (empty falls back
+	// to the configured defaults inside AssembleManagedConfig), matching how the
+	// assembled context above was scoped.
+	var profiles []string
+	if req.Profile != "" {
+		profiles = []string{req.Profile}
+	}
+
+	res, err := runResolvedAgent(ctx, resolvedRunRequest{
+		Context:   ctxResult.Context,
+		Task:      req.Task,
+		WorkDir:   req.WorkDir,
+		Verbosity: req.Verbosity,
+		Label:     label,
+		Backend:   backendName,
+		Model:     model,
+		// A bare-profile oneshot has no agent binding; its posture is the engine
+		// label's configured permissions (if any), resolved for headless below.
+		Permissions: cfg.LM.Configs[label].Permissions,
+		// AgentID scopes a per-agent workspace by the profile name.
+		Axes:           axes,
+		IsolationImage: IsolationImageConfig(cfg, backendName),
+		AgentID:        req.Profile,
+		Profiles:       profiles,
+		Gate:           gate,
+		Factory:        req.Factory,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res.Profile = req.Profile
+	return res, nil
+}
+
+// resolvedRunRequest is an already-resolved agent run: a composed context and the
+// transport it resolved to. It is the seam shared by RunOneshot (which resolves a
+// single profile) and the map/weave fan (which resolves an agent or a
+// bare-profile member), so the backend-launch tail is written once.
+type resolvedRunRequest struct {
+	Context   string // assembled context injected as the agent's lead fragment
+	Task      string // the prompt/task sent to the agent
+	WorkDir   string
+	Verbosity int
+
+	// Label/Backend/Model are the already-resolved transport (the label drives
+	// the plugin, the model rides in RunOptions).
+	Label   string
+	Backend string
+	Model   string
+
+	// Permissions is the member's declared posture (agent binding or label
+	// config; "" = none). The fan is always headless ONESHOT, so it is resolved
+	// to an effective posture in runResolvedAgent: an honorable read-only plan is
+	// kept, a would-block posture floors to bypass so a member can't hang.
+	Permissions string
+
+	// Axes is the resolved isolation request: the session-supplied workspace
+	// axis x the agent-resolved runtime axis (both already defaulted). It
+	// selects HOW the member's plugin is spawned and WHERE its workspace lives
+	// when no Factory is injected. IsolationImage carries the user's
+	// container-image configuration for the member's backend (config
+	// isolation_images — run as-is — and isolation_base_containerfile for
+	// local builds); the zero value keeps the backend's built-in defaults.
+	// AgentID scopes/names that per-agent workspace (the member identifier).
+	// All are ignored on the injected-Factory path.
+	Axes           isolation.Axes
+	IsolationImage isolation.ImageConfig
+	AgentID        string
+
+	// Profiles is the member's resolved profile set — the SAME set that scoped its
+	// assembled Context. When the member's workspace is ISOLATED (worktree/
+	// container), it scopes the per-member ManagedConfig (mcp/hooks/skills) written
+	// natively into the isolated cwd, mirroring the top-level run. Ignored for a
+	// none member (which shares the project cwd and writes no managed config).
+	Profiles []string
+	// Gate is the shared executable trust gate (built ONCE per fan) threaded into
+	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/skill
+	// exports gate at their own choke exactly as the top-level run. nil = no gating
+	// (and none members never consult it).
+	Gate bundles.ContentGate
+
+	// ExtraEnv is merged over the workspace env into the member engine's
+	// environment (a delegated child's session harp / bus socket / depth).
+	ExtraEnv map[string]string
+
+	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
+}
+
+// IsolationImageConfig assembles the user's container-image configuration for
+// a backend's isolated runs: the per-backend prebuilt-image override (config
+// isolation_images) plus the base Containerfile local builds layer the agent
+// stage onto (config isolation_base_containerfile).
+func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageConfig {
+	return isolation.ImageConfig{
+		Image:             cfg.IsolationImageFor(backend),
+		BaseContainerfile: cfg.IsolationBaseContainerfilePath(),
+	}
+}
+
+// CellKindForPolicy maps a resolved isolation.Policy to the agent.CellKind the
+// host stamps onto RunOptions.CellKind, so the plugin learns which cell it runs
+// in (it can't infer that from WorkDir alone). It lives HERE — at the run
+// boundary where both isolation and agent are already imported — rather than in
+// isolation, so isolation need not depend on agent. None → Shared, Worktree →
+// DirectoryIsolated, and either container base (container / container-worktree)
+// → ProcessIsolated. Both cli/run.go and oneshot.go stamp through this one map.
+func CellKindForPolicy(p isolation.Policy) agent.CellKind {
+	switch {
+	case isolation.IsContainerPolicyName(p.Name()):
+		return agent.CellKindProcessIsolated
+	case isolation.Isolated(p): // a worktree (isolated, but not container)
+		return agent.CellKindDirectoryIsolated
+	default: // none — the shared live project dir
+		return agent.CellKindShared
+	}
+}
+
+// prepareIsolation is runResolvedAgent's seam onto isolation.Prepare — a
+// package var so tests simulate a container degrade (which records
+// ClassIsolation findings) without probing the real host's container
+// runtimes. Mirrors isolation's selectRuntimeProbe/sharedFSCheck seam style.
+var prepareIsolation = isolation.Prepare
+
+// isolationGateMu serializes the checkpoint→Prepare→gate window across
+// parallel fan members. strictness Marks are indices into ONE process-global
+// findings list, so concurrent windows interleave: member A's Since(mark)
+// would pick up — and wrongly fail A on — member B's findings. Serializing
+// the window keeps each member's gate scoped to its own Prepare, at the cost
+// of prepare-phase parallelism across the fan (the engine runs themselves
+// stay parallel). The deeper fix is per-window finding ownership inside
+// strictness itself.
+var isolationGateMu sync.Mutex
+
+// isolationGateErr is the fail-loudly member gate over the strictness findings
+// collected during one member's isolation.Prepare: a ClassIsolation finding
+// means an EXPLICITLY-requested container could not be satisfied and the
+// prepared workspace silently degraded toward the bare host — running the
+// member there (headless, floored to bypass) would silently unsandbox it. In
+// strict mode that fails THE MEMBER (an error Part in the fan; other members
+// continue — partial success is still success), never the whole call. Returns
+// nil in degraded mode (recording is disabled there, so found is empty anyway)
+// or when no ClassIsolation finding was collected.
+func isolationGateErr(found []strictness.Finding) error {
+	if strictness.Degraded() {
+		return nil
+	}
+	var iso []strictness.Finding
+	for _, f := range found {
+		if f.Class == strictness.ClassIsolation {
+			iso = append(iso, f)
+		}
+	}
+	if len(iso) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("isolation: requested container could not be satisfied; refusing to run this member UNSANDBOXED on the host")
+	for _, f := range iso {
+		fmt.Fprintf(&b, ": %s", f.Message)
+	}
+	if fix := iso[0].FixIt; fix != "" {
+		fmt.Fprintf(&b, " (fix: %s)", fix)
+	}
+	return errors.New(b.String())
+}
+
+// runResolvedAgent launches the resolved backend once in ONESHOT mode with the
+// composed context as the lead fragment and stdout captured. It carries no
+// context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
+// for a single profile, ResolveAgent for an agent/bare-profile member) — so
+// the two paths share one backend-launch tail and can never drift.
+func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error) {
+	var fragments []*pb.Fragment
+	if req.Context != "" {
+		fragments = append(fragments, &pb.Fragment{Content: req.Context})
+	}
+
+	// Decide WHERE this member runs and HOW its plugin is spawned. An injected
+	// Factory (test seam / caller override) wins exactly as before: the isolation
+	// policy is skipped entirely, WorkDir stays req.WorkDir, and no workspace is
+	// prepared or torn down — byte-identical to the pre-isolation path. Only when
+	// Factory is nil does the resolved policy take over. Default (empty/none) →
+	// the live project dir + a bare self-invoked subprocess (== the old
+	// pb.DefaultClientFactory), so this is zero functional change until an
+	// isolation is actually requested.
+	factory := req.Factory
+	workDir := req.WorkDir
+	var workspaceEnv map[string]string
+	// A none member (or the injected-Factory test path) keeps the pre-P3 delivery:
+	// SkipSetup:true, no managed write, context as the lead fragment. An ISOLATED
+	// member flips to SkipSetup:false + a per-member ManagedConfig written into its
+	// isolated cwd (set below).
+	skipSetup := true
+	var managed *pb.ManagedConfig
+	// Resolved isolation cell stamped onto RunOptions below so the plugin knows
+	// which cell it runs in. Defaults to Shared: the injected-Factory test path
+	// (and a none member) share the live cwd; the isolation branch overwrites it
+	// from the resolved policy. Setup does not consume it yet (plan S4b).
+	cellKind := agent.CellKindShared
+	if factory == nil {
+		// Member isolation. Prepare realizes the per-axis degrade chain: a
+		// runtime-axis failure drops only the container dimension (a requested
+		// worktree survives); a workspace-axis failure degrades worktree→none.
+		// It warns at each degrade and never blocks — None never fails. The
+		// none tier loses cwd config isolation (shared project dir), the
+		// documented non-git edge.
+		//
+		// Fail-loudly member gate: a container degrade inside Prepare records a
+		// ClassIsolation finding, but the fan has no startup choke owner to abort
+		// on it — and the headless floor below would then run this member on the
+		// bare host with FORCED BYPASS. Checkpoint before Prepare and gate on the
+		// findings it recorded, failing THIS MEMBER (an error Part upstream;
+		// other members continue) unless --degraded. The window is serialized
+		// (isolationGateMu) because parallel members share one process-global
+		// findings list — see the var's doc.
+		isolationGateMu.Lock()
+		mark := strictness.Checkpoint()
+		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID, isolation.SessionStateFromEnv(req.ExtraEnv))
+		found := strictness.Since(mark)
+		isolationGateMu.Unlock()
+		workDir = ws.Dir()
+		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
+		// config layer; nil for none/container. Threaded into the member's engine
+		// env below so the shared ~/.claude.json etc. don't clobber.
+		workspaceEnv = isolation.WorkspaceEnv(ws)
+		// Tear the workspace down after the run. Registered BEFORE the client so
+		// it runs AFTER client.Kill() (kill the plugin before removing its
+		// workspace — WIP-safe for the worktree teardown). none's cleanup is a
+		// noop. Registered before the gate below, so a gated member's degraded
+		// workspace is still torn down. The error is deliberately dropped: a
+		// cleanup failure surfaces from INSIDE Cleanup (a streamed warning
+		// naming the residue path + fix — see warnCleanupResidue), and it must
+		// NOT become a finding here — this defer fires outside the serialized
+		// gate window, where a recorded finding would poison a concurrent
+		// member's gate.
+		defer func() { _ = ws.Cleanup() }()
+		if gerr := isolationGateErr(found); gerr != nil {
+			return nil, gerr
+		}
+		factory = isolation.FactoryForWorkspace(policy, ws)
+		// Stamp the resolved cell (none→Shared, worktree→DirectoryIsolated,
+		// container→ProcessIsolated) — set unconditionally from the actual policy,
+		// not gated on Isolated, so a none member is explicitly Shared too. This
+		// complements the SkipSetup-as-proxy below (which S4b will supersede).
+		cellKind = CellKindForPolicy(policy)
+
+		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written
+		// into its isolated cwd (the point of the worktree, plan §2b). Assemble it
+		// exactly as the top-level run does (backends.AssembleManagedConfig with the
+		// SAME workDir/gate/profiles) so the plugin's Setup materializes
+		// .mcp.json/.claude/AGENTS.md/.kiro/ into ws.Dir() and delivers context ONCE
+		// from the lead fragment — mirroring run.go's SkipSetup:false delivery. A
+		// none member (Isolated == false, incl. a worktree that degraded to none)
+		// shares the project cwd, so it stays on the SkipSetup:true / lead-fragment
+		// path: writing per-member config there would clobber the one shared surface.
+		if isolation.Isolated(policy) {
+			skipSetup = false
+			managed = pb.ManagedConfigToProto(
+				backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles))
+		}
+	}
+
+	// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer the
+	// engine's prompt. Honor the member's declared posture when it can run headless
+	// (a read-only plan on a backend that enforces it), but floor a would-block
+	// posture (default/acceptEdits, or plan on a backend with no read-only tier) up
+	// to bypass so a member can't hang. An empty/unset posture floors to bypass,
+	// preserving the prior always-bypass behavior for members that declare nothing.
+	memberPerm, _ := agent.ParsePermissionMode(req.Permissions)
+	memberPerm = memberPerm.CollapsePlanIfUnenforced(backends.EnforcesReadOnlyPlan(req.Backend))
+	if !memberPerm.SafeHeadless() {
+		memberPerm = agent.PermissionBypass
+	}
+
+	env := workspaceEnv
+	if len(req.ExtraEnv) > 0 {
+		merged := make(map[string]string, len(workspaceEnv)+len(req.ExtraEnv))
+		maps.Copy(merged, workspaceEnv)
+		maps.Copy(merged, req.ExtraEnv)
+		env = merged
+	}
+
 	runReq := &pb.RunStart{
 		Fragments: fragments,
 		Prompt:    &pb.Fragment{Content: req.Task},
 		Options: &pb.RunOptions{
-			WorkDir:     req.WorkDir,
-			AutoApprove: true,
-			Mode:        pb.ExecutionMode_ONESHOT,
-			Model:       model,
-			Verbosity:   uint32(req.Verbosity * 16),
-			SkipSetup:   true,
+			WorkDir:        workDir,
+			Env:            env,
+			PermissionMode: memberPerm.String(),
+			Mode:           pb.ExecutionMode_ONESHOT,
+			Model:          req.Model,
+			Verbosity:      uint32(req.Verbosity * 16),
+			SkipSetup:      skipSetup,
+			CellKind:       pb.CellKindToProto(cellKind),
 		},
+		ManagedConfig: managed,
 	}
 
-	factory := req.Factory
-	if factory == nil {
-		factory = pb.DefaultClientFactory()
-	}
-	client, err := factory(backendName, label, req.Verbosity)
+	client, err := factory(req.Backend, req.Label, req.Verbosity)
 	if err != nil {
 		return nil, fmt.Errorf("start plugin: %w", err)
 	}
@@ -98,11 +393,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	}
 
 	return &RunOneshotResult{
-		Profile:  req.Profile,
 		Output:   strings.TrimSpace(stdout.String()),
-		Label:    label,
-		Backend:  backendName,
-		Model:    model,
+		Label:    req.Label,
+		Backend:  req.Backend,
+		Model:    req.Model,
 		ExitCode: exitCode,
 	}, nil
 }

@@ -146,16 +146,17 @@ ctxloom run -f my-bundle#fragments/coding-standards
 
 To use original content instead:
 
-```bash
+```yaml
 # In config.yaml
-defaults:
+config:
   use_distilled: false
 ```
 
-Or per-run:
+There is no per-run override. To compare the original and distilled versions of a fragment:
 
 ```bash
-ctxloom run --no-distilled -f my-bundle#fragments/coding-standards
+ctxloom fragment show my-bundle#fragments/coding-standards
+ctxloom fragment show --distilled my-bundle#fragments/coding-standards
 ```
 
 ## Bundle Configuration

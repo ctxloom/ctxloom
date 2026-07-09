@@ -1,16 +1,30 @@
 # Default recipe
 default: build
 
-# Get version from versionator (with fallback for CI without versionator)
-# Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
-# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
-version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+# pre1 is a single consolidated module: always run go in module mode so the
+# host go.work (which still points at the pre-consolidation `main` worktree and
+# the now-absorbed sibling modules) can't shadow this tree. Mirrors
+# justfile.container; the per-recipe GOWORK=off below become redundant but stay
+# explicit for the docker `-e` passthroughs.
+export GOWORK := "off"
+
+# Get version from versionator (with fallback for CI without versionator).
+# Standardized stamp format across the ctxloom family:
+#   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
+# versionator emits the compact datetime (no separator); sed inserts the 'T'.
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
 
 # ===== Version management (versionator) =====
 
 # Show current version
 show-version:
     @versionator output version
+
+# Set the release version (the supported way to bump for a release). Releases
+# are merge-triggered: bump here, commit VERSION, merge — CI tags it immutably
+# (v-prefixed). Example: just set-version 0.7.0
+set-version version:
+    versionator set {{version}}
 
 # Bump patch version (0.0.X)
 bump-patch:
@@ -40,8 +54,22 @@ build: dev-image
 compress: dev-image
     just _run compress
 
-# Build and compress (delegates to devcontainer)
-build-compressed: build compress
+# Build + compress all three binaries in the devcontainer (ctxloom + ltk +
+# taskloom, each UPX-compressed). Delegates to the container `build-compressed`.
+build-compressed: dev-image
+    just _run build-compressed
+
+# Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
+# module. ltk ships from the unified ctxloom release; main.Version matches
+# `ltk version`.
+build-ltk: dev-image
+    just _run ltk::build
+
+# Build the taskloom companion binary in the devcontainer into bin/taskloom, via
+# the taskloom module. taskloom stamps the lowercase main.version
+# (`taskloom version`).
+build-taskloom: dev-image
+    just _run taskloom::build
 
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
@@ -57,7 +85,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -267,20 +295,6 @@ test-acceptance-live-container: container-build-acceptance
 test-pkg PKG *ARGS:
     go test -race {{ARGS}} {{PKG}}
 
-# Run all tests in container (matches CI environment)
-test-container:
-    #!/usr/bin/env bash
-    # See _run for why --user is skipped under rootless docker.
-    user_flag=(--user "$(id -u):$(id -g)")
-    if docker info 2>/dev/null | grep -q "rootless"; then
-        user_flag=()
-    fi
-    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
-        go mod download && \
-        go test -race ./... && \
-        CGO_ENABLED=0 go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom . && \
-        go test -v -tags integration ./tests/integration/...'
-
 # ===== Mutation testing =====
 
 # Run mutation tests with gremlins (requires gremlins installed)
@@ -355,25 +369,42 @@ complexity-check *ARGS: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
+    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
-# Build, compress, and install to ~/go/bin (standard Go location)
-# Atomic rename instead of pkill+cp: replacing the directory entry leaves the
-# busy inode mapped for any running ctxloom (avoids ETXTBSY and never dumps a
-# live ctxloom-managed session); new launches pick up the new binary.
+# Build, compress, and install all three binaries to ~/go/bin (standard Go
+# location): ctxloom plus its companions ltk and taskloom, which now ship from
+# this same repo. Atomic rename instead of pkill+cp: replacing the directory
+# entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
+# never dumps a live ctxloom-managed session); new launches pick up the new one.
 install: build-compressed
     mkdir -p ~/go/bin
     cp ctxloom ~/go/bin/ctxloom.new
     mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom
+    cp bin/ltk ~/go/bin/ltk.new
+    mv -f ~/go/bin/ltk.new ~/go/bin/ltk
+    cp bin/taskloom ~/go/bin/taskloom.new
+    mv -f ~/go/bin/taskloom.new ~/go/bin/taskloom
 
-# Uninstall from ~/go/bin
+# Uninstall all three binaries from ~/go/bin
 uninstall:
-    rm -f ~/go/bin/ctxloom
+    rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
-# Generate man pages
+# Generate reference docs from their sources of truth: the CLI reference (man
+# pages + website markdown) from the cobra command tree, the MCP reference from
+# the live tool/resource registrations, and the config reference from the
+# tracked JSON Schema. CI fails on drift (gen-docs-check in justfile.container).
+gen-docs:
+    go run ./scripts/gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/reference/cli \
+        --mcp website/src/content/docs/reference \
+        --config website/src/content/docs/reference \
+        --config-schema resources/schema/input/config-schema.json
+
+# Generate man pages only (the --man half of gen-docs)
 man:
-    go run ./scripts/genman
+    go run ./scripts/gendocs --man man/man1
 
 # Install man pages (Linux/macOS)
 man-install: man
@@ -451,152 +482,108 @@ tf-validate:
 
 # ===== Container targets =====
 
-# Container registry (override with: just registry=ghcr.io/user container-build-all)
+# Container registry prefix for locally-built utility images (the acceptance
+# image); the agent images are local-only tags.
 registry := "localhost"
 
-# Container variant: wolfi (glibc, secure) or alpine (musl, smaller)
-variant := "wolfi"
+# Build the MINIMAL isolation image: the locally-built static linux ctxloom on a
+# small base, tagged ctxloom-agent:latest (the default the container isolation
+# policy looks for). Proves the plugin-in-container transport without an engine CLI
+# or auth. The production agent image (real engine + auth) is a separate follow-up.
+container-build-minimal:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    cp container/minimal/Containerfile "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
 
-# Build base agent container
-container-build-base:
-    podman build -t {{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-base container/{{variant}}/
-
-# Build Claude Code agent container
+# Build the PRODUCTION claude agent image: the locally-built static linux ctxloom
+# PLUS a real claude CLI (npm @anthropic-ai/claude-code on node:22-slim), tagged
+# ctxloom-agent:latest (the default image the container isolation policy looks for)
+# AND ctxloom-agent-claude:latest. Unlike container-build-minimal (transport only),
+# this runs a REAL engine in-container for a top-level isolated `ctxloom run`. Auth
+# is NOT baked in — it crosses at run time (ANTHROPIC_* passthrough, or a read-only
+# ~/.claude credential mount). Follows the self-contained container-build-minimal
+# pattern (docker, static binary, no base-image dependency); the Go test gate never
+# depends on this image (the build is slow/network-bound).
 container-build-claude: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-claude:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-claude-code container/{{variant}}/
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    # Companions mirrored from the host (the agent stage's COPY companions/
+    # requires the dir even when empty; a missing companion just warns).
+    mkdir -p "$ctx/companions"
+    for b in taskloom ltk reprise; do
+        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
+        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
+    done
+    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
+    cp container/production/Containerfile-claude-code "$ctx/Containerfile"
+    # Stamp the provenance digest computed by the very binary being baked, so a
+    # later `ctxloom run` with that same binary sees the image as current.
+    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
+    {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
+        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
+        --build-arg CTXLOOM_VERSION={{version}} \
+        --build-arg CTXLOOM_PROVENANCE="$prov" \
+        -f "$ctx/Containerfile" "$ctx"
 
-# Build Gemini CLI agent container
-container-build-gemini: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-gemini:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-gemini container/{{variant}}/
+# Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
+# plus the coding-agent tool layer (git, ripgrep, curl, certs, unzip, jq). The
+# per-engine recipes layer their agent stage on top via --build-arg BASE_IMAGE.
+# To bring your own base instead, use `ctxloom container build
+# --base-containerfile <file>` (or config isolation_base_containerfile).
+container-build-base:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    cp container/base/Containerfile "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent-base:latest -f "$ctx/Containerfile" "$ctx"
 
-# Build Codex agent container
-container-build-codex: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-codex:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-codex container/{{variant}}/
-
-# Build Cline agent container
-container-build-cline: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-cline:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-cline container/{{variant}}/
-
-# Build Aider agent container (standalone - Python)
-container-build-aider:
-    podman build -t {{registry}}/ctxloom-agent-aider:latest \
-        -f container/{{variant}}/Containerfile-aider container/{{variant}}/
-
-# Build Goose agent container (standalone - Block)
-container-build-goose:
-    podman build -t {{registry}}/ctxloom-agent-goose:latest \
-        -f container/{{variant}}/Containerfile-goose container/{{variant}}/
-
-# Build Q Developer agent container (standalone - Amazon)
-container-build-qdeveloper:
-    podman build -t {{registry}}/ctxloom-agent-qdeveloper:latest \
-        -f container/{{variant}}/Containerfile-qdeveloper container/{{variant}}/
-
-# Build all agent containers
-container-build-agents: container-build-claude container-build-gemini container-build-codex container-build-cline container-build-aider container-build-goose container-build-qdeveloper
-
-# ===== Language LSP containers =====
-
-# Build Go LSP container (gopls + tools)
-container-build-lang-go: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-go:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-go container/{{variant}}/
-
-# Build Python LSP container (pyright + tools)
-container-build-lang-python: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-python:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-python container/{{variant}}/
-
-# Build Rust LSP container (rust-analyzer + tools)
-container-build-lang-rust: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-rust:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-rust container/{{variant}}/
-
-# Build TypeScript LSP container (typescript-language-server)
-container-build-lang-typescript: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-typescript:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-typescript container/{{variant}}/
-
-# Build Java LSP container (jdtls + tools)
-container-build-lang-java: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-java:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-java container/{{variant}}/
-
-# Build C# LSP container (omnisharp)
-container-build-lang-csharp: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-csharp:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-csharp container/{{variant}}/
-
-# Build all language LSP containers
-container-build-langs: container-build-lang-go container-build-lang-python container-build-lang-rust container-build-lang-typescript container-build-lang-java container-build-lang-csharp
-
-# Build all containers (base + langs + agents)
-container-build-all: container-build-langs container-build-agents
-
-# Push all agent containers to registry
-container-push-agents:
-    podman push {{registry}}/ctxloom-agent-base:latest
-    podman push {{registry}}/ctxloom-agent-claude:latest
-    podman push {{registry}}/ctxloom-agent-gemini:latest
-    podman push {{registry}}/ctxloom-agent-codex:latest
-    podman push {{registry}}/ctxloom-agent-cline:latest
-    podman push {{registry}}/ctxloom-agent-aider:latest
-    podman push {{registry}}/ctxloom-agent-goose:latest
-    podman push {{registry}}/ctxloom-agent-qdeveloper:latest
-
-# Push all language LSP containers to registry
-container-push-langs:
-    podman push {{registry}}/ctxloom-lsp-go:latest
-    podman push {{registry}}/ctxloom-lsp-python:latest
-    podman push {{registry}}/ctxloom-lsp-rust:latest
-    podman push {{registry}}/ctxloom-lsp-typescript:latest
-    podman push {{registry}}/ctxloom-lsp-java:latest
-    podman push {{registry}}/ctxloom-lsp-csharp:latest
-
-# Push all containers to registry
-container-push-all: container-push-langs container-push-agents
-
-# Clean agent container images
-container-clean-agents:
-    -podman rmi {{registry}}/ctxloom-agent-claude:latest
-    -podman rmi {{registry}}/ctxloom-agent-gemini:latest
-    -podman rmi {{registry}}/ctxloom-agent-codex:latest
-    -podman rmi {{registry}}/ctxloom-agent-cline:latest
-    -podman rmi {{registry}}/ctxloom-agent-aider:latest
-    -podman rmi {{registry}}/ctxloom-agent-goose:latest
-    -podman rmi {{registry}}/ctxloom-agent-qdeveloper:latest
-
-# Clean language LSP container images
-container-clean-langs:
-    -podman rmi {{registry}}/ctxloom-lsp-go:latest
-    -podman rmi {{registry}}/ctxloom-lsp-python:latest
-    -podman rmi {{registry}}/ctxloom-lsp-rust:latest
-    -podman rmi {{registry}}/ctxloom-lsp-typescript:latest
-    -podman rmi {{registry}}/ctxloom-lsp-java:latest
-    -podman rmi {{registry}}/ctxloom-lsp-csharp:latest
-
-# Clean all container images
-container-clean: container-clean-agents container-clean-langs
-    -podman rmi {{registry}}/ctxloom-agent-base:latest
+# Build the PRODUCTION kiro agent image: the locally-built static linux ctxloom
+# PLUS a real kiro-cli (official installer on debian slim), tagged
+# ctxloom-agent-kiro:latest (the image the kiro container profile looks for).
+# Auth is NOT baked in — KIRO_API_KEY crosses at run time (headless mode). The
+# isolation policy can also build this image ON THE FLY from the embedded
+# Containerfile when the tag is absent; this recipe is the ahead-of-time path.
+container-build-kiro: container-build-base
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    # Companions mirrored from the host (the agent stage's COPY companions/
+    # requires the dir even when empty; a missing companion just warns).
+    mkdir -p "$ctx/companions"
+    for b in taskloom ltk reprise; do
+        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
+        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
+    done
+    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
+    cp container/production/Containerfile-kiro "$ctx/Containerfile"
+    # Stamp the provenance digest computed by the very binary being baked, so a
+    # later `ctxloom run` with that same binary sees the image as current.
+    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
+    {{container_cmd}} build -t ctxloom-agent-kiro:latest \
+        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
+        --build-arg CTXLOOM_VERSION={{version}} \
+        --build-arg CTXLOOM_PROVENANCE="$prov" \
+        -f "$ctx/Containerfile" "$ctx"
 
 # List all ctxloom container images
 container-list:
-    @podman images | grep -E "ctxloom-(agent|lsp)" | sort
+    @{{container_cmd}} images | grep -E "ctxloom-agent" | sort
 
 # ===== Devcontainer overlay pattern =====
 # Runs targets inside devcontainer with CGO dependencies (libtokenizers, ONNX runtime)
@@ -691,3 +678,8 @@ dev-shell: dev-image
         -w /workspace \
         {{devcontainer_image}}:latest \
         bash
+
+# TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
+# chain — proto artifacts are already generated on disk. Remove after use.
+test-acceptance-nobuild:
+    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...

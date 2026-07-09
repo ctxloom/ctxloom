@@ -1,6 +1,6 @@
 package config
 
-import "github.com/ctxloom/ctxloom/internal/upgrade"
+import "github.com/ctxloom/ctxloom/internal/shared/upgrade"
 
 // configUpgrades is the canonical, ordered set of config schema upgrades,
 // oldest-first. Append an Upgrader here as the schema evolves and bump
@@ -11,4 +11,6 @@ var configUpgrades = upgrade.Pipeline{
 	llmRenameUpgrade{},
 	labeledConfigUpgrade{},
 	geminiToAntigravityUpgrade{},
+	profileSkillSelectorUpgrade{},
+	defaultAgentUpgrade{},
 }

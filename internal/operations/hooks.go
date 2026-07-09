@@ -2,16 +2,18 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 )
 
@@ -45,7 +47,6 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	}
 
 	fs := getFS(req.FS)
-	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
 
 	// Set executable path for testing if provided
@@ -58,37 +59,77 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		return nil, err
 	}
 
-	// Honor the statusline opt-out (config: settings.statusline: false).
-	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
+	// The default profile set (Config.DefaultAgentProfiles, from the default
+	// agent) is read directly off freshCfg by two later steps regardless of
+	// RegenerateContext — ResolveBundleMCPServers (below) and the per-backend
+	// AssembleManagedHooks — so a default agent's bundles' MCP servers and hooks
+	// land in the written settings with no run-only resolution step needed
+	// (profiles.defaults + its home-inheritance were retired).
+
+	// The statusline opt-out (config: settings.statusline: false) rides
+	// SurfaceInputs.ManageStatusline into the settings surface, read per backend in
+	// applyHooksToBackend from freshCfg.Settings.ShouldManageStatusline().
 
 	workDir := resolveHookWorkDir(req)
+
+	// Gate the executable surfaces about to be written to backend settings —
+	// bundle MCP servers, bundle hooks, and prompt command-file exports (trust
+	// rework, TR5). These bypass the content loader, so each is gated at its own
+	// choke via this injected gate; a DENY omits the executable. Built once (runs
+	// the migration baseline + opens the trust store, idempotent with the regen
+	// content gate). Fault tolerant: the gate never errors (fail-closed) and
+	// attaching it never blocks the write. Set before any resolve below so
+	// ResolveBundleMCPServers / AssembleManagedHooks / LoadSkillExports all gate.
+	execGate := NewExecutableTrustGate(freshCfg)
+	freshCfg.SetExecutableTrustGate(execGate.Gate())
+
 	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
+	// The native-context backends (antigravity/kiro) read context from their own
+	// file, not the injection hook, so apply materializes it from the assembled
+	// context STRING — the same content regenerateContext hashed into the cache the
+	// hook backends (claude/codex) read, so the two paths agree. Assembled only when
+	// context was regenerated this round (contextHash != ""); otherwise "" strips
+	// their managed native-context section. Fault tolerant: a failed assembly leaves
+	// it "" (the native surface then strips), never blocking the apply.
+	var assembledContext string
+	if contextHash != "" {
+		if asm, aerr := AssembleContext(ctx, freshCfg, AssembleContextRequest{Profiles: freshCfg.DefaultAgentProfiles()}); aerr == nil {
+			assembledContext = asm.Context
+		}
+	}
+
 	// MCP servers from profile bundles + prompts for command files, shared
-	// across backends.
-	bundleMCP := freshCfg.ResolveBundleMCPServers()
-	prompts := backends.LoadPromptExports(freshCfg, bundleLoaderOpts(req)...)
+	// across backends. ApplyHooks writes the project's STATIC managed config
+	// (the `manage hooks install` path) for the configured DEFAULT profiles —
+	// there is no per-run `-p` selection here — so nil scopes to the defaults.
+	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
+	prompts := backends.LoadSkillExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
-		backendNames: hookBackendNames(backend),
-		freshCfg:     freshCfg,
-		workDir:      workDir,
-		contextHash:  contextHash,
-		bundleMCP:    bundleMCP,
-		prompts:      prompts,
-		fs:           fs,
-		settingsOpts: settingsOpts,
+		backendNames:     hookBackendNames(backend),
+		freshCfg:         freshCfg,
+		workDir:          workDir,
+		contextHash:      contextHash,
+		assembledContext: assembledContext,
+		bundleMCP:        bundleMCP,
+		prompts:          prompts,
+		fs:               fs,
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
+	// export) was withheld by the trust gate (content-free).
+	execGate.WarnWithheld()
 
 	// Self-heal the transient-artifact ignores (settings backups, generated
 	// .agents/) so they stay covered after any hook apply, not just at init.
 	// Skipped when a test FS is injected — the os-based writer would miss it.
 	if req.FS == nil {
 		if gitErr := gitignore.Ensure(workDir, gitignore.Comment, gitignore.TransientArtifactPatterns...); gitErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", gitErr)
+			clidiag.Warn("ctxloom", "failed to update .gitignore: %v", gitErr)
 		}
 	}
 
@@ -140,16 +181,18 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,
-// returning its hash. Fault tolerance: a regen failure must not block hook
-// application — warn and return an empty hash so the SessionStart injection
-// hook is simply omitted this round.
+// returning its hash. A regen failure is fatal-class in strict mode (the
+// SessionStart-injected context silently going stale/absent is exactly what
+// fail-loudly exists to catch); in degraded mode it stays a warning and the
+// injection hook is simply omitted this round.
 func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) string {
 	if !req.RegenerateContext {
 		return ""
 	}
 	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: regenerate context failed: %v\n", err)
+		strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+			"regenerate context failed: %v", err)
 		return ""
 	}
 	return contextHash
@@ -165,20 +208,22 @@ func hookBackendNames(backend string) []string {
 
 // hookApplyParams bundles the per-backend apply inputs (shared across the loop).
 type hookApplyParams struct {
-	backendNames []string
-	freshCfg     *config.Config
-	workDir      string
-	contextHash  string
-	bundleMCP    map[string]wire.MCPServer
-	prompts      []*bundles.LoadedContent
-	fs           afero.Fs
-	settingsOpts []backends.SettingsOption
+	backendNames     []string
+	freshCfg         *config.Config
+	workDir          string
+	contextHash      string
+	assembledContext string
+	bundleMCP        map[string]wire.MCPServer
+	prompts          []*bundles.LoadedContent
+	fs               afero.Fs
 }
 
 // applyHooksToBackends applies hooks to each backend, returning the backends
-// that took and the per-backend failures. Fault tolerance: a single backend's
-// failure is recorded and warned, then the rest still run — a partially applied
-// set beats none. Context cancellation aborts the whole loop.
+// that took and the per-backend failures. A single backend's failure is
+// recorded and the rest still run — a partially applied set beats none — but
+// partial is no longer success in strict mode: each per-backend failure is a
+// fatal-class finding the startup choke owner aborts on. Degraded mode keeps
+// the warn-and-continue. Context cancellation aborts the whole loop.
 func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, applyErrors []string, err error) {
 	applied = []string{}
 	for _, backendName := range p.backendNames {
@@ -186,7 +231,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 			return applied, applyErrors, ctx.Err()
 		}
 		if e := applyHooksToBackend(backendName, p); e != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
 			continue
 		}
@@ -195,56 +240,86 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 	return applied, applyErrors, nil
 }
 
-// applyHooksToBackend writes one backend's settings and command files. The hook
-// set is assembled fresh per backend (config + default-profile + bundle-shipped
-// + context-injection, via AssembleManagedHooks) so this write matches the
-// `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
-// freshCfg.Hooks across the loop.
+// applyHooksToBackend writes one backend's managed config into the project via
+// the surfaces × cells seam: settings (hooks) + MCP + skills, but NEVER a native
+// context file. The hook set is assembled fresh per backend (config +
+// default-profile + bundle-shipped + context-injection, via AssembleManagedHooks)
+// so this write matches the `ctxloom run` Setup path and avoids duplicate-hook
+// accumulation from aliasing freshCfg.Hooks across the loop.
+//
+// Apply INSTALLS runtime context injection for the HOOK backends (claude/codex):
+// the regenerated contextHash keys the SessionStart inject-context hook INTO their
+// settings/config surface (the crucial difference from materialize, which passes ""
+// so context stays static). Their context reaches a launched agent via that hook +
+// the regenerated cache file, NOT a native file, so the selection omits .WithContext()
+// for them — a static claude CLAUDE.md alongside the hook would double the context.
+//
+// The NATIVE-file backends (antigravity/kiro) read context from .agents/AGENTS.md /
+// .kiro/steering and DIVERT the injection hook, so for them apply DOES materialize
+// the context surface with the assembled context (contextViaNativeFile). Skills are
+// delivered only when there are prompts, preserving the prior guard (no prompts ⇒
+// command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
-	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash)
-	if err := backends.WriteSettings(backendName, hooksCfg, &p.freshCfg.MCP, p.bundleMCP, p.workDir, p.settingsOpts...); err != nil {
-		return fmt.Errorf("failed to apply %s settings: %w", backendName, err)
-	}
+	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
+	nativeContext := backends.ContextViaNativeFile(backendName)
 
+	inputs := agent.SurfaceInputs{
+		MCP:              &p.freshCfg.MCP,
+		BundleMCP:        p.bundleMCP,
+		Hooks:            hooksCfg,
+		ManageStatusline: p.freshCfg.Settings.ShouldManageStatusline(),
+		Skills:           backends.CommandExportsFor(backendName, p.prompts),
+	}
+	if nativeContext {
+		// Empty when context was not regenerated this round, which strips the
+		// backend's managed native-context section — matching the prior write.
+		inputs.Context = p.assembledContext
+	}
+	set := backends.BuildSurfaces(backendName, inputs, p.fs)
+
+	sel := agent.Select(set).WithSettings().WithMCP()
+	if nativeContext {
+		sel = sel.WithContext()
+	}
 	if len(p.prompts) > 0 {
-		cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(p.fs)}
-		if err := backends.WriteCommandFilesFor(backendName, p.workDir, p.prompts, cmdOpts...); err != nil {
-			return fmt.Errorf("failed to write %s commands: %w", backendName, err)
-		}
+		sel = sel.WithSkills()
+	}
+	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
+		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
 	return nil
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...agent.ContextFileOption) (string, error) {
-	// Load fragments from default profiles using bundles
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
-
-	// Resolve defaults the way AssembleContext does (resolveContextProfileNames):
-	// ApplyHooks reloads a fresh config, so without EnsureDefaultProfiles a
-	// project inheriting its defaults from the home config would regenerate an
-	// EMPTY context file here while assembly injects a full one.
-	EnsureDefaultProfiles(cfg)
+	// Load fragments from default profiles using bundles. This is an exposure
+	// surface (the SessionStart-injected context file), so it gates content the
+	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
+	// withhold anything the cascade denies.
+	loader := exposureLoader(cfg, bundleOpts...)
 
 	// Collect through the same path AssembleContext uses: collectProfileFragments
 	// emits tag-matched fragments under their canonical qualified names (so
 	// dedupeFragmentRefs actually collapses duplicates) and applies each
 	// profile's exclude_fragments to them. This function's output MUST match
 	// AssembleContext — any divergence ships a SessionStart-injected context
-	// that disagrees with what `ctxloom run` assembles.
-	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.GetDefaultProfiles(), nil, true)
+	// that disagrees with what `ctxloom run` assembles. The default set is the
+	// default agent's composed profiles (resolveContextProfileNames reads the
+	// same DefaultAgentProfiles; profiles.defaults was retired).
+	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.DefaultAgentProfiles(), nil, true)
 	if err != nil {
 		return "", err
 	}
 
 	// Dedupe and sort using bookend strategy
 	uniqueFragments := dedupeFragmentRefs(allFragments)
-	allFragmentNames := sortFragmentsByPriority(uniqueFragments)
+	orderedRefs := sortFragmentsByPriority(uniqueFragments)
 
 	var backendFrags []*agent.Fragment
-	for _, name := range allFragmentNames {
-		content, err := loader.GetFragment(name)
+	for _, ref := range orderedRefs {
+		content, err := loadFragmentRef(loader, ref)
 		if err != nil {
+			warnFragmentLoadFailure(ref, err)
 			continue
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{
@@ -253,6 +328,10 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			Installation: content.Installation,
 		})
 	}
+
+	// Surface (content-free) any items the trust gate withheld while regenerating
+	// the SessionStart context, mirroring AssembleContext.
+	warnWithheld(loader)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file
@@ -271,10 +350,12 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	contextHash, err := agent.WriteContextFile(workDir, backendFrags, opts...)
 	if err != nil {
-		// Degrade (the SessionStart injection hook is simply omitted), but
-		// say so — a silent skip leaves the user wondering where their
-		// context went.
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: context file write failed; SessionStart injection skipped: %v\n", err)
+		// Fatal-class in strict mode (context regen failure); degraded mode
+		// degrades — the SessionStart injection hook is simply omitted, but
+		// says so rather than leaving the user wondering where their context
+		// went.
+		strictness.Fail(strictness.ClassApply, "fix the write failure, then re-apply (ctxloom manage hooks install)",
+			"context file write failed; SessionStart injection skipped: %v", err)
 		return "", nil
 	}
 	return contextHash, nil

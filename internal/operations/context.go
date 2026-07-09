@@ -2,8 +2,8 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -11,9 +11,12 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Mustache tag types from cbroglie/mustache.
@@ -31,7 +34,14 @@ type ProfileLoader interface {
 
 // AssembleContextRequest contains parameters for assembling context.
 type AssembleContextRequest struct {
-	Profile   string   `json:"profile"`
+	Profile string `json:"profile"`
+	// Profiles composes SEVERAL named profiles into one assembled context (union
+	// of fragments, later-wins variables, first-non-empty llm) — the same merge
+	// the configured-defaults path already runs, surfaced as an explicit ask so a
+	// agent can bind multiple profiles. When non-empty it takes precedence over
+	// Profile; an explicit set's resolution failures are hard errors (not the
+	// fault-tolerant skip the defaults path uses).
+	Profiles  []string `json:"profiles"`
 	Fragments []string `json:"fragments"`
 	Tags      []string `json:"tags"`
 
@@ -46,7 +56,13 @@ type AssembleContextRequest struct {
 type AssembleContextResult struct {
 	Profiles        []string `json:"profiles"`
 	FragmentsLoaded []string `json:"fragments_loaded"`
-	Context         string   `json:"context"`
+	// MissingFragments lists the EXPLICITLY requested fragments (Fragments in
+	// the request) that did not resolve/load. Assembly is fault-tolerant (a
+	// missing ask warns and is skipped), but callers like `run -f` treat an
+	// all-missing explicit ask as a hard error — and the always-on builtin
+	// companion fragments mean a non-empty FragmentsLoaded can't signal it.
+	MissingFragments []string `json:"missing_fragments,omitempty"`
+	Context          string   `json:"context"`
 
 	// ProfileLLM is the LLM the resolved profile(s) declared (first non-empty
 	// across the resolved set). Empty means no profile preference; callers fall
@@ -61,15 +77,20 @@ type AssembleContextResult struct {
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
 	loader := req.Loader
 	if loader == nil {
-		loader = bundleLoader(cfg)
+		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
+		// gate runs the baseline first (idempotent) so existing content stays
+		// exposed, then withholds anything the cascade denies.
+		loader = exposureLoader(cfg)
 	}
 
 	profileNames := resolveContextProfileNames(cfg, req)
 
 	// Profiles picked up from configured defaults (rather than an explicit
-	// --profile ask) degrade per fault-tolerance: a default that fails to
-	// resolve is warned about and skipped, never blocking startup.
-	fromDefaults := req.Profile == ""
+	// --profile / Profiles ask) degrade per fault-tolerance: a default that fails
+	// to resolve is warned about and skipped, never blocking startup. An explicit
+	// single Profile or a multi-profile Profiles set is the user's ask, so its
+	// failures stay hard errors.
+	fromDefaults := req.Profile == "" && len(req.Profiles) == 0
 
 	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc, fromDefaults)
 	if err != nil {
@@ -79,9 +100,14 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// Add request fragments (priority 0) and request-tag fragments. Bare asks
 	// resolve to their qualified pipeline name at intake (deterministic pick +
 	// warning when the bare name is ambiguous across bundles), so downstream
-	// dedup and ordering operate on exact identities only.
+	// dedup and ordering operate on exact identities only. The resolved asks
+	// are remembered so the result can report which EXPLICIT requests went
+	// missing.
+	requested := make([]string, 0, len(req.Fragments))
 	for _, f := range req.Fragments {
-		allFragments = append(allFragments, config.FragmentRef{Name: loader.ResolveFragmentAsk(f), Priority: 0})
+		resolved := loader.ResolveFragmentAsk(f)
+		requested = append(requested, resolved)
+		allFragments = append(allFragments, config.FragmentRef{Name: resolved, Priority: 0})
 	}
 	reqTagFragments, err := fragmentsFromTags(loader, req.Tags)
 	if err != nil {
@@ -91,12 +117,16 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	// Deduplicate (highest priority wins), then bookend-sort for the
 	// "lost in the middle" optimization.
-	orderedNames := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
+	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loadedNames, err := loadAssembledContext(loader, orderedNames, profileVars)
+	contextContent, loadedNames, err := loadAssembledContext(loader, orderedRefs, profileVars)
 	if err != nil {
 		return nil, err
 	}
+
+	// Which explicit asks failed to load — computed BEFORE the builtin append,
+	// against the loader-sourced names only.
+	missingRequested := missingFrom(requested, loadedNames)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
@@ -104,12 +134,36 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// binary is absent. Appended after profile/request content.
 	contextContent, loadedNames = appendBuiltinFragments(cfg, contextContent, loadedNames)
 
+	// Surface (content-free) any items the trust gate withheld during this
+	// assembly so the user knows content was hidden and how to review it.
+	warnWithheld(loader)
+
 	return &AssembleContextResult{
-		Profiles:        profileNames,
-		FragmentsLoaded: loadedNames,
-		Context:         contextContent,
-		ProfileLLM:      profileLLM,
+		Profiles:         profileNames,
+		FragmentsLoaded:  loadedNames,
+		MissingFragments: missingRequested,
+		Context:          contextContent,
+		ProfileLLM:       profileLLM,
 	}, nil
+}
+
+// missingFrom returns the requested names absent from loaded, in request
+// order. nil when nothing was requested or everything was found.
+func missingFrom(requested, loaded []string) []string {
+	if len(requested) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(loaded))
+	for _, n := range loaded {
+		seen[n] = true
+	}
+	var missing []string
+	for _, r := range requested {
+		if !seen[r] {
+			missing = append(missing, r)
+		}
+	}
+	return missing
 }
 
 // appendBuiltinFragments appends the always-on built-in bundle fragments to the
@@ -133,17 +187,23 @@ func appendBuiltinFragments(cfg *config.Config, content string, loaded []string)
 }
 
 // resolveContextProfileNames picks the profiles to assemble from: the explicit
-// request profile, else (when nothing at all is selected) the configured
-// defaults. When the project config has none, defaults inherit the home
-// config's defaults.profiles; if neither defines any, assembly degrades to
-// empty context. No synthetic profile is ever created.
+// request profile, else (when nothing at all is selected) the default agent's
+// composed profiles (Config.DefaultAgentProfiles — profiles.defaults was
+// retired). When no default agent is configured, assembly degrades to empty
+// context. No synthetic profile is ever created.
 func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) []string {
+	// A multi-profile compose ask wins over the single-profile field: collected
+	// in order and merged downstream by collectProfileFragments (the same loop
+	// the default-agent path uses), so the constituent profiles of an agent fold
+	// into one context.
+	if len(req.Profiles) > 0 {
+		return req.Profiles
+	}
 	if req.Profile != "" {
 		return []string{req.Profile}
 	}
 	if len(req.Fragments) == 0 && len(req.Tags) == 0 {
-		EnsureDefaultProfiles(cfg)
-		return cfg.GetDefaultProfiles()
+		return cfg.DefaultAgentProfiles()
 	}
 	return nil
 }
@@ -182,10 +242,13 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 		profile, err := resolveProfile(cfg, pName, loader, profileLoaderFunc)
 		if err != nil {
 			// An explicitly requested profile failing is the user's signal to
-			// fix the ask. A configured default failing must not block startup
-			// (CLAUDE.md fault tolerance): warn, skip, assemble what's left.
+			// fix the ask — a hard error. A configured default failing is
+			// fatal-class in strict mode (the default IS an explicit ask, just
+			// a persisted one): skip it so degraded mode still assembles what's
+			// left, and let the startup choke owner abort on the finding.
 			if fromDefaults {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping default profile %s: %v\n", pName, err)
+				strictness.Fail(strictness.ClassRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom remote pull)",
+					"skipping default profile %s: %v", pName, err)
 				continue
 			}
 			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
@@ -195,8 +258,8 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			if effectiveLLM == "" {
 				effectiveLLM = profile.LLM
 			} else if profile.LLM != effectiveLLM {
-				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q declares llm %q but %q is already in effect; keeping %q\n",
+				clidiag.Warn("ctxloom",
+					"profile %q declares llm %q but %q is already in effect; keeping %q",
 					pName, profile.LLM, effectiveLLM, effectiveLLM)
 			}
 		}
@@ -205,7 +268,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			profileVars[k] = v
 		}
 
-		tagFragments, err := fragmentsFromTags(loader, profile.Tags)
+		tagFragments, err := fragmentsFromTags(loader, profile.SelectTags)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}
@@ -220,39 +283,116 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			}
 			allFragments = append(allFragments, ref)
 		}
-		allFragments = append(allFragments, profile.Fragments...)
+		// Profile fragment refs may pin a content version ("@<commit>"); split it
+		// into FragmentRef.Version (canonicalizing the version-agnostic Name) so
+		// dedup/ordering stay version-agnostic while the load step honors the pin.
+		// Bundle-expanded refs (resolveProfile) already carry Version and a
+		// canonical Name, so normalization is a no-op for them.
+		for _, ref := range profile.Fragments {
+			allFragments = append(allFragments, normalizeFragmentRef(ref))
+		}
 	}
 
 	return allFragments, profileVars, effectiveLLM, nil
 }
 
-// loadAssembledContext loads the ordered fragments and applies variable
-// substitution. Returns empty content when there are no fragments.
-func loadAssembledContext(loader *bundles.Loader, orderedNames []string, profileVars map[string]string) (string, []string, error) {
-	if len(orderedNames) == 0 {
+// normalizeFragmentRef splits a "@<commit>" content version off a profile
+// fragment ref into FragmentRef.Version and canonicalizes the version-agnostic
+// Name. A ref that already carries a Version (e.g. emitted by ExpandBundleRefs
+// with a version-agnostic Name) is returned untouched so re-normalization never
+// clobbers it.
+func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
+	if ref.Version != "" {
+		return ref
+	}
+	ref.Name, ref.Version = remote.SplitFragmentVersion(ref.Name)
+	return ref
+}
+
+// loadAssembledContext loads the ordered fragments (honoring per-ref content
+// versions) and applies variable substitution. Returns empty content when there
+// are no fragments. A fragment that fails to load — not found, gate-withheld, or
+// a pinned version that fails to fetch — is skipped so the rest still assemble
+// in degraded mode; in strict mode the skip records a fatal finding (see
+// warnFragmentLoadFailure) so a profile-pushed fragment can never silently
+// vanish from the session.
+func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
+	if len(ordered) == 0 {
 		return "", nil, nil
 	}
-	content, loadedNames, err := loader.LoadMultiple(orderedNames)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to load fragments: %w", err)
+	var parts, loadedNames []string
+	for _, ref := range ordered {
+		lc, err := loadFragmentRef(loader, ref)
+		if err != nil {
+			warnFragmentLoadFailure(ref, err)
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(lc.Content))
+		loadedNames = append(loadedNames, ref.Name)
 	}
+	// Joined with the same separator LoadMultiple uses so the output is
+	// indistinguishable regardless of which load path produced each fragment.
+	content := strings.Join(parts, "\n\n---\n\n")
 	// Suppress substitution warnings in the operations context.
 	content = substituteVariables(content, profileVars, func(string) {})
 	return content, loadedNames, nil
 }
 
-// dedupeFragmentRefs removes duplicates, keeping the highest priority for each fragment.
+// loadFragmentRef resolves one fragment ref, honoring a pinned content version.
+// An unversioned ref takes the lockfile-pinned default path (GetFragment,
+// untouched); a "@<commit>"-pinned ref resolves that exact historical version
+// (GetFragmentAtVersion), gated by ITS OWN effective-content hash. A version
+// fetch/resolve failure fails closed (withholds the item) via the returned
+// error.
+func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef) (*bundles.LoadedContent, error) {
+	if ref.Version == "" {
+		return loader.GetFragment(ref.Name)
+	}
+	return loader.GetFragmentAtVersion(ref.Name, ref.Version)
+}
+
+// warnFragmentLoadFailure surfaces a profile-pushed fragment that failed to
+// load during assembly. Unresolvable refs are fatal-class in strict mode: the
+// warning streams either way and the startup choke owner aborts on the
+// finding. This also fixes the historical silent skip — an UNVERSIONED miss
+// used to say nothing at all; it now warns in degraded mode too. A gate
+// withhold is exempt: it is already surfaced content-free by warnWithheld and
+// stays a warning in both modes (trust withholding is never a startup fault).
+func warnFragmentLoadFailure(ref config.FragmentRef, err error) {
+	if errors.Is(err, errs.ErrFragmentWithheld) {
+		return
+	}
+	if ref.Version != "" {
+		strictness.Fail(strictness.ClassRef, "fix the pinned version in the referencing profile, or ctxloom remote pull",
+			"withholding %s@%s: %v", ref.Name, ref.Version, err)
+		return
+	}
+	strictness.Fail(strictness.ClassRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom remote pull)",
+		"fragment %s failed to load (%v); skipping", ref.Name, err)
+}
+
+// dedupeFragmentRefs removes duplicates, keeping the highest priority for each
+// fragment. Dedup identity is the version-agnostic Name (so a versioned and an
+// unversioned spelling of one item collapse); among the collapsed entries an
+// explicit "@<commit>" version wins over the default (one version per item).
 func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 	priorities := make(map[string]int)
+	versions := make(map[string]string)
 	order := make(map[string]int) // Track first occurrence order
 
 	for i, f := range fragments {
-		if existing, ok := priorities[f.Name]; ok {
-			if f.Priority > existing {
+		if _, ok := priorities[f.Name]; ok {
+			if f.Priority > priorities[f.Name] {
 				priorities[f.Name] = f.Priority
+			}
+			// Explicit @commit wins over a default-version entry; never carry
+			// two versions of one item into the assembly.
+			if versions[f.Name] == "" && f.Version != "" {
+				versions[f.Name] = f.Version
 			}
 		} else {
 			priorities[f.Name] = f.Priority
+			versions[f.Name] = f.Version
 			order[f.Name] = i
 		}
 	}
@@ -260,7 +400,7 @@ func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 	// Build result maintaining original order for same priority
 	result := make([]config.FragmentRef, 0, len(priorities))
 	for name, priority := range priorities {
-		result = append(result, config.FragmentRef{Name: name, Priority: priority})
+		result = append(result, config.FragmentRef{Name: name, Priority: priority, Version: versions[name]})
 	}
 
 	// Sort by original order (for stable output when priorities are equal)
@@ -273,8 +413,10 @@ func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 
 // sortFragmentsByPriority arranges fragments using bookend strategy:
 // Highest priority at start, second-highest at end, rest fill middle (descending).
-// This addresses the "lost in the middle" problem where Configs poorly attend to middle content.
-func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
+// This addresses the "lost in the middle" problem where Configs poorly attend to
+// middle content. The returned refs preserve each FragmentRef.Version so the
+// load step can honor a pinned content version.
+func sortFragmentsByPriority(fragments []config.FragmentRef) []config.FragmentRef {
 	if len(fragments) == 0 {
 		return nil
 	}
@@ -287,21 +429,17 @@ func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
 
 	// For 1-2 fragments, just return in priority order
 	if len(sorted) <= 2 {
-		names := make([]string, len(sorted))
-		for i, f := range sorted {
-			names[i] = f.Name
-		}
-		return names
+		return sorted
 	}
 
 	// Bookend placement: [highest, middle..., second-highest]
-	result := make([]string, len(sorted))
-	result[0] = sorted[0].Name             // Highest priority at start
-	result[len(result)-1] = sorted[1].Name // Second-highest at end
+	result := make([]config.FragmentRef, len(sorted))
+	result[0] = sorted[0]             // Highest priority at start
+	result[len(result)-1] = sorted[1] // Second-highest at end
 
 	// Fill middle with remaining (already sorted descending)
 	for i := 2; i < len(sorted); i++ {
-		result[i-1] = sorted[i].Name
+		result[i-1] = sorted[i]
 	}
 
 	return result
@@ -340,8 +478,24 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			return nil, fmt.Errorf("profile %s: %w", name, rerr)
 		}
 		profile = &config.Profile{
-			Tags:             resolved.Tags,
-			Bundles:          resolved.Bundles,
+			Tags:       resolved.Tags,
+			SelectTags: resolved.SelectTags,
+			Bundles:    resolved.Bundles,
+			// BundleItems are expanded via ExpandBundleRefs below (honoring any
+			// "@<commit>" pin), exactly like Bundles — the directory-profile mirror
+			// of the inline cherry-pick path.
+			BundleItems: resolved.BundleItems,
+			Prompts:     resolved.Prompts,
+			// Direct fragments carry into the same Fragments pipeline inline
+			// profiles use (collectProfileFragments → normalizeFragmentRef honors
+			// "@<commit>"); filtered by exclude_fragments here, parity with the
+			// inline toProfile filter.
+			Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
+			// Directly-declared hooks/mcp are executable surfaces; they reach the
+			// SAME managed-hooks/MCP resolution + executable trust gate as inline
+			// profiles via backends.AssembleManagedHooks / assembleManagedMCP.
+			Hooks:            resolved.Hooks,
+			MCP:              resolved.MCP,
 			Variables:        resolved.Variables,
 			LLM:              resolved.LLM,
 			ExcludeFragments: resolved.ExcludeFragments,
@@ -362,15 +516,35 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 		refs := make([]string, 0, len(profile.Bundles)+len(profile.BundleItems))
 		refs = append(refs, profile.Bundles...)
 		refs = append(refs, profile.BundleItems...)
-		for _, expandedName := range loader.ExpandBundleRefs(refs) {
-			if config.IsExcludedFragment(expandedName, excluded) {
+		for _, er := range loader.ExpandBundleRefs(refs) {
+			if config.IsExcludedFragment(er.Name, excluded) {
 				continue
 			}
-			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: expandedName, Priority: 0})
+			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: er.Name, Priority: 0, Version: er.Version})
 		}
 	}
 
 	return profile, nil
+}
+
+// convertProfileFragments maps directory-profile fragment refs to
+// config.FragmentRef for the shared assembly pipeline, preserving Name (any
+// "@<commit>" pin rides along to be split transiently by normalizeFragmentRef)
+// and Priority, and dropping any the profile's exclude_fragments removes — the
+// directory-profile mirror of the inline toProfile exclusion filter.
+func convertProfileFragments(frags []profiles.FragmentRef, exclude []string) []config.FragmentRef {
+	if len(frags) == 0 {
+		return nil
+	}
+	excluded := config.NewExclusionSet(exclude)
+	out := make([]config.FragmentRef, 0, len(frags))
+	for _, f := range frags {
+		if config.IsExcludedFragment(f.Name, excluded) {
+			continue
+		}
+		out = append(out, config.FragmentRef{Name: f.Name, Priority: f.Priority})
+	}
+	return out
 }
 
 // substituteVariables applies mustache variable substitution to content.

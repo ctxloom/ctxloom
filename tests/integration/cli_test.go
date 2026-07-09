@@ -221,6 +221,57 @@ func TestRun_DryRun(t *testing.T) {
 	assert.Contains(t, env.LastOutput(), "Dry run content")
 }
 
+// TestRun_Agent_DryRun drives the --agent arm end-to-end: `agent set` writes
+// the binding (engine defaulted, runtime declared), and `run --agent X
+// --dry-run` previews THAT binding — its composed profile context, and the
+// session axes header (workspace from the invocation, runtime from the agent).
+func TestRun_Agent_DryRun(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "agent-frag", []string{"agent"}, "Agent-composed content.")
+	writeProfile(t, env, "agent-profile", `name: agent-profile
+description: Agent profile
+bundles:
+  - local#fragments/agent-frag
+`)
+
+	_ = env.Run("agent", "set", "dev", "--profiles", "agent-profile", "--runtime", "container")
+	require.Equal(t, 0, env.LastExitCode(), "agent set: %s", env.LastOutput())
+
+	_ = env.Run("run", "--agent", "dev", "--dry-run", "agent test")
+
+	assert.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	out := env.LastOutput()
+	assert.Contains(t, out, "Agent-composed content", "the agent's composed profile context is previewed")
+	assert.Contains(t, out, "=== Agent ===")
+	assert.Contains(t, out, "runtime: container", "the agent's declared runtime axis surfaces")
+	assert.Contains(t, out, "workspace: none", "an unset session workspace renders as the axis default")
+	assert.Contains(t, out, "agent-profile", "the agent's profile set scopes the preview")
+}
+
+// TestRun_Agent_Unknown pins the hard-error contract: an explicit --agent
+// naming a binding that doesn't exist fails the run (user intent — unlike
+// acp's editor-serving degrade).
+func TestRun_Agent_Unknown(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.Run("run", "--agent", "nosuch", "--dry-run", "x")
+
+	assert.Equal(t, 1, env.LastExitCode())
+	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
+}
+
+// TestRun_Agent_ExclusiveWithProfile: --agent fully determines context, so
+// combining it with -p is a flag error, not a silent precedence pick.
+func TestRun_Agent_ExclusiveWithProfile(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.Run("run", "--agent", "dev", "-p", "some-profile", "--dry-run", "x")
+
+	assert.Equal(t, 1, env.LastExitCode())
+	assert.Contains(t, strings.ToLower(env.LastOutput()), "none of the others can be")
+}
+
 func TestRun_NonexistentFragment(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -564,7 +615,7 @@ func TestBundle_PromptList(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-prompts:
+skills:
   prompt1:
     content: |
       Prompt content 1
@@ -738,7 +789,7 @@ func TestFragment_Search_ByTag(t *testing.T) {
 func TestPrompt_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("prompt", "list")
+	_ = env.Run("skill", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -747,7 +798,7 @@ func TestPrompt_List_WithPrompts(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-prompts:
+skills:
   analyze:
     content: |
       Analyze the following:
@@ -757,7 +808,7 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompts.yaml", bundleContent))
 
-	_ = env.Run("prompt", "list")
+	_ = env.Run("skill", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -769,14 +820,14 @@ func TestPrompt_Show(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-prompts:
+skills:
   test-prompt:
     content: |
       This is a test prompt with detailed instructions.
 `
 	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompt-test.yaml", bundleContent))
 
-	_ = env.Run("prompt", "show", "prompt-test#prompts/test-prompt")
+	_ = env.Run("skill", "show", "prompt-test#skills/test-prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "test prompt with detailed instructions")
@@ -804,7 +855,7 @@ func TestSearch_Prompts(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-prompts:
+skills:
   code-review:
     content: |
       Review this code for quality, performance and security

@@ -1,43 +1,70 @@
 # ctxloom Development Guidelines
 
-## Fault Tolerance Philosophy
+## Fault Handling Philosophy
 
-ctxloom should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
+ctxloom **fails loudly by default.** A broken config, an unresolvable profile
+or bundle, a failed sync, or a failed hook apply is a fatal startup finding:
+ctxloom prints the finding(s) with a fix-it hint and aborts before launching
+(exit code 3), so a broken setup surfaces immediately instead of silently
+degrading into a wrong-context session.
+
+The escape hatch is **degraded mode** — `--degraded` (or `CTXLOOM_DEGRADED=1`)
+— which downgrades those fatal findings to warnings and launches anyway
+("things may be broken, get me an agent"). Degraded mode is opt-in and is the
+only place the old warn-and-continue behavior lives.
 
 ### Core Principles
 
-1. **Never block startup** - Configuration errors, missing files, network failures, and sync issues should produce warnings but never prevent the LLM from starting.
+1. **Fail loud, fail early** - Configuration errors, unresolvable
+   profiles/bundles, sync failures, and hook-apply failures are fatal findings
+   that abort startup unless degraded mode is set.
 
-2. **Degrade gracefully** - If a feature fails to initialize, disable that feature and continue. The user can still work, just with reduced functionality.
+2. **Route faults through `strictness`** - Do not hand-roll warn-and-continue
+   on a startup fault. Call `strictness.Fail`/`FailOnce`/`Record` with a
+   failure class (`internal/shared/strictness`) and a fix-it command. The
+   warning always streams to stderr; in strict mode the finding is also
+   collected, and the startup choke owner (`ctxloom run`/`mcp`/`acp`) aborts
+   on any collected finding.
 
-3. **Log, don't crash** - All errors should be logged to stderr with clear "ctxloom: warning:" prefixes so users can diagnose issues without losing their session.
+3. **The mode is flag/env only, never config** - `--degraded` /
+   `CTXLOOM_DEGRADED=1`. There is deliberately NO config key: a broken config
+   cannot excuse itself (bootstrap circularity).
 
-4. **Sensible defaults** - When configuration is missing or invalid, fall back to reasonable defaults rather than erroring.
-
-5. **Partial success is success** - If 9 out of 10 bundles sync successfully, report the failure but continue with what worked.
+4. **Degraded mode is where graceful degradation lives** - When the user opts
+   in, `strictness.record` is a no-op, startup continues on sensible defaults,
+   and "partial success is success" applies — 9 of 10 bundles synced launches
+   with the 9.
 
 ### Error Handling Patterns
 
 ```go
-// Good: warn and continue
-result, err := operations.SyncOnStartup(ctx, cfg)
+// Good: a classified, fatal-by-default finding with a fix-it hint. The startup
+// choke owner aborts on it unless --degraded is set; degraded downgrades it.
 if err != nil {
-    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
-    // Continue - don't return error
+    strictness.Fail(strictness.ClassSync,
+        "check the remote/network, or pass --degraded to launch anyway",
+        "sync failed: %v", err)
 }
 
-// Bad: fail on error
+// Bad: raw warn-and-continue — silently ships a possibly-wrong session.
 if err != nil {
-    return fmt.Errorf("sync failed: %w", err)
+    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
+    // continue
 }
 ```
 
 ### Startup Sequence
 
-The MCP server startup should:
-1. Load config (warn on errors, use empty config)
-2. Sync dependencies (warn on errors, continue)
-3. Transform context files (warn on errors, continue)
-4. Apply hooks (warn on errors, continue)
-5. **Always respond with initialized** - the agent must start
+Each step records fatal findings through `strictness`; the choke owner checks
+the collected findings once and aborts before launch (exit code 3) unless
+degraded:
+1. Load config (fatal on broken/lossy config)
+2. Sync dependencies (fatal on sync failure)
+3. Transform context files (fatal on regen failure)
+4. Apply hooks (fatal on apply failure)
+5. Gate: abort with the findings list — or, in degraded mode, launch anyway
+
+## Generated Docs
+
+Generated CLI reference pages live in `website/src/content/docs/reference/cli/ctxloom_*.md` — never hand-edit them; edit the command definitions in `internal/cli` and run `just gen-docs`.
 

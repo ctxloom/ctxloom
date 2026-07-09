@@ -1,0 +1,40 @@
+# llm-tool-killer rule set.
+#
+# Commands proposed by the LLM are parsed into a command graph and matched
+# against these rules. The first matching `deny` rule wins; its message (and
+# suggested replacement) is returned to the LLM so it can try the right command.
+version: 1
+
+defaults:
+  # What to do when a command can't be parsed at all (e.g. PowerShell absent).
+  # allow = fail-open (cooperative default); deny = fail-closed.
+  on_parse_error: allow
+
+rules:
+  # command + argument: matches `go test …`
+  - id: go-test-to-just
+    match: { command: [go, test] }
+    action: deny
+    message: "Don't run `go test` directly — `just test` sets up the test environment (fixtures, env vars, build tags)."
+    suggest: "just test"
+
+  # string form is shell-split: matches `go build …`
+  - id: go-build-to-just
+    match: { command: "go build" }
+    message: "Use `just build` so artifacts land in the expected place with the right flags."
+    suggest: "just build"
+
+  # bare command + a refinement: any `docker` whose args include build/buildx
+  - id: raw-docker-build
+    match: { command: docker, args_any: [build, buildx] }
+    message: "Image builds go through CI, not local `docker build`."
+
+  - id: npm-install-use-pnpm
+    match: { command: [npm, install] }
+    message: "This repo uses pnpm."
+    suggest: "pnpm install"
+
+  # command + flag: matches shell wrappers like `sh -c "…"`
+  - id: no-shell-wrapper
+    match: { command: "sh -c" }
+    message: "Don't wrap commands in `sh -c` — run them directly so they can be checked."

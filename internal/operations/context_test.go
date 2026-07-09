@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -125,11 +126,9 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 
 func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	t.Helper()
-	// Isolate HOME so the assembly path's EnsureDefaultProfiles ->
-	// homeDefaultProfiles can't read the developer's real ~/.ctxloom/config.yaml.
-	// Otherwise a host config with `profiles.defaults` leaks into these tests (e.g.
-	// TestAssembleContext_EmptyRequest, which expects no default profiles) and they
-	// fail or pass based on the machine they run on, not the code.
+	// Isolate HOME so nothing in the assembly path can read the developer's real
+	// ~/.ctxloom/config.yaml — keeping these tests deterministic regardless of the
+	// machine they run on.
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 
@@ -240,7 +239,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
 				Description: "Go developer profile",
-				Tags:        []string{"go"},
+				SelectTags:  []string{"go"},
 				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
 			},
 		}},
@@ -253,8 +252,58 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"go-dev"}, result.Profiles)
-	// Should include fragments from tags AND direct fragments
+	// Should include fragments from select_tags AND direct fragments
 	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
+}
+
+// TestAssembleContext_ProfileTags_DoNotSelectContent pins that a profile's
+// `tags:` are descriptive only — they must never pull fragments in by tag.
+// Regression for the coordinator/finder bloat: a bundle's descriptive tag,
+// inherited by every fragment, would otherwise drag the whole bundle in.
+func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-dev": {
+				Description: "Go developer profile",
+				Tags:        []string{"go"}, // descriptive only
+			},
+		}},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "go-dev",
+		Loader:  loader,
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.FragmentsLoaded)
+	assert.NotContains(t, result.Context, "Go Patterns")
+}
+
+// TestAssembleContext_ProfileSelectTags_SelectContent pins that `select_tags:`
+// selects fragment content by tag — the role `tags:` used to play.
+func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-dev": {
+				Description: "Go developer profile",
+				SelectTags:  []string{"go"},
+			},
+		}},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "go-dev",
+		Loader:  loader,
+	})
+
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
+	assert.Contains(t, result.Context, "Go Patterns")
 }
 
 func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
@@ -615,11 +664,10 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"https://github.com/example/repo@profiles/missing"},
-			Definitions: map[string]config.Profile{},
-		},
+		AppPaths:     []string{testBaseDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/example/repo@profiles/missing"}}},
+		Profiles:     config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	}
 
 	mockLoader := &mockProfileLoader{
@@ -728,7 +776,7 @@ func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
 			if name == "tagged-profile" {
 				return &profiles.ResolvedProfile{
-					Tags:             []string{"security", "go"},
+					SelectTags:       []string{"security", "go"},
 					ExcludeFragments: []string{"security-rules"},
 				}, nil
 			}
@@ -812,8 +860,11 @@ func TestSortFragmentsByPriority_BookendStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sortFragmentsByPriority(tt.input)
-			assert.Equal(t, tt.expected, result)
+			var got []string
+			for _, r := range sortFragmentsByPriority(tt.input) {
+				got = append(got, r.Name)
+			}
+			assert.Equal(t, tt.expected, got)
 		})
 	}
 }

@@ -13,8 +13,21 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// ContentGate is the per-item trust gate (trust rework, TR5) for resolved
+// fragment/prompt content. It receives an item's full ref
+// ("<bundle>#<kind>/<name>"), the effective-content hash of the EXACT bytes
+// about to be exposed (pre-mustache), and the form ("raw"|"distilled"), and
+// reports whether the item may be exposed (true) or must be withheld (false).
+//
+// A nil gate means no enforcement — management/listing loaders resolve content
+// without gating so they can still see pending items (to review, accept, or
+// stamp them). Fail-closed semantics are the gate's own responsibility: a
+// resolve/hash/store error must return false (withhold), never default-allow.
+type ContentGate func(ref, contentHash, form string) bool
 
 // Loader loads bundles from disk (and an optional in-memory seed), caching
 // parsed results for the lifetime of the loader.
@@ -25,7 +38,29 @@ type Loader struct {
 	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
 	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+
+	gate       ContentGate         // nil = no enforcement; set on exposure loaders only
+	withheldMu sync.Mutex          // Protects withheld
+	withheld   map[string]struct{} // refs the gate withheld this loader's lifetime
+
+	// versionResolver materializes a specific historical commit-version of a
+	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
+	// capability; only the version-aware methods (GetFragmentAtVersion /
+	// ResolveFragmentVersions) consult it — Load and the default path never do, so
+	// the lockfile-pinned default is unchanged.
+	versionResolver BundleVersionResolver
+	versionMu       sync.Mutex         // Protects versionCache
+	versionCache    map[string]*Bundle // canonical-ref+"@"+commit → parsed historical bundle
 }
+
+// BundleVersionResolver materializes a specific historical commit-version of a
+// bundle, identified by its version-less CANONICAL ref ("<url>@bundles/<path>")
+// and an opaque commit revision, returning the parsed bundle as it existed at
+// that commit. It backs the loader's per-version resolution: production wires it
+// to the remote FetchItem primitive (remote.FetchRefBytes over the local clone
+// cache); tests inject a fake. A non-nil error withholds that version
+// (fail-closed) — the loader never falls back to a different version on failure.
+type BundleVersionResolver func(canonicalRef, commit string) (*Bundle, error)
 
 // seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
 // content lives only in Loader.seeded. LoadFile uses the prefix to short-
@@ -54,13 +89,40 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 		}
 		// The seed key is the bundle's resolution identity; a bundle that
 		// doesn't carry its own name would compose broken item names
-		// ("/<item>"), so backfill from the key.
+		// ("/<item>"), so backfill from the key. The key is also the bundle's
+		// canonical (cloned) source ref, recorded so the content gate keys by it
+		// (honest local-vs-clone locality) instead of the short bundle.Name.
 		for name, b := range seeded {
-			if b != nil && b.Name == "" {
+			if b == nil {
+				continue
+			}
+			if b.Name == "" {
 				b.Name = name
 			}
+			b.sourceRef = name
 		}
 		maps.Copy(l.seeded, seeded)
+	}
+}
+
+// WithTrustGate attaches the per-item trust gate (trust rework, TR5) so this
+// loader withholds fragment/prompt content the trust cascade denies. Only
+// exposure loaders (assembly, ctxloom:// resources, fragment-reading hooks,
+// SessionStart regen) set it; management/listing loaders leave it nil.
+func WithTrustGate(gate ContentGate) LoaderOption {
+	return func(l *Loader) {
+		l.gate = gate
+	}
+}
+
+// WithVersionResolver attaches the per-commit-version resolver (multi-version
+// coexistence, trust rework, TR5) so the loader can materialize a specific
+// historical version of a bundle via the version-aware methods. A nil resolver
+// (the default) leaves the loader version-unaware: the lockfile-pinned default
+// is the only version, and a pinned-version request fails closed.
+func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
+	return func(l *Loader) {
+		l.versionResolver = resolver
 	}
 }
 
@@ -77,6 +139,50 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 		opt(l)
 	}
 	return l
+}
+
+// gateContent runs the trust gate (if any) for a resolved fragment/prompt.
+// Returns true to expose. A nil gate (management/listing loaders) always
+// exposes. A withheld item is recorded — deduplicated by ref — so an assembly
+// caller can surface the count ("N withheld") via Withheld without leaking
+// content. The hash MUST be the effective-content hash of the exact bytes about
+// to be exposed (pre-mustache), so the gate keys on what the agent would see.
+// source is the bundle's honest source ref (Bundle.contentSourceRef): canonical
+// for a cloned bundle so its text gates like an executable, the local name for a
+// project bundle so its text auto-trusts — the SAME keying the exec gate uses.
+func (l *Loader) gateContent(source, kindDir, itemName, contentHash string, form ContentForm) bool {
+	if l.gate == nil {
+		return true
+	}
+	ref := source + "#" + kindDir + "/" + itemName
+	if l.gate(ref, contentHash, string(form)) {
+		return true
+	}
+	l.withheldMu.Lock()
+	if l.withheld == nil {
+		l.withheld = make(map[string]struct{})
+	}
+	l.withheld[ref] = struct{}{}
+	l.withheldMu.Unlock()
+	return false
+}
+
+// Withheld returns the item refs the trust gate withheld over this loader's
+// lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
+// withheld. Callers surface the count so the user knows content was hidden;
+// returning the refs (not their content) keeps the disclosure content-free.
+func (l *Loader) Withheld() []string {
+	l.withheldMu.Lock()
+	defer l.withheldMu.Unlock()
+	if len(l.withheld) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(l.withheld))
+	for ref := range l.withheld {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // seededPath builds the synthetic path used in BundleInfo for seeded bundles.
@@ -229,8 +335,9 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			Description:   b.Description,
 			Tags:          b.Tags,
 			FragmentCount: b.FragmentCount(),
-			PromptCount:   b.PromptCount(),
+			SkillCount:    b.SkillCount(),
 			MCPCount:      b.MCPCount(),
+			ProfileCount:  b.ProfileCount(),
 		})
 		seen.Add(name)
 	}
@@ -260,9 +367,13 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 						bundles = append(bundles, bundleInfo)
 						seen.Add(bundleName)
 					} else {
-						// Degrade, but say so: a corrupt bundle silently
-						// vanishing from list output is undiagnosable.
-						fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", bundlePath, err)
+						// A local bundle that fails to load is fatal-class in
+						// strict mode (fail-loudly): the warning streams either
+						// way, and a startup choke owner aborts on the finding.
+						// Degraded mode keeps the warn-and-skip so a corrupt
+						// bundle never silently vanishes from list output.
+						strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
+							"skipping bundle %s: %v", bundlePath, err)
 					}
 				}
 				return nil
@@ -281,7 +392,8 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 					bundles = append(bundles, bundleInfo)
 					seen.Add(bundleName)
 				} else {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", path, err)
+					strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
+						"skipping bundle %s: %v", path, err)
 				}
 			}
 			return nil
@@ -304,8 +416,9 @@ type BundleInfo struct {
 	Description   string
 	Tags          []string
 	FragmentCount int
-	PromptCount   int
+	SkillCount    int
 	MCPCount      int
+	ProfileCount  int
 	// Deleted marks a bundle that existed in an installed remote's history but
 	// is gone from that repo at the current revision — removed upstream. Such an
 	// entry carries only Name (the canonical ref); metadata is unavailable since
@@ -326,7 +439,8 @@ func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
 		Description:   bundle.Description,
 		Tags:          bundle.Tags,
 		FragmentCount: bundle.FragmentCount(),
-		PromptCount:   bundle.PromptCount(),
+		SkillCount:    bundle.SkillCount(),
 		MCPCount:      bundle.MCPCount(),
+		ProfileCount:  bundle.ProfileCount(),
 	}, nil
 }

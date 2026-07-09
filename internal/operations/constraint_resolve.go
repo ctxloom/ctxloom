@@ -2,10 +2,9 @@ package operations
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // newConstraintResolver builds the dependency walker's hash resolver: it turns a
@@ -31,9 +30,13 @@ import (
 //
 // Results are memoized per (identity, constraint) within a single flatten, and a
 // RepoVersions is built at most once per repo URL.
-func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory remote.FetcherFactory, auth remote.AuthConfig, reResolve bool) func(*remote.Reference) (string, string, bool) {
-	type resolved struct{ sha, version string }
+func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory remote.FetcherFactory, auth remote.AuthConfig, reResolve bool) func(*remote.Reference) (string, string, remote.SelectorKind, bool) {
+	type resolved struct {
+		sha, version string
+		kind         remote.SelectorKind
+	}
 	cache := map[string]resolved{}
+	failed := map[string]bool{} // negative cache: don't re-resolve (or re-warn) a known failure
 	rvByURL := map[string]remote.RepoVersions{}
 
 	repoVersions := func(url string) remote.RepoVersions {
@@ -57,43 +60,48 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		return active.GetEntry(ref.ItemType, ref.CanonicalString())
 	}
 
-	return func(ref *remote.Reference) (string, string, bool) {
+	return func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 		identity := ref.CanonicalString()
 		expr := ref.ContentVersion
 		key := identity + "\x00" + expr
 		if r, ok := cache[key]; ok {
-			return r.sha, r.version, true
+			return r.sha, r.version, r.kind, true
 		}
-		store := func(sha, version string) (string, string, bool) {
-			cache[key] = resolved{sha, version}
-			return sha, version, true
+		if failed[key] {
+			return "", "", "", false // already resolved-and-failed this flatten; skip the network + warning
+		}
+		store := func(sha, version string, kind remote.SelectorKind) (string, string, remote.SelectorKind, bool) {
+			cache[key] = resolved{sha, version, kind}
+			return sha, version, kind, true
 		}
 
 		// 1. Carry forward a held entry always; an unchanged-constraint entry only
-		//    in lock mode (upgrade re-resolves it).
+		//    in lock mode (upgrade re-resolves it). The kind rides along, derived
+		//    for entries locked before it was persisted.
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
 			if e.Pinned {
-				return store(e.SHA, e.Version)
+				return store(e.SHA, e.Version, e.SelectorKind())
 			}
 			if !reResolve && e.RequestedVersion == expr {
-				return store(e.SHA, e.Version)
+				return store(e.SHA, e.Version, e.SelectorKind())
 			}
 		}
 		// 2. A bare commit name is already concrete — no clone needed.
 		if remote.LooksLikeCommit(expr) {
-			return store(expr, "")
+			return store(expr, "", remote.SelectorSHA)
 		}
 		// 3. Resolve the constraint against the repo's version space.
 		if rv := repoVersions(ref.URL); rv != nil {
 			if res, err := remote.ResolveConstraint(ctx, expr, rv); err == nil {
-				return store(res.SHA, res.Version)
+				return store(res.SHA, res.Version, res.Kind)
 			}
 		}
 		// 4. Fault tolerant: keep the last locked SHA, else skip.
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
-			return store(e.SHA, e.Version)
+			return store(e.SHA, e.Version, e.SelectorKind())
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: could not resolve %s@%s; skipping\n", identity, expr)
-		return "", "", false
+		failed[key] = true
+		clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping", identity, expr)
+		return "", "", "", false
 	}
 }

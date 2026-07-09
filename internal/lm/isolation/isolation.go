@@ -1,0 +1,430 @@
+// Package isolation is the host-side seam that decides, per agent, HOW its
+// plugin process is spawned and WHERE its workspace lives. Isolation wraps the
+// PLUGIN (`ctxloom llm serve <backend>`, one subprocess per run/member) plus the
+// workspace it runs in — NOT the engine: the plugin-internal engine-spawn
+// (RunLaunchSpec, the chat transports) is untouched. The seam sits at the
+// host-side pb.ClientFactory + RunOptions.WorkDir boundary, so map/weave can pick
+// a policy per member orthogonally to the engine.
+//
+// A Policy has two axes:
+//   - a Workspace it prepares (the child's cwd) and tears down, and
+//   - how it spawns the plugin client for that workspace.
+//
+// Phase 0 ships only the None (host) policy, which is behaviour-identical to
+// today: the workspace is the live project directory, cleanup is a noop, and the
+// plugin is a bare self-invoked subprocess. The interface is shaped so a future
+// worktree policy (Workspace.Dir = a per-agent git worktree, WIP-safe Cleanup)
+// and container policy (SpawnClient via docker/podman run + gRPC-over-network)
+// drop in without interface changes.
+package isolation
+
+import (
+	"context"
+	"strings"
+
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+)
+
+// isolationFixIt is the fix-it hint attached to every requested-container
+// degrade finding (ClassIsolation): the three ways to restore the boundary
+// plus the escape hatch. Shared by the no-runtime site (chainFor) and the
+// image/probe/auth site (prepareChain) so the abort listing reads the same
+// regardless of which stage dropped the container.
+const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
+
+// Approvals is the policy's approval-handling axis: whether the engine keeps its
+// in-tool approval prompt or has it bypassed because a real isolation boundary
+// contains the blast radius. It is NOT currently consumed: the run permission
+// posture resolves from config/CLI/agent (agent.PermissionMode), authoritative
+// regardless of the boundary. This axis is retained as the mechanism for the
+// earned-bypass model to be restored once container isolation is relied on again
+// — at which point the resolver may consult it.
+type Approvals int
+
+const (
+	// ApprovalsPrompt keeps the engine's in-tool approval prompting — a trusted
+	// host session guarded cooperatively (ltk). The default.
+	ApprovalsPrompt Approvals = iota
+	// ApprovalsBypass would drop the in-engine prompt because an out-of-engine
+	// boundary (the container) is the safety net instead — the earned-bypass
+	// posture restored once container isolation is relied on again.
+	ApprovalsBypass
+)
+
+// String renders the approvals axis for diagnostics.
+func (a Approvals) String() string {
+	switch a {
+	case ApprovalsBypass:
+		return "bypass"
+	default:
+		return "prompt"
+	}
+}
+
+// Workspace is the per-agent directory a run executes in (the child engine's
+// cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
+// a fresh per-agent git worktree (WIP-safe remove); container → the mounted
+// workspace (stop + remove). Cleanup is called once, after the run's client is
+// killed.
+type Workspace interface {
+	// Dir is the workspace directory — the value the caller threads into the
+	// member's RunOptions.WorkDir so the engine's cwd lands here.
+	Dir() string
+	// Cleanup releases the workspace. Safe to call exactly once after the run.
+	Cleanup() error
+}
+
+// Policy is the isolation seam: it prepares a per-agent Workspace, spawns the
+// plugin client for that workspace, and declares its approvals axis. All
+// strategies (none | worktree | container) satisfy this one interface, so the
+// fan-out picks a strategy per agent without engine-specific logic.
+type Policy interface {
+	// Name identifies the policy ("none" | "worktree" | "container"), for
+	// diagnostics and config round-tripping.
+	Name() string
+	// Approvals reports this policy's approval-handling axis (see Approvals).
+	Approvals() Approvals
+	// PrepareWorkspace provisions the workspace the run executes in. projectDir
+	// is the host's live project root; agentID scopes/names a per-agent
+	// workspace (a member label). A policy that cannot prepare its workspace
+	// warns and returns an error so the caller degrades down the chain; the run
+	// always gets a workspace (None never fails). Dropping a requested CONTAINER
+	// boundary is additionally a fatal finding (ClassIsolation) the choke owner
+	// aborts on unless --degraded; a workspace-axis degrade (worktree→None)
+	// stays a silent fallback.
+	PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
+	// SpawnClient launches the plugin process for a prepared workspace and
+	// returns its client. none/worktree → a bare self-invoked `ctxloom llm serve`
+	// subprocess (the workspace is expressed purely via RunOptions.WorkDir);
+	// container → docker/podman run with gRPC over a network transport.
+	SpawnClient(backendName, label string, verbosity int, ws Workspace) (pb.Client, error)
+}
+
+// EnvWorkspace is an OPTIONAL Workspace capability: a workspace whose isolation
+// includes per-agent config-home env vars (CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME
+// isolating each engine's GLOBAL config layer) exposes them here. The run threads
+// them into the member's RunOptions.Env. None and Container do not implement it
+// (None shares the host config; Container isolates via a fresh $HOME), so the
+// caller uses WorkspaceEnv to read them only when present.
+type EnvWorkspace interface {
+	Workspace
+	// Env returns the per-agent env additions for the member's engine process.
+	Env() map[string]string
+}
+
+// WorkspaceEnv returns the per-agent config-home env additions when the workspace
+// exposes them (worktree), or nil otherwise (none/container). The caller merges
+// the result into the member's RunOptions.Env.
+func WorkspaceEnv(ws Workspace) map[string]string {
+	if e, ok := ws.(EnvWorkspace); ok {
+		return e.Env()
+	}
+	return nil
+}
+
+// FactoryForWorkspace binds a policy and a prepared workspace into the
+// pb.ClientFactory seam the fan-out injects (func(backend, label, verbosity) →
+// Client). For the None policy the returned factory is behaviour-identical to
+// pb.DefaultClientFactory — the same bare self-invoked subprocess.
+func FactoryForWorkspace(p Policy, ws Workspace) pb.ClientFactory {
+	return func(backendName, label string, verbosity int) (pb.Client, error) {
+		return p.SpawnClient(backendName, label, verbosity, ws)
+	}
+}
+
+// Isolated reports whether the policy provides a real per-agent workspace (a
+// worktree or container) rather than sharing the host project dir (none). The
+// fan-out uses it to decide whether to write per-member NATIVE config into the
+// workspace cwd — safe only when that cwd is isolated; a none member shares the
+// project dir and writing per-member config there would clobber the one shared
+// surface.
+func Isolated(p Policy) bool {
+	return p.Name() != None{}.Name()
+}
+
+// The isolation request is two INDEPENDENT enum axes, never bound together:
+// WHERE the agent's files live (workspace) and WHERE its engine process runs
+// (runtime). The four combinations map onto the four policies, and
+// degradation respects the axes: a runtime-axis failure (no container
+// runtime, image unbuildable) drops ONLY the runtime dimension — the
+// workspace dimension is preserved, never silently added or removed.
+
+// WorkspaceAxis says where the agent's working directory lives.
+type WorkspaceAxis string
+
+const (
+	// WorkspaceShared is the shared live project directory (the default;
+	// also the meaning of an empty value after defaulting).
+	WorkspaceShared WorkspaceAxis = "none"
+	// WorkspaceWorktree gives the agent its own git worktree.
+	WorkspaceWorktree WorkspaceAxis = "worktree"
+)
+
+// RuntimeAxis says where the agent's engine process executes.
+type RuntimeAxis string
+
+const (
+	// RuntimeHost runs the engine directly on the host (the default; also
+	// the meaning of an empty value after defaulting).
+	RuntimeHost RuntimeAxis = "host"
+	// RuntimeContainer runs the engine inside a container.
+	RuntimeContainer RuntimeAxis = "container"
+)
+
+// Axes is a fully-defaulted isolation request. The two axes are declared at
+// DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
+// (`runtime:` on the binding — a cost/environment call, like engine), while
+// the workspace axis is an ORCHESTRATION trait (the invocation decides —
+// map/weave `--workspace`, the project default — because needing a private
+// cwd is a property of how you fan, not of who the agent is). Empty axis
+// values have already been resolved to defaults by the caller; unknown values
+// are treated as the axis default by Resolve/chainFor, with a warning
+// (CLAUDE.md fault tolerance).
+//
+//	{none, host}          → None
+//	{worktree, host}      → Worktree
+//	{none, container}     → Container{hostBase} (the LIVE project dir mounted in)
+//	{worktree, container} → Container{worktreeBase} (name "container-worktree")
+type Axes struct {
+	Workspace WorkspaceAxis
+	Runtime   RuntimeAxis
+}
+
+// WantsWorktree reports the workspace axis asks for a worktree; anything else
+// (empty, "none", unknown) is the shared project dir.
+func (a Axes) WantsWorktree() bool { return a.Workspace == WorkspaceWorktree }
+
+// WantsContainer reports the runtime axis asks for a container; anything else
+// (empty, "host", unknown) is the host.
+func (a Axes) WantsContainer() bool { return a.Runtime == RuntimeContainer }
+
+// Zero reports no isolation on either axis (shared project dir, host).
+// Callers use it to skip isolation-only work (e.g. the fan-out's shared
+// executable trust gate) on the default path.
+func (a Axes) Zero() bool { return !a.WantsWorktree() && !a.WantsContainer() }
+
+// WorkspaceNames returns the recognized workspace-axis values; RuntimeNames
+// the runtime-axis values. Single source for writers (agent set validation,
+// CLI completion) and the schema so they never drift from the axes here.
+func WorkspaceNames() []string {
+	return []string{string(WorkspaceShared), string(WorkspaceWorktree)}
+}
+
+// RuntimeNames returns the recognized runtime-axis values.
+func RuntimeNames() []string {
+	return []string{string(RuntimeHost), string(RuntimeContainer)}
+}
+
+// noRuntimeHint appends devcontainer-specific guidance to the no-runtime
+// degrade warnings when this process itself runs inside a container — the
+// exact situation where "no runtime" usually means "the dev container wasn't
+// given one" rather than "docker isn't installed".
+func noRuntimeHint() string {
+	if InContainer() {
+		return " (this process is inside a container without a nested runtime — enable the dev container docker-in-docker feature, or accept the host)"
+	}
+	return ""
+}
+
+// warnUnknownAxes reports a broken/typo'd axis value. The two axes differ in
+// severity because their defaults differ in blast radius:
+//
+//   - An unrecognized WORKSPACE value degrades to the shared project dir — a
+//     convenience axis, never a security boundary (a lost worktree degrades
+//     gracefully everywhere else too), so it stays a plain warn-and-continue.
+//   - An unrecognized RUNTIME value degrades to the HOST. The user typed a
+//     non-empty runtime, so they asked for SOMETHING other than the default;
+//     silently landing UNSANDBOXED on the host when they may have meant
+//     `container` is the exact silent security downgrade fail-loudly exists to
+//     stop. It is a fatal ClassIsolation finding the choke owner aborts on
+//     unless --degraded downgrades it back to the host degrade.
+func warnUnknownAxes(a Axes) {
+	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
+		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
+	}
+	if a.Runtime != "" && a.Runtime != RuntimeHost && a.Runtime != RuntimeContainer {
+		strictness.Fail(strictness.ClassIsolation,
+			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
+			"unknown runtime axis %q (known: %s); this run would land on the HOST without a container boundary (NOT sandboxed) — treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
+	}
+}
+
+// ImageConfig carries the user's image configuration for containerized
+// isolation: Image is the optional prebuilt agent-image override (config
+// isolation_images), run AS-IS and never built; BaseContainerfile is the
+// optional user base Containerfile (config isolation_base_containerfile) an
+// on-the-fly local build layers the engine's agent stage onto instead of the
+// embedded default base. Zero value = the backend profile's defaults.
+type ImageConfig struct {
+	Image             string
+	BaseContainerfile string
+}
+
+// Resolve maps the requested axes to the LEAD policy for a run of the named
+// BACKEND — the head of Chain, without preparing anything. Callers that need
+// only the policy identity up front (e.g. run's approvals gating) use this;
+// preparation with per-axis degradation goes through Prepare.
+//
+// The runtime axis degrades HERE when no container runtime is available:
+// only the container dimension is dropped — a requested worktree stays a
+// worktree (axes are independent; degradation never touches the other axis).
+// The container policies degrade AGAIN in PrepareWorkspace (runtime present
+// but the image absent and not buildable, no resolvable auth, scratch
+// creation failure) — see Prepare's chain. A bad WORKSPACE axis value warns and
+// acts as the shared default (CLAUDE.md fault tolerance); a bad RUNTIME axis
+// value is a fatal ClassIsolation finding, not a silent host degrade — see
+// warnUnknownAxes. An EXPLICITLY-requested container that finds no available
+// runtime is likewise a fatal finding (ClassIsolation) the choke owner aborts on
+// unless --degraded.
+func Resolve(axes Axes, backend string, img ImageConfig) Policy {
+	return chainFor(axes, backend, img)[0]
+}
+
+// selectRuntimeProbe is chainFor's seam onto the host runtime probe
+// (SelectRuntime), a package var so tests drive the no-runtime fatal path
+// hermetically — SelectRuntime probes the REAL host (docker/podman CLIs +
+// daemons), which a unit test must never depend on. Mirrors the sharedFSCheck
+// seam in sharedfs.go.
+var selectRuntimeProbe = SelectRuntime
+
+// chainFor builds the ordered degrade chain for the requested axes. The
+// runtime probe runs ONCE; each degrade step drops exactly one axis:
+//
+//	{worktree, container} → Container{worktreeBase} → Worktree → None
+//	{none,     container} → Container{hostBase} (live dir) → None
+//	{worktree, host}      → Worktree → None
+//	{none,     host}      → None
+//
+// A container tier never degrades INTO a worktree that wasn't requested, and
+// a requested worktree is never dropped just because the container failed.
+func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
+	warnUnknownAxes(axes)
+
+	if axes.WantsContainer() {
+		rt := selectRuntimeProbe("")
+		if _, isHost := rt.(Host); !isHost {
+			if axes.WantsWorktree() {
+				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
+			}
+			return []Policy{containerFor(rt, backend, img), None{}}
+		}
+		// Runtime axis degrades alone: the workspace request below is untouched.
+		// A container was EXPLICITLY requested (WantsContainer) but no runtime is
+		// reachable, so this run would land UNSANDBOXED on the host — a
+		// fail-loudly finding (ClassIsolation) the choke owner aborts on unless
+		// --degraded downgrades it back to the warn-and-continue degrade.
+		if axes.WantsWorktree() {
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"runtime: container requested but no container runtime is available; keeping the worktree on the host%s", noRuntimeHint())
+		} else {
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"runtime: container requested but no container runtime is available; running on the host%s", noRuntimeHint())
+		}
+	}
+	if axes.WantsWorktree() {
+		// Workspace-only isolation, no runtime dependency — the git-repo check
+		// and the worktree-add both degrade to None inside PrepareWorkspace
+		// (prepareChain warns).
+		return []Policy{NewWorktree(nil), None{}}
+	}
+	return []Policy{None{}}
+}
+
+// IsContainerPolicyName reports whether a policy name denotes a container-backed
+// policy (the two that provide a real container boundary). Used by prepareChain
+// to detect a degrade that DROPS the container boundary (which warrants a
+// prominent, security-framed warning rather than the generic degrade line), and
+// by the run path to tell a satisfied container request (container OR
+// container-worktree) from one that degraded to the host. Both container-backed
+// policies are now Container (host vs worktree base), so this matches on the two
+// base NAMES rather than distinct types.
+func IsContainerPolicyName(name string) bool {
+	return name == "container" || name == "container-worktree"
+}
+
+// Prepare prepares a workspace for the requested axes and the run's BACKEND
+// (per-member engines — the backend picks the container profile, with the
+// user's ImageConfig applied), walking chainFor's degrade chain until a policy
+// prepares (None never fails). It returns the policy that succeeded and its
+// prepared workspace. One mechanism serves the top-level session and every
+// fan-out member alike: the workspace axis arrives from the SESSION
+// (invocation flag / project default) and the runtime axis from the AGENT
+// binding — this function just realizes their product. state is the run's
+// session identity (SessionStateFromEnv over the run's env map): it scopes
+// the container policies' durable state mounts and the worktree's ephemeral
+// scratch home. Each degrade warns and the run always gets a workspace;
+// dropping a requested CONTAINER boundary is additionally a fatal finding
+// (ClassIsolation) the choke owner aborts on unless --degraded (a
+// workspace-axis degrade stays a silent fallback).
+func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
+	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), projectDir, agentID)
+}
+
+// withSessionState stamps the run's session identity onto every policy in the
+// degrade chain that consumes it (the container policies' state mounts, the
+// worktree's ephemeral scratch home). Applied AFTER chainFor so the chain
+// construction — and Resolve, which only needs policy identity — stays
+// state-free. Policies are value types; the stamped copies replace the
+// originals in place.
+func withSessionState(chain []Policy, state SessionState) []Policy {
+	for i, p := range chain {
+		switch v := p.(type) {
+		case Container:
+			// Double-stamp: Container.state scopes the durable state mounts
+			// (sessionStateMounts), and the base's withState stamps a worktree
+			// base's ephemeral checkout home. The nil-base guard is load-bearing —
+			// tests construct bare Container{} — and hostBase.withState is a no-op.
+			v.state = state
+			if v.base != nil {
+				v.base = v.base.withState(state)
+			}
+			chain[i] = v
+		case Worktree:
+			v.state = state
+			chain[i] = v
+		}
+	}
+	return chain
+}
+
+// prepareChain tries each policy's PrepareWorkspace in order and returns the first
+// that succeeds with its workspace, warning at each degrade. The chain always ends
+// in None (which never fails), so a member always gets a workspace; the trailing
+// fallback is defensive against an empty/all-failing chain.
+func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID string) (Policy, Workspace) {
+	for i, p := range chain {
+		ws, err := p.PrepareWorkspace(ctx, projectDir, agentID)
+		if err == nil {
+			return p, ws
+		}
+		next := None{}.Name()
+		if i+1 < len(chain) {
+			next = chain[i+1].Name()
+		}
+		// Losing the container boundary is a security-relevant downgrade: the run
+		// was to be sandboxed and now isn't. The chain only holds a container tier
+		// when one was EXPLICITLY requested (chainFor builds it solely for
+		// WantsContainer), so a container→non-container transition here is a
+		// requested-container-unsatisfiable event: a fail-loudly finding
+		// (ClassIsolation) naming the reason (image absent, shared-fs probe, no
+		// resolvable auth). The warning still streams to stderr in both modes
+		// (strictness.Fail wraps clidiag.Warn), so a failed or denied container
+		// start can't be mistaken for a normal host run; in strict mode the choke
+		// owner additionally aborts on it before the unsandboxed engine launches,
+		// while --degraded records nothing and the chain falls back to the host as
+		// before. The runtime-unreachable reason is recorded earlier in chainFor;
+		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
+		// choke owner. The `continue` is unchanged — the chain still walks to None
+		// so a degraded run gets a workspace.
+		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
+			continue
+		}
+		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)
+	}
+	ws, _ := None{}.PrepareWorkspace(ctx, projectDir, agentID)
+	return None{}, ws
+}

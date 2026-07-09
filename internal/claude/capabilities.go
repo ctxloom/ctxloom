@@ -1,0 +1,395 @@
+package claude
+
+import (
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// ClaudeSkills registers slash commands for Claude Code.
+type ClaudeSkills struct{}
+
+// RegisterFromContent writes slash commands from host-resolved command exports.
+// The host maps bundle content (with claude-code enablement + metadata) to these
+// agent-agnostic exports, so this stays config/bundle-free.
+func (s *ClaudeSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+	return WriteCommandFiles(workDir, cmds)
+}
+
+// ClaudeSessionHistory implements SessionHistory for Claude Code.
+// Reads from ~/.claude/projects/<hash>/session.jsonl. The embedded
+// agent.SessionStore carries the afero fs + homeDir injection points used by
+// tests and the shared transcript parse loop.
+type ClaudeSessionHistory struct {
+	backend *ClaudeCode
+	agent.SessionStore
+}
+
+// ClaudeSessionHistoryOption configures ClaudeSessionHistory.
+type ClaudeSessionHistoryOption func(*ClaudeSessionHistory)
+
+// WithClaudeSessionFS sets a custom filesystem for testing.
+func WithClaudeSessionFS(fs afero.Fs) ClaudeSessionHistoryOption {
+	return func(h *ClaudeSessionHistory) {
+		h.FS = fs
+	}
+}
+
+// WithClaudeSessionHomeDir sets a custom home directory for testing.
+func WithClaudeSessionHomeDir(dir string) ClaudeSessionHistoryOption {
+	return func(h *ClaudeSessionHistory) {
+		h.HomeDir = dir
+	}
+}
+
+// NewClaudeSessionHistory creates a new Claude session history handler.
+func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOption) *ClaudeSessionHistory {
+	h := &ClaudeSessionHistory{
+		backend:      backend,
+		SessionStore: agent.NewSessionStore(),
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
+}
+
+// GetCurrentSession returns the current/most recent session transcript.
+func (h *ClaudeSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
+	sessions, err := h.ListSessions(workDir)
+	return agent.MostRecentSession(sessions, err, func(m agent.SessionMeta) (*agent.Session, error) {
+		return h.GetSession(workDir, m.ID)
+	})
+}
+
+// ListSessions returns available session metadata, most recent first.
+func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
+	projectDir, err := h.findProjectDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Look for session files in the project directory
+	entries, err := afero.ReadDir(agent.GetFS(h.FS), projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read project directory: %w", err)
+	}
+
+	var sessions []agent.SessionMeta
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		sessions = append(sessions, agent.SessionMeta{
+			ID:        strings.TrimSuffix(entry.Name(), ".jsonl"),
+			StartTime: entry.ModTime(), // Approximate - would need to read file for exact
+			Path:      filepath.Join(projectDir, entry.Name()),
+		})
+	}
+
+	agent.SortSessionsMostRecentFirst(sessions)
+	return sessions, nil
+}
+
+// GetSession returns a specific session by ID.
+func (h *ClaudeSessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
+	projectDir, err := h.findProjectDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionPath := filepath.Join(projectDir, sessionID+".jsonl")
+	return h.parseSessionFile(sessionPath)
+}
+
+// GetSessionByPath returns a session by its transcript file path.
+func (h *ClaudeSessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
+	return h.parseSessionFile(path)
+}
+
+// claudeProjectNameRe matches every character Claude Code does not keep verbatim
+// when it names a project's transcript directory: anything outside ASCII letters
+// and digits. Each matched character is replaced with a single '-' (runs are NOT
+// collapsed), mirroring claude-code's own cwd->dir encoding.
+var claudeProjectNameRe = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// claudeProjectName encodes an absolute working directory the way Claude Code
+// names its per-project transcript directory under ~/.claude/projects: every
+// character that is not an ASCII letter or digit (the path separator, but also
+// '.', '_', spaces, etc.) becomes '-', with no run collapsing. Examples:
+// /home/user/project -> -home-user-project, /home/user/proj.v2 -> -home-user-proj-v2,
+// /home/user/.config/x -> -home-user--config-x (the '/.' becomes '--').
+// Replacing only the separator (the previous behavior) derived a directory that
+// does not exist for any path containing a dot/underscore/space, silently killing
+// session history and recovery for those paths.
+func claudeProjectName(absPath string) string {
+	return claudeProjectNameRe.ReplaceAllString(absPath, "-")
+}
+
+// claudeProjectDir resolves the ~/.claude/projects/<encoded-workdir> directory
+// for workDir without checking that it exists. It honors the SessionStore
+// home-dir override so tests can pin the path independent of $HOME. The
+// claude-code project-dir convention is encoded in exactly one place
+// (claudeProjectName) and shared by findProjectDir and TranscriptPathFromHook.
+func (h *ClaudeSessionHistory) claudeProjectDir(workDir string) (string, error) {
+	homeDir, err := h.ResolveHomeDir()
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	return filepath.Join(homeDir, ".claude", "projects", claudeProjectName(absPath)), nil
+}
+
+// findProjectDir finds the existing Claude project directory for the given
+// workDir, or returns an error if it is not present.
+func (h *ClaudeSessionHistory) findProjectDir(workDir string) (string, error) {
+	projectDir, err := h.claudeProjectDir(workDir)
+	if err != nil {
+		return "", err
+	}
+	if _, err := agent.GetFS(h.FS).Stat(projectDir); err != nil {
+		return "", fmt.Errorf("project directory not found: %s", projectDir)
+	}
+	return projectDir, nil
+}
+
+// parseSessionFile reads and parses a Claude session JSONL file via the
+// shared SessionStore loop; malformed lines are skipped.
+func (h *ClaudeSessionHistory) parseSessionFile(path string) (*agent.Session, error) {
+	id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	return h.ParseSessionFile(path, id, func(line []byte) []agent.SessionEntry {
+		entries, err := h.parseEntries(line)
+		if err != nil {
+			return nil // Skip malformed entries
+		}
+		return entries
+	})
+}
+
+// claudeEntry represents a raw top-level entry from Claude's session.jsonl.
+type claudeEntry struct {
+	Type        string          `json:"type"`
+	Timestamp   string          `json:"timestamp"`
+	IsSidechain bool            `json:"isSidechain"`
+	Message     json.RawMessage `json:"message"`
+	// Legacy flat tool fields (older transcript schema, kept for back-compat).
+	Name    string          `json:"name"`
+	Input   json.RawMessage `json:"input"`
+	Output  string          `json:"output"`
+	IsError bool            `json:"is_error"`
+}
+
+// claudeMessage is the {role, content} object on user/assistant entries.
+// Content is either a JSON string (legacy) or an array of typed blocks.
+type claudeMessage struct {
+	Content json.RawMessage `json:"content"`
+}
+
+// claudeBlock is one content block in the modern array schema: text/thinking
+// for prose, tool_use for calls, tool_result for outputs.
+type claudeBlock struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking"` // thinking block: reasoning prose (not in Text)
+	Name     string          `json:"name"`
+	Input    json.RawMessage `json:"input"`
+	Content  json.RawMessage `json:"content"`
+	IsError  bool            `json:"is_error"`
+}
+
+// parseEntries converts one Claude JSONL line into zero or more normalized
+// SessionEntries. The modern schema nests typed blocks under message.content,
+// so one assistant line can yield a text entry plus a tool-call entry per
+// tool_use block, and a user line can yield tool-result entries. Sidechain
+// (sub-agent) lines are parsed like any other but marked Sidechain, so a
+// viewer can attribute an engine subagent's interior events instead of
+// mistaking them for (or losing them from) the main thread; main-thread-only
+// consumers filter via agent.MainThreadEntries. Legacy transcripts inline
+// sidechain lines in the session file; current claude-code writes them to
+// separate <session>/subagents/agent-<id>.jsonl files, whose every line is
+// sidechain-marked — so a by-path read of one yields all-sidechain entries.
+func (h *ClaudeSessionHistory) parseEntries(line []byte) ([]agent.SessionEntry, error) {
+	var raw claudeEntry
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return nil, err
+	}
+	entries, err := h.entriesForLine(raw)
+	if raw.IsSidechain {
+		for i := range entries {
+			entries[i].Sidechain = true
+		}
+	}
+	return entries, err
+}
+
+// entriesForLine dispatches one decoded JSONL line on its entry type.
+func (h *ClaudeSessionHistory) entriesForLine(raw claudeEntry) ([]agent.SessionEntry, error) {
+	ts := parseClaudeTimestamp(raw.Timestamp)
+	switch raw.Type {
+	case "user", "human":
+		return claudeMessageEntries(raw.Message, ts, agent.EntryTypeUser), nil
+	case "assistant":
+		return claudeMessageEntries(raw.Message, ts, agent.EntryTypeAssistant), nil
+	case "system":
+		if c := claudeFirstText(raw.Message); c != "" {
+			return []agent.SessionEntry{{Timestamp: ts, Type: agent.EntryTypeSystem, Content: c}}, nil
+		}
+	case "tool_use": // legacy flat schema
+		return []agent.SessionEntry{{Timestamp: ts, Type: agent.EntryTypeToolUse, ToolName: raw.Name, ToolInput: raw.Input}}, nil
+	case "tool_result": // legacy flat schema
+		return []agent.SessionEntry{{Timestamp: ts, Type: agent.EntryTypeToolResult, ToolName: raw.Name, ToolOutput: raw.Output, IsError: raw.IsError}}, nil
+	}
+	return nil, nil
+}
+
+// parseClaudeTimestamp parses an RFC3339 timestamp, returning the zero time for
+// an empty or unparseable value.
+func parseClaudeTimestamp(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// claudeBlocks decodes a message's content into blocks. content may be a plain
+// JSON string (legacy — returned as a single text block) or an array of blocks
+// (modern schema).
+func claudeBlocks(message json.RawMessage) []claudeBlock {
+	var msg claudeMessage
+	if len(message) == 0 || json.Unmarshal(message, &msg) != nil || len(msg.Content) == 0 {
+		return nil
+	}
+	var s string
+	if json.Unmarshal(msg.Content, &s) == nil {
+		return []claudeBlock{{Type: "text", Text: s}}
+	}
+	var blocks []claudeBlock
+	if json.Unmarshal(msg.Content, &blocks) == nil {
+		return blocks
+	}
+	return nil
+}
+
+// claudeMessageEntries decomposes one user/assistant message's content blocks
+// into normalized entries, preserving order: prose text becomes a proseType
+// entry, thinking becomes a Thinking entry, tool_use becomes a ToolUse entry,
+// tool_result becomes a ToolResult entry. Other block types are dropped.
+func claudeMessageEntries(message json.RawMessage, ts time.Time, proseType agent.SessionEntryType) []agent.SessionEntry {
+	var out []agent.SessionEntry
+	var text strings.Builder
+	flushText := func() {
+		if text.Len() > 0 {
+			out = append(out, agent.SessionEntry{Timestamp: ts, Type: proseType, Content: text.String()})
+			text.Reset()
+		}
+	}
+	for _, b := range claudeBlocks(message) {
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				if text.Len() > 0 {
+					text.WriteString("\n")
+				}
+				text.WriteString(b.Text)
+			}
+		case "thinking":
+			// b.Thinking is usually empty: claude-code strips reasoning text before it
+			// reaches its transcripts (see the NOTE in chat_stream.go mapAssistantBlocks).
+			// Unlike the live chat stream — which emits a content-less marker so a
+			// frontend can show "reasoned this turn" — the transcript feeds distillation,
+			// so empty thinking is dropped here to keep essences free of content-free
+			// noise. Real reasoning prose (if ever present) is carried through, stamped
+			// with the message timestamp (blocks in a line share one timestamp).
+			if b.Thinking != "" {
+				// Flush any prose accumulated before this block so order is preserved
+				// (thinking precedes the answer it produced).
+				flushText()
+				out = append(out, agent.SessionEntry{Timestamp: ts, Type: agent.EntryTypeThinking, Content: b.Thinking})
+			}
+		case "tool_use":
+			flushText()
+			out = append(out, agent.SessionEntry{Timestamp: ts, Type: agent.EntryTypeToolUse, ToolName: b.Name, ToolInput: b.Input})
+		case "tool_result":
+			flushText()
+			out = append(out, agent.SessionEntry{Timestamp: ts, Type: agent.EntryTypeToolResult, ToolOutput: claudeBlockText(b.Content), IsError: b.IsError})
+		}
+	}
+	flushText()
+	return out
+}
+
+// claudeBlockText flattens a tool_result block's content (a string, or an array
+// of {type:"text", text} blocks) to a plain string. It is the single flattener
+// for both the transcript reader and the live stream mapper (chat_stream.go), so
+// distilled and live tool output agree. Canonical join behavior: a string is
+// returned verbatim; an array's non-empty text blocks are joined with "\n" (empty
+// text blocks are dropped); any other shape yields "".
+func claudeBlockText(content json.RawMessage) string {
+	if len(content) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s
+	}
+	var blocks []claudeBlock
+	if json.Unmarshal(content, &blocks) == nil {
+		var b strings.Builder
+		for _, blk := range blocks {
+			if blk.Type == "text" && blk.Text != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(blk.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+// claudeFirstText returns the first text block's text from a message (used for
+// short system entries).
+func claudeFirstText(message json.RawMessage) string {
+	for _, b := range claudeBlocks(message) {
+		if b.Type == "text" && b.Text != "" {
+			return b.Text
+		}
+	}
+	return ""
+}
+
+// TranscriptPathFromHook computes the transcript path from hook input.
+// For Claude, we compute the path from sessionID + workDir. Honors the
+// h.homeDir override when set so tests can pin the expected path
+// without depending on $HOME.
+func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
+	if sessionID == "" {
+		return ""
+	}
+	projectDir, err := h.claudeProjectDir(workDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(projectDir, sessionID+".jsonl")
+}
+
+// "Which session is previous" now lives in ctxloom
+// (operations.ResolvePreviousSession), resolved from the session index rather
+// than by scanning transcripts for harp markers here. This reader only locates,
+// reassembles, and translates a given session.

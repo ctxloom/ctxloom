@@ -20,10 +20,12 @@ func TestResolveContentSHA_SemverRange(t *testing.T) {
 	ref, err := ParseReference("https://github.com/o/r@bundles/x@^1.2")
 	require.NoError(t, err)
 
-	sha, requested, err := resolveContentSHA(context.Background(), mock, "o", "r", ref)
+	sha, requested, resolved, kind, err := resolveContentSHA(context.Background(), mock, "o", "r", ref)
 	require.NoError(t, err)
 	require.Equal(t, "sha-v123", sha, "the highest tag satisfying the range, not a literal-ref lookup")
 	require.Equal(t, "^1.2", requested, "the constraint itself is what the lock records")
+	require.Equal(t, "v1.2.3", resolved, "the resolved concrete tag is returned for LockEntry.Version")
+	require.Equal(t, SelectorVersion, kind, "a semver range classifies as a version selector")
 }
 
 // An empty version still tracks the default branch's tip.
@@ -34,8 +36,10 @@ func TestResolveContentSHA_DefaultBranch(t *testing.T) {
 	ref, err := ParseReference("https://github.com/o/r@bundles/x")
 	require.NoError(t, err)
 
-	sha, requested, err := resolveContentSHA(context.Background(), mock, "o", "r", ref)
+	sha, requested, resolved, kind, err := resolveContentSHA(context.Background(), mock, "o", "r", ref)
 	require.NoError(t, err)
 	require.Equal(t, "sha-main", sha)
+	require.Equal(t, SelectorBranch, kind, "an empty selector classifies as a branch (default)")
 	require.Empty(t, requested)
+	require.Empty(t, resolved, "a default-branch pull resolves no concrete tag")
 }

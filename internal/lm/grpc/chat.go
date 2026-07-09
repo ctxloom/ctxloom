@@ -1,0 +1,326 @@
+package grpc
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// This file carries the structured-chat transport: a bidirectional stream that
+// drives a backend's StructuredChat capability (claude-code's stream-json mode)
+// — user messages in, normalized turn events out, no pty. The capability is
+// OPTIONAL: the server type-asserts it and returns UNIMPLEMENTED when absent.
+
+// --- conversions (agent <-> proto) ---
+
+func chatStartToProto(req agent.ChatRequest) *ChatStart {
+	out := &ChatStart{
+		WorkDir:            req.WorkDir,
+		Model:              req.Model,
+		Env:                req.Env,
+		PermissionMode:     req.Permissions.String(),
+		ForwardPermissions: req.ForwardPermissions,
+	}
+	for _, m := range req.MCPServers {
+		out.McpServers = append(out.McpServers, &ChatMCPServer{
+			Name:    m.Name,
+			Command: m.Command,
+			Args:    m.Args,
+			Env:     m.Env,
+		})
+	}
+	return out
+}
+
+func chatStartFromProto(p *ChatStart) agent.ChatRequest {
+	req := agent.ChatRequest{
+		WorkDir:            p.GetWorkDir(),
+		Model:              p.GetModel(),
+		Env:                p.GetEnv(),
+		Permissions:        agent.WireMode(p.GetPermissionMode()),
+		ForwardPermissions: p.GetForwardPermissions(),
+	}
+	for _, m := range p.GetMcpServers() {
+		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
+			Name:    m.GetName(),
+			Command: m.GetCommand(),
+			Args:    m.GetArgs(),
+			Env:     m.GetEnv(),
+		})
+	}
+	return req
+}
+
+func chatEventToProto(ev agent.ChatEvent) *ChatEvent {
+	switch {
+	case ev.Entry != nil:
+		return &ChatEvent{Event: &ChatEvent_Entry{Entry: EntryToProto(*ev.Entry)}}
+	case ev.Complete != nil:
+		return &ChatEvent{Event: &ChatEvent_Complete{Complete: turnMetaToProto(ev.Complete)}}
+	case ev.Session != nil:
+		return &ChatEvent{Event: &ChatEvent_Session{Session: chatSessionInfoToProto(ev.Session)}}
+	case ev.Permission != nil:
+		return &ChatEvent{Event: &ChatEvent_Permission{Permission: permissionRequestToProto(ev.Permission)}}
+	default:
+		return &ChatEvent{}
+	}
+}
+
+func chatEventFromProto(p *ChatEvent) agent.ChatEvent {
+	switch ev := p.GetEvent().(type) {
+	case *ChatEvent_Entry:
+		e := entryFromProto(ev.Entry)
+		return agent.ChatEvent{Entry: &e}
+	case *ChatEvent_Complete:
+		return agent.ChatEvent{Complete: turnMetaFromProto(ev.Complete)}
+	case *ChatEvent_Session:
+		return agent.ChatEvent{Session: chatSessionInfoFromProto(ev.Session)}
+	case *ChatEvent_Permission:
+		return agent.ChatEvent{Permission: permissionRequestFromProto(ev.Permission)}
+	default:
+		return agent.ChatEvent{}
+	}
+}
+
+func permissionRequestToProto(p *agent.PermissionRequest) *ChatPermissionRequest {
+	if p == nil {
+		return nil
+	}
+	out := &ChatPermissionRequest{
+		Id:        p.ID,
+		ToolName:  p.ToolName,
+		ToolInput: p.ToolInput,
+	}
+	for _, o := range p.Options {
+		out.Options = append(out.Options, &ChatPermissionOption{Id: o.ID, Kind: o.Kind, Name: o.Name})
+	}
+	return out
+}
+
+func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionRequest {
+	if p == nil {
+		return nil
+	}
+	out := &agent.PermissionRequest{
+		ID:        p.GetId(),
+		ToolName:  p.GetToolName(),
+		ToolInput: p.GetToolInput(),
+	}
+	for _, o := range p.GetOptions() {
+		out.Options = append(out.Options, agent.PermissionOption{ID: o.GetId(), Kind: o.GetKind(), Name: o.GetName()})
+	}
+	return out
+}
+
+func turnMetaToProto(m *agent.TurnMeta) *TurnMeta {
+	if m == nil {
+		return nil
+	}
+	return &TurnMeta{
+		InputTokens:         int32(m.InputTokens),
+		OutputTokens:        int32(m.OutputTokens),
+		CacheReadTokens:     int32(m.CacheReadTokens),
+		CacheCreationTokens: int32(m.CacheCreationTokens),
+		ContextWindow:       int32(m.ContextWindow),
+		MaxOutputTokens:     int32(m.MaxOutputTokens),
+		CostUsd:             m.CostUSD,
+		Model:               m.Model,
+		StopReason:          m.StopReason,
+		DurationMs:          int32(m.DurationMs),
+		NumTurns:            int32(m.NumTurns),
+	}
+}
+
+func turnMetaFromProto(p *TurnMeta) *agent.TurnMeta {
+	if p == nil {
+		return nil
+	}
+	return &agent.TurnMeta{
+		InputTokens:         int(p.GetInputTokens()),
+		OutputTokens:        int(p.GetOutputTokens()),
+		CacheReadTokens:     int(p.GetCacheReadTokens()),
+		CacheCreationTokens: int(p.GetCacheCreationTokens()),
+		ContextWindow:       int(p.GetContextWindow()),
+		MaxOutputTokens:     int(p.GetMaxOutputTokens()),
+		CostUSD:             p.GetCostUsd(),
+		Model:               p.GetModel(),
+		StopReason:          p.GetStopReason(),
+		DurationMs:          int(p.GetDurationMs()),
+		NumTurns:            int(p.GetNumTurns()),
+	}
+}
+
+func chatSessionInfoToProto(s *agent.ChatSessionInfo) *ChatSessionInfo {
+	if s == nil {
+		return nil
+	}
+	out := &ChatSessionInfo{
+		Model:          s.Model,
+		PermissionMode: s.PermissionMode,
+		ContextWindow:  int32(s.ContextWindow),
+	}
+	for _, m := range s.MCPServers {
+		out.McpServers = append(out.McpServers, &MCPStatus{Name: m.Name, Status: m.Status})
+	}
+	return out
+}
+
+func chatSessionInfoFromProto(p *ChatSessionInfo) *agent.ChatSessionInfo {
+	if p == nil {
+		return nil
+	}
+	out := &agent.ChatSessionInfo{
+		Model:          p.GetModel(),
+		PermissionMode: p.GetPermissionMode(),
+		ContextWindow:  int(p.GetContextWindow()),
+	}
+	for _, m := range p.GetMcpServers() {
+		out.MCPServers = append(out.MCPServers, agent.MCPStatus{Name: m.GetName(), Status: m.GetStatus()})
+	}
+	return out
+}
+
+// --- server (plugin) handler ---
+
+// Chat bridges the bidirectional gRPC stream to the backend's StructuredChat
+// capability. UNIMPLEMENTED when the backend lacks it (polymorphic: only agents
+// with a native programmatic protocol implement it). The first input must carry
+// `start`; subsequent `user_message`s feed the backend's input channel, and its
+// normalized events stream back as ChatEvents.
+func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("receive chat start: %w", err)
+	}
+	start := first.GetStart()
+	if start == nil {
+		return fmt.Errorf("first Chat message must carry start")
+	}
+
+	chat, ok := s.Impl.(agent.StructuredChat)
+	if !ok {
+		return status.Errorf(codes.Unimplemented, "backend %s does not support structured chat", s.Impl.Name())
+	}
+
+	ctx := stream.Context()
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent)
+
+	// Pump inbound messages (user turns + permission answers + turn cancels)
+	// until the client half-closes (Recv errors).
+	go func() {
+		defer close(in)
+		for {
+			msg, rerr := stream.Recv()
+			if rerr != nil {
+				return // EOF (client done) or error → close in
+			}
+			var cm agent.ChatMessage
+			switch input := msg.GetInput().(type) {
+			case *ChatInput_UserMessage:
+				cm = agent.ChatMessage{Text: input.UserMessage.GetText()}
+			case *ChatInput_PermissionAnswer:
+				cm = agent.ChatMessage{Permission: &agent.PermissionAnswer{
+					ID:       input.PermissionAnswer.GetId(),
+					OptionID: input.PermissionAnswer.GetOptionId(),
+				}}
+			case *ChatInput_CancelTurn:
+				cm = agent.ChatMessage{CancelTurn: true}
+			default:
+				continue // a stray start / unknown variant — ignore
+			}
+			select {
+			case in <- cm:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Run the backend's chat; it closes `out` when done.
+	chatErr := make(chan error, 1)
+	go func() { chatErr <- chat.Chat(ctx, chatStartFromProto(start), in, out) }()
+
+	for ev := range out {
+		if serr := stream.Send(chatEventToProto(ev)); serr != nil {
+			return serr // client gone; stream ctx cancels, chat unwinds
+		}
+	}
+	return <-chatErr
+}
+
+// --- client (host) method ---
+
+// Chat opens the bidirectional stream and exposes it as channels: write
+// messages (user turns, permission answers, turn cancels) to the returned `in`
+// channel and CLOSE it to end input; read normalized events from `events`
+// (closed on stream end / ctx cancel); a fatal receive error arrives on `errs`.
+// Mirrors the agent.StructuredChat channel shape at the host boundary.
+func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	stream, err := c.client.Chat(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := stream.Send(&ChatInput{Input: &ChatInput_Start{Start: chatStartToProto(req)}}); err != nil {
+		return nil, nil, nil, fmt.Errorf("send chat start: %w", err)
+	}
+
+	in := make(chan agent.ChatMessage)
+	events := make(chan agent.ChatEvent)
+	errs := make(chan error, 1)
+
+	go func() {
+		for msg := range in {
+			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
+				break
+			}
+		}
+		_ = stream.CloseSend() // input done → half-close so the backend completes
+	}()
+
+	go func() {
+		defer close(events)
+		defer close(errs)
+		for {
+			ev, rerr := stream.Recv()
+			if rerr == io.EOF {
+				return
+			}
+			if rerr != nil {
+				errs <- rerr
+				return
+			}
+			select {
+			case events <- chatEventFromProto(ev):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return in, events, errs, nil
+}
+
+// chatMessageToInput maps one host-side chat message onto its ChatInput frame.
+func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
+	switch {
+	case msg.Permission != nil:
+		return &ChatInput{Input: &ChatInput_PermissionAnswer{PermissionAnswer: &ChatPermissionAnswer{
+			Id:       msg.Permission.ID,
+			OptionId: msg.Permission.OptionID,
+		}}}
+	case msg.CancelTurn:
+		return &ChatInput{Input: &ChatInput_CancelTurn{CancelTurn: &ChatCancelTurn{}}}
+	default:
+		return &ChatInput{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{Text: msg.Text}}}
+	}
+}
+
+// Chat delegates to the underlying gRPC client.
+func (p *LLMRunner) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	return p.grpc.Chat(ctx, req)
+}

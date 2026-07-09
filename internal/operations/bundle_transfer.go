@@ -47,7 +47,10 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	for _, p := range cfg.AppPaths {
 		dirs = append(dirs, paths.BundlesPath(p))
 	}
-	bundle, err := bundles.NewLoader(dirs, false, bundles.WithFS(fs)).Load(req.Name)
+	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
+	// of the same spelling still wins); bare/canonical names pass through.
+	name := canonicalizeBundleArg(cfg, req.Name, dirs, req.FS)
+	bundle, err := bundles.NewLoader(dirs, false, bundles.WithFS(fs)).Load(name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
 	}
@@ -96,7 +99,7 @@ type ImportBundleResult struct {
 	Dest      string `json:"dest"`
 	Version   string `json:"version"`
 	Fragments int    `json:"fragments"`
-	Prompts   int    `json:"prompts"`
+	Skills    int    `json:"skills"`
 	MCP       int    `json:"mcp"`
 }
 
@@ -138,7 +141,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		Dest:      destPath,
 		Version:   bundle.Version,
 		Fragments: len(bundle.Fragments),
-		Prompts:   len(bundle.Prompts),
+		Skills:    len(bundle.Skills),
 		MCP:       len(bundle.MCP),
 	}, nil
 }

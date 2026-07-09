@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/shared/agent"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 		// 9-byte repeating unit (3+4+2 bytes) so the 100-byte target boundary
 		// (25 tokens * 4 chars) always lands mid-rune.
 		text := strings.Repeat("界😀é", 120) // 1080 bytes
-		chunks := c.chunkText(text, 25)     // 100-byte chunks; overlap (2000) > chunk → no overlap
+		chunks := c.chunkText(text, 25)    // 100-byte chunks; overlap (2000) > chunk → no overlap
 		require.Greater(t, len(chunks), 1)
 		for i, chunk := range chunks {
 			assert.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8: %q", i, chunk)
@@ -211,6 +211,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 		TokensIn:   2000,
 		TokensOut:  300,
 		PlanBlocks: 2,
+		SourceSize: 184320,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(tmpDir, "round-trip.md"), path)
@@ -222,6 +223,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	assert.Equal(t, 2000, loaded.TokensIn)
 	assert.Equal(t, 300, loaded.TokensOut)
 	assert.Equal(t, 2, loaded.PlanBlocks)
+	assert.Equal(t, int64(184320), loaded.SourceSize, "the staleness fingerprint must survive the essence round-trip")
 	assert.False(t, loaded.DistilledAt.IsZero())
 	assert.Contains(t, loaded.Body, "## Summary")
 	assert.Contains(t, loaded.Body, "Distilled body.")
@@ -475,6 +477,78 @@ func TestCompact_EmptySession(t *testing.T) {
 
 	_, err = compactor.Compact(context.Background())
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "has no entries")
+}
+
+// TestCompact_SidechainEntriesExcluded: the reader now surfaces
+// subagent-interior (sidechain) entries for viewers, but distillation keeps
+// its historic main-thread-only input — sidechain content never reaches the
+// distilling LLM, and an all-sidechain session is "no entries".
+func TestCompact_SidechainEntriesExcluded(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "sidechain-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
+				{Type: agent.EntryTypeAssistant, Content: "SIDECHAIN_INTERIOR", Sidechain: true},
+				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	var mu sync.Mutex
+	var prompts []string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			mu.Lock()
+			prompts = append(prompts, req.GetPrompt().GetContent())
+			mu.Unlock()
+			_, _ = stdout.Write([]byte("Distilled."))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, prompts)
+	joined := strings.Join(prompts, "\n")
+	assert.Contains(t, joined, "MAIN_THREAD_ASK")
+	assert.Contains(t, joined, "MAIN_THREAD_ANSWER")
+	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach distillation")
+}
+
+// TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is
+// subagent-interior has nothing to distill.
+func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "interior-only",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeAssistant, Content: "interior", Sidechain: true},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	compactor, err := NewCompactor(CompactionConfig{BackendOverride: mockBe})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no entries")
 }
 

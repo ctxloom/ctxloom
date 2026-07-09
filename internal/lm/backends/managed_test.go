@@ -3,10 +3,11 @@ package backends
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,9 +34,10 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"p"},
 			Definitions: map[string]config.Profile{
 				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
@@ -44,7 +46,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 		},
 	}
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "")
+	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 
 	assert.Contains(t, sessionStartCommands(assembled.Unified), "profile-session-start",
 		"profile-shipped SessionStart hook must be in the assembled set")
@@ -65,9 +67,10 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 				},
 				Plugins: make(map[string]wire.BackendHooks),
 			},
-			MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+			MCP:          wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"p"},
 				Definitions: map[string]config.Profile{
 					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
@@ -81,13 +84,13 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 
 	// Setup payload path: host assembles WITHOUT context-injection, the agent
 	// appends it from the plugin-side hash (exactly what MergeManaged does).
-	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "").Unified)
+	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "", nil).Unified)
 	for _, h := range agent.NewContextInjectionHooks(hash, wd) {
 		setupCmds = append(setupCmds, h.Command)
 	}
 
 	// apply-hooks path: AssembleManagedHooks resolves the hash inline.
-	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash).Unified)
+	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash, nil).Unified)
 
 	assert.Equal(t, applyCmds, setupCmds,
 		"agent (host hooks + appended injection) and apply-hooks must produce an identical SessionStart set")
@@ -105,8 +108,8 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		},
 	}
 
-	first := AssembleManagedHooks(cfg, "/tmp", "hash123")
-	second := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
+	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 
 	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
 		"repeated calls must not accumulate hooks via shared config state")
@@ -118,14 +121,15 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 // profile reference that has no definition.
 func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"non-existent-profile"},
 			Definitions: map[string]config.Profile{},
 		},
 	}
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	assert.NotEmpty(t, assembled.Unified.SessionStart, "context-injection hook should still be assembled")
 }
 
@@ -138,8 +142,9 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 			Servers: map[string]wire.MCPServer{"config-mcp": {Command: "config-mcp-cmd"}},
 			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"p"},
 			Definitions: map[string]config.Profile{
 				"p": {MCP: wire.MCPConfig{
 					Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
@@ -148,7 +153,7 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 		},
 	}
 
-	mcp := assembleManagedMCP(cfg)
+	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "config-mcp")
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }

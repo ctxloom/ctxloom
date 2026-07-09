@@ -11,15 +11,13 @@ A ctxloom repository follows this structure:
 ```
 my-ctxloom-repo/
 ├── ctxloom/
-│   ├── bundles/
-│   │   ├── my-bundle.yaml
-│   │   └── another-bundle.yaml
-│   └── profiles/
-│       └── my-profile.yaml
+│   └── bundles/
+│       ├── my-bundle.yaml
+│       └── another-bundle.yaml
 └── README.md
 ```
 
-The `ctxloom/` directory is required for ctxloom to recognize the repository as a valid remote.
+The `ctxloom/` directory is required for ctxloom to recognize the repository as a valid remote. Remote repositories distribute bundles only; profiles ship inside a bundle's `profiles:` map (see below).
 
 ## Creating a Bundle
 
@@ -55,7 +53,7 @@ fragments:
       - Wrap errors with context: fmt.Errorf("operation: %w", err)
       - Use sentinel errors sparingly
 
-prompts:
+skills:
   code-review:
     description: Review Go code for best practices
     tags:
@@ -76,7 +74,9 @@ prompts:
 | `author` | No | Author name or organization |
 | `tags` | No | Bundle-level tags (inherited by all items) |
 | `fragments` | No | Map of fragment definitions |
-| `prompts` | No | Map of prompt definitions |
+| `skills` | No | Map of skill definitions |
+| `profiles` | No | Map of profiles shipped with the bundle |
+| `hooks` | No | Hooks shipped with the bundle |
 | `mcp` | No | Map of MCP server configurations |
 
 ### Fragment Fields
@@ -85,23 +85,33 @@ prompts:
 |-------|----------|-------------|
 | `content` | Yes | The fragment content (markdown) |
 | `tags` | No | Additional tags (merged with bundle tags) |
-| `variables` | No | Template variables this fragment uses |
 | `notes` | No | Human-readable notes (not sent to AI) |
 | `no_distill` | No | Prevent automatic distillation |
 
-## Creating a Profile
+Skills take the same fields plus `description` and an optional `llm:` block with per-backend slash-command export settings.
+
+## Sharing a Profile
+
+Profiles ship inside a bundle's `profiles:` map — there is no top-level profiles directory in a remote repository. Add the profile to the bundle that carries the content it composes:
 
 ```yaml
-# ctxloom/profiles/go-developer.yaml
-description: Complete Go development environment
-parents:
-  - base-developer  # Inherit from another profile
-bundles:
-  - go-development
-  - testing-patterns
-tags:
-  - golang
-  - best-practices
+# ctxloom/bundles/go-development.yaml (continued)
+profiles:
+  go-developer:
+    description: Complete Go development environment
+    bundles:
+      - go-development
+      - testing-patterns
+    tags:
+      - golang
+      - best-practices
+```
+
+Consumers inherit a bundle-shipped profile by its bundle-qualified canonical URL (parents accept a local profile name or this full form):
+
+```bash
+ctxloom profile create dev \
+  --parent 'https://github.com/username/my-ctxloom-bundles@bundles/go-development#profiles/go-developer'
 ```
 
 ## Publishing to GitHub
@@ -115,12 +125,12 @@ cd my-ctxloom-bundles
 git init
 
 # Create structure
-mkdir -p ctxloom/bundles ctxloom/profiles
+mkdir -p ctxloom/bundles
 ```
 
 ### 2. Add Your Content
 
-Create your bundle and profile YAML files in the appropriate directories.
+Create your bundle YAML files in `ctxloom/bundles/`.
 
 ### 3. Add README
 
@@ -247,22 +257,20 @@ For larger organizations:
 ```
 org-ctxloom/
 ├── ctxloom/
-│   ├── bundles/
-│   │   ├── frontend/
-│   │   │   ├── react.yaml
-│   │   │   └── typescript.yaml
-│   │   ├── backend/
-│   │   │   ├── go.yaml
-│   │   │   └── python.yaml
-│   │   └── shared/
-│   │       ├── security.yaml
-│   │       └── testing.yaml
-│   └── profiles/
-│       ├── frontend-dev.yaml
-│       ├── backend-dev.yaml
-│       └── fullstack-dev.yaml
+│   └── bundles/
+│       ├── frontend/
+│       │   ├── react.yaml
+│       │   └── typescript.yaml
+│       ├── backend/
+│       │   ├── go.yaml
+│       │   └── python.yaml
+│       └── shared/
+│           ├── security.yaml
+│           └── testing.yaml
 └── README.md
 ```
+
+Team profiles (frontend-dev, backend-dev, fullstack-dev) go in the `profiles:` map of the bundle they belong with.
 
 ### Access Control
 

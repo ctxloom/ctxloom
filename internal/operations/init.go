@@ -7,8 +7,10 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -27,9 +29,20 @@ type InitializeProjectResult struct {
 	AppDir string `json:"app_dir"`
 }
 
+// SeedProfileName is the file/profile name of the LOCAL default coding profile
+// `init` scaffolds; init also binds it as the profile of the always-bound
+// DEFAULT AGENT (config `agents.default` + `default_agent`), which a bare
+// `ctxloom run` resolves. Generic by design (not any role/archetype): the
+// archetype taxonomy — developer/finder/code-review, per-(language × lens)
+// members — is data, living in the agent-setup prompt and ctxloom-default's
+// profiles, never baked into this binary as names.
+const SeedProfileName = "default"
+
 // InitializeProject creates the .ctxloom skeleton (dir tree + config.yaml
-// carrying the chosen engine + default remotes.yaml). Safe to re-run:
-// directories use MkdirAll and files are overwritten.
+// carrying the chosen engine + default remotes.yaml + a scaffolded local
+// default coding profile). Safe to re-run: directories use MkdirAll and the
+// scaffold files are overwritten — EXCEPT the seed profile, which is left
+// untouched if it already exists so a re-init never clobbers user edits.
 func InitializeProject(_ context.Context, req InitializeProjectRequest) (*InitializeProjectResult, error) {
 	if req.AppDir == "" {
 		return nil, fmt.Errorf("app dir is required")
@@ -57,7 +70,33 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		return nil, fmt.Errorf("failed to create remotes.yaml: %w", err)
 	}
 
+	if err := scaffoldSeedProfile(fs, req.AppDir); err != nil {
+		// Fault tolerance (CLAUDE.md): a missing/unwritable seed profile must not
+		// fail init. The config still names `default` as the wired default, and
+		// the user can author it. Warn so the gap is diagnosable.
+		clidiag.Warn("ctxloom", "failed to scaffold default profile: %v", err)
+	}
+
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
+}
+
+// scaffoldSeedProfile writes the embedded local default coding profile into
+// .ctxloom/profiles/<SeedProfileName>.yaml. It is write-if-absent: a profile is
+// user-editable content, so a re-init must not overwrite a default the user has
+// since customized (unlike config.yaml/remotes.yaml, which are scaffolding).
+func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
+	dest := filepath.Join(paths.ProfilesPath(appDir), SeedProfileName+".yaml")
+	if exists, _ := afero.Exists(fs, dest); exists {
+		return nil
+	}
+	data, err := resources.GetSeedProfile(SeedProfileName)
+	if err != nil {
+		return fmt.Errorf("read embedded seed profile: %w", err)
+	}
+	if err := afero.WriteFile(fs, dest, data, 0644); err != nil {
+		return fmt.Errorf("write %s: %w", dest, err)
+	}
+	return nil
 }
 
 // BuildInitialConfig renders the config.yaml a freshly initialized project
@@ -80,6 +119,19 @@ func BuildInitialConfig(engine string) ([]byte, error) {
 	}
 
 	scaffold.LM = engineRegistry(engine, registry.LM)
+
+	// Bind the always-bound DEFAULT AGENT to the scaffolded seed profile, carrying
+	// the selected engine's primary label so a bare `ctxloom run` launches the same
+	// backend. This replaces the retired profiles.defaults: the default context is
+	// now whatever the default agent composes (Config.DefaultAgentProfiles).
+	scaffold.DefaultAgent = SeedProfileName
+	scaffold.Agents = map[string]agents.Agent{
+		SeedProfileName: {
+			Engine:   scaffold.PrimaryLabel(),
+			Runtime:  "host",
+			Profiles: []string{SeedProfileName},
+		},
+	}
 	return scaffold.Marshal()
 }
 

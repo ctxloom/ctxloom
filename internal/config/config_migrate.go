@@ -1,20 +1,55 @@
 package config
 
 import (
+	"fmt"
+	"strings"
+	"sync"
+
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // versionKey is the top-level integer schema-version field on config.yaml.
 const versionKey = "version"
+
+// migrationWarnings collects lossy-migration diagnostics raised while the
+// upgrade pipeline runs. The Upgrader interface has no warning channel and no
+// access to the Config being built, so lossy steps record here and
+// loadConfigFile drains into cfg.Warnings (kind migration-lossy) right after
+// configUpgrades.Run — the pipeline's single call site — so the strict startup
+// gate can abort on a silently dropped setting instead of it scrolling past as
+// an unclassified stderr line.
+var (
+	migrationWarnMu   sync.Mutex
+	migrationWarnings []string
+)
+
+// recordMigrationWarning notes a lossy migration (a user-set value the upgrade
+// had to drop). The message must name the key to fix.
+func recordMigrationWarning(format string, args ...any) {
+	migrationWarnMu.Lock()
+	defer migrationWarnMu.Unlock()
+	migrationWarnings = append(migrationWarnings, fmt.Sprintf(format, args...))
+}
+
+// drainMigrationWarnings returns and clears the collected lossy-migration
+// diagnostics.
+func drainMigrationWarnings() []string {
+	migrationWarnMu.Lock()
+	defer migrationWarnMu.Unlock()
+	out := migrationWarnings
+	migrationWarnings = nil
+	return out
+}
 
 // CurrentConfigVersion is the config *schema* version ctxloom writes and
 // upgrades toward. It is an integer, deliberately distinct from the application
 // version (cmd.Version, a string like "v0.6.4"). Bump it whenever a new Upgrader
 // is appended to configUpgrades. A config with no `version` is treated as the
 // pre-versioning generation (version 0/1) and is upgraded on load.
-const CurrentConfigVersion = 4
+const CurrentConfigVersion = 6
 
 // llmRenameUpgrade is the v1→v2 config upgrade: the schema generation that
 // renamed the "plugin" abstraction to "llm". It rewrites pre-rename keys so
@@ -165,15 +200,24 @@ func migrateLLMv3(root *yaml.Node) {
 		// compaction.model folds onto the fast label's config model. The
 		// explicit compaction model is the compression model the user chose, so
 		// it wins over any model already on that label.
-		if cm := upgrade.MapValue(comp, "model"); cm != nil && cm.Kind == yaml.ScalarNode && cm.Value != "" && fastLabel != "" {
-			configs := upgrade.EnsureMap(llm, "configs")
-			entry := upgrade.EnsureMap(configs, fastLabel)
-			if upgrade.MapValue(entry, "type") == nil {
-				entry.Content = append([]*yaml.Node{
-					upgrade.ScalarNode("type"), upgrade.ScalarNode(fastLabel),
-				}, entry.Content...)
+		if cm := upgrade.MapValue(comp, "model"); cm != nil && cm.Kind == yaml.ScalarNode && cm.Value != "" {
+			if fastLabel != "" {
+				configs := upgrade.EnsureMap(llm, "configs")
+				entry := upgrade.EnsureMap(configs, fastLabel)
+				if upgrade.MapValue(entry, "type") == nil {
+					entry.Content = append([]*yaml.Node{
+						upgrade.ScalarNode("type"), upgrade.ScalarNode(fastLabel),
+					}, entry.Content...)
+				}
+				upgrade.MapSet(entry, "model", upgrade.ScalarNode(cm.Value))
+			} else {
+				// No compaction.llm and no primary label means there is no LLM
+				// label to attach the model to. Record the loss (surfaced as a
+				// migration-lossy config warning; fatal in strict mode) rather
+				// than silently drop the user's chosen compaction model — this
+				// migration is irreversible on disk.
+				recordMigrationWarning("config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
 			}
-			upgrade.MapSet(entry, "model", upgrade.ScalarNode(cm.Value))
 		}
 		// compaction.chunks → config.compaction_chunks
 		if ch := upgrade.MapValue(comp, "chunks"); ch != nil && ch.Kind == yaml.ScalarNode && ch.Value != "" {
@@ -310,6 +354,62 @@ func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
 	return true
 }
 
+// agentProfileCanonicalizeUpgrade rewrites a per-remote SHORT profile ref stored
+// under agents.<name>.profiles ("<remote>/<bundle>#profiles/<name>") to its
+// canonical URL form ("<url>@bundles/<bundle>#profiles/<name>"). SetAgent once
+// stored these verbatim, so a machine-local alias could persist into config.yaml;
+// decision B makes canonical the stored form. This is the one-time
+// canonicalize-on-load migration for those already-stored short entries.
+//
+// It is registry-DEPENDENT (the alias→URL map lives in .ctxloom/remotes.yaml), so
+// unlike the version-stamped node upgrades above it is threaded an aliasToURL
+// resolver at the load call site (see loadConfigFile) rather than living in the
+// static configUpgrades pipeline. It is deliberately NOT version-gated: like the
+// directory-profile bundleRefCanonicalizeUpgrade it is naturally idempotent —
+// canonical, ctxloom:local, and bare/local refs pass through unchanged, so only
+// a resolvable short ref changes — and safe to run every load. When the resolver
+// is nil (no registry) it self-gates to a no-op, leaving short refs verbatim for
+// the read-path loader to resolve (fault tolerant).
+type agentProfileCanonicalizeUpgrade struct {
+	aliasToURL func(string) string
+}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (agentProfileCanonicalizeUpgrade) Name() string { return "canonicalize agent profile refs" }
+
+// Apply canonicalizes each agents.<name>.profiles sequence, reporting whether it
+// changed anything. A missing agents map, a non-mapping agent entry, or a missing
+// profiles sequence is skipped.
+func (u agentProfileCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
+	if u.aliasToURL == nil {
+		return false
+	}
+	agentsNode := upgrade.MapValue(root, "agents")
+	if agentsNode == nil || agentsNode.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(agentsNode.Content); i += 2 {
+		agent := agentsNode.Content[i+1]
+		if agent.Kind != yaml.MappingNode {
+			continue
+		}
+		seq := upgrade.MapValue(agent, "profiles")
+		if seq == nil || seq.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, item := range seq.Content {
+			if item.Kind != yaml.ScalarNode {
+				continue
+			}
+			if canonical := remote.CanonicalizeProfileShortRef(item.Value, u.aliasToURL); canonical != item.Value {
+				item.Value = canonical
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
 // mapEntry returns the key and value nodes for key in a mapping node (both nil
 // if absent). Unlike upgrade.MapValue it exposes the key node so a relocation
 // can carry the key's comments along.
@@ -336,5 +436,146 @@ func migrateSettingsV3(root *yaml.Node) {
 			settings.Content = append(settings.Content, keyNode, ud)
 		}
 		upgrade.MapDelete(defaults, "use_distilled")
+	}
+}
+
+// profileSkillSelectorUpgrade is the v4→v5 config upgrade: inline profile
+// definitions that cherry-pick a bundle prompt via a "#prompts/" / ":prompts/"
+// item selector are migrated to the "skills" section, matching the prompt→skill
+// item-kind rename. It mirrors the directory-profile promptSelectorUpgrade
+// (internal/profiles) and the bundle skillsKeyUpgrade (internal/bundles) so every
+// load path migrates the legacy vocabulary. A comment-preserving yaml.Node rewrite.
+type profileSkillSelectorUpgrade struct{}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (profileSkillSelectorUpgrade) Name() string {
+	return "rename profile prompt selectors to skills (v4→v5)"
+}
+
+// Apply rewrites prompt selectors in every inline profile's bundles/bundle_items
+// and stamps version 5, a no-op at version 5+. As with earlier steps, stamping
+// the version is itself a valid upgrade, so a selector-free v4 config upgrades
+// simply by gaining `version: 5`.
+func (profileSkillSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
+	if upgrade.Version(root, versionKey) >= 5 {
+		return false
+	}
+	if profiles := upgrade.MapValue(root, "profiles"); profiles != nil && profiles.Kind == yaml.MappingNode {
+		if defs := upgrade.MapValue(profiles, "definitions"); defs != nil && defs.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(defs.Content); i += 2 {
+				prof := defs.Content[i+1]
+				if prof.Kind != yaml.MappingNode {
+					continue
+				}
+				rewriteSeqSkillSelectors(prof, "bundles")
+				rewriteSeqSkillSelectors(prof, "bundle_items")
+			}
+		}
+	}
+	upgrade.SetVersion(root, versionKey, 5)
+	return true
+}
+
+// rewriteSeqSkillSelectors migrates each scalar entry of the named sequence on m
+// that carries a legacy prompt item selector ("#prompts/" / ":prompts/") to the
+// skills section, preserving the selector's separator. A missing/non-sequence
+// node is a no-op.
+func rewriteSeqSkillSelectors(m *yaml.Node, key string) {
+	seq := upgrade.MapValue(m, key)
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, item := range seq.Content {
+		if item.Kind != yaml.ScalarNode {
+			continue
+		}
+		for _, sep := range []string{"#prompts/", ":prompts/"} {
+			if strings.Contains(item.Value, sep) {
+				item.Value = strings.Replace(item.Value, sep, sep[:1]+"skills/", 1)
+				break
+			}
+		}
+	}
+}
+
+// defaultAgentUpgrade is the v5→v6 config upgrade: profiles.defaults was RETIRED
+// in favor of an always-bound DEFAULT AGENT. A pre-v6 config's default profile
+// list is preserved (not dropped — this is lossless) by synthesizing an agent
+// named "default" that composes exactly those profiles, pointing default_agent
+// at it, and carrying the primary LLM label as the agent's engine so the bare
+// `ctxloom run` binds the same engine it used to. It is a comment-preserving
+// yaml.Node rewrite (via the shared upgrade helpers), modeled on migrateProfilesV3.
+//
+// The moves:
+//
+//   - profiles.defaults (a seq) → agents.default.profiles (the seq node moves so
+//     its per-item comments ride along).
+//   - llm.defaults.primary value → agents.default.engine (when present), so the
+//     synthesized default agent launches the same backend profiles.defaults did.
+//   - agents.default.runtime: host (the implicit pre-agent default).
+//   - default_agent: default (top level).
+//   - delete profiles.defaults; prune an emptied profiles: map; set version 6.
+//
+// No-clobber: an existing agents.default or a set default_agent is left intact —
+// stamping the version alone is a valid upgrade for a config that already carries
+// the new shape.
+type defaultAgentUpgrade struct{}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (defaultAgentUpgrade) Name() string { return "profiles.defaults → default agent (v5→v6)" }
+
+// Apply performs the reshape and stamps version 6, a no-op once at version 6+.
+func (defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
+	if upgrade.Version(root, versionKey) >= 6 {
+		return false
+	}
+
+	migrateDefaultAgentV6(root)
+
+	upgrade.SetVersion(root, versionKey, 6)
+	return true
+}
+
+// migrateDefaultAgentV6 synthesizes agents.default + default_agent from a legacy
+// profiles.defaults seq (see defaultAgentUpgrade). A config with no
+// profiles.defaults is left untouched (the version stamp alone upgrades it).
+func migrateDefaultAgentV6(root *yaml.Node) {
+	prof := upgrade.MapValue(root, "profiles")
+	if prof == nil || prof.Kind != yaml.MappingNode {
+		return
+	}
+	defaultsSeq := upgrade.MapValue(prof, "defaults")
+	if defaultsSeq == nil {
+		return
+	}
+	// Always drop the retired key, even if we don't synthesize (e.g. it collides
+	// with an existing agents.default) — profiles.defaults is no longer valid.
+	upgrade.MapDelete(prof, "defaults")
+	if len(prof.Content) == 0 {
+		upgrade.MapDelete(root, "profiles")
+	}
+
+	agentsMap := upgrade.EnsureMap(root, "agents")
+	// Don't clobber a hand-authored agents.default; the user's binding wins.
+	if upgrade.MapValue(agentsMap, "default") == nil {
+		entry := upgrade.EnsureMap(agentsMap, "default")
+		// engine ← llm.defaults.primary (when present), so the synthesized default
+		// agent launches the same backend the retired defaults did.
+		if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
+			if roleDefaults := upgrade.MapValue(llm, "defaults"); roleDefaults != nil && roleDefaults.Kind == yaml.MappingNode {
+				if p := upgrade.MapValue(roleDefaults, "primary"); p != nil && p.Kind == yaml.ScalarNode && p.Value != "" {
+					upgrade.MapSet(entry, "engine", upgrade.ScalarNode(p.Value))
+				}
+			}
+		}
+		// Move the defaults seq node itself so its item comments survive.
+		upgrade.MapSet(entry, "profiles", defaultsSeq)
+		upgrade.MapSet(entry, "runtime", upgrade.ScalarNode("host"))
+	}
+
+	// Point default_agent at the synthesized (or pre-existing) default agent,
+	// unless the user already set one.
+	if upgrade.MapValue(root, "default_agent") == nil {
+		upgrade.MapSet(root, "default_agent", upgrade.ScalarNode("default"))
 	}
 }

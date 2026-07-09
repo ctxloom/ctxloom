@@ -10,14 +10,14 @@
 package projectroot
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // EnvVar is the project-root override variable. Documented in docs/environment.md
@@ -61,7 +61,7 @@ func FromEnv(fs afero.Fs) (string, bool) {
 	root, ok, rawInvalid := resolve(fs)
 	if rawInvalid != "" {
 		warnOnce.Do(func() {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s=%q is not a valid directory; ignoring it and falling back to git root / current directory\n", EnvVar, rawInvalid)
+			clidiag.Warn("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
 		})
 	}
 	return root, ok
@@ -86,4 +86,21 @@ func WorkDir() string {
 		return cwd
 	}
 	return "."
+}
+
+// RootFromFallback reports whether WorkDir resolved to the bare cwd fallback —
+// no valid CTXLOOM_ROOT override and not inside a git repository. `ctxloom run`
+// warns in this case: a cwd-rooted project keys its identity, and with it the
+// tasks, plans, and sessions under ~/.ctxloom, off the launch directory rather
+// than a stable repo root. They neither follow the directory if it moves nor
+// resume from a launch one level up or down. It mirrors WorkDir's branches and,
+// like WorkDir, runs against the OS filesystem and real git/cwd detection.
+func RootFromFallback() bool {
+	if _, ok := FromEnv(afero.NewOsFs()); ok {
+		return false
+	}
+	if _, err := gitutil.FindRoot("."); err == nil {
+		return false
+	}
+	return true
 }

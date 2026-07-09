@@ -1,8 +1,8 @@
 package grpc
 
 import (
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file holds the Go<->proto converters for the host-assembled
@@ -20,7 +20,7 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 		return nil
 	}
 	return &ManagedConfig{
-		Prompts:          commandExportsToProto(m.Prompts),
+		Skills:           commandExportsToProto(m.Skills),
 		Hooks:            hooksConfigToProto(m.Hooks),
 		Mcp:              mcpConfigToProto(m.MCP),
 		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
@@ -35,7 +35,7 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 		return nil
 	}
 	return &agent.ManagedConfig{
-		Prompts:          commandExportsFromProto(m.GetPrompts()),
+		Skills:           commandExportsFromProto(m.GetSkills()),
 		Hooks:            hooksConfigFromProto(m.GetHooks()),
 		MCP:              mcpConfigFromProto(m.GetMcp()),
 		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),

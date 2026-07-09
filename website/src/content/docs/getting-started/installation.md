@@ -46,9 +46,9 @@ curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/instal
 ```
 
 The script also installs the companions [taskloom](https://github.com/ctxloom/taskloom)
-and [ltk](https://github.com/ctxloom/llm-tool-killer) (opt out:
-`--no-companions`, `--no-taskloom`, `--no-ltk`). With Homebrew available,
-delegate the whole install to brew — no unsigned-binary trust steps:
+and [ltk](/ecosystem/llm-tool-killer/). With Homebrew available, delegate the
+whole install to brew (`--brew` is the script's only flag) — no unsigned-binary
+trust steps:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash -s -- --brew
@@ -74,6 +74,10 @@ bash install.sh
 ```powershell
 irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
 ```
+
+The PowerShell script also installs the companions taskloom and ltk. To opt
+out, download the script and run it with `-NoCompanions` (or individually,
+`-NoTaskloom` / `-NoLtk`).
 
 Or download and review first:
 
@@ -164,13 +168,8 @@ For development or to get the latest unreleased features. Also the most secure o
 
 ### Prerequisites
 
-- Go 1.21+
-- [Protocol Buffers](https://protobuf.dev/downloads/) compiler (`protoc`)
-- Go protobuf plugins:
-  ```bash
-  go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-  ```
+- Go 1.25+
+- [buf](https://buf.build/docs/installation) for protobuf code generation
 - [just](https://github.com/casey/just) command runner (optional)
 - C compiler (required for CGO/tree-sitter support)
 
@@ -182,25 +181,27 @@ git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 
 # Generate protobuf files
-go generate ./...
+buf generate
 
 # Build
-just build
-# or: go build -ldflags "-s -w" -o ctxloom .
+go build -ldflags "-s -w" -o ctxloom .
 
 # Install
 sudo mv ctxloom /usr/local/bin/
 ```
 
-### Go Install (requires protobuf tools)
+`just build` produces the full build (tree-sitter and friends) inside the
+project devcontainer — it needs Docker or Podman on the host.
 
-If you have Go 1.21+ and protobuf tools installed:
+### Go Install (requires buf)
+
+If you have Go 1.25+ and buf installed:
 
 ```bash
 # Clone, generate, and install
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
-go generate ./...
+buf generate
 go install .
 ```
 
@@ -214,9 +215,8 @@ export PATH=$PATH:$(go env GOPATH)/bin
 
 | Command | Description |
 |---------|-------------|
-| `just build` | Build ctxloom binary |
-| `just install` | Build and install to `~/go/bin` |
-| `just install-local` | Build and install to `~/.local/bin` |
+| `just build` | Build the ctxloom binary (in the devcontainer) |
+| `just install` | Build and install ctxloom, ltk, and taskloom to `~/go/bin` |
 | `just test` | Run all tests |
 
 ## Verify Installation
@@ -287,7 +287,7 @@ irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 |
 ```bash
 cd ctxloom
 git pull
-go generate ./...
+buf generate
 go install .
 ```
 
@@ -357,7 +357,7 @@ Building from source avoids Gatekeeper entirely since the binary is created loca
 ```bash
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
-go generate ./...
+buf generate
 go install .
 ```
 

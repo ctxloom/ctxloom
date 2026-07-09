@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // regenTestApp creates a project layout (appDir with a bundles dir) and a
@@ -53,12 +53,13 @@ fragments:
 `)
 
 	cfg := &config.Config{
-		AppPaths: []string{appDir},
+		AppPaths:     []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"default"},
 			Definitions: map[string]config.Profile{
 				"default": {
-					Tags:             []string{"security"},
+					SelectTags:       []string{"security"},
 					ExcludeFragments: []string{"banned"},
 				},
 			},
@@ -76,48 +77,40 @@ fragments:
 		"a fragment excluded by the profile must not be injected at SessionStart")
 }
 
-// TestRegenerateContext_InheritsHomeDefaults pins the EnsureDefaultProfiles
-// call: ApplyHooks reloads a fresh config, so a project that inherits its
-// defaults.profiles from the HOME config must still regenerate a non-empty
-// context — the old code iterated cfg.GetDefaultProfiles() without the
-// inheritance step and wrote nothing.
-func TestRegenerateContext_InheritsHomeDefaults(t *testing.T) {
-	home := testsupport.Isolate(t)
-	homeApp := filepath.Join(home, ".ctxloom")
-	require.NoError(t, os.MkdirAll(homeApp, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(homeApp, "config.yaml"),
-		[]byte("profiles:\n  defaults:\n    - homeprof\n"), 0o644))
-
+// TestRegenerateContext_UsesDefaultAgentProfiles pins that the regenerate path
+// reads the default AGENT's composed profiles (Config.DefaultAgentProfiles —
+// profiles.defaults and its home-inheritance were retired) and regenerates a
+// non-empty injected context from them.
+func TestRegenerateContext_UsesDefaultAgentProfiles(t *testing.T) {
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "dev", `version: "1.0"
 fragments:
   rules:
     tags: ["go"]
-    content: "HOME-PROFILE-CONTENT"
+    content: "DEFAULT-AGENT-CONTENT"
 `)
-	// TWO directory profiles, so the single-installed-profile fallback cannot
-	// mask a missing inheritance step.
+	// TWO directory profiles, so nothing masks the default-agent selection.
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "homeprof.yaml"),
-		[]byte("description: home default\ntags: [go]\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "devprof.yaml"),
+		[]byte("description: dev default\nselect_tags: [go]\nbundles: [dev]\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "other.yaml"),
 		[]byte("description: unrelated\n"), 0o644))
 
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := &config.Config{
+		AppPaths:     []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"devprof"}}},
+	}
 
 	hash, err := regenerateContext(cfg, workDir, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash,
-		"home-inherited default profiles must produce a non-empty injected context")
+		"the default agent's profiles must produce a non-empty injected context")
 
 	content, err := agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)
-	assert.Contains(t, content, "HOME-PROFILE-CONTENT")
-
-	// And the inheritance stays run-only even here.
-	assert.Empty(t, cfg.ExplicitDefaultProfiles(),
-		"inherited defaults must not become explicit project defaults")
+	assert.Contains(t, content, "DEFAULT-AGENT-CONTENT")
 }
 
 // TestRegenerateContext_NoDuplicateFragmentContent pins the dedupe half of the
@@ -135,12 +128,13 @@ fragments:
 `)
 
 	cfg := &config.Config{
-		AppPaths: []string{appDir},
+		AppPaths:     []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"default"},
 			Definitions: map[string]config.Profile{
 				// Both the tag AND the whole bundle reference the same fragment.
-				"default": {Tags: []string{"go"}, Bundles: []string{"dev"}},
+				"default": {SelectTags: []string{"go"}, Bundles: []string{"dev"}},
 			},
 		},
 	}
@@ -155,25 +149,20 @@ fragments:
 		"a fragment reachable via tag and bundle must be injected once")
 }
 
-// TestUpdateProfile_ValidationFailureLeavesConfigUntouched pins the
-// validate-then-mutate ordering: a failed AddParents validation must leave the
-// in-memory default-profile change unapplied, or a later unrelated cfg.Save()
-// would persist it.
-func TestUpdateProfile_ValidationFailureLeavesConfigUntouched(t *testing.T) {
+// TestUpdateProfile_ValidationFailureIsRejected pins the validate-then-mutate
+// ordering: a bad AddParents validation fails the update up front, before any
+// profile write.
+func TestUpdateProfile_ValidationFailureIsRejected(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs, "/profiles/base.yaml",
 		[]byte("description: base\n"), 0o644))
 	loader := profiles.NewLoader([]string{"/profiles"}, profiles.WithFS(fs))
 	cfg := &config.Config{AppPaths: []string{"/app"}}
 
-	def := true
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
-		Default:    &def,
 		AddParents: []string{"missing-parent"},
 		Loader:     loader,
 	})
 	require.Error(t, err)
-	assert.False(t, cfg.Profiles.IsDefaultProfile("base"),
-		"a failed update must not leave the default-flag mutation in cfg")
 }

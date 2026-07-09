@@ -39,7 +39,7 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(GetItemResult{})},
 		{Type: reflect.TypeOf(GetProfileContentResult{})},
 		{Type: reflect.TypeOf(GetProfileResult{})},
-		{Type: reflect.TypeOf(GetPromptResult{})},
+		{Type: reflect.TypeOf(GetSkillResult{})},
 		{Type: reflect.TypeOf(HarnessStatusResult{})},
 		{Type: reflect.TypeOf(ImportBundleResult{})},
 		{Type: reflect.TypeOf(ImportProfileResult{})},
@@ -48,7 +48,7 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(ListFragmentsResult{})},
 		{Type: reflect.TypeOf(ListMCPServersResult{})},
 		{Type: reflect.TypeOf(ListProfilesResult{})},
-		{Type: reflect.TypeOf(ListPromptsResult{})},
+		{Type: reflect.TypeOf(ListSkillsResult{})},
 		{Type: reflect.TypeOf(ListRemotesResult{})},
 		{Type: reflect.TypeOf(LockDependenciesResult{})},
 		{Type: reflect.TypeOf(PullItemResult{})},
@@ -74,6 +74,7 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(UpdateProfileResult{})},
 		{Type: reflect.TypeOf(UpdateRemoteResult{})},
 		{Type: reflect.TypeOf(WeaveResult{})},
+		{Type: reflect.TypeOf(MapProfilesResult{})},
 		{Type: reflect.TypeOf(Part{})},
 	}
 }

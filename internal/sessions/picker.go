@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Decision is what the picker returns: either resume an existing session,
@@ -67,7 +67,13 @@ func (p *Picker) Run() (Decision, error) {
 	p.initCheckboxes()
 
 	// Special case: empty index → fall through to NewAction immediately.
-	if len(p.visible()) == 0 {
+	// Gate on Entries, NOT visible(): when the index has entries but all of them
+	// are beyond the current horizon, visible() is empty yet we must still enter
+	// the render/handle loop so the "(N older sessions hidden; press m to
+	// reveal)" hint shows and `m` can expand the horizon — otherwise a project
+	// whose most-recent session predates the horizon could never reach its own
+	// indexed sessions. render() and the prompt tolerate zero visible rows.
+	if len(p.Entries) == 0 {
 		return Decision{Action: NewAction}, nil
 	}
 
@@ -355,12 +361,13 @@ func (p *Picker) render() {
 			p.renderRawRow(w, i+1, entryIdx, e)
 			continue
 		}
-		w.Printf(" [%d] [s%s] [t%s] %s   %s\n",
+		w.Printf(" [%d] [s%s] [t%s] %s   %s%s\n",
 			i+1,
 			checkbox(p.checkSession[entryIdx]),
 			checkbox(p.checkTasks[entryIdx]),
 			e.HarpName,
 			e.StartedAt.Local().Format("2006-01-02 15:04"),
+			staleMarker(e),
 		)
 		if e.Summary != "" {
 			w.Printf("       session: %s\n", e.Summary)
@@ -409,6 +416,16 @@ func shortSessionID(id string) string {
 		return id
 	}
 	return id[:8] + "…"
+}
+
+// staleMarker returns the " ⚠ out of date" suffix for a row whose distilled
+// essence is older than its source transcript, or "" when the essence is current
+// or staleness can't be determined (never distilled, no transcript, stat fails).
+func staleMarker(e Entry) string {
+	if stale, known := e.SourceStale(); known && stale {
+		return "  ⚠ out of date"
+	}
+	return ""
 }
 
 func checkbox(checked bool) string {

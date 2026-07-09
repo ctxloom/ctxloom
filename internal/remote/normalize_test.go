@@ -37,7 +37,6 @@ func TestCanonicalKey(t *testing.T) {
 	}{
 		{"https://github.com/o/r@bundles/demo@abc123", "https://github.com/o/r@bundles/demo", true},
 		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo", true},
-		{"https://github.com/o/r@profiles/dev@v1.2.0", "https://github.com/o/r@profiles/dev", true},
 		{"https://github.com/o/r@bundles/demo", "https://github.com/o/r@bundles/demo", true},
 		{"ctxloom:local@bundles/demo@rev1", "ctxloom:local@bundles/demo", true},
 		{"plain-local-name", "", false},
@@ -90,13 +89,41 @@ func TestCanonicalFragmentRef(t *testing.T) {
 		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
 		// No fragment selector → unchanged (bare names, prompt selectors).
 		{"x", "x"},
-		{"dev#prompts/x", "dev#prompts/x"},
+		{"dev#skills/x", "dev#skills/x"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			if got := CanonicalFragmentRef(tt.input); got != tt.want {
 				t.Errorf("CanonicalFragmentRef(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitPromptVersion(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantCanon   string
+		wantVersion string
+	}{
+		// Trailing "@<commit>" (the name-addressed CLI/resource form).
+		{"dev#skills/x@c1", "ctxloom:local@bundles/dev#skills/x", "c1"},
+		{"https://github.com/o/r@bundles/demo#skills/x@abc123", "https://github.com/o/r@bundles/demo#skills/x", "abc123"},
+		// Version on the bundle part is also honored.
+		{"https://github.com/o/r@bundles/demo@abc123#skills/x", "https://github.com/o/r@bundles/demo#skills/x", "abc123"},
+		// Unversioned qualified ref → canonicalized, empty version.
+		{"dev#skills/x", "ctxloom:local@bundles/dev#skills/x", ""},
+		// No skill selector → unchanged, empty version (bare names, fragment selectors).
+		{"x", "x", ""},
+		{"dev#fragments/x", "dev#fragments/x", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			canon, version := SplitPromptVersion(tt.input)
+			if canon != tt.wantCanon || version != tt.wantVersion {
+				t.Errorf("SplitPromptVersion(%q) = (%q, %q), want (%q, %q)",
+					tt.input, canon, version, tt.wantCanon, tt.wantVersion)
 			}
 		})
 	}

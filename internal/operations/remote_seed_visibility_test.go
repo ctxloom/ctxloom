@@ -17,11 +17,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// seedRemoteFixture builds a real git repo carrying one profile and one bundle,
-// locks both in a fresh appDir's lockfile, and returns the cfg plus the
-// canonical refs. This is the full reference-only remote path: content lives
-// only in the clone cache at the locked SHA, so it is visible exclusively
-// through the lockfile-built seeds.
+// seedRemoteFixture builds a real git repo carrying one bundle that SHIPS a
+// bundle profile (`profiles:` item), locks the bundle in a fresh appDir's
+// lockfile, and returns the cfg plus the canonical refs (the bundle-profile ref
+// is <bundle>#profiles/dev). This is the full reference-only remote path:
+// content lives only in the clone cache at the locked SHA, visible exclusively
+// through the lockfile-built bundle seed. (Top-level @profiles/ distribution was
+// retired — profiles arrive only inside bundles.)
 func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef string) {
 	t.Helper()
 	testsupport.Isolate(t)
@@ -32,16 +34,11 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "ctxloom", "profiles"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "ctxloom", "bundles"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctxloom", "profiles", "dev.yaml"),
-		[]byte("description: remote dev profile\ntags: [go]\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctxloom", "bundles", "tools.yaml"),
-		[]byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
-	for _, f := range []string{"ctxloom/profiles/dev.yaml", "ctxloom/bundles/tools.yaml"} {
-		_, err = wt.Add(f)
-		require.NoError(t, err)
-	}
+		[]byte("version: 1.0.0\ndescription: remote tools bundle\nprofiles:\n  dev:\n    description: remote dev profile\n    tags: [go]\n"), 0o644))
+	_, err = wt.Add("ctxloom/bundles/tools.yaml")
+	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
 		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
 	})
@@ -55,9 +52,8 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	lock, err := lm.Load()
 	require.NoError(t, err)
 	entry := remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()}
-	profileRef = repoURL + "@profiles/dev"
 	bundleRef = repoURL + "@bundles/tools"
-	lock.AddEntry(remote.ItemTypeProfile, profileRef, entry)
+	profileRef = bundleRef + "#profiles/dev"
 	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
 	require.NoError(t, lm.Save(lock))
 

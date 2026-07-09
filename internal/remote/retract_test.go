@@ -114,6 +114,48 @@ retracted:
 		assert.False(t, retracted)
 	})
 
+	t.Run("unversioned request not flagged by a versioned retraction", func(t *testing.T) {
+		// A specific version is retracted but the caller installs "latest"
+		// (ContentVersion empty). The retracted version is not necessarily the
+		// tip, so this must NOT be reported as retracted.
+		mf := newMockFetcher()
+		mf.defaultBranch = "main"
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
+version: 1
+retracted:
+  - type: bundle
+    name: security
+    version: v1.0.0
+    reason: "Broken in v1.0.0"
+`)
+
+		ref := &Reference{Path: "security", ContentVersion: ""}
+		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+
+		require.NoError(t, err)
+		assert.False(t, retracted)
+		assert.Empty(t, reason)
+	})
+
+	t.Run("versioned request not flagged by a different retracted version", func(t *testing.T) {
+		mf := newMockFetcher()
+		mf.defaultBranch = "main"
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
+version: 1
+retracted:
+  - type: bundle
+    name: security
+    version: v1.0.0
+    reason: "Broken in v1.0.0"
+`)
+
+		ref := &Reference{Path: "security", ContentVersion: "v2.0.0"}
+		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
+
+		require.NoError(t, err)
+		assert.False(t, retracted)
+	})
+
 	t.Run("handles invalid YAML gracefully", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"

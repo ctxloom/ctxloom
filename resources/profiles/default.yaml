@@ -1,0 +1,12 @@
+version: "1.0.0"
+description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom agent setup` re-enters that interview any time."
+tags:
+  - default
+# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
+# remote reference. It composes ctxloom-default's `default` and `developer`
+# bundle profiles (baseline conduct/practice + developer coding practices), so
+# the seeded default is a real coding profile you can extend, set as the
+# orchestrating/developer member, or split into tighter per-role profiles.
+parents:
+  - https://github.com/ctxloom/ctxloom-default@bundles/default@branch:main#profiles/default
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer

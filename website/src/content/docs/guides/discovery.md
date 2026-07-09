@@ -2,7 +2,7 @@
 title: "Discovering Remote Repositories"
 ---
 
-ctxloom can search GitHub and GitLab to find repositories containing bundles and profiles you can use.
+ctxloom can search GitHub to find repositories containing bundles you can use.
 
 ## Quick Start
 
@@ -19,19 +19,16 @@ ctxloom remote discover --stars 10
 
 ## How Discovery Works
 
-ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub and GitLab. It validates that discovered repositories have the proper `ctxloom/` structure before showing them.
+ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub. It validates that discovered repositories have the proper `ctxloom/` structure before showing them.
 
 ### Search Sources
 
 ```bash
-# Search both GitHub and GitLab (default)
+# Search all sources (default; only GitHub is currently searchable)
 ctxloom remote discover
 
-# GitHub only
+# GitHub explicitly
 ctxloom remote discover --source github
-
-# GitLab only
-ctxloom remote discover --source gitlab
 ```
 
 ### Filtering Results
@@ -60,9 +57,9 @@ ctxloom remote discover [query] [flags]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--source` | `-s` | `all` | Search source: `github`, `gitlab`, or `all` |
+| `--source` | `-s` | `all` | Search source: `github` or `all` (only GitHub is searchable) |
 | `--stars` | | `0` | Minimum star count filter |
-| `--limit` | `-n` | `30` | Maximum results per source |
+| `--limit` | `-n` | `30` | Maximum results |
 
 ## Interactive Workflow
 
@@ -75,7 +72,7 @@ Searching repositories... found 5
 ────┼────────┼─────────────────────┼───────┼─────────────────────────────────────
   1 │ GitHub │ alice/ctxloom-golang    │   142 │ Go development context bundles
   2 │ GitHub │ corp/ctxloom-security   │    89 │ Security-focused prompts and...
-  3 │ GitLab │ team/ctxloom-internal   │    34 │ Internal development standards
+  3 │ GitHub │ team/ctxloom-internal   │    34 │ Internal development standards
   4 │ GitHub │ bob/ctxloom-python      │    28 │ Python tooling fragments
   5 │ GitHub │ dev/ctxloom-testing     │    15 │ Testing patterns and practices
 
@@ -112,8 +109,10 @@ ctxloom profile create go-dev -b golang-bundles/go-testing
 # Or consume a single fragment of a bundle
 ctxloom profile create go-dev -b golang-bundles/testing#fragments/table-driven
 
-# Inherit a remote profile
-ctxloom profile create go-dev --parent golang-bundles/go-developer
+# Inherit a profile shipped inside a remote bundle (parents take a local
+# profile name or the bundle-qualified canonical URL)
+ctxloom profile create go-dev \
+  --parent 'https://github.com/alice/ctxloom-golang@bundles/dev-bundle#profiles/go-developer'
 
 # Fetch everything your profiles reference and update the lockfile
 ctxloom remote pull
@@ -124,12 +123,12 @@ ctxloom remote pull
 Reference remote content for a single run without authoring a profile:
 
 ```bash
-# Use a remote profile
-ctxloom run -p golang-bundles/go-developer "help me"
-
 # Use a remote fragment
 ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
 ```
+
+Remote profiles ship inside bundles. To run one, create a local profile that
+inherits it (as above), then `ctxloom run -p go-dev`.
 
 ### Reference in Profiles
 
@@ -137,39 +136,43 @@ ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
 # .ctxloom/profiles/my-profile.yaml
 description: My Go development profile
 parents:
-  - golang-bundles/go-developer
+  - https://github.com/alice/ctxloom-golang@bundles/dev-bundle#profiles/go-developer
 bundles:
   - my-local-additions
 ```
 
 ## Authentication
 
-For private repositories or to avoid rate limits, set authentication tokens:
+For private repositories or to avoid rate limits, set a GitHub token:
 
 ```bash
-# GitHub
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+```
 
-# GitLab
-export GITLAB_TOKEN=glpat-xxxxxxxxxxxx
+Non-GitHub hosts (GitLab, self-hosted git) are not searchable, but you can
+still add them as remotes. Any non-GitHub URL resolves to the generic git
+forge, which clones with your ambient git credentials:
+
+```bash
+ctxloom remote add internal https://gitlab.example.com/team/ctxloom-internal
 ```
 
 ## MCP Server Integration
 
-The discovery feature is also available as an MCP tool:
+Repository discovery (`ctxloom remote discover`) is CLI-only. Once remotes
+are added, AI assistants can search their content through the `search_library`
+MCP tool, which reads the local git clones of your configured remotes and
+returns a `pull_ref` for each match:
 
 ```json
 {
-  "tool": "discover_remotes",
+  "tool": "search_library",
   "arguments": {
     "query": "python",
-    "source": "github",
-    "min_stars": 5
+    "item_type": "bundle"
   }
 }
 ```
-
-This enables AI assistants to help you find and add relevant bundles during your workflow.
 
 ## Tips
 

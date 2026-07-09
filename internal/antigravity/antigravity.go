@@ -1,0 +1,706 @@
+// Package antigravity is ctxloom's Antigravity CLI (agy) agent: the
+// settings/hooks writer that implements agent.SettingsWriter, plus the launch
+// backend and the PreToolUse hook wire types other tools (ltk) consume.
+//
+// Antigravity splits workspace configuration across two files under .agents/:
+// hooks.json (lifecycle hooks, Claude-style nested shape with PreToolUse /
+// PostToolUse / Stop events) and mcp_config.json (MCP servers). Behavior here
+// follows the verified agy v1.0.7 contract — see the wire types in
+// hooks_wire.go for the verified payload/decision shapes.
+package antigravity
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+)
+
+// NewWriter constructs the Antigravity CLI settings writer.
+func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
+	return &AntigravityHookWriter{FS: o.FS}
+}
+
+// AppMCPServerName is the name under which ctxloom's own MCP server is
+// registered in Antigravity's mcp_config.json.
+const AppMCPServerName = agent.MCPServerName
+
+// AgentsDir is the workspace directory Antigravity reads configuration from.
+// It is shared territory: agy also writes subagent scratch space under it, and
+// other tools use .agents/ too — ctxloom only manages hooks.json and
+// mcp_config.json inside it.
+const AgentsDir = ".agents"
+
+// antigravityCtxloomHookName marks a hook entry as ctxloom-managed in the
+// durable (serialized) name field. agy tolerates and preserves the field
+// (verified v1.0.7: a named entry loads and fires, reported as a "named hook").
+const antigravityCtxloomHookName = "ctxloom-managed"
+
+// AntigravityHookWriter writes hooks to Antigravity CLI's .agents/hooks.json
+// and MCP servers to .agents/mcp_config.json.
+type AntigravityHookWriter struct {
+	// FS is the filesystem to use. If nil, the real OS filesystem is used.
+	FS afero.Fs
+}
+
+// getFS returns the filesystem to use, defaulting to the OS filesystem.
+func (w *AntigravityHookWriter) getFS() afero.Fs {
+	return agent.GetFS(w.FS)
+}
+
+// WorkspaceHooksPath returns the workspace-level .agents/hooks.json path —
+// the only place agy v1.0.7 reads hooks from. Exported for companion tools
+// (ltk) that manage hooks in the same file, so the path convention has a
+// single source of truth.
+func WorkspaceHooksPath(dir string) string {
+	return filepath.Join(dir, AgentsDir, "hooks.json")
+}
+
+// SettingsPath returns the path to Antigravity's project-level hooks.json file
+// (the settings file ctxloom manages for Antigravity). There is no usable
+// global location in agy v1.0.7: ~/.gemini/antigravity-cli/hooks.json is
+// silently ignored, and a hooks.json under ~/.gemini/ or ~/.gemini/config/
+// hangs headless agy before any hook executes.
+func (w *AntigravityHookWriter) SettingsPath(projectDir string) string {
+	return WorkspaceHooksPath(projectDir)
+}
+
+// MCPConfigPath returns the path to Antigravity's project-level
+// mcp_config.json file. agy reads MCP servers from this dedicated file, not
+// from hooks.json or settings.json.
+func (w *AntigravityHookWriter) MCPConfigPath(projectDir string) string {
+	return filepath.Join(projectDir, AgentsDir, "mcp_config.json")
+}
+
+// antigravityHooksFile represents the structure of .agents/hooks.json.
+type antigravityHooksFile struct {
+	Hooks map[string][]antigravityHookGroup `json:"hooks,omitempty"`
+	// Preserve other top-level fields.
+	Other map[string]json.RawMessage `json:"-"`
+}
+
+// antigravityHookGroup is one entry in a hook event array: a matcher (a regex
+// over agy tool names, e.g. "run_command|write_to_file") plus the command
+// hooks that fire for it. This nested event → group → hooks[] shape is the
+// verified agy schema. Unknown per-group fields a future agy adds are captured
+// in extra on load and merged back on save, so a rewrite never drops them.
+type antigravityHookGroup struct {
+	Matcher string                 `json:"matcher,omitempty"`
+	Hooks   []antigravityHookEntry `json:"hooks"`
+
+	// extra holds unknown per-group fields for round-trip preservation.
+	extra map[string]json.RawMessage
+}
+
+// antigravityHookGroupShape mirrors antigravityHookGroup's known fields
+// without its methods, for recursion-free (un)marshalling.
+type antigravityHookGroupShape antigravityHookGroup
+
+// UnmarshalJSON decodes the known fields and captures unknown keys in extra.
+func (g *antigravityHookGroup) UnmarshalJSON(data []byte) error {
+	var shape antigravityHookGroupShape
+	if err := json.Unmarshal(data, &shape); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	delete(raw, "matcher")
+	delete(raw, "hooks")
+	*g = antigravityHookGroup(shape)
+	if len(raw) > 0 {
+		g.extra = raw
+	}
+	return nil
+}
+
+// MarshalJSON emits the known fields, merged with any preserved unknown keys.
+// Known fields win on a key collision (extra never overrides them).
+func (g antigravityHookGroup) MarshalJSON() ([]byte, error) {
+	return marshalWithExtra(antigravityHookGroupShape(g), g.extra)
+}
+
+// antigravityHookEntry is a single command hook. agy requires type:"command".
+// name is a durable field agy preserves, used to identify ctxloom-managed
+// entries for clean removal. The timeout field is deliberately never written:
+// agy v1.0.7 does not document its unit, and a seconds/milliseconds mismatch
+// would silently break hooks — agy's own default applies instead. An existing
+// user-set timeout round-trips untouched. Unknown per-entry fields are
+// captured in extra on load and merged back on save (see antigravityHookGroup).
+type antigravityHookEntry struct {
+	Type    string `json:"type"`
+	Command string `json:"command,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
+
+	// extra holds unknown per-entry fields for round-trip preservation.
+	extra map[string]json.RawMessage
+}
+
+// antigravityHookEntryShape mirrors antigravityHookEntry's known fields
+// without its methods, for recursion-free (un)marshalling.
+type antigravityHookEntryShape antigravityHookEntry
+
+// UnmarshalJSON decodes the known fields and captures unknown keys in extra.
+func (e *antigravityHookEntry) UnmarshalJSON(data []byte) error {
+	var shape antigravityHookEntryShape
+	if err := json.Unmarshal(data, &shape); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for _, known := range []string{"type", "command", "name", "timeout"} {
+		delete(raw, known)
+	}
+	*e = antigravityHookEntry(shape)
+	if len(raw) > 0 {
+		e.extra = raw
+	}
+	return nil
+}
+
+// MarshalJSON emits the known fields, merged with any preserved unknown keys.
+func (e antigravityHookEntry) MarshalJSON() ([]byte, error) {
+	return marshalWithExtra(antigravityHookEntryShape(e), e.extra)
+}
+
+// marshalWithExtra marshals shape, merging extra's unknown keys into the
+// object. Without extras the shape marshals as-is, so entries ctxloom itself
+// writes keep their exact current byte shape (canonicalization downstream is
+// unchanged either way — agent.CanonicalJSON re-sorts keys recursively).
+func marshalWithExtra(shape any, extra map[string]json.RawMessage) ([]byte, error) {
+	known, err := json.Marshal(shape)
+	if err != nil {
+		return nil, err
+	}
+	if len(extra) == 0 {
+		return known, nil
+	}
+	merged := make(map[string]json.RawMessage, len(extra)+4)
+	if err := json.Unmarshal(known, &merged); err != nil {
+		return nil, err
+	}
+	for k, v := range extra {
+		if _, ok := merged[k]; !ok {
+			merged[k] = v
+		}
+	}
+	return json.Marshal(merged)
+}
+
+// antigravityMCPFile represents the structure of .agents/mcp_config.json.
+// Server entries are kept raw so fields ctxloom doesn't model (serverUrl for
+// remote servers, headers, future additions) survive a rewrite byte-for-byte.
+// WriteSettings implements SettingsWriter for Antigravity CLI: hooks to
+// hooks.json, MCP servers to mcp_config.json.
+//
+// CAUTION carried from live verification: a registered stdio MCP server whose
+// process cannot complete the MCP handshake hangs headless agy. ctxloom only
+// registers real MCP servers, but never write placeholder/dummy entries here.
+func (w *AntigravityHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+	if hooks == nil {
+		hooks = &wire.HooksConfig{}
+	}
+
+	fs := w.getFS()
+	hooksPath := w.SettingsPath(projectDir)
+
+	if err := fs.MkdirAll(filepath.Dir(hooksPath), 0755); err != nil {
+		return fmt.Errorf("failed to create %s directory: %w", AgentsDir, err)
+	}
+
+	hooksFile, err := w.loadHooksFile(hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to load existing hooks.json: %w", err)
+	}
+
+	w.removeCtxloomHooks(hooksFile)
+	contextHash := w.addUnifiedHooks(hooksFile, hooks.Unified)
+	if backendHooks, ok := hooks.Plugins["antigravity"]; ok {
+		w.addBackendHooks(hooksFile, backendHooks)
+	}
+
+	if err := w.saveHooksFile(hooksPath, hooksFile); err != nil {
+		return err
+	}
+
+	if err := w.reconcileManagedContext(projectDir, contextHash); err != nil {
+		return err
+	}
+
+	return w.mcpFile(projectDir).WriteServers(mcp, bundleMCP)
+}
+
+// loadHooksFile loads existing hooks.json or returns an empty structure.
+// Parse failures warn and continue with empty settings (fault-tolerance
+// contract: ctxloom never blocks launch on a schema change).
+func (w *AntigravityHookWriter) loadHooksFile(path string) (*antigravityHooksFile, error) {
+	hf := &antigravityHooksFile{
+		Hooks: make(map[string][]antigravityHookGroup),
+		Other: make(map[string]json.RawMessage),
+	}
+
+	fs := w.getFS()
+	data, err := afero.ReadFile(fs, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return hf, nil
+		}
+		return nil, err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		w.warn("failed to parse %s/hooks.json (schema may have changed): %v - ctxloom hooks will be added but existing entries may not be preserved", AgentsDir, err)
+		return hf, nil
+	}
+
+	if hooksRaw, ok := raw["hooks"]; ok {
+		if err := json.Unmarshal(hooksRaw, &hf.Hooks); err != nil {
+			w.warn("failed to parse hooks in hooks.json: %v - existing hooks may not be preserved", err)
+		}
+		delete(raw, "hooks")
+	}
+
+	hf.Other = raw
+	return hf, nil
+}
+
+// warn outputs a warning message to stderr.
+func (w *AntigravityHookWriter) warn(format string, args ...interface{}) {
+	agent.Warn(format, args...)
+}
+
+// saveHooksFile writes hooks.json back atomically.
+func (w *AntigravityHookWriter) saveHooksFile(path string, hf *antigravityHooksFile) error {
+	output := make(map[string]interface{})
+	for k, v := range hf.Other {
+		var val interface{}
+		if err := json.Unmarshal(v, &val); err != nil {
+			w.warn("failed to preserve hooks.json field %q: %v", k, err)
+			continue
+		}
+		output[k] = val
+	}
+
+	if len(hf.Hooks) > 0 {
+		output["hooks"] = hf.Hooks
+	}
+
+	if len(output) == 0 {
+		// Nothing to persist (no managed hooks, no preserved fields). Mirror
+		// saveMCPFile: never create a stray empty `{}` file — only rewrite/clear
+		// an existing one (e.g. RemoveSettings). For a context-only profile the
+		// injection hook is diverted to AGENTS.md, leaving hooks empty; agy
+		// treats an absent file and `{}` identically, so skip the write.
+		if exists, _ := afero.Exists(w.getFS(), path); !exists {
+			return nil
+		}
+	}
+
+	data, err := agent.CanonicalJSON(output)
+	if err != nil {
+		return fmt.Errorf("failed to marshal hooks.json: %w", err)
+	}
+	return agent.AtomicWriteFile(w.getFS(), path, data, "hooks.json")
+}
+
+// removeCtxloomHooks removes ctxloom-managed hooks, descending the
+// event → group → hooks[] shape. An entry is ctxloom-managed if its durable
+// name marker matches, or (defensively) its command's executable token is
+// ctxloom. Groups left with no entries are dropped, and events left with no
+// groups are removed.
+func (w *AntigravityHookWriter) removeCtxloomHooks(hf *antigravityHooksFile) {
+	for eventName, groups := range hf.Hooks {
+		var keptGroups []antigravityHookGroup
+		for _, g := range groups {
+			var keptEntries []antigravityHookEntry
+			for _, e := range g.Hooks {
+				if e.Name == antigravityCtxloomHookName || agent.IsManaged(e.Command, "ctxloom") {
+					continue
+				}
+				keptEntries = append(keptEntries, e)
+			}
+			if len(keptEntries) > 0 {
+				g.Hooks = keptEntries
+				keptGroups = append(keptGroups, g)
+			}
+		}
+		if len(keptGroups) > 0 {
+			hf.Hooks[eventName] = keptGroups
+		} else {
+			delete(hf.Hooks, eventName)
+		}
+	}
+}
+
+// Antigravity tool-name matchers for the scoped unified events. The matcher is
+// a regex over agy tool names (verified: alternation and ".*" both work).
+// Built from the hooks_wire.go tool-name constants so the matcher vocabulary
+// cannot drift from the verified wire vocabulary.
+const (
+	// antigravityShellMatcher scopes a hook to shell execution tools.
+	antigravityShellMatcher = ToolRunCommand + "|" + ToolExecuteCommand
+	// antigravityFileEditMatcher scopes a hook to file mutation tools.
+	antigravityFileEditMatcher = ToolWriteToFile + "|" + ToolReplaceFileContent
+)
+
+// addUnifiedHooks translates unified hooks to Antigravity's events and
+// returns the context hash when a context-injection hook was present.
+//
+// agy v1.0.7 loads PreToolUse, PostToolUse, and Stop handlers. SessionStart /
+// SessionEnd entries are written through verbatim: agy silently skips events
+// it doesn't support (verified — they don't load as handlers and don't error),
+// and they light up if a future agy adds the events. The one exception is the
+// context-injection hook (ContextHash set): registering it would silently
+// drop ctxloom's assembled context, so it is diverted — WriteSettings
+// materializes the context into .agents/AGENTS.md, which agy reads at
+// session start (verified). Chunked injection (N part-hooks for one hash) is
+// a hook-harness workaround; the file carries the whole content once.
+func (w *AntigravityHookWriter) addUnifiedHooks(hf *antigravityHooksFile, unified wire.UnifiedHooks) string {
+	// SessionStart cannot ride the shared route table: the context-injection
+	// hook is diverted to .agents/AGENTS.md and idempotent hooks divert to
+	// PreToolUse (see the doc comment above).
+	contextHash := ""
+	for _, h := range unified.SessionStart {
+		if h.ContextHash != "" {
+			contextHash = h.ContextHash
+			continue
+		}
+		// A hook declared idempotent falls back to PreToolUse (first tool
+		// call and after) — the only way it ever fires on agy. Diverted, not
+		// duplicated, so a future agy adding SessionStart can't double-fire.
+		if h.PreToolFallback {
+			hook := h
+			if hook.Matcher == "" {
+				hook.Matcher = ".*"
+			}
+			w.addHook(hf, "PreToolUse", hook)
+			continue
+		}
+		w.addHook(hf, "SessionStart", h)
+	}
+	agent.RouteUnifiedHooks([]agent.HookRoute{
+		{Hooks: unified.SessionEnd, Event: "SessionEnd"},
+		{Hooks: unified.PreTool, Event: "PreToolUse"},
+		{Hooks: unified.PostTool, Event: "PostToolUse"},
+		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: antigravityShellMatcher},
+		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: antigravityFileEditMatcher},
+	}, func(event string, h wire.Hook) {
+		w.addHook(hf, event, h)
+	})
+	return contextHash
+}
+
+// addBackendHooks adds backend-specific passthrough hooks.
+func (w *AntigravityHookWriter) addBackendHooks(hf *antigravityHooksFile, backendHooks wire.BackendHooks) {
+	for eventName, hooks := range backendHooks {
+		for _, h := range hooks {
+			w.addHook(hf, eventName, h)
+		}
+	}
+}
+
+// addHook adds a single hook for the given event in agy's nested
+// group → hooks[] shape with type:"command" and the ctxloom name marker.
+//
+// Only command hooks are written: agy executes type:"command" entries only,
+// and translating a prompt/agent hook here would mangle it into
+// {"type":"command","command":""} — a dead entry. Non-command hooks are
+// skipped with a warning (empty Type is the wire default and means command).
+func (w *AntigravityHookWriter) addHook(hf *antigravityHooksFile, eventName string, h wire.Hook) {
+	if h.Type != "" && h.Type != "command" {
+		w.warn("skipping %s hook of type %q: antigravity only supports command hooks", eventName, h.Type)
+		return
+	}
+
+	// Drop any surviving entry with this exact command before appending.
+	// removeCtxloomHooks only recognizes the name marker / ctxloom-token
+	// commands; an identical command installed by a companion binary itself
+	// (e.g. ltk registered `ltk evaluate ...` directly, without the marker)
+	// would otherwise fire twice. Exact match keeps user variants of the same
+	// binary with different args untouched — same semantics as the claude
+	// writer's removeExactCommand dedupe.
+	w.removeExactCommand(hf, eventName, h.Command)
+
+	entry := antigravityHookEntry{
+		Type:    "command",
+		Command: h.Command,
+		Name:    antigravityCtxloomHookName,
+	}
+	group := antigravityHookGroup{Matcher: h.Matcher, Hooks: []antigravityHookEntry{entry}}
+	hf.Hooks[eventName] = append(hf.Hooks[eventName], group)
+}
+
+// removeExactCommand drops every hook entry under eventName whose command is
+// exactly cmd, pruning emptied groups and events. Identity is the verbatim
+// command string: entries written by other tools carry no ctxloom marker, so
+// this is the only way to recognize an exact duplicate of a hook ctxloom is
+// about to add.
+func (w *AntigravityHookWriter) removeExactCommand(hf *antigravityHooksFile, eventName, cmd string) {
+	if cmd == "" {
+		return
+	}
+	groups := hf.Hooks[eventName]
+	if len(groups) == 0 {
+		return
+	}
+	var keptGroups []antigravityHookGroup
+	for _, g := range groups {
+		var kept []antigravityHookEntry
+		for _, e := range g.Hooks {
+			if e.Command != cmd {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) > 0 {
+			g.Hooks = kept
+			keptGroups = append(keptGroups, g)
+		}
+	}
+	if len(keptGroups) > 0 {
+		hf.Hooks[eventName] = keptGroups
+	} else {
+		delete(hf.Hooks, eventName)
+	}
+}
+
+// antigravityMCPLedger is the sidecar recording which mcp_config.json server
+// names are ctxloom-managed, one per line. agy rejects unknown fields inside
+// mcp_config.json itself (verified: an extra entry field or top-level key
+// hangs headless agy), so ownership cannot ride an in-file marker the way
+// claude's _ctxloom does — without this ledger, a server renamed or removed
+// from config/bundles would linger in mcp_config.json forever, and a stale
+// stdio entry permanently hangs headless agy.
+const antigravityMCPLedger = ".ctxloom-mcp-managed"
+
+// mcpLedgerPath returns the path to the managed-server ledger.
+// mcpFile binds the shared MCP-registry reconciler (agent.MCPFileConfig —
+// load/save/ledger/reconcile live there, shared with kiro) to this project's
+// mcp_config.json + sidecar ledger.
+func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
+	return agent.MCPFileConfig{
+		FS:         w.getFS(),
+		Path:       w.MCPConfigPath(projectDir),
+		LedgerPath: filepath.Join(projectDir, AgentsDir, antigravityMCPLedger),
+		Label:      AgentsDir + "/mcp_config.json",
+		PluginKey:  "antigravity",
+		Warn:       w.warn,
+	}
+}
+
+// Managed-context section markers in .agents/AGENTS.md. agy reads
+// .agents/AGENTS.md at session start (verified), which makes it the delivery
+// channel for ctxloom's assembled context — agy fires no SessionStart hooks,
+// so the injection hook other agents use can never run here. Content between
+// the markers is ctxloom-owned and reconciled on every apply; anything
+// outside them is the user's and preserved byte-for-byte.
+//
+// CONCURRENCY LIMIT (weave/map fan-out): .agents/AGENTS.md is a WORKSPACE-FIXED
+// path, and agy exposes no per-invocation context redirect (no --mcp-config /
+// --settings / --append-system-prompt equivalent). So N antigravity agents run
+// in one cwd would each rewrite this one file — last writer wins → cross-agent
+// context bleed/clobber. Unlike claude (per-invocation flags) and kiro (per-agent
+// agent-JSON `--agent`), antigravity has NO redirection lever, so per-agent
+// CONCURRENT isolation requires a per-agent cwd (git worktree) or container.
+// See taskloom loyal-eel / memory per-agent-config-delivery (ISOLATION AXIS).
+const (
+	managedContextBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
+	managedContextEnd   = "<!-- ctxloom:context:end -->"
+)
+
+// agentsMDPath returns the path to the workspace .agents/AGENTS.md file.
+func (w *AntigravityHookWriter) agentsMDPath(projectDir string) string {
+	return filepath.Join(projectDir, AgentsDir, "AGENTS.md")
+}
+
+// WriteContext implements agent.ContextWriter for Antigravity: it merges the
+// assembled context (req.Context) into the managed section of .agents/AGENTS.md
+// — agy reads that file at session start and fires no SessionStart hook for
+// context — preserving any user content outside the markers. Empty content
+// removes the managed section (and the file, when it was wholly ctxloom's).
+func (w *AntigravityHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
+	return w.writeManagedContext(req.ProjectDir, req.Context)
+}
+
+// reconcileManagedContext writes (or removes, when hash is empty) the managed
+// context section of .agents/AGENTS.md. The context content is read from the
+// content-addressed context file the provider wrote under projectDir, then
+// merged by the shared writeManagedContext core.
+func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string) error {
+	content := ""
+	if hash != "" {
+		var err error
+		content, err = agent.ReadContextFile(projectDir, hash, agent.WithContextFS(w.getFS()))
+		if err != nil {
+			// Fault-tolerance contract: a missing/unreadable context file must
+			// not block hook application; the section is dropped with a warning.
+			w.warn("failed to read context file %s: %v - context will not be delivered to antigravity", hash, err)
+			content = ""
+		}
+	}
+	_, err := w.writeManagedContext(projectDir, content)
+	return err
+}
+
+// writeManagedContext is the marker-merge core shared by reconcileManagedContext
+// (hash-addressed) and WriteContext (string-addressed). It replaces the
+// ctxloom-managed marker section of .agents/AGENTS.md with content (when
+// non-empty), preserving user content outside the markers; empty content strips
+// the section, removing the file when nothing user-authored remains. It reports
+// the workspace-relative path written or removed.
+func (w *AntigravityHookWriter) writeManagedContext(projectDir, content string) (agent.ContextReport, error) {
+	fs := w.getFS()
+	path := w.agentsMDPath(projectDir)
+	rel := filepath.Join(AgentsDir, "AGENTS.md")
+	existing, err := afero.ReadFile(fs, path)
+	if err != nil && !os.IsNotExist(err) {
+		return agent.ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	userContent := stripManagedSection(string(existing))
+
+	var section string
+	if content != "" {
+		section = managedContextBegin + "\n" + content + "\n" + managedContextEnd + "\n"
+	}
+
+	merged := userContent
+	if section != "" {
+		if merged != "" && !strings.HasSuffix(merged, "\n") {
+			merged += "\n"
+		}
+		merged += section
+	}
+
+	if strings.TrimSpace(merged) == "" {
+		// Nothing left: remove the file if it exists, never create it.
+		if exists, _ := afero.Exists(fs, path); exists {
+			if err := fs.Remove(path); err != nil {
+				return agent.ContextReport{}, err
+			}
+		}
+		return agent.ContextReport{Removed: []string{rel}}, nil
+	}
+	// Ensure .agents/ exists: as its own delivery surface, the context write can run
+	// BEFORE the hooks surface that used to create the dir (surfaces × cells delivers
+	// context first), so it can no longer assume the directory is present.
+	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return agent.ContextReport{}, fmt.Errorf("failed to create %s directory: %w", AgentsDir, err)
+	}
+	if err := agent.AtomicWriteFile(fs, path, []byte(merged), "AGENTS.md"); err != nil {
+		return agent.ContextReport{}, err
+	}
+	return agent.ContextReport{Wrote: []string{rel}}, nil
+}
+
+// stripManagedSection returns content with the ctxloom-managed marker section
+// removed. Content outside the markers is untouched; an unterminated begin
+// marker drops through to the end of the file (the section is ours to own).
+func stripManagedSection(content string) string {
+	begin := strings.Index(content, managedContextBegin)
+	if begin < 0 {
+		return content
+	}
+	rest := content[begin+len(managedContextBegin):]
+	end := strings.Index(rest, managedContextEnd)
+	if end < 0 {
+		return strings.TrimRight(content[:begin], "\n") + ifNonEmpty(content[:begin], "\n")
+	}
+	after := strings.TrimLeft(rest[end+len(managedContextEnd):], "\n")
+	before := content[:begin]
+	if before == "" {
+		return after
+	}
+	return before + after
+}
+
+// ifNonEmpty returns suffix when s is non-empty, else "".
+func ifNonEmpty(s, suffix string) string {
+	if s == "" {
+		return ""
+	}
+	return suffix
+}
+
+// RemoveSettings implements SettingsWriter for Antigravity CLI: it clears
+// ctxloom-managed hooks from hooks.json, the managed MCP server from
+// mcp_config.json, and the managed context section from .agents/AGENTS.md,
+// leaving absent files absent.
+func (w *AntigravityHookWriter) RemoveSettings(projectDir string) error {
+	fs := w.getFS()
+
+	hooksPath := w.SettingsPath(projectDir)
+	if exists, _ := afero.Exists(fs, hooksPath); exists {
+		hf, err := w.loadHooksFile(hooksPath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing hooks.json: %w", err)
+		}
+		w.removeCtxloomHooks(hf)
+		if err := w.saveHooksFile(hooksPath, hf); err != nil {
+			return err
+		}
+	}
+
+	if err := w.mcpFile(projectDir).RemoveServers(); err != nil {
+		return err
+	}
+
+	return w.reconcileManagedContext(projectDir, "")
+}
+
+// Status implements SettingsWriter for Antigravity CLI.
+func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
+	fs := w.getFS()
+	var status agent.SettingsStatus
+
+	hooksPath := w.SettingsPath(projectDir)
+	if exists, _ := afero.Exists(fs, hooksPath); exists {
+		status.SettingsExists = true
+		hf, err := w.loadHooksFile(hooksPath)
+		if err != nil {
+			return status, fmt.Errorf("failed to load existing hooks.json: %w", err)
+		}
+		status.HooksPresent = antigravityHasManagedHook(hf)
+	}
+
+	mcpPresent, err := w.mcpFile(projectDir).ManagedPresent()
+	if err != nil {
+		return status, err
+	}
+	status.MCPPresent = mcpPresent
+
+	// The managed context section is Antigravity's stand-in for the
+	// SessionStart injection hook other agents carry, so it counts as a
+	// managed hook for wired-status purposes.
+	if data, err := afero.ReadFile(fs, w.agentsMDPath(projectDir)); err == nil {
+		if strings.Contains(string(data), managedContextBegin) {
+			status.HooksPresent = true
+		}
+	}
+	return status, nil
+}
+
+// antigravityHasManagedHook reports whether any configured hook is
+// ctxloom-managed, descending the event → group → hooks[] shape.
+func antigravityHasManagedHook(hf *antigravityHooksFile) bool {
+	for _, groups := range hf.Hooks {
+		for _, group := range groups {
+			for _, hook := range group.Hooks {
+				if hook.Name == antigravityCtxloomHookName || agent.IsManaged(hook.Command, "ctxloom") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

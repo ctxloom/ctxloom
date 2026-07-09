@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -114,7 +115,6 @@ func TestCreateProfileRequest_Fields(t *testing.T) {
 		Parents:     []string{"base"},
 		Bundles:     []string{"bundle1"},
 		Tags:        []string{"new"},
-		Default:     true,
 	}
 
 	assert.Equal(t, "new-profile", req.Name)
@@ -122,7 +122,6 @@ func TestCreateProfileRequest_Fields(t *testing.T) {
 	assert.Equal(t, []string{"base"}, req.Parents)
 	assert.Equal(t, []string{"bundle1"}, req.Bundles)
 	assert.Equal(t, []string{"new"}, req.Tags)
-	assert.True(t, req.Default)
 }
 
 func TestCreateProfileResult_Fields(t *testing.T) {
@@ -139,7 +138,6 @@ func TestCreateProfileResult_Fields(t *testing.T) {
 
 func TestUpdateProfileRequest_Fields(t *testing.T) {
 	desc := "Updated description"
-	setDefault := true
 
 	req := UpdateProfileRequest{
 		Name:          "my-profile",
@@ -150,14 +148,12 @@ func TestUpdateProfileRequest_Fields(t *testing.T) {
 		RemoveBundles: []string{"old-bundle"},
 		AddTags:       []string{"new-tag"},
 		RemoveTags:    []string{"old-tag"},
-		Default:       &setDefault,
 	}
 
 	assert.Equal(t, "my-profile", req.Name)
 	assert.Equal(t, "Updated description", *req.Description)
 	assert.Equal(t, []string{"new-parent"}, req.AddParents)
 	assert.Equal(t, []string{"old-parent"}, req.RemoveParents)
-	assert.True(t, *req.Default)
 }
 
 func TestUpdateProfileResult_Fields(t *testing.T) {
@@ -279,75 +275,6 @@ bundles:
 	return fs, loader
 }
 
-func TestSetDefaultProfile(t *testing.T) {
-	newCfg := func(fs afero.Fs) *config.Config {
-		cfg := &config.Config{AppPaths: []string{testBaseDir}}
-		cfg.SetFS(fs)
-		return cfg
-	}
-
-	t.Run("empty name errors", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Loader: loader})
-		require.Error(t, err)
-	})
-
-	t.Run("adds a valid local profile and persists", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		cfg := newCfg(fs)
-		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Loader: loader})
-		require.NoError(t, err)
-		assert.Equal(t, "added", res.Status)
-		assert.True(t, cfg.Profiles.IsDefaultProfile("go-developer"))
-		assert.Equal(t, []string{"go-developer"}, res.Defaults)
-
-		// Persisted to the config file on the in-memory fs.
-		data, rerr := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
-		require.NoError(t, rerr)
-		assert.Contains(t, string(data), "go-developer")
-	})
-
-	t.Run("adding an already-default profile is unchanged", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		cfg := newCfg(fs)
-		cfg.Profiles.AddDefaultProfile("go-developer")
-		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Loader: loader})
-		require.NoError(t, err)
-		assert.Equal(t, "unchanged", res.Status)
-	})
-
-	t.Run("accepts a remote ref without loader validation", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		cfg := newCfg(fs)
-		ref := "https://github.com/user/ctxloom@profiles/dev"
-		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: ref, Loader: loader})
-		require.NoError(t, err)
-		assert.Equal(t, "added", res.Status)
-		assert.True(t, cfg.Profiles.IsDefaultProfile(ref))
-	})
-
-	t.Run("unknown local name errors", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Name: "nope", Loader: loader})
-		require.Error(t, err)
-	})
-
-	t.Run("unset removes a default; absent is unchanged", func(t *testing.T) {
-		fs, loader := setupProfileTestFS(t)
-		cfg := newCfg(fs)
-		cfg.Profiles.AddDefaultProfile("go-developer")
-
-		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Unset: true, Loader: loader})
-		require.NoError(t, err)
-		assert.Equal(t, "removed", res.Status)
-		assert.False(t, cfg.Profiles.IsDefaultProfile("go-developer"))
-
-		res, err = SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Unset: true, Loader: loader})
-		require.NoError(t, err)
-		assert.Equal(t, "unchanged", res.Status)
-	})
-}
-
 func TestListProfiles_AllProfiles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -359,6 +286,26 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, result.Count) // base, go-developer, frontend
 	assert.Len(t, result.Profiles, 3)
+}
+
+func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
+	_, loader := setupProfileTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Profiles)
+	for _, p := range result.Profiles {
+		// The fixtures are local profiles: the display name is the plain name and
+		// none are seeded remote references.
+		assert.Equal(t, p.Name, p.DisplayName, "local profile display name should equal name")
+		assert.False(t, p.IsRemote, "local profile should not be flagged remote")
+	}
+}
+
+func TestProfileDisplayName(t *testing.T) {
+	assert.Equal(t, "reviewer", profileDisplayName("some-bundle#profiles/reviewer"))
+	assert.Equal(t, "ts-dev", profileDisplayName("ts-dev"))
 }
 
 func TestListProfiles_WithQuery(t *testing.T) {
@@ -424,8 +371,8 @@ func TestListProfiles_SortDescending(t *testing.T) {
 func TestListProfiles_SortByDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
+		AppPaths:     []string{testBaseDir},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -444,8 +391,8 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
+		AppPaths:     []string{testBaseDir},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -621,26 +568,6 @@ func TestCreateProfile_ParentNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestCreateProfile_SetDefault(t *testing.T) {
-	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-
-	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
-		Name:    "default-profile",
-		Default: true,
-		Loader:  loader,
-	})
-
-	// Even if cfg.Save() fails (no real path), the default should be set in memory
-	if err != nil {
-		assert.Contains(t, err.Error(), "failed to save default setting")
-	} else {
-		assert.Equal(t, "created", result.Status)
-	}
-	// Default should be set in memory (stored in Profiles array)
-	assert.Contains(t, cfg.Profiles.Defaults, "default-profile")
-}
-
 func TestUpdateProfile_AddTags(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -808,84 +735,6 @@ func TestUpdateProfile_RemoveBundles(t *testing.T) {
 	assert.Contains(t, result.Changes, "removed bundle: core")
 }
 
-func TestUpdateProfile_SetDefault(t *testing.T) {
-	// Use real temp directory since cfg.Save() needs real filesystem
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	// Create base profile
-	baseProfile := `description: Base profile
-tags:
-  - development
-`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "base.yaml"), []byte(baseProfile), 0644))
-
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{AppPaths: []string{appDir}}
-
-	setDefault := true
-	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
-		Name:    "base",
-		Default: &setDefault,
-		Loader:  loader,
-	})
-
-	// Should fail at cfg.Save() but we've verified the logic works
-	// The error is expected since there's no config file to save to
-	if err != nil {
-		// Verify the config was updated before the save error
-		assert.Contains(t, cfg.Profiles.Defaults, "base")
-		assert.Contains(t, err.Error(), "failed to save config")
-		return
-	}
-
-	assert.Equal(t, "updated", result.Status)
-	assert.Contains(t, result.Changes, "set as default")
-	assert.Contains(t, cfg.Profiles.Defaults, "base")
-}
-
-func TestUpdateProfile_UnsetDefault(t *testing.T) {
-	// Use real temp directory since cfg.Save() needs real filesystem
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	profilesDir := filepath.Join(appDir, "profiles")
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	// Create base profile
-	baseProfile := `description: Base profile
-tags:
-  - development
-`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "base.yaml"), []byte(baseProfile), 0644))
-
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{
-		AppPaths: []string{appDir},
-		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
-	}
-
-	unsetDefault := false
-	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
-		Name:    "base",
-		Default: &unsetDefault,
-		Loader:  loader,
-	})
-
-	// Should fail at cfg.Save() but we've verified the logic works
-	if err != nil {
-		// Verify the config was updated before the save error
-		assert.NotContains(t, cfg.Profiles.Defaults, "base")
-		assert.Contains(t, err.Error(), "failed to save config")
-		return
-	}
-
-	assert.Equal(t, "updated", result.Status)
-	assert.Contains(t, result.Changes, "unset default")
-	assert.NotContains(t, cfg.Profiles.Defaults, "base")
-}
-
 func TestUpdateProfile_AddExcludeFragments(t *testing.T) {
 	tmpDir := t.TempDir()
 	profilesDir := filepath.Join(tmpDir, "profiles")
@@ -978,88 +827,6 @@ func TestDeleteProfile_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
-	fs, loader := setupProfileTestFS(t)
-
-	// Verify frontend profile exists (we'll use it as default)
-	exists, _ := afero.Exists(fs, paths.ProfilesPath(testBaseDir)+"/frontend.yaml")
-	require.True(t, exists)
-
-	cfg := &config.Config{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{Defaults: []string{"frontend"}},
-	}
-
-	result, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
-		Name:   "frontend",
-		Loader: loader,
-	})
-
-	// Even if cfg.Save() fails (no real path), the default should be cleared in memory
-	// and the profile deleted - the function errors only if Save() fails
-	if err != nil {
-		// Expected - Save() fails since config has no real path
-		assert.Contains(t, err.Error(), "failed to save config")
-	} else {
-		assert.Equal(t, "deleted", result.Status)
-	}
-	// Default profile should be cleared in memory regardless
-	assert.NotContains(t, cfg.Profiles.Defaults, "frontend")
-}
-
-func TestCreateProfile_AutoPromotesWhenNoDefault(t *testing.T) {
-	// When no default profile is configured anywhere, creating a profile
-	// should auto-promote it as the default so `ctxloom run` doesn't launch
-	// with empty context.
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	profilesDir := paths.ProfilesPath(appDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{
-		AppPaths: []string{appDir},
-	}
-
-	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
-		Name:   "first-profile",
-		Loader: loader,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "created", result.Status)
-
-	assert.Contains(t, cfg.Profiles.Defaults, "first-profile",
-		"first-ever profile should be auto-promoted to default")
-}
-
-func TestCreateProfile_DoesNotPromoteWhenDefaultAlreadySet(t *testing.T) {
-	// If a default profile is already configured, creating a new profile
-	// should NOT change the default.
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	profilesDir := paths.ProfilesPath(appDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	// Pre-create an existing default profile on disk so the loader can find it.
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "existing.yaml"),
-		[]byte("description: existing\n"), 0644))
-
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{
-		AppPaths: []string{appDir},
-		Profiles: config.ProfilesConfig{Defaults: []string{"existing"}},
-	}
-
-	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
-		Name:   "second-profile",
-		Loader: loader,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"existing"}, cfg.Profiles.Defaults,
-		"existing default should be preserved when creating a non-default profile")
-}
-
 func TestLocalProfileNameFromPath(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{"/tmp/.ctxloom"}}
 
@@ -1102,28 +869,4 @@ func TestLocalProfileNameFromPath(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func TestPromoteToDefaultIfFirst_NoExistingDefault(t *testing.T) {
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0755))
-
-	cfg := &config.Config{
-		AppPaths: []string{appDir},
-	}
-
-	promoted := PromoteToDefaultIfFirst(cfg, "my-profile")
-	assert.True(t, promoted)
-	assert.Contains(t, cfg.Profiles.Defaults, "my-profile")
-}
-
-func TestPromoteToDefaultIfFirst_ExistingDefault(t *testing.T) {
-	cfg := &config.Config{
-		Profiles: config.ProfilesConfig{Defaults: []string{"already-default"}},
-	}
-
-	promoted := PromoteToDefaultIfFirst(cfg, "new-profile")
-	assert.False(t, promoted)
-	assert.Equal(t, []string{"already-default"}, cfg.Profiles.Defaults)
 }

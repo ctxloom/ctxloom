@@ -12,16 +12,17 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/collections"
-	"github.com/ctxloom/shared/wire"
 )
 
 // Re-export path constants for backwards compatibility
@@ -51,11 +52,58 @@ type Config struct {
 	Hooks    wire.HooksConfig `mapstructure:"hooks" yaml:"hooks,omitempty"`
 	MCP      wire.MCPConfig   `mapstructure:"mcp" yaml:"mcp,omitempty"`
 	Profiles ProfilesConfig   `mapstructure:"profiles" yaml:"profiles,omitempty"`
-	AppPaths []string         // Resolved .ctxloom directory (at most one)
-	AppRoot  string           // Project root (parent of .ctxloom directory)
-	AppDir   string           // Full path to the .ctxloom directory
-	Source   ConfigSource     // Where the configuration was loaded from
-	Warnings []string         // Non-fatal warnings collected during load
+	// Agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
+	// of the agent entity (the other half is .ctxloom/agents/*.yaml). Keyed
+	// by agent name. It is NEVER a bundle item kind and NEVER remote — there is
+	// no Bundle.Agents and no remote path. Read the merged set via
+	// LoadAgents / Agent, which folds in the directory source too.
+	Agents map[string]agents.Agent `mapstructure:"agents" yaml:"agents,omitempty"`
+	// DefaultAgent names the always-bound default agent: the key in Agents (or a
+	// .ctxloom/agents/*.yaml file) whose binding a bare `ctxloom run` (no --agent,
+	// no -p/-f/-t) resolves — its composed profiles become the context and its
+	// engine + runtime + permissions the transport. It replaces the retired
+	// profiles.defaults: "the default profile set" is now whatever this agent
+	// composes (DefaultAgentProfiles). Empty or naming an undefined agent degrades
+	// to empty context (a warning, never a hard stop — CLAUDE.md fault tolerance).
+	DefaultAgent string `mapstructure:"default_agent" yaml:"default_agent,omitempty"`
+	// Workspace is the project-wide DEFAULT for the SESSION-level workspace
+	// axis (none | worktree): where a session's working directory lives.
+	// Empty means "none" (the shared live project dir — today's behaviour).
+	// A session-creating invocation (run/map/weave `--workspace`) overrides
+	// it per session. Deliberately NOT an agent trait: needing a private cwd
+	// is a property of how a session is launched, not of who the agent is.
+	Workspace string `mapstructure:"workspace" yaml:"workspace,omitempty"`
+	// Runtime is the project-wide DEFAULT for the AGENT-level runtime axis
+	// (host | container): where an agent's engine process executes. Empty
+	// means "host". An agent binding's own `runtime:` overrides it; the
+	// precedence (agent → this default → host) is resolved in
+	// operations.resolveAgentBinding. The two axes are independent and meet
+	// only at launch (isolation.Axes).
+	Runtime string `mapstructure:"runtime" yaml:"runtime,omitempty"`
+	// IsolationImages maps a backend name (claude-code | kiro | ...) to a
+	// USER-PROVIDED agent image for containerized runs. An entry overrides the
+	// built-in per-backend default tag and is run AS-IS: never locally built or
+	// overlaid (the user owns it), so an absent override degrades with a warning
+	// instead of triggering the on-the-fly build. Missing entries keep the
+	// built-in default (which IS auto-built when absent).
+	IsolationImages map[string]string `mapstructure:"isolation_images" yaml:"isolation_images,omitempty"`
+	// IsolationBaseContainerfile is a USER-PROVIDED base Containerfile for
+	// locally-built agent images: the on-the-fly build (and `ctxloom container
+	// build`) layers the engine's agent stage onto a base built from this file
+	// instead of the embedded default base (container/base/Containerfile).
+	// Relative paths resolve against the project root.
+	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
+	// UI configures the interactive-run terminal layer (the prefix-key viewer
+	// and the persistent surround bar). Flag/env never lives here — only
+	// presentation preferences; `run --plain-terminal` disables the layer
+	// entirely regardless of this section.
+	UI UIConfig `mapstructure:"ui" yaml:"ui,omitempty"`
+
+	AppPaths []string     // Resolved .ctxloom directory (at most one)
+	AppRoot  string       // Project root (parent of .ctxloom directory)
+	AppDir   string       // Full path to the .ctxloom directory
+	Source   ConfigSource // Where the configuration was loaded from
+	Warnings []Warning    // Kind-tagged warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
@@ -64,6 +112,15 @@ type Config struct {
 	PendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
+
+	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
+	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
+	// command-file exports via LoadSkillExports) when set. nil = no enforcement,
+	// matching the gate-free management/listing paths. The operations/run
+	// consumers inject it before writing backend settings (trust rework, TR5);
+	// operations can't be imported here, so the gate is a plain bundles.ContentGate
+	// func. Never persisted.
+	execGate bundles.ContentGate
 
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -100,11 +157,65 @@ type EditorConfig struct {
 	Args    []string `mapstructure:"args" yaml:"args,omitempty"`       // Additional arguments
 }
 
+// UIConfig holds the interactive-run terminal-layer preferences.
+type UIConfig struct {
+	// PrefixKey is the keystroke that engages the agent-observation viewer
+	// during an interactive run ("ctrl-]" by default; press it twice to send
+	// one literal prefix byte to the engine). Control keys only — a printable
+	// prefix would swallow ordinary typing.
+	PrefixKey string `mapstructure:"prefix_key" yaml:"prefix_key,omitempty"`
+	// Surround toggles the persistent bottom status bar (harp · agent · engine
+	// │ children digest │ prefix hint). Default true; nil means unset.
+	Surround *bool `mapstructure:"surround" yaml:"surround,omitempty"`
+}
+
+// DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
+// agent-io-observation plan: Ctrl-], explicitly not ESC).
+const DefaultUIPrefixKey = "ctrl-]"
+
+// UIPrefixKey returns the configured viewer prefix key, defaulting to Ctrl-].
+func (c *Config) UIPrefixKey() string {
+	if c.UI.PrefixKey == "" {
+		return DefaultUIPrefixKey
+	}
+	return c.UI.PrefixKey
+}
+
+// UISurroundEnabled reports whether the persistent surround bar is enabled
+// (default true; `ui.surround: false` opts out).
+func (c *Config) UISurroundEnabled() bool {
+	return c.UI.Surround == nil || *c.UI.Surround
+}
+
 // GetEditorCommand returns the editor binary and arguments to use. This is the
 // single editor-resolution policy: config (editor.command, with editor.args
 // appended), then the VISUAL and EDITOR environment variables, then nano.
 // Multi-word values like "code --wait" are whitespace-split into binary +
 // leading args (strings.Fields — full shell quoting is not supported).
+// IsolationImageFor returns the user-provided agent image override for the
+// named backend's containerized runs, or "" when the backend keeps the built-in
+// default image (nil-safe).
+func (c *Config) IsolationImageFor(backend string) string {
+	if c == nil {
+		return ""
+	}
+	return c.IsolationImages[backend]
+}
+
+// IsolationBaseContainerfilePath returns the user-provided base Containerfile
+// for locally-built agent images, resolved against the project root when
+// relative ("" = the embedded default base; nil-safe).
+func (c *Config) IsolationBaseContainerfilePath() string {
+	if c == nil || c.IsolationBaseContainerfile == "" {
+		return ""
+	}
+	p := c.IsolationBaseContainerfile
+	if !filepath.IsAbs(p) && c.AppRoot != "" {
+		p = filepath.Join(c.AppRoot, p)
+	}
+	return p
+}
+
 func (c *Config) GetEditorCommand() (string, []string) {
 	if bin, args := splitEditorCommand(c.Editor.Command); bin != "" {
 		return bin, append(args, c.Editor.Args...)
@@ -142,57 +253,30 @@ func splitEditorCommand(value string) (string, []string) {
 	}
 }
 
-// ExplicitDefaultProfiles returns profiles named in the canonical
-// defaults.profiles array. This does NOT apply the single-profile fallback
-// used by GetDefaultProfiles. Use this when deciding whether to auto-promote
-// a newly-installed profile — auto-promote should only trigger when the
-// user has made no explicit choice.
-func (c *Config) ExplicitDefaultProfiles() []string {
-	seen := collections.NewSet[string]()
-	var defaults []string
-	for _, name := range c.Profiles.Defaults {
-		if name != "" && !seen.Has(name) {
-			seen.Add(name)
-			defaults = append(defaults, name)
-		}
-	}
-	return defaults
-}
-
-// EffectiveDefaultProfiles returns the configured default profile labels
-// verbatim (profiles.defaults). Unlike GetDefaultProfiles it applies no
-// single-profile fallback.
-func (c *Config) EffectiveDefaultProfiles() []string {
-	return c.Profiles.Defaults
-}
-
 // ProfileDefinition returns the named profile definition and whether it exists.
 func (c *Config) ProfileDefinition(name string) (Profile, bool) {
 	p, ok := c.Profiles.Definitions[name]
 	return p, ok
 }
 
-// GetDefaultProfiles returns the default profiles to load for `ctxloom run`.
-// Reads the canonical defaults.profiles array, then any run-only defaults
-// inherited from the home config (see ProfilesConfig.SetInheritedDefaults —
-// these are never persisted and never explicit). As a last-resort fallback, if
-// no default is configured but exactly one profile is installed locally, that
-// profile is returned — otherwise `ctxloom run` would launch with empty
-// context.
-func (c *Config) GetDefaultProfiles() []string {
-	defaults := c.ExplicitDefaultProfiles()
-	if len(defaults) > 0 {
-		return defaults
+// DefaultAgentProfiles returns the profiles composed by the always-bound
+// default agent (Config.DefaultAgent) — the single "the default profile set"
+// accessor that replaced GetDefaultProfiles/ExplicitDefaultProfiles after
+// profiles.defaults was retired. It resolves through the MERGED agent lookup
+// (Config.Agent → config-key `agents:` folded with .ctxloom/agents/*.yaml), so a
+// default agent defined either way drives the default set identically to how a
+// bare `ctxloom run` binds it (operations.ResolveAgent also goes through Agent).
+// Returns nil when no default agent is configured or the named agent is not
+// defined by either source.
+func (c *Config) DefaultAgentProfiles() []string {
+	if c == nil || c.DefaultAgent == "" {
+		return nil
 	}
-	if inherited := c.Profiles.InheritedDefaults(); len(inherited) > 0 {
-		return inherited
+	sub, ok := c.Agent(c.DefaultAgent)
+	if !ok {
+		return nil
 	}
-
-	// Fallback: if exactly one profile is installed, treat it as the default.
-	if all, err := c.GetProfileLoader().List(); err == nil && len(all) == 1 {
-		return []string{all[0].Name}
-	}
-	return nil
+	return sub.Profiles
 }
 
 // PrimaryLabel returns the config label playing the primary (coding/
@@ -304,70 +388,154 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	return profiles.NewLoader(profileDirs, opts...)
 }
 
-// ProfileSeedOptions returns the loader option that seeds lockfile-listed
-// remote profiles from the git clone cache, or nil when there are none.
-// Exposed (like ProfileRemoteResolver/ProfileRemoteURLResolver) so other
-// profile-loader factories — e.g. operations.profileLoader — wire the exact
-// same seed as GetProfileLoader and the two never disagree about which remote
-// profiles exist.
+// ProfileSeedOptions returns the loader option that seeds the profiles shipped
+// INSIDE bundles (the ungated, compound bundle item kind), keyed by their
+// "<bundle>#profiles/<name>" ref, or nil when there are none. Exposed (like
+// ProfileRemoteResolver/ProfileRemoteURLResolver) so other profile-loader
+// factories — e.g. operations.profileLoader — wire the exact same seed as
+// GetProfileLoader and the two never disagree about which profiles exist.
+//
+// Top-level remote "<url>@profiles/<name>" distribution was retired: profiles
+// now arrive ONLY inside bundles, so this is the sole profile seed source.
 func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
-	if seed := c.loadRemoteProfileSeed(); len(seed) > 0 {
-		return []profiles.LoaderOption{profiles.WithSeededProfiles(seed)}
+	bundleSeed := c.loadBundleProfileSeed()
+	if len(bundleSeed) == 0 {
+		return nil
 	}
-	return nil
+	return []profiles.LoaderOption{profiles.WithSeededProfiles(bundleSeed)}
 }
 
-// loadRemoteProfileSeed reads every lockfile-listed profile from the local git
-// clone cache at its locked SHA, parses it, resolves its short same-repo bundle
-// and parent refs against its repo URL, and returns them keyed by canonical ref
-// ready to seed a profiles.Loader. Remote profiles are pure references — never
-// materialized to disk — so this is how they enter the loader. Returns nil when
-// there is no lockfile (caller treats nil as "no remote profiles").
-func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
+// loadBundleProfileSeed walks every bundle visible to this config — fs-installed
+// local bundles plus lockfile-listed remote bundles read from the git clone
+// cache — and returns the profiles they ship, parsed and keyed by their
+// canonical "<bundle>#profiles/<name>" ref, ready to seed a profiles.Loader.
+//
+// Profiles are an ungated, COMPOUND bundle item kind: they travel inside the
+// bundle YAML, so a pulled bundle's profiles are already on disk / in cache —
+// this is the step that surfaces them to the SHARED profile loader, so a bundle
+// profile resolves, lists, and runs exactly like a top-level or local profile.
+// The profile DEFINITION is never trust-gated here (there is no trust.ItemKind
+// for profiles, and nothing is baselined); its constituent fragments/skills
+// still gate at content assembly and any mcp/hooks it pulls in still gate at the
+// exec choke. Returns nil when no visible bundle ships a profile.
+func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	baseDir := c.AppPaths[0]
-
-	lock, err := remote.NewLockfileManager(baseDir).Load()
-	if err != nil || lock.IsEmpty() {
+	loader := c.SeededBundleLoader(false)
+	infos, err := loader.List()
+	if err != nil {
 		return nil
 	}
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-	factory := remote.NewCachedFetcherFactory(cache)
-	reader := remote.NewProfileReader(factory, auth, lock)
-
 	loaded := make(map[string]*profiles.Profile)
-	for _, canonical := range reader.ListProfileNames() {
-		data, rerr := reader.ReadProfileBytes(context.Background(), canonical)
-		if rerr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote profile %q from cache: %v\n", canonical, rerr))
+	for _, info := range infos {
+		if info.Deleted || info.ProfileCount == 0 {
 			continue
 		}
-		p, perr := profiles.ParseProfile(data)
-		if perr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote profile %q: %v\n", canonical, perr))
+		bundle, lerr := loader.LoadFile(info.Path)
+		if lerr != nil {
+			strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded", "failed to load bundle %q for its profiles: %v", info.Name, lerr)
 			continue
 		}
-		entry := lock.Profiles[canonical]
-		// The profile's own repo URL is the source its short sibling refs resolve
-		// against — it's intrinsic to the canonical lockfile key.
-		repoURL := entry.URL
-		if ref, e := remote.ParseReference(canonical); e == nil && ref.URL != "" {
-			repoURL = ref.URL
+		// info.Name is the bundle's full resolution identity (the canonical ref for
+		// a seeded remote bundle, the relative path for a local one); bundle.Name
+		// from LoadFile is only the file's base, so canonicalize from info.Name.
+		bundleRef := remote.CanonicalBundleRef(info.Name)
+		sourceURL := bundleProfileSourceURL(bundleRef)
+		for _, profName := range bundle.ProfileNames() {
+			p := cloneBundleProfile(bundle.Profiles[profName])
+			key := bundleRef + remote.ProfileSelector + profName
+			// Resolve the profile's short same-repo leaf refs (bundles/fragments/
+			// prompts/bundle_items) against the bundle's own source, exactly as a
+			// seeded top-level remote profile does; a canonical "<bundle>#profiles/
+			// <name>" parent ref passes through unchanged. No version is pinned here:
+			// the lockfile already pins the bundle, and the version-agnostic leaf
+			// identities let the read path honor that pin.
+			p.ResolveShortRefs(sourceURL, "")
+			p.Name = key
+			// Sentinel path marks the profile read-only (Save/Delete refuse): like a
+			// remote profile, a bundle profile is edited at its source, not locally.
+			p.Path = profiles.SeededProfilePathPrefix + key
+			loaded[key] = &p
 		}
-		p.ResolveShortRefs(repoURL, entry.SHA)
-		p.Name = canonical
-		// The sentinel path marks the profile read-only for write paths
-		// (profiles.Loader.Save/Delete check IsSeededPath).
-		p.Path = fmt.Sprintf("%s%s@%s", profiles.SeededProfilePathPrefix, canonical, entry.SHA)
-		loaded[canonical] = p
 	}
 	if len(loaded) == 0 {
 		return nil
 	}
+	rewriteRetiredSeedParents(loaded)
 	return loaded
+}
+
+// rewriteRetiredSeedParents rewrites seeded bundle-profile parents authored in
+// the retired top-level "@profiles/" grammar to their bundle-shipped successor.
+// Seeded profiles arrive already parsed and never pass through the loader's
+// document upgrade pipeline, so this applies the same discovery-based rewrite
+// against the full seed: to the one seeded bundle profile the repo ships under
+// that name, verbatim when unmatched or ambiguous (profiles/upgrade.go owns the
+// rule). In-memory only — a seeded profile is read-only and migrates at its
+// source.
+func rewriteRetiredSeedParents(loaded map[string]*profiles.Profile) {
+	for _, p := range loaded {
+		for i, parent := range p.Parents {
+			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
+				if successor, found := profiles.FindBundleProfileKey(loaded, url, name); found {
+					p.Parents[i] = successor
+				}
+			}
+		}
+	}
+}
+
+// cloneBundleProfile returns a copy of a bundle profile safe to mutate
+// (ResolveShortRefs rewrites refs in place). The bundle loader caches parsed
+// bundles, so the profile's slices are shared with that cache and concurrent
+// profile-loader builds — clone exactly the slices ResolveShortRefs touches so
+// canonicalization never corrupts the cached bundle or races another reader.
+func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
+	p := bp
+	p.Bundles = append([]string(nil), bp.Bundles...)
+	p.Parents = append([]string(nil), bp.Parents...)
+	p.Prompts = append([]string(nil), bp.Prompts...)
+	p.BundleItems = append([]string(nil), bp.BundleItems...)
+	p.Fragments = append([]profiles.FragmentRef(nil), bp.Fragments...)
+	return p
+}
+
+// bundleProfileSourceURL returns the source a bundle profile's short same-repo
+// refs resolve against: the bundle's repo URL for a remote bundle, or the
+// ctxloom:local token for a project-local bundle.
+func bundleProfileSourceURL(bundleRef string) string {
+	if ref, err := remote.ParseReference(bundleRef); err == nil && ref.URL != "" {
+		return ref.URL
+	}
+	return remote.LocalSource
+}
+
+// FS returns the injected filesystem, or nil for the OS default. It lets callers
+// outside this package (e.g. operations' trust store + gate) thread the same
+// filesystem the config's own loaders use, so a virtualized fs in tests — and
+// the OS fs in production — stay consistent across every store read/write.
+func (c *Config) FS() afero.Fs {
+	return c.fs
+}
+
+// registryFSOptions threads the injected filesystem into a remote registry
+// constructor (matching the resolvers below). Empty for the OS default.
+func (c *Config) registryFSOptions() []remote.RegistryOption {
+	if c.fs != nil {
+		return []remote.RegistryOption{remote.WithRegistryFS(c.fs)}
+	}
+	return nil
+}
+
+// lockfileFSOptions threads the injected filesystem into a remote lockfile
+// manager so lockfile reads honor c.fs alongside the registry reads. Empty for
+// the OS default.
+func (c *Config) lockfileFSOptions() []remote.LockfileOption {
+	if c.fs != nil {
+		return []remote.LockfileOption{remote.WithLockfileFS(c.fs)}
+	}
+	return nil
 }
 
 // ProfileRemoteResolver returns a function mapping a profile's local name to the
@@ -378,11 +546,7 @@ func (c *Config) ProfileRemoteResolver() func(string) string {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	var ropts []remote.RegistryOption
-	if c.fs != nil {
-		ropts = append(ropts, remote.WithRegistryFS(c.fs))
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -401,11 +565,7 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	var ropts []remote.RegistryOption
-	if c.fs != nil {
-		ropts = append(ropts, remote.WithRegistryFS(c.fs))
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -583,11 +743,10 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 			return nil
 		}
 		// An existing-but-unreadable config (EACCES, a directory in its place, a
-		// transient I/O error) must not block startup any more than a malformed one
-		// does: warn and continue with the default-overlaid empty config. CLAUDE.md
-		// is explicit that missing/unreadable files produce warnings, never a hard
-		// stop — and the sibling parse/validate branches below already degrade.
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to read config at %s: %v", configPath, err))
+		// transient I/O error) degrades to the default-overlaid empty config with
+		// a kind-tagged warning; the strict startup gate (fail-loudly) turns it
+		// into a fatal finding, while --degraded launches anyway.
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, err)})
 		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
 		return nil
 	}
@@ -598,16 +757,30 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	// the user and persist via CommitUpgrade (see cmd/run.go). This keeps
 	// non-interactive contexts (MCP server, scripts) from silently rewriting a
 	// user's config — the exact failure mode that motivated this layer.
-	if upgraded, applied := configUpgrades.Run(data); len(applied) > 0 {
+	// The registry-free schema upgrades (configUpgrades) plus the registry-aware
+	// agent-profile canonicalization compose into one pipeline so the load parses
+	// and re-encodes the document exactly once. The canonicalization step is
+	// threaded the alias→URL resolver here (it depends on .ctxloom/remotes.yaml,
+	// which the static pipeline cannot reach); a nil resolver makes it a no-op.
+	pipeline := append(upgrade.Pipeline{}, configUpgrades...)
+	pipeline = append(pipeline, agentProfileCanonicalizeUpgrade{aliasToURL: cfg.ProfileRemoteURLResolver()})
+	if upgraded, applied := pipeline.Run(data); len(applied) > 0 {
 		data = upgraded
 		cfg.PendingUpgrade = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
+	}
+	// A lossy upgrade (a dropped user-set value) is collected by the pipeline
+	// rather than printed inline, so the loader can tag it with its kind and
+	// the strict startup gate can abort on it (fail-loudly).
+	for _, lost := range drainMigrationWarnings() {
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindMigrationLossy, Text: lost})
+		zap.L().Warn("config_migration_lossy", zap.String("path", configPath), zap.String("warning", lost))
 	}
 
 	// Validate against schema before parsing - warn but continue on failure
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("config validation warning at %s: %v", configPath, err))
+			cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}
@@ -619,7 +792,7 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
 	// init path), so both entry points decode a config identically.
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to parse config at %s: %v", configPath, err))
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse config at %s: %v", configPath, err)})
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 		// Return nil - we have a valid (partially loaded) config with warnings
 		return nil
@@ -692,10 +865,11 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 
 // GetBundleDirs returns bundles directories (in cache/).
 func (c *Config) GetBundleDirs() []string {
+	fs := c.getFS()
 	var dirs []string
 	for _, appPath := range c.AppPaths {
 		bundleDir := paths.BundlesPath(appPath)
-		if info, err := os.Stat(bundleDir); err == nil && info.IsDir() {
+		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
 		}
 	}
@@ -712,10 +886,92 @@ func (c *Config) GetBundleDirs() []string {
 // lockfile, unregistered remote, or single bad SHA produces a stderr
 // warning and the loader returns the rest.
 func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
+	if c.fs != nil {
+		// Thread the injected filesystem so fs-installed local bundle discovery
+		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithFS(c.fs))
+	}
 	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
 	}
+	// Multi-version coexistence (trust rework, TR5): give every read-path loader
+	// the capability to materialize a specific historical commit-version of a
+	// remote bundle via FetchItem. This is opt-in at the loader's version-aware
+	// methods only — the default (lockfile-pinned) path is unaffected — so wiring
+	// it everywhere is free until a caller asks for an "@<commit>" version.
+	if resolver := c.bundleVersionResolver(); resolver != nil {
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithVersionResolver(resolver))
+	}
 	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
+}
+
+// bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
+// a bundle at a specific commit and parses the bytes into a Bundle. It dispatches
+// by the ref's SOURCE — the loader's multi-version coexistence backed end to end:
+//
+//   - remote/canonical ref → the FetchItem primitive over the local git clone
+//     cache (remote.FetchRefBytes), exactly as before;
+//   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
+//     git history (the committed .ctxloom/local/ tree), via the local working-copy
+//     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
+//     untouched: the loader only invokes the resolver for an explicit "@<commit>".
+//
+// Given a version-less canonical ref and an opaque commit, it reads exactly that
+// historical version. Returns nil when there is no app dir to anchor either
+// source. The fetch is lazy — nothing happens until a version-aware loader method
+// actually requests a pinned commit — and any failure (unknown rev, non-git
+// project, path-absent-at-rev) fails closed: the caller withholds just that item.
+//
+// Auth and both git backends are inherently OS-backed (the remote cache shells
+// out to git; the local backend opens the on-disk project .git), so they do not
+// honor c.fs — matching loadRemoteBundleSeed.
+func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	baseDir := c.AppPaths[0]
+	// Defer the auth read + clone-cache construction to the FIRST actual remote
+	// version fetch: the default (lockfile) path never invokes the resolver, and a
+	// local-only pin never touches the remote cache, so neither pays for it.
+	var (
+		once    sync.Once
+		factory remote.FetcherFactory
+		auth    remote.AuthConfig
+	)
+	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
+		ref, err := remote.ParseReference(canonicalRef)
+		if err != nil {
+			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
+		}
+
+		// Local (project-authored) refs version against the PROJECT'S own git
+		// history, not the remote clone cache. The committed .ctxloom/local/ tree
+		// is read at <commit> through the working-copy VCS; a non-git project,
+		// unknown rev, or path-absent-at-rev errors here and the caller withholds.
+		if ref.IsLocal {
+			data, err := remote.NewLocalRefFetcher(
+				remote.LocalGitVCSFactory(afero.NewOsFs()),
+				paths.LocalPath(baseDir),
+			).FetchItem(context.Background(), ref, commit)
+			if err != nil {
+				return nil, err
+			}
+			return bundles.ParseBundle(data)
+		}
+
+		// Remote/canonical refs: FetchItem over the local clone cache (auth +
+		// cache built once, lazily, on the first remote pin).
+		once.Do(func() {
+			auth = remote.LoadAuth(baseDir)
+			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+			factory = remote.NewCachedFetcherFactory(cache)
+		})
+		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit)
+		if err != nil {
+			return nil, err
+		}
+		return bundles.ParseBundle(data)
+	}
 }
 
 // loadRemoteBundleSeed materializes every lockfile-listed bundle from the local
@@ -730,17 +986,19 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	}
 	baseDir := c.AppPaths[0]
 
-	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir))
+	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
-	lock, err := remote.NewLockfileManager(baseDir).Load()
+	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
 	if err != nil {
 		return nil
 	}
 	if lock.IsEmpty() {
 		return nil
 	}
+	// Auth config and the git clone cache are inherently OS-backed (the cache
+	// shells out to git), so they intentionally do not honor c.fs.
 	auth := remote.LoadAuth(baseDir)
 	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 	factory := remote.NewCachedFetcherFactory(cache)
@@ -750,7 +1008,12 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
 	for name, err := range failures {
-		warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote bundle %q from cache: %v\n", name, err))
+		// A lockfile-active bundle that fails to load is fatal-class in strict
+		// mode (the user pinned it; content silently missing from a session is
+		// the failure fail-loudly exists to catch). Warns and continues in
+		// degraded mode.
+		strictness.FailOnce(strictness.ClassBundle, "ctxloom remote pull (or remove the bundle from its profiles)",
+			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
@@ -761,7 +1024,10 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		}
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote bundle %q: %v\n", canonical, perr))
+			// Same fatal class as the read failure above: a pinned bundle whose
+			// content cannot be used must not silently vanish from assembly.
+			strictness.FailOnce(strictness.ClassBundle, "fix the bundle at its source, or remove it from its profiles",
+				"failed to parse remote bundle %q: %v", canonical, perr)
 			continue
 		}
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.
@@ -770,24 +1036,6 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		loaded[canonical] = b
 	}
 	return loaded
-}
-
-var (
-	warnedOnceMu   sync.Mutex
-	warnedOnceSeen = map[string]struct{}{}
-)
-
-// warnOncePerRun writes msg to stderr at most once per process for identical
-// text, collapsing the duplicate remote-bundle warnings emitted when profile
-// resolution re-seeds the same bundles several times during one startup.
-func warnOncePerRun(msg string) {
-	warnedOnceMu.Lock()
-	defer warnedOnceMu.Unlock()
-	if _, seen := warnedOnceSeen[msg]; seen {
-		return
-	}
-	warnedOnceSeen[msg] = struct{}{}
-	fmt.Fprint(os.Stderr, msg)
 }
 
 // SourceName returns a human-readable name for the config source.

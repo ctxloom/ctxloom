@@ -1,0 +1,314 @@
+package cli
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/resources"
+)
+
+var containerCmd = &cobra.Command{
+	Use:   "container",
+	Short: "Manage agent container images",
+	Long: `Manage the per-backend agent images a containerized engine runs in
+(agents with 'runtime: container', or the project 'runtime:' default).`,
+}
+
+var (
+	containerBuildBaseImage         string
+	containerBuildBaseContainerfile string
+	containerBuildRuntime           string
+	containerBuildKeepCache         bool
+)
+
+var containerBuildCmd = &cobra.Command{
+	Use:   "build [backend]",
+	Short: "Build the agent container image for a backend",
+	Long: `Build the agent image a containerized run of the given backend uses
+(the configured default backend when omitted).
+
+The image builds in two stages: a shared BASE (the distro plus the coding-agent
+tool layer — git, ripgrep, curl, certs, jq) and the engine's AGENT stage (the
+client CLI install plus the RUNNING ctxloom binary) layered on top, so a
+rebuilt image never needs a ctxloom release. The client validates the build
+from inside the image (its --version gate), and the install fetches the MOST
+RECENT client — never pinned.
+
+The base stage is yours to replace: --base-containerfile (or config
+isolation_base_containerfile) builds the base from your own Containerfile —
+your tools, your certs, your mirrors — and the same agent stage layers on top.
+Alternatively --base-image skips the client install entirely and overlays
+ctxloom onto an image that ALREADY ships the client CLI.
+
+By default the build runs with --pull --no-cache so a rebuild picks up the most
+recent client; --keep-cache reuses layers for a fast local iteration. Runs of
+` + "`ctxloom run`/`map`/`weave`" + ` also build this image automatically when it
+is absent (honoring isolation_base_containerfile); this command is the explicit
+path (refresh, custom base). To run a fully user-provided image instead, set
+isolation_images in config — those are run as-is and never built.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var backend string
+		if len(args) == 1 {
+			backend = args[0]
+			if names := backends.List(); !slices.Contains(names, backend) {
+				sort.Strings(names)
+				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
+			}
+		} else {
+			cfg, err := GetConfig()
+			if err != nil {
+				return fmt.Errorf("no backend given and the config is unavailable to resolve the default: %w", err)
+			}
+			backend, _ = operations.ResolveBackend(cfg, "")
+		}
+
+		baseContainerfile := containerBuildBaseContainerfile
+		if baseContainerfile == "" {
+			// The config knob applies when the flag doesn't override it, so the
+			// explicit build and the on-the-fly build produce the same image.
+			if cfg, cerr := GetConfig(); cerr == nil {
+				baseContainerfile = cfg.IsolationBaseContainerfilePath()
+			}
+		}
+		image, err := isolation.BuildAgentImage(cmd.Context(), backend, isolation.ImageBuildOptions{
+			BaseImage:         containerBuildBaseImage,
+			BaseContainerfile: baseContainerfile,
+			Runtime:           containerBuildRuntime,
+			KeepCache:         containerBuildKeepCache,
+			Output:            os.Stdout,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Built %s for backend %s\n", image, backend)
+		return nil
+	},
+}
+
+// containerDiagnose is the Diagnose seam, a var so the CLI rendering is
+// testable with an injected report.
+var containerDiagnose = isolation.Diagnose
+
+// containerProvenanceCmd prints the content digest of the ctxloom + companion
+// binaries THIS ctxloom would bake into an agent image — the value stamped as
+// the image's ctxloom.provenance label. Hidden plumbing: the ahead-of-time
+// `container-build-*` just recipes run the freshly-built binary through it to
+// stamp a label matching what they bake, so a later run doesn't see the image
+// as stale. Also handy for debugging a rebuild ("does the image's label match
+// `ctxloom container provenance`?").
+var containerProvenanceCmd = &cobra.Command{
+	Use:    "provenance",
+	Short:  "Print the content digest of the binaries baked into agent images",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// The DEFAULT-base digest on purpose: the ahead-of-time just recipes
+		// this stamps for bake the embedded default base; a custom
+		// isolation_base_containerfile build stamps its own label inside
+		// BuildAgentImage.
+		fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest(""))
+		return nil
+	},
+}
+
+// toolingPrompt is the instruction preamble `container tooling`
+// emits above the collected bundle declarations: locate/scaffold the base
+// Containerfile, propose a diff, get EXPLICIT per-change user approval,
+// rebuild. A markdown resource, not Go — the procedure is data.
+var toolingPrompt = resources.MustGetPromptText("tooling")
+
+// toolingCmd emits the agent-image tooling instructions plus every
+// TRUSTED bundle's `tooling` skill. The LLM runs this, reads the
+// declarations, and folds them — with the user's explicit approval — into the
+// scaffolded base Containerfile. Read-only: collection goes through the trust
+// gate and nothing is written here.
+var toolingCmd = &cobra.Command{
+	Use:   "tooling",
+	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Long: `Collect every trusted bundle's 'tooling' skill — the tools its
+content needs inside the agent container image — and emit them with
+instructions for the LLM: scaffold/locate the editable base Containerfile
+('ctxloom container scaffold'), propose the additions as a diff, get the
+user's explicit approval per change, then rebuild ('ctxloom container build').
+
+Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
+like any other gated content, and nothing is ever applied automatically on
+pull/sync — the edit is the LLM's, gated by the user.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		entries := operations.CollectTooling(cfg, nil)
+		return emit(cmd, toolingJSON{Instructions: toolingPrompt, Declarations: entries}, func() error {
+			return renderTooling(cmd.OutOrStdout(), entries)
+		})
+	},
+}
+
+// toolingJSON is the --format json shape for `container tooling`.
+type toolingJSON struct {
+	Instructions string                          `json:"instructions"`
+	Declarations []operations.ToolingDeclaration `json:"declarations"`
+}
+
+// renderTooling writes the instruction preamble plus the collected
+// declarations, each attributed to its source bundle. Extracted from RunE so
+// the formatting is testable with injected entries.
+func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
+	w := iox.NewErrWriter(out)
+	if len(entries) == 0 {
+		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' skill).")
+		w.Println("Untrusted declarations are withheld — review with `ctxloom review`, then re-run.")
+		return w.Err()
+	}
+	w.Println(toolingPrompt)
+	for _, e := range entries {
+		w.Printf("\n### %s\n\n%s\n", e.Source, e.Content)
+	}
+	return w.Err()
+}
+
+// containerScaffoldCmd is the write half the tooling flow calls (with the
+// user's permission): materialize the embedded default base Containerfile as
+// an editable local file and wire it into config, so the default auto-build
+// and explicit builds pick it up from then on.
+var (
+	containerScaffoldPath  string
+	containerScaffoldForce bool
+)
+
+var containerScaffoldCmd = &cobra.Command{
+	Use:   "scaffold",
+	Short: "Materialize the editable base Containerfile and wire it into config",
+	Long: `Write the embedded default base Containerfile to an editable local file
+(default: .ctxloom/base.Containerfile) and set 'isolation_base_containerfile'
+so every locally-built agent image — the default auto-build included — layers
+on it. Content-identical to what the default build was already using, so
+nothing changes until you edit it.
+
+Idempotent and WIP-safe: an already-configured base is returned as-is, and an
+existing file at the target is adopted, never overwritten (--force overwrites).`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		path, err := operations.ScaffoldContainerBase(cfg, containerScaffoldPath, containerScaffoldForce)
+		if err != nil {
+			return err
+		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Base Containerfile: %s\n", path)
+		w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
+		return w.Err()
+	},
+}
+
+// containerCheckCmd reports whether `runtime: container` agents can actually
+// launch here: in-container detection, runtime reachability, image presence,
+// and the shared-filesystem probe (the docker-outside-of-docker detector).
+// Diagnostic only — always exits 0, never builds or changes anything.
+var containerCheckCmd = &cobra.Command{
+	Use:   "check [backend]",
+	Short: "Diagnose container capability (runtime, image, shared filesystem)",
+	Long: `Report whether containerized agents ('runtime: container') can launch here:
+
+  - whether THIS process runs inside a container (dev container, CI, pod)
+  - which container runtime is reachable (docker | podman)
+  - whether the backend's agent image is present locally
+  - whether the runtime's daemon shares this filesystem — the marker probe
+    that detects docker-outside-of-docker, where bind mounts silently
+    resolve against the WRONG filesystem and launches hang
+
+Diagnostic only: always exits 0 and never builds images or changes state.
+Run it inside a dev container to learn whether to enable docker-in-docker
+or keep agents on 'runtime: host'.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var backend string
+		if len(args) == 1 {
+			backend = args[0]
+			if names := backends.List(); !slices.Contains(names, backend) {
+				sort.Strings(names)
+				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
+			}
+		} else if cfg, err := GetConfig(); err == nil {
+			backend, _ = operations.ResolveBackend(cfg, "")
+		}
+		img := isolation.ImageConfig{}
+		if cfg, err := GetConfig(); err == nil {
+			img = operations.IsolationImageConfig(cfg, backend)
+		}
+		d := containerDiagnose(cmd.Context(), backend, img)
+		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
+	},
+}
+
+// renderContainerCheck writes the human-readable diagnosis. Extracted from
+// RunE so the formatting is testable with an injected report.
+func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("Container capability (backend: %s)\n", backend)
+	if d.InContainer {
+		w.Printf("  in a container:  yes (%s)\n", strings.Join(d.Markers, ", "))
+	} else {
+		w.Println("  in a container:  no")
+	}
+	if d.Reachable {
+		w.Printf("  runtime:         %s (reachable)\n", d.Runtime)
+	} else {
+		w.Printf("  runtime:         %s\n", d.Runtime)
+	}
+	if d.Image != "" {
+		presence := "absent"
+		if d.ImagePresent {
+			presence = "present"
+			if d.ImageStale {
+				presence = "present (stale — rebuilds next run)"
+			}
+		}
+		w.Printf("  agent image:     %s (%s)\n", d.Image, presence)
+	}
+	w.Printf("  shared fs:       %s\n", d.SharedFS)
+	for _, g := range d.Guidance {
+		w.Printf("  -> %s\n", g)
+	}
+	return w.Err()
+}
+
+func init() {
+	containerBuildCmd.Flags().StringVar(&containerBuildBaseImage, "base-image", "",
+		"overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources")
+	containerBuildCmd.Flags().StringVar(&containerBuildBaseContainerfile, "base-containerfile", "",
+		"build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of the embedded default")
+	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
+		"container runtime to build with (docker|podman); auto-detected when empty")
+	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,
+		"reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)")
+	containerScaffoldCmd.Flags().StringVar(&containerScaffoldPath, "path", "",
+		"project-root-relative path for the base Containerfile (default .ctxloom/base.Containerfile)")
+	containerScaffoldCmd.Flags().BoolVar(&containerScaffoldForce, "force", false,
+		"overwrite an existing file / re-point an already-configured base")
+	containerCmd.AddCommand(containerBuildCmd)
+	containerCmd.AddCommand(containerCheckCmd)
+	containerCmd.AddCommand(containerScaffoldCmd)
+	containerCmd.AddCommand(containerProvenanceCmd)
+	rootCmd.AddCommand(containerCmd)
+	// Top-level on purpose: tooling is the general bundle-declaration
+	// collector; the container image is (today) where declarations land.
+	rootCmd.AddCommand(toolingCmd)
+}

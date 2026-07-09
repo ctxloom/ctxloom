@@ -25,11 +25,15 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 		return false, "", nil // Invalid manifest, continue
 	}
 
-	// Check retracted entries
+	// Check retracted entries. A retraction entry with an empty Version retracts
+	// the item at every version; an entry pinned to a specific version only fires
+	// when the request asks for that exact version. The earlier `ref.ContentVersion
+	// == ""` disjunct was wrong: it flagged any unversioned/"latest" install as
+	// retracted on the FIRST retracted version of that name, even when the
+	// retracted version was not the one being installed.
 	for _, r := range manifest.Retracted {
 		if r.Type == itemType && r.Name == ref.Path {
-			// Check if the version matches
-			if r.Version == ref.ContentVersion || ref.ContentVersion == "" {
+			if r.Version == "" || r.Version == ref.ContentVersion {
 				return true, r.Reason, nil
 			}
 		}

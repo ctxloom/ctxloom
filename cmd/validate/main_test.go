@@ -37,10 +37,12 @@ func TestRun_ValidConfig(t *testing.T) {
 	// Create .ctxloom directory with valid config
 	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	validConfig := `
-version: 3
-profiles:
-  defaults:
-    - default
+version: 6
+default_agent: default
+agents:
+  default:
+    engine: primary
+    profiles: [default]
 llm:
   configs:
     primary: { type: claude-code }
@@ -142,10 +144,15 @@ editor:
   args:
     - -n
 
+default_agent: dev
+agents:
+  dev:
+    engine: big
+    profiles:
+      - development
+      - testing
+
 profiles:
-  defaults:
-    - development
-    - testing
   definitions:
     development:
       description: Development profile with common tools

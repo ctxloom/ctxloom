@@ -63,16 +63,6 @@ func TestResolveRef_ShortAgainstLocalSource(t *testing.T) {
 	}
 }
 
-func TestResolveRef_ProfileKind(t *testing.T) {
-	got, err := ResolveRef("architect", "https://github.com/o/r", ItemTypeProfile)
-	if err != nil {
-		t.Fatalf("ResolveRef: %v", err)
-	}
-	if want := "https://github.com/o/r@profiles/architect"; got.CanonicalString() != want {
-		t.Fatalf("CanonicalString = %q, want %q", got.CanonicalString(), want)
-	}
-}
-
 func TestResolveRef_ShortWithoutSource(t *testing.T) {
 	if _, err := ResolveRef("demo", "", ItemTypeBundle); err == nil {
 		t.Fatal("expected error resolving a short ref with no source")
@@ -90,7 +80,6 @@ func TestResolveRefString(t *testing.T) {
 		{"short bundle inherits source hash", "demo", url, "abc123", ItemTypeBundle, "https://github.com/o/r@bundles/demo@abc123"},
 		{"short with own version ignores source hash", "demo@v1", url, "abc123", ItemTypeBundle, "https://github.com/o/r@bundles/demo@v1"},
 		{"short with item path inherits hash", "demo#fragments/x", url, "abc123", ItemTypeBundle, "https://github.com/o/r@bundles/demo@abc123#fragments/x"},
-		{"short parent inherits hash", "architect", url, "abc123", ItemTypeProfile, "https://github.com/o/r@profiles/architect@abc123"},
 		{"canonical verbatim", "https://other/repo@bundles/y", url, "abc123", ItemTypeBundle, "https://other/repo@bundles/y"},
 		{"local verbatim", "ctxloom:local@bundles/y", url, "abc123", ItemTypeBundle, "ctxloom:local@bundles/y"},
 		{"no source falls back", "demo", "", "abc123", ItemTypeBundle, "demo"},

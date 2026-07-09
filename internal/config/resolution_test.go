@@ -5,18 +5,71 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
+
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// TestResolveProfile_HookDedupAcrossEvents pins that the unified-hook dedup key
+// carries an event discriminator (and the hook Type/Prompt), so a hook is not
+// silently dropped just because the same command+matcher already merged on a
+// different lifecycle event, and prompt hooks with an empty Command but
+// differing Prompt text are not collapsed.
+func TestResolveProfile_HookDedupAcrossEvents(t *testing.T) {
+	notify := wire.Hook{Command: "notify.sh", Matcher: "*"}
+	promptA := wire.Hook{Type: "prompt", Prompt: "remember A"}
+	promptB := wire.Hook{Type: "prompt", Prompt: "remember B"}
+
+	profiles := map[string]Profile{
+		"p": {
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					// Same command+matcher on two different lifecycles must both survive.
+					SessionStart: []wire.Hook{notify},
+					SessionEnd:   []wire.Hook{notify},
+					// Distinct prompt hooks (empty Command, same matcher) must not collapse.
+					PreTool: []wire.Hook{promptA, promptB},
+				},
+			},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "p")
+	assert.NoError(t, err)
+	assert.Len(t, resolved.Hooks.Unified.SessionStart, 1)
+	assert.Len(t, resolved.Hooks.Unified.SessionEnd, 1, "same hook on a different event must not be deduped away")
+	assert.Len(t, resolved.Hooks.Unified.PreTool, 2, "prompt hooks differing only by Prompt must both survive")
+}
+
+// TestResolveProfile_HookDedupWithinEvent pins that genuine duplicates within
+// the same event (e.g. via diamond inheritance) are still collapsed to one.
+func TestResolveProfile_HookDedupWithinEvent(t *testing.T) {
+	notify := wire.Hook{Command: "notify.sh", Matcher: "*"}
+	profiles := map[string]Profile{
+		"base": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{notify}}}},
+		"mid":  {Parents: []string{"base"}},
+		"child": {
+			Parents: []string{"base", "mid"},
+			Hooks:   wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{notify}}},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	assert.NoError(t, err)
+	assert.Len(t, resolved.Hooks.Unified.SessionStart, 1, "identical hooks on the same event still dedup")
+}
 
 // TestProfileResolutionAccessors covers the thin profile/settings accessors
 // that the run and hook paths read through.
 func TestProfileResolutionAccessors(t *testing.T) {
-	cfg := &Config{Profiles: ProfilesConfig{
-		Defaults:    []string{"dev", "go"},
-		Definitions: map[string]Profile{"dev": {Description: "development"}},
-	}}
+	cfg := &Config{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev", "go"}}},
+		Profiles:     ProfilesConfig{Definitions: map[string]Profile{"dev": {Description: "development"}}},
+	}
 
-	assert.Equal(t, []string{"dev", "go"}, cfg.EffectiveDefaultProfiles())
+	assert.Equal(t, []string{"dev", "go"}, cfg.DefaultAgentProfiles())
 
 	t.Run("ProfileDefinition_hit", func(t *testing.T) {
 		p, ok := cfg.ProfileDefinition("dev")
@@ -59,7 +112,7 @@ func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 // bare config with no profiles surfaces the built-in bundle hooks (session-bind
 // + plan stamping) shipped embedded in the binary.
 func TestResolveBundleHooks_BuiltinsUnconditional(t *testing.T) {
-	hooks := (&Config{}).ResolveBundleHooks()
+	hooks := (&Config{}).ResolveBundleHooks(nil)
 
 	assert.NotEmpty(t, hooks.SessionStart, "built-in bundles ship a session_start hook")
 	assert.NotEmpty(t, hooks.PostFileEdit, "built-in bundles ship a post_file_edit hook")

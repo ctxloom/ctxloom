@@ -23,9 +23,6 @@ func TestLockfileManager_LoadEmpty(t *testing.T) {
 	if lockfile.Bundles == nil {
 		t.Error("Bundles map should be initialized")
 	}
-	if lockfile.Profiles == nil {
-		t.Error("Profiles map should be initialized")
-	}
 	if !lockfile.IsEmpty() {
 		t.Error("new lockfile should be empty")
 	}
@@ -37,9 +34,8 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 
 	// Create lockfile
 	lockfile := &Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Version: 1,
+		Bundles: make(map[string]LockEntry),
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -122,20 +118,15 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 
 func TestLockfile_AddEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Bundles: make(map[string]LockEntry),
 	}
 
 	entry := LockEntry{SHA: "abc123"}
 
 	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", entry)
-	lockfile.AddEntry(ItemTypeProfile, "alice/secure", entry)
 
 	if len(lockfile.Bundles) != 1 {
 		t.Errorf("Bundles count = %d, want 1", len(lockfile.Bundles))
-	}
-	if len(lockfile.Profiles) != 1 {
-		t.Errorf("Profiles count = %d, want 1", len(lockfile.Profiles))
 	}
 }
 
@@ -144,7 +135,6 @@ func TestLockfile_GetEntry(t *testing.T) {
 		Bundles: map[string]LockEntry{
 			"alice/go-tools": {SHA: "abc123"},
 		},
-		Profiles: make(map[string]LockEntry),
 	}
 
 	// Existing entry
@@ -169,7 +159,6 @@ func TestLockfile_RemoveEntry(t *testing.T) {
 			"alice/go-tools": {SHA: "abc123"},
 			"bob/testing":    {SHA: "def456"},
 		},
-		Profiles: make(map[string]LockEntry),
 	}
 
 	lockfile.RemoveEntry(ItemTypeBundle, "alice/go-tools")
@@ -190,14 +179,11 @@ func TestLockfile_AllEntries(t *testing.T) {
 		Bundles: map[string]LockEntry{
 			"alice/go-tools": {SHA: "abc123"},
 		},
-		Profiles: map[string]LockEntry{
-			"alice/secure": {SHA: "ghi789"},
-		},
 	}
 
 	entries := lockfile.AllEntries()
-	if len(entries) != 2 {
-		t.Errorf("entries count = %d, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Errorf("entries count = %d, want 1", len(entries))
 	}
 
 	// Verify each type is present
@@ -208,9 +194,6 @@ func TestLockfile_AllEntries(t *testing.T) {
 
 	if typeCount[ItemTypeBundle] != 1 {
 		t.Errorf("bundle count = %d, want 1", typeCount[ItemTypeBundle])
-	}
-	if typeCount[ItemTypeProfile] != 1 {
-		t.Errorf("profile count = %d, want 1", typeCount[ItemTypeProfile])
 	}
 }
 
@@ -223,24 +206,14 @@ func TestLockfile_IsEmpty(t *testing.T) {
 		{
 			name: "empty",
 			lockfile: Lockfile{
-				Bundles:  make(map[string]LockEntry),
-				Profiles: make(map[string]LockEntry),
+				Bundles: make(map[string]LockEntry),
 			},
 			want: true,
 		},
 		{
 			name: "with bundle",
 			lockfile: Lockfile{
-				Bundles:  map[string]LockEntry{"a": {}},
-				Profiles: make(map[string]LockEntry),
-			},
-			want: false,
-		},
-		{
-			name: "with profile",
-			lockfile: Lockfile{
-				Bundles:  make(map[string]LockEntry),
-				Profiles: map[string]LockEntry{"a": {}},
+				Bundles: map[string]LockEntry{"a": {}},
 			},
 			want: false,
 		},
@@ -257,12 +230,11 @@ func TestLockfile_IsEmpty(t *testing.T) {
 
 func TestLockfile_Count(t *testing.T) {
 	lockfile := Lockfile{
-		Bundles:  map[string]LockEntry{"a": {}, "b": {}},
-		Profiles: map[string]LockEntry{"d": {}, "e": {}, "f": {}},
+		Bundles: map[string]LockEntry{"a": {}, "b": {}},
 	}
 
-	if got := lockfile.Count(); got != 5 {
-		t.Errorf("Count() = %d, want 5", got)
+	if got := lockfile.Count(); got != 2 {
+		t.Errorf("Count() = %d, want 2", got)
 	}
 }
 
@@ -292,9 +264,8 @@ func TestWithLockfileFS(t *testing.T) {
 
 	// Verify the custom FS is used by saving and loading
 	lockfile := &Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Version: 1,
+		Bundles: make(map[string]LockEntry),
 	}
 	lockfile.AddEntry(ItemTypeBundle, "test/bundle", LockEntry{SHA: "abc123"})
 
@@ -339,17 +310,6 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "https://github.com/bob/ctxloom@bundles/tools@def456",
-			wantOk:   true,
-		},
-		{
-			name:      "profile entry",
-			localName: "https://github.com/alice/ctxloom@profiles/secure",
-			entry: LockEntry{
-				SHA: "ghi789",
-				URL: "https://github.com/alice/ctxloom",
-			},
-			itemType: ItemTypeProfile,
-			wantURL:  "https://github.com/alice/ctxloom@profiles/secure@ghi789",
 			wantOk:   true,
 		},
 		{
@@ -398,8 +358,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lockfile := &Lockfile{
-				Bundles:  make(map[string]LockEntry),
-				Profiles: make(map[string]LockEntry),
+				Bundles: make(map[string]LockEntry),
 			}
 
 			if tt.entry.SHA != "" || tt.entry.URL != "" {
@@ -430,7 +389,6 @@ func TestLockfile_GetCanonicalURL_ShortNameResolution(t *testing.T) {
 			"https://github.com/alice/ctxloom@bundles/lang/go":        {SHA: "def456", URL: "https://github.com/alice/ctxloom"},
 			"https://github.com/bob/ctxloom@bundles/tools/go":         {SHA: "fed654", URL: "https://github.com/bob/ctxloom"},
 		},
-		Profiles: make(map[string]LockEntry),
 	}
 
 	t.Run("short name resolves against canonical key", func(t *testing.T) {
@@ -495,9 +453,6 @@ func TestLockfile_FindByURL(t *testing.T) {
 		Bundles: map[string]LockEntry{
 			"ctxloom-github/core": {SHA: "abc123", URL: "https://github.com/alice/ctxloom"},
 		},
-		Profiles: map[string]LockEntry{
-			"ctxloom-github/secure": {SHA: "def456", URL: "https://github.com/bob/ctxloom"},
-		},
 	}
 
 	t.Run("find bundle by URL", func(t *testing.T) {
@@ -510,19 +465,6 @@ func TestLockfile_FindByURL(t *testing.T) {
 		}
 		if entry.SHA != "abc123" {
 			t.Errorf("SHA = %q, want %q", entry.SHA, "abc123")
-		}
-	})
-
-	t.Run("find profile by URL", func(t *testing.T) {
-		name, entry, found := lockfile.FindByURL("https://github.com/bob/ctxloom", ItemTypeProfile)
-		if !found {
-			t.Fatal("expected to find entry")
-		}
-		if name != "ctxloom-github/secure" {
-			t.Errorf("name = %q, want %q", name, "ctxloom-github/secure")
-		}
-		if entry.SHA != "def456" {
-			t.Errorf("SHA = %q, want %q", entry.SHA, "def456")
 		}
 	})
 
@@ -547,16 +489,12 @@ func TestLockfile_FindAllByURL(t *testing.T) {
 			"ctxloom-github/core":  {SHA: "abc123", URL: "https://github.com/alice/ctxloom"},
 			"ctxloom-github/tools": {SHA: "def456", URL: "https://github.com/alice/ctxloom"},
 		},
-		Profiles: map[string]LockEntry{
-			"ctxloom-github/secure": {SHA: "ghi789", URL: "https://github.com/alice/ctxloom"},
-			"ctxloom-github/other":  {SHA: "jkl012", URL: "https://github.com/bob/ctxloom"},
-		},
 	}
 
 	t.Run("finds all matching entries", func(t *testing.T) {
 		results := lockfile.FindAllByURL("https://github.com/alice/ctxloom")
-		if len(results) != 3 {
-			t.Errorf("len(results) = %d, want 3", len(results))
+		if len(results) != 2 {
+			t.Errorf("len(results) = %d, want 2", len(results))
 		}
 	})
 
@@ -566,42 +504,6 @@ func TestLockfile_FindAllByURL(t *testing.T) {
 			t.Errorf("len(results) = %d, want 0", len(results))
 		}
 	})
-}
-
-func TestLockfile_RemoveEntry_Profile(t *testing.T) {
-	lockfile := &Lockfile{
-		Bundles: make(map[string]LockEntry),
-		Profiles: map[string]LockEntry{
-			"ctxloom-github/secure": {SHA: "abc123"},
-			"ctxloom-github/other":  {SHA: "def456"},
-		},
-	}
-
-	lockfile.RemoveEntry(ItemTypeProfile, "ctxloom-github/secure")
-
-	if len(lockfile.Profiles) != 1 {
-		t.Errorf("Profiles count = %d, want 1", len(lockfile.Profiles))
-	}
-	if _, ok := lockfile.GetEntry(ItemTypeProfile, "ctxloom-github/secure"); ok {
-		t.Error("entry should have been removed")
-	}
-}
-
-func TestLockfile_GetEntry_Profile(t *testing.T) {
-	lockfile := &Lockfile{
-		Bundles: make(map[string]LockEntry),
-		Profiles: map[string]LockEntry{
-			"ctxloom-github/secure": {SHA: "abc123"},
-		},
-	}
-
-	entry, ok := lockfile.GetEntry(ItemTypeProfile, "ctxloom-github/secure")
-	if !ok {
-		t.Fatal("expected entry to exist")
-	}
-	if entry.SHA != "abc123" {
-		t.Errorf("SHA = %q, want %q", entry.SHA, "abc123")
-	}
 }
 
 func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
@@ -618,7 +520,7 @@ func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
 
 func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	// Write a lockfile without bundles/profiles maps
+	// Write a lockfile without a bundles map
 	content := "version: 1\n"
 	_ = fs.MkdirAll("/test", 0755)
 	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte(content), 0644)
@@ -632,9 +534,6 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	// Maps should be initialized
 	if lockfile.Bundles == nil {
 		t.Error("Bundles map should be initialized")
-	}
-	if lockfile.Profiles == nil {
-		t.Error("Profiles map should be initialized")
 	}
 }
 
@@ -660,9 +559,8 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	lockfile := &Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Version: 1,
+		Bundles: make(map[string]LockEntry),
 	}
 
 	before := time.Now().UTC()
@@ -679,8 +577,7 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 
 func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Bundles: make(map[string]LockEntry),
 	}
 
 	// Unknown item type should not find any entry
@@ -692,8 +589,7 @@ func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 
 func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles:  make(map[string]LockEntry),
-		Profiles: make(map[string]LockEntry),
+		Bundles: make(map[string]LockEntry),
 	}
 
 	// Unknown type should not add to any map
@@ -702,15 +598,11 @@ func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 	if len(lockfile.Bundles) != 0 {
 		t.Error("unknown type should not add to bundles")
 	}
-	if len(lockfile.Profiles) != 0 {
-		t.Error("unknown type should not add to profiles")
-	}
 }
 
 func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles:  map[string]LockEntry{"test/bundle": {SHA: "abc123"}},
-		Profiles: map[string]LockEntry{"test/profile": {SHA: "def456"}},
+		Bundles: map[string]LockEntry{"test/bundle": {SHA: "abc123"}},
 	}
 
 	// Unknown type should not remove from any map
@@ -718,8 +610,5 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 
 	if len(lockfile.Bundles) != 1 {
 		t.Error("unknown type should not remove from bundles")
-	}
-	if len(lockfile.Profiles) != 1 {
-		t.Error("unknown type should not remove from profiles")
 	}
 }

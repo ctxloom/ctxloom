@@ -92,7 +92,7 @@ git commit -m "Update ctxloom configuration"
 
 ```bash
 mkdir team-ctxloom && cd team-ctxloom
-mkdir -p ctxloom/bundles ctxloom/profiles
+mkdir -p ctxloom/bundles
 ```
 
 2. **Add team standards**:
@@ -110,14 +110,16 @@ fragments:
       - Descriptive variable names
 ```
 
-3. **Create team profile**:
+3. **Create team profile** (profiles ship inside a bundle's `profiles:` map):
 
 ```yaml
-# ctxloom/profiles/team-developer.yaml
-description: Standard team development environment
-bundles:
-  - team-standards
-  - security-basics
+# ctxloom/bundles/team-standards.yaml (continued)
+profiles:
+  team-developer:
+    description: Standard team development environment
+    bundles:
+      - team-standards
+      - security-basics
 ```
 
 4. **Publish**:
@@ -134,8 +136,9 @@ git push -u origin main
 # Add team remote
 ctxloom remote add team myorg/ctxloom-team
 
-# Create profile that inherits from team
-ctxloom profile create my-dev --parent team/team-developer
+# Create profile that inherits the bundle-shipped team profile
+ctxloom profile create my-dev \
+  --parent 'https://github.com/myorg/ctxloom-team@bundles/team-standards#profiles/team-developer'
 
 # Pull the referenced team content
 ctxloom remote pull
@@ -167,7 +170,7 @@ ctxloom run -p project "help with code"
 Create a bundle specific to your project:
 
 ```yaml
-# .ctxloom/bundles/project-specific.yaml
+# .ctxloom/cache/bundles/project-specific.yaml
 version: "1.0"
 description: Project-specific context
 
@@ -274,6 +277,29 @@ ctxloom run -p reviewer -f performance#fragments/optimization \
   "review for performance issues"
 ```
 
+## Agents and Parallel Runs
+
+Bind an engine and profiles under a named agent, then run it by name (see [Agents](/concepts/agents/)):
+
+```bash
+ctxloom agent set reviewer --engine claude-code --profiles reviewer
+ctxloom run --agent reviewer "review this change"
+```
+
+Resume a previous session by its harp name:
+
+```bash
+ctxloom session list
+ctxloom run --session swift-amber-falcon "pick up where we left off"
+```
+
+Fan one task out to several profiles in parallel and synthesize the outputs into a single result (see [Weave](/concepts/weave/)):
+
+```bash
+git diff | ctxloom weave -p code-review/security -p code-review/perf \
+  -s code-review/synthesis
+```
+
 ## CI/CD Integration Workflow
 
 ### In CI Pipeline
@@ -286,13 +312,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup ctxloom
         run: |
-          go install github.com/ctxloom/ctxloom@latest
+          go install github.com/ctxloom/ctxloom/cmd/ctxloom@latest
           ctxloom remote pull
 
       - name: AI Code Review
         run: |
-          ctxloom run -p code-reviewer "review changes in this PR" \
-            --output review.md
+          ctxloom run -p code-reviewer --print \
+            "review changes in this PR" > review.md
 ```
 
 ### Lockfile for Reproducibility
@@ -328,7 +354,7 @@ ctxloom run --dry-run --print
 cat .claude/settings.json | jq '.hooks'
 
 # Reapply hooks
-ctxloom init
+ctxloom manage hooks install
 ```
 
 ### When Bundles Are Missing

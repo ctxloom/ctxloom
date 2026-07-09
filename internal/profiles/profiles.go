@@ -15,8 +15,47 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
+
+// FragmentRef is a directory-profile fragment reference with optional priority —
+// the profiles-package mirror of config.FragmentRef (the profiles package cannot
+// import config, which imports profiles). It accepts the same YAML as the inline
+// form: a bare string ("go-style") or a {name, priority} mapping.
+// operations.resolveProfile converts it to config.FragmentRef for the shared
+// assembly pipeline, where any "@<commit>" pin carried in Name is split
+// transiently (normalizeFragmentRef) — so identity/lockfile stay version-agnostic,
+// consistent with the inline path.
+type FragmentRef struct {
+	Name     string `yaml:"name"`
+	Priority int    `yaml:"priority,omitempty"`
+}
+
+// UnmarshalYAML supports both the bare-string and {name, priority} forms,
+// matching config.FragmentRef.
+func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		f.Name = node.Value
+		f.Priority = 0
+		return nil
+	}
+	type plain FragmentRef
+	return node.Decode((*plain)(f))
+}
+
+// MarshalYAML emits a bare string when priority is 0 (the common case), else the
+// {name, priority} mapping — so a round-tripped profile stays compact.
+func (f FragmentRef) MarshalYAML() (any, error) {
+	if f.Priority == 0 {
+		return f.Name, nil
+	}
+	type plain FragmentRef
+	return plain(f), nil
+}
 
 // SeededProfilePathPrefix is the sentinel prefix carried in Profile.Path by
 // seeded remote profiles (config.loadRemoteProfileSeed builds
@@ -52,8 +91,30 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	for i, b := range p.Bundles {
 		p.Bundles[i] = remote.ResolveRefString(b, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
+	// A parent is either a bare local-profile name (passes through) or a
+	// <bundle>#profiles/<name> bundle-shipped ref that canonicalizes against the
+	// source repo exactly like Bundles/Prompts (the "#profiles/<name>" selector
+	// rides through ItemTypeBundle's item passthrough). Top-level @profiles/
+	// parent distribution was retired, so ItemTypeProfile is no longer used here.
 	for i, par := range p.Parents {
-		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeProfile)
+		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	// Curated prompt refs ("<bundle>#prompts/<name>") carry a bundle reference,
+	// so a remote profile's short prompt refs canonicalize against its source
+	// repo exactly like Bundles (the "#prompts/<name>" selector and any trailing
+	// "@<commit>" pin ride through ResolveRefString's item passthrough).
+	for i, pr := range p.Prompts {
+		p.Prompts[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	// Fragment refs and bundle_items cherry-picks both name bundle content, so a
+	// remote profile's short forms canonicalize against its source repo exactly
+	// like Bundles. Inline hooks:/mcp: are directly-declared executables with no
+	// bundle reference to rewrite — they pass through unchanged.
+	for i, fr := range p.Fragments {
+		p.Fragments[i].Name = remote.ResolveRefString(fr.Name, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	for i, bi := range p.BundleItems {
+		p.BundleItems[i] = remote.ResolveRefString(bi, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
 }
 
@@ -66,7 +127,7 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 //
 //	bundle-name                      # Entire bundle (all fragments, prompts, MCP)
 //	bundle-name:fragments/name       # Specific fragment from bundle
-//	bundle-name:prompts/name         # Specific prompt from bundle
+//	bundle-name:skills/name         # Specific prompt from bundle
 //	bundle-name:mcp                  # MCP server from bundle
 //	remote/bundle-name:fragments/x   # Fragment from remote bundle
 //
@@ -77,8 +138,9 @@ type Profile struct {
 	Name        string   `yaml:"-"` // Derived from filename
 	Path        string   `yaml:"-"` // Full path to the file
 	Description string   `yaml:"description,omitempty"`
-	Parents     []string `yaml:"parents,omitempty"` // Parent profiles to inherit from
-	Tags        []string `yaml:"tags,omitempty"`    // Fragment tags to include
+	Parents     []string `yaml:"parents,omitempty"`     // Parent profiles to inherit from
+	Tags        []string `yaml:"tags,omitempty"`        // Descriptive tags (listing/discovery only; NOT content-selecting)
+	SelectTags  []string `yaml:"select_tags,omitempty"` // Fragment tags to select content by
 
 	// LLM is the config label (or backend type) this profile prefers to launch.
 	// Used by `ctxloom run` unless overridden by -l/--llm. Empty falls back to
@@ -89,6 +151,42 @@ type Profile struct {
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"
 	// Full URLs: "https://github.com/user/repo@bundles/name"
 	Bundles []string `yaml:"bundles,omitempty"`
+
+	// Prompts curates the slash-command prompt exports for this directory
+	// profile, the mirror of config.Profile.Prompts for inline profiles
+	// (b626431). When a resolved active profile declares a NON-EMPTY list, ONLY
+	// these prompts are exported (each optionally version-pinned with a trailing
+	// "@<commit>"), suppressing the global flag-based auto-export for that
+	// profile; an empty list keeps today's global auto-export (opt-in). Each
+	// entry is a prompt ref ("<bundle>#prompts/<name>") whose version-agnostic
+	// identity is the stored string — like bundles, any "@<commit>" is parsed
+	// transiently at assembly and the lockfile stays untouched.
+	Prompts []string `yaml:"prompts,omitempty"`
+
+	// Fragments are direct fragment references with optional priority — the
+	// mirror of config.Profile.Fragments for inline profiles. Each entry may
+	// carry a trailing "@<commit>" pin (split transiently at assembly), so the
+	// stored ref stays the version-agnostic identity and the lockfile is
+	// untouched, exactly like the inline path.
+	Fragments []FragmentRef `yaml:"fragments,omitempty"`
+
+	// BundleItems cherry-pick individual bundle items (e.g.
+	// "remote/bundle:fragments/name", optionally "@<commit>"-pinned) — the mirror
+	// of config.Profile.BundleItems. They are expanded via the same
+	// ExpandBundleRefs path as Bundles in operations.resolveProfile.
+	BundleItems []string `yaml:"bundle_items,omitempty"`
+
+	// Hooks are lifecycle hooks declared by this directory profile, the mirror of
+	// config.Profile.Hooks. Unlike a trusted-local config.yaml inline profile, a
+	// directory profile may be remote-sourced (a seeded remote profile), so its
+	// directly-declared executable hooks pass the per-item executable trust gate
+	// (the SAME gate bundle hooks pass) before reaching backend settings.
+	Hooks wire.HooksConfig `yaml:"hooks,omitempty"`
+
+	// MCP are MCP servers declared by this directory profile, the mirror of
+	// config.Profile.MCP. Like Hooks, these directly-declared executables pass the
+	// executable trust gate before reaching backend settings.
+	MCP wire.MCPConfig `yaml:"mcp,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`
 
@@ -180,11 +278,79 @@ func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
 	if p, ok := l.seeded[name]; ok {
 		return p, true
 	}
+	// A bundle-profile ref canonicalizes selector-preserving: CanonicalKey
+	// would drop the "#profiles/<name>" selector and collapse the ref to its
+	// bundle, never matching a seed key.
+	if key, ok := remote.CanonicalProfileKey(name); ok && key != name {
+		if p, ok := l.seeded[key]; ok {
+			return p, true
+		}
+		// "<alias>/<bundle>#profiles/<name>": the pure-string canonicalizer
+		// reads the alias as a local path segment; resolve it against the
+		// remote registry so the alias spelling reaches the same seed entry
+		// as the canonical URL.
+		if aliasKey, ok := l.aliasSeededKey(name); ok {
+			p, ok := l.seeded[aliasKey]
+			return p, ok
+		}
+		return nil, false
+	}
 	if key, ok := remote.CanonicalKey(name); ok && key != name {
 		p, ok := l.seeded[key]
 		return p, ok
 	}
 	return nil, false
+}
+
+// canonicalProfileName returns the version-less canonical identity of a
+// profile reference, for recursion and visited-map dedup. A bundle-profile
+// ref resolves alias-first (so "<alias>/<bundle>#profiles/<p>" and its
+// canonical URL spelling share one identity), then through the
+// selector-preserving CanonicalProfileKey — CanonicalKey would drop the
+// "#profiles/<name>" selector and collapse the ref to its bundle, which is
+// never a profile name. Non-selector refs and plain local names pass through
+// CanonicalKey / unchanged.
+func (l *Loader) canonicalProfileName(ref string) string {
+	if _, _, ok := remote.SplitBundleProfileRef(ref); ok {
+		if key, ok := l.aliasSeededKey(ref); ok {
+			return key
+		}
+		if key, ok := remote.CanonicalProfileKey(ref); ok {
+			return key
+		}
+		return ref
+	}
+	if key, ok := remote.CanonicalKey(ref); ok {
+		return key
+	}
+	return ref
+}
+
+// aliasSeededKey resolves an "<alias>/<bundle>#profiles/<name>" reference to
+// its canonical seed key via the remote registry. The bare-name grammar is
+// untouched: a parent or -p WITHOUT a "#profiles/" selector never reaches
+// here, so a local profile in a subdirectory (e.g. "personal/go-developer")
+// keeps winning for selector-less names. ok is false when the loader has no
+// registry resolver, the ref carries no selector, the bundle part is already
+// canonical or ctxloom:local, or the alias names no configured remote.
+func (l *Loader) aliasSeededKey(name string) (string, bool) {
+	if l.remoteURLResolver == nil {
+		return "", false
+	}
+	bundle, _, ok := remote.SplitBundleProfileRef(name)
+	if !ok || remote.IsCanonicalRef(bundle) || strings.HasPrefix(bundle, remote.LocalSource) {
+		return "", false
+	}
+	alias, rest, found := strings.Cut(bundle, "/")
+	if !found || alias == "" || rest == "" {
+		return "", false
+	}
+	url := l.remoteURLResolver(alias)
+	if url == "" {
+		return "", false
+	}
+	candidate := url + "@" + remote.ItemTypeBundle.DirName() + "/" + rest + name[strings.Index(name, remote.ProfileSelector):]
+	return remote.CanonicalProfileKey(candidate)
 }
 
 // PendingUpgrades returns the in-memory schema upgrades Load applied to older
@@ -272,7 +438,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			if err != nil {
 				// Degrade, but say so: a corrupt profile silently vanishing
 				// from list output is undiagnosable.
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping profile %s: %v\n", path, err)
+				clidiag.Warn("ctxloom", "skipping profile %s: %v", path, err)
 				return nil
 			}
 			profile.Name = profileName
@@ -304,6 +470,15 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		return p, nil
 	}
 
+	// A bundle-profile ref ("...#profiles/<name>") or scheme-qualified remote
+	// ref that missed the seed can never resolve from disk: bundle profiles
+	// exist only via the lockfile-built seed map. Say so — the bare "not
+	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
+	// reserved in local profile names, so the selector is unambiguous.)
+	if strings.Contains(name, remote.ProfileSelector) || isRemoteProfileRef(name) {
+		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
+	}
+
 	// Names reach here from MCP tools and CLI args, so the local form must be
 	// confined to the profiles directories before it is joined into a path —
 	// the same guard Save applies (and the profile-side mirror of
@@ -328,13 +503,6 @@ func (l *Loader) Load(name string) (*Profile, error) {
 				return profile, nil
 			}
 		}
-	}
-	// A remote-shaped ref that reached the fs fallback has no seed entry:
-	// remote profiles are never materialized to disk, so the only way this
-	// lookup succeeds is via the lockfile-built seed map. Say so — the bare
-	// "not found" otherwise reads as "the profile doesn't exist upstream".
-	if isRemoteProfileRef(name) {
-		return nil, fmt.Errorf("%w: %s (remote profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 }
@@ -379,11 +547,13 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 		ownURL = l.remoteURLResolver(remoteAlias)
 	}
 
-	// Upgrade older on-disk schema (e.g. bare/alias bundle refs) to the current
-	// canonical form in memory before unmarshaling. Applied upgrades are recorded
-	// as pending so an interactive caller may persist the rewrite with consent
-	// (see upgrade.go).
-	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver).Run(data); len(applied) > 0 {
+	// Upgrade older on-disk schema (e.g. bare/alias bundle refs, retired
+	// @profiles/ parents) to the current canonical form in memory before
+	// unmarshaling. Applied upgrades are recorded as pending so an interactive
+	// caller may persist the rewrite with consent (see upgrade.go). The seeded
+	// map is the discovery surface for retired-parent rewrites — it is populated
+	// at construction (WithSeededProfiles), before any Load reaches here.
+	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.seeded).Run(data); len(applied) > 0 {
 		data = upgraded
 		if !l.pendingPaths[path] {
 			if l.pendingPaths == nil {
@@ -457,6 +627,12 @@ func validateProfileName(name string) error {
 	if name == "" {
 		return fmt.Errorf("profile name is required")
 	}
+	// '#' is reserved for bundle-item selectors, so a "<bundle>#profiles/<n>"
+	// ref is structurally never a local profile file — the seed intercept in
+	// Load is a guarantee, not a coincidence.
+	if strings.Contains(name, "#") {
+		return fmt.Errorf("invalid profile name %q: '#' is reserved for bundle refs (<bundle>#profiles/<name>)", name)
+	}
 	cleaned := filepath.Clean(filepath.FromSlash(name))
 	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("invalid profile name %q: must stay within the profiles directory", name)
@@ -496,32 +672,13 @@ func GetProfileDirs(scmPaths []string) []string {
 // This matches the limit used in config.ResolveProfile for consistency.
 const maxProfileDepth = 64
 
-// toLocalProfileName converts a profile reference to its local name.
-// For URL references (https://, git@, file://), it parses the reference
-// and returns the local path format (e.g., "github.com/owner/repo/name").
-// For simple references, it returns the name unchanged.
+// toLocalProfileName returns the local lookup name for a profile reference. A
+// bare name (the only live form) is used as-is; a bundle-shipped (seeded) profile
+// is resolved by lookupSeeded before this is reached. Top-level "<url>@profiles/"
+// distribution was retired, so URL profile references are no longer converted to
+// a persistent-storage path.
 func toLocalProfileName(name string) string {
-	// Check if this is a URL reference
-	if !strings.HasPrefix(name, "https://") &&
-		!strings.HasPrefix(name, "http://") &&
-		!strings.HasPrefix(name, "git@") &&
-		!strings.HasPrefix(name, "file://") {
-		// Not a URL, return as-is
-		return name
-	}
-
-	// Parse the URL reference
-	ref, err := remote.ParseReference(name)
-	if err != nil {
-		// If parsing fails, return the original name
-		// (the Load call will fail with a descriptive error)
-		return name
-	}
-
-	// Convert to local profile name: {remoteName}/{path}
-	// LocalRemoteName() returns something like "github.com/owner/repo"
-	// Path is the profile name like "go-developer"
-	return ref.LocalRemoteName() + "/" + ref.Path
+	return name
 }
 
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
@@ -536,14 +693,14 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int) (*ResolvedProfile, error) {
 	// Check depth limit (consistent with config.ResolveProfile)
 	if depth > maxProfileDepth {
-		return nil, fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
+		return nil, fmt.Errorf("%w (%d): possible misconfiguration", errs.ErrProfileDepthExceeded, maxProfileDepth)
 	}
 
 	if visited == nil {
 		visited = make(map[string]bool)
 	}
 	if visited[name] {
-		return nil, fmt.Errorf("circular profile reference: %s", name)
+		return nil, fmt.Errorf("%w: %s", errs.ErrCircularInheritance, name)
 	}
 	visited[name] = true
 
@@ -560,33 +717,60 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Clone visited map for each parent to handle diamond inheritance correctly.
 	// This allows shared ancestors to be resolved through different paths.
 	//
-	// Per ctxloom's fault-tolerance philosophy (CLAUDE.md), an unresolvable
-	// parent is a stderr warning and that branch is skipped — the rest of
-	// the profile still resolves so the user can reach their LLM. Circular
-	// references and depth-limit overruns remain fatal because continuing
-	// would mask a real misconfiguration or risk runaway recursion.
+	// An unresolvable parent is fatal-class in strict mode (fail-loudly): the
+	// branch is skipped so the rest of the profile still resolves, the warning
+	// streams either way, and the startup choke owner aborts on the collected
+	// finding. In degraded mode (--degraded / CTXLOOM_DEGRADED=1) this is pure
+	// warn-and-skip so the user still reaches their LLM. Circular references
+	// and depth-limit overruns remain hard errors in both modes because
+	// continuing would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
-		// Load normalizes the ref (seeded remote profiles are keyed by their
+		// Load normalizes the ref (seeded remote bundles are keyed by their
 		// version-less canonical ref; unseeded URL refs fall back to the local
 		// materialized name), so the parent ref recurses as-is. Canonicalize
-		// the recursion name so the visited map treats "...@profiles/p" and
-		// "...@profiles/p@<sha>" as the same profile.
-		parentName := parent
-		if key, ok := remote.CanonicalKey(parent); ok {
-			parentName = key
-		}
+		// the recursion name so the visited map treats a bundle-shipped parent
+		// "<bundle>#profiles/p", its "@<sha>"-pinned form, and its
+		// "<alias>/<bundle>#profiles/p" spelling as the same profile.
+		parentName := l.canonicalProfileName(parent)
 
 		// Clone visited map for this parent branch
 		parentVisited := cloneVisited(visited)
 		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1)
 		if err != nil {
-			if errors.Is(err, errs.ErrProfileNotFound) {
-				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)\n",
-					name, parent)
-				continue
+			switch {
+			case errors.Is(err, errs.ErrCircularInheritance), errors.Is(err, errs.ErrProfileDepthExceeded):
+				// Structural misconfiguration stays fatal: continuing would mask
+				// a real cycle or risk runaway recursion.
+				return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
+			case errors.Is(err, errs.ErrProfileNotFound):
+				// FailOnce: resolution re-runs in every subsystem that builds a
+				// loader (assembly, hooks, MCP, ...), so an unresolvable parent
+				// would otherwise repeat the same line — and finding — a dozen
+				// times per startup.
+				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
+					// The retired top-level @profiles/ grammar can never pull or
+					// pin, so "remote pull"/"remote upgrade" would both be wrong
+					// advice. The load-time upgrade rewrites this parent
+					// automatically once a bundle shipping the profile is
+					// installed — so the fix is to point the parent at the
+					// bundle-shipped form (or install a bundle that ships it).
+					strictness.FailOnce(strictness.ClassRef, "point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it",
+						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it (the load-time upgrade then rewrites the parent automatically)",
+						name, parent, bare)
+				} else {
+					strictness.FailOnce(strictness.ClassRef, "ctxloom remote pull",
+						"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
+						name, parent)
+				}
+			default:
+				// Corrupt parent (invalid YAML, IO/permission error): skip this
+				// branch rather than aborting the whole resolution — degraded
+				// mode still reaches the LLM; strict mode aborts on the finding.
+				strictness.FailOnce(strictness.ClassRef, "fix or remove the parent profile file",
+					"profile %q: parent %s failed to load (%v); skipping",
+					name, parent, err)
 			}
-			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
+			continue
 		}
 		resolved.Merge(parentResolved)
 	}
@@ -594,6 +778,22 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Then apply this profile's settings (overrides parents)
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
+	resolved.SelectTags = appendUnique(resolved.SelectTags, profile.SelectTags...)
+	// Curated prompts union with parents in declaration order, deduped by their
+	// version-agnostic stored ref — the directory-profile mirror of how inline
+	// profiles fold Prompts in config_resolve.mergeProfileValues.
+	resolved.Prompts = appendUnique(resolved.Prompts, profile.Prompts...)
+	// Direct fragments union (dedup by version-agnostic Name, child raises
+	// priority) and cherry-picked bundle_items union — the directory mirror of
+	// profileBuilder.addFragment / addBundleItem. Applied after parents so a
+	// child overrides, consistent with the inline fold.
+	resolved.Fragments = appendUniqueFragments(resolved.Fragments, profile.Fragments...)
+	resolved.BundleItems = appendUnique(resolved.BundleItems, profile.BundleItems...)
+	// Inline hooks/mcp fold like the inline profileBuilder: hooks accumulate
+	// (event-keyed union) and a server name later in the chain wins. Self is
+	// applied after parents, so a child's hooks/mcp override the parents'.
+	agent.MergeHooksConfig(&resolved.Hooks, &profile.Hooks)
+	wire.MergeMCPConfig(&resolved.MCP, &profile.MCP)
 	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
@@ -617,10 +817,16 @@ func cloneVisited(visited map[string]bool) map[string]bool {
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.
 type ResolvedProfile struct {
-	Bundles   []string // All bundle references
-	Tags      []string
-	Variables map[string]string
-	LLM       string // Preferred config label/backend (empty = inherit primary)
+	Bundles     []string         // All bundle references
+	Tags        []string         // Descriptive (listing/discovery); does NOT select content
+	SelectTags  []string         // Fragment tags to select content by
+	Prompts     []string         // Curated slash-command prompt refs (opt-in; empty = global auto-export)
+	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
+	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
+	Hooks       wire.HooksConfig // Directly-declared lifecycle hooks (executable; gated downstream)
+	MCP         wire.MCPConfig   // Directly-declared MCP servers (executable; gated downstream)
+	Variables   map[string]string
+	LLM         string // Preferred config label/backend (empty = inherit primary)
 
 	// Exclusions accumulated through the parent chain (a child cannot
 	// un-exclude what a parent excluded), matching the inline config-map
@@ -633,6 +839,12 @@ type ResolvedProfile struct {
 func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
+	r.SelectTags = appendUnique(r.SelectTags, other.SelectTags...)
+	r.Prompts = appendUnique(r.Prompts, other.Prompts...)
+	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
+	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
+	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)
+	wire.MergeMCPConfig(&r.MCP, &other.MCP)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v
@@ -657,6 +869,29 @@ func appendUnique(slice []string, items ...string) []string {
 			slice = append(slice, item)
 			seen[item] = true
 		}
+	}
+	return slice
+}
+
+// appendUniqueFragments unions fragment refs, deduped by their version-agnostic
+// Name; a later occurrence only raises priority (a child profile can override a
+// parent's priority but never lowers it). This mirrors profileBuilder.addFragment
+// for inline profiles so the two resolution paths fold direct fragments
+// identically.
+func appendUniqueFragments(slice []FragmentRef, items ...FragmentRef) []FragmentRef {
+	idx := make(map[string]int, len(slice))
+	for i, f := range slice {
+		idx[f.Name] = i
+	}
+	for _, item := range items {
+		if i, ok := idx[item.Name]; ok {
+			if item.Priority > slice[i].Priority {
+				slice[i].Priority = item.Priority
+			}
+			continue
+		}
+		idx[item.Name] = len(slice)
+		slice = append(slice, item)
 	}
 	return slice
 }

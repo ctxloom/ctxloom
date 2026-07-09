@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // PlanKind identifies what surface produced a preserved plan block.

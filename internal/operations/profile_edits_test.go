@@ -4,7 +4,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
@@ -68,60 +67,6 @@ func TestApplyListEdits(t *testing.T) {
 		want := []string{"added tag: new", "removed tag: drop"}
 		if !slices.Equal(changes, want) {
 			t.Fatalf("changes = %v, want %v", changes, want)
-		}
-	})
-}
-
-// applyDefaultFlag mirrors a profile's requested default state into cfg and
-// reports the change lines. It must be a no-op (no change line) when the state
-// already matches the request, and when want is nil.
-func TestApplyDefaultFlag(t *testing.T) {
-	t.Run("nil want records nothing", func(t *testing.T) {
-		cfg := &config.Config{}
-		if got := applyDefaultFlag(cfg, "p", nil); got != nil {
-			t.Fatalf("got %v, want nil", got)
-		}
-	})
-
-	t.Run("set adds the default and records it", func(t *testing.T) {
-		cfg := &config.Config{}
-		yes := true
-		got := applyDefaultFlag(cfg, "p", &yes)
-		if want := []string{"set as default"}; !slices.Equal(got, want) {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-		if !cfg.Profiles.IsDefaultProfile("p") {
-			t.Fatal("p should be a default profile")
-		}
-	})
-
-	t.Run("set when already default records nothing", func(t *testing.T) {
-		cfg := &config.Config{}
-		cfg.Profiles.AddDefaultProfile("p")
-		yes := true
-		if got := applyDefaultFlag(cfg, "p", &yes); got != nil {
-			t.Fatalf("got %v, want nil", got)
-		}
-	})
-
-	t.Run("unset removes the default and records it", func(t *testing.T) {
-		cfg := &config.Config{}
-		cfg.Profiles.AddDefaultProfile("p")
-		no := false
-		got := applyDefaultFlag(cfg, "p", &no)
-		if want := []string{"unset default"}; !slices.Equal(got, want) {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-		if cfg.Profiles.IsDefaultProfile("p") {
-			t.Fatal("p should no longer be a default profile")
-		}
-	})
-
-	t.Run("unset when not a default records nothing", func(t *testing.T) {
-		cfg := &config.Config{}
-		no := false
-		if got := applyDefaultFlag(cfg, "p", &no); got != nil {
-			t.Fatalf("got %v, want nil", got)
 		}
 	})
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Client is the interface for interacting with an AI plugin.
@@ -25,6 +25,19 @@ type Client interface {
 	// session id) into the normalized session form. No workspace is passed — the
 	// agent server is self-situated.
 	GetSession(ctx context.Context, sessionID string) (*agent.Session, error)
+
+	// WatchSession opens a structured turn stream over a session's transcript:
+	// new entries, response boundaries, and idle heartbeats arrive on the events
+	// channel until it closes (stream end / ctx cancel); a fatal receive error
+	// arrives on the errors channel. The plugin must stay alive for the stream.
+	WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error)
+
+	// Chat drives the backend's StructuredChat capability over a bidirectional
+	// stream: write messages (user turns, permission answers, turn cancels) to
+	// the returned channel and close it to end input; read normalized turn
+	// events from the events channel; a fatal error arrives on the errors
+	// channel. Errors if the backend lacks the capability.
+	Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error)
 
 	// ListSessions returns the plugin's transcript-store metadata for its own
 	// workspace.

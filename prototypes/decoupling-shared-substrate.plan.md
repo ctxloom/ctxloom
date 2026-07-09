@@ -1,5 +1,7 @@
 # Decoupling ctxloom / ltk / ctxtask over a shared `ctxloom/*` substrate
 
+> **Status: SUPERSEDED by the monorepo consolidation.** The agent substrate lives at `internal/shared/agent` and per-engine packages at `internal/{claude,codex,antigravity}` in a single module. The extract-to-separate-modules and lazy-session-binding ideas were NOT adopted (the session-bind hook is retained), and the gemini-CLI engine was dropped in favor of antigravity + codex. Historical body retained below.
+
 Status: draft · 2026-06-05 · session `tiny-loud-lark`
 Graduated into `internal/agent` (P0 steps 1–3 shipped): `CanonicalJSON`, `IsManaged`, `SettingsWriter`/`SettingsStatus`. (The owner-predicate prototype has been deleted as superseded.)
 

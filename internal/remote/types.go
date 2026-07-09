@@ -3,8 +3,6 @@ package remote
 
 import (
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Remote represents a configured remote source (a git repository).
@@ -12,10 +10,10 @@ type Remote struct {
 	Name string `yaml:"name" json:"name"`
 	URL  string `yaml:"url" json:"url"`
 
-	// TrustBundles, when true, suppresses the bundle-review prompt for
-	// changes coming from this remote (docs/bundle-review-plan.md Phase 2).
-	// Pending changes from a trusted remote are auto-applied into the
-	// active lockfile. Off by default — opt-in per remote.
+	// TrustBundles marks this remote as a trusted source: everything it
+	// publishes — updates included — is exempt from per-item review and reaches
+	// the agent unreviewed (operations.EffectiveTrust's trusted-source step).
+	// Off by default — opt-in per remote via `ctxloom remote trust`.
 	TrustBundles bool `yaml:"trust_bundles,omitempty" json:"trust_bundles,omitempty"`
 
 	// Forge is the label of the forges entry this remote binds to. Empty
@@ -28,8 +26,9 @@ type Remote struct {
 type ItemType string
 
 const (
-	ItemTypeBundle  ItemType = "bundle"  // Primary content unit (contains fragments, prompts, mcp)
-	ItemTypeProfile ItemType = "profile" // References bundles and their contents
+	// ItemTypeBundle is the only distributed item type. Top-level profile
+	// distribution was retired; profiles ship inside bundles (<bundle>#profiles/).
+	ItemTypeBundle ItemType = "bundle" // Primary content unit (fragments, skills, mcp, hooks, profiles)
 )
 
 // DirName returns the directory name for this item type in the repo structure.
@@ -37,8 +36,6 @@ func (t ItemType) DirName() string {
 	switch t {
 	case ItemTypeBundle:
 		return "bundles"
-	case ItemTypeProfile:
-		return "profiles"
 	default:
 		return string(t) + "s"
 	}
@@ -47,152 +44,6 @@ func (t ItemType) DirName() string {
 // Plural returns the plural form of the item type for display.
 func (t ItemType) Plural() string {
 	return t.DirName()
-}
-
-// SecurityWarning describes the security risks for installing content.
-type SecurityWarning struct {
-	Title   string
-	Context string
-	Risks   []string
-}
-
-// SecureContent is implemented by remote content types to provide
-// security warnings and metadata for pull confirmation.
-type SecureContent interface {
-	SecurityWarning() SecurityWarning
-	Note() string
-}
-
-// RemoteMCPServer represents an MCP server configuration from a remote source.
-type RemoteMCPServer struct {
-	Command           string            `yaml:"command"`
-	Args              []string          `yaml:"args,omitempty"`
-	Env               map[string]string `yaml:"env,omitempty"`
-	NotesField        string            `yaml:"notes,omitempty"`        // Human-readable notes
-	InstallationField string            `yaml:"installation,omitempty"` // Setup/installation instructions
-}
-
-func (m RemoteMCPServer) SecurityWarning() SecurityWarning {
-	return SecurityWarning{
-		Title:   "MCP SERVER INSTALLATION",
-		Context: "You are about to install an MCP server that will execute commands on your system.",
-		Risks: []string{
-			"Execute arbitrary commands with your permissions",
-			"Access files and environment variables",
-			"Exfiltrate data from your system",
-		},
-	}
-}
-
-func (m RemoteMCPServer) Note() string { return m.NotesField }
-
-// Installation returns setup/installation instructions for this MCP server.
-func (m RemoteMCPServer) Installation() string { return m.InstallationField }
-
-// RemoteContext represents a fragment, prompt, or profile from a remote source.
-// These all share the same security risk (prompt injection).
-type RemoteContext struct {
-	NotesField        string `yaml:"notes,omitempty"`        // Human-readable notes
-	InstallationField string `yaml:"installation,omitempty"` // Setup/installation instructions
-}
-
-func (c RemoteContext) SecurityWarning() SecurityWarning {
-	return SecurityWarning{
-		Title:   "PROMPT INJECTION RISK",
-		Context: "You are about to install context that will influence AI behavior.",
-		Risks: []string{
-			"Override safety guidelines",
-			"Exfiltrate data through crafted outputs",
-			"Execute unintended actions",
-		},
-	}
-}
-
-func (c RemoteContext) Note() string { return c.NotesField }
-
-// Installation returns setup/installation instructions for this context.
-func (c RemoteContext) Installation() string { return c.InstallationField }
-
-// RemoteBundle represents a bundle from a remote source.
-// Bundles combine MCP servers with fragments and prompts.
-type RemoteBundle struct {
-	Version           string                      `yaml:"version"`
-	Description       string                      `yaml:"description,omitempty"`
-	NotesField        string                      `yaml:"notes,omitempty"`        // Human-readable notes
-	InstallationField string                      `yaml:"installation,omitempty"` // Setup/installation instructions
-	MCP               *RemoteMCPServer            `yaml:"mcp,omitempty"`
-	Fragments         map[string]RemoteBundleItem `yaml:"fragments,omitempty"`
-	Prompts           map[string]RemoteBundleItem `yaml:"prompts,omitempty"`
-}
-
-// RemoteBundleItem represents a fragment or prompt within a bundle.
-type RemoteBundleItem struct {
-	Tags         []string `yaml:"tags,omitempty"`
-	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions
-	Content      string   `yaml:"content"`
-}
-
-func (b RemoteBundle) SecurityWarning() SecurityWarning {
-	risks := []string{
-		"Override AI safety guidelines via bundled context",
-		"Influence AI behavior through embedded prompts",
-		"Exfiltrate data through crafted outputs",
-	}
-
-	title := "BUNDLE INSTALLATION"
-	context := "You are about to install a bundle containing AI context."
-
-	// Add MCP-specific risks if bundle has MCP server
-	if b.MCP != nil && b.MCP.Command != "" {
-		title = "BUNDLE INSTALLATION (WITH MCP SERVER)"
-		context = "You are about to install a bundle with executable code AND AI context."
-		risks = append([]string{
-			"Execute arbitrary commands with your permissions",
-			"Access files and environment variables",
-		}, risks...)
-	}
-
-	return SecurityWarning{
-		Title:   title,
-		Context: context,
-		Risks:   risks,
-	}
-}
-
-func (b RemoteBundle) Note() string { return b.NotesField }
-
-// Installation returns setup/installation instructions for this bundle.
-func (b RemoteBundle) Installation() string { return b.InstallationField }
-
-// HasMCP returns true if bundle includes an MCP server.
-func (b RemoteBundle) HasMCP() bool {
-	return b.MCP != nil && b.MCP.Command != ""
-}
-
-// ParseSecureContent parses raw YAML content into the appropriate SecureContent type.
-func ParseSecureContent(itemType ItemType, data []byte) (SecureContent, error) {
-	switch itemType {
-	case ItemTypeBundle:
-		var b RemoteBundle
-		if err := yaml.Unmarshal(data, &b); err != nil {
-			return nil, err
-		}
-		return b, nil
-	case ItemTypeProfile:
-		// Profiles use RemoteContext for security warnings
-		var c RemoteContext
-		if err := yaml.Unmarshal(data, &c); err != nil {
-			return nil, err
-		}
-		return c, nil
-	default:
-		var c RemoteContext
-		if err := yaml.Unmarshal(data, &c); err != nil {
-			return nil, err
-		}
-		return c, nil
-	}
 }
 
 // DirEntry represents a directory entry from a remote repository.
@@ -291,30 +142,35 @@ type LockEntry struct {
 	// stability); `upgrade` re-resolves it.
 	RequestedVersion string `yaml:"requested_version,omitempty" json:"requested_version,omitempty"`
 
-	// Version is the concrete tag a semver constraint resolved to (e.g.
+	// Version is the concrete tag a version/tag selector resolved to (e.g.
 	// "v1.3.0"), recorded for display and to test whether a carried-forward SHA
-	// still satisfies a changed constraint. Empty for default-branch, direct
-	// branch, and bare-SHA resolutions, which have no single tag label.
+	// still satisfies a changed constraint. Empty for branch and bare-SHA
+	// resolutions, which have no single tag label.
 	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+
+	// Kind is the classified selector kind (sha/tag/version/branch) of
+	// RequestedVersion, recorded so update/upgrade semantics are declarative: a
+	// sha/tag is a pin (never outdated), a version re-resolves within its range, a
+	// branch re-resolves to its tip. Empty on entries written before this field
+	// existed — SelectorKind() derives it from RequestedVersion in that case.
+	Kind SelectorKind `yaml:"kind,omitempty" json:"kind,omitempty"`
 
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
 
-	// Pinned freezes this entry at the recorded SHA. While true,
-	// DiffLockfiles suppresses any pending-vs-active SHA change for the
-	// bundle — review template no longer surfaces it. Toggled via the
-	// pin_bundle / unpin_bundle MCP tools. The flag lives on the active
-	// lockfile entry; the puller still fetches new SHAs into pending so
-	// the user can unpin and inspect later if needed.
+	// Pinned freezes this entry at the recorded SHA (a "hold"): `remote upgrade`
+	// leaves it put even when its constraint would allow a newer commit, and a
+	// lock rebuild carries the flag forward. Toggled via `ctxloom bundle
+	// hold`/`unhold`.
 	Pinned bool `yaml:"pinned,omitempty" json:"pinned,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
+// Only bundles are locked (top-level profile distribution was retired).
 type Lockfile struct {
 	Version  int                  `yaml:"version" json:"version"`
 	LockedAt time.Time            `yaml:"locked_at" json:"locked_at"`
 	Bundles  map[string]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
-	Profiles map[string]LockEntry `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 }
 
 // ManifestEntry represents an item in the optional manifest.yaml index.

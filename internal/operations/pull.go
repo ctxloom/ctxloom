@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/afero"
 
@@ -13,33 +12,25 @@ import (
 )
 
 // canonicalizeUserRef accepts a convenience short-form reference
-// ("<remote-alias>/<path>") as USER INPUT and expands it to a canonical
-// "<url>@<kind>/<path>" ref via the registry. Anything already scheme-qualified
-// (a canonical URL or ctxloom:local) — or an unresolvable alias — is returned
-// unchanged for the downstream parser to accept or reject. The short form is a
-// CLI convenience only: this resolved canonical ref is what flows on to the
-// lockfile and the on-disk install path, so nothing short is ever stored.
-func canonicalizeUserRef(reference string, itemType remote.ItemType, registry *remote.Registry) string {
-	if _, err := remote.ParseReference(reference); err == nil {
-		return reference
-	}
-	alias, path, ok := strings.Cut(reference, "/")
-	if !ok || alias == "" || path == "" {
-		return reference
-	}
-	rem, err := registry.Get(alias)
-	if err != nil || rem.URL == "" {
-		return reference
-	}
-	return fmt.Sprintf("%s@%s/%s", rem.URL, itemType.DirName(), path)
+// ("<remote-alias>/<path>[#<sel>/<item>]") as USER INPUT and expands it to a
+// canonical "<url>@bundles/<path>[#<sel>/<item>]" ref via the registry. Anything
+// already scheme-qualified (a canonical URL or ctxloom:local) — or an
+// unresolvable alias, or a bare unprefixed name — is returned unchanged for the
+// downstream parser to accept or reject. The short form is a CLI convenience
+// only: this resolved canonical ref is what flows on to the lockfile and the
+// on-disk install path, so nothing short is ever stored. Delegates to the shared
+// short-name choke (remote.CanonicalizeShortRef) so the widened grammar —
+// selector preservation, local-only bare names — lives in one place.
+func canonicalizeUserRef(reference string, _ remote.ItemType, registry *remote.Registry) string {
+	return remote.CanonicalizeShortRef(reference, registryAliasToURL(registry), nil)
 }
 
 // CanonicalizeRemoteRef expands a convenience short-form reference
 // ("<alias>/<path>") to its canonical "<url>@<kind>/<path>" form via the
 // registry, leaving an already-canonical (or unresolvable) ref unchanged. CLI
-// commands that look items up by their canonical lockfile key (show-pending,
-// decline, pin) use it so they accept the same short input as install. Returns
-// the ref unchanged when no registry is available.
+// commands that look items up by their canonical lockfile key (`bundle
+// hold`/`unhold`) use it so they accept the same short input as install.
+// Returns the ref unchanged when no registry is available.
 func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemType) string {
 	registry, err := getRegistry(cfg, remote.WithRegistryFS(getFS(nil)))
 	if err != nil {
@@ -48,16 +39,14 @@ func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemT
 	return canonicalizeUserRef(ref, itemType, registry)
 }
 
-// parseRemoteItemType maps the request item_type string to a remote.ItemType,
-// accepting only "bundle" and "profile".
+// parseRemoteItemType maps the request item_type string to a remote.ItemType.
+// Only bundles are directly pullable; profiles now travel inside bundles.
 func parseRemoteItemType(s string) (remote.ItemType, error) {
 	switch s {
 	case "bundle":
 		return remote.ItemTypeBundle, nil
-	case "profile":
-		return remote.ItemTypeProfile, nil
 	}
-	return "", fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", s)
+	return "", fmt.Errorf("invalid item_type: %s (only bundle supported)", s)
 }
 
 // PullItemRequest contains parameters for a direct pull operation.
@@ -65,7 +54,6 @@ type PullItemRequest struct {
 	Reference string `json:"reference"`
 	ItemType  string `json:"item_type"` // "bundle" or "profile"
 	Force     bool   `json:"force"`
-	Blind     bool   `json:"blind"` // Skip security review display (implies Force)
 
 	// Registry is an optional pre-configured registry (for testing).
 	Registry *remote.Registry `json:"-"`
@@ -111,9 +99,8 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 	}
 
 	opts := remote.PullOptions{
-		LocalDir: baseDir, // THIS IS THE BUG FIX
+		LocalDir: baseDir,
 		Force:    req.Force,
-		Blind:    req.Blind,
 		ItemType: itemType,
 	}
 

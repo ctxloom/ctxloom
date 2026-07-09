@@ -96,8 +96,14 @@ func collectProfileBundleRefs(path string, content []byte, result *BundleAnalysi
 		}
 		bundleRef, _, _ := strings.Cut(bundle, "#")
 		ref, err := remote.ParseReference(bundleRef)
-		if err != nil || !ref.IsCanonical() {
+		if err != nil {
 			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
+			continue
+		}
+		if !ref.IsCanonical() {
+			// Parseable but local (ctxloom:local / bare name): out of scope for
+			// remote/lockfile reconciliation, not malformed — so skip it rather
+			// than mislabeling it Invalid.
 			continue
 		}
 		// Key by the canonical ref so it matches lockfile keys.
@@ -132,7 +138,7 @@ type RemoveLocalItemsRequest struct {
 	AppDir      string
 	Items       []RemovedItem
 	Lockfile    *remote.Lockfile
-	LockManager *remote.LockfileManager
+	LockManager remote.LockfileStore
 
 	// FS is an optional filesystem (defaults to the OS filesystem).
 	FS afero.Fs
@@ -152,6 +158,8 @@ type RemoveLocalItemsResult struct {
 // save is gated on entries pruned, never on files deleted. File removal is
 // best-effort cleanup of copies materialized by the pre-reference-only model:
 // a missing file is the normal case, other removal failures are warnings.
+// reprise:ignore — groups with MaterializeProfile on the getFS/result/warnings
+// idiom alone; the functions are unrelated and one-sided edits are expected.
 func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, error) {
 	fs := getFS(req.FS)
 	res := &RemoveLocalItemsResult{}

@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // StampPlanFile ensures the file's YAML frontmatter contains `sessions:`
@@ -56,14 +56,25 @@ func prependFrontmatter(path, content, harpName string) error {
 // unknown keys, comments, key order, and scalar styles round-trip verbatim.
 func updateFrontmatter(path, content, harpName string) error {
 	rest := content[len("---\n"):]
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return nil // opening `---` but no closing — bail without modifying
+	var block, body string
+	switch {
+	case rest == "---" || strings.HasPrefix(rest, "---\n"):
+		// Empty, immediately-closed frontmatter (`---\n---\n...`): the opening
+		// `---\n` consumed the newline that would precede the closing `---`, so
+		// there is no "\n---" to find. The block is empty; synthesize the
+		// sessions mapping rather than misclassifying this as unterminated.
+		block = ""
+		body = strings.TrimLeft(strings.TrimPrefix(rest, "---"), "\n")
+	default:
+		end := strings.Index(rest, "\n---")
+		if end < 0 {
+			return nil // opening `---` but no closing — bail without modifying
+		}
+		block = rest[:end]
+		// Normalize leading body whitespace so re-stamping yields exactly one
+		// blank line between the closing `---` and the first body line.
+		body = strings.TrimLeft(rest[end+len("\n---"):], "\n")
 	}
-	block := rest[:end]
-	// Normalize leading body whitespace so re-stamping yields exactly one
-	// blank line between the closing `---` and the first body line.
-	body := strings.TrimLeft(rest[end+len("\n---"):], "\n")
 
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(block), &root); err != nil {

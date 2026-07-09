@@ -1,0 +1,234 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/resources"
+)
+
+// ctxServer holds shared state used by every SDK-backed tool handler.
+// One instance per process — the cfg is loaded during startup and stays
+// for the lifetime of the MCP session.
+type ctxServer struct {
+	cfg *config.Config
+	// agents is the delegation state (orchestrator + bus broker, or the
+	// executor-mode forwarder) behind the agent_* tools; nil on the docgen
+	// server, set by registerAgentTools.
+	agents *agentDelegation
+}
+
+// mcpServerInstructions tells the client what this reduced MCP surface is for.
+// ctxloom keeps only the agent's runtime context tools here; all management is
+// CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
+// guidance injected at session start).
+var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
+
+// runMCPServerSDK is the cobra RunE for `ctxloom mcp serve`. The SDK's
+// Server.Run handles its own stdin EOF and ctx-cancellation cleanup — we
+// just need to give it a signal-aware context. signal.NotifyContext is
+// the idiomatic Go-1.16+ replacement for manual sigCh + cancel goroutines.
+func runMCPServerSDK(_ *cobra.Command, _ []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
+	defer stop()
+
+	// Fail-loudly gate: checkpoint before the boot sequence so every
+	// fatal-class finding it records is caught here.
+	startupMark := strictness.Checkpoint()
+
+	s := &ctxServer{}
+	if err := s.startup(ctx); err != nil {
+		// startup() only returns context.Canceled — anything else
+		// (config load failure, sync errors, hook failures) is
+		// handled inline via warnings, per CLAUDE.md fault tolerance.
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+
+	// Strict mode: the SDK owns the initialize handshake, so we cannot refuse
+	// it per-protocol; instead abort before serving when startup collected a
+	// fatal finding. failOnFindings returns the exit-3 ExitError (Execute
+	// os.Exit's on it), so the client sees a server that failed to launch
+	// rather than one that silently serves empty context. Degraded mode
+	// returns nil and serves as before.
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
+	}
+
+	instructions := mcpServerInstructions
+	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
+		// Tell the LLM its own session name so it can self-reference
+		// ("save this as the swift-amber-falcon plan") and so plan-
+		// stamping correlates the right harp.
+		sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
+		if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" {
+			parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
+			if parts == "" {
+				parts = "session,tasks"
+			}
+			sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
+		}
+		// Point the LLM at this session's directory for plans. Implementation
+		// and strategy plans belong here (not in an ad-hoc .plan/ dir) so they
+		// travel with the session and can be recovered on resume. A session
+		// may produce several plans, so each is a separately named file with a
+		// .plan.md suffix sitting directly in the session directory.
+		if sessDir, perr := paths.HarpDir(harp); perr == nil {
+			sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). A session may have multiple plans — use distinct names and reference plans by their path.", sessDir, paths.PlanFileExt, filepath.Join(sessDir, "v1-removal"+paths.PlanFileExt))
+		}
+		instructions += sessionLine
+	}
+	opts := &mcp.ServerOptions{Instructions: instructions}
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "ctxloom",
+		Version: Version,
+	}, opts)
+	s.registerTools(server)
+	s.registerResources(server)
+
+	// A signal-driven cancellation is a clean shutdown, not an error.
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
+// startup runs the same boot sequence the legacy MCP server did, in the
+// same order, with the same fault-tolerance semantics:
+//
+//  1. Load config (warn on failure, use a minimal empty config)
+//  2. Auto-sync remote bundles/profiles if enabled (warn on failure)
+//  3. Apply hooks (warn on failure)
+//
+// Any step failing produces a stderr warning but doesn't abort startup —
+// the agent must still come up. The only abort path is ctx.Done().
+func (s *ctxServer) startup(ctx context.Context) error {
+	cfg := loadStartupConfig()
+	s.cfg = cfg
+
+	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
+	// resolve via PATH at fire time. Flag the one case that can't catch:
+	// a different ctxloom shadowing the running binary on PATH.
+	agent.WarnOnCtxloomPathSkew()
+
+	// Log which companion binaries (taskloom, ltk) this session is wired
+	// with, version-probed via `<bin> version --format json`. The wiring itself
+	// happens in applyStartupHooks below via the built-in bundles.
+	reportCompanions(os.Stderr)
+
+	purgeLegacyBundles(cfg)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	runStartupSync(ctx, cfg)
+
+	// Apply hooks against the active lockfile. Unreviewed bundle hooks/MCP are
+	// withheld per item by the executable trust gate ApplyHooks installs, so
+	// changed untrusted content never activates until accepted via `ctxloom
+	// review`.
+	s.applyStartupHooks(ctx)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return nil
+}
+
+// loadStartupConfig loads config, falling back to a minimal empty config on
+// failure (startup must never abort on config errors — CLAUDE.md), and echoes
+// any accumulated config warnings to stderr.
+func loadStartupConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		clidiag.Warn("ctxloom", "failed to load config: %v", err)
+		cfg = &config.Config{
+			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
+			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
+			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
+		}
+	}
+	printConfigWarnings(os.Stderr, cfg.Warnings)
+	return cfg
+}
+
+// purgeLegacyBundles removes leftover extracted bundle YAML copies from the
+// pre-PR-1 era (docs/bundle-review-plan.md Phase 1.4). With the read path now
+// served from the git clone cache via remote.BundleReader, those files would
+// otherwise shadow the SHA-pinned content. Local bundles (no `_source`
+// metadata) are preserved. Warn-and-continue: cleanup failure must not abort.
+func purgeLegacyBundles(cfg *config.Config) {
+	if removed, err := operations.PurgeExtractedBundles(cfg); err != nil {
+		clidiag.Warn("ctxloom", "legacy bundle cleanup failed: %v", err)
+	} else if removed > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: removed %d legacy extracted bundle YAML(s)\n", removed)
+	}
+}
+
+// runStartupSync auto-syncs remote bundles/profiles when enabled. The sync is
+// bounded to 60s and fully fault-tolerant: a failure (other than cancellation)
+// warns and continues so the agent still comes up (CLAUDE.md).
+func runStartupSync(ctx context.Context, cfg *config.Config) {
+	if !cfg.Sync.ShouldAutoSync() {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
+	syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
+	result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
+	syncCancel()
+	if syncErr != nil {
+		if !errors.Is(syncErr, context.Canceled) {
+			strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
+		}
+		return
+	}
+	writeSyncSummary(os.Stderr, result)
+}
+
+// applyStartupHooks runs the ApplyHooks startup phase against the active
+// lockfile. ApplyHooks installs the executable trust gate, so unreviewed bundle
+// hooks/MCP are withheld per item until accepted via `ctxloom review`.
+func (s *ctxServer) applyStartupHooks(ctx context.Context) {
+	// "all": the server doesn't know which agent hosts it, and every backend
+	// with settings must see the same regenerated context/hooks/commands —
+	// refreshing only one leaves the others serving stale managed sets.
+	if _, err := operations.ApplyHooks(ctx, s.cfg, operations.ApplyHooksRequest{
+		Backend:           "all",
+		RegenerateContext: true,
+	}); err != nil && !errors.Is(err, context.Canceled) {
+		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
+	}
+}
+
+// registerTools wires every ctxloom tool into the SDK server.
+//
+// Phase 4 removed five entire register*Tools functions (fragments,
+// profiles, prompts, mcp servers, remotes). Listings from those domains
+// now ride on MCP resources (ctxloom://fragments, profiles, prompts,
+// remotes, mcp-servers — see registerResources); writes are CLI-only
+// via the existing cobra surface. Their tool files were deleted.
+//
+// Each per-category register call lives in its own file. registerTools
+// is the only thing the SDK server needs at construction.
+func (s *ctxServer) registerTools(server *mcp.Server) {
+	s.registerContextTools(server)
+	s.registerMemoryTools(server)
+	s.registerAgentTools(server)
+}

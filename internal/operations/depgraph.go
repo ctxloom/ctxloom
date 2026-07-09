@@ -3,24 +3,26 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
 // reference whose version constraint has been resolved to a concrete commit.
 type PinnedRef struct {
-	Identity   string          // canonical ref without version: "<url>@<kind>/<path>"
-	Hash       string          // the commit the constraint resolved to
-	URL        string          // repo URL
-	Type       remote.ItemType // bundle or profile
-	Constraint string          // the manifest's version expression (range/branch/tag/sha/empty)
-	Version    string          // the concrete tag a semver constraint chose, else empty
+	Identity   string              // canonical ref without version: "<url>@<kind>/<path>"
+	Hash       string              // the commit the constraint resolved to
+	URL        string              // repo URL
+	Type       remote.ItemType     // bundle or profile
+	Constraint string              // the manifest's version expression (range/branch/tag/sha/empty)
+	Version    string              // the concrete tag a semver constraint chose, else empty
+	Kind       remote.SelectorKind // classified selector kind (sha/tag/version/branch)
 }
 
 // DependencyConflict reports a single item referenced at two or more differing
@@ -108,13 +110,10 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) []*profiles.Profi
 }
 
 // configDefaultsRoot returns a synthetic root profile whose parents are the
-// remote refs named in the configured default profiles, or nil when there are
-// none. See closureRoots.
+// remote refs named in the default agent's composed profiles, or nil when there
+// are none. See closureRoots.
 func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
-	defaults := cfg.ExplicitDefaultProfiles()
-	if len(defaults) == 0 {
-		defaults = homeDefaultProfiles()
-	}
+	defaults := cfg.DefaultAgentProfiles()
 	var remoteDefaults []string
 	for _, name := range defaults {
 		if isRemoteReference(name) {
@@ -146,7 +145,7 @@ func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 // resolver, so the lock path (carry-forward) and the upgrade path (re-resolve)
 // share one traversal and differ only in how each ref's constraint resolves.
 // The third return is the unexpanded-parent set (see FlattenDependencies).
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, bool)) ([]PinnedRef, []DependencyConflict, []string) {
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool)) ([]PinnedRef, []DependencyConflict, []string) {
 	w := &depWalker{
 		ctx:         ctx,
 		loader:      loader,
@@ -175,7 +174,7 @@ type depWalker struct {
 	// ref is skipped, never pinned at an empty hash. Nil means "treat the ref's
 	// version expression as already concrete" (the pre-resolution passthrough used
 	// by closure/conflict unit tests that inject pre-pinned hashes directly).
-	resolveHash func(ref *remote.Reference) (hash, version string, ok bool)
+	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
 	pins    map[string]PinnedRef           // identity -> first-seen pin
 	hashes  map[string]map[string]struct{} // identity -> set of hashes (for conflict detection)
@@ -195,17 +194,17 @@ func (w *depWalker) markUnexpanded(identity string, cause error) {
 		w.unexpanded = map[string]struct{}{}
 	}
 	w.unexpanded[identity] = struct{}{}
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)\n", identity, cause)
+	clidiag.Warn("ctxloom", "could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)", identity, cause)
 }
 
 // resolvedHash resolves ref via the injected resolver, or — when none is set —
 // passes the ref's version expression through as the hash (the pre-resolution
 // contract the depgraph unit tests rely on).
-func (w *depWalker) resolvedHash(ref *remote.Reference) (hash, version string, ok bool) {
+func (w *depWalker) resolvedHash(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool) {
 	if w.resolveHash != nil {
 		return w.resolveHash(ref)
 	}
-	return ref.ContentVersion, "", true
+	return ref.ContentVersion, "", "", true
 }
 
 // walkProfile resolves a profile's short refs against (sourceURL, sourceHash),
@@ -237,7 +236,7 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 	if !ref.IsCanonical() {
 		return nil
 	}
-	hash, version, ok := w.resolvedHash(ref)
+	hash, version, selKind, ok := w.resolvedHash(ref)
 	if !ok {
 		return nil // unresolvable — skip rather than pin an empty hash
 	}
@@ -254,6 +253,7 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 			Type:       kind,
 			Constraint: ref.ContentVersion,
 			Version:    version,
+			Kind:       selKind,
 		}
 	}
 	return ref
@@ -274,17 +274,28 @@ func (w *depWalker) recurseParent(parentRef string) {
 		return
 	}
 
-	rec := w.record(parentRef, remote.ItemTypeProfile)
+	// The only remote profile parents are bundle profiles
+	// (<url>@bundles/x#profiles/y) — top-level @profiles/ distribution was
+	// retired. Pin the underlying bundle, then read the named profile OUT of the
+	// bundle and walk ITS closure (its composed bundles + parents).
+	bundleRef, profName, ok := remote.SplitBundleProfileRef(parentRef)
+	if !ok {
+		// Not a bundle-profile ref — a retired top-level @profiles/ parent (or a
+		// malformed ref). No longer distributable; its subtree is gone.
+		return
+	}
+
+	rec := w.record(bundleRef, remote.ItemTypeBundle)
 	if rec == nil {
 		return
 	}
 	// Recurse at the RESOLVED commit, not the (possibly symbolic) constraint —
-	// the parent's content and its own transitive refs are read from that commit.
-	hash, _, ok := w.resolvedHash(rec)
-	if !ok {
+	// the bundle's content and its profile's transitive refs are read at it.
+	hash, _, _, hok := w.resolvedHash(rec)
+	if !hok {
 		return
 	}
-	guard := rec.CanonicalString() + "@" + hash
+	guard := rec.CanonicalString() + remote.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}
@@ -299,12 +310,17 @@ func (w *depWalker) recurseParent(parentRef string) {
 		w.markUnexpanded(rec.CanonicalString(), ferr)
 		return
 	}
-	child, perr := profiles.ParseProfile(data)
-	if perr != nil {
-		w.markUnexpanded(rec.CanonicalString(), perr)
+	b, berr := bundles.ParseBundle(data)
+	if berr != nil {
+		w.markUnexpanded(rec.CanonicalString(), berr)
 		return
 	}
-	w.walkProfile(child, rec.URL, hash)
+	child, found := b.Profiles[profName]
+	if !found {
+		w.markUnexpanded(rec.CanonicalString(), fmt.Errorf("bundle has no profile %q", profName))
+		return
+	}
+	w.walkProfile(&child, rec.URL, hash)
 }
 
 func (w *depWalker) result() ([]PinnedRef, []DependencyConflict, []string) {

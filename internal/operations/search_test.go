@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // =============================================================================
@@ -53,7 +53,7 @@ func TestSearchContentRequest_Defaults(t *testing.T) {
 func TestSearchContentRequest_AllTypes(t *testing.T) {
 	req := SearchContentRequest{
 		Query: "test",
-		Types: []string{"fragment", "prompt", "profile", "mcp_server"},
+		Types: []string{"fragment", "skill", "profile", "mcp_server"},
 		Limit: 100,
 	}
 
@@ -66,7 +66,7 @@ func TestSearchContentResult_Fields(t *testing.T) {
 	result := SearchContentResult{
 		Results: []SearchResult{
 			{Type: "fragment", Name: "frag1", Match: "name"},
-			{Type: "prompt", Name: "prompt1", Match: "name"},
+			{Type: "skill", Name: "prompt1", Match: "name"},
 		},
 		Count: 2,
 		Query: "test",
@@ -132,7 +132,7 @@ func TestSearchContentRequest_TypeFiltering(t *testing.T) {
 		},
 		{
 			name:     "all types",
-			types:    []string{"fragment", "prompt", "profile", "mcp_server"},
+			types:    []string{"fragment", "skill", "profile", "mcp_server"},
 			expected: 4,
 		},
 		{
@@ -208,7 +208,7 @@ fragments:
     tags: ["react", "frontend", "javascript"]
     content: |
       React component patterns
-prompts:
+skills:
   code-review:
     description: Review code for issues
     content: |
@@ -330,13 +330,47 @@ func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	assert.True(t, found, "should find golang-testing fragment by tag")
 }
 
+func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
+	_, loader := setupSearchTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"filesystem": {Command: "npx"},
+		}},
+	}
+
+	// Tags-only search (empty query): tags filter fragments only. An empty query
+	// must NOT flood the results with every prompt, profile, and mcp_server
+	// (strings.Contains(s, "") is unconditionally true) — only tag-matched
+	// fragments should come back.
+	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
+		Tags:   []string{"go"},
+		Loader: loader,
+	})
+	require.NoError(t, err)
+
+	sawFragment := false
+	for _, r := range result.Results {
+		assert.NotEqual(t, "prompt", r.Type, "tags-only search must not return prompts")
+		assert.NotEqual(t, "profile", r.Type, "tags-only search must not return profiles")
+		assert.NotEqual(t, "mcp_server", r.Type, "tags-only search must not return mcp servers")
+		if r.Type == "fragment" && r.Name == "golang-testing" {
+			sawFragment = true
+		}
+	}
+	assert.True(t, sawFragment, "tags-only search should still return the tag-matched fragment")
+}
+
 func TestSearchContent_SearchPrompts(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "review",
-		Types:  []string{"prompt"},
+		Types:  []string{"skill"},
 		Loader: loader,
 	})
 
@@ -345,7 +379,7 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 
 	found := false
 	for _, r := range result.Results {
-		if r.Type == "prompt" && r.Match == "name" {
+		if r.Type == "skill" && r.Match == "name" {
 			found = true
 			break
 		}
@@ -496,7 +530,7 @@ func TestSearchContent_WithLimit(t *testing.T) {
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a", // Should match many items
-		Types:  []string{"fragment", "prompt"},
+		Types:  []string{"fragment", "skill"},
 		Limit:  2,
 		Loader: loader,
 	})

@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/shared/agent"
 
 // SettingsStatus reports which ctxloom-managed artifacts a backend has wired
 // into its config files. Defined in shared/agent; aliased here for existing

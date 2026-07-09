@@ -31,7 +31,7 @@ func TestRepoCache_EnsureFullRepo(t *testing.T) {
 
 // TestRepoCache_cloneToken_UsesForgeResolver pins the WithForgeResolver path:
 // the clone token for a github forge is read from the resolved forge's
-// token_env, so authArgs injects that token rather than the ambient one.
+// token_env, so authEnv injects that token rather than the ambient one.
 func TestRepoCache_cloneToken_UsesForgeResolver(t *testing.T) {
 	testsupport.Isolate(t) // clear ambient GITHUB_TOKEN/GH_TOKEN
 	t.Setenv("GHE_TOKEN", "from-token-env")
@@ -41,13 +41,13 @@ func TestRepoCache_cloneToken_UsesForgeResolver(t *testing.T) {
 	}
 	cache := NewRepoCache("", AuthConfig{GitHub: "ambient-token"}, WithForgeResolver(resolver))
 
-	args := cache.authArgs("https://github.com/owner/repo", ForgeGitHub)
-	require.Len(t, args, 2)
+	env := cache.authEnv("https://github.com/owner/repo", ForgeGitHub)
+	require.Len(t, env, 3)
 	wantToken := base64.StdEncoding.EncodeToString([]byte("x-access-token:from-token-env"))
-	assert.Contains(t, args[1], wantToken, "resolver's token_env value must win over the ambient token")
+	assert.Contains(t, env[2], wantToken, "resolver's token_env value must win over the ambient token")
 
 	ambient := base64.StdEncoding.EncodeToString([]byte("x-access-token:ambient-token"))
-	assert.NotContains(t, args[1], ambient)
+	assert.NotContains(t, env[2], ambient)
 }
 
 // TestRepoCache_cloneToken_ResolverFallsBackToAmbient covers the branch where
@@ -60,10 +60,10 @@ func TestRepoCache_cloneToken_ResolverFallsBackToAmbient(t *testing.T) {
 	}
 	cache := NewRepoCache("", AuthConfig{GitHub: "ambient-token"}, WithForgeResolver(resolver))
 
-	args := cache.authArgs("https://github.com/owner/repo", ForgeGitHub)
-	require.Len(t, args, 2)
+	env := cache.authEnv("https://github.com/owner/repo", ForgeGitHub)
+	require.Len(t, env, 3)
 	want := base64.StdEncoding.EncodeToString([]byte("x-access-token:ambient-token"))
-	assert.Contains(t, args[1], want)
+	assert.Contains(t, env[2], want)
 }
 
 // TestRepoCache_RepoDirForURL covers the exported wrapper used by operations.

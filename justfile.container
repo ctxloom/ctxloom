@@ -10,9 +10,18 @@
 # checkouts. Push sibling changes and bump the pin to pick them up here.
 export GOWORK := "off"
 
-# Get version from versionator (with fallback)
-# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
-version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+# Per-binary build justfiles, composed here via `mod`. Each lives next to its
+# code, owns that binary's build/compress, and shares the common build logic via
+# `import "build/common.justfile"`. Their recipes are reachable as
+# ctxloom::build, ltk::build, taskloom::build, etc.
+mod ctxloom "cmd/ctxloom/justfile"
+mod ltk "cmd/ltk/justfile"
+mod taskloom "cmd/taskloom/justfile"
+
+# Get version from versionator (with fallback). Standardized stamp:
+#   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
+# versionator emits the compact datetime (no separator); sed inserts the 'T'.
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
 
 # Static linking flags for builds that support it
 static_ldflags := "-linkmode external -extldflags '-static -pthread'"
@@ -28,29 +37,47 @@ default: build
 
 # ===== Build targets =====
 
-# Build with all features (treesitter)
-build: validate proto gen-schemas
-    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+# Build ctxloom with all features (treesitter). Codegen prerequisites run here
+# (the ctxloom module can't depend on these container-level recipes), then the
+# actual go build is delegated to the ctxloom module (cmd/ctxloom/justfile).
+build: validate proto gen-schemas gen-docs
+    just ctxloom::build
 
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom ./cmd/ctxloom
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}} {{static_ldflags}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}} {{static_ldflags}}" \
+        -o ctxloom ./cmd/ctxloom
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom ./cmd/ctxloom
+
+# Build the ltk companion into bin/ltk — delegated to the ltk module
+# (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
+build-ltk:
+    just ltk::build
+
+# Build the taskloom companion into bin/taskloom — delegated to the taskloom
+# module (cmd/taskloom/justfile). No codegen prerequisites (pure-Go, no CGO).
+build-taskloom:
+    just taskloom::build
+
+# Build + compress all three binaries (UPX). Codegen prerequisites run here for
+# ctxloom, then each module's build-compressed builds and UPX-compresses its
+# binary. Used by the host `install`/`build-compressed`.
+build-compressed: validate proto gen-schemas
+    just ctxloom::build-compressed
+    just ltk::build-compressed
+    just taskloom::build-compressed
 
 # ===== Cross-compilation targets =====
 
@@ -58,36 +85,36 @@ build-full: validate proto
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-linux-amd64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-linux-amd64 ./cmd/ctxloom
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-linux-arm64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-linux-arm64 ./cmd/ctxloom
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-windows-amd64.exe .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-windows-amd64.exe ./cmd/ctxloom
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-darwin-amd64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-darwin-amd64 ./cmd/ctxloom
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-darwin-arm64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Build all platforms
 build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64
@@ -112,18 +139,41 @@ compress-windows-amd64:
 # Compress all compressible binaries
 compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 
-# Compress the main ctxloom binary (for local dev)
+# Compress the main ctxloom binary (for local dev) — delegated to the ctxloom
+# module. For all three binaries use `build-compressed`.
 compress:
-    upx --best --lzma ctxloom
+    just ctxloom::compress
 
 # Build and compress all platforms
 release: build-all compress-all
 
 # ===== Testing =====
 
-# Run tests
+# Run tests. Coverage is filtered through .coverignore so the number CI uploads
+# to Codecov excludes generated files (protobuf, gRPC) — matching the host
+# justfile `test` recipe instead of reporting a raw, generated-file-diluted figure.
 test:
-    go test -race -coverprofile=coverage.out ./...
+    #!/usr/bin/env bash
+    set -e
+    go test -race -coverprofile=coverage.raw.out ./...
+    just -f justfile.container _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
+
+# Filter coverage output using patterns from .coverignore (mirrors the host
+# justfile so local and CI coverage are computed identically).
+# Usage: _filter_coverage <input> <output>
+_filter_coverage INPUT OUTPUT:
+    #!/usr/bin/env bash
+    set -e
+    if [ -f .coverignore ]; then
+        # Build grep pattern from .coverignore (skip comments and empty lines)
+        patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
+        if [ -n "$patterns" ]; then
+            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
+            exit 0
+        fi
+    fi
+    cp "{{INPUT}}" "{{OUTPUT}}"
 
 # Run tests with the treesitter (CGO) build tag — exercises the code compressor
 test-treesitter:
@@ -163,6 +213,26 @@ lint:
 # never enters the production binary.
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
+
+# Generate reference docs from their sources of truth: the CLI reference (man
+# pages + website markdown) from the cobra command tree, the MCP reference from
+# the live tool/resource registrations, and the config reference from the
+# tracked JSON Schema. The website pages are checked in, the man pages are
+# gitignored release artifacts.
+gen-docs:
+    go run ./scripts/gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/reference/cli \
+        --mcp website/src/content/docs/reference \
+        --config website/src/content/docs/reference \
+        --config-schema resources/schema/input/config-schema.json
+
+# Drift gate: regenerate the reference docs and fail if the checked-in website
+# pages (CLI, MCP tools, config) no longer match their sources of truth. man/man1
+# is gitignored, so only the website reference directory is diffed. Run in the CI
+# lint job.
+gen-docs-check: gen-docs
+    git diff --exit-code -- website/src/content/docs/reference
 
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's

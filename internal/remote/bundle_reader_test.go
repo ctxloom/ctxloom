@@ -41,7 +41,6 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 				URL: "https://github.com/alice/ctxloom",
 			},
 		},
-		Profiles: map[string]LockEntry{},
 	}
 
 	reader := NewBundleReader(registry, factory, AuthConfig{}, lock)

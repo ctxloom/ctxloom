@@ -28,16 +28,45 @@ var PrivateStatePatterns = []string{".ctxloom/ephemeral/", ".ctxloom/project-id"
 // is ignored.
 var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml"}
 
+// WorktreeComment is the header under which the per-agent-worktree exclude block
+// is grouped in .git/info/exclude.
+const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER merge back)"
+
+// WorktreeArtifactPatterns is the BROADENED set of per-agent config artifacts a
+// fan-out member materializes into its isolated worktree cwd — the FULL written
+// set across all engines. Unlike TransientArtifactPatterns (which deliberately
+// leaves .mcp.json/.claude/commands as the project's choice), this set must keep
+// EVERY ctxloom-written config out of a developer member's merge-back, so it
+// covers .mcp.json and .claude/ wholesale plus the cache. It is written to
+// .git/info/exclude (untracked, common-dir) — NOT the tracked .gitignore, which
+// would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
+// that genuinely tracks .mcp.json is unaffected.
+var WorktreeArtifactPatterns = []string{
+	".mcp.json",
+	".claude/",
+	".agents/",
+	".codex/config.toml",
+	".kiro/",
+	".ctxloom/cache/",
+}
+
 // Ensure appends the given patterns to projectDir/.gitignore under a single
 // comment header, creating the file if absent. It is idempotent: only patterns
 // not already present (by exact trimmed-line match) are written, and when none
 // are missing the file is left untouched. An empty patterns list is a no-op.
 func Ensure(projectDir, comment string, patterns ...string) error {
+	return EnsureFile(filepath.Join(projectDir, ".gitignore"), comment, patterns...)
+}
+
+// EnsureFile is Ensure targeting an arbitrary ignore file (e.g. a common-dir
+// .git/info/exclude for per-agent worktrees), so the append/idempotency logic is
+// written once. path's parent must already exist. An empty patterns list is a
+// no-op.
+func EnsureFile(path, comment string, patterns ...string) error {
 	if len(patterns) == 0 {
 		return nil
 	}
 
-	path := filepath.Join(projectDir, ".gitignore")
 	content, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err

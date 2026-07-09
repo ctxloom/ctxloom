@@ -33,8 +33,6 @@ type BundleByteSource interface {
 //
 // It never writes to disk and never hits a forge API: the supplied
 // FetcherFactory MUST be a cached factory (see NewCachedFetcherFactory).
-// Pass the active lockfile for normal reads, or a pending lockfile to
-// preview content that hasn't been approved yet (used by show_bundle_verbatim).
 //
 // BundleReader is intentionally bytes-only — it has no knowledge of bundle
 // YAML structure. Callers in higher layers parse via internal/bundles.
@@ -112,8 +110,13 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the
 	// repo URL and item path.
 	ref, err := ParseReference(bundleName)
-	if err != nil || !ref.IsCanonical() {
-		return nil, fmt.Errorf("invalid lockfile bundle key %q (expected a canonical ref): %w", bundleName, err)
+	if err != nil {
+		return nil, fmt.Errorf("invalid lockfile bundle key %q: %w", bundleName, err)
+	}
+	if !ref.IsCanonical() {
+		// err is nil here; don't wrap it with %w (that prints "%!w(<nil>)" and
+		// leaves Unwrap() nil).
+		return nil, fmt.Errorf("invalid lockfile bundle key %q: not a canonical ref", bundleName)
 	}
 
 	repoURL := ref.URL

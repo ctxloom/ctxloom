@@ -17,10 +17,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // DistillKind tags whether a Distill call is for a fragment or a prompt.
@@ -30,7 +31,7 @@ type DistillKind string
 
 const (
 	DistillKindFragment DistillKind = "fragment"
-	DistillKindPrompt   DistillKind = "prompt"
+	DistillKindSkill    DistillKind = "skill"
 )
 
 // DistillRequest carries everything an implementation needs to compress a
@@ -65,7 +66,7 @@ type CreateBundleRequest struct {
 	Tags        []string                       `json:"tags,omitempty"`
 	Author      string                         `json:"author,omitempty"`
 	Fragments   map[string]BundleFragmentInput `json:"fragments,omitempty"`
-	Prompts     map[string]BundlePromptInput   `json:"prompts,omitempty"`
+	Skills      map[string]BundleSkillInput    `json:"skills,omitempty"`
 	MCPServers  map[string]BundleMCPInput      `json:"mcp_servers,omitempty"`
 
 	// Distiller, when non-nil, is invoked for each new fragment whose
@@ -91,8 +92,8 @@ type BundleFragmentInput struct {
 	NoDistill    bool     `json:"no_distill,omitempty"`
 }
 
-// BundlePromptInput describes a prompt to add or update via operations.
-type BundlePromptInput struct {
+// BundleSkillInput describes a prompt to add or update via operations.
+type BundleSkillInput struct {
 	Content      string   `json:"content"`
 	Description  string   `json:"description,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
@@ -165,11 +166,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Path:        path,
 	}
 	applyFragmentInputs(bundle, req.Fragments)
-	applyPromptInputs(bundle, req.Prompts)
+	applyPromptInputs(bundle, req.Skills)
 	applyMCPInputs(bundle, req.MCPServers)
 
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
-	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Prompts), req.Distiller)
+	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Skills), req.Distiller)
 
 	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
@@ -200,9 +201,9 @@ type UpdateBundleRequest struct {
 	SetFragments    map[string]BundleFragmentInput `json:"set_fragments,omitempty"`
 	RemoveFragments []string                       `json:"remove_fragments,omitempty"`
 
-	AddPrompts    map[string]BundlePromptInput `json:"add_prompts,omitempty"`
-	SetPrompts    map[string]BundlePromptInput `json:"set_prompts,omitempty"`
-	RemovePrompts []string                     `json:"remove_prompts,omitempty"`
+	AddPrompts    map[string]BundleSkillInput `json:"add_prompts,omitempty"`
+	SetPrompts    map[string]BundleSkillInput `json:"set_prompts,omitempty"`
+	RemovePrompts []string                    `json:"remove_prompts,omitempty"`
 
 	AddMCPServers    map[string]BundleMCPInput `json:"add_mcp_servers,omitempty"`
 	SetMCPServers    map[string]BundleMCPInput `json:"set_mcp_servers,omitempty"`
@@ -251,13 +252,13 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	// Add* are create-if-absent: filter to names not already present, then reuse
 	// the same merge path (for brand-new names a merge is identical to a set).
 	var fragmentDistillTargets, promptDistillTargets []string
-	changes, addFT := applyFragmentEdits(bundle, onlyNewFragments(bundle, req.AddFragments), nil, changes)
+	changes, addFT := applyFragmentEdits(bundle, onlyNewKeys(req.AddFragments, bundle.Fragments), nil, changes)
 	changes, fragmentDistillTargets = applyFragmentEdits(bundle, req.SetFragments, req.RemoveFragments, changes)
 	fragmentDistillTargets = append(fragmentDistillTargets, addFT...)
-	changes, addPT := applyPromptEdits(bundle, onlyNewPrompts(bundle, req.AddPrompts), nil, changes)
+	changes, addPT := applyPromptEdits(bundle, onlyNewKeys(req.AddPrompts, bundle.Skills), nil, changes)
 	changes, promptDistillTargets = applyPromptEdits(bundle, req.SetPrompts, req.RemovePrompts, changes)
 	promptDistillTargets = append(promptDistillTargets, addPT...)
-	changes = applyMCPEdits(bundle, onlyNewMCP(bundle, req.AddMCPServers), nil, changes)
+	changes = applyMCPEdits(bundle, onlyNewKeys(req.AddMCPServers, bundle.MCP), nil, changes)
 	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
 
 	if len(changes) == 0 {
@@ -321,7 +322,10 @@ func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	return bundleLoader(cfg).Load(name)
+	// A per-remote short "<remote>/<bundle>" arg resolves to the pinned remote
+	// bundle's canonical key so the seeded loader finds it; a local file of the
+	// same spelling wins (decision E). A bare/canonical name is unchanged.
+	return bundleLoader(cfg).Load(canonicalizeBundleArg(cfg, name, cfg.GetBundleDirs(), nil))
 }
 
 // bundleStore returns the injected bundle store or the default filesystem
@@ -404,12 +408,12 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 
 // applyPromptEdits is the prompt counterpart of applyFragmentEdits, with the
 // same content-aware (re)distillation rule plus a Description field.
-func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundlePromptInput, remove []string, changes []string) (newChanges, distillTargets []string) {
+func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleSkillInput, remove []string, changes []string) (newChanges, distillTargets []string) {
 	for name, in := range set {
-		if bundle.Prompts == nil {
-			bundle.Prompts = make(map[string]bundles.BundlePrompt)
+		if bundle.Skills == nil {
+			bundle.Skills = make(map[string]bundles.BundleSkill)
 		}
-		existing, hadExisting := bundle.Prompts[name]
+		existing, hadExisting := bundle.Skills[name]
 		merged := existing
 		merged.Description = in.Description
 		merged.Tags = in.Tags
@@ -425,55 +429,29 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundlePromptInput, 
 				distillTargets = append(distillTargets, name)
 			}
 		}
-		bundle.Prompts[name] = merged
+		bundle.Skills[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
 	for _, name := range remove {
-		if _, ok := bundle.Prompts[name]; ok {
-			delete(bundle.Prompts, name)
+		if _, ok := bundle.Skills[name]; ok {
+			delete(bundle.Skills, name)
 			changes = append(changes, "removed prompt: "+name)
 		}
 	}
 	return changes, distillTargets
 }
 
-// onlyNewFragments returns the subset of in whose names are not already present
-// in the bundle — the add-only filter so create-if-absent never overwrites.
-func onlyNewFragments(b *bundles.Bundle, in map[string]BundleFragmentInput) map[string]BundleFragmentInput {
+// onlyNewKeys returns the subset of in whose keys are absent from existing —
+// the add-only filter so create-if-absent never overwrites. The value types of
+// the two maps are independent: in carries the edit inputs, existing only gates
+// on key presence.
+func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]BundleFragmentInput, len(in))
+	out := make(map[string]V, len(in))
 	for name, v := range in {
-		if _, exists := b.Fragments[name]; !exists {
-			out[name] = v
-		}
-	}
-	return out
-}
-
-// onlyNewPrompts is the prompt counterpart of onlyNewFragments.
-func onlyNewPrompts(b *bundles.Bundle, in map[string]BundlePromptInput) map[string]BundlePromptInput {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]BundlePromptInput, len(in))
-	for name, v := range in {
-		if _, exists := b.Prompts[name]; !exists {
-			out[name] = v
-		}
-	}
-	return out
-}
-
-// onlyNewMCP is the MCP-server counterpart of onlyNewFragments.
-func onlyNewMCP(b *bundles.Bundle, in map[string]BundleMCPInput) map[string]BundleMCPInput {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]BundleMCPInput, len(in))
-	for name, v := range in {
-		if _, exists := b.MCP[name]; !exists {
+		if _, exists := existing[name]; !exists {
 			out[name] = v
 		}
 	}
@@ -559,14 +537,14 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 	return &DeleteBundleResult{Status: "deleted", Name: req.Name, Path: bundle.Path}, nil
 }
 
-// PushBundleRequest is the input for PushBundle.
-//
-// The user told us "file path *only*": the path identifies which bundle to
-// push and (via its directory layout / enclosing git tree) implies the
-// remote target. Callers don't need to specify the remote name — but they
-// can override commit metadata.
+// PushBundleRequest is the input for PushBundle: a bundle file path and the
+// resolved remote to publish it to. PushBundle does no remote inference — the
+// caller resolves Remote first with ResolveBundleRemote, so this operation stays
+// a single responsibility: validate the file and publish it to a named remote.
 type PushBundleRequest struct {
 	Path string `json:"path"`
+	// Remote is the resolved registry name to publish to. Required.
+	Remote string `json:"remote"`
 	// Title is the PR title (and commit subject). Kept separate from Message
 	// because GitHub PR titles cap at 256 bytes — collapsing a long commit
 	// message into the title silently truncates body detail.
@@ -601,14 +579,9 @@ type PushBundleResult struct {
 	Preview string `json:"preview,omitempty"`
 }
 
-// PushBundle publishes (or dry-runs) a local bundle file to a remote repo.
-// Remote inference order:
-//  1. <appPath>/cache/bundles/<remote>/<rest>.yaml — first segment is the remote
-//  2. <appPath>/cache/bundles/<rest>.yaml — registry default
-//  3. exactly one configured remote — use it
-//  4. error with candidate list
-//
-// Network is touched only for non-dry-run; this commit covers dry-run.
+// PushBundle publishes (or dry-runs) a local bundle file to req.Remote (a
+// resolved registry name — see ResolveBundleRemote). Network is touched only
+// for a non-dry-run.
 func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
 	if err := validatePushRequest(cfg, req); err != nil {
 		return nil, err
@@ -633,18 +606,13 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return nil, fmt.Errorf("load registry: %w", err)
 	}
 
-	remoteName, err := resolveRemoteForPath(cfg, registry, absPath)
+	rem, err := registry.Get(req.Remote)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("remote %q not found: %w", req.Remote, err)
 	}
 
 	// Bundle name in target repo = filename without .yaml extension.
 	bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
-
-	rem, err := registry.Get(remoteName)
-	if err != nil {
-		return nil, fmt.Errorf("remote %q not found: %w", remoteName, err)
-	}
 	targetPath := path.Join("ctxloom", "bundles", bundleName+".yaml")
 
 	// Resolve title/body the same way publish.go does, so the result accurately
@@ -653,7 +621,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	result := &PushBundleResult{
 		Path:       absPath,
-		Remote:     remoteName,
+		Remote:     req.Remote,
 		TargetPath: targetPath,
 		Title:      title,
 		Message:    message,
@@ -667,13 +635,16 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return result, nil
 	}
 
-	return runPush(ctx, cfg, registry, remoteName, absPath, req, result)
+	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
 }
 
 // validatePushRequest checks the request preconditions for PushBundle.
 func validatePushRequest(cfg *config.Config, req PushBundleRequest) error {
 	if req.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	if req.Remote == "" {
+		return fmt.Errorf("remote is required (resolve it with ResolveBundleRemote)")
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return fmt.Errorf("no .ctxloom directory configured")
@@ -729,8 +700,35 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 	return result, nil
 }
 
-// resolveRemoteForPath implements the inference order documented on
-// PushBundle. Returns the remote name to publish to.
+// ResolveBundleRemote decides which configured remote a bundle file publishes
+// to. An explicit override wins (after validating it exists); otherwise the
+// remote is inferred from the bundle's location — a cache path or enclosing git
+// origin, then the registry default, then a sole configured remote, else an
+// ambiguous-remote error listing the candidates. Both the CLI and the VSCode
+// companion call this before PushBundle, so neither re-implements the inference.
+func ResolveBundleRemote(cfg *config.Config, bundlePath, override string) (string, error) {
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return "", fmt.Errorf("no .ctxloom directory configured")
+	}
+	absPath, err := filepath.Abs(bundlePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return "", fmt.Errorf("load registry: %w", err)
+	}
+	if override != "" {
+		if _, err := registry.Get(override); err != nil {
+			return "", fmt.Errorf("remote %q not found: %w", override, err)
+		}
+		return override, nil
+	}
+	return resolveRemoteForPath(cfg, registry, absPath)
+}
+
+// resolveRemoteForPath implements the location-based inference used by
+// ResolveBundleRemote. Returns the remote name to publish to.
 func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
 	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
 	if name, ok := remoteFromCachePath(cfg, registry, absPath); ok {
@@ -937,15 +935,15 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 	}
 }
 
-func applyPromptInputs(b *bundles.Bundle, in map[string]BundlePromptInput) {
+func applyPromptInputs(b *bundles.Bundle, in map[string]BundleSkillInput) {
 	if len(in) == 0 {
 		return
 	}
-	if b.Prompts == nil {
-		b.Prompts = make(map[string]bundles.BundlePrompt, len(in))
+	if b.Skills == nil {
+		b.Skills = make(map[string]bundles.BundleSkill, len(in))
 	}
 	for name, p := range in {
-		b.Prompts[name] = bundles.BundlePrompt{
+		b.Skills[name] = bundles.BundleSkill{
 			Description:  p.Description,
 			Tags:         p.Tags,
 			Notes:        p.Notes,
@@ -995,7 +993,7 @@ func namesNeedingFragmentDistill(b *bundles.Bundle, in map[string]BundleFragment
 }
 
 // namesNeedingPromptDistill is the prompt counterpart.
-func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundlePromptInput) []string {
+func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleSkillInput) []string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -1004,7 +1002,7 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundlePromptInpu
 		if p.NoDistill {
 			continue
 		}
-		if _, ok := b.Prompts[name]; !ok {
+		if _, ok := b.Skills[name]; !ok {
 			continue
 		}
 		names = append(names, name)
@@ -1033,7 +1031,7 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 			Bundle:  b,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of fragment %q failed: %v\n", name, err)
+			clidiag.Warn("ctxloom", "distill of fragment %q failed: %v", name, err)
 			failed.Add(name)
 			continue
 		}
@@ -1052,22 +1050,22 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		return failed
 	}
 	for _, name := range names {
-		p := b.Prompts[name]
+		p := b.Skills[name]
 		res, err := d.Distill(ctx, DistillRequest{
-			Kind:    DistillKindPrompt,
+			Kind:    DistillKindSkill,
 			Name:    name,
 			Content: p.Content,
 			Bundle:  b,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of prompt %q failed: %v\n", name, err)
+			clidiag.Warn("ctxloom", "distill of prompt %q failed: %v", name, err)
 			failed.Add(name)
 			continue
 		}
 		p.Distilled = res.Distilled
 		p.DistilledBy = res.ModelID
 		p.ContentHash = p.ComputeContentHash()
-		b.Prompts[name] = p
+		b.Skills[name] = p
 	}
 	return failed
 }

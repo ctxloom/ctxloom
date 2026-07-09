@@ -8,21 +8,10 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/filelock"
-	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
-
-// ConfigFile represents the structure for saving config.yaml
-type ConfigFile struct {
-	Version  int              `yaml:"version"`
-	LM       LMConfig         `yaml:"llm"`
-	Editor   EditorConfig     `yaml:"editor,omitempty"`
-	Settings SettingsConfig   `yaml:"config,omitempty"`
-	Sync     SyncConfig       `yaml:"sync,omitempty"`
-	Hooks    wire.HooksConfig `yaml:"hooks,omitempty"`
-	Profiles ProfilesConfig   `yaml:"profiles,omitempty"`
-}
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
 // upgraded bytes verbatim so the comments and key order preserved by the node
@@ -61,7 +50,7 @@ func (c *Config) Save() error {
 		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
 			defer unlock()
 		} else {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: config lock failed, saving unlocked: %v\n", lerr)
+			clidiag.Warn("ctxloom", "config lock failed, saving unlocked: %v", lerr)
 		}
 	}
 
@@ -109,7 +98,7 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
 		if err := yaml.Unmarshal(existingData, &existing); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
+			clidiag.Warn("ctxloom", "existing config may be corrupted, unknown fields may be lost: %v", err)
 		}
 	}
 	return existing, nil
@@ -184,6 +173,23 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
 	setOrDelete(existing, "profiles", c.Profiles.hasAny(), c.Profiles)
 	delete(existing, "defaults") // superseded by config + profiles blocks
+	// Persist only the config-key agents (c.Agents). Directory-sourced
+	// agents live in their own .ctxloom/agents/*.yaml files and are not
+	// folded back into config.yaml. Pruned when empty so an emptied map removes
+	// the block rather than leaving `agents: {}` behind.
+	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
+	// The always-bound default agent (replaces the retired profiles.defaults);
+	// pruned when empty so an unset default_agent leaves no key behind.
+	setOrDelete(existing, "default_agent", c.DefaultAgent != "", c.DefaultAgent)
+	// Session-level workspace default + agent-level runtime default; pruned
+	// when empty ("none"/"host" are the implicit defaults, so unset axes
+	// leave no keys behind).
+	setOrDelete(existing, "workspace", c.Workspace != "", c.Workspace)
+	setOrDelete(existing, "runtime", c.Runtime != "", c.Runtime)
+	// Per-backend user-provided agent images; pruned when empty (built-in
+	// defaults leave no key behind).
+	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)
+	setOrDelete(existing, "isolation_base_containerfile", c.IsolationBaseContainerfile != "", c.IsolationBaseContainerfile)
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)

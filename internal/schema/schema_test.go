@@ -22,7 +22,7 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
-version: 3
+version: 6
 llm:
   configs:
     big: { type: claude-code, model: opus }
@@ -30,9 +30,12 @@ llm:
   defaults:
     primary: big
     fast: big
+default_agent: dev
+agents:
+  dev:
+    engine: big
+    profiles: [proj/dev]
 profiles:
-  defaults:
-    - proj/dev
   definitions:
     proj/dev:
       tags: [go]

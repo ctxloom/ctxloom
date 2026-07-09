@@ -1,0 +1,88 @@
+# Production ctxloom agent image (kiro) — the AGENT-SPECIFICS stage: a real
+# kiro-cli plus the locally-built ctxloom binary, layered onto the shared base
+# image (container/base/Containerfile by default; a user base via
+# isolation_base_containerfile / `container build --base-containerfile`). The
+# plugin (`ctxloom llm serve kiro`) spawns `kiro-cli` INSIDE the container for an
+# isolated run. Mirrors Containerfile-claude-code and is the target of the kiro
+# container profile's image tag (ctxloom-agent-kiro:latest).
+#
+# BASE CONTRACT: Debian-family with apt. The installer prerequisites (curl,
+# certs, unzip) are installed here anyway — a no-op on the default base, which
+# already carries them — so a lean user base still builds.
+#
+# AUTH is NOT baked in — it crosses at RUN time via KIRO_API_KEY env passthrough
+# (Kiro's headless mode skips the browser login when it is set). Subscription
+# `kiro-cli login` credential mounts are a follow-up pending live verification of
+# the credential file layout (the same doc-first posture as the kiro settings
+# writer). The image ships no secrets and is safe to cache/share.
+#
+# ENTRYPOINT is the ctxloom identity-remap script only (PUID/PGID → the
+# ctxloom user, then a privilege drop); the isolation runtime still supplies
+# the full in-container argv (/usr/local/bin/ctxloom llm serve kiro ...) on a
+# writable base with a fresh HOME (/home/ctxloom). The build context must
+# contain the static binary at ./ctxloom plus ./ctxloom-entrypoint and
+# ./companions/.
+ARG BASE_IMAGE=ctxloom-agent-base:latest
+FROM ${BASE_IMAGE}
+
+# Runtime identity: a generic non-root `ctxloom` user (1000:1000) that the
+# entrypoint remaps to the launching uid/gid (PUID/PGID env) at container
+# start, then drops to via gosu. The image bakes NO USER directive — the
+# isolation runtime decides identity per mapping mode (rootless docker must
+# stay container-root, which maps to the launching user). A node-based base
+# ships `node` at 1000:1000; remove it so ctxloom takes the conventional ids.
+RUN (userdel -r node 2>/dev/null || true) \
+    && groupadd -o -g 1000 ctxloom \
+    && useradd -o -m -u 1000 -g 1000 -d /home/ctxloom -s /bin/bash ctxloom \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && gosu ctxloom true
+COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint
+# chmod, not trust-the-context: a checkout/staging path that drops the exec
+# bit must not ship an unlaunchable image.
+RUN chmod 0755 /usr/local/bin/ctxloom-entrypoint
+ENTRYPOINT ["/usr/local/bin/ctxloom-entrypoint"]
+
+# ctxloom.version is a diagnostic stamp (git-derived, human-readable).
+# ctxloom.provenance is the STALENESS SIGNAL: a content digest of the baked
+# ctxloom + companion binaries, computed by the building ctxloom. On a later
+# run ensureImage compares it against the host's current binaries and rebuilds
+# on mismatch — so a dev `just install` or a companion update refreshes the
+# image even when the version stamp (same commit) would not.
+ARG CTXLOOM_VERSION=""
+ARG CTXLOOM_PROVENANCE=""
+LABEL ctxloom.version="${CTXLOOM_VERSION}"
+LABEL ctxloom.provenance="${CTXLOOM_PROVENANCE}"
+
+# Install kiro-cli via the official installer and fail the build if it is not
+# runnable, so a broken image never ships. The binary lands under ~/.local/bin
+# and is relocated to /usr/local/bin where any uid finds it (the rootful-docker
+# path runs the container --user <host uid>, not root).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://cli.kiro.dev/install | bash \
+    && { command -v kiro-cli >/dev/null 2>&1 \
+         || install -m 0755 /root/.local/bin/kiro-cli /usr/local/bin/kiro-cli; } \
+    && kiro-cli --version
+
+COPY ctxloom /usr/local/bin/ctxloom
+# Companion binaries mirrored from the launching host (taskloom, ltk, reprise —
+# the task store, pre-tool command gate, and pre-commit gate the project's
+# managed config references in-container). The build context always ships
+# companions/ (possibly empty: a companion absent on the host is skipped at
+# staging, never fatal).
+COPY companions/ /usr/local/bin/
+# Validate the layered ctxloom runs on this base (the daily build is
+# glibc-linked; an ABI mismatch must fail the build, not the run).
+RUN /usr/local/bin/ctxloom version
+# Companions are auxiliary: one that cannot run on this base (e.g. linked
+# against a newer host glibc) is dropped with a warning instead of failing the
+# build — the image still ships, without that tool.
+RUN set -e; for b in taskloom ltk reprise; do \
+        if command -v "$b" >/dev/null && ! "$b" --version; then \
+            echo "warning: companion $b cannot run on this base (ABI mismatch); dropping it from the image" >&2; \
+            rm -f "/usr/local/bin/$b"; \
+        fi; \
+    done

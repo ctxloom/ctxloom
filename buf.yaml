@@ -1,9 +1,15 @@
 version: v2
 modules:
   - path: internal/lm/grpc
+  - path: internal/agentcoord
 lint:
   use:
     - STANDARD
+  ignore:
+    # Vendored third-party proto (google/rpc/status.proto), present only so
+    # the import resolves without a remote BSR dependency. Not linted, and
+    # excluded from codegen (Go types come from google.golang.org/genproto).
+    - internal/agentcoord/google
 breaking:
   use:
     - FILE

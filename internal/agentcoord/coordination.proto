@@ -1,0 +1,1071 @@
+// coordination.proto — agentcoord.v1 (rev 6 — ctxloom Wave A landing)
+//
+// Changelog rev 5 -> rev 6:
+//   - A1: RunnerHello.runner_id removed (remaining fields renumbered);
+//     runner, agent, and run identity derive from the connection
+//     credential, never from self-declared fields.
+//   - A2: money is micro-USD — BudgetSpec.max_cost_usd_micros and
+//     Usage.cost_usd_micros (were *_usd_cents).
+//   - A3: HarnessSpec.permission_mode added as a typed, coordinator-
+//     enforced field; it no longer rides inside `config`.
+//   - A6: ListRunsRequest scopes by exact task_id + include_descendants;
+//     task_id_prefix dropped (no prefix matching on opaque ids).
+//   - A10: queued peer delivery documented as durable coordinator
+//     mailbox state that survives coordinator restarts.
+//   - Artifact/state split: the artifact family (produce, feedback,
+//     lookup, chunked transfer) and the shared-state family (snapshot,
+//     delta) are deferred until a consumer exists; their field numbers
+//     are reserved in place, and the transfer RPCs will land on a future
+//     ArtifactTransfer service in artifacts.proto. The rev-5 design file
+//     is the source of record for the deferred shapes. ArtifactRef and
+//     ArtifactKind stay here as shared vocabulary.
+//
+// TOPOLOGY
+//
+//   runtime (coordinator)
+//     └─ spawns RUNNERS, talks to each over one RunnerChannel
+//          └─ each runner drives agent harnesses DIRECTLY via their CLIs
+//             (Claude Code stream-json over stdio, Codex app-server
+//             JSON-RPC, Kiro via ACP) and adapts native protocols onto
+//             this one; it opens one RunChannel per run it hosts.
+//
+// So there are two channel kinds, both dialed by the runner:
+//   - RunnerChannel: runner lifecycle + process control (start/stop/kill
+//     agent processes, drain, resource heartbeats, crash reports).
+//   - RunChannel:    everything semantic about one run — status,
+//     messages, results, artifacts, summaries up; steering, answers,
+//     approvals, relayed peer traffic down.
+//
+// Coordinator->agent requests (steer, pause, cancel...) are *executed*
+// by the runner using its direct CLI control of the harness: steering
+// becomes stream-json input injection or a turn/start, pause/cancel
+// become interrupts or turn/interrupt, resume becomes `--resume` /
+// thread-resume with the recorded harness session id.
+//
+// The run-level protocol is organized as three planes multiplexed on
+// the RunChannel stream:
+//
+//   1. EVENT PLANE (agent -> coordinator, durable, sequenced)
+//      Append-only facts. The coordinator's view of a run is a pure fold
+//      over AgentEvents. At-least-once + (run_id, seq) dedupe.
+//
+//   2. REQUEST/RESPONSE PLANE (symmetric, correlated, ephemeral)
+//      gRPC gives RPC semantics in only one direction, so this layer
+//      recreates them in both directions over the stream via request_id
+//      correlation — the same move Codex app-server makes with
+//      server-initiated JSON-RPC requests (approvals pause the turn until
+//      the client answers). Agents can ask the coordinator for approvals,
+//      user input, sub-agent spawns, sibling lookups; the coordinator can
+//      ask agents questions, demand on-demand summaries, pause/resume,
+//      steer. (Artifact fetches and state-snapshot pulls are deferred
+//      with the artifact/state families — see the changelog above.)
+//
+//   3. NOTICE PLANE (fire-and-forget delivery)
+//      Agent -> coordinator: Heartbeat. Coordinator -> agent: Ack
+//      watermarks, cancellation, budget changes, relayed peer messages,
+//      cancellation of outstanding requests. Notices are not part of the
+//      run's event log — but peer messages are NOT ephemeral: queued
+//      delivery is durable, role-addressed mailbox state at the
+//      coordinator and survives coordinator process restarts.
+//
+// Durability boundary: requests/responses are control-plane and are NOT
+// part of the agent's event log. Durable milestones they cause (e.g.
+// "now waiting on approval", "approval resolved") are recorded by the
+// agent as StatusChanged / InteractionResolved events, and the
+// coordinator journals its own decisions on its side.
+//
+// Design lineage (full mapping in the design notes under
+// ~/.ctxloom/sessions/minty-calm-diary/ — agent_coordination.proto
+// (rev 5) + agentcoord-migration.plan.md):
+//   - Claude Agent SDK stream-json: system/assistant/result taxonomy,
+//     parent_tool_use_id attribution, Result usage/cost/num_turns.
+//   - Codex app-server: Thread/Turn/Item primitives; item lifecycle
+//     started -> delta* -> completed; server-initiated requests that
+//     pause the turn; accept/acceptForSession/decline/cancel decisions.
+//   - AG-UI: lifecycle / text / tool-call / state event categories;
+//     STATE_SNAPSHOT + STATE_DELTA (JSON Patch); RAW/CUSTOM hatches.
+//   - Antigravity: typed artifact taxonomy (task list, implementation
+//     plan, diff, walkthrough, screenshot, recording) with revisions;
+//     artifacts as review gates; NON-BLOCKING anchored feedback on
+//     artifacts that the agent incorporates without stopping execution.
+//   - ACP (as implemented by Kiro CLI): initialize-time capability
+//     negotiation, session update notifications, namespaced extensions.
+//
+// gRPC constraints honored:
+//   - 4 MiB default max message: bulk bytes never ride the stream;
+//     artifacts travel by reference (the chunked transfer RPCs are
+//     deferred to a future ArtifactTransfer service).
+//   - Ordering holds only within one stream: durable events carry a
+//     per-run monotonic seq; resume is cursor-based on reconnect.
+//   - HTTP/2 flow control is hop-level: app-level Ack watermark + credit
+//     window gives end-to-end backpressure on the event plane.
+//   - proto3 hygiene: *_UNSPECIFIED zero enums, oneof unions,
+//     google.protobuf.Struct for open JSON, google.rpc.Status errors,
+//     versioned package, reserved ranges.
+
+syntax = "proto3";
+
+package agentcoord.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
+
+option go_package = "github.com/ctxloom/ctxloom/internal/agentcoord";
+
+// =============================================================================
+// Service
+// =============================================================================
+
+service CoordinatorService {
+  // Runner-level control channel, exactly one per runner process,
+  // dialed by the runner at startup (runners live behind NAT / in
+  // containers, so the runtime never dials them). Carries process
+  // control (StartRun/StopRun/KillRun/Drain), runner resource
+  // heartbeats, and crash reports (RunExited).
+  rpc RunnerChannel(stream RunnerFrame) returns (stream RuntimeFrame);
+
+  // Run-level channel: opened by the runner's harness adapter for each
+  // run it hosts (one long-lived bidi stream per run attempt). All
+  // three run planes multiplex over it.
+  //
+  // On disconnect the agent reconnects, sends Hello with its resume
+  // cursor, and re-emits unacked events. Outstanding requests in either
+  // direction are the initiator's responsibility to reissue; responders
+  // treat request_id as the idempotency key.
+  //
+  // Keepalive pings on; no overall deadline (per-request deadlines live
+  // inside the request envelopes).
+  rpc RunChannel(stream AgentFrame) returns (stream CoordinatorFrame);
+
+  // Chunked artifact transfer (UploadArtifact / DownloadArtifact) is
+  // deferred with the artifact family: it will land on a dedicated
+  // ArtifactTransfer service in artifacts.proto when a consumer exists.
+  // The rev-5 design file is the source of record for those shapes.
+
+  // Unary at-least-once fallback for constrained agents (batch CI,
+  // flaky networks) and for replaying a locally journaled event log.
+  // Safe to retry: dedupe on (run_id, seq). Event plane only — no
+  // request/response semantics here.
+  rpc PublishEvents(PublishEventsRequest) returns (PublishEventsResponse);
+}
+
+// =============================================================================
+// Runner control channel (runtime <-> runner)
+// =============================================================================
+//
+// Process control is a runtime->runner concern and lives here;
+// everything semantic about a run lives on RunChannel. The same
+// request/response correlation contract as plane 2 applies.
+
+message RunnerFrame {
+  oneof kind {
+    RunnerHello hello = 1;            // first frame on every (re)connect
+    RunnerResponse response = 2;
+    RunnerHeartbeat heartbeat = 3;    // fire-and-forget
+    RunExited run_exited = 4;         // process-level fact, see below
+  }
+}
+
+message RuntimeFrame {
+  oneof kind {
+    RunnerHelloAck hello_ack = 1;
+    RunnerRequest request = 2;
+  }
+}
+
+// First frame on every (re)connect. Runner identity is deliberately NOT
+// carried here: it derives from the connection credential (gRPC
+// metadata), never from a self-declared field. Hello carries only
+// capabilities and active runs.
+message RunnerHello {
+  string version = 1;
+  // Harness adapters this runner can drive: "claude-code",
+  // "codex-app-server", "kiro-acp", ... Runtime MUST NOT StartRun a
+  // harness the runner didn't advertise.
+  repeated string harnesses = 2;
+  uint32 max_concurrent_runs = 3;
+  map<string, string> labels = 4;  // placement hints: region, gpu, repo...
+  // Runs still alive from before a reconnect, so the runtime reconciles
+  // instead of double-spawning.
+  repeated string active_run_ids = 5;
+}
+
+message RunnerHelloAck {
+  bool accepted = 1;
+  google.rpc.Status reject_reason = 2;
+}
+
+message RunnerRequest {
+  string request_id = 1;
+  google.protobuf.Duration timeout = 2;
+  oneof kind {
+    StartRun start_run = 10;
+    StopRun stop_run = 11;
+    KillRun kill_run = 12;
+    Drain drain = 13;
+    CustomRequest custom = 90;
+  }
+}
+
+message RunnerResponse {
+  string request_id = 1;
+  google.rpc.Status status = 2;  // RESOURCE_EXHAUSTED when at capacity
+  oneof kind {
+    StartRunResult start_run = 10;
+    StopRunResult stop_run = 11;
+    KillRunResult kill_run = 12;
+    DrainResult drain = 13;
+    google.protobuf.Struct custom = 90;
+  }
+}
+
+// Spawn an agent process under a harness. run_id is runtime-assigned;
+// the runner then opens RunChannel with it. This is also the back half
+// of a parent agent's SpawnAgentRequest: parent asks on its RunChannel,
+// runtime picks a runner and issues StartRun here.
+message StartRun {
+  string task_id = 1;
+  string run_id = 2;
+  HarnessSpec harness = 3;
+  google.protobuf.Struct input = 4;  // initial prompt / task payload
+  BudgetSpec budget = 5;
+  string parent_run_id = 6;          // set for spawned sub-agents
+  string role = 7;
+}
+
+message HarnessSpec {
+  string harness = 1;    // must be in RunnerHello.harnesses
+  string model = 2;
+  string workspace = 3;  // working directory / checkout the runner prepares
+  // Harness CLI arguments, runner-validated against an allowlist —
+  // the runner has direct CLI control and is the enforcement point.
+  repeated string extra_args = 4;
+  // Tool policy, MCP config, env — harness-specific. Permission mode
+  // does NOT ride here; it is the typed permission_mode field below.
+  google.protobuf.Struct config = 5;
+  // Harness-native session to resume instead of starting fresh
+  // (claude --resume <id>, codex thread/resume). Retry-with-context.
+  string resume_session_id = 6;
+  // The security-relevant contract for delegated children: a headless
+  // child must declare a headless-safe mode (it has no channel to
+  // surface a prompt). Values are harness-mapped and
+  // coordinator-enforced.
+  string permission_mode = 7;
+}
+
+message StartRunResult {
+  string harness_session_id = 1;  // native session/thread id, for resume
+  int64 pid = 2;
+}
+
+// Graceful: runner interrupts the harness (SIGINT / turn/interrupt),
+// waits for a terminal RunCompleted on the RunChannel, escalates to
+// SIGTERM at grace expiry.
+message StopRun {
+  string run_id = 1;
+  string reason = 2;
+  google.protobuf.Duration grace = 3;
+}
+
+message StopRunResult {
+  bool exited_within_grace = 1;
+}
+
+// SIGKILL now. The run will surface as RunExited without a terminal
+// event; the runtime synthesizes its own CANCELLED record.
+message KillRun {
+  string run_id = 1;
+}
+
+message KillRunResult {}
+
+// Stop accepting StartRuns; finish or stop what's active by deadline.
+message Drain {
+  google.protobuf.Duration deadline = 1;
+}
+
+message DrainResult {
+  repeated string remaining_run_ids = 1;
+}
+
+// Fire-and-forget liveness + capacity signal for placement decisions.
+message RunnerHeartbeat {
+  google.protobuf.Timestamp sent_at = 1;
+  uint32 active_runs = 2;
+  optional double cpu_load = 3;
+  optional uint64 mem_bytes_used = 4;
+}
+
+// Process-level exit, distinct from the run-level RunCompleted event.
+// If the harness died before emitting a terminal event (crash, OOM,
+// kill), this is the only signal; the runtime decides retry policy,
+// possibly a fresh run_id with HarnessSpec.resume_session_id set.
+message RunExited {
+  string run_id = 1;
+  int32 exit_code = 2;
+  string signal = 3;              // e.g. "SIGKILL", empty if clean exit
+  bool terminal_event_seen = 4;   // RunCompleted was emitted before exit
+  string harness_session_id = 5;  // resume handle, if the harness left one
+}
+
+// =============================================================================
+// Run channel frames (stream envelopes)
+// =============================================================================
+
+message AgentFrame {
+  oneof kind {
+    Hello hello = 1;                    // first frame on every (re)connect
+    AgentEvent event = 2;               // plane 1: durable, sequenced
+    AgentRequest request = 3;           // plane 2: agent asks coordinator
+    AgentResponse response = 4;         // plane 2: agent answers coordinator
+    Heartbeat heartbeat = 5;            // plane 3
+  }
+}
+
+message CoordinatorFrame {
+  oneof kind {
+    HelloAck hello_ack = 1;
+    Ack ack = 2;                        // plane 3: event-plane watermark
+    CoordinatorRequest request = 3;     // plane 2: coordinator asks agent
+    CoordinatorResponse response = 4;   // plane 2: coordinator answers agent
+    CoordinatorNotice notice = 5;       // plane 3: fire-and-forget
+  }
+}
+
+message Hello {
+  string task_id = 1;   // coordinator-assigned unit of work
+  // UUID per attempt; retries get a fresh run_id. Ownership of the
+  // run_id is validated against the connection credential it was issued
+  // to — presenting someone else's run_id is a rejected Hello.
+  string run_id = 2;
+  AgentIdentity agent = 3;
+
+  // Highest seq the agent believes the coordinator has committed
+  // (0 on first attach). HelloAck returns the authoritative watermark;
+  // the agent re-emits anything above it.
+  uint64 resume_from_seq = 4;
+
+  uint32 protocol_version = 5;  // this file: 1
+
+  // ACP-style capability strings ("approvals", "state_delta",
+  // "peer_messaging", "on_demand_summary"). The coordinator MUST NOT
+  // send request kinds the agent didn't advertise. Vendor extensions
+  // namespaced: "x-acme/foo".
+  repeated string capabilities = 6;
+}
+
+// agent_id and runner_id are coordinator-assigned and validated against
+// the connection credential — never self-claimed by the agent process.
+message AgentIdentity {
+  string agent_id = 1;       // stable identity across runs
+  string display_name = 2;
+  string harness = 3;        // e.g. "claude-agent-sdk", "codex", "kiro-cli"
+  string harness_version = 4;
+  string model = 5;
+  string role = 6;           // coordinator-assigned role, e.g. "reviewer"
+  string runner_id = 7;      // which runner hosts this agent's process
+}
+
+message HelloAck {
+  bool accepted = 1;
+  google.rpc.Status reject_reason = 2;  // set iff !accepted
+  uint64 committed_seq = 3;             // authoritative resume cursor
+  // App-level credit: max unacked events in flight, refreshed by Acks.
+  uint32 event_window = 4;
+  // Coordinator's own capabilities, so agents know what they may request.
+  repeated string capabilities = 5;
+}
+
+// Cumulative: all events with seq <= committed_seq are durable.
+message Ack {
+  uint64 committed_seq = 1;
+}
+
+// Ephemeral liveness + transient progress. Never journaled, never resent.
+message Heartbeat {
+  string run_id = 1;
+  google.protobuf.Timestamp sent_at = 2;
+  optional double progress = 3;              // 0.0..1.0 instantaneous
+  optional uint64 context_tokens_used = 4;
+}
+
+// =============================================================================
+// Plane 2 — symmetric request/response
+// =============================================================================
+//
+// Correlation contract (both directions):
+//   - request_id unique per sender per stream; echoed verbatim in the
+//     response; also the responder-side idempotency key across reconnects.
+//   - timeout is advisory wall-clock budget; on expiry the initiator may
+//     emit a CancelRequest notice and proceed with its declared fallback
+//     (e.g. approvals fall back to DECISION_DECLINE).
+//   - Exactly one response per request. Errors travel in
+//     response.status, not by dropping the response.
+
+// ----- agent -> coordinator requests -----------------------------------------
+
+message AgentRequest {
+  string request_id = 1;
+  google.protobuf.Duration timeout = 2;
+
+  // 15 is held for artifact_lookup, deferred with the artifact family;
+  // the rev-5 design file is the source of record.
+  reserved 15;
+
+  oneof kind {
+    ApprovalRequest approval = 10;
+    UserInputRequest user_input = 11;
+    SpawnAgentRequest spawn_agent = 12;
+    PeerSendRequest peer_send = 13;
+    ListRunsRequest list_runs = 14;
+    // Open extension point, mirroring CustomEvent.
+    CustomRequest custom = 90;
+  }
+}
+
+message CoordinatorResponse {
+  string request_id = 1;
+  // OK, or why not: PERMISSION_DENIED, DEADLINE_EXCEEDED, UNAVAILABLE,
+  // UNIMPLEMENTED (capability not offered), etc.
+  google.rpc.Status status = 2;
+
+  // 15 is held for artifact_lookup, deferred with the artifact family;
+  // the rev-5 design file is the source of record.
+  reserved 15;
+
+  oneof kind {
+    ApprovalDecision approval = 10;
+    UserInputResult user_input = 11;
+    SpawnAgentResult spawn_agent = 12;
+    PeerSendResult peer_send = 13;
+    ListRunsResult list_runs = 14;
+    google.protobuf.Struct custom = 90;
+  }
+}
+
+// Agent needs a decision before proceeding; it parks the affected item,
+// emits StatusChanged{PHASE_WAITING_APPROVAL}, and blocks on this request
+// (Codex server-initiated approval flow, generalized).
+message ApprovalRequest {
+  enum ApprovalKind {
+    APPROVAL_KIND_UNSPECIFIED = 0;
+    APPROVAL_KIND_COMMAND_EXECUTION = 1;
+    APPROVAL_KIND_FILE_CHANGE = 2;
+    APPROVAL_KIND_TOOL_USE = 3;
+    APPROVAL_KIND_PERMISSION_ESCALATION = 4;
+    // Antigravity-style plan gate: the agent published an artifact
+    // (typically an ARTIFACT_KIND_IMPLEMENTATION_PLAN) and parks until
+    // it's reviewed. Whether a given artifact kind gates at all is
+    // coordinator policy ("always proceed" == auto-accept), not wire
+    // protocol.
+    APPROVAL_KIND_ARTIFACT_REVIEW = 5;
+    APPROVAL_KIND_CUSTOM = 6;
+  }
+  ApprovalKind kind = 1;
+  string title = 2;                    // one-line human summary
+  google.protobuf.Struct payload = 3;  // argv, unified diff, scopes...
+  string item_id = 4;                  // the parked step/tool_call
+  // Set for APPROVAL_KIND_ARTIFACT_REVIEW: which artifact (at which
+  // revision) gates.
+  string artifact_id = 5;
+  uint32 artifact_revision = 6;
+}
+
+// Decision vocabulary follows Codex app-server.
+message ApprovalDecision {
+  enum Decision {
+    DECISION_UNSPECIFIED = 0;
+    DECISION_ACCEPT = 1;
+    DECISION_ACCEPT_FOR_SESSION = 2;  // pre-approves like-kind requests this run
+    DECISION_DECLINE = 3;
+    DECISION_CANCEL = 4;              // also cancels the parked parent item
+  }
+  Decision decision = 1;
+  string note = 2;
+  google.protobuf.Struct amendment = 3;  // amended params, if any
+}
+
+// A question that must ultimately reach a human (the coordinator may
+// answer from policy/cache instead — the agent can't tell, by design).
+message UserInputRequest {
+  string prompt = 1;
+  repeated string choices = 2;         // empty => free text
+  google.protobuf.Struct schema = 3;   // optional JSON Schema for the answer
+}
+
+message UserInputResult {
+  string text = 1;
+  google.protobuf.Struct structured = 2;
+}
+
+// Delegation: agent asks the coordinator to spawn a sub-agent. The
+// coordinator owns placement, budget carve-out, and lifecycle; the child
+// gets its own run and RunChannel. Fan-in happens via peer messages,
+// artifact references, or the child's Result which the coordinator
+// forwards per notify_on.
+message SpawnAgentRequest {
+  string role = 1;                       // e.g. "test-writer"
+  google.protobuf.Struct input = 2;      // child task input
+  google.protobuf.Struct constraints = 3; // model, tools, sandbox hints
+  BudgetSpec budget = 4;                  // carved from the parent's budget
+  enum NotifyOn {
+    NOTIFY_ON_UNSPECIFIED = 0;
+    NOTIFY_ON_COMPLETION = 1;   // relay child's Result as a PeerMessage
+    NOTIFY_ON_NOTHING = 2;      // parent will poll via ListRuns
+  }
+  NotifyOn notify_on = 5;
+}
+
+message BudgetSpec {
+  optional uint64 max_cost_usd_micros = 1;
+  optional uint32 max_turns = 2;
+  optional google.protobuf.Duration max_wall_time = 3;
+}
+
+message SpawnAgentResult {
+  string child_task_id = 1;
+  string child_run_id = 2;
+  string child_agent_id = 3;
+}
+
+// Peer messaging is hub-and-spoke: sender asks the coordinator to relay;
+// the coordinator applies policy (may deny, redact, or queue) and
+// delivers to the target as a CoordinatorNotice.PeerMessage. No agent
+// mesh, one policy chokepoint, and offline targets get queued delivery.
+message PeerSendRequest {
+  string to_agent_id = 1;      // or...
+  string to_role = 2;          // ...broadcast to all agents with role
+  string text = 3;
+  google.protobuf.Struct structured = 4;
+  repeated string artifact_ids = 5;  // by reference, never by value
+  // Correlates a reply to an earlier inbound PeerMessage.message_id.
+  string in_reply_to = 6;
+}
+
+message PeerSendResult {
+  string message_id = 1;  // coordinator-assigned
+  enum Delivery {
+    DELIVERY_UNSPECIFIED = 0;
+    DELIVERY_DELIVERED = 1;   // target connected, frame written
+    // Target offline; queued delivery is durable, role-addressed
+    // mailbox state at the coordinator — it survives coordinator
+    // process restarts and is delivered when the target reattaches.
+    DELIVERY_QUEUED = 2;
+    DELIVERY_DENIED = 3;      // policy refused (also reflected in status)
+  }
+  Delivery delivery = 2;
+}
+
+// Sibling discovery/observability, so a parent can watch its children
+// (or peers watch each other) without private channels.
+message ListRunsRequest {
+  // Scope to one task, optionally including its descendant task tree —
+  // no prefix matching on opaque ids.
+  string task_id = 1;
+  string role = 2;             // filter
+  bool include_terminal = 3;
+  bool include_descendants = 4;
+}
+
+message ListRunsResult {
+  message RunInfo {
+    string task_id = 1;
+    string run_id = 2;
+    AgentIdentity agent = 3;
+    string phase = 4;              // StatusChanged.Phase name or "TERMINAL"
+    string latest_summary = 5;     // most recent Summary.text, truncated
+    google.protobuf.Timestamp last_event_at = 6;
+  }
+  repeated RunInfo runs = 1;
+}
+
+// Shared artifact vocabulary, retained through the rev-6 artifact split:
+// PeerMessage.artifacts carries these by reference, and Result /
+// ToolCallCompleted carry artifact-id strings. The rest of the artifact
+// family (production, feedback, lookup, transfer) is deferred — see the
+// header changelog.
+message ArtifactRef {
+  string artifact_id = 1;
+  string run_id = 2;
+  string name = 3;
+  string media_type = 4;
+  uint64 size_bytes = 5;
+  bytes sha256 = 6;
+  string external_uri = 7;  // set when directly fetchable
+  ArtifactKind kind = 8;
+  uint32 revision = 9;      // latest, unless a specific one was requested
+}
+
+message CustomRequest {
+  string name = 1;  // namespaced "vendor/name"
+  google.protobuf.Struct value = 2;
+}
+
+// ----- coordinator -> agent requests ------------------------------------------
+
+message CoordinatorRequest {
+  string request_id = 1;
+  google.protobuf.Duration timeout = 2;
+
+  // 12 is held for state_snapshot, deferred with the shared-state
+  // family; the rev-5 design file is the source of record.
+  reserved 12;
+
+  oneof kind {
+    SteerRequest steer = 10;
+    QuestionRequest question = 11;
+    SummarizeRequest summarize = 13;
+    PauseRequest pause = 14;
+    ResumeRequest resume = 15;
+    CustomRequest custom = 90;
+  }
+}
+
+message AgentResponse {
+  string request_id = 1;
+  google.rpc.Status status = 2;  // UNIMPLEMENTED if capability absent
+
+  // 12 is held for state_snapshot, deferred with the shared-state
+  // family; the rev-5 design file is the source of record.
+  reserved 12;
+
+  oneof kind {
+    SteerResult steer = 10;
+    QuestionResult question = 11;
+    SummarizeResult summarize = 13;
+    PauseResult pause = 14;
+    ResumeResult resume = 15;
+    google.protobuf.Struct custom = 90;
+  }
+}
+
+// Mid-run instruction injection (Codex turn steering / Claude SDK
+// streaming-input analog). Request/response so the coordinator knows
+// whether it landed before or after a decision point.
+message SteerRequest {
+  string text = 1;
+  google.protobuf.Struct metadata = 2;
+}
+
+message SteerResult {
+  enum Applied {
+    APPLIED_UNSPECIFIED = 0;
+    APPLIED_IMMEDIATE = 1;       // injected into the current turn
+    APPLIED_NEXT_TURN = 2;       // queued for the next turn boundary
+    APPLIED_REJECTED = 3;        // agent declined (also see status)
+  }
+  Applied applied = 1;
+}
+
+// Coordinator (or a human behind it) asks the agent something without
+// disturbing its main loop: "why did you pick sqlx over diesel?"
+message QuestionRequest {
+  string text = 1;
+}
+
+message QuestionResult {
+  string text = 1;
+  google.protobuf.Struct structured = 2;
+}
+
+// On-demand summary at a given scope; the agent SHOULD also emit the
+// produced Summary as a durable event (covers_through_seq set), so
+// the pull leaves a record in the log.
+message SummarizeRequest {
+  Summary.Scope scope = 1;
+  string focus = 2;  // optional: "just the schema decisions"
+}
+
+message SummarizeResult {
+  Summary summary = 1;
+}
+
+message PauseRequest {
+  string reason = 1;
+}
+message PauseResult {
+  uint64 paused_at_seq = 1;  // no further events until Resume (except
+                             // heartbeats and this response)
+}
+
+message ResumeRequest {}
+message ResumeResult {}
+
+// ----- coordinator -> agent notices (fire-and-forget) -------------------------
+
+message CoordinatorNotice {
+  // 5 is held for artifact_feedback, deferred with the artifact family;
+  // the rev-5 design file is the source of record.
+  reserved 5;
+
+  oneof kind {
+    CancelRun cancel = 1;
+    BudgetUpdate budget_update = 2;
+    PeerMessage peer_message = 3;
+    CancelRequest cancel_request = 4;
+  }
+}
+
+message CancelRun {
+  string reason = 1;
+  // Grace before hard-stop; agent is expected to emit a final
+  // RunCompleted{status: RUN_STATUS_CANCELLED} within it.
+  google.protobuf.Duration grace = 2;
+}
+
+message BudgetUpdate {
+  BudgetSpec budget = 1;  // absolute new limits, not deltas
+}
+
+// Inbound relayed message from a sibling (or the coordinator itself,
+// from_agent_id == ""). Reply via PeerSendRequest.in_reply_to.
+// Until delivered, a queued PeerMessage is durable, role-addressed
+// mailbox state at the coordinator: it survives coordinator process
+// restarts and is delivered when the target reattaches.
+message PeerMessage {
+  string message_id = 1;
+  string from_agent_id = 2;
+  string from_run_id = 3;
+  string text = 4;
+  google.protobuf.Struct structured = 5;
+  repeated ArtifactRef artifacts = 6;
+  string in_reply_to = 7;
+}
+
+// Withdraw an outstanding CoordinatorRequest (agent equivalent: agents
+// simply stop waiting and treat their own timeout fallback).
+message CancelRequest {
+  string request_id = 1;
+}
+
+// =============================================================================
+// Plane 1 — the event log (agent -> coordinator, durable)
+// =============================================================================
+
+// One durable fact. The coordinator's view of a run is a pure fold over
+// these; nothing on the request/response plane is load-bearing for state.
+message AgentEvent {
+  string task_id = 1;
+  string run_id = 2;
+
+  // Per-run monotonic, starts at 1, no gaps. (run_id, seq) is the
+  // idempotency key everywhere.
+  uint64 seq = 3;
+
+  google.protobuf.Timestamp occurred_at = 4;
+
+  // Optional grouping: one user-input -> agent-quiescent cycle
+  // (Codex Turn / Claude num_turns unit).
+  string turn_id = 5;
+
+  // Attribution to a parent item, e.g. events emitted on behalf of a
+  // tool call or subagent (Claude parent_tool_use_id).
+  string parent_item_id = 6;
+
+  // W3C trace context for cross-system correlation.
+  string traceparent = 7;
+
+  // 50 is held for artifact_produced (artifact family) and 60/61 for
+  // state_snapshot/state_delta (shared-state family), both deferred;
+  // the rev-5 design file is the source of record.
+  reserved 50, 60, 61;
+
+  oneof payload {
+    // --- lifecycle ---
+    RunStarted run_started = 10;
+    StepStarted step_started = 11;
+    StepCompleted step_completed = 12;
+    StatusChanged status_changed = 13;
+    RunCompleted run_completed = 14;  // terminal; exactly one per run
+
+    // --- messages (item lifecycle: started -> delta* -> completed) ---
+    MessageStarted message_started = 20;
+    MessageDelta message_delta = 21;
+    MessageCompleted message_completed = 22;
+
+    // --- tool calls ---
+    ToolCallStarted tool_call_started = 30;
+    ToolCallArgsDelta tool_call_args_delta = 31;
+    ToolCallCompleted tool_call_completed = 32;
+
+    // --- control-plane echoes: durable record of plane-2 interactions ---
+    InteractionRecorded interaction = 40;
+
+    // --- summaries ---
+    Summary summary = 70;
+
+    // --- escape hatches (AG-UI RAW / CUSTOM analogs) ---
+    RawEvent raw = 90;
+    CustomEvent custom = 91;
+  }
+
+  reserved 100 to 199;  // future first-party payloads
+}
+
+// --- lifecycle ----------------------------------------------------------------
+
+message RunStarted {
+  google.protobuf.Struct input = 1;   // task input as given to the agent
+  AgentIdentity agent = 2;            // repeated here so the log is
+                                      // self-contained without Hello
+  google.protobuf.Struct config = 3;  // model, tool policy, sandbox, etc.
+  string parent_run_id = 4;           // set for spawned sub-agents
+}
+
+// Steps are coarse plan units ("analyze repo", "write migration") —
+// AG-UI STEP_* analogs. step_id is agent-chosen and stable.
+message StepStarted {
+  string step_id = 1;
+  string title = 2;
+  uint32 ordinal = 3;
+}
+
+message StepCompleted {
+  string step_id = 1;
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_SUCCEEDED = 1;
+    OUTCOME_FAILED = 2;
+    OUTCOME_SKIPPED = 3;
+  }
+  Outcome outcome = 2;
+  string detail = 3;
+}
+
+// Durable phase transitions. Transient % progress goes in Heartbeat.
+message StatusChanged {
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_INITIALIZING = 1;
+    PHASE_PLANNING = 2;
+    PHASE_EXECUTING = 3;
+    PHASE_WAITING_APPROVAL = 4;  // an ApprovalRequest is outstanding
+    PHASE_WAITING_INPUT = 5;     // a UserInputRequest is outstanding
+    PHASE_WAITING_PEER = 6;      // blocked on a sibling (peer msg / spawn result)
+    PHASE_PAUSED = 7;
+    PHASE_FINALIZING = 8;
+  }
+  Phase phase = 1;
+  string detail = 2;  // human-readable, one line
+}
+
+// Durable record that a plane-2 interaction happened and how it resolved,
+// so the event log alone can replay/explain the run. The agent emits one
+// per resolved request it initiated (and MAY emit them for coordinator-
+// initiated requests it served).
+message InteractionRecorded {
+  string request_id = 1;
+  string kind = 2;        // "approval", "user_input", "spawn_agent", ...
+  enum Resolution {
+    RESOLUTION_UNSPECIFIED = 0;
+    RESOLUTION_GRANTED = 1;    // accepted / answered / spawned / delivered
+    RESOLUTION_DENIED = 2;
+    RESOLUTION_TIMED_OUT = 3;  // fallback path taken
+    RESOLUTION_CANCELLED = 4;
+  }
+  Resolution resolution = 3;
+  google.protobuf.Struct detail = 4;  // e.g. decision, child_run_id
+}
+
+// Terminal event. Nothing may follow it for this run_id.
+message RunCompleted {
+  Result result = 1;
+}
+
+message Result {
+  enum RunStatus {
+    RUN_STATUS_UNSPECIFIED = 0;
+    RUN_STATUS_SUCCEEDED = 1;
+    RUN_STATUS_FAILED = 2;
+    RUN_STATUS_CANCELLED = 3;
+    RUN_STATUS_BUDGET_EXCEEDED = 4;
+    RUN_STATUS_TIMED_OUT = 5;
+  }
+  RunStatus status = 1;
+
+  // Human-readable outcome (Claude ResultMessage.result analog).
+  string text = 2;
+
+  // Schema-validated structured output when the task requested one
+  // (Claude --json-schema / structured_output analog). Schema is
+  // referenced, not embedded.
+  google.protobuf.Struct structured_output = 3;
+  string output_schema_id = 4;
+
+  // Populated iff status != RUN_STATUS_SUCCEEDED. Machine-actionable;
+  // mirrors Codex codexErrorInfo intent (retryability, upstream status).
+  google.rpc.Status error = 5;
+  bool retryable = 6;
+
+  Usage usage = 7;
+  google.protobuf.Duration wall_time = 8;
+  uint32 num_turns = 9;
+
+  // Convenience pointers; the authoritative artifact facts are the
+  // artifact-production events, deferred with the artifact family
+  // (AgentEvent's reserved 50).
+  repeated string artifact_ids = 10;
+}
+
+message Usage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 cache_read_input_tokens = 3;
+  uint64 cache_creation_input_tokens = 4;
+  // Micro-USD (1e-6 USD) as uint64; never float for money, and costs
+  // are non-negative by construction. Conversion happens once, at
+  // ingestion: whatever the harness reports (Claude's float
+  // total_cost_usd, token pricing math, etc.) is converted to micro-USD
+  // there with round-half-even, and only integer micros exist on the
+  // wire and in the log. Rationale: single agent turns are routinely
+  // sub-cent, and cents would round them to zero, breaking per-item
+  // budget accounting; micros keep them nonzero.
+  uint64 cost_usd_micros = 5;
+  map<string, Usage> per_model = 6;  // keyed by model id; leaves have
+                                     // empty per_model
+}
+
+// --- messages -------------------------------------------------------------
+
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_ASSISTANT = 1;
+  MESSAGE_ROLE_TOOL = 2;
+  MESSAGE_ROLE_SYSTEM = 3;
+}
+
+// Destination routing: reasoning separated from user-facing output
+// (Codex reasoning deltas / AG-UI REASONING events).
+enum MessageChannel {
+  MESSAGE_CHANNEL_UNSPECIFIED = 0;
+  MESSAGE_CHANNEL_FINAL = 1;      // user/coordinator-facing narrative
+  MESSAGE_CHANNEL_REASONING = 2;  // chain-of-thought / working notes
+  MESSAGE_CHANNEL_LOG = 3;        // operational chatter, command output
+}
+
+message MessageStarted {
+  string message_id = 1;
+  MessageRole role = 2;
+  MessageChannel channel = 3;
+}
+
+message MessageDelta {
+  string message_id = 1;
+  string text = 2;  // UTF-8 append; concatenate in seq order
+}
+
+message MessageCompleted {
+  string message_id = 1;
+  // Optional full text for cheap projection / integrity check; omit when
+  // large. Deltas are authoritative either way.
+  string full_text = 2;
+}
+
+// --- tool calls -------------------------------------------------------------
+
+message ToolCallStarted {
+  string tool_call_id = 1;
+  string tool_name = 2;
+}
+
+// Streaming argument construction (Claude input_json_delta analog).
+message ToolCallArgsDelta {
+  string tool_call_id = 1;
+  string args_json_fragment = 2;
+}
+
+message ToolCallCompleted {
+  string tool_call_id = 1;
+  google.protobuf.Struct args = 2;  // final parsed arguments
+  bool is_error = 3;
+  // Truncated/inline result; large results become artifacts.
+  string result_text = 4;
+  repeated string artifact_ids = 5;
+  google.protobuf.Duration elapsed = 6;
+}
+
+// --- artifacts ---------------------------------------------------------------
+
+// Semantic artifact types, adopted from Antigravity's taxonomy (task
+// list, implementation plan, diff, walkthrough, screenshot, browser
+// recording) and generalized. `labels` stays available for anything
+// finer-grained. Retained vocabulary: referenced by ArtifactRef and
+// ApprovalRequest while the rest of the artifact family is deferred.
+enum ArtifactKind {
+  ARTIFACT_KIND_UNSPECIFIED = 0;
+  ARTIFACT_KIND_TASK_LIST = 1;            // structured plan; steps mirror
+                                          // StepStarted/StepCompleted events,
+                                          // checked off as they land
+  ARTIFACT_KIND_IMPLEMENTATION_PLAN = 2;  // the canonical review-gate artifact
+  ARTIFACT_KIND_CODE_DIFF = 3;
+  ARTIFACT_KIND_WALKTHROUGH = 4;          // post-completion "what I did & how
+                                          // to verify"
+  ARTIFACT_KIND_SCREENSHOT = 5;
+  ARTIFACT_KIND_RECORDING = 6;            // e.g. browser verification video
+  ARTIFACT_KIND_REPORT = 7;               // test/coverage/analysis output
+  ARTIFACT_KIND_DATASET = 8;
+  ARTIFACT_KIND_DOCUMENT = 9;             // generic prose deliverable
+  ARTIFACT_KIND_OTHER = 10;
+}
+
+// --- summaries ---------------------------------------------------------------
+
+message Summary {
+  enum Scope {
+    SCOPE_UNSPECIFIED = 0;
+    SCOPE_PROGRESS = 1;    // rolling "what I'm doing / what's left"
+    SCOPE_STEP = 2;        // wrap-up of one step_id
+    SCOPE_CHECKPOINT = 3;  // resumable synthesis; supersedes prior checkpoints
+    SCOPE_FINAL = 4;       // the human-readable deliverable summary
+  }
+  Scope scope = 1;
+  string step_id = 2;  // set when scope == SCOPE_STEP
+  string text = 3;     // markdown
+
+  // Structured companion (decisions, open questions, metrics).
+  google.protobuf.Struct structured = 4;
+
+  // Event-log compression hint: faithfully covers all events with
+  // seq <= covers_through_seq, so late joiners may start from the
+  // latest SCOPE_CHECKPOINT instead of replaying everything.
+  uint64 covers_through_seq = 5;
+
+  repeated string artifact_ids = 6;
+}
+
+// --- escape hatches ----------------------------------------------------------
+
+// Verbatim upstream harness event (raw Claude API stream event, Codex
+// app-server notification...) for lossless forwarding/debugging.
+message RawEvent {
+  string source = 1;  // e.g. "claude-agent-sdk/stream_event"
+  google.protobuf.Struct event = 2;
+}
+
+// Application-defined extension; names namespaced "vendor/name".
+message CustomEvent {
+  string name = 1;
+  google.protobuf.Struct value = 2;
+}
+
+// =============================================================================
+// Unary fallback (event plane only)
+// =============================================================================
+
+message PublishEventsRequest {
+  repeated AgentEvent events = 1;  // may span gaps being backfilled
+}
+
+message PublishEventsResponse {
+  // Highest contiguous committed seq per run present in the request.
+  map<string, uint64> committed_seq_by_run = 1;
+  repeated RejectedEvent rejected = 2;  // malformed, post-terminal, etc.
+}
+
+message RejectedEvent {
+  string run_id = 1;
+  uint64 seq = 2;
+  google.rpc.Status reason = 3;
+}

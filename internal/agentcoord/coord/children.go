@@ -22,10 +22,14 @@ import (
 )
 
 const (
-	// maxAgentDepth is the recursion guard: depth 0 spawns depth 1. In the
-	// B window, grandchildren are REFUSED — a delegated child (depth ≥ 1)
-	// may not spawn; flat-hub semantics arrive in Wave D.
-	maxAgentDepth = 1
+	// maxAgentDepth is the recursion guard: depth 0 (the session owner)
+	// spawns depth 1; depth 1 spawns depth 2 (D5, manly-grant (4): the
+	// B-window grandchild refusal is lifted — flat-hub semantics, each hop
+	// addresses only its own direct parent via peerSend's ParentHarp lookup,
+	// generic at any depth). depth 2 may not spawn depth 3 — the guard still
+	// bottoms out somewhere; raising it further is a future, undecided
+	// change, not implied by this one.
+	maxAgentDepth = 2
 	// agentTurnCap is D4: children execute serially until the isolation
 	// concurrency defects land. The cap counts EXECUTING turns — a child
 	// parked in agent_recv or idle at a turn boundary yields its slot.
@@ -42,7 +46,13 @@ type childRt struct {
 	harp       string
 	agentName  string
 	parentHarp string
-	plan       *SpawnPlan
+	// parentRunID (D5) is the spawning run's run_id — empty for a depth-1
+	// child (the depth-0 session owner has no run_id of its own); set for
+	// a depth-2+ grandchild. Threaded onto the outgoing StartRun request
+	// (runChildViaStartRun) so RunStarted.parent_run_id carries durable
+	// lineage on the log (manly-grant (5)) — mirrors RunRecord.ParentRunID.
+	parentRunID string
+	plan        *SpawnPlan
 
 	slotHeld bool
 	oneshot  bool
@@ -84,11 +94,12 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if prompt == "" {
 		return nil, errors.New("agent_run: prompt is required (the child's briefing/first turn)")
 	}
-	// Depth derives from the CREDENTIAL, never from env (review R11). The
-	// B window refuses grandchildren outright: flat-hub semantics arrive
-	// in Wave D.
+	// Depth derives from the CREDENTIAL, never from env (review R11). D5
+	// lifts the B-window grandchild refusal (maxAgentDepth=2): a depth-1
+	// child may now spawn a depth-2 grandchild; the guard still bottoms out
+	// at depth 2 spawning depth 3.
 	if caller.Depth >= maxAgentDepth {
-		return nil, fmt.Errorf("agent_run: refused: this session is itself a delegated child (depth %d) — delegated children cannot spawn grandchildren yet; report the work back to your coordinator (agent_send to \"parent\") and let it fan out", caller.Depth)
+		return nil, fmt.Errorf("agent_run: refused: this session is already at the maximum delegation depth (%d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out", caller.Depth)
 	}
 
 	plan, err := c.spawner.Resolve(ctx, agentName)
@@ -175,12 +186,13 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 	}
 
 	rt := &childRt{
-		runID:      runID,
-		harp:       harp,
-		agentName:  plan.AgentName,
-		parentHarp: caller.Harp,
-		plan:       plan,
-		wake:       make(chan struct{}, 1),
+		runID:       runID,
+		harp:        harp,
+		agentName:   plan.AgentName,
+		parentHarp:  caller.Harp,
+		parentRunID: caller.RunID,
+		plan:        plan,
+		wake:        make(chan struct{}, 1),
 	}
 	// Claim a free slot now when one exists so `queued` is truthful at
 	// return. Claimed BEFORE publication — after it, slotHeld belongs to
@@ -361,10 +373,11 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	rctx, rcancel := context.WithTimeout(c.baseCtx, defaultRequestTimeout)
 	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
 		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-			RunId:   rt.runID,
-			Harness: spec,
-			Input:   input,
-			Role:    rt.agentName,
+			RunId:       rt.runID,
+			Harness:     spec,
+			Input:       input,
+			Role:        rt.agentName,
+			ParentRunId: rt.parentRunID, // D5: durable lineage on the log (manly-grant (5)) — enginehost.go echoes this into RunStarted
 		}},
 	})
 	rcancel()
@@ -787,7 +800,20 @@ func (c *Coordinator) resumeChild(harp string) {
 		}
 		return
 	}
-	caller := Identity{Harp: rec.ParentHarp, Depth: rec.Depth - 1, Project: c.projectDir}
+	// D5: the resumed run's own parent_run_id must reflect the PARENT'S
+	// CURRENT live run (not the stale run_id recorded at the ORIGINAL
+	// enqueue) — the parent may itself have been resumed since. Empty when
+	// the parent has no live run of its own (a depth-0 session owner, or
+	// the parent has also ended).
+	parentRunID := ""
+	if rec.ParentHarp != "" {
+		c.runs.View(func() {
+			if p := c.runsF.currentRun(rec.ParentHarp); p != nil && !p.Ended {
+				parentRunID = p.RunID
+			}
+		})
+	}
+	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Depth: rec.Depth - 1, Project: c.projectDir}
 	rt, token, err := c.enqueueRun(caller, plan, harp, "", true)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers

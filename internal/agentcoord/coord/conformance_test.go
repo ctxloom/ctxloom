@@ -149,16 +149,43 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	assert.Contains(t, sp.engine(1).recordedTexts()[0], "task two")
 }
 
-// TestAgentRun_GrandchildRefused pins the credential-derived depth guard: a
-// delegated child (depth ≥ 1) may not spawn grandchildren in the B window.
-func TestAgentRun_GrandchildRefused(t *testing.T) {
+// TestAgentRun_GrandchildAllowed pins D5 (manly-grant (4)): the B-window
+// refusal is lifted — a depth-1 delegated child MAY now spawn a depth-2
+// grandchild, through the exact same AgentRun/enqueueRun path a depth-0
+// session owner uses (the credential-derived depth guard, review R11, is
+// generic in the caller's depth — nothing here is grandchild-specific).
+func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
-	childCaller := Identity{Harp: "some-child", Depth: 1}
-	_, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper")
+	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
+	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.run(out.RunID); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	require.NotNil(t, rec)
+	assert.Equal(t, "some-child", rec.ParentHarp)
+	assert.Equal(t, "run-child", rec.ParentRunID, "the grandchild's durable lineage names the SPAWNING run, not just its harp")
+	assert.Equal(t, 2, rec.Depth)
+}
+
+// TestAgentRun_GreatGrandchildRefused pins the guard's new floor: maxAgentDepth
+// is 2 now (was 1), so a depth-2 grandchild still may not spawn further.
+func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+	grandchildCaller := Identity{Harp: "some-grandchild", RunID: "run-grandchild", Depth: 2}
+	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "delegated children cannot spawn grandchildren")
+	assert.Contains(t, err.Error(), "maximum delegation depth")
 	assert.Equal(t, 0, sp.spawnCount())
 }
 

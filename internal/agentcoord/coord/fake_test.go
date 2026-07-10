@@ -127,10 +127,16 @@ type fakeSpawner struct {
 	perms    []agent.PermissionMode
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
-	// live gRPC listeners) around it. chats/kills record per spawn.
+	// live gRPC listeners) around it. chats/kills/homes record per spawn.
 	nextChat func() *scriptedChat
 	chats    []*scriptedChat
 	kills    []func()
+	// homes exposes each StartRun-path spawn's real Home — D5 depth-2 tests
+	// drive Home.Request/Recv directly to simulate a delegated child acting
+	// as its OWN caller (issuing its own SpawnAgentRequest/PeerSendRequest
+	// plane-2 traffic), the same way a real runner's shim would on the
+	// child's behalf.
+	homes []*Home
 }
 
 type fakeAgent struct {
@@ -258,6 +264,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	}
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
+	s.homes = append(s.homes, home)
 	s.mu.Unlock()
 	return &EngineSpawn{
 		WorkDir: "/work",
@@ -275,6 +282,16 @@ func (s *fakeSpawner) chat(i int) *scriptedChat {
 		return nil
 	}
 	return s.chats[i]
+}
+
+// home returns the i-th StartRun-path spawn's real Home, nil if unspawned.
+func (s *fakeSpawner) home(i int) *Home {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i >= len(s.homes) {
+		return nil
+	}
+	return s.homes[i]
 }
 
 // chatCount reports how many StartRun-path engines were spawned.

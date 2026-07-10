@@ -176,3 +176,55 @@ func (f *itemsFold) countsFor(runID string) map[string]int {
 	}
 	return out
 }
+
+// itemsSnapshot is itemsFold's persisted state (D4 CHECKPOINT compaction):
+// counts/chars/maxSeq as of Offset, a journal byte position — so a later
+// startup can restore this state and replay only the TAIL of items.jsonl
+// (openStoreFromOffset, journal.go) instead of re-parsing from byte 0. Pure
+// replay shortcut: journal truncation stays deferred (Wave E's retention
+// decision), so a missing/stale/corrupt snapshot only costs a slower full
+// replay, never correctness — restore + tail-replay must equal a full
+// replay from 0 (proven by TestItemsSnapshot_ReplayEquivalence).
+type itemsSnapshot struct {
+	Offset int64                     `json:"offset"`
+	Counts map[string]map[string]int `json:"counts"`
+	Chars  map[string]int            `json:"chars"`
+	MaxSeq map[string]uint64         `json:"max_seq"`
+}
+
+// snapshot deep-copies the fold's current state, tagged with the journal
+// offset it covers through. Caller holds the journal's Exec/View window (the
+// same discipline every other fold read follows).
+func (f *itemsFold) snapshot(offset int64) itemsSnapshot {
+	counts := make(map[string]map[string]int, len(f.counts))
+	for runID, byKind := range f.counts {
+		cp := make(map[string]int, len(byKind))
+		for k, v := range byKind {
+			cp[k] = v
+		}
+		counts[runID] = cp
+	}
+	chars := make(map[string]int, len(f.chars))
+	for k, v := range f.chars {
+		chars[k] = v
+	}
+	maxSeq := make(map[string]uint64, len(f.maxSeq))
+	for k, v := range f.maxSeq {
+		maxSeq[k] = v
+	}
+	return itemsSnapshot{Offset: offset, Counts: counts, Chars: chars, MaxSeq: maxSeq}
+}
+
+// restore seeds the fold from a previously taken snapshot — valid only on a
+// fresh (empty) fold, before any replay/apply.
+func (f *itemsFold) restore(snap itemsSnapshot) {
+	if snap.Counts != nil {
+		f.counts = snap.Counts
+	}
+	if snap.Chars != nil {
+		f.chars = snap.Chars
+	}
+	if snap.MaxSeq != nil {
+		f.maxSeq = snap.MaxSeq
+	}
+}

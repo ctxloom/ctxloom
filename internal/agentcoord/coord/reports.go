@@ -31,14 +31,14 @@ const (
 
 // summaryFact is factSummary's payload.
 type summaryFact struct {
-	Harp            string `json:"harp"`
-	Seq             uint64 `json:"seq,omitempty"`
-	Scope           string `json:"scope"`
-	StepID          string `json:"step_id,omitempty"`
-	Text            string `json:"text"`
-	Structured      string `json:"structured,omitempty"` // protojson Struct
-	CoversThrough   uint64 `json:"covers_through_seq,omitempty"`
-	ArtifactIDs     []string `json:"artifact_ids,omitempty"`
+	Harp          string   `json:"harp"`
+	Seq           uint64   `json:"seq,omitempty"`
+	Scope         string   `json:"scope"`
+	StepID        string   `json:"step_id,omitempty"`
+	Text          string   `json:"text"`
+	Structured    string   `json:"structured,omitempty"` // protojson Struct
+	CoversThrough uint64   `json:"covers_through_seq,omitempty"`
+	ArtifactIDs   []string `json:"artifact_ids,omitempty"`
 }
 
 // artifactFact is factArtifact's payload.
@@ -71,10 +71,10 @@ type ArtifactRecord struct {
 // latest CHECKPOINT kept for seeding) and each artifact's latest revision
 // per (harp, artifact_id). It rides the runs journal.
 type reportsFold struct {
-	latest     map[string]summaryFact              // harp → latest summary
-	checkpoint map[string]summaryFact              // harp → latest SCOPE_CHECKPOINT
+	latest     map[string]summaryFact               // harp → latest summary
+	checkpoint map[string]summaryFact               // harp → latest SCOPE_CHECKPOINT
 	artifacts  map[string]map[string]ArtifactRecord // harp → artifact_id → latest
-	seq        map[string]uint64                   // harp → highest report seq seen
+	seq        map[string]uint64                    // harp → highest report seq seen
 }
 
 func newReportsFold() *reportsFold {
@@ -184,6 +184,9 @@ func (c *Coordinator) recordSummary(harp string, seq uint64, s *agentcoordpb.Sum
 		clidiag.Warn("ctxloom", "coordinator: journal report for %s: %v", harp, err)
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": s.GetScope().String()})
+	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
+	// checkpoint.go.
+	c.maybeCheckpointOnSummary(s)
 }
 
 // recordArtifact journals one artifact manifest, assigning the monotonic

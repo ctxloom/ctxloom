@@ -79,6 +79,20 @@ var errStoreClosed = errors.New("coord: store closed")
 // path, replays it through the folds (truncating a torn tail), and starts the
 // single writer goroutine.
 func openStore(path string, folds ...fold) (*Store, error) {
+	return openStoreFromOffset(path, 0, folds...)
+}
+
+// openStoreFromOffset is openStore's snapshot-aware variant (D4 CHECKPOINT
+// compaction): replay starts at fromOffset instead of byte 0 — the caller
+// has already restored the folds' state up to that point from a snapshot
+// (checkpoint.go), so re-parsing the journal's head would be redundant work
+// on a long-running session's large items.jsonl. fromOffset is NEVER
+// trusted blindly: out of [0, file size] (a stale snapshot pointing past a
+// shorter/rewritten file) falls back to a full replay from 0 — safe by
+// construction, since the snapshot is purely an additive replay shortcut
+// and the journal remains the sole source of truth (journal truncation
+// itself stays deferred to Wave E's retention decision).
+func openStoreFromOffset(path string, fromOffset int64, folds ...fold) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("coord: journal dir: %w", err)
 	}
@@ -93,7 +107,10 @@ func openStore(path string, folds ...fold) (*Store, error) {
 		reqs:  make(chan storeReq),
 		done:  make(chan struct{}),
 	}
-	if err := s.replay(); err != nil {
+	if fi, serr := f.Stat(); serr == nil && (fromOffset < 0 || fromOffset > fi.Size()) {
+		fromOffset = 0
+	}
+	if err := s.replay(fromOffset); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
@@ -101,18 +118,31 @@ func openStore(path string, folds ...fold) (*Store, error) {
 	return s, nil
 }
 
-// replay reads every complete, parseable line and applies it to the folds. A
-// torn tail — a final line without its newline, or a final line that does not
-// parse (a crash mid-append) — is truncated away; an unparseable line that is
-// NOT the tail is corruption and fails loudly (fail-loud philosophy: better
-// an explicit finding than a silently wrong projection).
-func (s *Store) replay() error {
+// Offset returns the journal's current write position — the value a D4
+// CHECKPOINT snapshot (checkpoint.go) records alongside the folds' state, so
+// a later openStoreFromOffset can skip straight to the tail.
+func (s *Store) Offset() (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.f.Seek(0, io.SeekCurrent)
+}
+
+// replay reads every complete, parseable line from fromOffset forward and
+// applies it to the folds. A torn tail — a final line without its newline,
+// or a final line that does not parse (a crash mid-append) — is truncated
+// away; an unparseable line that is NOT the tail is corruption and fails
+// loudly (fail-loud philosophy: better an explicit finding than a silently
+// wrong projection).
+func (s *Store) replay(fromOffset int64) error {
+	if _, err := s.f.Seek(fromOffset, io.SeekStart); err != nil {
+		return fmt.Errorf("coord: seek journal %s to %d: %w", s.path, fromOffset, err)
+	}
 	raw, err := io.ReadAll(s.f)
 	if err != nil {
 		return fmt.Errorf("coord: read journal %s: %w", s.path, err)
 	}
-	good := int64(0)
-	offset := int64(0)
+	good := fromOffset
+	offset := fromOffset
 	for len(raw) > 0 {
 		nl := bytes.IndexByte(raw, '\n')
 		if nl < 0 {

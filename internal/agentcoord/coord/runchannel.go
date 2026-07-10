@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
@@ -98,6 +99,15 @@ type runChan struct {
 	ackSeq     uint64
 	flushedSeq uint64
 	items      []Fact
+
+	// completed closes exactly once, the moment this channel's run_completed
+	// item has been FLUSHED (durably journaled) — D4's terminal-tail drain
+	// race fix (damp-pupil 1) waits on it before severing the channel.
+	// completedOnce guards the close (handleAgentEvent runs on this
+	// channel's single recv goroutine, but drainTerminalTail's safety-net
+	// timeout path must never double-close on a concurrent late arrival).
+	completed     chan struct{}
+	completedOnce sync.Once
 }
 
 // RunChannel is the run-level stream: opened by the runner for each run it
@@ -146,13 +156,14 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	ch := &runChan{
-		role:     id.Harp,
-		credHash: credHash,
-		id:       id,
-		send:     make(chan *agentcoordpb.CoordinatorFrame, 64),
-		cancel:   cancel,
-		reqCache: make(map[string]*agentcoordpb.CoordinatorResponse),
-		inflight: make(map[string]bool),
+		role:      id.Harp,
+		credHash:  credHash,
+		id:        id,
+		send:      make(chan *agentcoordpb.CoordinatorFrame, 64),
+		cancel:    cancel,
+		reqCache:  make(map[string]*agentcoordpb.CoordinatorResponse),
+		inflight:  make(map[string]bool),
+		completed: make(chan struct{}),
 	}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
@@ -278,6 +289,14 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 	default:
 		if kind := itemKind(ev); kind != "" {
 			c.bufferItem(ch, ev, kind)
+			if kind == "run_completed" {
+				// D4 (damp-pupil 1): bufferItem flushes run_completed
+				// synchronously (it is not a delta kind) — mark the channel
+				// completed the moment it is DURABLE, so terminateRun's
+				// drain wait (drainTerminalTail) can stop waiting the
+				// instant it is safe to sever, not just after the fixed cap.
+				ch.completedOnce.Do(func() { close(ch.completed) })
+			}
 		} else {
 			// Unknown/foreign payloads: ack-and-drop (forward compatibility).
 			c.flushItems(ch)
@@ -425,6 +444,52 @@ func (c *Coordinator) unreserveRuntime(role string, ids []string) {
 		return
 	}
 	c.unreserve(role, ids)
+}
+
+// terminalDrainWindow bounds drainTerminalTail's safety-net wait: the cap for
+// a runner that reported RunExited (claiming a terminal event was sent) but
+// whose run_completed item somehow never arrives. In the common case the
+// wait resolves in microseconds (ch.completed is usually already closed by
+// the time drainTerminalTail runs) or milliseconds (the race window); this
+// cap only matters on a truly pathological runner and must never hang
+// shutdown indefinitely.
+const terminalDrainWindow = 500 * time.Millisecond
+
+// drainTerminalTail closes the terminal-tail race (D4, damp-pupil 1): the
+// runner emits a normal exit's final run_completed item on the RunChannel
+// and reports RunExited on the SEPARATE RunnerChannel back-to-back (see
+// enginehost.go's adapt: emitEvent(RunCompleted) then ReportRunExited) — two
+// different streams, no ordering guarantee between them. Cancelling the
+// RunChannel's context (severChan) the instant RunExited lands can discard
+// an already-in-flight-but-not-yet-processed run_completed frame (a
+// pending/future stream.Recv on a cancelled context returns Canceled even
+// for data already on the wire). A short, bounded wait for the channel's
+// own "run_completed flushed" signal (or the window's expiry) closes the
+// gap without holding up shutdown: in the OVERWHELMINGLY common case
+// ch.completed is already closed by the time this runs (item events process
+// well before the separate RunnerChannel round-trip completes), so the wait
+// costs nothing.
+//
+// Scope: only CauseRunnerExit termination calls this — the ONLY cause whose
+// production emitter (enginehost.go's adapt) is contractually guaranteed to
+// have just attempted a run_completed. CauseStopped (agent_stop / KillRun)
+// and CauseRunnerLoss (disconnect/heartbeat silence — the runner and its
+// harness died together, R3) have no such guarantee and must not pay this
+// wait for no benefit.
+func (c *Coordinator) drainTerminalTail(role string) {
+	c.mu.Lock()
+	ch := c.chans[role]
+	c.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	if hook := c.drainHook; hook != nil {
+		hook(role)
+	}
+	select {
+	case <-ch.completed:
+	case <-time.After(terminalDrainWindow):
+	}
 }
 
 // severChan tears a role's live run channel down (credential revocation /

@@ -111,6 +111,14 @@ type Coordinator struct {
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
+	// drainHook, if set (tests only, same package), runs synchronously at
+	// the start of drainTerminalTail's wait (D4, runchannel.go) — the
+	// deterministic seam for reproducing the terminal-tail drop race
+	// (damp-pupil 1: a RunCompleted item flushed exactly during this window
+	// must survive to the items fold) without depending on real scheduler
+	// timing.
+	drainHook func(role string)
+
 	closeOnce sync.Once
 }
 
@@ -196,7 +204,16 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c.mail = mail
 	c.itemsF = newItemsFold()
-	items, err := openStore(filepath.Join(stateDir, "items.jsonl"), c.itemsF)
+	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
+	// common case is none, a fresh project) seeds the fold and replay
+	// starts at its offset instead of byte 0 — openStoreFromOffset falls
+	// back to a full replay by itself if the offset is stale (journal.go).
+	itemsOffset := int64(0)
+	if snap, ok := loadItemsSnapshot(stateDir); ok {
+		c.itemsF.restore(snap)
+		itemsOffset = snap.Offset
+	}
+	items, err := openStoreFromOffset(filepath.Join(stateDir, "items.jsonl"), itemsOffset, c.itemsF)
 	if err != nil {
 		c.closePartial()
 		return nil, err

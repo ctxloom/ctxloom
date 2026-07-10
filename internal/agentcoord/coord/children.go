@@ -701,6 +701,18 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// starts its ladder clean).
 	c.clearSessionAccepts(runID)
 
+	// D4 (damp-pupil 1): drain BEFORE anything below that can tear the
+	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
+	// the runner's WHOLE gRPC ClientConn, which multiplexes RunChannel too,
+	// so calling it first can win the very race this drain exists to close.
+	// An explicit RunExited (CauseRunnerExit) is the ONLY cause whose
+	// production emitter is contractually guaranteed to have just attempted
+	// a run_completed item on that channel — see drainTerminalTail's doc
+	// for why CauseStopped/CauseRunnerLoss must not pay this wait.
+	if cause == CauseRunnerExit {
+		c.drainTerminalTail(rec.Harp)
+	}
+
 	c.mu.Lock()
 	rt := c.attach[runID]
 	delete(c.attach, runID)

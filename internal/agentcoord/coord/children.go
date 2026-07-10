@@ -7,7 +7,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -37,12 +41,18 @@ type childRt struct {
 	parentHarp string
 	plan       *SpawnPlan
 
-	slotHeld   bool
-	oneshot    bool
-	in         chan<- agent.ChatMessage
-	close      func()
-	wake       chan struct{}
-	turnOutput []string // oneshot bridging: this turn's entries
+	slotHeld bool
+	oneshot  bool
+	// viaStartRun marks a MIGRATED child (Wave C1): its engine control
+	// rides StartRun on the runner's RunnerChannel — no go-plugin Chat
+	// dial, no driveChild loop; turn delivery is push-down (§6a by child
+	// state, decided runner-side), and its terminal is RunExited/runner
+	// loss ONLY (lifecycle unification — the chat-close path never fires).
+	viaStartRun bool
+	in          chan<- agent.ChatMessage
+	close       func()
+	wake        chan struct{}
+	turnOutput  []string // oneshot bridging: this turn's entries
 }
 
 // newRunID mints a run attempt id (UUID-shaped; retries get a fresh one).
@@ -255,6 +265,18 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.setState(rt, StateExecuting)
 
+	// MIGRATED (C1, claude only): engine control rides StartRun on the
+	// runner's RunnerChannel. A degraded spawn without reach-back (url ==
+	// "") cannot — the runner could never dial home — so it keeps the
+	// legacy dial.
+	if rt.plan.ViaStartRun && url != "" {
+		c.mu.Lock()
+		rt.viaStartRun = true
+		c.mu.Unlock()
+		c.runChildViaStartRun(rt, prompt, token, url, "", rt.plan.Context)
+		return
+	}
+
 	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context,
 		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url))
 	if err != nil {
@@ -264,6 +286,156 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	c.attachLaunch(rt, launch)
 	c.sendTurn(rt, prompt)
 	c.driveChild(rt, launch)
+}
+
+// runnerAwaitTimeout bounds the wait for a just-spawned runner process to
+// dial home before the spawn is declared failed (spawn + handshake + dial;
+// container image pulls are NOT in this window — image staging happens in
+// StartEngine's isolation prepare, before the clock starts).
+const runnerAwaitTimeout = 60 * time.Second
+
+// runChildViaStartRun is the MIGRATED spawn tail (C1): spawn the runner
+// process (go-plugin handshake = process control only), await its
+// RunnerChannel dial-home, and issue StartRun with the HarnessSpec built
+// from the resolved plan — model through the resolveChatModel gate (it ran
+// inside StartEngine's PrepareAgentChat), typed permission_mode, env + MCP +
+// session harp in config, resume_session_id from the journal on a resume.
+// prompt=="" (resume) sends no initial turn: queued mail arrives as turns.
+func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
+	engine, err := c.spawner.StartEngine(c.baseCtx, rt.plan,
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url))
+	if err != nil {
+		c.failChild(rt, err)
+		return
+	}
+	c.mu.Lock()
+	rt.close = engine.Kill
+	c.mu.Unlock()
+
+	credHash := hashToken(token)
+	actx, acancel := context.WithTimeout(c.baseCtx, runnerAwaitTimeout)
+	_, err = c.awaitRunner(actx, credHash)
+	acancel()
+	if err != nil {
+		c.failChild(rt, fmt.Errorf("child runner never dialed home (StartRun path): %w", err))
+		return
+	}
+
+	spec, err := buildHarnessSpec(HarnessSpecInput{
+		Harness:         rt.plan.Backend,
+		Model:           engine.Model,
+		Workspace:       engine.WorkDir,
+		Env:             engine.Env,
+		MCPServers:      engine.MCPServers,
+		SessionHarp:     rt.harp,
+		Permission:      rt.plan.Perm,
+		ResumeSessionID: resumeSessionID,
+	})
+	if err != nil {
+		c.failChild(rt, err)
+		return
+	}
+	// The composed context leads the first turn — the same join the legacy
+	// path's leadContextIn performed, done once here (the runner writes
+	// input.prompt verbatim as the first turn).
+	first := operations.JoinLeadBlocks(contextText, prompt)
+	var input *structpb.Struct
+	if first != "" {
+		if input, err = structpb.NewStruct(map[string]any{"prompt": first}); err != nil {
+			c.failChild(rt, err)
+			return
+		}
+	}
+	rctx, rcancel := context.WithTimeout(c.baseCtx, defaultRequestTimeout)
+	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
+		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
+			RunId:   rt.runID,
+			Harness: spec,
+			Input:   input,
+			Role:    rt.agentName,
+		}},
+	})
+	rcancel()
+	if err != nil {
+		c.failChild(rt, fmt.Errorf("StartRun never completed: %w", err))
+		return
+	}
+	if code := resp.GetStatus().GetCode(); code != 0 {
+		c.failChild(rt, fmt.Errorf("StartRun refused: %s", resp.GetStatus().GetMessage()))
+		return
+	}
+	// The journal proof (acceptance: no go-plugin Chat dial for a migrated
+	// child): the interaction journal records start_run for this run — and
+	// the legacy path's chat-close cause can never appear for it.
+	c.audit("start_run", rt.harp, map[string]string{
+		"run_id": rt.runID, "harness": rt.plan.Backend, "model": engine.Model,
+		"resume_session_id": resumeSessionID,
+	})
+	if sid := resp.GetStartRun().GetHarnessSessionId(); sid != "" {
+		c.recordHarnessSession(rt.runID, sid)
+	}
+	// Mail queued while the engine was coming up drains now, as turns.
+	if c.pendingCount(rt.harp) > 0 {
+		c.pushMail(rt.harp)
+	}
+}
+
+// recordHarnessSession journals the run's harness-native session id (the
+// resume handle) — idempotent on the same id. Sources: StartRunResult, the
+// engine host's ctxloom/harness_session event, and RunExited.
+func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.HarnessSessionID == sessionID {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunHarness, c.now(), runHarness{RunID: runID, HarnessSessionID: sessionID})}, nil
+	}); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: record harness session id: %v", err)
+	}
+}
+
+// onTurnStarted folds a migrated child's engine-reported turn start into the
+// §6a roster state and the D4 slot accounting. The acquire is BEST-EFFORT
+// (tryAcquire): this runs on the RunChannel's receive path, which must not
+// block behind another child's turn — the strict queue discipline lives at
+// spawn time (runChild's blocking acquire); a mid-life race can transiently
+// exceed the cap by one, which the C1 window accepts and documents.
+func (c *Coordinator) onTurnStarted(role string) {
+	c.mu.Lock()
+	rt := c.byHarp[role]
+	need := rt != nil && !rt.slotHeld
+	c.mu.Unlock()
+	if rt == nil {
+		return
+	}
+	if need && c.slots.tryAcquire() {
+		c.mu.Lock()
+		rt.slotHeld = true
+		c.mu.Unlock()
+	}
+	c.setState(rt, StateExecuting)
+}
+
+// onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
+// that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
+// next boundary" — the runner-side driver also queues internally; this push
+// covers mail that arrived while no channel push was possible).
+func (c *Coordinator) onTurnIdle(role string) {
+	c.mu.Lock()
+	rt := c.byHarp[role]
+	c.mu.Unlock()
+	if rt == nil {
+		return
+	}
+	c.setState(rt, StateIdle)
+	c.releaseSlot(rt)
+	if c.pendingCount(role) > 0 {
+		c.pushMail(role)
+	}
 }
 
 // driveChild consumes the child's event stream, handling turn boundaries and
@@ -564,6 +736,25 @@ func (c *Coordinator) resumeChild(harp string) {
 		c.failChild(rt, uerr)
 		return
 	}
+
+	// MIGRATED resume (C1): respawn via StartRun with the JOURNALED
+	// harness-native session id — the engine continues its own recorded
+	// session (ACP session/load); no transcript re-priming needed. A prior
+	// run that never reported a session id falls back to the rendered-
+	// history context prime, still over StartRun. Queued mail is pushed as
+	// turns once the engine attaches (runChildViaStartRun's drain).
+	if plan.ViaStartRun && url != "" {
+		c.mu.Lock()
+		rt.viaStartRun = true
+		c.mu.Unlock()
+		contextText := ""
+		if rec.HarnessSessionID == "" {
+			contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
+		}
+		c.runChildViaStartRun(rt, "", token, url, rec.HarnessSessionID, contextText)
+		return
+	}
+
 	contextText := c.spawner.ResumeContext(c.baseCtx, plan, harp)
 	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText,
 		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url))
@@ -595,8 +786,14 @@ func (c *Coordinator) driveQueued(harp string) string {
 	case StateIdle:
 		c.mu.Lock()
 		rt := c.byHarp[harp]
+		migrated := rt != nil && rt.viaStartRun
 		c.mu.Unlock()
-		if rt != nil {
+		switch {
+		case migrated:
+			// Push-down delivers to the runner; ITS driver starts the new
+			// turn (§6a decided runner-side for migrated children).
+			c.pushMail(harp)
+		case rt != nil:
 			select {
 			case rt.wake <- struct{}{}:
 			default:

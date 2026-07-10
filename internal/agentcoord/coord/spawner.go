@@ -27,6 +27,13 @@ type SpawnPlan struct {
 	Context   string
 	Perm      agent.PermissionMode
 	Degraded  []string
+	// ViaStartRun routes this child's engine control over the agentcoord
+	// StartRun path (spawn the runner process, await its dial-home, issue
+	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
+	// dial. Wave C1 scope gate: CLAUDE ONLY — codex/kiro also implement
+	// StructuredChat but stay on the legacy path until C3 verifies them
+	// per-backend.
+	ViaStartRun bool
 
 	resolved *operations.ResolvedAgent
 }
@@ -48,6 +55,13 @@ type Spawner interface {
 	// coordinator reach-back trio — the runner is the one credential
 	// holder; the harness env never carries it).
 	Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
+	// StartEngine spawns the child's engine RUNNER process (isolation-
+	// prepared, coordinator trio stamped via runnerEnv, env threaded into
+	// the isolation session state) WITHOUT opening the go-plugin Chat
+	// stream — the StartRun path's spawn half. Engine control then arrives
+	// over the runner's own RunnerChannel (StartRun), built from the
+	// returned EngineSpawn.
+	StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error)
 	// ResumeContext composes the context for a RESUMED harp: the plan
 	// context plus the rendered recorded history when one is loadable.
 	ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string
@@ -110,7 +124,13 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Context:   rs.Context,
 		Perm:      perm,
 		Degraded:  degraded,
-		resolved:  rs,
+		// C1 scope gate: delegated CLAUDE children ride StartRun; every
+		// other backend keeps the legacy go-plugin Chat dial until C3
+		// verifies it per-backend (claude first — the most-exercised
+		// driver; blanket-routing codex/kiro would sweep them in
+		// unverified).
+		ViaStartRun: rs.Backend == config.BackendClaudeCode,
+		resolved:    rs,
 	}, nil
 }
 
@@ -142,6 +162,56 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		return nil, err
 	}
 	return prep.Start(ctx)
+}
+
+// EngineSpawn is a StartEngine result: the spawned-but-not-chatting runner
+// process plus everything the coordinator needs to assemble the StartRun
+// HarnessSpec for it.
+type EngineSpawn struct {
+	// WorkDir is the isolation-resolved workspace (HarnessSpec.workspace).
+	WorkDir string
+	// Env is the harness env the legacy Chat path would have carried
+	// (workspace env merged under the child's ambient identity) —
+	// HarnessSpec.config["env"].
+	Env map[string]string
+	// Model is the RESOLVED model (post resolveChatModel — never an alias;
+	// the C1 model-gate guarantee).
+	Model string
+	// MCPServers is the composed managed set for the child session —
+	// HarnessSpec.config["mcp_servers"].
+	MCPServers []agent.ChatMCPServer
+	// Kill tears the engine process and its workspace down (idempotent).
+	Kill func()
+}
+
+func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+	mcpServers := s.childMCPServers(plan)
+	spawnGateMu.Lock()
+	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
+		Resolved:    plan.resolved,
+		WorkDir:     s.projectDir,
+		Env:         env,
+		RunnerEnv:   runnerEnv,
+		Permissions: plan.Perm,
+		Gate:        s.gate.Gate(),
+		Verbosity:   childVerbosity(),
+		Factory:     s.factory,
+	})
+	spawnGateMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	eng, err := prep.StartEngine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &EngineSpawn{
+		WorkDir:    eng.WorkDir,
+		Env:        eng.Env,
+		Model:      eng.Model,
+		MCPServers: mcpServers,
+		Kill:       eng.Kill,
+	}, nil
 }
 
 func (s *prodSpawner) ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string {

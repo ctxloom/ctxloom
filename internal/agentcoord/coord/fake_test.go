@@ -112,21 +112,28 @@ func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runner
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
 // It mints deterministic harps and scripts one fakeEngine per launch.
 type fakeSpawner struct {
-	mu        sync.Mutex
-	next      func() *fakeEngine
-	engines   []*fakeEngine
-	harpSeq   int
-	agents    map[string]fakeAgent // agent name → resolved plan bits
-	resolved  []string
-	assigned  []string
-	perms     []agent.PermissionMode
+	mu       sync.Mutex
+	next     func() *fakeEngine
+	engines  []*fakeEngine
+	harpSeq  int
+	agents   map[string]fakeAgent // agent name → resolved plan bits
+	resolved []string
+	assigned []string
+	perms    []agent.PermissionMode
+	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
+	// spawns a REAL runner half (Home + EngineHost over the coordinator's
+	// live gRPC listeners) around it. chats/kills record per spawn.
+	nextChat func() *scriptedChat
+	chats    []*scriptedChat
+	kills    []func()
 }
 
 type fakeAgent struct {
-	perm     string // headless permission enum; "" refuses (D3)
-	runtime  string
-	profiles []string
-	unknown  bool
+	perm        string // headless permission enum; "" refuses (D3)
+	runtime     string
+	profiles    []string
+	unknown     bool
+	viaStartRun bool // route this agent over the migrated StartRun path
 }
 
 func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
@@ -158,14 +165,15 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 	}
 	s.resolved = append(s.resolved, agentName)
 	return &SpawnPlan{
-		AgentName: agentName,
-		Backend:   "mock",
-		Label:     "fast",
-		Profiles:  a.profiles,
-		Runtime:   a.runtime,
-		Context:   "FRAG-ONE",
-		Perm:      perm,
-		Degraded:  degraded,
+		AgentName:   agentName,
+		Backend:     "mock",
+		Label:       "fast",
+		Profiles:    a.profiles,
+		Runtime:     a.runtime,
+		Context:     "FRAG-ONE",
+		Perm:        perm,
+		Degraded:    degraded,
+		ViaStartRun: a.viaStartRun,
 	}, nil
 }
 
@@ -185,6 +193,80 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 	s.perms = append(s.perms, plan.Perm)
 	s.mu.Unlock()
 	return e.launch(ctx, contextText, env, runnerEnv), nil
+}
+
+// StartEngine spawns the MIGRATED path's runner half for real: an in-process
+// Home dialing the coordinator's live listeners with the spawn-injected trio,
+// an EngineHost wired as its RunnerRequest handler, and a scripted
+// StructuredChat as the engine. Kill models SIGKILL (docker-stop): the
+// shared context dies — no RunExited, no clean teardown; the coordinator's
+// loss synthesis is what must notice.
+func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+	s.mu.Lock()
+	mk := s.nextChat
+	if mk == nil {
+		mk = func() *scriptedChat { return &scriptedChat{} }
+	}
+	sc := mk()
+	s.chats = append(s.chats, sc)
+	s.perms = append(s.perms, plan.Perm)
+	s.mu.Unlock()
+
+	sctx, cancel := context.WithCancel(ctx)
+	host := NewEngineHost(sctx, sc, plan.Backend, runnerEnv[EnvRunID])
+	home, err := NewHome(sctx, HomeConfig{
+		URL:     runnerEnv[EnvCoordURL],
+		Token:   runnerEnv[EnvCoordCred],
+		RunID:   runnerEnv[EnvRunID],
+		Harness: plan.Backend,
+		Version: "test",
+		Engine:  host.Handle,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	host.BindHome(home)
+	kill := func() {
+		cancel()
+		home.crash()
+	}
+	s.mu.Lock()
+	s.kills = append(s.kills, kill)
+	s.mu.Unlock()
+	return &EngineSpawn{
+		WorkDir: "/work",
+		Env:     env,
+		Model:   "test-model",
+		Kill:    kill,
+	}, nil
+}
+
+// chat returns the i-th scripted (StartRun-path) engine, nil if unspawned.
+func (s *fakeSpawner) chat(i int) *scriptedChat {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i >= len(s.chats) {
+		return nil
+	}
+	return s.chats[i]
+}
+
+// chatCount reports how many StartRun-path engines were spawned.
+func (s *fakeSpawner) chatCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.chats)
+}
+
+// killEngine simulates an EXTERNAL death of the i-th StartRun-path engine
+// (docker stop / kill -9): context torn down, connection severed, nothing
+// clean sent.
+func (s *fakeSpawner) killEngine(i int) {
+	s.mu.Lock()
+	kill := s.kills[i]
+	s.mu.Unlock()
+	kill()
 }
 
 // lastPerm returns the permission the most recent launch carried.

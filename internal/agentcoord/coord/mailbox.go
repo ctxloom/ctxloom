@@ -76,13 +76,20 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, comp
 		return msg.ID, true, nil
 	}
 	// Push-down: a recipient whose runner-side recv is parked gets the mail
-	// pushed as a notice (tentative delivery; at-least-once).
+	// pushed as a notice (tentative delivery; at-least-once) — and a
+	// MIGRATED child's live channel is always pushable: its runner
+	// delivers by state (§6a — parked recv, new turn, or queue to the
+	// boundary). Only a completed recv reports completed=true; a turn
+	// delivery's disposition is the caller's (driveQueued by state).
 	c.mu.Lock()
-	parked := c.chans[to] != nil && c.chans[to].parked
+	ch := c.chans[to]
+	rt := c.byHarp[to]
+	parked := ch != nil && ch.parked
+	pushable := parked || (ch != nil && rt != nil && rt.viaStartRun)
 	c.mu.Unlock()
-	if parked {
+	if pushable {
 		c.pushMail(to)
-		return msg.ID, true, nil
+		return msg.ID, parked, nil
 	}
 	return msg.ID, false, nil
 }

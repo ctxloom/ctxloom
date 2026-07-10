@@ -157,6 +157,16 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	c.chans[id.Harp] = ch
 	c.mu.Unlock()
 	c.audit("run_channel", id.Harp, map[string]string{"run_id": id.RunID})
+	// A migrated child's queued mail drains the moment its channel attaches
+	// (fresh spawn: the pre-engine window; reconnect: unconsumed
+	// redelivery — at-least-once, deduped runner-side on message_id).
+	c.mu.Lock()
+	rtAttach := c.byHarp[id.Harp]
+	migratedAttach := rtAttach != nil && rtAttach.viaStartRun
+	c.mu.Unlock()
+	if migratedAttach && c.pendingCount(id.Harp) > 0 {
+		c.pushMail(id.Harp)
+	}
 
 	defer func() {
 		c.mu.Lock()
@@ -300,6 +310,16 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		ch.parked = false
 		c.mu.Unlock()
 		c.onRoleUnpark(ch.role)
+	case CustomHarnessSession:
+		if s := ev.GetValue(); s != nil {
+			if v, ok := s.GetFields()["session_id"]; ok {
+				c.recordHarnessSession(ch.id.RunID, v.GetStringValue())
+			}
+		}
+	case CustomTurnStarted:
+		c.onTurnStarted(ch.role)
+	case CustomTurnIdle:
+		c.onTurnIdle(ch.role)
 	}
 }
 
@@ -315,7 +335,15 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 func (c *Coordinator) pushMail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]
-	if ch == nil || !ch.parked {
+	rt := c.byHarp[role]
+	migrated := rt != nil && rt.viaStartRun
+	// Push targets: a parked runner-side recv (any child), or — MIGRATED
+	// children only — a live channel whose runner delivers by state (§6a:
+	// the engine host queues to the turn boundary or starts a new turn).
+	// A LEGACY child's unparked channel is never pushed: its turn-boundary
+	// drain (takeNextMail) owns that delivery, and a push would strand the
+	// message in the runner's recv buffer.
+	if ch == nil || (!ch.parked && !migrated) {
 		c.mu.Unlock()
 		return
 	}

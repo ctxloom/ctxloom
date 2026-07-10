@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"sync"
@@ -181,6 +182,62 @@ func (p *PreparedAgentChat) Abort() {
 		p.cleanup()
 		p.cleanup = nil
 	}
+}
+
+// AgentEngineProcess is a spawned-but-not-chatting engine runner: the child's
+// `llm serve` process (or container) is up, isolation-prepared, and — with the
+// coordinator trio on its env — dialing home, but the go-plugin Chat stream
+// was never opened. The StartRun path's spawn half: engine control arrives
+// over the runner's own RunnerChannel; go-plugin here is only the process
+// spawn/kill transport.
+type AgentEngineProcess struct {
+	// WorkDir is the isolation-resolved workspace directory (what Chat's
+	// ChatRequest.WorkDir would have carried).
+	WorkDir string
+	// Env is the harness env the legacy Chat path would have sent: the
+	// workspace env merged under the request's extra env (ambient identity).
+	Env map[string]string
+	// Model is the RESOLVED model (post resolveChatModel — never an alias).
+	Model string
+	// Kill tears the engine process and its workspace down (idempotent).
+	Kill func()
+}
+
+// StartEngine spawns the engine runner process WITHOUT opening the go-plugin
+// Chat stream — the StartRun cutover's spawn half (Wave C1). The factory call
+// completes the go-plugin handshake eagerly, so a returned handle means the
+// runner process is up (and, with the coordinator trio stamped on it, dialing
+// home). Refused on the oneshot fallback: there is no persistent engine
+// process to host a StartRun.
+func (p *PreparedAgentChat) StartEngine(context.Context) (*AgentEngineProcess, error) {
+	if p.oneshot {
+		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
+	}
+	rs := p.req.Resolved
+	client, err := p.factory(rs.Backend, rs.Label, p.req.Verbosity)
+	if err != nil {
+		p.Abort()
+		return nil, err
+	}
+	env := p.workspaceEnv
+	if len(p.req.Env) > 0 {
+		merged := make(map[string]string, len(env)+len(p.req.Env))
+		maps.Copy(merged, env)
+		maps.Copy(merged, p.req.Env)
+		env = merged
+	}
+	var once sync.Once
+	return &AgentEngineProcess{
+		WorkDir: p.workDir,
+		Env:     env,
+		Model:   rs.Model,
+		Kill: func() {
+			once.Do(func() {
+				client.Kill()
+				p.Abort()
+			})
+		},
+	}, nil
 }
 
 // Start spawns the child and opens its turn stream. ctx bounds the child's

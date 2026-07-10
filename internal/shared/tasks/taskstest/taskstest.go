@@ -43,13 +43,27 @@ func ProjectDir(t *testing.T) string {
 	t.Helper()
 	Isolate(t)
 	dir := t.TempDir()
+	ChangeDir(t, dir)
+	return dir
+}
+
+// ChangeDir switches the working directory to dir for the duration of the
+// test, restoring the original on cleanup. It is ProjectDir's os.Chdir
+// wrapper, exposed directly for callers that need to chdir into a directory
+// they built themselves rather than the fresh temp dir ProjectDir would mint.
+// It does not isolate the environment — call Isolate (or ProjectDir, for a
+// fresh dir) alongside it when a test needs that too. This is the CANONICAL
+// body: internal/testsupport.ChangeDir delegates here, because the shared
+// tree must stay self-contained (it cannot import testsupport) while
+// testsupport may import shared — one body, no duplicate (reprise).
+func ChangeDir(t *testing.T, dir string) {
+	t.Helper()
 	orig, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("testsupport: getwd: %v", err)
+		t.Fatalf("taskstest: getwd: %v", err)
 	}
 	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("testsupport: chdir: %v", err)
+		t.Fatalf("taskstest: chdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
-	return dir
 }

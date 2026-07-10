@@ -13,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // EnvKeys is the canonical set of host/session environment variables ctxloom
@@ -58,15 +60,26 @@ func ProjectDir(t *testing.T) string {
 	t.Helper()
 	Isolate(t)
 	dir := t.TempDir()
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("testsupport: getwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("testsupport: chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(orig) })
+	ChangeDir(t, dir)
 	return dir
+}
+
+// ChangeDir switches the working directory to dir for the duration of the
+// test, restoring the original on cleanup. It is ProjectDir's os.Chdir
+// wrapper, exposed directly for callers that need to chdir into a directory
+// they built themselves (e.g. a git-worktree fixture) rather than the fresh
+// temp dir ProjectDir would mint. It does not isolate the environment — call
+// Isolate (or ProjectDir, for a fresh dir) alongside it when a test needs
+// that too. golangci-lint's forbidigo rule forbids os.Chdir directly in test
+// files precisely so callers route through here instead.
+//
+// The body lives in taskstest: the internal/shared tree is self-contained
+// (never imports non-shared internal packages, so it can split back out to
+// the companion module), which forces the canonical helper shared-side;
+// this side delegates rather than duplicating it (reprise).
+func ChangeDir(t *testing.T, dir string) {
+	t.Helper()
+	taskstest.ChangeDir(t, dir)
 }
 
 // ScrubbedEnv returns an environment slice for a subprocess spawned by a test:

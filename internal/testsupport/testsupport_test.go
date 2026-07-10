@@ -46,6 +46,22 @@ func TestProjectDir_ChangesAndRestoresCwd(t *testing.T) {
 	}
 }
 
+func TestChangeDir_ChangesAndRestoresCwd(t *testing.T) {
+	before := evalCwd(t)
+	target := t.TempDir() // a directory ChangeDir did not mint itself
+
+	t.Run("inner", func(t *testing.T) {
+		ChangeDir(t, target)
+		if got := evalCwd(t); got != evalPath(t, target) {
+			t.Errorf("cwd = %q, want target dir %q", got, target)
+		}
+	})
+
+	if after := evalCwd(t); after != before {
+		t.Errorf("cwd not restored: before=%q after=%q", before, after)
+	}
+}
+
 // TestEnvKeysCoversProductionReads fails if production code reads a CTXLOOM_*
 // environment variable that EnvKeys does not list — which would mean Isolate
 // silently fails to clear it and tests could inherit it from the host session.

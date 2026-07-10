@@ -83,6 +83,38 @@ type Agent struct {
 	// permissions and finally the built-in default. The `run --permissions` flag
 	// overrides it.
 	Permissions string `yaml:"permissions,omitempty"`
+	// Escalation is the agent's approval-request policy (Wave C2): an
+	// ORDERED ladder of rungs, each naming which ApprovalRequest kinds it
+	// answers and how. Empty derives the ladder from Permissions — the
+	// degenerate two-rung preset (bypass accepts everything; plan declines
+	// mutating kinds and relays the rest to the parent). An explicit
+	// Escalation overrides the preset entirely (no merge).
+	Escalation []EscalationRung `yaml:"escalation,omitempty"`
+}
+
+// EscalationRung is one ordered entry of an agent's escalation ladder: which
+// ApprovalRequest kinds it matches, the disposition, and — for a relaying
+// disposition — how long to wait before falling through to the next
+// matching rung. The ladder bottoms at DECLINE when no rung resolves a
+// request (coord.buildLadder is the validating parser; this type is the
+// raw, hand-editable config shape).
+type EscalationRung struct {
+	// Kinds are ApprovalRequest.ApprovalKind names, short form, e.g.
+	// "COMMAND_EXECUTION" | "FILE_CHANGE" | "TOOL_USE" |
+	// "PERMISSION_ESCALATION" | "ARTIFACT_REVIEW" | "CUSTOM". Empty matches
+	// every kind (a catch-all rung).
+	Kinds []string `yaml:"kinds,omitempty"`
+	// Action is the rung's disposition: auto_accept | auto_decline |
+	// relay_to_role | surface_to_human.
+	Action string `yaml:"action"`
+	// Role is the relay_to_role/surface_to_human target. Only "parent" is
+	// addressable in this window (flat-hub topology); empty defaults to
+	// "parent" for both actions.
+	Role string `yaml:"role,omitempty"`
+	// Timeout bounds a relay_to_role/surface_to_human rung's wait, Go
+	// duration syntax (e.g. "5m"). Empty uses the resolver's default.
+	// Ignored by auto_accept/auto_decline (they resolve immediately).
+	Timeout string `yaml:"timeout,omitempty"`
 }
 
 // ParseAgent unmarshals agent YAML into an Agent. Name and Source are

@@ -207,7 +207,7 @@ type permissionResult struct {
 // its raw input, and the offered options verbatim (the upstream decider needs
 // the real option ids to answer with).
 func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent.PermissionRequest {
-	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput)}
+	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput), Kind: titleString(req.ToolCall.Kind)}
 	if req.ToolCall.Title != nil {
 		p.ToolName = *req.ToolCall.Title
 	}

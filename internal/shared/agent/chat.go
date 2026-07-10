@@ -104,6 +104,14 @@ type PermissionRequest struct {
 	ToolName  string
 	ToolInput json.RawMessage
 	Options   []PermissionOption
+	// Kind is the connector-classified tool category, when the backend's
+	// native protocol supplies one (ACP's ToolCallKind: "execute" | "edit" |
+	// "delete" | "move" | "read" | "search" | "fetch" | "think" | "other").
+	// Empty means unclassified. Purely advisory metadata carried through to
+	// whatever buckets the request under a policy (e.g. the agentcoord
+	// escalation ladder's ApprovalKind, Wave C2) — backends that cannot
+	// classify simply leave it empty.
+	Kind string
 }
 
 // PermissionOption is one decision the engine offers for a permission request.

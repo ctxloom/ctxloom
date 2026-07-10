@@ -261,6 +261,11 @@ type ResolvedAgent struct {
 	// agent's real host-bypass posture visible. A headless run may floor this up to
 	// bypass; --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
+	// Escalation is the agent's DECLARED approval-request ladder (Wave C2;
+	// may be empty — the coordinator derives a preset ladder from
+	// Permissions when so). Raw, unvalidated config; the coordinator's
+	// spawn-time ladder builder validates and converts it.
+	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -356,6 +361,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		EffectivePermissions: agent.ResolveDefault(
 			[]string{sub.Permissions, cfg.LM.Configs[label].Permissions},
 			backend == config.BackendClaudeCode).String(),
+		Escalation: sub.Escalation,
 	}, nil
 }
 

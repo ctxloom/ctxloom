@@ -79,19 +79,44 @@ fi
 # The parent is itself a delegated coordinator: a headless `ctxloom run` whose
 # first (and only) instruction is to spawn the child and wait for the echo. The
 # transcript is scanned for the marker after the run completes.
+#
+# Artifacts ($work/stdout.log, $work/stderr.log) are DELETED only on PASS; a
+# FAIL keeps the directory and prints its path — a cleaned-up failure once
+# destroyed the only stderr trail of a dead child.
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+smoke_status=1
+cleanup() {
+	if [ "$smoke_status" -eq 0 ]; then
+		rm -rf "$work"
+	else
+		echo "artifacts preserved in $work (stdout.log, stderr.log)" >&2
+	fi
+}
+trap cleanup EXIT
 prompt="$(build_prompt "$MARKER")"
 coordinator_brief="Call agent_run(agent:\"$AGENT\", prompt:\"$prompt\"). Then call agent_recv (wait:120) and print any message body you receive. Then stop."
 
-echo "launching: $CTXLOOM run --agent $AGENT --runtime $RUNTIME --print ..." >&2
-out="$("$CTXLOOM" run --print --runtime "$RUNTIME" "$coordinator_brief" 2>"$work/err" || true)"
+# CTXLOOM_VERBOSE=1 turns on the CHILD-side launch diagnostics: the
+# coordinator's spawner forwards the child `llm serve` plugin's stderr (which
+# carries the ACP adapter's stderr) through its own process stderr. For the
+# --print topology that process is the parent engine's stdio `ctxloom mcp`,
+# so the trail lands in the engine's MCP server logs (claude:
+# ~/.cache/claude-cli-nodejs/<project>/mcp-logs-ctxloom/).
+export CTXLOOM_VERBOSE=1
+
+# The child's runtime rides the AGENT definition (`ctxloom run` has no
+# runtime flag); --runtime here only names which axis this invocation is
+# accepting — the caller picks an agent whose runtime matches.
+echo "launching: $CTXLOOM run --print <coordinator brief spawning agent=$AGENT> (child runtime axis: $RUNTIME)" >&2
+out="$("$CTXLOOM" run --print "$coordinator_brief" 2>"$work/stderr.log" || true)"
+printf '%s\n' "$out" >"$work/stdout.log"
 
 if printf '%s' "$out" | grep -qF "$MARKER"; then
 	echo "PASS: the child echoed the marker back through the coordinator ($RUNTIME runtime)"
+	smoke_status=0
 	exit 0
 fi
 echo "FAIL: the marker never round-tripped ($RUNTIME runtime)" >&2
-echo "--- stdout ---" >&2; printf '%s\n' "$out" >&2
-echo "--- stderr ---" >&2; cat "$work/err" >&2
+echo "--- stdout ($work/stdout.log) ---" >&2; printf '%s\n' "$out" >&2
+echo "--- stderr ($work/stderr.log) ---" >&2; cat "$work/stderr.log" >&2
 exit 1

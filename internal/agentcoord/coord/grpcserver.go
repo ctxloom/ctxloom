@@ -2,7 +2,9 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -30,12 +32,44 @@ const (
 )
 
 // runnerSession tracks one connected RunnerChannel (keyed by credential
-// hash). lastBeat is guarded by Coordinator.mu.
+// hash). lastBeat is guarded by Coordinator.mu. send/pending carry
+// coordinator-initiated RunnerRequests (StartRun foremost) — the mirror of
+// runChan's request plumbing on RunChannel, one direction reversed.
 type runnerSession struct {
 	credHash string
 	runID    string
 	lastBeat time.Time
 	cancel   context.CancelFunc
+
+	send chan *agentcoordpb.RuntimeFrame
+
+	reqMu   sync.Mutex
+	pending map[string]chan *agentcoordpb.RunnerResponse
+}
+
+// newRunnerSession builds a runnerSession ready to register.
+func newRunnerSession(credHash, runID string, lastBeat time.Time, cancel context.CancelFunc) *runnerSession {
+	return &runnerSession{
+		credHash: credHash,
+		runID:    runID,
+		lastBeat: lastBeat,
+		cancel:   cancel,
+		send:     make(chan *agentcoordpb.RuntimeFrame, 8),
+		pending:  make(map[string]chan *agentcoordpb.RunnerResponse),
+	}
+}
+
+// failPending resolves every in-flight request with an UNAVAILABLE response
+// (the session died before an answer arrived) so no requestRunner caller
+// hangs past the session's end.
+func (rs *runnerSession) failPending() {
+	rs.reqMu.Lock()
+	pending := rs.pending
+	rs.pending = make(map[string]chan *agentcoordpb.RunnerResponse)
+	rs.reqMu.Unlock()
+	for id, ch := range pending {
+		ch <- &agentcoordpb.RunnerResponse{RequestId: id, Status: statusErr(codes.Unavailable, "runner session ended before answering")}
+	}
 }
 
 // mdToken extracts the bearer token from gRPC metadata.
@@ -134,12 +168,16 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	}
 
 	streamCtx, cancel := context.WithCancel(stream.Context())
-	rs := &runnerSession{credHash: credHash, runID: id.RunID, lastBeat: c.now(), cancel: cancel}
+	rs := newRunnerSession(credHash, id.RunID, c.now(), cancel)
 	c.mu.Lock()
 	if prev := c.runners[credHash]; prev != nil {
 		prev.cancel() // one RunnerChannel per credential; newest wins (reconnect)
 	}
 	c.runners[credHash] = rs
+	if ready, ok := c.runnerReady[credHash]; ok {
+		close(ready)
+		delete(c.runnerReady, credHash)
+	}
 	c.mu.Unlock()
 	c.audit("runner_hello", id.Harp, map[string]string{"run_id": id.RunID})
 
@@ -151,11 +189,29 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 		}
 		c.mu.Unlock()
 		cancel()
+		rs.failPending()
 		if registered {
 			// Disconnect IS runner loss (∪ RunExited): synthesize for the
 			// credential's remaining active runs. terminateRun dedupes
 			// against the chat-close path exactly-once.
 			c.runnerLost(credHash, "RunnerChannel disconnected")
+		}
+	}()
+
+	// Single writer pump: coordinator-initiated RunnerRequests (StartRun
+	// foremost) funnel through rs.send — the same discipline runChan uses
+	// on RunChannel, reversed.
+	go func() {
+		for {
+			select {
+			case frame := <-rs.send:
+				if err := stream.Send(frame); err != nil {
+					cancel()
+					return
+				}
+			case <-streamCtx.Done():
+				return
+			}
 		}
 	}()
 
@@ -174,14 +230,20 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 				c.mu.Unlock()
 			case *agentcoordpb.RunnerFrame_RunExited:
 				c.handleRunExited(credHash, kind.RunExited)
+			case *agentcoordpb.RunnerFrame_Response:
+				rs.reqMu.Lock()
+				ch := rs.pending[kind.Response.GetRequestId()]
+				delete(rs.pending, kind.Response.GetRequestId())
+				rs.reqMu.Unlock()
+				if ch != nil {
+					ch <- kind.Response
+				}
 			case *agentcoordpb.RunnerFrame_Hello:
 				// A duplicate hello on a live stream is a protocol slip;
 				// tolerated as a heartbeat.
 				c.mu.Lock()
 				rs.lastBeat = c.now()
 				c.mu.Unlock()
-			case *agentcoordpb.RunnerFrame_Response:
-				// No coordinator-initiated requests exist in B1.
 			}
 		}
 	}()
@@ -263,6 +325,91 @@ func (c *Coordinator) checkRunnerLiveness(now time.Time) {
 	c.mu.Unlock()
 	for _, rs := range lost {
 		rs.cancel()
+		rs.failPending()
 		c.runnerLost(rs.credHash, "missed heartbeats past the loss bound")
+	}
+}
+
+// awaitRunner blocks until credHash's runner registers on RunnerChannel (or
+// ctx ends), returning its live session immediately if already connected.
+// The StartRun-issuing spawn path uses this: the coordinator spawns the
+// runner PROCESS (isolation-prepared, go-plugin-handshaked) and then must
+// wait for that same process to dial home before it can StartRun on it.
+func (c *Coordinator) awaitRunner(ctx context.Context, credHash string) (*runnerSession, error) {
+	c.mu.Lock()
+	if rs := c.runners[credHash]; rs != nil {
+		c.mu.Unlock()
+		return rs, nil
+	}
+	ready, ok := c.runnerReady[credHash]
+	if !ok {
+		ready = make(chan struct{})
+		c.runnerReady[credHash] = ready
+	}
+	c.mu.Unlock()
+	select {
+	case <-ready:
+		c.mu.Lock()
+		rs := c.runners[credHash]
+		c.mu.Unlock()
+		if rs == nil {
+			return nil, errors.New("coord: runner registration signaled but its session already ended")
+		}
+		return rs, nil
+	case <-ctx.Done():
+		c.mu.Lock()
+		// Only clean up the waiter WE created and nobody claimed yet — a
+		// concurrent awaitRunner for the same credHash (shouldn't happen in
+		// practice; one spawn mints one credential) must not lose its wakeup.
+		select {
+		case <-ready:
+		default:
+			delete(c.runnerReady, credHash)
+		}
+		c.mu.Unlock()
+		return nil, ctx.Err()
+	}
+}
+
+// requestRunner issues one coordinator-initiated RunnerRequest
+// (StartRun/StopRun/KillRun/Drain) to the runner connected under credHash and
+// waits for its RunnerResponse, bounded by ctx or a default budget. This is
+// the RunnerChannel counterpart of Home.Request, direction reversed.
+func (c *Coordinator) requestRunner(ctx context.Context, credHash string, req *agentcoordpb.RunnerRequest) (*agentcoordpb.RunnerResponse, error) {
+	if req.RequestId == "" {
+		req.RequestId = randID("rreq-", 12)
+	}
+	c.mu.Lock()
+	rs := c.runners[credHash]
+	c.mu.Unlock()
+	if rs == nil {
+		return nil, errors.New("coord: no connected runner for this credential")
+	}
+	ch := make(chan *agentcoordpb.RunnerResponse, 1)
+	rs.reqMu.Lock()
+	rs.pending[req.RequestId] = ch
+	rs.reqMu.Unlock()
+
+	if _, has := ctx.Deadline(); !has {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
+		defer cancel()
+	}
+	select {
+	case rs.send <- &agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_Request{Request: req}}:
+	case <-ctx.Done():
+		rs.reqMu.Lock()
+		delete(rs.pending, req.RequestId)
+		rs.reqMu.Unlock()
+		return nil, ctx.Err()
+	}
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		rs.reqMu.Lock()
+		delete(rs.pending, req.RequestId)
+		rs.reqMu.Unlock()
+		return nil, ctx.Err()
 	}
 }

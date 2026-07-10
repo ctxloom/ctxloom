@@ -70,9 +70,10 @@ type Coordinator struct {
 	attach    map[string]*childRt // runID → runtime attachment
 	byHarp    map[string]*childRt // harp → current attachment
 	polls     map[string]*parkedPoll
-	delivered map[string][]string       // role → delivered-but-unacked ids
-	runners   map[string]*runnerSession // credHash → connected runner
-	chans     map[string]*runChan       // role harp → live RunChannel
+	delivered   map[string][]string       // role → delivered-but-unacked ids
+	runners     map[string]*runnerSession // credHash → connected runner
+	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
+	chans       map[string]*runChan       // role harp → live RunChannel
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -136,6 +137,7 @@ func New(opts Options) (*Coordinator, error) {
 		polls:        make(map[string]*parkedPoll),
 		delivered:    make(map[string][]string),
 		runners:      make(map[string]*runnerSession),
+		runnerReady:  make(map[string]chan struct{}),
 		chans:        make(map[string]*runChan),
 		busServers:   make(map[string]*agentbus.Server),
 	}

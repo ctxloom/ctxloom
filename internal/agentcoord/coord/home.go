@@ -66,6 +66,12 @@ type HomeConfig struct {
 	RunID   string // CTXLOOM_RUN_ID ("" on the session-owner credential)
 	Harness string
 	Version string
+	// Engine answers coordinator-initiated RunnerRequests on the
+	// RunnerChannel (StartRun foremost) — the runner's engine-control seam.
+	// Nil is valid: the parent-session-owner's Home (RunID == "") hosts no
+	// spawned run and never receives one; a spawned child's Home always
+	// carries one once the caller wires it (llm_serve.go).
+	Engine RunnerRequestHandler
 }
 
 type homeReq struct {
@@ -125,7 +131,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 // heartbeats + best-effort RunExited at Close).
 func (h *Home) runnerChannelLoop() {
 	for {
-		link, err := DialRunner(h.ctx, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version)
+		link, err := DialRunner(h.ctx, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
 		if err != nil {
 			clidiag.WarnOnce("ctxloom", "runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			select {

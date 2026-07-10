@@ -90,10 +90,14 @@ type runChan struct {
 	reqCache map[string]*agentcoordpb.CoordinatorResponse
 	inflight map[string]bool
 
-	// ackSeq is the highest event seq processed on this channel (plane-3
-	// cumulative Ack watermark; in-memory — durable dedupe for journaled
-	// fact kinds rides the facts themselves).
-	ackSeq uint64
+	// ackSeq is the highest event seq processed on this channel; the
+	// cumulative plane-3 Ack advances only through flushedSeq — the highest
+	// seq whose item facts are DURABLE (group-fsync on the Ack watermark).
+	// items buffers unflushed facts (delta storm kinds). Durable dedupe for
+	// journaled fact kinds rides the facts themselves.
+	ackSeq     uint64
+	flushedSeq uint64
+	items      []Fact
 }
 
 // RunChannel is the run-level stream: opened by the runner for each run it
@@ -237,35 +241,45 @@ func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFra
 	}
 }
 
-// handleAgentEvent processes plane-1 events. The B window consumes the
-// ctxloom custom events (mail consumption, park state) and the report kinds
-// (Summary, ArtifactProduced); everything else is acknowledged and dropped
-// (the full event log is Wave D). Dedupe is (run, seq) against the channel's
-// ack watermark.
+// handleAgentEvent processes plane-1 events: the ctxloom custom events
+// (mail consumption, park/turn state, harness session), the report kinds
+// (Summary, ArtifactProduced — their own reports journal), and — since C1 —
+// ITEM events (message/tool-call/run lifecycle), journaled with group-fsync
+// on the Ack watermark (items.go): deltas buffer; any boundary event
+// flushes; the cumulative Ack advances only through durable seqs. Dedupe is
+// (run, seq) against the channel's watermark (and the items fold's own,
+// which survives a channel reattach).
 func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent) {
 	c.mu.Lock()
 	if seq := ev.GetSeq(); seq != 0 {
 		if seq <= ch.ackSeq {
+			flushed := ch.flushedSeq
 			c.mu.Unlock()
-			c.ackThrough(ch, ch.ackSeq) // re-ack: the runner may have missed it
+			c.ackThrough(ch, flushed) // re-ack the durable watermark: the runner may have missed it
 			return
 		}
 		ch.ackSeq = seq
 	}
-	ack := ch.ackSeq
 	c.mu.Unlock()
 
 	switch payload := ev.GetPayload().(type) {
 	case *agentcoordpb.AgentEvent_Custom:
 		c.handleCustomEvent(ch, payload.Custom)
+		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_Summary:
 		c.recordSummary(ch.role, ev.GetSeq(), payload.Summary)
+		c.flushItems(ch)
 	case *agentcoordpb.AgentEvent_ArtifactProduced:
 		c.recordArtifact(ch.role, ev.GetSeq(), payload.ArtifactProduced)
+		c.flushItems(ch)
 	default:
-		// Ack-and-drop: the durable event log arrives with Wave D.
+		if kind := itemKind(ev); kind != "" {
+			c.bufferItem(ch, ev, kind)
+		} else {
+			// Unknown/foreign payloads: ack-and-drop (forward compatibility).
+			c.flushItems(ch)
+		}
 	}
-	c.ackThrough(ch, ack)
 }
 
 // ackThrough emits the cumulative plane-3 Ack watermark (non-blocking: the

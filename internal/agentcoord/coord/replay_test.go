@@ -166,6 +166,67 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 	}
 }
 
+// TestReplayEquivalence_Items drives a seeded plane-1 item sequence — with
+// reissued duplicates (the runner's crash-window re-emission) — through the
+// items journal and asserts the counted projection replays identically:
+// counts by kind, delta volume (chars, counted not materialized), and the
+// (run, seq) dedupe watermark all survive a restart.
+func TestReplayEquivalence_Items(t *testing.T) {
+	kinds := []string{"run_started", "message_started", "message_delta", "message_completed", "tool_call_started", "tool_call_args_delta", "tool_call_completed", "status_changed", "run_completed"}
+	for seed := int64(0); seed < 16; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "items.jsonl")
+			itemsF := newItemsFold()
+			store, err := openStore(path, itemsF)
+			require.NoError(t, err)
+
+			rng := rand.New(rand.NewSource(seed + 200))
+			at := time.Unix(1_700_000_000, 0)
+			runs := []string{"run-a", "run-b"}
+			seq := map[string]uint64{}
+
+			for step := 0; step < 60; step++ {
+				at = at.Add(time.Second)
+				run := runs[rng.Intn(len(runs))]
+				seq[run]++
+				fact := factAt(factItem, at, itemFact{
+					RunID: run, Seq: seq[run],
+					Kind:  kinds[rng.Intn(len(kinds))],
+					Chars: rng.Intn(80),
+				})
+				facts := []Fact{fact}
+				// A reissue duplicate (same run, same or lower seq) must fold
+				// as a no-op.
+				if rng.Intn(4) == 0 {
+					facts = append(facts, fact)
+				}
+				require.NoError(t, store.Exec(func() ([]Fact, error) { return facts, nil }))
+			}
+
+			project := func(f *itemsFold) map[string]any {
+				out := map[string]any{}
+				for _, run := range runs {
+					out[run+"/counts"] = f.countsFor(run)
+					out[run+"/chars"] = f.chars[run]
+					out[run+"/maxSeq"] = f.maxSeq[run]
+				}
+				return out
+			}
+			before := project(itemsF)
+			require.NoError(t, store.Close())
+
+			rItemsF := newItemsFold()
+			rStore, err := openStore(path, rItemsF)
+			require.NoError(t, err)
+			after := project(rItemsF)
+			require.NoError(t, rStore.Close())
+
+			assert.Equal(t, before, after, "replaying the items journal must reproduce the counted projection exactly")
+		})
+	}
+}
+
 func pickLive(rng *rand.Rand, live map[string]string) string {
 	if len(live) == 0 {
 		return ""

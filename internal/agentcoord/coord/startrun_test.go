@@ -76,6 +76,16 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	// run, and NO legacy chat launch happened (no fakeEngine was built).
 	assert.Zero(t, sp.spawnCount(), "the legacy go-plugin Chat launch path must not fire for a migrated child")
 	assert.Equal(t, 1, sp.chatCount())
+
+	// The item events journaled (group-fsync path): the turn's message and
+	// tool items are COUNTED in the items fold — the C1 journaling decision
+	// (deltas counted, text never materialized).
+	require.Eventually(t, func() bool {
+		var counts map[string]int
+		c.items.View(func() { counts = c.itemsF.countsFor(out.RunID) })
+		return counts["run_started"] == 1 && counts["message_completed"] >= 2 &&
+			counts["tool_call_completed"] == 1 && counts["message_delta"] >= 2
+	}, conformanceWait, 10*time.Millisecond, "plane-1 items must journal (counted) for a migrated run")
 }
 
 // TestStartRun_SendToIdleChildStartsTurn pins acceptance C1's turn delivery:

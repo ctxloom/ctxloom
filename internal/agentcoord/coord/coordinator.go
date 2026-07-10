@@ -57,6 +57,8 @@ type Coordinator struct {
 	reportsF *reportsFold
 	mail     *Store
 	mailF    *mailFold
+	items    *Store
+	itemsF   *itemsFold
 	auditJ   *Store
 
 	spawner Spawner
@@ -164,6 +166,13 @@ func New(opts Options) (*Coordinator, error) {
 		return nil, err
 	}
 	c.mail = mail
+	c.itemsF = newItemsFold()
+	items, err := openStore(filepath.Join(stateDir, "items.jsonl"), c.itemsF)
+	if err != nil {
+		c.closePartial()
+		return nil, err
+	}
+	c.items = items
 	auditJ, err := openStore(filepath.Join(stateDir, "interactions.jsonl"))
 	if err != nil {
 		c.closePartial()
@@ -265,6 +274,9 @@ func (c *Coordinator) closePartial() {
 	}
 	if c.mail != nil {
 		_ = c.mail.Close()
+	}
+	if c.items != nil {
+		_ = c.items.Close()
 	}
 	if c.auditJ != nil {
 		_ = c.auditJ.Close()

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentbus"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -66,14 +66,22 @@ type Coordinator struct {
 	spawner Spawner
 	slots   *turnSlots
 	hub     *agentbus.TapHub
+	// watch is the D1 consumer broadcast hub: every AgentEvent processed on
+	// any RunChannel is teed here, live, for ConsumerService.WatchRuns
+	// subscribers (consumer.go) — generalized across runs, unlike hub (which
+	// stays scoped to the legacy per-harp Chat tap until D2 retires it).
+	watch *watchHub
+	// consumerCreds is the D1 read-only credential class (consumer.go):
+	// minted fresh per process at Serve(), never journaled.
+	consumerCreds *consumerCreds
 	// custom maps host-relay tool names ("ctxloom/<tool>") onto the
 	// coordinator-side handlers the hosting process injects.
 	custom map[string]CustomHandler
 
-	mu        sync.Mutex
-	attach    map[string]*childRt // runID → runtime attachment
-	byHarp    map[string]*childRt // harp → current attachment
-	polls     map[string]*parkedPoll
+	mu          sync.Mutex
+	attach      map[string]*childRt // runID → runtime attachment
+	byHarp      map[string]*childRt // harp → current attachment
+	polls       map[string]*parkedPoll
 	delivered   map[string][]string       // role → delivered-but-unacked ids
 	runners     map[string]*runnerSession // credHash → connected runner
 	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
@@ -134,22 +142,24 @@ func New(opts Options) (*Coordinator, error) {
 	}
 
 	c := &Coordinator{
-		projectDir:   opts.ProjectDir,
-		stateDir:     stateDir,
-		ephemeral:    ephemeral,
-		now:          now,
-		releaseOwner: release,
-		spawner:      opts.Spawner,
-		slots:        newTurnSlots(agentTurnCap),
-		hub:          agentbus.NewTapHub(),
-		attach:       make(map[string]*childRt),
-		byHarp:       make(map[string]*childRt),
-		polls:        make(map[string]*parkedPoll),
-		delivered:    make(map[string][]string),
-		runners:      make(map[string]*runnerSession),
-		runnerReady:  make(map[string]chan struct{}),
-		chans:        make(map[string]*runChan),
-		busServers:   make(map[string]*agentbus.Server),
+		projectDir:    opts.ProjectDir,
+		stateDir:      stateDir,
+		ephemeral:     ephemeral,
+		now:           now,
+		releaseOwner:  release,
+		spawner:       opts.Spawner,
+		slots:         newTurnSlots(agentTurnCap),
+		hub:           agentbus.NewTapHub(),
+		watch:         newWatchHub(),
+		consumerCreds: &consumerCreds{},
+		attach:        make(map[string]*childRt),
+		byHarp:        make(map[string]*childRt),
+		polls:         make(map[string]*parkedPoll),
+		delivered:     make(map[string][]string),
+		runners:       make(map[string]*runnerSession),
+		runnerReady:   make(map[string]chan struct{}),
+		chans:         make(map[string]*runChan),
+		busServers:    make(map[string]*agentbus.Server),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -336,8 +346,13 @@ func (c *Coordinator) RevokeSessionOwner(token string) {
 
 // Identify resolves a presented bearer token to its identity, constant-time
 // per candidate. Used per-request by the MCP auth middleware and
-// per-stream-establishment + per-request by the gRPC interceptors.
+// per-stream-establishment + per-request by the gRPC interceptors. The D1
+// consumer credential is checked first (a small, separate class — see
+// consumer.go); a match short-circuits before the run-registry lookup.
 func (c *Coordinator) Identify(token string) (Identity, bool) {
+	if c.consumerCreds.verify(token) {
+		return Identity{Project: c.projectDir, Consumer: true}, true
+	}
 	var (
 		id Identity
 		ok bool

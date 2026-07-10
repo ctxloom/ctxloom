@@ -66,11 +66,15 @@ type runEnqueued struct {
 	Harp       string `json:"harp"`
 	Agent      string `json:"agent"`
 	ParentHarp string `json:"parent_harp,omitempty"`
-	Runtime    string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container", …)
-	CredHash   string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
-	Depth      int    `json:"depth"`
-	Prompt     string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
-	Resume     bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
+	// ParentRunID (D5) is the spawning run's run_id — set only when caller
+	// is itself a run (a depth-1+ child spawning a grandchild); empty for a
+	// depth-1 child spawned by the depth-0 session owner, which has none.
+	ParentRunID string `json:"parent_run_id,omitempty"`
+	Runtime     string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container", …)
+	CredHash    string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
+	Depth       int    `json:"depth"`
+	Prompt      string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
+	Resume      bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
 	// Ladder is the run's resolved escalation ladder (Wave C2), journaled at
 	// enqueue so a later config edit cannot retroactively change a live
 	// run's policy and restart adoption recovers it without re-resolving

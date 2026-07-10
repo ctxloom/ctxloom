@@ -155,16 +155,17 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			}
 		}
 		return []Fact{factAt(factRunEnqueued, c.now(), runEnqueued{
-			RunID:      runID,
-			Harp:       harp,
-			Agent:      plan.AgentName,
-			ParentHarp: caller.Harp,
-			Runtime:    plan.Runtime,
-			CredHash:   credHash,
-			Depth:      caller.Depth + 1,
-			Prompt:     prompt,
-			Resume:     resume,
-			Ladder:     ladderToFact(plan.Ladder),
+			RunID:       runID,
+			Harp:        harp,
+			Agent:       plan.AgentName,
+			ParentHarp:  caller.Harp,
+			ParentRunID: caller.RunID,
+			Runtime:     plan.Runtime,
+			CredHash:    credHash,
+			Depth:       caller.Depth + 1,
+			Prompt:      prompt,
+			Resume:      resume,
+			Ladder:      ladderToFact(plan.Ladder),
 		})}, nil
 	}); err != nil {
 		return nil, "", err

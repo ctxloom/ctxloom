@@ -44,6 +44,13 @@ type Identity struct {
 	Depth int `json:"depth"`
 	// Project is the project directory the coordinator serves.
 	Project string `json:"project,omitempty"`
+	// Consumer marks a D1 read-only watch credential (coord/consumer.go): it
+	// authenticates ConsumerService (WatchRuns/ListRuns) ONLY — the gRPC auth
+	// interceptor rejects it on every CoordinatorService method (RunnerChannel/
+	// RunChannel/PublishEvents), so a leaked viewer credential cannot mutate
+	// anything or impersonate a runner/child. Never journaled: minted fresh
+	// per coordinator process, verified in-memory only (creds.go).
+	Consumer bool `json:"-"`
 }
 
 // IsChild reports whether this identity belongs to a spawned child run.

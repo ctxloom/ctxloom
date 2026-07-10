@@ -94,32 +94,47 @@ type coordService struct {
 	c *Coordinator
 }
 
+// coordinatorServiceMethodPrefix is every RPC a D1 read-only consumer
+// credential must NEVER authenticate — process control, run-level
+// mutation, and the event-plane ingress. ConsumerService (consumer.go) is
+// deliberately NOT under this prefix: any authenticated identity, consumer
+// or otherwise, may watch.
+const coordinatorServiceMethodPrefix = "/agentcoord.v1.CoordinatorService/"
+
 // grpcServer builds the coordinator's gRPC server with per-stream credential
 // verification (identity is re-checked per request too — every handler calls
-// Identify again rather than trusting a cached principal).
+// Identify again rather than trusting a cached principal). D1: a consumer
+// credential authenticates ConsumerService only — presenting one on
+// RunnerChannel/RunChannel/PublishEvents is a rejected identity, not just an
+// unauthorized verb, so a leaked viewer credential cannot mutate anything or
+// impersonate a runner/child (read-only scope enforced server-side).
 func (c *Coordinator) grpcServer() *grpc.Server {
-	auth := func(ctx context.Context) (Identity, error) {
+	auth := func(ctx context.Context, fullMethod string) (Identity, error) {
 		id, ok := c.Identify(mdToken(ctx))
 		if !ok {
 			return Identity{}, status.Error(codes.Unauthenticated, "unknown or revoked credential")
+		}
+		if id.Consumer && strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) {
+			return Identity{}, status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call CoordinatorService")
 		}
 		return id, nil
 	}
 	srv := grpc.NewServer(
 		grpc.ChainStreamInterceptor(func(v any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			if _, err := auth(ss.Context()); err != nil {
+			if _, err := auth(ss.Context(), info.FullMethod); err != nil {
 				return err
 			}
 			return handler(v, ss)
 		}),
 		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			if _, err := auth(ctx); err != nil {
+			if _, err := auth(ctx, info.FullMethod); err != nil {
 				return nil, err
 			}
 			return handler(ctx, req)
 		}),
 	)
 	agentcoordpb.RegisterCoordinatorServiceServer(srv, &coordService{c: c})
+	agentcoordpb.RegisterConsumerServiceServer(srv, &consumerService{c: c})
 	return srv
 }
 

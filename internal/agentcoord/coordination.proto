@@ -1,4 +1,21 @@
-// coordination.proto — agentcoord.v1 (rev 8 — ctxloom Wave C0)
+// coordination.proto — agentcoord.v1 (rev 9 — ctxloom Wave D1)
+//
+// Changelog rev 8 -> rev 9 (pre-release, additive):
+//   - D1: new ConsumerService — WatchRuns (server-stream: a fold SNAPSHOT
+//     followed by LIVE plane-1 AgentEvents, full payloads including delta
+//     text, teed as they arrive on each run's RunChannel; the durable
+//     journal stays counts-only for deltas — this is a SEPARATE, additive
+//     consumer surface, not a change to the journal's own durability
+//     contract) and ListRuns (the same roster projection, exposed as a
+//     standalone unary RPC for external viewer processes that hold no
+//     RunChannel of their own). A late-attaching consumer gets the snapshot
+//     then live-from-now; there is no historical delta replay (session
+//     transcripts serve history). Consumer credentials are a distinct,
+//     read-only class — see coord/consumer.go.
+//   - D1/D5: ListRunsResult.RunInfo gains parent_run_id so a roster consumer
+//     can render the delegation tree (depth-2 children close manly-grant
+//     (4)/(5)); StartRun/RunStarted already carried parent_run_id (rev 5) —
+//     this only exposes it on the read-side roster projection.
 //
 // Changelog rev 7 -> rev 8 (pre-release, additive; comment-only — no field
 // changes):
@@ -685,8 +702,50 @@ message ListRunsResult {
     string phase = 4;              // StatusChanged.Phase name or "TERMINAL"
     string latest_summary = 5;     // most recent Summary.text, truncated
     google.protobuf.Timestamp last_event_at = 6;
+    // Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild
+    // (D5) — the SPAWNING run's run_id, so a roster consumer can render the
+    // delegation tree without re-deriving it from the event log.
+    string parent_run_id = 7;
   }
   repeated RunInfo runs = 1;
+}
+
+// =============================================================================
+// Consumer watch API (D1, Wave D): read-only observation for viewers — the
+// TUI (run_terminal_ui/sessionfeed/roster), ACP frontends (D3's Tier A
+// push), and a parent watching a child live. A NEW, additive service: no
+// change to CoordinatorService or its messages. Steer/inject is NOT here —
+// it mutates a run, so it rides the session's own authenticated surface
+// (D2); ConsumerService is observation only.
+// =============================================================================
+
+service ConsumerService {
+  // WatchRuns opens a live observation stream. The FIRST frame is always a
+  // RosterSnapshot (the fold's current picture: roster + run states +
+  // latest summaries); every frame after that is a live AgentEvent, teed
+  // FULL (including delta text) as it arrives on the matching run's
+  // RunChannel — no historical delta replay. filter.run_ids scopes to
+  // specific runs; empty means every run visible to this credential.
+  rpc WatchRuns(WatchRunsRequest) returns (stream WatchEvent);
+
+  // ListRuns is a one-shot poll alternative to keeping a stream open — the
+  // same roster projection AgentRequest's plane-2 ListRunsRequest reuses.
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResult);
+}
+
+message WatchRunsRequest {
+  repeated string run_ids = 1;  // empty = every run visible to this credential
+}
+
+message WatchEvent {
+  oneof kind {
+    RosterSnapshot snapshot = 1;  // exactly one, always first
+    AgentEvent event = 2;         // live, full payload (incl. delta text)
+  }
+}
+
+message RosterSnapshot {
+  repeated ListRunsResult.RunInfo runs = 1;
 }
 
 // Shared artifact vocabulary, retained through the rev-6 artifact split:

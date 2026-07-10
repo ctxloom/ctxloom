@@ -45,10 +45,15 @@ type coordServing struct {
 
 // endpointState persists the bound ports so a relaunched coordinator
 // re-binds the SAME endpoint (acceptance (4): adopted container
-// RunnerChannels re-Hello against a stable re-bindable endpoint).
+// RunnerChannels re-Hello against a stable re-bindable endpoint). D1:
+// ConsumerCred is how an out-of-process viewer (the TUI, D2) discovers the
+// read-only watch credential — 0600, host-local, re-minted every Serve()
+// (consumer.go's consumerCreds is never journaled, so this file IS its only
+// persistence).
 type endpointState struct {
-	LoopbackPort int `json:"loopback_port,omitempty"`
-	WidePort     int `json:"wide_port,omitempty"`
+	LoopbackPort int    `json:"loopback_port,omitempty"`
+	WidePort     int    `json:"wide_port,omitempty"`
+	ConsumerCred string `json:"consumer_cred,omitempty"`
 }
 
 // Serve stands the listeners up: loopback by default; widening happens on
@@ -89,6 +94,12 @@ func (c *Coordinator) Serve() error {
 	s.loopback = ln
 	s.loopURL = fmt.Sprintf("http://127.0.0.1:%d%s", ln.Addr().(*net.TCPAddr).Port, MCPPath)
 	go func() { _ = s.httpSrv.Serve(ln) }()
+	// D1: mint the consumer-class watch credential fresh for this process
+	// and persist it into endpoint.json ALONGSIDE the ports it's saved
+	// with — the file is a viewer's one discovery point for both.
+	if _, err := c.consumerCreds.mint(); err != nil {
+		return fmt.Errorf("coord: mint consumer credential: %w", err)
+	}
 	s.saveEndpoint()
 
 	c.srv = s
@@ -123,6 +134,7 @@ func (s *coordServing) saveEndpoint() {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
 	s.mu.Unlock()
+	ep.ConsumerCred = s.c.consumerCreds.token()
 	raw, _ := json.Marshal(ep)
 	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: persist endpoint: %v", err)

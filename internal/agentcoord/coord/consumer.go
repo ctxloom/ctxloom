@@ -1,0 +1,240 @@
+package coord
+
+import (
+	"context"
+	"sync"
+
+	"google.golang.org/grpc"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+)
+
+// D1 — the consumer watch API: read-only observation for viewers (the TUI,
+// ACP frontends' D3 push, a parent watching a child live) over a NEW,
+// additive ConsumerService. Two pieces live here: the credential class
+// (consumerCreds) and the live event fan-out (watchHub); the gRPC surface
+// itself (consumerService) is the thin server adapter at the bottom.
+
+// consumerCreds mints and verifies the D1 read-only credential class: a
+// SINGLE token per coordinator process lifetime (not per-watcher — every
+// consumer of one coordinator shares it, discovered via endpoint.json,
+// 0600, host-local). Deliberately NOT journaled: a viewer's ability to
+// watch is not runtime-coordinator STATE (the CQRS scope boundary,
+// doc.go) — it dies and re-mints with the process, exactly like the
+// listener ports persisted beside it in the same endpoint.json. Unlike
+// every OTHER credential class in this package (run/session — only the
+// hash is ever retained; the plaintext rides the one-shot env seam), the
+// plaintext is kept here too: endpoint.json IS the discovery mechanism
+// (there is no spawn-time env seam for an out-of-process viewer), 0600
+// host-local matching the same trust boundary the env-seam alternative
+// (a 0600 cred file) already uses elsewhere in this design.
+type consumerCreds struct {
+	mu    sync.Mutex
+	plain string // "" until minted
+	hash  string // hex SHA-256(token); "" until minted
+}
+
+// mint mints a fresh consumer token, replacing any prior one (a relaunched
+// coordinator's viewers re-read the new token from the rewritten
+// endpoint.json — the same re-bind story as the listener ports).
+func (cc *consumerCreds) mint() (token string, err error) {
+	token, hash, err := mintToken()
+	if err != nil {
+		return "", err
+	}
+	cc.mu.Lock()
+	cc.plain = token
+	cc.hash = hash
+	cc.mu.Unlock()
+	return token, nil
+}
+
+// token returns the current plaintext consumer credential ("" before mint).
+func (cc *consumerCreds) token() string {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.plain
+}
+
+// verify checks presented against the current consumer credential,
+// constant-time (reuses verifyToken's compare so the timing shape matches
+// every other credential check in this package).
+func (cc *consumerCreds) verify(presented string) bool {
+	cc.mu.Lock()
+	hash := cc.hash
+	cc.mu.Unlock()
+	if hash == "" || presented == "" {
+		return false
+	}
+	_, ok := verifyToken(presented, map[string]Identity{hash: {}})
+	return ok
+}
+
+// watchRingSize bounds one subscriber's buffer: a stalled watcher drops its
+// own newest events rather than ever stalling the RunChannel recv loop that
+// calls broadcast (the same never-block invariant TapHub documents for the
+// legacy per-harp tap; this hub generalizes it across every run).
+const watchRingSize = 256
+
+// watchHub is the D1 live consumer broadcast: every AgentEvent
+// handleAgentEvent processes on ANY live RunChannel is teed here for
+// ConsumerService.WatchRuns subscribers, full payload (including delta
+// text) — the durable journal stays counts-only for deltas (items.go); this
+// is a separate, additive read path, never the source of truth. Because it
+// covers the RunChannel uniformly (StartRun-migrated children included),
+// wiring it into handleAgentEvent is also the Recon #1 fix: a migrated
+// child's live activity becomes observable again, independent of the
+// legacy agentbus TapHub this hub does not replace until D2.
+type watchHub struct {
+	mu   sync.Mutex
+	subs map[*watchSub]struct{}
+}
+
+func newWatchHub() *watchHub { return &watchHub{subs: make(map[*watchSub]struct{})} }
+
+// watchSub is one WatchRuns call's subscription. runIDs nil/empty means
+// "every run visible to this credential" (D1 does not yet scope visibility
+// below the whole project — a consumer credential sees the whole
+// coordinator, matching its loopback-only, host-local trust boundary).
+type watchSub struct {
+	runIDs map[string]bool
+	ch     chan *agentcoordpb.AgentEvent
+}
+
+// subscribe registers a subscriber and returns its event channel plus a
+// cancel func that unregisters it. Call cancel exactly once, when the
+// watching stream ends.
+func (h *watchHub) subscribe(runIDs map[string]bool) (<-chan *agentcoordpb.AgentEvent, func()) {
+	sub := &watchSub{runIDs: runIDs, ch: make(chan *agentcoordpb.AgentEvent, watchRingSize)}
+	h.mu.Lock()
+	h.subs[sub] = struct{}{}
+	h.mu.Unlock()
+	cancel := func() {
+		h.mu.Lock()
+		delete(h.subs, sub)
+		h.mu.Unlock()
+	}
+	return sub.ch, cancel
+}
+
+// broadcast fans ev out to every matching subscriber, NEVER blocking the
+// caller: a full subscriber ring drops ev for that subscriber only (a
+// simpler discipline than TapObserver's drop-oldest+gap-accounting — D1's
+// pre-made semantics promise live delta text, not a gap-free guarantee; a
+// lagging viewer's next event still arrives, and roster/ListRuns always
+// gives it a consistent non-live fallback).
+func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.subs {
+		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
+			continue
+		}
+		select {
+		case sub.ch <- ev:
+		default:
+		}
+	}
+}
+
+// listRunsSnapshot is the roster projection shared by every caller of the
+// roster (the plane-2 agent_run ListRuns handler, runchannel.go, and D1's
+// ConsumerService ListRuns/WatchRuns snapshot below) — single state, N
+// transports.
+func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
+	result := &agentcoordpb.ListRunsResult{}
+	c.runs.View(func() {
+		for _, e := range c.rosterF.snapshot() {
+			if !includeTerminal && e.State == StateEnded {
+				continue
+			}
+			rec := c.runsF.currentRun(e.Harp)
+			if rec == nil {
+				continue
+			}
+			if role != "" && rec.Agent != role {
+				continue
+			}
+			result.Runs = append(result.Runs, &agentcoordpb.ListRunsResult_RunInfo{
+				RunId: rec.RunID,
+				Agent: &agentcoordpb.AgentIdentity{
+					AgentId: e.Harp,
+					Role:    rec.Agent,
+				},
+				Phase:         e.State,
+				LatestSummary: c.reportsF.latestSummary(e.Harp),
+				ParentRunId:   rec.ParentRunID,
+			})
+		}
+	})
+	return result
+}
+
+// WatchRuns is the in-process form of ConsumerService.WatchRuns — D3's acp
+// session loop, hosting this coordinator library directly, calls this
+// instead of dialing its own gRPC loopback. Same semantics: a snapshot
+// (returned directly, not framed) plus a live event channel from
+// subscribe-time forward; call cancel exactly once when done watching.
+func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, cancel func()) {
+	var filter map[string]bool
+	if len(runIDs) > 0 {
+		filter = make(map[string]bool, len(runIDs))
+		for _, id := range runIDs {
+			filter[id] = true
+		}
+	}
+	events, cancel = c.watch.subscribe(filter)
+	snapshot = c.listRunsSnapshot(true, "")
+	return snapshot, events, cancel
+}
+
+// ListRuns is the in-process form of ConsumerService.ListRuns.
+func (c *Coordinator) ListRuns(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
+	return c.listRunsSnapshot(includeTerminal, role)
+}
+
+// consumerService implements agentcoord.v1.ConsumerService (D1): additive,
+// read-only, no change to CoordinatorService. Both RPCs also work called
+// in-process (no gRPC hop) via the Coordinator methods below — D3's acp
+// session loop, hosting the coordinator library itself, uses that path.
+type consumerService struct {
+	agentcoordpb.UnimplementedConsumerServiceServer
+	c *Coordinator
+}
+
+func (s *consumerService) ListRuns(_ context.Context, req *agentcoordpb.ListRunsRequest) (*agentcoordpb.ListRunsResult, error) {
+	return s.c.listRunsSnapshot(req.GetIncludeTerminal(), req.GetRole()), nil
+}
+
+// WatchRuns serves the stream: snapshot first, then live AgentEvents
+// (subscribe BEFORE building the snapshot so nothing published in the gap
+// between subscribing and sending is missed — it simply arrives, correctly
+// ordered, right after the snapshot frame instead of before).
+func (s *consumerService) WatchRuns(req *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
+	c := s.c
+	var filter map[string]bool
+	if ids := req.GetRunIds(); len(ids) > 0 {
+		filter = make(map[string]bool, len(ids))
+		for _, id := range ids {
+			filter[id] = true
+		}
+	}
+	events, cancel := c.watch.subscribe(filter)
+	defer cancel()
+
+	snap := c.listRunsSnapshot(true, "")
+	if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Snapshot{Snapshot: &agentcoordpb.RosterSnapshot{Runs: snap.GetRuns()}}}); err != nil {
+		return err
+	}
+	ctx := stream.Context()
+	for {
+		select {
+		case ev := <-events:
+			if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Event{Event: ev}}); err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}

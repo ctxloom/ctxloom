@@ -248,7 +248,9 @@ func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFra
 // on the Ack watermark (items.go): deltas buffer; any boundary event
 // flushes; the cumulative Ack advances only through durable seqs. Dedupe is
 // (run, seq) against the channel's watermark (and the items fold's own,
-// which survives a channel reattach).
+// which survives a channel reattach). D1: every NEW (non-duplicate) event is
+// also teed live, full payload, to consumer.go's watchHub — independent of
+// the durable/counts-only journal path below.
 func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent) {
 	c.mu.Lock()
 	if seq := ev.GetSeq(); seq != 0 {
@@ -261,6 +263,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		ch.ackSeq = seq
 	}
 	c.mu.Unlock()
+	c.watch.broadcast(ev)
 
 	switch payload := ev.GetPayload().(type) {
 	case *agentcoordpb.AgentEvent_Custom:
@@ -598,36 +601,14 @@ func orHost(runtime string) string {
 }
 
 // serveListRuns is the roster: the caller's children from the roster/runs
-// folds (single state, N transports).
+// folds (single state, N transports — consumer.go's listRunsSnapshot is the
+// shared projection; D1's ConsumerService is a fourth transport onto the
+// same state).
 func (c *Coordinator) serveListRuns(caller Identity, req *agentcoordpb.ListRunsRequest) *agentcoordpb.CoordinatorResponse {
 	if caller.IsChild() {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, "roster: only the coordinating session may list its children")}
 	}
-	result := &agentcoordpb.ListRunsResult{}
-	c.runs.View(func() {
-		for _, e := range c.rosterF.snapshot() {
-			if !req.GetIncludeTerminal() && e.State == StateEnded {
-				continue
-			}
-			rec := c.runsF.currentRun(e.Harp)
-			if rec == nil {
-				continue
-			}
-			if role := req.GetRole(); role != "" && rec.Agent != role {
-				continue
-			}
-			info := &agentcoordpb.ListRunsResult_RunInfo{
-				RunId: rec.RunID,
-				Agent: &agentcoordpb.AgentIdentity{
-					AgentId: e.Harp,
-					Role:    rec.Agent,
-				},
-				Phase:         e.State,
-				LatestSummary: c.reportsF.latestSummary(e.Harp),
-			}
-			result.Runs = append(result.Runs, info)
-		}
-	})
+	result := c.listRunsSnapshot(req.GetIncludeTerminal(), req.GetRole())
 	return &agentcoordpb.CoordinatorResponse{
 		Status: okStatus(""),
 		Kind:   &agentcoordpb.CoordinatorResponse_ListRuns{ListRuns: result},

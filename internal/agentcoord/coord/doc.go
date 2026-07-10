@@ -14,14 +14,18 @@
 //     spawn; only SHA-256(token) is persisted (in the run-registry journal,
 //     0600 files / 0700 dirs); verification is constant-time per request;
 //     revocation at run end severs the credential's streams and parked polls;
-//   - the agentcoord.v1 gRPC server (RunnerChannel implemented; RunChannel
-//     and PublishEvents answer UNIMPLEMENTED until Wave C) and the
-//     streamable-HTTP MCP endpoint children and the parent harness dial with
-//     `CTXLOOM_COORD_URL` + `CTXLOOM_COORD_CRED`;
+//   - the agentcoord.v1 gRPC server — RunnerChannel (Wave B1), RunChannel
+//     (Wave C1/B1.6), and the unary PublishEvents fallback (Wave C4,
+//     publish.go) are all live — and the streamable-HTTP MCP endpoint
+//     children and the parent harness dial with `CTXLOOM_COORD_URL` +
+//     `CTXLOOM_COORD_CRED`;
 //   - runner dial-home lifecycle: RunnerHello / heartbeats / RunExited, with
 //     coordinator-side RunExited synthesis on RunnerChannel disconnect or
 //     missed heartbeats — the fix for the child-death queue-stranding bug —
-//     reconciled exactly-once with the legacy chat-stream-close path;
+//     reconciled exactly-once with the legacy chat-stream-close path (which,
+//     post Wave C4, survives only for the degraded no-reach-back spawn
+//     fallback and non-allowlisted StructuredChat backends — see
+//     spawner.go's viaStartRunBackends);
 //   - the delegation orchestration that used to live in the parent's
 //     `ctxloom mcp` process (spawn queue under the D4 cap, §6a
 //     delivery-by-state, resume of ended children, oneshot bridging, the

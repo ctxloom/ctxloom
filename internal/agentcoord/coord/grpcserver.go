@@ -86,9 +86,9 @@ func mdToken(ctx context.Context) string {
 	return ""
 }
 
-// coordService implements agentcoord.v1.CoordinatorService. Only
-// RunnerChannel is live in Wave B1; RunChannel and PublishEvents land with
-// Wave C and answer UNIMPLEMENTED.
+// coordService implements agentcoord.v1.CoordinatorService: RunnerChannel
+// (Wave B1), RunChannel (Wave C1/B1.6), and PublishEvents (Wave C4, this
+// file's sibling publish.go) are all live.
 type coordService struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
 	c *Coordinator

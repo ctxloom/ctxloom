@@ -9,7 +9,10 @@ import (
 	"sync"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -53,6 +56,7 @@ type childRt struct {
 	close       func()
 	wake        chan struct{}
 	turnOutput  []string // oneshot bridging: this turn's entries
+	turnErrored bool     // oneshot bridging: this turn's Entry.IsError was set (Result.status)
 }
 
 // newRunID mints a run attempt id (UUID-shaped; retries get a fresh one).
@@ -266,10 +270,16 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.setState(rt, StateExecuting)
 
-	// MIGRATED (C1, claude only): engine control rides StartRun on the
-	// runner's RunnerChannel. A degraded spawn without reach-back (url ==
-	// "") cannot — the runner could never dial home — so it keeps the
-	// legacy dial.
+	// MIGRATED (C1 landed claude; C3 extended the allowlist to codex/kiro/
+	// acp — see spawner.go's viaStartRunBackends): engine control rides
+	// StartRun on the runner's RunnerChannel. A degraded spawn without
+	// reach-back (url == "") cannot — the runner could never dial home — so
+	// it keeps the legacy dial. This is now the go-plugin Chat dial's ONE
+	// intentional, documented reachable case for an allowlisted backend
+	// (Wave C4 kill-list verification: preserved as-is, per the plan's
+	// explicit "check what C1 landed and preserve its documented behavior");
+	// the dial's other reachable case is a StructuredChat backend outside
+	// the allowlist (today: none in production, only test doubles).
 	if rt.plan.ViaStartRun && url != "" {
 		c.mu.Lock()
 		rt.viaStartRun = true
@@ -469,6 +479,9 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		if rt.oneshot && ev.Entry.Content != "" {
 			c.mu.Lock()
 			rt.turnOutput = append(rt.turnOutput, ev.Entry.Content)
+			if ev.Entry.IsError {
+				rt.turnErrored = true
+			}
 			c.mu.Unlock()
 		}
 	case ev.Complete != nil:
@@ -482,11 +495,19 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	c.mu.Lock()
 	out := rt.turnOutput
+	errored := rt.turnErrored
 	rt.turnOutput = nil
+	rt.turnErrored = false
 	oneshot := rt.oneshot
 	c.mu.Unlock()
 	if oneshot && len(out) > 0 {
-		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", strings.Join(out, "\n")); err != nil {
+		text := strings.Join(out, "\n")
+		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
+		// existing parent-mailbox bridge below — not a replacement for it;
+		// PublishEvents is event-plane only and carries no delivery
+		// semantics of its own.
+		c.publishOneshotResult(rt, text, errored)
+		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 			clidiag.Warn("ctxloom", "agent %s: bridge oneshot result: %v", rt.harp, err)
 		}
 	}
@@ -496,6 +517,39 @@ func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	}
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
+}
+
+// publishOneshotResult journals ONE oneshot turn's stdout-bridged output as a
+// self-contained, FRESH-run_id sub-run over the unary PublishEvents fallback
+// (Wave C4 deliverable 1, closing manly-grant (7): "Oneshot-fallback
+// children → unary PublishEvents is a natural fit"). A oneshot backend has no
+// persistent engine or RunChannel of its own — startOneshot's own doc says
+// "no session continuity between turns beyond the composed context" — so each
+// completed turn genuinely IS its own independent run; that is what a fresh
+// run_id per turn captures, and it is what keeps RunCompleted's contract
+// invariant true ("terminal event; nothing may follow it for this run_id").
+// The persistent child's OWN identity (rt.runID/rt.harp — roster, queue slot,
+// mailbox) is untouched by this: it is purely an additional durable
+// event-log record, never a substitute for the mailbox delivery above.
+func (c *Coordinator) publishOneshotResult(rt *childRt, text string, errored bool) {
+	runStatus := agentcoordpb.Result_RUN_STATUS_SUCCEEDED
+	var errStatus *rpcstatus.Status
+	if errored {
+		runStatus = agentcoordpb.Result_RUN_STATUS_FAILED
+		errStatus = &rpcstatus.Status{Code: int32(codes.Unknown), Message: text}
+	}
+	ev := &agentcoordpb.AgentEvent{
+		RunId:      newRunID(),
+		Seq:        1,
+		OccurredAt: timestamppb.Now(),
+		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+			Result: &agentcoordpb.Result{Status: runStatus, Text: text, Error: errStatus},
+		}},
+	}
+	resp := c.PublishEvents([]*agentcoordpb.AgentEvent{ev})
+	for _, rej := range resp.GetRejected() {
+		clidiag.Warn("ctxloom", "agent %s: oneshot result publish rejected: %s", rt.harp, rej.GetReason().GetMessage())
+	}
 }
 
 // wakeChild starts a new turn on an idle child after a mailbox delivery (§6a

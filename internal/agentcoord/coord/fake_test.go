@@ -22,6 +22,11 @@ type fakeEngine struct {
 	gotRunnerEnv  map[string]string
 	turnGate      chan struct{}
 	endAfterTurns int
+	// oneshot marks the returned AgentChatLaunch as the no-structured-chat
+	// fallback (operations.AgentChatLaunch.Oneshot) — scripts a fakeSpawner
+	// child through children.go's oneshot bridging (PublishEvents + the
+	// parent-mailbox "result" bridge) without a real backend.
+	oneshot bool
 }
 
 func (f *fakeEngine) recordedTexts() []string {
@@ -106,7 +111,7 @@ func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runner
 			}
 		}
 	}()
-	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: cancel}
+	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: cancel, Oneshot: f.oneshot}
 }
 
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.

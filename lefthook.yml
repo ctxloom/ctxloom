@@ -12,4 +12,17 @@ pre-commit:
       # duplicate, call the existing unit instead. Refresh the baseline only
       # for deliberate, reviewed adoptions — never to make a failing check
       # pass.
-      run: reprise check --base HEAD .
+      #
+      # `env -u GIT_INDEX_FILE` (jaded-fade): git exports GIT_INDEX_FILE into
+      # every hook's environment, pointing at THIS worktree's real index.
+      # On a base-state cache miss, reprise shells out `git worktree add`
+      # to check out the --base ref for comparison; that subprocess inherits
+      # GIT_INDEX_FILE unless scrubbed, so its checkout silently overwrites
+      # our real index with the base tree instead of populating its own new
+      # worktree's index — the running `git commit` then builds an empty
+      # tree from the clobbered index with no error anywhere. Reproduced and
+      # root-caused in a synthetic repo+worktree; see scripts/repro-jaded-fade.sh.
+      # Fixed upstream in reprise is the correct long-term home for this
+      # (any GIT_INDEX_FILE-inheriting caller of `git worktree add` is at
+      # risk); this scrub is the local mitigation until that lands.
+      run: env -u GIT_INDEX_FILE reprise check --base HEAD .

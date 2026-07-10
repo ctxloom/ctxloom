@@ -270,13 +270,7 @@ func (c *Coordinator) handleRunExited(credHash string, exited *agentcoordpb.RunE
 		clidiag.Warn("ctxloom", "coordinator: RunExited for %s from a credential that does not own it; ignored", runID)
 		return
 	}
-	if sid := exited.GetHarnessSessionId(); sid != "" {
-		if err := c.runs.Exec(func() ([]Fact, error) {
-			return []Fact{factAt(factRunHarness, c.now(), runHarness{RunID: runID, HarnessSessionID: sid})}, nil
-		}); err != nil {
-			clidiag.Warn("ctxloom", "coordinator: record harness session id: %v", err)
-		}
-	}
+	c.recordHarnessSession(runID, exited.GetHarnessSessionId())
 	detail := ""
 	if sig := exited.GetSignal(); sig != "" {
 		detail = "signal " + sig

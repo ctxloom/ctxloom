@@ -143,6 +143,12 @@ type TurnMeta struct {
 // ChatSessionInfo is one-time metadata emitted at the start of a chat (kept
 // distinct from SessionMeta, which is transcript-store metadata).
 type ChatSessionInfo struct {
+	// SessionID is the harness-NATIVE session id this conversation runs
+	// under (the ACP session id from session/new or session/load) — the
+	// resume handle a coordinator journals so a later respawn can continue
+	// the same native session (ChatRequest.ResumeSessionID). Empty when the
+	// backend exposes none.
+	SessionID      string
 	Model          string
 	PermissionMode string
 	ContextWindow  int

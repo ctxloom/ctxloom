@@ -110,6 +110,7 @@ func TestChat_FullTurn(t *testing.T) {
 
 	require.NotNil(t, evs[0].Session)
 	assert.Equal(t, "test-model", evs[0].Session.Model)
+	assert.Equal(t, "sess-1", evs[0].Session.SessionID, "the native session id rides the Session event (the coordinator's resume handle)")
 
 	require.NotNil(t, evs[1].Entry)
 	assert.Equal(t, agent.EntryTypeThinking, evs[1].Entry.Type)

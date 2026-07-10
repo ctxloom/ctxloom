@@ -105,7 +105,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		teardown()
 	}
 
-	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model}}) {
+	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID)}}) {
 		abort()
 		return ctx.Err()
 	}

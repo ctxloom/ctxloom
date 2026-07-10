@@ -33,7 +33,7 @@ A relative value is anchored to the launching working directory. The variable is
 | Variable | Values | Default | Purpose |
 |----------|--------|---------|---------|
 | `CTXLOOM_DEBUG_HTTP` | `1` to enable | off | Log every outbound HTTP request, plus errors and `4xx`/`5xx` responses, to stderr. |
-| `CTXLOOM_VERBOSE` | `1` to enable | off | Enable verbose logging at process startup. |
+| `CTXLOOM_VERBOSE` | `1` to enable | off | Enable verbose logging at process startup. Also turns on delegated-child launch diagnostics: the coordinator's spawner forwards the child's `llm serve` plugin stderr (which carries the ACP adapter's stderr) through its own process stderr at trace level. |
 
 `CTXLOOM_DEBUG_HTTP` is the single switch for **all** HTTP debugging in ctxloom. It currently only instruments the GitHub API client (`internal/remote/github.go`), because the cached-clone path has eliminated most other API traffic, but any HTTP transport added later should honor the same variable rather than introducing a parallel one. When enabled you'll see lines like:
 

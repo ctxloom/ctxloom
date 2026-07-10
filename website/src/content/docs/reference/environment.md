@@ -8,7 +8,7 @@ Environment variables that affect ctxloom behavior.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CTXLOOM_VERBOSE` | Enable verbose logging | `0` (disabled) |
+| `CTXLOOM_VERBOSE` | Enable verbose logging (including delegated-child launch diagnostics: the child plugin's and ACP adapter's stderr) | `0` (disabled) |
 | `CTXLOOM_ROOT` | Override project-root resolution (normally the git root or the directory containing `.ctxloom`) | unset |
 | `CTXLOOM_DEBUG_HTTP` | Log HTTP requests made to remote forges | `0` (disabled) |
 

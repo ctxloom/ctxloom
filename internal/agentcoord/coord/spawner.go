@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -130,6 +131,7 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Permissions: plan.Perm,
 		MCPServers:  mcpServers,
 		Gate:        s.gate.Gate(),
+		Verbosity:   childVerbosity(),
 		Factory:     s.factory,
 	})
 	spawnGateMu.Unlock()
@@ -168,6 +170,19 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 		s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
 	s.gate.WarnWithheld()
 	return servers
+}
+
+// childVerbosity gates the child launch's plugin/adapter diagnostics. A dead
+// child's only stderr trail (the go-plugin logger forwarding `llm serve` —
+// and through it the ACP adapter's stderr) is DISCARDED at verbosity 0, and
+// the coordinator often lives in a flagless `ctxloom mcp` process, so the
+// knob is env-only: CTXLOOM_VERBOSE=1 (the existing process-wide verbose
+// switch) turns the trail on at trace.
+func childVerbosity() int {
+	if os.Getenv("CTXLOOM_VERBOSE") == "1" {
+		return 3
+	}
+	return 0
 }
 
 // headlessSafePermission enforces D3: children never prompt, so the agent

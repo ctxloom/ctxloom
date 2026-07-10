@@ -35,6 +35,8 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family", the ACP `agent` field). Always qualified; never bare "agent." | claude `--agent`, ACP descriptor `agent` |
 | **session** | A launched ctxloom run (harp-named). Hosts the primary agent and its delegated agents. | `~/.ctxloom/sessions/<harp>`; harp IDs |
 | **profile** | An agent's *definition* (config). `agent` = profile-in-action. | `internal/config` profiles |
+| **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, `ctxloom acp`, the bare `ctxloom mcp` fallback). Never an LLM. | `internal/agentcoord/coord` |
+| **coordinating agent** | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. | the parent session's model; the coordinator-ensemble profiles |
 
 ## Naming decisions (why these words)
 
@@ -56,6 +58,16 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 - **ACP impedance:** ACP (a dependency) calls the driven backend **"agent"**
   (Zed: "external agent"). That is our **engine**, not our agent. We map ACP's
   "agent" → our "engine" at the boundary and never adopt ACP's noun internally.
+- **"coordinator" is split, never bare.** The peer-model work made one word
+  carry two natures: the **runtime coordinator** is deterministic
+  infrastructure (journals, credentials, gRPC channels, lifecycle synthesis —
+  it must never be confused with a model making judgment calls), while the
+  **coordinating agent** is the LLM role driving delegation through the
+  coordination tools. Self-narration by an agent is never load-bearing:
+  process facts come from the runtime coordinator (runner channels,
+  synthesized terminal records), judgment from the coordinating agent.
+  Qualify every use; bare "coordinator" is ambiguous and reserved for
+  headings where the qualifier is established.
 
 ## Invariants that ride on this vocabulary
 

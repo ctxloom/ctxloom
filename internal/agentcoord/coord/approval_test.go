@@ -80,8 +80,14 @@ func commandExecRequest(id string) *agent.PermissionRequest {
 // under the plan permission preset (buildLadder(nil, plan) — auto-decline
 // FILE_CHANGE/PERMISSION_ESCALATION, relay the rest to the parent).
 func planPresetSpawner(mk func() *scriptedChat) *fakeSpawner {
+	return planPresetSpawnerFor("", mk)
+}
+
+// planPresetSpawnerFor is planPresetSpawner with a settable backend label
+// (Wave C3 backend-parity variant) — "" keeps the default ("mock").
+func planPresetSpawnerFor(backend string, mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true},
+		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, backend: backend},
 	}, nil)
 	sp.nextChat = mk
 	return sp
@@ -168,6 +174,48 @@ func TestApproval_RelayRoundTrip(t *testing.T) {
 				wantResolution = "denied"
 			}
 			assert.Equal(t, wantResolution, last.Detail["resolution"])
+		})
+	}
+}
+
+// TestApproval_RelayRoundTrip_BackendParity pins Wave C3's approval-forwarding
+// acceptance: the SAME relay round-trip TestApproval_RelayRoundTrip proves
+// for claude/mock also holds for codex and kiro — ForwardPermissions
+// (decodeHarnessSpec) and the escalation ladder (approval.go) never branch
+// on the harness/backend name, only on ApprovalKind, so a plan-preset
+// COMMAND_EXECUTION relays and resolves identically regardless of which
+// backend label the run carries.
+func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
+	for _, backend := range []string{"codex", "kiro"} {
+		t.Run(backend, func(t *testing.T) {
+			resetStrictness(t)
+			permReq := commandExecRequest("perm-1")
+			sp := planPresetSpawnerFor(backend, func() *scriptedChat { return &scriptedChat{permission: permReq} })
+			c := newTestCoordinator(t, sp, nil)
+
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+			require.NoError(t, err)
+
+			var msgs []Message
+			require.Eventually(t, func() bool {
+				msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+				return err == nil && len(msgs) == 1
+			}, conformanceWait, 10*time.Millisecond, "backend %q: the relay must land in the parent's mailbox", backend)
+			msg := msgs[0]
+			assert.Equal(t, "approval_request", msg.Kind)
+			assert.Contains(t, string(msg.Structured), "APPROVAL_KIND_COMMAND_EXECUTION")
+
+			decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT", "note": "reviewed"})
+			require.NoError(t, err)
+			_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "reviewed", decision, msg.ID)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				sc := sp.chat(0)
+				return sc != nil && len(sc.recordedAnswers()) == 1
+			}, conformanceWait, 10*time.Millisecond, "backend %q: the child must receive the coordinator's decision", backend)
+			ans := sp.chat(0).recordedAnswers()[0]
+			assert.Equal(t, "allow-1", ans.OptionID)
 		})
 	}
 }

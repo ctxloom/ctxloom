@@ -7,14 +7,19 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 )
 
-// CtxloomBinary is the bare executable name written into managed hook/MCP
-// commands so it re-resolves via PATH at fire time. MCPServerName is the key for
-// the auto-registered ctxloom MCP server, and CtxloomMCPArgs its args.
+// CtxloomBinary is the bare executable name "ctxloom" — the PATH lookup
+// target WarnOnCtxloomPathSkew compares against, and the last-resort value
+// selfexec.Path (and so CtxloomCommand) falls back to when self-lookup
+// fails. Do NOT use it to materialize a command into a surface (.mcp.json,
+// a hook, a statusline) — use CtxloomCommand for that; see its doc for why.
+// MCPServerName is the key for the auto-registered ctxloom MCP server, and
+// CtxloomMCPArgs its args.
 const (
 	CtxloomBinary = "ctxloom"
 	MCPServerName = "ctxloom"
@@ -22,6 +27,22 @@ const (
 
 // CtxloomMCPArgs is the arg list for the auto-registered MCP server.
 var CtxloomMCPArgs = []string{"mcp"}
+
+// CtxloomCommand returns the command to write into a materialized surface
+// (an .mcp.json/config.toml MCP entry, a statusline command, a
+// context-injection or hook command) that invokes ctxloom.
+//
+// INVARIANT: a surface names the absolute path of the binary that
+// materialized it, so a staged and an installed binary can never diverge
+// within one session. This is load-bearing: a bare "ctxloom" re-resolves
+// against PATH at fire time, which is a DIFFERENT resolution than the one
+// the process materializing the surface used — an engine harness could
+// silently run the installed binary while the user was running a staged
+// one (the staged-binary divergence bug this fixes). Falls back to the
+// bare name "ctxloom" only if self-lookup fails; see selfexec.Path.
+func CtxloomCommand() string {
+	return selfexec.Path()
+}
 
 // SettingsOptions configures a settings-writing operation.
 type SettingsOptions struct {

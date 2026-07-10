@@ -87,7 +87,9 @@ func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
 	require.NoError(t, json.Unmarshal(<-newParams, &got))
 	require.Len(t, got.McpServers, 2)
 	assert.Equal(t, "ctxloom", got.McpServers[0].Name)
-	assert.Equal(t, "ctxloom", got.McpServers[0].Command)
+	// Command names the self-exec absolute path (agent.CtxloomCommand), not
+	// the bare name — see its doc for the staged-vs-installed invariant.
+	assert.Equal(t, agent.CtxloomCommand(), got.McpServers[0].Command)
 	assert.Equal(t, []string{"mcp"}, got.McpServers[0].Args)
 	assert.Equal(t, "taskloom", got.McpServers[1].Name)
 	assert.Equal(t, []string{"mcp"}, got.McpServers[1].Args)

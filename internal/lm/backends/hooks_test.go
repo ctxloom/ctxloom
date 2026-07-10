@@ -56,8 +56,15 @@ func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
 	assert.Contains(t, h.Command, `--project '/tmp/it'\''s mine' hash2`,
 		"embedded single quote must use the '\\'' idiom; got %q", h.Command)
 
-	assert.True(t, strings.HasPrefix(h.Command, "ctxloom hook inject-context "),
-		"bare-ctxloom prefix invariant must hold; got %q", h.Command)
+	// The binary itself now names the self-exec absolute path
+	// (agent.CtxloomCommand), not the bare "ctxloom" — see its doc for the
+	// staged-vs-installed invariant this upholds.
+	assert.Contains(t, h.Command, agent.CtxloomCommand(),
+		"command must name the self-exec absolute path; got %q", h.Command)
+	assert.Contains(t, h.Command, " hook inject-context ",
+		"command must invoke the inject-context subcommand; got %q", h.Command)
+	assert.True(t, agent.IsManaged(h.Command, "ctxloom"),
+		"self-exec absolute path must still resolve to the ctxloom exec token; got %q", h.Command)
 }
 
 // TestNewContextInjectionHooks_ChunksLargeContext verifies that a large
@@ -182,10 +189,17 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 
 // (AtomicWriteFile / GetFS / ComputeHookHash are covered in shared/agent —
 // settings_io_test.go — alongside the helpers themselves.)
-func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
+//
+// TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands proves the
+// staged-binary-divergence fix end to end: every surface this writer
+// materializes (statusline, inject-context hook, auto-registered MCP
+// server) names the self-exec absolute path (agent.CtxloomCommand) of the
+// binary running THIS test, not the bare "ctxloom" that used to re-resolve
+// against PATH at fire time. Bundle-shipped hooks are untouched — their
+// Command is author-supplied, never materialized by this binary.
+func TestClaudeCodeHookWriter_WritesSelfExecAbsoluteCommands(t *testing.T) {
 	tmpDir := t.TempDir()
-	agent.SetExecutablePathForTesting("/install/now/ctxloom")
-	t.Cleanup(func() { agent.SetExecutablePathForTesting("") })
+	self := agent.CtxloomCommand()
 
 	writer := &claude.ClaudeCodeHookWriter{}
 	// Inject-context hook is constructed exactly the way the lifecycle
@@ -204,29 +218,32 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	require.NoError(t, json.Unmarshal(settingsData, &settings))
 
 	statusLine := settings["statusLine"].(map[string]any)
-	assert.Equal(t, "ctxloom hook hud", statusLine["command"],
-		"statusLine must be bare; got %q", statusLine["command"])
+	assert.Equal(t, self+" hook hud", statusLine["command"],
+		"statusLine must name the self-exec absolute path; got %q", statusLine["command"])
 
 	hooks := settings["hooks"].(map[string]any)
 
 	sessionStart := hooks["SessionStart"].([]any)
 	require.NotEmpty(t, sessionStart)
 	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
-	assert.True(t, strings.HasPrefix(injectCmd, "ctxloom hook inject-context "),
-		"inject-context hook must be bare; got %q", injectCmd)
+	assert.Contains(t, injectCmd, self,
+		"inject-context hook must name the self-exec absolute path; got %q", injectCmd)
+	assert.True(t, agent.IsManaged(injectCmd, "ctxloom"),
+		"self-exec absolute path must still resolve to the ctxloom exec token; got %q", injectCmd)
 
 	post := hooks["PostToolUse"].([]any)
 	require.NotEmpty(t, post)
 	bundleCmd := post[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	assert.Equal(t, "ctxloom hook stamp-plan", bundleCmd,
-		"bundle-shipped hook must stay bare; got %q", bundleCmd)
+		"bundle-shipped hook command is author-supplied, not materialized by this binary; got %q", bundleCmd)
 
-	// .mcp.json: auto-registered ctxloom MCP server command is bare too.
+	// .mcp.json: auto-registered ctxloom MCP server command names the
+	// self-exec absolute path too.
 	mcpData, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
 	require.NoError(t, err)
 	var mcpConfig map[string]any
 	require.NoError(t, json.Unmarshal(mcpData, &mcpConfig))
 	ctxloomServer := mcpConfig["mcpServers"].(map[string]any)["ctxloom"].(map[string]any)
-	assert.Equal(t, "ctxloom", ctxloomServer["command"],
-		"auto-registered MCP server command must be bare; got %q", ctxloomServer["command"])
+	assert.Equal(t, self, ctxloomServer["command"],
+		"auto-registered MCP server command must name the self-exec absolute path; got %q", ctxloomServer["command"])
 }

@@ -34,7 +34,7 @@ func ComposeChatMCPServers(pluginKey string, mcp *wire.MCPConfig, bundleMCP map[
 	}
 
 	if mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, CtxloomBinary, CtxloomMCPArgs, nil)
+		add(MCPServerName, CtxloomCommand(), CtxloomMCPArgs, nil)
 	}
 	for name, s := range bundleMCP {
 		add(name, s.Command, s.Args, s.Env)

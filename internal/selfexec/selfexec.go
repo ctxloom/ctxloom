@@ -17,6 +17,24 @@ var (
 	osStat       = os.Stat
 )
 
+// override, when non-empty, short-circuits Path with a fixed answer. Set
+// only by SetPathForTesting.
+var override string
+
+// SetPathForTesting makes Path always return path until the returned func is
+// called (wire it to t.Cleanup), for tests OUTSIDE this package. Path's
+// natural answer under `go test` is the test binary's own path (e.g.
+// "/tmp/go-build.../foo.test"), whose basename is not "ctxloom" — callers
+// that materialize a command via Path and then need it recognized by
+// exec-token identity (agent.IsManaged, which correctly hardcodes "ctxloom":
+// in production the running binary always IS named that) use this to get a
+// deterministic, ctxloom-shaped path instead.
+func SetPathForTesting(path string) func() {
+	prev := override
+	override = path
+	return func() { override = prev }
+}
+
 // Path returns the path to use when re-invoking ctxloom from inside a running
 // ctxloom process. Prefers the OS-reported absolute path (one syscall:
 // `readlink /proc/self/exe` on Linux, `_NSGetExecutablePath` on macOS,
@@ -32,6 +50,9 @@ var (
 //     use it if the file still exists.
 func Path() string {
 	const fallback = "ctxloom"
+	if override != "" {
+		return override
+	}
 	exe, err := osExecutable()
 	if err != nil {
 		return fallback

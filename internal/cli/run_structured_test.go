@@ -206,7 +206,9 @@ func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
 		managed.ChatMCPServers("claude-code"), formatJSON, strings.NewReader(""), &out))
 
 	require.Len(t, captured.MCPServers, 2)
-	assert.Equal(t, agent.ChatMCPServer{Name: "ctxloom", Command: "ctxloom", Args: []string{"mcp"}}, captured.MCPServers[0])
+	// Command names the self-exec absolute path (agent.CtxloomCommand), not
+	// the bare name — see its doc for the staged-vs-installed invariant.
+	assert.Equal(t, agent.ChatMCPServer{Name: "ctxloom", Command: agent.CtxloomCommand(), Args: []string{"mcp"}}, captured.MCPServers[0])
 	assert.Equal(t, "taskloom", captured.MCPServers[1].Name)
 }
 

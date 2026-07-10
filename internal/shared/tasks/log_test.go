@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -103,7 +104,10 @@ func TestLogSummarize(t *testing.T) {
 	}
 }
 
-func TestLogSkipsMalformedLines(t *testing.T) {
+// TestLogFailsLoudOnMalformedLine pins the fail-loud contract (CLAUDE.md): a
+// malformed line must fail the whole fold with an error naming the file, the
+// 1-based line number, and a fix-it hint — never be silently skipped.
+func TestLogFailsLoudOnMalformedLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
 	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
 this is not json
@@ -114,11 +118,86 @@ this is not json
 	}
 	s, _ := OpenLog(path, "")
 	got, err := s.List(nil, "")
-	if err != nil {
-		t.Fatalf("list: %v", err)
+	if err == nil {
+		t.Fatalf("expected error for malformed line, got tasks: %+v", got)
 	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 tasks (malformed line skipped), got %d: %+v", len(got), got)
+	if got != nil {
+		t.Fatalf("expected no tasks on a fold error, got %+v", got)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, path) {
+		t.Fatalf("error %q does not name the log file path", msg)
+	}
+	if !strings.Contains(msg, ":2:") {
+		t.Fatalf("error %q does not name the 1-based line number", msg)
+	}
+	if !strings.Contains(msg, "inspect/repair") && !strings.Contains(msg, "re-add") {
+		t.Fatalf("error %q does not carry a fix-it hint", msg)
+	}
+}
+
+// TestLogFailsLoudOnUnknownOp pins the same contract for a record this reader
+// can't interpret: an unrecognized op is a fatal fold error (a log written by
+// a newer taskloom), not a silent drop.
+func TestLogFailsLoudOnUnknownOp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"reprioritize","task":"alpha","ts":"2026-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err == nil {
+		t.Fatalf("expected error for unknown op, got tasks: %+v", got)
+	}
+	if got != nil {
+		t.Fatalf("expected no tasks on a fold error, got %+v", got)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, path) {
+		t.Fatalf("error %q does not name the log file path", msg)
+	}
+	if !strings.Contains(msg, ":2:") {
+		t.Fatalf("error %q does not name the 1-based line number", msg)
+	}
+	if !strings.Contains(msg, "reprioritize") {
+		t.Fatalf("error %q does not name the unrecognized op", msg)
+	}
+	if !strings.Contains(msg, "upgrade") {
+		t.Fatalf("error %q does not hint at upgrading the binary", msg)
+	}
+}
+
+// TestLogMixedShapeConformance covers a log whose early lines are valid op
+// events and whose Nth line is foreign-shaped JSON: parseable JSON with no
+// "op" key, so json.Unmarshal succeeds with a zero-value Op and lands in the
+// unknown-op path. The error must still name the offending line, and the
+// valid preceding records must NOT be partially applied into a returned view.
+func TestLogMixedShapeConformance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"first","status":"To Do","ts":"2026-01-01T00:00:00Z"}
+{"op":"add","task":"beta","text":"second","status":"To Do","ts":"2026-01-01T00:00:01Z"}
+{"harp_id":"x","status":"To Do"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := OpenLog(path, "")
+	got, err := s.List(nil, "")
+	if err == nil {
+		t.Fatalf("expected error for foreign-shaped record, got tasks: %+v", got)
+	}
+	if got != nil {
+		t.Fatalf("expected no partially-applied tasks, got %+v", got)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, ":3:") {
+		t.Fatalf("error %q does not name line 3", msg)
+	}
+	if !strings.Contains(msg, "no op field") {
+		t.Fatalf("error %q does not clarify the record has no op field, got: %s", msg, msg)
 	}
 }
 

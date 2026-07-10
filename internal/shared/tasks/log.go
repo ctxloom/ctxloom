@@ -61,8 +61,12 @@ func newFolded() *folded {
 	}
 }
 
-// fold replays the log into current state. Malformed lines are skipped with a
-// warning rather than failing the read (never block a task listing).
+// fold replays the log into current state. The log is the sole record of a
+// project's outstanding work (ADR 0025): per CLAUDE.md's fail-loud philosophy,
+// a reader must never silently drop a record, because a silently dropped task
+// is exactly the lost-deferral failure the task system exists to prevent. So a
+// malformed line, or an event this reader can't interpret, fails the whole
+// fold — no partial view is ever returned.
 // Holds no lock — callers serialize as needed.
 func (l *eventLog) fold() (*folded, error) {
 	f := newFolded()
@@ -73,24 +77,31 @@ func (l *eventLog) fold() (*folded, error) {
 	if err != nil {
 		return nil, err
 	}
+	lineNo := 0
 	for line := range strings.SplitSeq(string(data), "\n") {
+		lineNo++
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var ev Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			fmt.Fprintf(os.Stderr, "tasks: warning: skipping malformed task event: %v\n", err)
-			continue
+			return nil, fmt.Errorf("%s:%d: malformed task event: %w — inspect/repair the line, or move the file aside and re-add tasks", l.path, lineNo, err)
 		}
-		f.apply(ev)
+		if err := f.apply(ev); err != nil {
+			return nil, fmt.Errorf("%s:%d: %w", l.path, lineNo, err)
+		}
 	}
 	return f, nil
 }
 
-// apply folds a single event into state. Unknown ops are ignored (forward
-// compatibility with logs written by a newer binary).
-func (f *folded) apply(ev Event) {
+// apply folds a single event into state. An unrecognized op is a fatal fold
+// error, not silently ignored: the project rejects silent forward-compat
+// record dropping (see CLAUDE.md; no-backward-compat-shims policy applies in
+// reverse here too) — a log carrying an op this binary doesn't know was very
+// likely written by a newer taskloom, and the fix is to upgrade, not to lose
+// the event.
+func (f *folded) apply(ev Event) error {
 	switch ev.Op {
 	case opAdd:
 		if ev.RepairOf != "" {
@@ -101,7 +112,7 @@ func (f *folded) apply(ev Event) {
 			// race, or the post-100-draw fallback). The first writer keeps the
 			// harp; repair re-adds this content under a fresh one.
 			f.anomalies = append(f.anomalies, ev)
-			return
+			return nil
 		}
 		f.issued[ev.Task] = struct{}{}
 		t := &Task{
@@ -134,7 +145,13 @@ func (f *folded) apply(ev Event) {
 		delete(f.byID, ev.Task)
 		// ev.Task stays in `issued`: a harp is never reused, so a stale
 		// reference can never resolve to a different task.
+	default:
+		if ev.Op == "" {
+			return fmt.Errorf("record has no op field")
+		}
+		return fmt.Errorf("unrecognized op %q — this log was likely written by a newer taskloom; upgrade this binary", ev.Op)
 	}
+	return nil
 }
 
 // taskList returns live tasks in add order.

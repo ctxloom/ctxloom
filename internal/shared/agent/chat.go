@@ -47,6 +47,13 @@ type ChatRequest struct {
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
 	// native config the engine reads from its cwd.
 	MCPServers []ChatMCPServer
+	// ResumeSessionID, when set, asks the backend to resume a prior native
+	// session instead of starting fresh (claude --resume <id>, codex
+	// thread/resume, ACP session/load). A backend that cannot resume (no
+	// native support, or the specific id is unknown to it) fails the call
+	// loudly rather than silently starting a fresh session under the old
+	// id's name — a delegated child's resumed context is load-bearing.
+	ResumeSessionID string
 }
 
 // ChatMCPServer is one caller-supplied stdio MCP server for a chat run.

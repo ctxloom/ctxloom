@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -194,7 +195,9 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	}
 }
 
-// setup runs the initialize + session/new handshake, returning the new session id.
+// setup runs the initialize + session/new (or session/load, when resuming)
+// handshake, returning the session id the rest of the conversation runs
+// under.
 func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
 	initParams := initializeParams{
 		ProtocolVersion: api.ACPProtocolVersion,
@@ -215,7 +218,32 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 	if cwd == "" {
 		cwd = "." // spec asks for an absolute cwd; the host supplies one in practice.
 	}
-	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServersToACP(req.MCPServers)}
+	mcpServers := mcpServersToACP(req.MCPServers)
+
+	if req.ResumeSessionID != "" {
+		// session/load is capability-gated (unlike session/new): an agent
+		// that never advertised it would otherwise silently start a FRESH
+		// session under the resumed id's name, discarding continuity the
+		// caller explicitly asked for — fail loud instead (adapter/SDK gap,
+		// reportable, never worked around by falling back to session/new).
+		if !initResp.AgentCapabilities.LoadSession {
+			return "", fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
+		}
+		loadReq := api.LoadSessionRequest{Cwd: cwd, McpServers: mcpServers, SessionId: api.SessionId(req.ResumeSessionID)}
+		// session/load replays the resumed conversation's history as
+		// session/update notifications WHILE this call is in flight (per
+		// the ACP spec) — sess is already wired as conn's notification
+		// handler, so the replay flows to `out` as ordinary ChatEvents
+		// before this call returns; the caller's drain loop must already be
+		// running (Chat starts it before setup blocks here).
+		var loadResp json.RawMessage
+		if err := conn.Call(ctx, api.MethodSessionLoad, loadReq, &loadResp); err != nil {
+			return "", fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, err)
+		}
+		return api.SessionId(req.ResumeSessionID), nil
+	}
+
+	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
 	if err := conn.Call(ctx, api.MethodSessionNew, newReq, &newResp); err != nil {
 		return "", err

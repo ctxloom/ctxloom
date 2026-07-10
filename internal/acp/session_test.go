@@ -572,6 +572,75 @@ func TestChat_MCPServersAtSessionNew(t *testing.T) {
 	assert.Equal(t, "A", got.McpServers[0].Env[0].Name, "env is sorted for a deterministic frame")
 }
 
+// TestChat_ResumeSessionLoad: a ChatRequest with ResumeSessionID, against an
+// agent that advertises the loadSession capability, resumes via session/load
+// (never session/new) under the SAME session id — and the replay history
+// session/load sends mid-call (per the ACP spec) flows to `out` as ordinary
+// ChatEvents ahead of the new turn's events.
+func TestChat_ResumeSessionLoad(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{Model: "test-model", ResumeSessionID: "sess-old"})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.Equal(t, "initialize", initReq.Method)
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{
+			"protocolVersion":   1,
+			"agentCapabilities": map[string]any{"loadSession": true},
+		}))
+
+		loadReq := <-h.fa.requests
+		require.Equal(t, "session/load", loadReq.Method)
+		var params struct {
+			SessionId string `json:"sessionId"`
+		}
+		require.NoError(t, json.Unmarshal(loadReq.Params, &params))
+		assert.Equal(t, "sess-old", params.SessionId)
+
+		// The replay: history session/load sends as session/update while
+		// the call is still in flight.
+		_ = h.fa.sessionUpdate("sess-old", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"prior turn"}}`)
+		require.NoError(t, h.fa.respond(loadReq.ID, nil))
+
+		promptReq := <-h.fa.requests
+		require.Equal(t, "session/prompt", promptReq.Method)
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "continue"}
+	close(h.in)
+
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+	require.Len(t, evs, 3)
+	// The replay arrives WHILE session/load is still in flight — ahead of
+	// the Session event, which fires only once setup() returns.
+	require.NotNil(t, evs[0].Entry, "replayed history arrives ahead of Session")
+	assert.Equal(t, "prior turn", evs[0].Entry.Content)
+	require.NotNil(t, evs[1].Session, "Session event fires once setup (session/load) returns")
+	require.NotNil(t, evs[2].Complete)
+}
+
+// TestChat_ResumeSessionLoad_CapabilityMissing fails loud (never silently
+// falls back to session/new) when the agent does not advertise loadSession:
+// starting fresh under a resumed id's name would silently discard the
+// caller's requested continuity.
+func TestChat_ResumeSessionLoad_CapabilityMissing(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{Model: "test-model", ResumeSessionID: "sess-old"})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+	}()
+
+	close(h.in)
+	err := <-h.chatErr
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "loadSession")
+	assert.Empty(t, events(), "no events besides the closed channel — setup never got far enough for a Session event")
+}
+
 // TestChat_TransportError surfaces a spawn failure as a Chat error (and still
 // closes out per the contract).
 func TestChat_TransportError(t *testing.T) {

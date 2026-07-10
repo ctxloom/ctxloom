@@ -833,6 +833,23 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 				return appPath, SourceProject
 			}
 
+			// dir has no .ctxloom of its own. If dir is the root of a LINKED
+			// git worktree, that is a signpost, not a silent walk-past:
+			// resolving straight through to some unrelated ancestor's (or
+			// home's) .ctxloom would silently land the session on the wrong
+			// project — empty config, no profiles, no agents (task
+			// brown-canal, 2026-07-09: an earlier revision had linked
+			// worktrees INHERIT the main worktree's project identity; that
+			// inheritance design was withdrawn in favor of this signpost).
+			// worktreeSignpost records a fatal finding through strictness and
+			// the walk continues exactly as it always has — the choke owners
+			// (`ctxloom run`/`mcp`/`acp`) abort on it pre-launch unless
+			// --degraded; management commands surface the stderr warning and
+			// proceed on the fallback. The main worktree (.git is a
+			// directory) and every non-worktree ancestor pass through
+			// untouched.
+			worktreeSignpost(fs, dir)
+
 			parent := filepath.Dir(dir)
 			if parent == dir {
 				// Reached root
@@ -861,6 +878,41 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	}
 
 	return homeApp, SourceHome
+}
+
+// worktreeSignpost records a fatal ClassConfig finding when dir is the root of
+// a LINKED git worktree carrying no .ctxloom of its own — naming the resolved
+// main worktree root and both remediation paths (run from the main worktree,
+// or `ctxloom init` here to make this worktree a deliberately separate
+// project). FailOnce, because findAppDir runs on every config.Load and a
+// single process loads config several times — the finding must not stack up
+// in one startup window. No-op (walk continues to today's fallback) when dir
+// is not such a worktree root.
+//
+// A linked worktree WITH its own .ctxloom never reaches this call: the walk in
+// findAppDir already returned on the .ctxloom check for that same dir. That is
+// the one, load-bearing precedence rule for this feature — own .ctxloom always
+// wins, no further worktree inspection.
+func worktreeSignpost(fs afero.Fs, dir string) {
+	info, err := projectroot.DetectWorktree(fs, dir)
+	if err != nil {
+		strictness.FailOnce(strictness.ClassConfig,
+			"check permissions on the .git file in this directory",
+			"%s: could not read git worktree metadata: %v", dir, err)
+		return
+	}
+	if !info.Linked {
+		return
+	}
+	if !info.MainRootExists {
+		strictness.FailOnce(strictness.ClassConfig,
+			fmt.Sprintf("restore the main worktree at %s, or prune this stale linked worktree (`git worktree prune` from a healthy checkout), or run `ctxloom init` here to make this worktree a deliberately separate project", info.MainRoot),
+			"%s is a linked git worktree, but its main worktree at %s is missing or unreadable", dir, info.MainRoot)
+		return
+	}
+	strictness.FailOnce(strictness.ClassConfig,
+		fmt.Sprintf("run ctxloom from %s, or run `ctxloom init` here to make this worktree a deliberately separate project", info.MainRoot),
+		"this is a linked git worktree of the project at %s (no .ctxloom of its own)", info.MainRoot)
 }
 
 // GetBundleDirs returns bundles directories (in cache/).

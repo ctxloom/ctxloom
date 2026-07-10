@@ -43,9 +43,11 @@ type Spawner interface {
 	// token) in the host-side session accounting.
 	AssignSession(projectDir, backend string) (string, error)
 	// Launch starts the child engine with the composed context riding the
-	// first turn and env as the engine's extra environment (ambient identity
-	// + the coordinator reach-back trio).
-	Launch(ctx context.Context, plan *SpawnPlan, contextText string, env map[string]string) (*operations.AgentChatLaunch, error)
+	// first turn, env as the ENGINE's extra environment (ambient identity),
+	// and runnerEnv stamped per-spawn onto the RUNNER process (the
+	// coordinator reach-back trio — the runner is the one credential
+	// holder; the harness env never carries it).
+	Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
 	// ResumeContext composes the context for a RESUMED harp: the plan
 	// context plus the rendered recorded history when one is loadable.
 	ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string
@@ -120,7 +122,7 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 	return entry.HarpName, nil
 }
 
-func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
 	mcpServers := s.childMCPServers(plan)
 	spawnGateMu.Lock()
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
@@ -128,6 +130,7 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Context:     contextText,
 		WorkDir:     s.projectDir,
 		Env:         env,
+		RunnerEnv:   runnerEnv,
 		Permissions: plan.Perm,
 		MCPServers:  mcpServers,
 		Gate:        s.gate.Gate(),

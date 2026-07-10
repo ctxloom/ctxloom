@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
@@ -30,11 +34,67 @@ func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 	if err != nil {
 		return nil, err
 	}
+	// Host-relay tool handlers (B1.6 three-way routing): host-resident
+	// tools relayed by runners as CustomRequest{ctxloom/<tool>} terminate
+	// in THIS process, on a per-caller-identity ctxServer.
+	c.SetCustomHandlers(coordCustomHandlers(cfg, c))
 	if err := c.Serve(newCoordServerFactory(cfg, c)); err != nil {
 		c.Close()
 		return nil, err
 	}
 	return c, nil
+}
+
+// coordCustomHandlers builds the coordinator-side handlers for the
+// host-resident tools (cross-session history, distillation — host session
+// dirs are not mounted into children). Each call runs on a ctxServer bound
+// to the CALLER's credential-derived identity, exactly like the stdio
+// handlers — never the host process's env.
+func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]coord.CustomHandler {
+	serverFor := func(id coord.Identity) *ctxServer {
+		return &ctxServer{cfg: cfg, self: id, agents: &agentDelegation{self: id, c: c}}
+	}
+	return map[string]coord.CustomHandler{
+		coord.CustomToolPrefix + "compact_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in compactSessionInput) (any, error) {
+			_, out, err := s.handleCompactSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "load_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in loadSessionInput) (any, error) {
+			_, out, err := s.handleLoadSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "recover_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in recoverSessionInput) (any, error) {
+			_, out, err := s.handleRecoverSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "get_previous_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in getPreviousSessionInput) (any, error) {
+			_, out, err := s.handleGetPreviousSession(ctx, nil, in)
+			return out, err
+		}),
+	}
+}
+
+// relayHost adapts one typed stdio handler onto the coordinator's relay
+// seam: decode the relayed args into the SAME input struct, run the handler
+// under the caller's identity, re-encode the result.
+func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context.Context, *ctxServer, In) (any, error)) coord.CustomHandler {
+	return func(ctx context.Context, caller coord.Identity, args json.RawMessage) (json.RawMessage, error) {
+		var in In
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &in); err != nil {
+				return nil, fmt.Errorf("decode arguments: %w", err)
+			}
+		}
+		out, err := h(ctx, serverFor(caller), in)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(out)
+		if err != nil {
+			return nil, fmt.Errorf("encode result: %w", err)
+		}
+		return raw, nil
+	}
 }
 
 // newCoordServerFactory builds the per-identity MCP tool surface the

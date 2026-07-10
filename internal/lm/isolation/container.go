@@ -419,12 +419,14 @@ func hostTerminalEnv(getenv func(string) string) []string {
 // (cw.dir is the base-provided cwd — the live project dir for the host base, the
 // per-agent worktree checkout for the worktree base), so no per-policy LaunchSpec
 // construction is duplicated any more.
-func (c Container) SpawnClient(backendName, label string, verbosity int, ws Workspace) (pb.Client, error) {
+func (c Container) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, fmt.Errorf("container spawn: unexpected workspace %T (expected a container workspace)", ws)
 	}
-	return c.runtime.Spawn(c.launchSpec(backendName, label, verbosity, cw))
+	spec := c.launchSpec(backendName, label, verbosity, cw)
+	spec.SpawnEnv = spawnEnv
+	return c.runtime.Spawn(spec)
 }
 
 // launchSpec is the workspace→LaunchSpec adaptation the runtime's Spawn consumes:

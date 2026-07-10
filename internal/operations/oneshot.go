@@ -318,7 +318,9 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		if gerr := isolationGateErr(found); gerr != nil {
 			return nil, gerr
 		}
-		factory = isolation.FactoryForWorkspace(policy, ws)
+		// Oneshot/fan members have no coordinator reach-back by design (their
+		// output is bridged at the boundary), so no per-spawn runner env.
+		factory = isolation.FactoryForWorkspace(policy, ws, nil)
 		// Stamp the resolved cell (none→Shared, worktree→DirectoryIsolated,
 		// container→ProcessIsolated) — set unconditionally from the actual policy,
 		// not gated on Isolated, so a none member is explicitly Shared too. This

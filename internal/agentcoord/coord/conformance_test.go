@@ -63,9 +63,11 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 
 	env := sp.engine(0).env()
 	assert.Equal(t, out.Harp, env["CTXLOOM_SESSION_HARP"], "ambient identity, never client-claimed")
-	assert.NotEmpty(t, env[EnvCoordURL], "coordinator reach-back URL")
-	assert.NotEmpty(t, env[EnvCoordCred], "credential rides ONLY the engine env")
-	assert.Equal(t, out.RunID, env[EnvRunID], "run id correlates the runner")
+	assert.Empty(t, env[EnvCoordCred], "the ENGINE env never carries the credential (the runner is the one holder)")
+	renv := sp.engine(0).runnerEnv()
+	assert.NotEmpty(t, renv[EnvCoordURL], "coordinator reach-back URL rides the runner spawn env")
+	assert.NotEmpty(t, renv[EnvCoordCred], "credential rides ONLY the runner spawn env")
+	assert.Equal(t, out.RunID, renv[EnvRunID], "run id correlates the runner")
 }
 
 // TestAgentRun_UnknownAgentIsHardError pins run --agent parity.

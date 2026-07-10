@@ -181,11 +181,12 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 // the winner delivers.
 var errResumeLost = errors.New("coord: resume already claimed")
 
-// childEnv builds the child engine's extra environment: ambient identity plus
-// the coordinator reach-back trio. The credential rides ONLY here (the
-// harness-inherited process env) — never an MCP config structure. url may be
-// empty (degraded launch without reach-back); the trio is then omitted whole.
-func (c *Coordinator) childEnv(harp, runID, token, url string) map[string]string {
+// childEnv builds the child ENGINE's extra environment: ambient identity
+// only. The coordinator reach-back trio no longer rides here — the RUNNER
+// terminates MCP now, so the credential goes to the runner PROCESS via the
+// per-spawn seam (runnerEnv) and the harness never sees it (one credential
+// holder, one egress).
+func (c *Coordinator) childEnv(harp string) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 	}
@@ -194,6 +195,21 @@ func (c *Coordinator) childEnv(harp, runID, token, url string) map[string]string
 	// the SAME shared host log.
 	if pid := os.Getenv("CTXLOOM_PROJECT_ID"); pid != "" {
 		env["CTXLOOM_PROJECT_ID"] = pid
+	}
+	return env
+}
+
+// runnerEnv builds the per-spawn env stamped onto the RUNNER process (host:
+// cmd.Env on the `llm serve` subprocess; container: bare-name `-e` forms
+// with the values on the run-process env — never `-e KEY=VAL` argv, never
+// the process-global launcher env, which is racy across concurrent spawns).
+// The runner consumes the trio, unsets it, and exports only the MCP socket
+// path to the harness. url may be empty (degraded launch without
+// reach-back); the trio is then omitted whole and the harness's shim falls
+// back to its local mode.
+func runnerEnv(harp, runID, token, url string) map[string]string {
+	env := map[string]string{
+		"CTXLOOM_SESSION_HARP": harp,
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
@@ -239,8 +255,8 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.setState(rt, StateExecuting)
 
-	env := c.childEnv(rt.harp, rt.runID, token, url)
-	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context, env)
+	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context,
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -297,7 +313,7 @@ func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	oneshot := rt.oneshot
 	c.mu.Unlock()
 	if oneshot && len(out) > 0 {
-		if _, err := c.queueMail(rt.harp, rt.parentHarp, "result", strings.Join(out, "\n")); err != nil {
+		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", strings.Join(out, "\n")); err != nil {
 			clidiag.Warn("ctxloom", "agent %s: bridge oneshot result: %v", rt.harp, err)
 		}
 	}
@@ -469,8 +485,11 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if closeFn != nil {
 		closeFn()
 	}
-	// Revocation severs the credential's parked long-poll too.
+	// Revocation severs the credential's parked long-poll AND its live run
+	// channel (the channel teardown un-reserves tentative deliveries so the
+	// leftover-mail check below sees them).
 	c.severPoll(rec.Harp, ErrRevoked)
+	c.severChan(rec.Harp)
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child
 	// death (blue-paper). Kind distinguishes a launch failure (error) from
@@ -482,7 +501,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		} else if detail != "" {
 			body += ": " + detail
 		}
-		if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+		if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
 			clidiag.Warn("ctxloom", "agent %s: queue terminal notice: %v", rec.Harp, err)
 		}
 	}
@@ -514,7 +533,7 @@ func (c *Coordinator) resumeChild(harp string) {
 	plan, err := c.spawner.Resolve(c.baseCtx, rec.Agent)
 	if err != nil {
 		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
-		if _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
 			clidiag.Warn("ctxloom", "agent %s: queue resume failure: %v", harp, qerr)
 		}
 		return
@@ -546,8 +565,8 @@ func (c *Coordinator) resumeChild(harp string) {
 		return
 	}
 	contextText := c.spawner.ResumeContext(c.baseCtx, plan, harp)
-	env := c.childEnv(harp, rt.runID, token, url)
-	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText, env)
+	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText,
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url))
 	if err != nil {
 		c.failChild(rt, err)
 		return

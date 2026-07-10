@@ -43,7 +43,7 @@ func (stubPolicy) Approvals() isolation.Approvals { return isolation.ApprovalsPr
 func (p stubPolicy) PrepareWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
 	return stubWorkspace{dir: projectDir}, nil
 }
-func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace) (pb.Client, error) {
+func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
 	return p.mk(), nil
 }
 

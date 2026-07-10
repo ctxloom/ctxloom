@@ -31,6 +31,22 @@ var llmServeCmd = &cobra.Command{
 			return fmt.Errorf("unknown backend: %s", backendName)
 		}
 
+		// RUNNER-TERMINATED MCP (agentcoord B1.6): the per-spawn seam stamps
+		// the coordinator trio onto THIS process's env. Consume it FIRST and
+		// scrub it — the runner is the ONE credential holder; the harness
+		// and its subprocesses must never inherit it.
+		homeCfg := coord.HomeConfig{
+			URL:     os.Getenv(coord.EnvCoordURL),
+			Token:   os.Getenv(coord.EnvCoordCred),
+			RunID:   os.Getenv(coord.EnvRunID),
+			Harness: backendName,
+			Version: Version,
+		}
+		harp := os.Getenv("CTXLOOM_SESSION_HARP")
+		for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID} {
+			_ = os.Unsetenv(k)
+		}
+
 		// Load config and apply the first labeled entry whose type matches this
 		// backend. serve receives only the backend type (the self-invoked
 		// transport names backends, not labels), so binary/args/env come from
@@ -50,20 +66,32 @@ var llmServeCmd = &cobra.Command{
 			}
 		}
 
-		// RUNNER DIAL-HOME (agentcoord Wave B1): when the process env carries
-		// the coordinator trio — injected per spawn on both spawn paths —
-		// this runner dials the coordinator's RunnerChannel: RunnerHello
-		// (capabilities + active run), heartbeats, best-effort RunExited at
-		// exit. A failed dial is a warning, never a launch blocker: the
-		// coordinator synthesizes RunExited on runner loss either way (that
-		// synthesis, not this dial, is the queue-stranding fix).
-		var link *coord.RunnerLink
-		if url, tok, runID := os.Getenv(coord.EnvCoordURL), os.Getenv(coord.EnvCoordCred), os.Getenv(coord.EnvRunID); url != "" && tok != "" && runID != "" {
-			l, derr := coord.DialRunner(cmd.Context(), url, tok, runID, backendName, Version)
-			if derr != nil {
-				clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", derr)
+		// With the trio present, this runner dials home (RunnerChannel
+		// lifecycle + the RunChannel every coordination tool rides, both
+		// reconnecting) and TERMINATES MCP: the surface serves on a
+		// container-local unix socket, exported to the harness via
+		// CTXLOOM_MCP_SOCKET so its stdio `ctxloom mcp` shim forwards here.
+		// The socket listens BEFORE the harness can spawn (plugin.Serve
+		// below is what accepts the Chat/Run that spawns it — assert, don't
+		// race). A dial failure is a warning, never a launch blocker: the
+		// coordinator synthesizes RunExited on runner loss either way.
+		var home *coord.Home
+		if homeCfg.URL != "" && homeCfg.Token != "" {
+			h, herr := coord.NewHome(cmd.Context(), homeCfg)
+			if herr != nil {
+				clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 			} else {
-				link = l
+				home = h
+				if cfg != nil {
+					if endpoint, merr := serveRunnerMCP(cfg, harp, home); merr != nil {
+						clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
+					} else {
+						defer endpoint.close()
+						// Exported into THIS process env: every engine spawn
+						// path builds the harness env over os.Environ.
+						_ = os.Setenv(coord.EnvMCPSocket, endpoint.socketPath)
+					}
+				}
 			}
 		}
 
@@ -79,10 +107,10 @@ var llmServeCmd = &cobra.Command{
 			GRPCServer:      plugin.DefaultGRPCServer,
 		})
 
-		if link != nil {
+		if home != nil {
 			// The harness exited with the plugin: report it. docker-stop
 			// rarely gives this path a chance — synthesis covers that.
-			link.Shutdown(0, "")
+			home.Close(0, "")
 		}
 		return nil
 	},

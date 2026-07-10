@@ -24,10 +24,15 @@ type AgentChatRequest struct {
 	// turn as a lead block — the chat substrate never runs Setup.
 	Context string
 	WorkDir string
-	// Env is the child engine's extra environment: the child's session harp,
-	// the bus socket, and the delegation depth (ambient identity — never
-	// client-claimed).
+	// Env is the child engine's extra environment: the child's session harp
+	// and project identity (ambient identity — never client-claimed).
 	Env map[string]string
+	// RunnerEnv is stamped per spawn onto the RUNNER process (`ctxloom llm
+	// serve`): the coordinator reach-back trio the runner-terminated MCP
+	// path consumes. host: cmd.Env on the subprocess; container: bare-name
+	// `-e` forms with values on the run-process env. Never merged into the
+	// engine env — the runner is the one credential holder.
+	RunnerEnv map[string]string
 	// Permissions is the already-gated headless-safe posture (D3: children
 	// never prompt; the caller refused or downgraded anything else).
 	Permissions agent.PermissionMode
@@ -120,7 +125,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 			p.Abort()
 			return nil, gerr
 		}
-		p.factory = isolation.FactoryForWorkspace(policy, ws)
+		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
 	}
 	return p, nil
 }

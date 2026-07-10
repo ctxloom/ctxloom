@@ -16,6 +16,14 @@ const (
 	// runner, so RunnerChannel Hello correlates before StartRun exists
 	// (plan A9). Absent on the parent-session credential.
 	EnvRunID = "CTXLOOM_RUN_ID"
+	// EnvMCPSocket is the container-local (or host user-private) unix
+	// socket path of the RUNNER's MCP endpoint. The runner creates the
+	// socket BEFORE the harness spawns and exports this into the harness
+	// env; a `ctxloom mcp` shim finding it forwards the whole surface
+	// there (HTTP-over-unix — the tool path never crosses the container
+	// boundary; the runner is the one credential holder and the one
+	// egress).
+	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
 )
 
 // Identity is what a credential authenticates AND identifies: the caller's

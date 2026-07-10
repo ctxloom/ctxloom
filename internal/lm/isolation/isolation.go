@@ -99,7 +99,12 @@ type Policy interface {
 	// returns its client. none/worktree → a bare self-invoked `ctxloom llm serve`
 	// subprocess (the workspace is expressed purely via RunOptions.WorkDir);
 	// container → docker/podman run with gRPC over a network transport.
-	SpawnClient(backendName, label string, verbosity int, ws Workspace) (pb.Client, error)
+	// spawnEnv is the PER-SPAWN env stamped onto the runner process (the
+	// coordinator reach-back trio): host → cmd.Env entries; container →
+	// bare-name `-e` forms with the values on the run-process env (never
+	// `-e KEY=VAL` argv — /proc/<pid>/cmdline is world-readable — and never
+	// the process-global launcher env, racy across concurrent spawns).
+	SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error)
 }
 
 // EnvWorkspace is an OPTIONAL Workspace capability: a workspace whose isolation
@@ -128,9 +133,9 @@ func WorkspaceEnv(ws Workspace) map[string]string {
 // pb.ClientFactory seam the fan-out injects (func(backend, label, verbosity) →
 // Client). For the None policy the returned factory is behaviour-identical to
 // pb.DefaultClientFactory — the same bare self-invoked subprocess.
-func FactoryForWorkspace(p Policy, ws Workspace) pb.ClientFactory {
+func FactoryForWorkspace(p Policy, ws Workspace, spawnEnv map[string]string) pb.ClientFactory {
 	return func(backendName, label string, verbosity int) (pb.Client, error) {
-		return p.SpawnClient(backendName, label, verbosity, ws)
+		return p.SpawnClient(backendName, label, verbosity, ws, spawnEnv)
 	}
 }
 

@@ -211,21 +211,23 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, acpCoord *
 	}
 
 	env := map[string]string{}
+	var spawnEnv map[string]string
 	if harp != "" {
 		// The engine (and its SessionStart hooks) see the harp exactly like an
 		// interactive run — this is what binds the engine's transcript to the
 		// harp so the session becomes loadable later.
 		env["CTXLOOM_SESSION_HARP"] = harp
-		// Coordinator reach-back trio: this ACP session's engine forwards its
-		// agent tools to the process coordinator (its stdio `ctxloom mcp`
-		// runs in forward mode). ACP sessions run host-runtime at the
-		// editor's cwd, so the loopback endpoint reaches it.
-		for k, v := range acpCoord.sessionEnv(cfg, req.Cwd, harp) {
-			env[k] = v
+		// Coordinator reach-back trio: stamped onto the RUNNER's spawn env
+		// (B1.6 — the runner terminates MCP and holds the one credential;
+		// the engine env never carries it). ACP sessions run host-runtime at
+		// the editor's cwd, so the loopback endpoint reaches the runner.
+		if trio := acpCoord.sessionEnv(cfg, req.Cwd, harp); len(trio) > 0 {
+			spawnEnv = trio
+			spawnEnv["CTXLOOM_SESSION_HARP"] = harp
 		}
 	}
 
-	client, err := pb.DefaultClientFactory()(backendName, label, 0)
+	client, err := pb.NewSelfInvokingClientForLabelEnv(backendName, label, 0, spawnEnv)
 	if err != nil {
 		return nil, err
 	}

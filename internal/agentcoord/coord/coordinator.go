@@ -50,24 +50,29 @@ type Coordinator struct {
 
 	releaseOwner func()
 
-	runs    *Store
-	runsF   *runsFold
-	queueF  *queueFold
-	rosterF *rosterFold
-	mail    *Store
-	mailF   *mailFold
-	auditJ  *Store
+	runs     *Store
+	runsF    *runsFold
+	queueF   *queueFold
+	rosterF  *rosterFold
+	reportsF *reportsFold
+	mail     *Store
+	mailF    *mailFold
+	auditJ   *Store
 
 	spawner Spawner
 	slots   *turnSlots
 	hub     *agentbus.TapHub
+	// custom maps host-relay tool names ("ctxloom/<tool>") onto the
+	// coordinator-side handlers the hosting process injects.
+	custom map[string]CustomHandler
 
 	mu        sync.Mutex
 	attach    map[string]*childRt // runID → runtime attachment
 	byHarp    map[string]*childRt // harp → current attachment
 	polls     map[string]*parkedPoll
-	delivered map[string][]string      // role → delivered-but-unacked ids
+	delivered map[string][]string       // role → delivered-but-unacked ids
 	runners   map[string]*runnerSession // credHash → connected runner
+	chans     map[string]*runChan       // role harp → live RunChannel
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -131,6 +136,7 @@ func New(opts Options) (*Coordinator, error) {
 		polls:        make(map[string]*parkedPoll),
 		delivered:    make(map[string][]string),
 		runners:      make(map[string]*runnerSession),
+		chans:        make(map[string]*runChan),
 		busServers:   make(map[string]*agentbus.Server),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
@@ -142,8 +148,8 @@ func New(opts Options) (*Coordinator, error) {
 		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Factory)
 	}
 
-	c.runsF, c.queueF, c.rosterF = newRunsFold(), newQueueFold(), newRosterFold()
-	runs, err := openStore(filepath.Join(stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF)
+	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+	runs, err := openStore(filepath.Join(stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
 	if err != nil {
 		c.closePartial()
 		return nil, err
@@ -335,6 +341,15 @@ func (c *Coordinator) Roster() []RosterEntry {
 // only their parent (hub-and-spoke); the session owner addresses its
 // children by harp.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string) (string, error) {
+	_, _, disposition, err := c.peerSend(caller, to, kind, body)
+	return disposition, err
+}
+
+// peerSend is the shared send verb behind AgentSend (bare-mcp local path)
+// and the plane-2 PeerSendRequest handler: routing policy, durable queue,
+// delivery-by-state. delivered reports a completed waiting receive (a local
+// parked poll, or a tentative push into the recipient runner's parked recv).
+func (c *Coordinator) peerSend(caller Identity, to, kind, body string) (msgID string, delivered bool, disposition string, err error) {
 	if caller.IsChild() {
 		parent := ""
 		c.runs.View(func() {
@@ -343,43 +358,44 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string) (string,
 			}
 		})
 		if parent == "" {
-			return "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
+			return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
 		}
 		if to != ParentAddress && to != parent {
-			return "", ErrPeerRouting
+			return "", false, "", ErrPeerRouting
 		}
 		c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-		if _, err := c.queueMail(caller.Harp, parent, kind, body); err != nil {
-			return "", err
+		id, completed, qerr := c.queueMail(caller.Harp, parent, kind, body)
+		if qerr != nil {
+			return "", false, "", qerr
 		}
-		return "sent to the coordinator", nil
+		return id, completed, "sent to the coordinator", nil
 	}
 
 	if to == ParentAddress {
-		return "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
+		return "", false, "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
 	known := false
 	c.runs.View(func() { known = c.runsF.currentRun(to) != nil })
 	if !known {
-		return "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
+		return "", false, "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	completed, err := c.queueMail(caller.Harp, to, kind, body)
+	msgID, delivered, err = c.queueMail(caller.Harp, to, kind, body)
 	if err != nil {
-		return "", err
+		return "", false, "", err
 	}
-	if completed {
-		return "completed the child's waiting agent_recv", nil
+	if delivered {
+		return msgID, true, "completed the child's waiting agent_recv", nil
 	}
 	switch c.driveQueued(to) {
 	case StateEnded:
-		return "child session had ended — resuming it with the message as its next turn", nil
+		return msgID, false, "child session had ended — resuming it with the message as its next turn", nil
 	case StateIdle:
-		return "delivering as a new turn", nil
+		return msgID, false, "delivering as a new turn", nil
 	case StateQueued:
-		return "queued: the child has not started yet; it will drain its mailbox after its first turn", nil
+		return msgID, false, "queued: the child has not started yet; it will drain its mailbox after its first turn", nil
 	default: // executing / parked race
-		return "queued mid-turn: delivered at the child's next turn boundary", nil
+		return msgID, false, "queued mid-turn: delivered at the child's next turn boundary", nil
 	}
 }
 
@@ -433,11 +449,11 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 		return "", fmt.Errorf("inject: %q is not a child of this coordinator: %w", harp, agentbus.ErrNotInjectable)
 	}
 	c.audit("inject", UserSender, map[string]string{"harp": harp})
-	completed, err := c.queueMail(UserSender, harp, "", text)
+	_, completed, err := c.queueMail(UserSender, harp, "", text)
 	if err != nil {
 		return "", err
 	}
-	if _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
+	if _, _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
 		clidiag.Warn("ctxloom", "inject %s: mirror notice: %v", harp, merr)
 	}
 	if completed {

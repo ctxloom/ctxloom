@@ -37,7 +37,7 @@ func (failingPolicy) Approvals() Approvals { return ApprovalsBypass }
 func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspace, error) {
 	return nil, errors.New("agent image absent")
 }
-func (failingPolicy) SpawnClient(string, string, int, Workspace) (pb.Client, error) {
+func (failingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
 
@@ -54,7 +54,7 @@ func (passingPolicy) Approvals() Approvals { return ApprovalsPrompt }
 func (passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return None{}.PrepareWorkspace(ctx, projectDir, agentID)
 }
-func (passingPolicy) SpawnClient(string, string, int, Workspace) (pb.Client, error) {
+func (passingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")
 }
 
@@ -82,7 +82,7 @@ func TestNone_IsHostIdentical(t *testing.T) {
 func TestFactoryForWorkspace_BindsPolicy(t *testing.T) {
 	ws, err := None{}.PrepareWorkspace(context.Background(), "/project/root", "m")
 	require.NoError(t, err)
-	factory := FactoryForWorkspace(None{}, ws)
+	factory := FactoryForWorkspace(None{}, ws, nil)
 	require.NotNil(t, factory, "the bridge must produce a client factory")
 }
 

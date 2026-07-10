@@ -50,7 +50,7 @@ func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
 	require.NoError(t, err, "PrepareWorkspace must succeed with docker + the built image")
 	require.Equal(t, projectDir, ws.Dir(), "workspace dir is the identical-path project dir")
 
-	client, err := pol.SpawnClient("mock", "", 0, ws)
+	client, err := pol.SpawnClient("mock", "", 0, ws, nil)
 	require.NoError(t, err, "SpawnClient must bring up the plugin in a container and connect")
 	// Kill on cleanup so a later require failure can't leak a running container
 	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).
@@ -104,7 +104,7 @@ func TestContainerPolicy_TransportLoopbackTCP(t *testing.T) {
 	ws, err := pol.PrepareWorkspace(ctx, projectDir, "itest-tcp")
 	require.NoError(t, err, "PrepareWorkspace must succeed")
 
-	client, err := pol.SpawnClient("mock", "", 0, ws)
+	client, err := pol.SpawnClient("mock", "", 0, ws, nil)
 	require.NoError(t, err, "SpawnClient must bring up the plugin over the TCP-loopback transport")
 	// Kill on cleanup so a later require failure can't leak a running container
 	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).

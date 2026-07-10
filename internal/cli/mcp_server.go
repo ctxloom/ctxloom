@@ -85,13 +85,14 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
-	// FORWARD MODE (agentcoord Wave B1): when the harness-inherited env
-	// carries the coordinator trio, this whole server is a stdio↔HTTP proxy
-	// onto the coordinator's MCP endpoint. No local startup (config, sync,
-	// hooks) runs — the coordinator process owns all of it — and identity
-	// derives from the credential per request, never from this process env.
-	if url := os.Getenv(coord.EnvCoordURL); url != "" {
-		return runMCPForward(ctx, url, os.Getenv(coord.EnvCoordCred))
+	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
+	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
+	// proxy onto it. No local startup (config, sync, hooks) runs — the
+	// runner process owns the surface and the coordinator credential; this
+	// process holds neither. (The B1 forward-to-coordinator HTTP mode is
+	// DELETED: CTXLOOM_COORD_URL/CRED are consumed only by the runner now.)
+	if sock := os.Getenv(coord.EnvMCPSocket); sock != "" {
+		return runMCPForward(ctx, sock)
 	}
 
 	// Fail-loudly gate: checkpoint before the boot sequence so every

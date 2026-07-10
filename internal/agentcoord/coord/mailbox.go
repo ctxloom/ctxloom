@@ -58,18 +58,33 @@ type pollResult struct {
 func newMessageID() string { return randID("m-", 12) }
 
 // queueMail durably queues one message (fsynced before return), then
-// completes the recipient's parked long-poll when one is waiting. Returns
-// true when a parked receive consumed it. Routing policy is the caller's.
-func (c *Coordinator) queueMail(from, to, kind, body string) (bool, error) {
+// completes the recipient's waiting receive when one is open: a LOCAL parked
+// long-poll (bare-mcp path), or — tentatively — the recipient runner's
+// parked agent_recv via a pushed CoordinatorNotice (the cursor advances only
+// on the runner's mail_consumed fact). completed reports either. Routing
+// policy is the caller's.
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
 	msg := Message{ID: newMessageID(), From: from, To: to, Kind: kind, Body: body}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{
 			MessageID: msg.ID, From: from, To: to, Kind: kind, Body: body,
 		})}, nil
 	}); err != nil {
-		return false, err
+		return "", false, err
 	}
-	return c.deliverToPoll(to, msg), nil
+	if c.deliverToPoll(to, msg) {
+		return msg.ID, true, nil
+	}
+	// Push-down: a recipient whose runner-side recv is parked gets the mail
+	// pushed as a notice (tentative delivery; at-least-once).
+	c.mu.Lock()
+	parked := c.chans[to] != nil && c.chans[to].parked
+	c.mu.Unlock()
+	if parked {
+		c.pushMail(to)
+		return msg.ID, true, nil
+	}
+	return msg.ID, false, nil
 }
 
 // deliverToPoll hands msg to the role's parked poll if one is waiting,

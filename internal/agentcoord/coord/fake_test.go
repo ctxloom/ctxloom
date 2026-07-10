@@ -19,6 +19,7 @@ type fakeEngine struct {
 	mu            sync.Mutex
 	texts         []string
 	gotEnv        map[string]string
+	gotRunnerEnv  map[string]string
 	turnGate      chan struct{}
 	endAfterTurns int
 }
@@ -27,6 +28,16 @@ func (f *fakeEngine) recordedTexts() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.texts...)
+}
+
+func (f *fakeEngine) runnerEnv() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]string, len(f.gotRunnerEnv))
+	for k, v := range f.gotRunnerEnv {
+		out[k] = v
+	}
+	return out
 }
 
 func (f *fakeEngine) env() map[string]string {
@@ -41,9 +52,10 @@ func (f *fakeEngine) env() map[string]string {
 
 // launch adapts the fake engine onto the operations.AgentChatLaunch shape the
 // Spawner returns.
-func (f *fakeEngine) launch(ctx context.Context, contextText string, env map[string]string) *operations.AgentChatLaunch {
+func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runnerEnv map[string]string) *operations.AgentChatLaunch {
 	f.mu.Lock()
 	f.gotEnv = env
+	f.gotRunnerEnv = runnerEnv
 	f.mu.Unlock()
 	in := make(chan agent.ChatMessage)
 	events := make(chan agent.ChatEvent)
@@ -166,13 +178,13 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 	return harp, nil
 }
 
-func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
 	s.mu.Lock()
 	e := s.next()
 	s.engines = append(s.engines, e)
 	s.perms = append(s.perms, plan.Perm)
 	s.mu.Unlock()
-	return e.launch(ctx, contextText, env), nil
+	return e.launch(ctx, contextText, env, runnerEnv), nil
 }
 
 // lastPerm returns the permission the most recent launch carried.

@@ -77,12 +77,18 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 		_ = conn.Close()
 		return nil, fmt.Errorf("coord: open RunnerChannel: %w", err)
 	}
+	// A session-owner runner (empty runID) hosts no spawned run: advertise
+	// no active runs rather than an empty id the ownership check rejects.
+	var active []string
+	if runID != "" {
+		active = []string{runID}
+	}
 	if err := stream.Send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Hello{
 		Hello: &agentcoordpb.RunnerHello{
 			Version:           version,
 			Harnesses:         []string{harness},
 			MaxConcurrentRuns: 1,
-			ActiveRunIds:      []string{runID},
+			ActiveRunIds:      active,
 		},
 	}}); err != nil {
 		cancel()
@@ -125,17 +131,23 @@ func (l *RunnerLink) heartbeatLoop(ctx context.Context) {
 	}
 }
 
+// Done reports the link's end: closed when the heartbeat loop exits (send
+// failure or context cancellation). Home's redial loop watches it.
+func (l *RunnerLink) Done() <-chan struct{} { return l.done }
+
 // Shutdown sends a best-effort RunExited (docker-stop usually gives no
 // chance; the coordinator's synthesis is the load-bearing path) and closes
 // the link.
 func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
-	_ = l.stream.Send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_RunExited{
-		RunExited: &agentcoordpb.RunExited{
-			RunId:            l.runID,
-			ExitCode:         int32(exitCode),
-			HarnessSessionId: harnessSessionID,
-		},
-	}})
+	if l.runID != "" { // a session-owner runner has no run to report exited
+		_ = l.stream.Send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_RunExited{
+			RunExited: &agentcoordpb.RunExited{
+				RunId:            l.runID,
+				ExitCode:         int32(exitCode),
+				HarnessSessionId: harnessSessionID,
+			},
+		}})
+	}
 	_ = l.stream.CloseSend()
 	l.cancel()
 	<-l.done

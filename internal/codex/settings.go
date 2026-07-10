@@ -20,6 +20,14 @@
 // │ machine with codex installed (write hooks/MCP, launch, confirm the hooks  │
 // │ fire and the MCP server connects, run a oneshot/distill).                 │
 // └─────────────────────────────────────────────────────────────────────────┘
+//
+// STATUS (2026-07-10): still LIVE-UNTESTED end-to-end — never run against a
+// real codex account (no OPENAI_API_KEY/CODEX_API_KEY on any dev host).
+// Proven since the warning above was written: hermetic backend parity
+// (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (codex-acp
+// advertises loadSession:true; `-c model=` is accepted at parse). NOT proven:
+// a live authenticated delegated echo — parse-acceptance is not honor.
+// Revive once codex credentials exist on a dev host (taskloom bold-smirk).
 package codex
 
 import (

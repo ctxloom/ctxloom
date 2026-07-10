@@ -137,6 +137,8 @@ Registered LLM backends:
 | `kiro` | Kiro | AWS Kiro (chat rides its ACP adapter) |
 | `acp` | any ACP agent | Generic Agent Client Protocol backend descriptor |
 
+**Status:** `codex` and `kiro` are implemented and hermetically tested; live operation is untested (requires a codex/kiro account, which the maintainers do not currently have). Model selection is accepted by kiro-cli but its honoring is unverified.
+
 A **config label** is an arbitrary name for a fully-specified backend config; the backend is chosen by the entry's `type`. Two labels can point at the same backend with different models (e.g. a `big` and a `quick` claude-code). Set the interactive default with `llm.defaults.primary` (or per-run with `--llm <label>`), and the compression role with `llm.defaults.fast`:
 
 ```yaml

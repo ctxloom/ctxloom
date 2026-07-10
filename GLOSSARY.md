@@ -39,6 +39,8 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **runtime coordinator** | The **process/library**: durable CQRS stores (run registry, role mailboxes, interaction journal), credential minting/verification, the agentcoord gRPC server (RunnerChannel/RunChannel), spawn-queue scheduling, and runner-loss synthesis. Hosted by every session-owning process (`ctxloom run`, `ctxloom acp`, the bare `ctxloom mcp` fallback). Never an LLM. | `internal/agentcoord/coord` |
 | **coordinating agent** | The **LLM role**: an agent (usually the session's primary) that *uses* the coordination tools — spawning children (`agent_run`), routing their mail (`agent_send`/`agent_recv`), reading the roster, filing reports. Judgment lives here; process facts live in the runtime coordinator. | the parent session's model; the coordinator-ensemble profiles |
 
+> Status: the `codex` and `kiro` engines above are implemented and hermetically tested; live operation is untested (no codex/kiro account on any dev host).
+
 ## Naming decisions (why these words)
 
 - **"agent" is reserved for the ctxloom actor.** It was the most user-facing sense

@@ -4,6 +4,14 @@
 // is the terminal-direct half. The shared launch core (capability wiring,
 // Setup/Cleanup) lives in the embedded agent.LaunchBackend; this type adds only
 // the kiro-specific Configure/Execute/buildArgs.
+//
+// LIVE-UNTESTED (2026-07-10): never run against a logged-in kiro-cli — no
+// account on any dev host. Proven: hermetic backend parity
+// (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (kiro-cli acp
+// accepts --agent/--model/--agent-engine at parse). NOT proven: a live echo,
+// and whether kiro-cli acp actually HONORS --model — parse-acceptance is not
+// honor (cf. claude-code-acp's silent-ignore). Revive once kiro-cli
+// credentials exist (taskloom numb-panda / bold-smirk).
 package kiro
 
 import (

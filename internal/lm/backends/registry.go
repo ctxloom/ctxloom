@@ -204,6 +204,9 @@ func init() {
 		exports:     antigravityExports,
 	})
 
+	// LIVE-UNTESTED: codex has never been run against a real account on any
+	// dev host (see the package doc in internal/codex for what's proven vs
+	// unverified; taskloom bold-smirk tracks the revive).
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
@@ -224,6 +227,9 @@ func init() {
 	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
 	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
 	// skills (.kiro/skills/<n>/SKILL.md).
+	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
+	// (see the package doc in internal/kiro for what's proven vs unverified;
+	// taskloom numb-panda / bold-smirk track the revive).
 	registerDescriptor(agentDescriptor{
 		name: "kiro",
 		newBackend: func() agent.Backend {

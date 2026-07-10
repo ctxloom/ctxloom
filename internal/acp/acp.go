@@ -256,6 +256,8 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 			// with --model: an adapter that needs this rejects --model too.
 			args = append(args, "-c", fmt.Sprintf("%s=%q", b.modelConfigKey, model))
 		} else {
+			// kiro-cli path: accepted at parse by kiro-cli; HONOR UNVERIFIED (no
+			// auth) — do not assume, cf. claude-code-acp silent-ignore.
 			args = append(args, "--model", model)
 		}
 	}

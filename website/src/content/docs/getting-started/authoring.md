@@ -152,6 +152,8 @@ hooks:                              # Agent lifecycle hooks
 | `no_distill` | If true, skip compression |
 | `llm` | Per-backend export settings for the exported slash command, keyed by backend (`claude-code`, `antigravity`, `codex`, `kiro`): `enabled`, `description`, and per-backend extras like `argument_hint`, `allowed_tools`, `model` |
 
+Status: `codex` and `kiro` exports are implemented and hermetically tested; live operation is untested (no codex/kiro account on any dev host).
+
 ### MCP Server Fields
 
 | Field | Description |

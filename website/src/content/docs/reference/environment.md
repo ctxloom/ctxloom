@@ -50,6 +50,8 @@ Agents with `runtime: container` pass authentication through to the engine insid
 | `KIRO_API_KEY` | Passed through for the kiro backend |
 | `CODEX_HOME` | Codex configuration directory, honored when materializing codex command files |
 
+Status: the codex and kiro backends are implemented and hermetically tested; live operation is untested (no codex/kiro account on any dev host).
+
 ## Session Variables
 
 `ctxloom run` exports these into the launched backend's environment; hooks, the MCP server, and taskloom read them. They are set for you — listed here for debugging:

@@ -774,6 +774,28 @@ Examples:
 			}()
 		}
 
+		// COORDINATOR HOSTING (agentcoord Wave B1): `ctxloom run` is a
+		// session-owning process, so it stands the runtime coordinator up —
+		// durable delegation stores, the authenticated MCP endpoint, the
+		// gRPC RunnerChannel — and injects the reach-back trio into the
+		// harness env at launch. The harness's stdio `ctxloom mcp` then runs
+		// in forward mode and every agent tool terminates HERE, fixing the
+		// orchestrator-in-subprocess split. A standup failure is a fatal
+		// finding (fail-loud): --degraded downgrades it and the harness
+		// falls back to its own in-process orchestrator (today's behavior).
+		if activeHarp != "" && !runPrint {
+			if sessionCoord, coordEnv, cerr := hostCoordinatorForSession(cfg, workDir, activeHarp, agentRuntime); cerr != nil {
+				strictness.Fail(strictness.ClassApply,
+					"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
+					"agent coordinator startup failed: %v", cerr)
+			} else {
+				defer sessionCoord.Close()
+				for k, v := range coordEnv {
+					runEnv[k] = v
+				}
+			}
+		}
+
 		// --seed-task: move one task from the resume source store into this
 		// freshly minted session's store, marked for active work. Used by
 		// `ctxloom tasks run` to spin a browsed task into its own session.

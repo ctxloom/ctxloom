@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -48,6 +50,23 @@ var llmServeCmd = &cobra.Command{
 			}
 		}
 
+		// RUNNER DIAL-HOME (agentcoord Wave B1): when the process env carries
+		// the coordinator trio — injected per spawn on both spawn paths —
+		// this runner dials the coordinator's RunnerChannel: RunnerHello
+		// (capabilities + active run), heartbeats, best-effort RunExited at
+		// exit. A failed dial is a warning, never a launch blocker: the
+		// coordinator synthesizes RunExited on runner loss either way (that
+		// synthesis, not this dial, is the queue-stranding fix).
+		var link *coord.RunnerLink
+		if url, tok, runID := os.Getenv(coord.EnvCoordURL), os.Getenv(coord.EnvCoordCred), os.Getenv(coord.EnvRunID); url != "" && tok != "" && runID != "" {
+			l, derr := coord.DialRunner(cmd.Context(), url, tok, runID, backendName, Version)
+			if derr != nil {
+				clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", derr)
+			} else {
+				link = l
+			}
+		}
+
 		// Create the plugin map with our backend
 		pluginMap := map[string]plugin.Plugin{
 			pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
@@ -60,6 +79,11 @@ var llmServeCmd = &cobra.Command{
 			GRPCServer:      plugin.DefaultGRPCServer,
 		})
 
+		if link != nil {
+			// The harness exited with the plugin: report it. docker-stop
+			// rarely gives this path a chance — synthesis covers that.
+			link.Shutdown(0, "")
+		}
 		return nil
 	},
 }

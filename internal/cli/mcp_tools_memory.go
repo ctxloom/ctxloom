@@ -153,6 +153,10 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		SessionID: in.SessionID,
 		WorkDir:   workDir,
 		OutputDir: sessionsDir,
+		// The CALLER's harp (credential-derived on the coordinator's HTTP
+		// surface) — never the compactor's ambient env fallback, which would
+		// key a child's compaction under the host process's session.
+		HarpName: s.self.Harp,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create compactor: %w", err)
@@ -265,7 +269,11 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	// agent produced it (cross-agent aware); the owning agent server materializes
 	// it. Best-effort — a lookup error degrades to the positional fallback.
 	sessionID := ""
-	if ref, rerr := operations.ResolvePreviousSession(workDir, os.Getenv("CTXLOOM_SESSION_HARP")); rerr == nil && ref != nil {
+	// Identity comes from the caller (credential-derived on the coordinator's
+	// HTTP surface, env-derived on stdio) — never a raw env read, so a child
+	// calling through the shared coordinator server resolves ITS previous
+	// session, not the host process's.
+	if ref, rerr := operations.ResolvePreviousSession(workDir, s.self.Harp); rerr == nil && ref != nil {
 		sessionID = ref.SessionID
 		if ref.Backend != "" {
 			backendName = ref.Backend

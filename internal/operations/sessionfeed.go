@@ -121,7 +121,7 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	socks := busSocketCandidates()
 	if len(socks) == 0 {
-		return nil, fmt.Errorf("no orchestrator bus socket found (%s unset, no session-dir sockets)", agentbus.SocketEnv)
+		return nil, fmt.Errorf("no coordinator bus socket found (no session-dir sockets)")
 	}
 	var lastErr error
 	for _, sock := range socks {
@@ -136,30 +136,22 @@ func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (
 	return nil, lastErr
 }
 
-// busSocketCandidates lists the sockets a live tap could sit behind: the
-// ambient CTXLOOM_BUS_SOCKET first (inside a delegated session it names the
-// orchestrator directly), then every session-dir socket — the orchestrator
-// binds <sessions>/<its own harp>/agent-bus.sock, and the index does not
-// record a child's parent, so the scan is the discovery. Most-recently-active
+// busSocketCandidates lists the sockets a live tap could sit behind: every
+// session-dir socket — the coordinator binds
+// <sessions>/<owner harp>/agent-bus.sock, and the index does not record a
+// child's parent, so the scan is the discovery. (The ambient
+// CTXLOOM_BUS_SOCKET candidate died with the executor shim in the agentcoord
+// migration — children no longer carry a socket path.) Most-recently-active
 // sockets are tried first; dead files fail the dial in microseconds.
 func busSocketCandidates() []string {
 	var out []string
-	seen := make(map[string]bool)
-	if env := os.Getenv(agentbus.SocketEnv); env != "" {
-		out = append(out, env)
-		seen[env] = true
-	}
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return out
 	}
 	matches, _ := filepath.Glob(filepath.Join(root, "*", "agent-bus.sock"))
 	sort.Slice(matches, func(i, j int) bool { return socketMTime(matches[i]).After(socketMTime(matches[j])) })
-	for _, m := range matches {
-		if !seen[m] {
-			out = append(out, m)
-		}
-	}
+	out = append(out, matches...)
 	return out
 }
 

@@ -41,18 +41,19 @@ func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	return entry.HarpName
 }
 
-// liveBus stands up an observable bus socket, points CTXLOOM_BUS_SOCKET at it,
-// and tees a fake child stream for harp. The returned in channel feeds the
-// child's events; out is the "orchestrator's" side and MUST be drained by the
-// test (draining it synchronizes the publishes).
+// liveBus stands up an observable bus socket under a coordinator harp's
+// session dir (where discovery globs for it — the ambient-env candidate died
+// with the executor shim) and tees a fake child stream for harp. The returned
+// in channel feeds the child's events; out is the "coordinator's" side and
+// MUST be drained by the test (draining it synchronizes the publishes).
 func liveBus(t *testing.T, harp string) (in chan agent.ChatEvent, out <-chan agent.ChatEvent) {
 	t.Helper()
 	hub := agentbus.NewTapHub()
-	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil, nil)
+	coordDir := filepath.Join(os.Getenv("HOME"), ".ctxloom", "sessions", "co")
+	require.NoError(t, os.MkdirAll(coordDir, 0o755))
+	srv, err := agentbus.Listen(filepath.Join(coordDir, "agent-bus.sock"), hub, nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
-	t.Setenv(agentbus.SocketEnv, sock)
 
 	in = make(chan agent.ChatEvent)
 	out = hub.Tee(harp, in)
@@ -223,7 +224,7 @@ func TestWatchFeed_DirDiscovery(t *testing.T) {
 	coordDir := filepath.Join(home, ".ctxloom", "sessions", "co")
 	require.NoError(t, os.MkdirAll(coordDir, 0o755))
 	hub := agentbus.NewTapHub()
-	srv, err := agentbus.Listen(filepath.Join(coordDir, "agent-bus.sock"), agentbus.New(agentbus.Hooks{}), hub, nil, nil)
+	srv, err := agentbus.Listen(filepath.Join(coordDir, "agent-bus.sock"), hub, nil, nil)
 	require.NoError(t, err)
 	defer srv.Close()
 

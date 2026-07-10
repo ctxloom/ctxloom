@@ -1,0 +1,126 @@
+package coord
+
+import "time"
+
+// Fact kinds. Two journals: the run-registry journal (runs.jsonl — run
+// lifecycle, session credentials) and the mailbox journal (mailbox.jsonl —
+// queued peer messages and consume cursors). The interaction journal
+// (interactions.jsonl) is an audit log with no projection.
+const (
+	// factRunEnqueued records an agent_run accepted at enqueue: the run is
+	// minted (run_id, credential hash) and joins the spawn queue.
+	factRunEnqueued = "run.enqueued"
+	// factRunState records a §6a state transition
+	// (queued|executing|parked|idle) for a live run.
+	factRunState = "run.state"
+	// factRunEnded is the run's terminal fact — exactly one per run_id,
+	// whatever raced to cause it (chat stream close, runner loss,
+	// agent_stop, launch failure, restart adoption). The harp stays
+	// resumable: a resume enqueues a NEW run for the same harp.
+	factRunEnded = "run.ended"
+	// factRunHarness binds the run to its harness-native session id (the
+	// resume handle RunExited may carry).
+	factRunHarness = "run.harness"
+	// factSessionCred registers a session-owner (depth-0) credential: the
+	// parent harness's identity. Only the SHA-256 of the token is recorded.
+	factSessionCred = "session.cred"
+	// factSessionCredRevoked revokes a session-owner credential.
+	factSessionCredRevoked = "session.cred.revoked"
+
+	// factMailQueued is one queued mailbox message (durable, role-addressed;
+	// deduped on message_id).
+	factMailQueued = "mail.queued"
+	// factMailConsumed advances a role's cursor: the listed message_ids are
+	// consumed. Appended only when a delivery is acknowledged — a SUBSEQUENT
+	// agent_recv from the same role (cursor-ack), or a turn-boundary
+	// delivery into a child the coordinator itself drives.
+	factMailConsumed = "mail.consumed"
+)
+
+// Terminal causes recorded on factRunEnded.
+const (
+	// CauseChatClose is the legacy chat-stream-close path (endChild): the
+	// child's engine event stream ended. Host children's only signal in B1.
+	CauseChatClose = "chat-close"
+	// CauseRunnerLoss is the coordinator-side synthesis (review R3): the
+	// run's RunnerChannel disconnected or missed heartbeats past the bound.
+	CauseRunnerLoss = "runner-loss"
+	// CauseRunnerExit is an explicit RunExited frame from the runner.
+	CauseRunnerExit = "runner-exit"
+	// CauseStopped is an agent_stop (KillRun).
+	CauseStopped = "stopped"
+	// CauseLaunchFailed is a child that never came up.
+	CauseLaunchFailed = "launch-failed"
+	// CauseOrphaned marks runs adopted from disk after a coordinator
+	// relaunch: their engine died with the previous process. Queued mail is
+	// preserved; a later send/inject resumes the harp as a fresh run.
+	CauseOrphaned = "orphaned-by-restart"
+)
+
+// runEnqueued is factRunEnqueued's payload.
+type runEnqueued struct {
+	RunID      string `json:"run_id"`
+	Harp       string `json:"harp"`
+	Agent      string `json:"agent"`
+	ParentHarp string `json:"parent_harp,omitempty"`
+	Runtime    string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container", …)
+	CredHash   string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
+	Depth      int    `json:"depth"`
+	Prompt     string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
+	Resume     bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
+}
+
+// runState is factRunState's payload.
+type runState struct {
+	RunID string `json:"run_id"`
+	State string `json:"state"`
+}
+
+// runEnded is factRunEnded's payload.
+type runEnded struct {
+	RunID  string `json:"run_id"`
+	Cause  string `json:"cause"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// runHarness is factRunHarness's payload.
+type runHarness struct {
+	RunID            string `json:"run_id"`
+	HarnessSessionID string `json:"harness_session_id"`
+}
+
+// sessionCred is factSessionCred's payload; sessionCredRevoked reuses it
+// (CredHash only).
+type sessionCred struct {
+	Harp     string `json:"harp,omitempty"`
+	Project  string `json:"project,omitempty"`
+	CredHash string `json:"cred_hash"`
+}
+
+// mailQueued is factMailQueued's payload.
+type mailQueued struct {
+	MessageID string `json:"message_id"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Kind      string `json:"kind,omitempty"`
+	Body      string `json:"body"`
+}
+
+// mailConsumed is factMailConsumed's payload.
+type mailConsumed struct {
+	Role       string   `json:"role"`
+	MessageIDs []string `json:"message_ids"`
+}
+
+// interaction is the audit payload for the interaction journal: one record
+// per resolved delegation interaction (agent_run/send/recv/stop, injections,
+// runner loss syntheses), plan-1 InteractionRecorded's ancestor.
+type interaction struct {
+	Kind   string            `json:"kind"`
+	Actor  string            `json:"actor,omitempty"` // caller harp
+	Detail map[string]string `json:"detail,omitempty"`
+}
+
+// fact helpers with the command-time timestamp (the ONLY place time enters;
+// folds read Fact.At).
+func factAt(kind string, at time.Time, payload any) Fact { return newFact(kind, at, payload) }

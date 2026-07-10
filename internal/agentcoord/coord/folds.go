@@ -1,0 +1,405 @@
+package coord
+
+import (
+	"sort"
+	"time"
+)
+
+// Child states on the §6a roster (the wire vocabulary of
+// agentbus.RosterEntry.State, preserved).
+const (
+	StateQueued    = "queued"
+	StateExecuting = "executing"
+	StateParked    = "parked"
+	StateIdle      = "idle"
+	StateEnded     = "ended"
+)
+
+// RunRecord is the run registry's view of one run attempt.
+type RunRecord struct {
+	RunID            string
+	Harp             string
+	Agent            string
+	ParentHarp       string
+	Runtime          string
+	CredHash         string
+	Depth            int
+	Prompt           string
+	State            string
+	Ended            bool
+	Cause            string
+	HarnessSessionID string
+	EnqueuedAt       time.Time
+	LastActivity     time.Time
+}
+
+// runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
+// harp→current-run index, and the active credential set (cred hash →
+// identity) that backs constant-time verification. It owns the runs journal.
+type runsFold struct {
+	runs   map[string]*RunRecord
+	byHarp map[string]string // harp → latest run_id
+	// creds maps hex SHA-256(token) → identity for every ACTIVE credential:
+	// live child runs plus registered session owners. Revocation (run end /
+	// session cred revoked) removes the entry — persisting only the hash is
+	// the whole store (review R8).
+	creds map[string]Identity
+	// project is stamped from session credentials for identity mapping.
+	project string
+}
+
+func newRunsFold() *runsFold {
+	return &runsFold{
+		runs:   make(map[string]*RunRecord),
+		byHarp: make(map[string]string),
+		creds:  make(map[string]Identity),
+	}
+}
+
+func (f *runsFold) apply(fact Fact) {
+	switch fact.Kind {
+	case factRunEnqueued:
+		var p runEnqueued
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.runs[p.RunID] = &RunRecord{
+			RunID:      p.RunID,
+			Harp:       p.Harp,
+			Agent:      p.Agent,
+			ParentHarp: p.ParentHarp,
+			Runtime:    p.Runtime,
+			CredHash:   p.CredHash,
+			Depth:      p.Depth,
+			Prompt:     p.Prompt,
+			State:      StateQueued,
+			EnqueuedAt: fact.At,
+			LastActivity: fact.At,
+		}
+		f.byHarp[p.Harp] = p.RunID
+		if p.CredHash != "" {
+			f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, Project: f.project}
+		}
+	case factRunState:
+		var p runState
+		if fact.decode(&p) != nil {
+			return
+		}
+		if r := f.runs[p.RunID]; r != nil && !r.Ended {
+			r.State = p.State
+			r.LastActivity = fact.At
+		}
+	case factRunEnded:
+		var p runEnded
+		if fact.decode(&p) != nil {
+			return
+		}
+		if r := f.runs[p.RunID]; r != nil && !r.Ended {
+			r.Ended = true
+			r.State = StateEnded
+			r.Cause = p.Cause
+			r.LastActivity = fact.At
+			// Revocation is part of the terminal fact: the credential dies
+			// with the run.
+			delete(f.creds, r.CredHash)
+		}
+	case factRunHarness:
+		var p runHarness
+		if fact.decode(&p) != nil {
+			return
+		}
+		if r := f.runs[p.RunID]; r != nil {
+			r.HarnessSessionID = p.HarnessSessionID
+		}
+	case factSessionCred:
+		var p sessionCred
+		if fact.decode(&p) != nil {
+			return
+		}
+		if p.Project != "" {
+			f.project = p.Project
+		}
+		f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, Project: p.Project}
+	case factSessionCredRevoked:
+		var p sessionCred
+		if fact.decode(&p) != nil {
+			return
+		}
+		delete(f.creds, p.CredHash)
+	}
+}
+
+// run returns the record for run_id (nil when unknown).
+func (f *runsFold) run(runID string) *RunRecord { return f.runs[runID] }
+
+// currentRun returns the harp's latest run attempt (nil when the harp was
+// never spawned here).
+func (f *runsFold) currentRun(harp string) *RunRecord {
+	id, ok := f.byHarp[harp]
+	if !ok {
+		return nil
+	}
+	return f.runs[id]
+}
+
+// identityFor resolves a credential hash to its identity.
+func (f *runsFold) identityFor(credHash string) (Identity, bool) {
+	id, ok := f.creds[credHash]
+	return id, ok
+}
+
+// activeRunsForCred lists non-ended runs owned by the credential hash — the
+// runner-loss synthesis set.
+func (f *runsFold) activeRunsForCred(credHash string) []string {
+	var out []string
+	for id, r := range f.runs {
+		if !r.Ended && r.CredHash == credHash {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// queueFold is the SPAWN QUEUE fold: run_ids waiting to start, in enqueue
+// order, plus the executing count the D4 cap checks. Restart-safe by
+// construction — it is a pure fold over the same runs journal (the
+// stranded-queue bug class dies structurally).
+type queueFold struct {
+	order     []string        // queued run_ids, enqueue order
+	inQueue   map[string]bool // membership for O(1) removal marking
+	executing int
+	state     map[string]string // run_id → last state (to keep executing exact)
+}
+
+func newQueueFold() *queueFold {
+	return &queueFold{inQueue: make(map[string]bool), state: make(map[string]string)}
+}
+
+func (f *queueFold) apply(fact Fact) {
+	switch fact.Kind {
+	case factRunEnqueued:
+		var p runEnqueued
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.order = append(f.order, p.RunID)
+		f.inQueue[p.RunID] = true
+		f.state[p.RunID] = StateQueued
+	case factRunState:
+		var p runState
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.transition(p.RunID, p.State)
+	case factRunEnded:
+		var p runEnded
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.transition(p.RunID, StateEnded)
+	}
+}
+
+func (f *queueFold) transition(runID, to string) {
+	from, known := f.state[runID]
+	if !known || from == StateEnded {
+		return
+	}
+	f.state[runID] = to
+	if from == StateExecuting && to != StateExecuting {
+		f.executing--
+	}
+	if from != StateExecuting && to == StateExecuting {
+		f.executing++
+	}
+	if from == StateQueued && to != StateQueued {
+		delete(f.inQueue, runID)
+		f.compact()
+	}
+	if from != StateQueued && to == StateQueued {
+		f.order = append(f.order, runID)
+		f.inQueue[runID] = true
+	}
+}
+
+// compact drops dequeued heads so order stays small.
+func (f *queueFold) compact() {
+	i := 0
+	for _, id := range f.order {
+		if f.inQueue[id] {
+			f.order[i] = id
+			i++
+		}
+	}
+	f.order = f.order[:i]
+}
+
+// queued returns the waiting run_ids in enqueue order (a copy).
+func (f *queueFold) queued() []string {
+	out := make([]string, 0, len(f.order))
+	for _, id := range f.order {
+		if f.inQueue[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// RosterEntry is one session in the coordinator's roster — a delegation
+// child, with its lineage and coordinator-visible state. It is the single
+// state behind BOTH transports (the MCP surface and the surviving bus roster
+// verb).
+type RosterEntry struct {
+	Harp             string `json:"harp"`
+	Agent            string `json:"agent,omitempty"`
+	State            string `json:"state"`
+	Parent           string `json:"parent,omitempty"`
+	LastActivityUnix int64  `json:"last_activity_unix,omitempty"`
+}
+
+// rosterFold is the ROSTER fold: per-harp coordinator-visible state (the
+// harp's LATEST run attempt wins). It owns the runs journal.
+type rosterFold struct {
+	entries map[string]*RosterEntry
+	current map[string]string // harp → current run_id
+	byRun   map[string]string // run_id → harp
+}
+
+func newRosterFold() *rosterFold {
+	return &rosterFold{
+		entries: make(map[string]*RosterEntry),
+		current: make(map[string]string),
+		byRun:   make(map[string]string),
+	}
+}
+
+func (f *rosterFold) apply(fact Fact) {
+	switch fact.Kind {
+	case factRunEnqueued:
+		var p runEnqueued
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.entries[p.Harp] = &RosterEntry{
+			Harp:             p.Harp,
+			Agent:            p.Agent,
+			State:            StateQueued,
+			Parent:           p.ParentHarp,
+			LastActivityUnix: fact.At.Unix(),
+		}
+		f.current[p.Harp] = p.RunID
+		f.byRun[p.RunID] = p.Harp
+	case factRunState:
+		var p runState
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.touch(p.RunID, p.State, fact.At)
+	case factRunEnded:
+		var p runEnded
+		if fact.decode(&p) != nil {
+			return
+		}
+		f.touch(p.RunID, StateEnded, fact.At)
+	}
+}
+
+func (f *rosterFold) touch(runID, state string, at time.Time) {
+	harp, ok := f.byRun[runID]
+	if !ok || f.current[harp] != runID {
+		return // a superseded attempt no longer drives the roster
+	}
+	if e := f.entries[harp]; e != nil {
+		e.State = state
+		e.LastActivityUnix = at.Unix()
+	}
+}
+
+// snapshot lists the roster sorted by harp (stable output), as copies.
+func (f *rosterFold) snapshot() []RosterEntry {
+	out := make([]RosterEntry, 0, len(f.entries))
+	for _, e := range f.entries {
+		out = append(out, *e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Harp < out[j].Harp })
+	return out
+}
+
+// Message is one mailbox message as delivered to agent_recv.
+type Message struct {
+	ID   string `json:"id,omitempty"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind,omitempty"`
+	Body string `json:"body"`
+}
+
+// mailFold is the MAILBOX fold: durable role-addressed queues plus the
+// consume cursor (the consumed message_id set). At-least-once: a message
+// leaves the pending queue only via a factMailConsumed; delivery itself is
+// runtime state, so an unacked delivery is re-delivered after a restart.
+// Queued facts are deduped on message_id.
+type mailFold struct {
+	pending  map[string][]Message // role → pending, arrival order
+	seen     map[string]bool      // message_id → queued (dedupe)
+	consumed map[string]bool      // message_id → consumed (cursor)
+}
+
+func newMailFold() *mailFold {
+	return &mailFold{
+		pending:  make(map[string][]Message),
+		seen:     make(map[string]bool),
+		consumed: make(map[string]bool),
+	}
+}
+
+func (f *mailFold) apply(fact Fact) {
+	switch fact.Kind {
+	case factMailQueued:
+		var p mailQueued
+		if fact.decode(&p) != nil {
+			return
+		}
+		if f.seen[p.MessageID] {
+			return // dedupe on message_id
+		}
+		f.seen[p.MessageID] = true
+		f.pending[p.To] = append(f.pending[p.To], Message{
+			ID: p.MessageID, From: p.From, To: p.To, Kind: p.Kind, Body: p.Body,
+		})
+	case factMailConsumed:
+		var p mailConsumed
+		if fact.decode(&p) != nil {
+			return
+		}
+		drop := make(map[string]bool, len(p.MessageIDs))
+		for _, id := range p.MessageIDs {
+			if !f.consumed[id] {
+				f.consumed[id] = true
+				drop[id] = true
+			}
+		}
+		q := f.pending[p.Role]
+		i := 0
+		for _, m := range q {
+			if !drop[m.ID] {
+				q[i] = m
+				i++
+			}
+		}
+		if i == 0 {
+			delete(f.pending, p.Role)
+		} else {
+			f.pending[p.Role] = q[:i]
+		}
+	}
+}
+
+// pendingFor returns the role's pending messages (copies, arrival order).
+func (f *mailFold) pendingFor(role string) []Message {
+	q := f.pending[role]
+	out := make([]Message, len(q))
+	copy(out, q)
+	return out
+}

@@ -15,7 +15,7 @@ The MCP surface is for **retrieving context during a session**: assembling conte
 
 ### agent_recv
 
-Receive pending bus messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish — the coordinator learns from the session record, not from silence.
+Receive pending mailbox messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: this call acknowledges the messages the previous call returned, and unacknowledged deliveries are re-delivered. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -23,7 +23,7 @@ Receive pending bus messages for this session, waiting (parked server-side) up t
 
 ### agent_run
 
-Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as bus messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
+Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -32,13 +32,21 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 ### agent_send
 
-Send a bus message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Executors may only address "parent"; peer messaging routes via the coordinator. In-memory, at-most-once: durable results belong in reports/tasks, not the bus.
+Send a message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `body` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
 | `kind` | string | No | Optional message kind (e.g. result, question, error) |
-| `to` | string | Yes | Recipient: a child session harp, or "parent" (executors may ONLY address their parent) |
+| `to` | string | Yes | Recipient: a child session harp, or "parent" (delegated children may ONLY address their parent) |
+
+### agent_stop
+
+Stop a delegated child session: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches it as a fresh run primed with its recorded history.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `harp` | string | Yes | The child session harp to stop (its engine is killed and its execution slot freed; a later agent_send resumes it as a fresh run) |
 
 ### assemble_context
 

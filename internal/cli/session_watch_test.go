@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentbus"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -427,13 +428,19 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	require.NoError(t, err)
 
 	hub := agentbus.NewTapHub()
-	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := agentbus.Listen(sock, agentbus.New(agentbus.Hooks{}), hub, nil, nil)
+	// The coordinator binds the viewer-verb socket under the owner harp's
+	// session dir; discovery (busSocketCandidates) globs the sessions root,
+	// so binding there is what the live tap finds (the ambient-env candidate
+	// died with the executor shim).
+	harpDir, err := paths.HarpDir(entry.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+	sock := filepath.Join(harpDir, "agent-bus.sock")
+	srv, err := agentbus.Listen(sock, hub, nil, nil)
 	require.NoError(t, err)
 	defer srv.Close()
-	t.Setenv(agentbus.SocketEnv, sock)
 
-	// The fake orchestrator: holds the child's stream, consuming at its own
+	// The fake coordinator: holds the child's stream, consuming at its own
 	// pace, while the watch taps it.
 	in := make(chan agent.ChatEvent)
 	consumed := hub.Tee(entry.HarpName, in)

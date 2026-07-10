@@ -14,102 +14,44 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-func listenTestBus(t *testing.T, b *Broker) string {
-	t.Helper()
-	return listenObservableTestBus(t, b, nil, nil)
-}
-
-func listenObservableTestBus(t *testing.T, b *Broker, hub *TapHub, roster RosterFunc) string {
+func listenTestBus(t *testing.T, hub *TapHub, roster RosterFunc, inject InjectFunc) string {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := Listen(sock, b, hub, roster, nil)
+	srv, err := Listen(sock, hub, roster, inject)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
 	return sock
-}
-
-func listenInjectableTestBus(t *testing.T, b *Broker, inject InjectFunc) string {
-	t.Helper()
-	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv, err := Listen(sock, b, nil, nil, inject)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = srv.Close() })
-	return sock
-}
-
-// TestSocket_SendRecvRoundTrip drives the forwarded path end to end over a
-// real Unix socket: a child's ForwardSend lands in the parent's mailbox; the
-// parent's local Recv sees it; a coordinator Send completes the child's
-// parked ForwardRecv.
-func TestSocket_SendRecvRoundTrip(t *testing.T) {
-	b := New(Hooks{})
-	b.AddChild("child-a", "coord")
-	sock := listenTestBus(t, b)
-
-	require.NoError(t, ForwardSend(sock, "child-a", ParentAddress, "result", "all done"))
-	msgs, err := b.Recv(context.Background(), "coord", time.Second)
-	require.NoError(t, err)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, "all done", msgs[0].Body)
-	assert.Equal(t, "result", msgs[0].Kind)
-	assert.Equal(t, "child-a", msgs[0].From)
-
-	got := make(chan []Message, 1)
-	go func() {
-		m, rerr := ForwardRecv(sock, "child-a", 5*time.Second)
-		assert.NoError(t, rerr)
-		got <- m
-	}()
-	require.Eventually(t, func() bool {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		_, parked := b.parked["child-a"]
-		return parked
-	}, 2*time.Second, 5*time.Millisecond)
-	b.Send(Message{From: "coord", To: "child-a", Body: "follow-up"})
-	select {
-	case m := <-got:
-		require.Len(t, m, 1)
-		assert.Equal(t, "follow-up", m[0].Body)
-	case <-time.After(2 * time.Second):
-		t.Fatal("forwarded recv never completed")
-	}
-}
-
-// TestSocket_TypedErrorsCrossTheWire pins that the typed failures survive the
-// forward: peer routing, unknown sender, and the recv timeout all map back to
-// their sentinels client-side.
-func TestSocket_TypedErrorsCrossTheWire(t *testing.T) {
-	b := New(Hooks{})
-	b.AddChild("child-a", "coord")
-	b.AddChild("child-b", "coord")
-	sock := listenTestBus(t, b)
-
-	err := ForwardSend(sock, "child-a", "child-b", "", "psst")
-	require.ErrorIs(t, err, ErrPeerRouting)
-
-	err = ForwardSend(sock, "stranger", ParentAddress, "", "hi")
-	require.ErrorIs(t, err, ErrUnknownSender)
-
-	_, err = ForwardRecv(sock, "child-a", 20*time.Millisecond)
-	require.ErrorIs(t, err, ErrRecvTimeout)
 }
 
 // TestListen_ReplacesStaleSocket pins recovery from a dead predecessor's
 // leftover socket file.
 func TestListen_ReplacesStaleSocket(t *testing.T) {
-	b := New(Hooks{})
 	sock := filepath.Join(t.TempDir(), "bus.sock")
-	srv1, err := Listen(sock, b, nil, nil, nil)
+	srv1, err := Listen(sock, nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, srv1.Close())
 
-	srv2, err := Listen(sock, b, nil, nil, nil)
+	srv2, err := Listen(sock, nil, nil, nil)
 	require.NoError(t, err)
 	defer srv2.Close()
 
-	b.AddChild("child-a", "coord")
-	require.NoError(t, ForwardSend(sock, "child-a", ParentAddress, "", "alive"))
+	got, err := FetchRoster(sock)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestSocket_SendRecvRetired pins the kill list: the shim's line-JSON
+// send/recv verbs died with the agentcoord migration — the wire answers an
+// explicit retirement error naming the replacement, never a silent accept.
+func TestSocket_SendRecvRetired(t *testing.T) {
+	sock := listenTestBus(t, nil, nil, nil)
+	for _, op := range []string{"send", "recv"} {
+		resp, err := roundTrip(sock, busRequest{Op: op, Harp: "child-a", Body: "hello"}, time.Second)
+		require.NoError(t, err)
+		assert.False(t, resp.OK)
+		assert.Contains(t, resp.Error, "retired")
+		assert.Contains(t, resp.Error, "CTXLOOM_COORD_URL")
+	}
 }
 
 // TestSocket_ObserveRoundTrip drives the observe verb end to end over a real
@@ -118,7 +60,7 @@ func TestListen_ReplacesStaleSocket(t *testing.T) {
 // closes cleanly.
 func TestSocket_ObserveRoundTrip(t *testing.T) {
 	hub := NewTapHub()
-	sock := listenObservableTestBus(t, New(Hooks{}), hub, nil)
+	sock := listenTestBus(t, hub, nil, nil)
 
 	in := make(chan agent.ChatEvent)
 	out := hub.Tee("child-a", in)
@@ -170,7 +112,7 @@ func requireObserveEvent(t *testing.T, events <-chan ObserveEvent) ObserveEvent 
 // full stream.
 func TestSocket_ObserveFanout(t *testing.T) {
 	hub := NewTapHub()
-	sock := listenObservableTestBus(t, New(Hooks{}), hub, nil)
+	sock := listenTestBus(t, hub, nil, nil)
 
 	in := make(chan agent.ChatEvent)
 	out := hub.Tee("child-a", in)
@@ -198,15 +140,15 @@ func TestSocket_ObserveFanout(t *testing.T) {
 }
 
 // TestSocket_ObserveNotLiveIsTyped pins the fallback contract: observing a
-// harp the orchestrator doesn't hold live (or a server with no hub at all)
+// harp the coordinator doesn't hold live (or a server with no hub at all)
 // maps to ErrNotLive across the wire — the caller's cue to tail the store.
 func TestSocket_ObserveNotLiveIsTyped(t *testing.T) {
 	hub := NewTapHub()
-	sock := listenObservableTestBus(t, New(Hooks{}), hub, nil)
+	sock := listenTestBus(t, hub, nil, nil)
 	_, _, err := ObserveSession(context.Background(), sock, "never-spawned")
 	require.ErrorIs(t, err, ErrNotLive)
 
-	bare := listenTestBus(t, New(Hooks{})) // no hub wired at all
+	bare := listenTestBus(t, nil, nil, nil) // no hub wired at all
 	_, _, err = ObserveSession(context.Background(), bare, "anyone")
 	require.ErrorIs(t, err, ErrNotLive)
 }
@@ -215,7 +157,7 @@ func TestSocket_ObserveNotLiveIsTyped(t *testing.T) {
 // the stream client-side and releases the server-side subscription.
 func TestSocket_ObserveCancelDisconnects(t *testing.T) {
 	hub := NewTapHub()
-	sock := listenObservableTestBus(t, New(Hooks{}), hub, nil)
+	sock := listenTestBus(t, hub, nil, nil)
 
 	in := make(chan agent.ChatEvent)
 	out := hub.Tee("child-a", in)
@@ -271,7 +213,7 @@ func TestObserveLines_GapMarkerLeadsTheBatch(t *testing.T) {
 func TestSocket_GapCrossesTheWire(t *testing.T) {
 	hub := NewTapHub()
 	hub.ringSize = 4
-	sock := listenObservableTestBus(t, New(Hooks{}), hub, nil)
+	sock := listenTestBus(t, hub, nil, nil)
 
 	in := make(chan agent.ChatEvent)
 	out := hub.Tee("child-a", in)
@@ -319,14 +261,14 @@ func TestSocket_GapCrossesTheWire(t *testing.T) {
 	assert.Equal(t, "fresh", got.Entry.Content)
 }
 
-// TestSocket_RosterRoundTrip pins the roster verb: the orchestrator-supplied
+// TestSocket_RosterRoundTrip pins the roster verb: the coordinator-supplied
 // snapshot crosses the wire intact.
 func TestSocket_RosterRoundTrip(t *testing.T) {
 	want := []RosterEntry{
 		{Harp: "swift-elm-fox", Agent: "developer", State: "executing", Parent: "coord", LastActivityUnix: 1751800000},
 		{Harp: "deep-oak-hen", Agent: "finder", State: "parked", Parent: "coord", LastActivityUnix: 1751800100},
 	}
-	sock := listenObservableTestBus(t, New(Hooks{}), nil, func() []RosterEntry { return want })
+	sock := listenTestBus(t, nil, func() []RosterEntry { return want }, nil)
 
 	got, err := FetchRoster(sock)
 	require.NoError(t, err)
@@ -336,14 +278,14 @@ func TestSocket_RosterRoundTrip(t *testing.T) {
 // TestSocket_RosterWithoutProvider: a server with no roster source answers
 // empty, not an error (nothing is held, nothing to list).
 func TestSocket_RosterWithoutProvider(t *testing.T) {
-	sock := listenTestBus(t, New(Hooks{}))
+	sock := listenTestBus(t, nil, nil, nil)
 	got, err := FetchRoster(sock)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
 // TestSocket_InjectRoundTrip pins the inject verb's wire contract: the
-// target harp and text reach the orchestrator-side seam, the delivery mode
+// target harp and text reach the coordinator-side seam, the delivery mode
 // it reports crosses back, and the typed not-injectable maps to its sentinel
 // client-side.
 func TestSocket_InjectRoundTrip(t *testing.T) {
@@ -351,14 +293,14 @@ func TestSocket_InjectRoundTrip(t *testing.T) {
 	var gotHarp, gotText string
 	inject := func(harp, text string) (string, error) {
 		if harp != "swift-elm-fox" {
-			return "", fmt.Errorf("inject: %q is not a child of this orchestrator: %w", harp, ErrNotInjectable)
+			return "", fmt.Errorf("inject: %q is not a child of this coordinator: %w", harp, ErrNotInjectable)
 		}
 		mu.Lock()
 		gotHarp, gotText = harp, text
 		mu.Unlock()
 		return DeliveryNewTurn, nil
 	}
-	sock := listenInjectableTestBus(t, New(Hooks{}), inject)
+	sock := listenTestBus(t, nil, nil, inject)
 
 	mode, err := Inject(sock, "swift-elm-fox", "user says: check the tokenizer")
 	require.NoError(t, err)
@@ -375,7 +317,7 @@ func TestSocket_InjectRoundTrip(t *testing.T) {
 // TestSocket_InjectWithoutProvider: a server with no inject seam answers the
 // typed not-injectable — nothing is held there, so nothing can be delivered.
 func TestSocket_InjectWithoutProvider(t *testing.T) {
-	sock := listenTestBus(t, New(Hooks{}))
+	sock := listenTestBus(t, nil, nil, nil)
 	_, err := Inject(sock, "anyone", "hi")
 	require.ErrorIs(t, err, ErrNotInjectable)
 }

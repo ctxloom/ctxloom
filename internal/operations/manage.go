@@ -72,7 +72,7 @@ func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []back
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}
 	set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
-	if _, _, errs := agent.Select(set).WithSkills().DeliverUnder(workDir); len(errs) > 0 {
+	if _, _, errs := agent.Select(set).WithSkills(agent.SkillsWriteUnsafeFile).DeliverUnder(workDir); len(errs) > 0 {
 		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
 	}
 	return nil

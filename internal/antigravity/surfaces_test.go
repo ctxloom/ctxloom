@@ -58,8 +58,8 @@ func sampleInputs() agent.SurfaceInputs {
 
 // ---- compile-time capability guarantees -----------------------------------
 //
-// Every agy surface is Delivery-ONLY (agy exposes no out-of-cwd redirect),
-// proven by these assignments compiling with NO agent.RaceSafeDelivery line.
+// Every agy surface is Delivery-ONLY (agy exposes no out-of-cwd redirect and no
+// SharedRealization), proven by these assignments compiling.
 var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*mcpSurface)(nil)
@@ -67,15 +67,9 @@ var (
 	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // agy's skills surface
 )
 
-// Negative case — the compile-time guarantee, which cannot be asserted at
-// runtime and so is documented here:
-//
-//	SharedCell{}.Deliver(surfaces.Hooks)   // COMPILE ERROR
-//
-// No agy surface implements agent.RaceSafeDelivery (agy has no per-invocation
-// config redirect), so none is assignable to SharedCell.Deliver's
-// RaceSafeDelivery parameter. The only way an agy surface reaches a shared cwd is
-// the explicit, warned agent.Unsafe(…) — proven in TestUnsafe_WarnsAndProceeds.
+// No agy surface has a SharedRealization (agy has no per-invocation config
+// redirect), so a SHARED-cwd delivery of any agy surface always falls back to the
+// loud well-known write — proven in TestUnsafe_WarnsAndProceeds.
 
 func mcpServersOf(t *testing.T, fs afero.Fs, dir string) map[string]any {
 	t.Helper()
@@ -175,31 +169,32 @@ func TestSkillsSurface_DeliverWritesSkillFiles(t *testing.T) {
 	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
 }
 
-// ---- Unsafe (the only path to a shared cwd) --------------------------------
+// ---- no SharedRealization (the only path to a shared cwd) ------------------
 
 func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := agent.Unsafe(s.Skills, cwd)
+	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	require.NoError(t, err)
 
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		handle, err := rs.DeliverIsolated()
-		require.NoError(t, err)
-		require.NoError(t, handle.Cleanup())
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
+	require.Len(t, delivered, 1)
 
-	assert.Contains(t, stderr, "warning:", "Unsafe streams a loud WARN")
+	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
 	assert.Contains(t, stderr, "skills")
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
-	handle, err := s.Skills.Deliver(cwd)
-	require.NoError(t, err)
 	exists, _ := afero.Exists(fs, filepath.Join(cwd, AgentsDir, "skills", "review.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd")
-	require.NoError(t, handle.Cleanup())
+	require.NoError(t, delivered[0].Cleanup())
 }
 
 // ---- cells wiring ----------------------------------------------------------
@@ -235,14 +230,53 @@ func TestSharedCell_AcceptsOnlyUnsafeAntigravitySurfaces(t *testing.T) {
 	cwd := "/live"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := s.SharedCwdDeliveries(cwd)
-	require.Len(t, rs, 4)
+	r, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
+
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		for _, surface := range rs {
-			d, err := (agent.SharedCell{}).Deliver(surface)
-			require.NoError(t, err)
-			require.NotNil(t, d)
-		}
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
-	assert.Contains(t, stderr, "warning:", "every agy surface warns when a SharedCell delivers it")
+	require.Len(t, delivered, 4)
+	assert.Contains(t, stderr, "warning:", "every agy surface warns when DeliverShared delivers it")
+}
+
+// ---- approach dispatch (vital-tiger v2) -------------------------------------
+
+// SupportedApproaches pins agy's per-surface table: every surface is
+// native-file-only — agy has no out-of-cwd flag and no SessionStart hook.
+func TestSurfaces_SupportedApproaches(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+		assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(kind), "%s", kind)
+	}
+}
+
+// DefaultApproach is the native file for every kind agy has.
+func TestSurfaces_DefaultApproach(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+		a, ok := s.DefaultApproach(kind)
+		require.True(t, ok, "%s", kind)
+		assert.Equal(t, agent.ApproachUnsafeFile, a)
+	}
+}
+
+// A non-UnsafeFile approach is unsupported for every agy surface (no hook, no flag).
+func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	_, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
+	assert.Error(t, err, "agy reads AGENTS.md directly — no SessionStart hook")
+}
+
+// SharedRealization is absent for every kind: agy has no out-of-cwd redirect, so a
+// SHARED-cwd delivery always falls back to the loud well-known write.
+func TestSurfaces_SharedRealization_Absent(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+		_, ok := s.SharedRealization(kind)
+		assert.False(t, ok, "%s: agy has no out-of-cwd realization", kind)
+	}
 }

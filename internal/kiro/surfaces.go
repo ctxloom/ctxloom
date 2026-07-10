@@ -9,30 +9,27 @@ import (
 
 // This file lands kiro's package on the unified surface-delivery seam
 // (internal/shared/agent/cells.go): each of kiro's surfaces as an object that
-// implements agent.Delivery (the engine's well-known write). It is ADDITIVE:
-// every surface object WRAPS an existing kiro writer verbatim — the ContextWriter
-// core (KiroWriter.WriteContext → .kiro/steering/ctxloom-context.md), the shared
+// implements agent.Delivery (the engine's well-known write). Every surface object
+// WRAPS an existing kiro writer verbatim — the ContextWriter core
+// (KiroWriter.WriteContext → .kiro/steering/ctxloom-context.md), the shared
 // MCP-file reconciler (mcpFile().WriteServers → .kiro/settings/mcp.json), the
 // agent-config writer (mapHooks + writeAgentConfig → .kiro/agents/<name>.json),
-// and the managed-command writer (WriteCommandFiles → .kiro/skills/). Nothing
-// here is wired into the launch path (launch_backend.go / Setup / buildArgs);
-// that cutover is Phase 2 (plan S4).
+// and the managed-command writer (WriteCommandFiles → .kiro/skills/).
 //
 // Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
 // race-safe coverage"): kiro's context, MCP, and skills surfaces are
 // WELL-KNOWN-ONLY (plain agent.Delivery). kiro DOES have a per-agent lever — the
 // settings + hooks live in .kiro/agents/<name>.json, selected at launch by
 // `--agent <name>` — but that is NAME-based isolation resolved in buildArgs, a
-// Phase-2 launch concern; at the delivery layer every kiro surface is still a
-// well-known write into a project-rooted file, so ALL FOUR are modeled as plain
-// agent.Delivery here. (Concurrent per-agent isolation via distinct `--agent`
-// names is noted for Phase 2, not implemented as a RaceSafeDelivery.)
+// launch concern orthogonal to this seam; at the delivery layer every kiro
+// surface is still a well-known write into a project-rooted file, so ALL FOUR are
+// modeled as plain agent.Delivery here (none has a SharedRealization).
 //
-//	surface  | well-known target                       | also RaceSafeDelivery?
+//	surface  | well-known target                       | also a SharedRealization?
 //	---------|-----------------------------------------|-----------------------
 //	context  | .kiro/steering/ctxloom-context.md       | ❌ (steering, auto-loaded)
 //	MCP      | .kiro/settings/mcp.json                 | ❌ no flag
-//	settings | .kiro/agents/<name>.json (hooks)        | ❌ (--agent is Phase 2)
+//	settings | .kiro/agents/<name>.json (hooks)        | ❌ (--agent is orthogonal)
 //	skills   | .kiro/skills/<name>/SKILL.md            | ❌ no flag
 //
 // kiro reads steering rather than firing a SessionStart hook for context (the
@@ -61,7 +58,8 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// UnsafeInfo returns kiro's context identity for the Unsafe warning.
+// UnsafeInfo returns kiro's context identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "kiro/context" }
 
 // Kind reports kiro's context surface (.kiro/steering/ctxloom-context.md).
@@ -85,7 +83,8 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
-// UnsafeInfo returns kiro's MCP identity for the Unsafe warning.
+// UnsafeInfo returns kiro's MCP identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *mcpSurface) UnsafeInfo() string { return "kiro/mcp" }
 
 // Kind reports kiro's MCP surface (.kiro/settings/mcp.json).
@@ -130,7 +129,8 @@ func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// UnsafeInfo returns kiro's settings identity for the Unsafe warning.
+// UnsafeInfo returns kiro's settings identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *settingsSurface) UnsafeInfo() string { return "kiro/settings" }
 
 // Kind reports kiro's settings surface (.kiro/agents/<name>.json — hooks folded in).
@@ -178,40 +178,66 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // Deliveries returns every surface as a plain agent.Delivery, in a stable order,
 // for iteration by an isolated cell (worktree / container / materialize target),
 // where a well-known write into a private dir is safe. This is the ONLY way
-// kiro's surfaces reach a cell at the delivery layer: none is a RaceSafeDelivery,
-// so a SharedCell can accept a kiro surface only through the loud agent.Unsafe
-// adapter (see SharedCwdDeliveries). (The `--agent` name lever isolates CONCURRENT
-// agents at launch — Phase 2 — orthogonally to this seam.)
+// kiro's surfaces reach a cell directly: none has a SharedRealization, so a
+// SHARED-cwd delivery falls back to the loud well-known write (see
+// Surfaces.SharedRealization below). (The `--agent` name lever isolates
+// CONCURRENT agents at launch, orthogonally to this seam.)
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Skills}
 }
 
-// SharedCwdDeliveries wraps every kiro surface in the loud agent.Unsafe adapter for
-// a SharedCell (the user's live cwd) at dir. At the delivery layer kiro offers no
-// out-of-cwd redirect for its files, so a shared cwd is the sanctioned last resort
-// — an isolated cell (worktree/container) is always the first preference. Each
-// returned value is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
-	return []agent.RaceSafeDelivery{
-		agent.Unsafe(s.Context, dir),
-		agent.Unsafe(s.MCP, dir),
-		agent.Unsafe(s.Settings, dir),
-		agent.Unsafe(s.Skills, dir),
-	}
+// kiroApproaches is kiro's DECLARED per-surface approach table (vital-tiger v2
+// per-provider dispatch): every surface is a single native file. kiro reads
+// .kiro/steering for context (no hook, no out-of-cwd flag), and its hooks live
+// inside the agent JSON (settings + hooks fold into one surface). The mechanical
+// lookups ride agent.ApproachTable; only this table is kiro's.
+var kiroApproaches = agent.ApproachTable{
+	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
+	agent.SurfaceMCP:      {agent.ApproachUnsafeFile},
+	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
-// Compile-time capability contracts. Every kiro surface is Delivery-ONLY at this
-// layer: none is assignable to agent.RaceSafeDelivery, the compile-time guarantee
-// that no kiro surface can enter a SharedCell except through agent.Unsafe.
+// SupportedApproaches reports kiro's declared approach table for kind.
+func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
+	return kiroApproaches.Supported(kind)
+}
+
+// DefaultApproach reports kiro's default (first-declared: the native file)
+// approach for kind.
+func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
+	return kiroApproaches.Default(kind)
+}
+
+// SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via the
+// shared table lookup (kiro's agent JSON IS its settings surface, hooks folded
+// in). Any other approach is unsupported — WithContext(Hook) on kiro fails
+// loudly, matching kiro's steering (not hook) context.
+func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
+	return kiroApproaches.SurfaceFor("kiro", map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Settings,
+		agent.SurfaceSkills:   s.Skills,
+	}, kind, a)
+}
+
+// SharedRealization reports no realization for any kind: kiro has no out-of-cwd
+// redirect for ANY surface, so a SHARED-cwd delivery always falls back to the
+// loud well-known write. (The `--agent` name lever isolates CONCURRENT agents at
+// launch, orthogonally to this seam.)
+func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+	return nil, false
+}
+
+// Compile-time capability contracts. Every kiro surface is a KindedDelivery.
 var (
-	_ agent.UnsafeSurface  = (*contextSurface)(nil)
-	_ agent.UnsafeSurface  = (*mcpSurface)(nil)
-	_ agent.UnsafeSurface  = (*settingsSurface)(nil)
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*mcpSurface)(nil)
 	_ agent.KindedDelivery = (*settingsSurface)(nil)
 	_ agent.Delivered      = deliveredFunc(nil)
-	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
-	// it satisfies agent.SurfaceSet.
+	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
+	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
+	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
 )

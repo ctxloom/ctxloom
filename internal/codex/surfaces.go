@@ -11,22 +11,21 @@ import (
 
 // This file lands codex's package on the unified surface-delivery seam
 // (internal/shared/agent/cells.go): each of codex's surfaces as an object that
-// implements agent.Delivery (the engine's well-known write). It is ADDITIVE:
-// every surface object WRAPS an existing codex writer verbatim — the shared
-// context-file writer (agent.WriteContextFile), the config.toml writer
-// (CodexHookWriter.WriteSettings), and the managed-command writer
-// (agent.WriteManagedCommandFiles + codexPromptFile). Nothing here is wired into
-// the launch path (launch_backend.go / Setup / buildArgs); that cutover is
-// Phase 2 (plan S4).
+// implements agent.Delivery (the engine's well-known write). Every surface object
+// WRAPS an existing codex writer verbatim — the shared context-file writer
+// (agent.WriteContextFile), the config.toml writer (CodexHookWriter.WriteSettings),
+// and the managed-command writer (agent.WriteManagedCommandFiles +
+// codexPromptFile).
 //
 // Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
 // race-safe coverage"): codex exposes NO out-of-cwd redirect (no
-// --mcp-config / --settings / --append-system-prompt equivalent), so EVERY codex
-// surface is WELL-KNOWN-ONLY — a plain agent.Delivery, never a
-// agent.RaceSafeDelivery. Per-agent CONCURRENT isolation for codex therefore
-// requires a private cwd (worktree) or container cell, never a SharedCell.
+// --mcp-config / --settings / --append-system-prompt equivalent) and NO
+// SharedRealization (see Surfaces.SharedRealization below), so EVERY codex
+// surface is WELL-KNOWN-ONLY. Per-agent CONCURRENT isolation for codex therefore
+// requires a private cwd (worktree) or container cell; a SHARED-cwd delivery
+// falls back to the loud well-known write.
 //
-//	surface  | well-known target                         | also RaceSafeDelivery?
+//	surface  | well-known target                         | also a SharedRealization?
 //	---------|-------------------------------------------|-----------------------
 //	context  | .ctxloom/cache/context/<hash>.md (file)   | ❌ no flag
 //	config   | .codex/config.toml (hooks + MCP)          | ❌ no flag
@@ -38,7 +37,9 @@ import (
 //     that owns the [hooks] AND [mcp_servers] tables of one file. Splitting MCP
 //     from hooks would mean two partial load-modify-save passes over the same
 //     file — so, exactly as claude folds "settings + hooks" into one surface,
-//     codex folds "settings + hooks + MCP" into one config surface.
+//     codex folds "settings + hooks + MCP" into one config surface (its
+//     SupportedApproaches reports SurfaceMCP absent, keying the fold at the
+//     SurfaceSelection builder level too).
 //
 //  2. context is a FILE, read via a hook. codex has no ContextWriter; its
 //     context reaches the model as a raw context file (agent.WriteContextFile)
@@ -46,16 +47,17 @@ import (
 //     writes ONLY that file — the SessionStart context-injection hook that
 //     consumes it is one of the hooks the config surface delivers. This mirrors
 //     the existing Setup split (BaseContextProvider.Provide writes the file;
-//     BaseLifecycle.Flush → WriteSettings writes config.toml with the hook). The
-//     hash-linkage between the file and that hook is a Phase-2 wiring concern.
+//     BaseLifecycle.Flush → WriteSettings writes config.toml with the hook).
+//     codex's context surface is therefore Hook-ONLY (SupportedApproaches),
+//     unlike claude's Hook (a documented no-op).
 //
 //  3. skills are GLOBAL. codex discovers prompts only from $CODEX_HOME/prompts
 //     (default ~/.codex/prompts) — NOT cwd-relative — so an isolated *directory*
 //     would not isolate them. The skillsSurface therefore writes prompts under a
 //     CELL-SCOPED $CODEX_HOME derived from the delivery dir (<dir>/.codex/prompts,
 //     i.e. CODEX_HOME=<dir>/.codex), so a DirectoryIsolatedCell genuinely
-//     isolates them. Exporting CODEX_HOME=<dir>/.codex to the launched codex is
-//     the Phase-2 buildArgs/env concern.
+//     isolates them. Exporting CODEX_HOME=<dir>/.codex to the launched codex is a
+//     buildArgs/env concern.
 
 // cellScopedCodexHome derives a per-cell $CODEX_HOME from the delivery dir. In an
 // isolated cell (worktree / container mount) at dir, <dir>/.codex is both the
@@ -101,7 +103,8 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return fs.Remove(path) }), nil
 }
 
-// UnsafeInfo returns codex's context identity for the Unsafe warning.
+// UnsafeInfo returns codex's context identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
 
 // Kind reports codex's context surface (the raw context cache file).
@@ -129,7 +132,8 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return w.RemoveSettings(dir) }), nil
 }
 
-// UnsafeInfo returns codex's config identity for the Unsafe warning.
+// UnsafeInfo returns codex's config identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *configSurface) UnsafeInfo() string { return "codex/config" }
 
 // Kind reports codex's config surface as the settings surface — it folds codex's
@@ -181,36 +185,67 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // Deliveries returns every surface as a plain agent.Delivery, in a stable order,
 // for iteration by an isolated cell (worktree / container / materialize target),
 // where a well-known write into a private dir is safe. This is the ONLY way
-// codex's surfaces reach a cell: none is race-safe, so a SharedCell can accept a
-// codex surface only through the loud agent.Unsafe adapter (see
-// SharedCwdDeliveries).
+// codex's surfaces reach a cell directly: none has a SharedRealization, so a
+// SHARED-cwd delivery falls back to the loud well-known write (see
+// Surfaces.SharedRealization below).
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.Config, s.Skills}
 }
 
-// SharedCwdDeliveries wraps every codex surface in the loud agent.Unsafe adapter
-// for a SharedCell (the user's live cwd) at dir. codex offers no out-of-cwd flag
-// for ANY surface, so a shared cwd is the sanctioned last resort — an isolated
-// cell (worktree/container) is always the first preference. Each returned value
-// is a RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
-	return []agent.RaceSafeDelivery{
-		agent.Unsafe(s.Context, dir),
-		agent.Unsafe(s.Config, dir),
-		agent.Unsafe(s.Skills, dir),
-	}
+// codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
+// per-provider dispatch). codex has NO CLAUDE.md-style native context file — its
+// context reaches the model only via the SessionStart inject-context hook reading
+// the raw cache file — so context is Hook-ONLY (naming UnsafeFile is an
+// unsupported combo the builder rejects). settings/skills are native-file-only.
+// SurfaceMCP is deliberately ABSENT: MCP folds into the config/settings surface,
+// so codex advertises no distinct MCP surface — selecting MCP is a permitted
+// no-op, resolved by whichever selection also names Settings. The mechanical
+// lookups ride agent.ApproachTable; only this table is codex's.
+var codexApproaches = agent.ApproachTable{
+	agent.SurfaceContext:  {agent.ApproachHook},
+	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
-// Compile-time capability contracts. Every codex surface is Delivery-ONLY: none
-// is assignable to agent.RaceSafeDelivery, which is the compile-time guarantee
-// that no codex surface can enter a SharedCell except through agent.Unsafe.
+// SupportedApproaches reports codex's declared approach table for kind.
+func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
+	return codexApproaches.Supported(kind)
+}
+
+// DefaultApproach reports codex's default (first-declared) approach for kind:
+// Hook for context (its only approach — the existing cache-file write), the
+// native file for settings/skills, absent for the folded MCP kind.
+func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
+	return codexApproaches.Default(kind)
+}
+
+// SurfaceFor resolves one (kind, approach) to the concrete codex surface via the
+// shared table lookup. context via Hook returns the SAME contextSurface
+// Deliveries() would (the raw cache-file write the SessionStart hook reads; a
+// no-op — nil handle — with no fragments); settings resolves to the folded
+// config surface.
+func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
+	return codexApproaches.SurfaceFor("codex", map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceSettings: s.Config,
+		agent.SurfaceSkills:   s.Skills,
+	}, kind, a)
+}
+
+// SharedRealization reports no realization for any kind: codex has no out-of-cwd
+// redirect for ANY surface, so a SHARED-cwd delivery always falls back to the
+// loud well-known write.
+func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+	return nil, false
+}
+
+// Compile-time capability contracts. Every codex surface is a KindedDelivery.
 var (
-	_ agent.UnsafeSurface = (*contextSurface)(nil)
-	_ agent.UnsafeSurface = (*configSurface)(nil)
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*configSurface)(nil)
 	_ agent.Delivered      = deliveredFunc(nil)
-	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
-	// it satisfies agent.SurfaceSet.
+	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
+	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
+	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
 )

@@ -23,8 +23,9 @@ package acp
 //     ride `session/new`'s `mcpServers` field (agent.ChatRequest.MCPServers →
 //     mapping.go). Both are JSON-RPC payloads on the live session, not writes into
 //     a cwd — so there is no well-known file for a Delivery to produce and no
-//     shared file for a race to clobber. The race-safety distinction the cells
-//     encode (Delivery vs RaceSafeDelivery) is therefore vacuous for acp.
+//     shared file for a race to clobber. The approach-dispatch seam (SupportedApproaches
+//     / SurfaceFor / SharedRealization) is therefore vacuous for acp — EmptySurfaceSet
+//     reports no approaches and no realization for any kind.
 //
 //   - KNOWN agents' ACP paths do NOT flow through this package's setup. kiro and
 //     codex speak ACP by delegating to acp.NewChatDriver from their OWN backends;
@@ -33,11 +34,11 @@ package acp
 //     backend never owns them.
 //
 // Conclusion: acp's delivery stays in the ACP session layer, OUTSIDE the
-// file-writing surface seam. There are intentionally no agent.Delivery /
-// agent.RaceSafeDelivery surface objects in this package, and none should be added
-// — forcing file-writing surfaces onto a protocol-only backend would invent
-// well-known paths that no ACP agent reads. This file exists only to record that
-// opt-out where the other backends' surfaces.go live, so the absence is a
-// documented decision rather than an oversight. If a future generic-ACP config
-// materialization is designed (see doc.go's registration notes), THAT mechanism —
-// not this seam — is where it belongs.
+// file-writing surface seam. There are intentionally no agent.Delivery surface
+// objects in this package, and none should be added — forcing file-writing
+// surfaces onto a protocol-only backend would invent well-known paths that no ACP
+// agent reads. This file exists only to record that opt-out where the other
+// backends' surfaces.go live, so the absence is a documented decision rather than
+// an oversight. If a future generic-ACP config materialization is designed (see
+// doc.go's registration notes), THAT mechanism — not this seam — is where it
+// belongs.

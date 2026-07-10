@@ -63,19 +63,6 @@ type agentDescriptor struct {
 	// unrestrained — the run resolver collapses plan to default for them. Keep in
 	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
 	enforcesReadOnlyPlan bool
-	// contextViaNativeFile is true when ctxloom delivers this backend's managed
-	// context through its NATIVE context file — which the agent reads directly —
-	// rather than a runtime SessionStart injection hook. antigravity (.agents/
-	// AGENTS.md) and kiro (.kiro/steering) read a native file and DIVERT the
-	// injection hook, so hook apply must materialize their context surface. claude
-	// and codex instead deliver context via the SessionStart inject-context hook (in
-	// their settings/config surface) reading the regenerated cache file, so hook
-	// apply must NOT also write their native context file (a static claude CLAUDE.md
-	// alongside the hook would DOUBLE the context). It gates whether ApplyHooks opts
-	// the context surface into the per-backend surface selection. (Materialize always
-	// selects context — it writes a static native file with NO injection hook, so no
-	// doubling.)
-	contextViaNativeFile bool
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -137,18 +124,6 @@ func Exists(name string) bool {
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := descriptors[name]
 	return ok && d.enforcesReadOnlyPlan
-}
-
-// ContextViaNativeFile reports whether ctxloom delivers the named backend's
-// managed context through its NATIVE context file (antigravity AGENTS.md, kiro
-// steering) rather than a runtime SessionStart injection hook. Hook apply uses it
-// to decide whether to opt the context surface into the backend's surface
-// selection: true → the native context file is the ONLY context path and must be
-// written; false (claude/codex) → context rides the injection hook, so writing a
-// native file too would double it. An unregistered name reports false.
-func ContextViaNativeFile(name string) bool {
-	d, ok := descriptors[name]
-	return ok && d.contextViaNativeFile
 }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
@@ -224,10 +199,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &antigravity.AntigravityConfig{})
 		},
-		newWriter:            antigravity.NewWriter,
-		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
-		exports:              antigravityExports,
-		contextViaNativeFile: true, // agy reads .agents/AGENTS.md, no injection hook
+		newWriter:   antigravity.NewWriter,
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
+		exports:     antigravityExports,
 	})
 
 	registerDescriptor(agentDescriptor{
@@ -260,10 +234,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &kiro.KiroConfig{})
 		},
-		newWriter:            kiro.NewWriter,
-		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-		exports:              kiroExports,
-		contextViaNativeFile: true, // kiro reads .kiro/steering, no injection hook
+		newWriter:   kiro.NewWriter,
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:     kiroExports,
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent

@@ -13,10 +13,10 @@ package agent
 // ManagedSkillsDelivery is the shared skills Delivery for engines whose skill
 // exports are managed files: on Deliver it writes the enabled exports, and its
 // cleanup reverts exactly the manifest-tracked set by re-writing with no exports.
-// It is Delivery-ONLY — managed skill files are cwd-rooted, so a ManagedSkills
-// delivery reaches a SharedCell only through the loud Unsafe hatch. It carries an
-// engine/surface name (e.g. "codex/skills") so it self-describes for that hatch
-// (UnsafeInfo).
+// Managed skill files are cwd-rooted with no SharedRealization, so a SHARED-cwd
+// delivery of it falls back to the loud well-known write; it carries an
+// engine/surface name (e.g. "codex/skills") and self-describes for that
+// fallback's warning via UnsafeInfo.
 type ManagedSkillsDelivery struct {
 	name   string
 	skills []CommandExport
@@ -24,17 +24,17 @@ type ManagedSkillsDelivery struct {
 }
 
 // NewManagedSkillsDelivery builds a managed-skills Delivery from its engine/surface
-// name (e.g. "kiro/skills", for the Unsafe warning), the enabled exports, and the
-// engine's manifest-scoped command-file writer, bound so that write(dir, skills)
-// materializes the exports under dir and write(dir, nil) reverts exactly the
-// managed set.
+// name (e.g. "kiro/skills", for the shared-cwd fallback warning), the enabled
+// exports, and the engine's manifest-scoped command-file writer, bound so that
+// write(dir, skills) materializes the exports under dir and write(dir, nil)
+// reverts exactly the managed set.
 func NewManagedSkillsDelivery(name string, skills []CommandExport, write func(dir string, skills []CommandExport) error) *ManagedSkillsDelivery {
 	return &ManagedSkillsDelivery{name: name, skills: skills, write: write}
 }
 
-// UnsafeInfo returns the engine/surface identity for the Unsafe warning, making a
-// managed-skills delivery self-describing when the loud hatch delivers it into a
-// shared cwd.
+// UnsafeInfo returns the engine/surface identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go),
+// making a managed-skills delivery self-describing when it lands in a shared cwd.
 func (s *ManagedSkillsDelivery) UnsafeInfo() string { return s.name }
 
 // Kind reports this as the skills surface (codex/antigravity/kiro all share it).
@@ -57,12 +57,9 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// Compile-time contract: a managed-skills delivery is Delivery-ONLY (no
-// out-of-cwd flag), so it can never enter a SharedCell except through Unsafe —
-// which it satisfies as a self-describing UnsafeSurface.
+// Compile-time contract.
 var (
-	_ Delivery        = (*ManagedSkillsDelivery)(nil)
-	_ UnsafeSurface   = (*ManagedSkillsDelivery)(nil)
-	_ KindedDelivery  = (*ManagedSkillsDelivery)(nil)
-	_ Delivered       = deliveredFunc(nil)
+	_ Delivery       = (*ManagedSkillsDelivery)(nil)
+	_ KindedDelivery = (*ManagedSkillsDelivery)(nil)
+	_ Delivered      = deliveredFunc(nil)
 )

@@ -29,7 +29,9 @@ func TestACPSessionMCPServers(t *testing.T) {
 		byName[s.Name] = s
 	}
 	require.Contains(t, byName, "ctxloom")
-	assert.Equal(t, "ctxloom", byName["ctxloom"].Command)
+	// Command names the self-exec absolute path (agent.CtxloomCommand), not
+	// the bare name — see its doc for the staged-vs-installed invariant.
+	assert.Equal(t, agent.CtxloomCommand(), byName["ctxloom"].Command)
 	assert.Equal(t, []string{"mcp"}, byName["ctxloom"].Args)
 	require.Contains(t, byName, "taskloom")
 	assert.Equal(t, "taskloom", byName["taskloom"].Command)

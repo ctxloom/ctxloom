@@ -76,7 +76,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 	}
 
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, MCPFileServer{Command: CtxloomBinary, Args: CtxloomMCPArgs})
+		add(MCPServerName, MCPFileServer{Command: CtxloomCommand(), Args: CtxloomMCPArgs})
 	}
 	for name, server := range bundleMCP {
 		add(name, MCPFileServer{Command: server.Command, Args: server.Args, Env: server.Env})

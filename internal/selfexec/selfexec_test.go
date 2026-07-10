@@ -82,3 +82,33 @@ func TestPath_PathMissingFallsBack(t *testing.T) {
 
 	assert.Equal(t, "ctxloom", Path())
 }
+
+// TestSetPathForTesting_OverridesAndRestores proves the external test seam:
+// while set, Path returns the override unconditionally (bypassing
+// osExecutable/osStat entirely), and the returned restore func puts the real
+// decision tree back.
+func TestSetPathForTesting_OverridesAndRestores(t *testing.T) {
+	stubExecutable(t, "/real/ctxloom", nil)
+	stubStat(t, func(string) (os.FileInfo, error) { return nil, nil })
+	assert.Equal(t, "/real/ctxloom", Path(), "sanity: real decision tree wired")
+
+	restore := SetPathForTesting("ctxloom")
+	assert.Equal(t, "ctxloom", Path(), "override must win over the real decision tree")
+
+	restore()
+	assert.Equal(t, "/real/ctxloom", Path(), "restore must put the real decision tree back")
+}
+
+// TestSetPathForTesting_Nested proves nesting restores the PREVIOUS value,
+// not the zero value — so a package-level TestMain override survives a
+// nested per-test override/restore.
+func TestSetPathForTesting_Nested(t *testing.T) {
+	outer := SetPathForTesting("outer")
+	defer outer()
+	assert.Equal(t, "outer", Path())
+
+	inner := SetPathForTesting("inner")
+	assert.Equal(t, "inner", Path())
+	inner()
+	assert.Equal(t, "outer", Path(), "restoring the inner override must not clear the outer one")
+}

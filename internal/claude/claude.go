@@ -397,12 +397,13 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 		return
 	}
 
-	// Set or update ctxloom-managed statusLine. Bare `ctxloom` resolves
-	// via PATH at fire time — see GetExecutablePath for the rationale
-	// behind not baking an absolute path into the file.
+	// Set or update ctxloom-managed statusLine. Command names the self-exec
+	// absolute path (agent.CtxloomCommand) — see its doc for why: a bare
+	// `ctxloom` re-resolves via PATH at fire time, which can silently
+	// diverge from the binary that materialized this file.
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
-		Command: agent.CtxloomBinary + " hook hud",
+		Command: agent.CtxloomCommand() + " hook hud",
 	}
 }
 
@@ -542,10 +543,12 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
 	}
 
-	// Auto-register ctxloom's own MCP server unless disabled
+	// Auto-register ctxloom's own MCP server unless disabled. Command names
+	// the self-exec absolute path (agent.CtxloomCommand) so this session's
+	// MCP server can never diverge from the binary that materialized it.
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
-			Command: agent.CtxloomBinary,
+			Command: agent.CtxloomCommand(),
 			Args:    agent.CtxloomMCPArgs,
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
 			SCM:     "ctxloom-auto",          // Marker for auto-registered ctxloom server

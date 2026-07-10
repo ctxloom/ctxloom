@@ -12,16 +12,17 @@ import (
 const ContextInjectionTimeout = 60
 
 // NewContextInjectionHook creates the SessionStart hook that injects
-// assembled context into the agent. The Command is emitted as the bare
-// name `ctxloom` so it re-resolves via PATH at fire time and never goes
-// stale when the binary moves.
+// assembled context into the agent. The Command names the self-exec
+// absolute path (CtxloomCommand) — see its doc for the staged-vs-installed
+// invariant this upholds — shell-quoted like the project path, since both
+// are interpolated into one /bin/sh command string.
 //
 // workDir is the project directory where the context file lives.
 // Resolved to an absolute path because Claude Code can launch the
 // hook from a different cwd.
 func NewContextInjectionHook(hash, workDir string) wire.Hook {
 	return wire.Hook{
-		Command:     fmt.Sprintf("ctxloom hook inject-context --project %s %s", shellSingleQuote(absOrSelf(workDir)), hash),
+		Command:     fmt.Sprintf("%s hook inject-context --project %s %s", shellSingleQuote(CtxloomCommand()), shellSingleQuote(absOrSelf(workDir)), hash),
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,
@@ -35,8 +36,8 @@ func NewContextInjectionHook(hash, workDir string) wire.Hook {
 // sequence. See NewContextInjectionHooks for when chunking kicks in.
 func NewContextInjectionChunkHook(hash, workDir string, part, total int) wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("ctxloom hook inject-context --project %s --part %d --of %d %s",
-			shellSingleQuote(absOrSelf(workDir)), part, total, hash),
+		Command: fmt.Sprintf("%s hook inject-context --project %s --part %d --of %d %s",
+			shellSingleQuote(CtxloomCommand()), shellSingleQuote(absOrSelf(workDir)), part, total, hash),
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,

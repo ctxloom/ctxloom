@@ -347,9 +347,11 @@ func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string
 		servers = map[string]any{}
 	}
 
-	// Auto-register ctxloom's own MCP server unless disabled.
+	// Auto-register ctxloom's own MCP server unless disabled. Command names
+	// the self-exec absolute path (agent.CtxloomCommand) so this session's
+	// MCP server can never diverge from the binary that materialized it.
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.CtxloomBinary, Args: agent.CtxloomMCPArgs})
+		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.CtxloomCommand(), Args: agent.CtxloomMCPArgs})
 	}
 
 	// Profile-bundle servers (loaded first, can be overridden).

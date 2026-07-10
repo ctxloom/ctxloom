@@ -24,7 +24,7 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 	got := ComposeChatMCPServers("claude-code", mcp, bundle, nil)
 
 	require.Len(t, got, 3)
-	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Command: CtxloomBinary, Args: CtxloomMCPArgs}, got[0])
+	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs}, got[0])
 	assert.Equal(t, ChatMCPServer{Name: "taskloom", Command: "taskloom", Args: []string{"mcp"}}, got[1])
 	assert.Equal(t, ChatMCPServer{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}, got[2])
 }

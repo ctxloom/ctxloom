@@ -13,13 +13,15 @@ var cachedExecPath string
 // GetExecutablePath returns the absolute path to the current ctxloom binary.
 // The path is resolved once and cached for the lifetime of the process.
 //
-// This is the only place that touches os.Executable. We resolve the path
-// live, in-process, rather than persisting it: hook commands and the MCP
-// server entry are written as the bare name `ctxloom` (see CtxloomBinary),
-// which re-resolves against PATH every time and so never goes stale when
-// the binary moves. The one thing a bare name can't catch — a *different*
-// ctxloom earlier on PATH than the one that's running — is surfaced by
-// WarnOnCtxloomPathSkew, which compares this path against the PATH lookup.
+// This is the CACHED variant used only by WarnOnCtxloomPathSkew. Materialized
+// surfaces (hook commands, the MCP server entry) no longer use it — they name
+// the self-exec absolute path via CtxloomCommand (internal/selfexec.Path,
+// upgrade-safe, not cached) so a staged and an installed binary can never
+// diverge within one session. What GetExecutablePath still catches, via
+// WarnOnCtxloomPathSkew: surfaces MATERIALIZED BEFORE this fix persist an
+// absolute path from an OLDER run; this process's `ctxloom` on PATH being a
+// different binary than the one running now is a live-skew signal worth a
+// warning regardless.
 func GetExecutablePath() (string, error) {
 	if cachedExecPath != "" {
 		return cachedExecPath, nil
@@ -46,13 +48,13 @@ func SetExecutablePathForTesting(path string) {
 }
 
 // WarnOnCtxloomPathSkew emits a stderr warning when the `ctxloom` that
-// PATH resolves to is not the binary currently running. Hooks and the
-// MCP server entry are written as the bare name `ctxloom`, so at fire
-// time they run whatever PATH points at; if that differs from the
-// running binary (e.g. an older system package shadows the freshly
-// installed one) a hook can fail with "unknown command" for a
-// subcommand the older build lacks. This is the live replacement for
-// the absolute path we used to bake into settings.json.
+// PATH resolves to is not the binary currently running. Surfaces
+// materialized before the self-exec-absolute-path fix (CtxloomCommand)
+// still carry the bare name `ctxloom`, so until the next apply
+// re-materializes them, they run whatever PATH points at at fire time; if
+// that differs from the running binary (e.g. an older system package
+// shadows the freshly installed one) a hook can fail with "unknown
+// command" for a subcommand the older build lacks.
 //
 // Fault-tolerant by contract: any resolution failure is silent (we
 // simply can't make a useful comparison), and a match is silent too.

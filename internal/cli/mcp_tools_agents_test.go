@@ -28,7 +28,7 @@ func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.C
 	cfg, root := delegationFixture(t, subs)
 	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: fakeChatFactory()})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve(nil))
+	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
 	return cfg, c
 }

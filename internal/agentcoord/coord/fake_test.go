@@ -232,7 +232,7 @@ func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coord
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)
 	}
-	if err := c.Serve(nil); err != nil {
+	if err := c.Serve(); err != nil {
 		t.Fatalf("serve coordinator: %v", err)
 	}
 	t.Cleanup(c.Close)

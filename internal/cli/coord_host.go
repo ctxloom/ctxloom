@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -15,10 +13,11 @@ import (
 
 // Coordinator hosting: every session-owning process — `ctxloom run`,
 // `ctxloom acp`, and the bare `ctxloom mcp` fallback — stands the runtime
-// coordinator up as a LIBRARY and serves ctxloom's whole MCP toolset over its
-// authenticated streamable-HTTP endpoint. Identity is per credential, so the
-// shared server never sees the host process's env as caller identity
-// (review R12f): each credential gets its own ctxServer instance.
+// coordinator up as a LIBRARY. Since the B1.6 surface shrink the gRPC
+// channels are the ONLY agent ingress (tool surfaces live at each runner's
+// local socket); this process keeps the host-relay handlers, each bound to
+// the CALLER's credential-derived identity — never the host process's env
+// (review R12f).
 
 // newHostedCoordinator builds and serves the coordinator for projectDir.
 func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordinator, error) {
@@ -38,7 +37,7 @@ func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 	// tools relayed by runners as CustomRequest{ctxloom/<tool>} terminate
 	// in THIS process, on a per-caller-identity ctxServer.
 	c.SetCustomHandlers(coordCustomHandlers(cfg, c))
-	if err := c.Serve(newCoordServerFactory(cfg, c)); err != nil {
+	if err := c.Serve(); err != nil {
 		c.Close()
 		return nil, err
 	}
@@ -95,33 +94,6 @@ func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context
 		}
 		return raw, nil
 	}
-}
-
-// newCoordServerFactory builds the per-identity MCP tool surface the
-// coordinator's HTTP endpoint serves: one full ctxServer (context, session,
-// memory, agent tools + resources) per credential, with the CALLER's
-// identity baked in.
-func newCoordServerFactory(cfg *config.Config, c *coord.Coordinator) coord.ServerFactory {
-	return func(id coord.Identity) *mcp.Server {
-		return newCtxServerForIdentity(cfg, c, id)
-	}
-}
-
-// newCtxServerForIdentity assembles one identity-bound MCP server over the
-// shared coordinator.
-func newCtxServerForIdentity(cfg *config.Config, c *coord.Coordinator, id coord.Identity) *mcp.Server {
-	s := &ctxServer{
-		cfg:    cfg,
-		self:   id,
-		agents: &agentDelegation{self: id, c: c},
-	}
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "ctxloom",
-		Version: Version,
-	}, &mcp.ServerOptions{Instructions: sessionInstructions(id.Harp)})
-	s.registerTools(server)
-	s.registerResources(server)
-	return server
 }
 
 // hostCoordinatorForSession is the run/acp hosting helper: coordinator up,

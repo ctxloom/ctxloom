@@ -14,38 +14,33 @@ import (
 	"sync"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// MCPPath is the coordinator's MCP endpoint path; CTXLOOM_COORD_URL is
-// http://<host>:<port>/mcp and the gRPC RunnerChannel rides the same
-// host:port (one plaintext-HTTP/2 listener, content-type routed).
+// MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
+// (http://<host>:<port>/mcp) for continuity — the runner derives its gRPC
+// dial target from the URL's host:port. The agent-facing HTTP-MCP handlers
+// were DELETED in B1.6 (deliverable 4): the gRPC RunChannel is the only
+// agent ingress now; the h2c listener stays for later frontends/watch APIs.
 const MCPPath = "/mcp"
-
-// ServerFactory builds the per-identity MCP tool surface. The host (cli)
-// supplies it: the coordinator caches one *mcp.Server per credential so
-// EVERY tool (context/session/memory/agents) sees the CALLER's identity —
-// never the host process's env (review R12f).
-type ServerFactory func(id Identity) *mcp.Server
 
 // coordServing is the coordinator's listener set: the loopback listener
 // (default) plus, only while a container runner is active, listeners on the
 // container-reachable bridge/host interfaces — never 0.0.0.0 (review R10).
+// One plaintext-HTTP/2 (h2c) listener carries the gRPC channels; non-gRPC
+// requests answer 404 (the tool surface lives at each RUNNER's local
+// socket).
 type coordServing struct {
 	c       *Coordinator
 	handler http.Handler
 	httpSrv *http.Server
 
-	mu        sync.Mutex
-	loopback  net.Listener
-	loopURL   string
-	wide      []net.Listener
-	wideURL   string
-	widePort  int
-	mcpCache  map[string]*mcp.Server // credHash → cached per-identity server
-	factory   ServerFactory
+	mu       sync.Mutex
+	loopback net.Listener
+	loopURL  string
+	wide     []net.Listener
+	wideURL  string
+	widePort int
 }
 
 // endpointState persists the bound ports so a relaunched coordinator
@@ -56,57 +51,31 @@ type endpointState struct {
 	WidePort     int `json:"wide_port,omitempty"`
 }
 
-// ctxIdentityKey carries the verified caller identity on the request context.
-type ctxIdentityKey struct{}
-
-// IdentityFrom returns the verified caller identity the auth middleware
-// stamped on ctx.
-func IdentityFrom(ctx context.Context) (Identity, bool) {
-	id, ok := ctx.Value(ctxIdentityKey{}).(Identity)
-	return id, ok
-}
-
 // Serve stands the listeners up: loopback by default; widening happens on
-// demand when a container child spawns. factory builds the per-identity MCP
-// surface.
-func (c *Coordinator) Serve(factory ServerFactory) error {
+// demand when a container child spawns.
+func (c *Coordinator) Serve() error {
 	if c.srv != nil {
 		return nil
 	}
-	if factory == nil {
-		// Core-only hosting (tests): the endpoint exists (URLs resolve, the
-		// gRPC RunnerChannel is live) but MCP answers an empty toolset.
-		factory = func(Identity) *mcp.Server {
-			return mcp.NewServer(&mcp.Implementation{Name: "ctxloom-coordinator", Version: "dev"}, nil)
-		}
-	}
-	s := &coordServing{c: c, factory: factory, mcpCache: make(map[string]*mcp.Server)}
+	s := &coordServing{c: c}
 
 	grpcSrv := c.grpcServer()
-	mcpHandler := s.authMiddleware(mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		id, ok := IdentityFrom(r.Context())
-		if !ok {
-			return nil // unreachable behind the middleware
-		}
-		return s.serverFor(r.Header.Get("Authorization"), id)
-	}, nil))
-
-	mux := http.NewServeMux()
-	mux.Handle(MCPPath, mcpHandler)
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// gRPC (the RunnerChannel) is plaintext HTTP/2 with the grpc
-		// content-type; everything else is the MCP endpoint.
+		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc
+		// content-type. Nothing else is served here since the B1.6 surface
+		// shrink — the MCP tool path terminates at each runner's local
+		// socket; per-request credential auth lives in the gRPC
+		// interceptors.
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			grpcSrv.ServeHTTP(w, r)
 			return
 		}
-		mux.ServeHTTP(w, r)
+		http.NotFound(w, r)
 	})
 	// Unencrypted HTTP/2 (h2c) via net/http's Protocols — the modern
-	// replacement for the deprecated x/net/http2/h2c wrapper. Both the gRPC
-	// RunnerChannel (prior-knowledge h2c) and HTTP/1.1 MCP POSTs share one
-	// listener; the credential authenticates every request, and the bind is
-	// loopback/bridge-only (never 0.0.0.0).
+	// replacement for the deprecated x/net/http2/h2c wrapper. The bind is
+	// loopback/bridge-only (never 0.0.0.0); the credential authenticates
+	// every gRPC stream and request.
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
@@ -160,41 +129,8 @@ func (s *coordServing) saveEndpoint() {
 	}
 }
 
-// authMiddleware verifies the bearer credential PER REQUEST (never per
-// connection — review R9) and stamps the identity on the request context.
-func (s *coordServing) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
-			http.Error(w, "missing bearer credential", http.StatusUnauthorized)
-			return
-		}
-		id, valid := s.c.Identify(token)
-		if !valid {
-			http.Error(w, "unknown or revoked credential", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxIdentityKey{}, id)))
-	})
-}
-
-// serverFor returns the cached per-identity MCP server (one per credential;
-// identity is immutable per credential, so the cache key is the credential).
-func (s *coordServing) serverFor(authHeader string, id Identity) *mcp.Server {
-	token, _ := strings.CutPrefix(authHeader, "Bearer ")
-	key := hashToken(token)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if srv, ok := s.mcpCache[key]; ok {
-		return srv
-	}
-	srv := s.factory(id)
-	s.mcpCache[key] = srv
-	return srv
-}
-
-// LoopbackURL is the coordinator MCP URL for host-side callers (the parent
-// harness, host children). Empty until Serve.
+// LoopbackURL is the coordinator URL for host-side callers (the parent
+// harness's runner, host children's runners). Empty until Serve.
 func (c *Coordinator) LoopbackURL() string {
 	if c.srv == nil {
 		return ""

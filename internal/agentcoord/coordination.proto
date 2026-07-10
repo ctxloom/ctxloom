@@ -1,4 +1,26 @@
-// coordination.proto — agentcoord.v1 (rev 6 — ctxloom Wave A landing)
+// coordination.proto — agentcoord.v1 (rev 7 — ctxloom Wave B1.6)
+//
+// Changelog rev 6 -> rev 7 (pre-release, additive):
+//   - D1: AgentRequest gains `stop_run` (CoordinatorResponse the matching
+//     result). A PARENT requesting a child's termination is SpawnAgent's
+//     dual and had no plane-2 home (CancelRun is coordinator->agent);
+//     the coordinator ownership-checks the target run_id against the
+//     requester's lineage.
+//   - D2: AgentEvent slot 50 un-reserved — ArtifactProduced restored
+//     (fields renumbered into declaration order while nothing shipped;
+//     was reserved "until a consumer exists", and the plan-manifest
+//     consumer now exists). Manifest-on-log only: the chunked transfer
+//     RPCs stay deferred with the artifact family.
+//   - D3: new annotations.proto in the package — custom FieldOptions/
+//     MessageOptions carrying LLM-facing schema metadata (required,
+//     example, doc-override) for the GENERATED MCP tool surface. protoc-
+//     gen-go strips SourceCodeInfo from embedded descriptors, so comments
+//     alone cannot drive generation; the options carry what comments
+//     cannot express at all (proto3 has no required).
+//   - Comment amendment: Hello.run_id may be EMPTY on a session-owner
+//     (depth-0) credential — the channel then attaches to the owning
+//     session itself rather than one spawned run (the parent harness
+//     routes through its own runner like every agent).
 //
 // Changelog rev 5 -> rev 6:
 //   - A1: RunnerHello.runner_id removed (remaining fields renumbered);
@@ -107,6 +129,7 @@ syntax = "proto3";
 
 package agentcoord.v1;
 
+import "annotations.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -264,7 +287,10 @@ message StartRunResult {
 // waits for a terminal RunCompleted on the RunChannel, escalates to
 // SIGTERM at grace expiry.
 message StopRun {
-  string run_id = 1;
+  string run_id = 1 [(field_schema) = {
+    required: true,
+    doc: "The child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id)"
+  }];
   string reason = 2;
   google.protobuf.Duration grace = 3;
 }
@@ -338,7 +364,10 @@ message Hello {
   string task_id = 1;   // coordinator-assigned unit of work
   // UUID per attempt; retries get a fresh run_id. Ownership of the
   // run_id is validated against the connection credential it was issued
-  // to — presenting someone else's run_id is a rejected Hello.
+  // to — presenting someone else's run_id is a rejected Hello. MAY be
+  // empty on a session-owner (depth-0) credential: the channel then
+  // attaches to the OWNING SESSION itself (the parent harness routes
+  // through its own runner like every agent), not to a spawned run.
   string run_id = 2;
   AgentIdentity agent = 3;
 
@@ -420,6 +449,13 @@ message AgentRequest {
     SpawnAgentRequest spawn_agent = 12;
     PeerSendRequest peer_send = 13;
     ListRunsRequest list_runs = 14;
+    // D1: a parent asks the coordinator to terminate one of its children —
+    // SpawnAgent's dual. The coordinator ownership-checks the target
+    // run_id against the REQUESTER's lineage (only the run's parent may
+    // stop it) and answers StopRunResult. In the B window the runtime
+    // realizes it as a hard kill (grace is advisory); the child's slot
+    // frees and its terminal record is synthesized as usual.
+    StopRun stop_run = 16;
     // Open extension point, mirroring CustomEvent.
     CustomRequest custom = 90;
   }
@@ -441,6 +477,7 @@ message CoordinatorResponse {
     SpawnAgentResult spawn_agent = 12;
     PeerSendResult peer_send = 13;
     ListRunsResult list_runs = 14;
+    StopRunResult stop_run = 16;  // D1: answers AgentRequest.stop_run
     google.protobuf.Struct custom = 90;
   }
 }
@@ -506,9 +543,21 @@ message UserInputResult {
 // artifact references, or the child's Result which the coordinator
 // forwards per notify_on.
 message SpawnAgentRequest {
-  string role = 1;                       // e.g. "test-writer"
-  google.protobuf.Struct input = 2;      // child task input
-  google.protobuf.Struct constraints = 3; // model, tools, sandbox hints
+  // e.g. "test-writer"
+  string role = 1 [(field_schema) = {
+    required: true,
+    doc: "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`)",
+    example: "\"code-reviewer\""
+  }];
+  // child task input
+  google.protobuf.Struct input = 2 [(field_schema) = {
+    required: true,
+    doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn",
+    example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
+  }];
+  google.protobuf.Struct constraints = 3 [(field_schema) = {
+    doc: "Optional model/tools/sandbox hints (unused today; the agent's own binding decides)"
+  }]; // model, tools, sandbox hints
   BudgetSpec budget = 4;                  // carved from the parent's budget
   enum NotifyOn {
     NOTIFY_ON_UNSPECIFIED = 0;
@@ -535,10 +584,24 @@ message SpawnAgentResult {
 // delivers to the target as a CoordinatorNotice.PeerMessage. No agent
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
-  string to_agent_id = 1;      // or...
-  string to_role = 2;          // ...broadcast to all agents with role
-  string text = 3;
-  google.protobuf.Struct structured = 4;
+  // or...
+  string to_agent_id = 1 [(field_schema) = {
+    doc: "Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set",
+    example: "\"swift-amber-falcon\""
+  }];
+  // ...broadcast to all agents with role
+  string to_role = 2 [(field_schema) = {
+    doc: "Role address. Delegated children may ONLY send to_role: \"parent\"; peer traffic routes via the coordinator",
+    example: "\"parent\""
+  }];
+  string text = 3 [(field_schema) = {
+    required: true,
+    doc: "Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"
+  }];
+  google.protobuf.Struct structured = 4 [(field_schema) = {
+    doc: "Optional structured companion. `kind` names the message kind (e.g. result, question, error)",
+    example: "{\"kind\": \"result\"}"
+  }];
   repeated string artifact_ids = 5;  // by reference, never by value
   // Correlates a reply to an earlier inbound PeerMessage.message_id.
   string in_reply_to = 6;
@@ -767,10 +830,11 @@ message AgentEvent {
   // W3C trace context for cross-system correlation.
   string traceparent = 7;
 
-  // 50 is held for artifact_produced (artifact family) and 60/61 for
-  // state_snapshot/state_delta (shared-state family), both deferred;
-  // the rev-5 design file is the source of record.
-  reserved 50, 60, 61;
+  // 60/61 are held for state_snapshot/state_delta (shared-state family),
+  // deferred; the rev-5 design file is the source of record. 50 was
+  // un-reserved in rev 7 (D2): ArtifactProduced returned with the
+  // plan-manifest consumer.
+  reserved 60, 61;
 
   oneof payload {
     // --- lifecycle ---
@@ -792,6 +856,9 @@ message AgentEvent {
 
     // --- control-plane echoes: durable record of plane-2 interactions ---
     InteractionRecorded interaction = 40;
+
+    // --- artifacts (manifest-on-log; transfer RPCs stay deferred) ---
+    ArtifactProduced artifact_produced = 50;
 
     // --- summaries ---
     Summary summary = 70;
@@ -993,6 +1060,39 @@ message ToolCallCompleted {
 // recording) and generalized. `labels` stays available for anything
 // finer-grained. Retained vocabulary: referenced by ArtifactRef and
 // ApprovalRequest while the rest of the artifact family is deferred.
+// A durable artifact fact: the agent produced (a revision of) an artifact.
+// Restored in rev 7 (D2) for the plan-manifest consumer, fields RENUMBERED
+// into declaration order (rev-5's jumble, A5) while nothing had shipped.
+// Manifest-on-log discipline: bulk bytes stay in the producing session's
+// directory (or an external store); the log carries the manifest — name,
+// kind, size, sha256, location. The chunked transfer RPCs remain deferred
+// with the artifact family.
+message ArtifactProduced {
+  string artifact_id = 1;  // agent-chosen, unique within run; stable across revisions
+  uint32 revision = 2;     // starts at 1, monotonic per artifact_id (the
+                           // runtime MAY assign it at journal time when the
+                           // producer sends 0)
+  ArtifactKind kind = 3;
+  string name = 4;         // e.g. "coverage/report.html"
+  string media_type = 5;   // RFC 6838
+  uint64 size_bytes = 6;
+  bytes sha256 = 7;        // content address; required for all dispositions
+
+  oneof content {
+    bytes inline = 8;        // <= 128 KiB by convention
+    string external_uri = 9; // coordinator-fetchable (object store, file path...)
+    string upload_id = 10;   // receipt from UploadArtifact (deferred with the
+                             // transfer family)
+  }
+
+  string produced_by_item_id = 11; // step/tool_call/message attribution
+  map<string, string> labels = 12; // e.g. lang=rust, path=/abs/plan.md
+
+  // Which feedback_ids this revision claims to address (ArtifactFeedback,
+  // deferred with the artifact family), closing the loop durably on the log.
+  repeated string addresses_feedback_ids = 13;
+}
+
 enum ArtifactKind {
   ARTIFACT_KIND_UNSPECIFIED = 0;
   ARTIFACT_KIND_TASK_LIST = 1;            // structured plan; steps mirror
@@ -1020,9 +1120,17 @@ message Summary {
     SCOPE_CHECKPOINT = 3;  // resumable synthesis; supersedes prior checkpoints
     SCOPE_FINAL = 4;       // the human-readable deliverable summary
   }
-  Scope scope = 1;
+  Scope scope = 1 [(field_schema) = {
+    required: true,
+    doc: "Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary)",
+    example: "\"SCOPE_FINAL\""
+  }];
   string step_id = 2;  // set when scope == SCOPE_STEP
-  string text = 3;     // markdown
+  // markdown
+  string text = 3 [(field_schema) = {
+    required: true,
+    doc: "The report body, markdown"
+  }];
 
   // Structured companion (decisions, open questions, metrics).
   google.protobuf.Struct structured = 4;

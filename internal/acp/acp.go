@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -33,6 +34,12 @@ const (
 	// delegated child as pure process-tree lineage regardless of which
 	// backend spawned the child.
 	claudeGuardEnv = "CLAUDECODE"
+	// claudeModelEnvVar is the claude SDK's own model-selector env var (see
+	// internal/claude/chat.go's chatACPConfig doc comment): claude-code-acp
+	// 0.16.2 silently ignores the driver's --model argv, so this is the
+	// load-bearing delivery. A generic entry driving claude (agent_engine)
+	// gets it defaulted the same way claude-code's own backend does.
+	claudeModelEnvVar = "ANTHROPIC_MODEL"
 )
 
 // ACPConfig is the generic ACP client's typed LLM config. Unlike a per-engine
@@ -61,6 +68,17 @@ type ACPConfig struct {
 	// engine-native env var is the load-bearing delivery where the
 	// embedding backend knows one.
 	ModelEnvVar string `mapstructure:"model_env_var"`
+	// ModelConfigKey, when set, delivers the request's model via a
+	// `-c <key>=<value>` config-override flag INSTEAD OF the generic
+	// `--model` flag (mutually exclusive with it — see chatArgv). Wave C3
+	// finding: codex-acp 0.16.0 has NO `--model` flag at all — verified
+	// live, it REJECTS the argv outright at CLI parse (exit 2, "unexpected
+	// argument '--model' found"), which would break every codex chat spawn
+	// with a non-empty model, not just leave it silently ignored like
+	// claude-code-acp. codex-acp's own `-c key=value` override (its
+	// config.toml dotted-path convention, e.g. `-c model="o3"`, confirmed
+	// live) is the only mechanism that works.
+	ModelConfigKey string `mapstructure:"model_config_key"`
 	// StripEnv names inherited environment variables REMOVED from the spawned
 	// agent's env. The embedding backend uses it to drop a variable whose
 	// inherited presence would be a false signal to the child engine — e.g.
@@ -86,12 +104,13 @@ type ACP struct {
 	agent.LaunchBackend
 
 	// config knobs applied by Configure.
-	command     string
-	agentName   string
-	agentEngine string
-	model       string
-	modelEnvVar string
-	stripEnv    []string
+	command        string
+	agentName      string
+	agentEngine    string
+	model          string
+	modelEnvVar    string
+	modelConfigKey string
+	stripEnv       []string
 
 	// openTransport spawns (or, in tests, fakes) the ACP subprocess transport.
 	// nil → spawnTransport (a real `<agent> acp` process).
@@ -155,6 +174,9 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	if c.ModelEnvVar != "" {
 		b.modelEnvVar = c.ModelEnvVar
 	}
+	if c.ModelConfigKey != "" {
+		b.modelConfigKey = c.ModelConfigKey
+	}
 	if len(c.StripEnv) > 0 {
 		b.stripEnv = c.StripEnv
 	}
@@ -167,8 +189,19 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	// own backend strips it unconditionally; a GENERIC entry only knows
 	// it is driving claude via agent_engine, so key the strip on that here —
 	// in addition to, never instead of, any user-configured strip_env.
-	if strings.EqualFold(b.agentEngine, claudeEngineName) && !slices.Contains(b.stripEnv, claudeGuardEnv) {
-		b.stripEnv = append(b.stripEnv, claudeGuardEnv)
+	if strings.EqualFold(b.agentEngine, claudeEngineName) {
+		if !slices.Contains(b.stripEnv, claudeGuardEnv) {
+			b.stripEnv = append(b.stripEnv, claudeGuardEnv)
+		}
+		// Wave C3 sibling of the strip above (mauve-plop item 2 / c5917a6
+		// precedent): a generic entry driving claude needs the SAME
+		// ANTHROPIC_MODEL delivery claude-code's own chatACPConfig sets,
+		// for the identical reason (claude-code-acp 0.16.2 silently
+		// ignores --model argv). Only DEFAULTS it — an explicit
+		// model_env_var in the entry (already applied above) always wins.
+		if b.modelEnvVar == "" {
+			b.modelEnvVar = claudeModelEnvVar
+		}
 	}
 	// If Command names the binary (the common case) and no explicit binary_path
 	// was given, adopt Command's first field as the binary so BaseBackend can run
@@ -195,7 +228,12 @@ func (b *ACP) clock() func() time.Time {
 // direct-CLI flags. They are a pragmatic first cut: real ACP agents vary in which
 // flags they accept, so per-engine flag mapping (keyed on agent_engine) is a
 // later refinement. An agent that rejects an unknown flag would fail to spawn —
-// hence they are only appended when set.
+// hence they are only appended when set. Confirmed live per Wave C3: kiro-cli
+// acp accepts --agent/--model/--agent-engine at CLI-parse (its own documented
+// flags); codex-acp accepts NONE of the three — it exits 2 ("unexpected
+// argument") on any of them — which is exactly why ModelConfigKey exists
+// below as model's alternate delivery and why codex's embedding config
+// (internal/codex/chat.go) never sets Agent/AgentEngine.
 func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 	_, cmdArgs := splitCommand(b.command)
 
@@ -211,7 +249,15 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 		model = req.Model
 	}
 	if model != "" {
-		args = append(args, "--model", model)
+		if b.modelConfigKey != "" {
+			// codex-acp shape: `-c model="<value>"` — the value is parsed as
+			// TOML by the adapter itself (README: `-c model="o3"`; verified
+			// live), so it is quoted, never passed bare. Mutually exclusive
+			// with --model: an adapter that needs this rejects --model too.
+			args = append(args, "-c", fmt.Sprintf("%s=%q", b.modelConfigKey, model))
+		} else {
+			args = append(args, "--model", model)
+		}
 	}
 	if b.agentEngine != "" {
 		args = append(args, "--agent-engine", b.agentEngine)

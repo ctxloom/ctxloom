@@ -35,9 +35,21 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 // chatACPConfig is the adapter config for one codex structured-chat spawn.
 // Unlike claude's (internal/claude/chat.go), it strips nothing: codex has no
 // nested-session guard, so inherited engine-lineage variables are inert.
+//
+// It sets ModelConfigKey rather than relying on the driver's generic --model
+// flag: codex-acp 0.16.0 has NO --model flag at all (verified live, Wave
+// C3 — `codex-acp --model <x>` exits 2, "unexpected argument '--model'
+// found", a hard spawn failure, not claude-code-acp's silent-ignore
+// shape). Model selection rides codex-acp's own `-c key=value` config
+// override instead (its config.toml dotted-path convention — README:
+// `-c model="o3"`, also verified live), so ModelConfigKey names the dotted
+// key "model" and the driver renders `-c model="<value>"`. --agent and
+// --agent-engine are ALSO rejected the same way (verified live), which is
+// why this config never sets Agent/AgentEngine.
 func chatACPConfig(env map[string]string) acp.ACPConfig {
 	return acp.ACPConfig{
-		Command: codexACPAdapter,
-		Env:     env,
+		Command:        codexACPAdapter,
+		Env:            env,
+		ModelConfigKey: "model",
 	}
 }

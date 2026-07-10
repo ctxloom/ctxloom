@@ -124,3 +124,49 @@ func TestChat_ModelEnvVar(t *testing.T) {
 		make(chan agent.ChatMessage), make(chan agent.ChatEvent, 1))
 	assert.NotContains(t, <-gotEnv2, "ANTHROPIC_MODEL")
 }
+
+// TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar pins Wave C3's sibling of
+// the CLAUDECODE strip (TestConfigure_ClaudeAgentEngineStripsCLAUDECODE): a
+// generic acp entry driving claude (agent_engine: claude) also needs
+// ANTHROPIC_MODEL delivery for the same reason claude-code's own backend
+// carries it (claude-code-acp silently ignores --model argv) — c5917a6's
+// mauve-plop item 2 sibling.
+func TestConfigure_ClaudeAgentEngineDefaultsModelEnvVar(t *testing.T) {
+	drv := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "claude"})
+	assert.Equal(t, "ANTHROPIC_MODEL", drv.modelEnvVar)
+
+	// Case-insensitive, mirroring the strip's own casing rule.
+	drv2 := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "Claude"})
+	assert.Equal(t, "ANTHROPIC_MODEL", drv2.modelEnvVar)
+
+	// An explicit model_env_var in the entry always wins over the default.
+	drv3 := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "claude", ModelEnvVar: "CUSTOM_MODEL"})
+	assert.Equal(t, "CUSTOM_MODEL", drv3.modelEnvVar)
+
+	// A non-claude engine gets no default: only claude has this shape.
+	drv4 := NewChatDriver(ACPConfig{Command: "kiro-cli acp", AgentEngine: "kiro"})
+	assert.Empty(t, drv4.modelEnvVar)
+}
+
+// TestChatArgv_ModelConfigKey pins Wave C3's codex-acp finding: an adapter
+// that has NO --model flag (codex-acp 0.16.0 rejects it outright, verified
+// live — exit 2, "unexpected argument") delivers the model through a
+// `-c key=value` config-override flag instead, quoted so the adapter's own
+// TOML parser reads it as a string (codex-acp README: `-c model="o3"`,
+// verified live). ModelConfigKey and the plain --model flag are mutually
+// exclusive — an adapter configured with one never sees the other.
+func TestChatArgv_ModelConfigKey(t *testing.T) {
+	drv := NewChatDriver(ACPConfig{Command: "codex-acp", ModelConfigKey: "model"})
+	argv := drv.chatArgv(agent.ChatRequest{Model: "o3"})
+	assert.Equal(t, []string{"-c", `model="o3"`}, argv)
+	assert.NotContains(t, argv, "--model", "ModelConfigKey suppresses the generic --model flag")
+
+	// No model requested → no flag at all (never `-c model=""`, which would
+	// override codex's own configured default with an empty string).
+	drv2 := NewChatDriver(ACPConfig{Command: "codex-acp", ModelConfigKey: "model"})
+	assert.Empty(t, drv2.chatArgv(agent.ChatRequest{}))
+
+	// A backend with no ModelConfigKey is unaffected — plain --model, as before.
+	drv3 := NewChatDriver(ACPConfig{Command: "kiro-cli acp"})
+	assert.Equal(t, []string{"acp", "--model", "sonnet"}, drv3.chatArgv(agent.ChatRequest{Model: "sonnet"}))
+}

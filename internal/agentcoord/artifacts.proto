@@ -1,0 +1,207 @@
+// artifacts.proto — agentcoord.v1 artifact transfer (rev 10, additive).
+//
+// Lands the deferred artifact-transfer surface (the rev-5 design file beside
+// the migration plan; coordination.proto's Wave A "artifact/state split") as
+// its OWN service in its own file, per that split's plan. Motivating
+// scenario: work products live in containers and worktrees, NOT a shared
+// filesystem — bytes must move THROUGH the coordinator, content-hash-proven
+// end to end, so a plan filed by a containerized child is retrievable on the
+// host after the container is gone.
+//
+// RECONCILIATION AGAINST THE RESERVED SLOTS (E1a recon, verified against the
+// checked-out coordination.proto before writing this file):
+//   - AgentEvent.artifact_produced (slot 50) was ALREADY restored in rev 7
+//     (D2, Wave B1.6) for the plan-manifest consumer — no action here.
+//   - AgentRequest/CoordinatorResponse slot 15 (artifact_lookup) and
+//     CoordinatorRequest/AgentResponse slot 12 (state_snapshot) STAY
+//     RESERVED: Lookup/feedback/gates and StateSnapshot/Delta are explicitly
+//     shelved for this wave (E1's own scope line) and untouched here.
+//   - CoordinatorService never reserved RPC "slots" for Upload/DownloadArtifact
+//     in the first place (proto services don't number methods the way
+//     messages number fields) — Wave A's split simply omitted them from the
+//     service and left a comment. This file is a fresh ADDITIVE service, not
+//     an un-reservation.
+//
+// DEVIATIONS FROM THE REV-5 SKETCH (E1 recon, documented — both forced by
+// what actually shipped in Waves B1.6/C, which the rev-5 sketch predates):
+//   - DownloadArtifact keys by agent_id (harp), not run_id: the landed
+//     system indexes artifacts by harp (reportsFold, coord/reports.go —
+//     matching AgentIdentity.agent_id used throughout coordination.proto for
+//     peer/roster addressing), and the top-level session-owner credential —
+//     the common producer of plan-manifest artifacts — has NO run_id at all
+//     (a RunRecord only exists for spawned children; the session owner's
+//     identity comes from session.cred, not run.enqueued). A run_id-keyed
+//     lookup could not address the motivating scenario's own root session.
+//   - The download response stream is a header+chunk oneof (mirroring
+//     upload), not a bare ArtifactChunk stream: E1e's MANDATORY end-to-end
+//     integrity rule requires the receiver to know the manifest's sha256
+//     BEFORE placing the file, and the rev-5 bare-chunk shape carried no
+//     such header — this upgrades the design's implicit "manifests
+//     verifiable" to mechanically mandatory, per E1e.
+//   - ArtifactUploadHeader keeps run_id (asserted against the caller's
+//     credential; empty for a session-owner upload) as an idempotency-key
+//     component; harp/agent identity is NEVER carried on the wire as a
+//     self-declared field — it is always credential-derived server-side
+//     (rev-6 A1's identity discipline, generalized to this file).
+//
+// OWNERSHIP / LINEAGE / CONSUMER-CLASS (E1a, enforced in coord/artifacts.go):
+//   - UploadArtifact accepts only the artifact's OWNING credential (the run
+//     — or session-owner — uploading its own bytes: header.run_id asserted
+//     against the caller's credential RunID). A consumer-class credential is
+//     rejected at the gRPC auth layer (upload mutates; consumers are
+//     read-only) — see coord/grpcserver.go's auth interceptor.
+//   - DownloadArtifact accepts: the owning credential itself (fetch your own
+//     artifact), the owning session's DIRECT PARENT (lineage — a parent
+//     fetching its child's artifact; the same rule serveStopRun already
+//     applies to StopRun ownership), or any consumer-class credential
+//     (read-only, project-wide, matching ConsumerService's existing trust
+//     boundary — loopback-only, host-local).
+//
+// gRPC constraint honored (same as coordination.proto): bulk bytes never
+// ride the RunChannel event stream; chunks here are <= 1 MiB, well under the
+// 4 MiB default frame cap.
+
+syntax = "proto3";
+
+package agentcoord.v1;
+
+import "annotations.proto";
+import "coordination.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ctxloom/ctxloom/internal/agentcoord";
+
+// =============================================================================
+// Service
+// =============================================================================
+
+service ArtifactTransferService {
+  // Chunked upload, kept off the RunChannel event stream so a large
+  // artifact can't head-of-line-block a status update. First message MUST be
+  // `header`, then `chunk`s in offset order, each <= 1 MiB. The coordinator
+  // hashes the received stream INDEPENDENTLY of the header's declared
+  // sha256 and rejects a mismatch with INVALID_ARGUMENT (E1e) — the header's
+  // sha256 is the uploader's CLAIM, never trusted by itself. Idempotent on
+  // (run_id, artifact_id, sha256): re-uploading identical content is a free
+  // no-op (the store is content-addressed) and does not create a new
+  // manifest revision (coord/reports.go's existing nextRevision rule).
+  rpc UploadArtifact(stream ArtifactUploadRequest) returns (ArtifactReceipt);
+
+  // Server-streaming download, keyed by (agent_id, artifact_id) — see the
+  // file header for why agent_id (harp) replaces the rev-5 sketch's run_id.
+  // The FIRST response frame is always `header` (the manifest the receiver
+  // verifies against BEFORE placing any bytes, per E1e), then `chunk`s in
+  // offset order.
+  rpc DownloadArtifact(ArtifactDownloadRequest) returns (stream ArtifactDownloadFrame);
+}
+
+// =============================================================================
+// Upload
+// =============================================================================
+
+message ArtifactUploadRequest {
+  oneof kind {
+    ArtifactUploadHeader header = 1;  // exactly once, first
+    ArtifactChunk chunk = 2;
+  }
+}
+
+message ArtifactUploadHeader {
+  // The uploading run's run_id, ASSERTED against the connection credential
+  // (never trusted as identity by itself — see coord/artifacts.go) — empty
+  // for a session-owner (depth-0) upload, which has no run_id of its own.
+  // Part of the idempotency composite key (run_id, artifact_id, sha256).
+  string run_id = 1;
+  string artifact_id = 2;
+  string name = 3;
+  string media_type = 4;
+  uint64 size_bytes = 5;
+  // Declared by the uploader (its own read of the file); the coordinator
+  // hashes the received bytes independently and rejects a mismatch — this
+  // field is a CLAIM, not a trusted value (E1e).
+  bytes sha256 = 6;
+}
+
+message ArtifactChunk {
+  uint64 offset = 1;  // must be contiguous
+  bytes data = 2;      // <= 1 MiB recommended
+}
+
+message ArtifactReceipt {
+  string upload_id = 1;   // = hex(sha256); referenced from
+                          // ArtifactProduced.upload_id
+  bytes sha256 = 2;       // server-computed; mismatch => INVALID_ARGUMENT
+  uint64 size_bytes = 3;
+  google.protobuf.Timestamp stored_at = 4;
+}
+
+// =============================================================================
+// Download
+// =============================================================================
+
+message ArtifactDownloadRequest {
+  // The artifact's owning session harp — see the file header: harp, not
+  // run_id (a run_id-keyed lookup cannot address a session-owner's own
+  // artifacts, which have no run_id at all).
+  string agent_id = 1;
+  string artifact_id = 2;
+  // Byte-range resume support: skip to this offset in the stored content
+  // (the header frame's size_bytes/sha256 still describe the WHOLE artifact
+  // either way — resume verification is the caller's responsibility if it
+  // reuses a partial local write).
+  uint64 offset = 3;
+}
+
+message ArtifactDownloadFrame {
+  oneof kind {
+    ArtifactDownloadHeader header = 1;  // exactly once, first
+    ArtifactChunk chunk = 2;
+  }
+}
+
+message ArtifactDownloadHeader {
+  string artifact_id = 1;
+  uint32 revision = 2;
+  ArtifactKind kind = 3;
+  string name = 4;
+  string media_type = 5;
+  uint64 size_bytes = 6;
+  bytes sha256 = 7;  // the manifest's content address — the receiver
+                      // verifies against THIS before placing the file
+                      // (E1e); hard-fail on mismatch
+}
+
+// =============================================================================
+// Runner-local MCP tool surface (schema-derived via the deliverable-0
+// generator; classified mcpschema.RouteArtifactFetch — NOT a typed RunChannel
+// plane-2 frame like the RouteCoordination bindings. The runner-local handler
+// calls DownloadArtifact directly on this same credentialed connection and
+// verifies+places the bytes cell-locally; see internal/cli/mcp_runner.go).
+// =============================================================================
+
+message FetchArtifactRequest {
+  option (message_schema) = {
+    doc: "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it."
+  };
+  string agent_id = 1 [(field_schema) = {
+    required: true,
+    doc: "The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster)",
+    example: "\"swift-amber-falcon\""
+  }];
+  string artifact_id = 2 [(field_schema) = {
+    required: true,
+    doc: "The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report",
+    example: "\"plan/rollout\""
+  }];
+  string dest_path = 3 [(field_schema) = {
+    required: true,
+    doc: "Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via \"..\") is rejected",
+    example: "\"./rollout.plan.md\""
+  }];
+}
+
+message FetchArtifactResult {
+  string path = 1;
+  bytes sha256 = 2;
+  uint64 size_bytes = 3;
+}

@@ -65,6 +65,10 @@
               "description": "most recent Summary.text, truncated",
               "type": "string"
             },
+            "parent_run_id": {
+              "description": "Empty for a depth-1 (top-level) child; set for a depth-2+ grandchild (D5) — the SPAWNING run's run_id, so a roster consumer can render the delegation tree without re-deriving it from the event log.",
+              "type": "string"
+            },
             "phase": {
               "description": "StatusChanged.Phase name or \"TERMINAL\"",
               "type": "string"

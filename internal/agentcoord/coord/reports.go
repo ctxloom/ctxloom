@@ -53,6 +53,13 @@ type artifactFact struct {
 	SizeBytes  uint64 `json:"size_bytes,omitempty"`
 	SHA256     string `json:"sha256,omitempty"` // hex
 	Path       string `json:"path,omitempty"`   // labels["path"]
+	// UploadID (E1c) is set once the runner has actually uploaded the bytes
+	// via ArtifactTransferService — by construction UploadID == hex(SHA256)
+	// (the store is content-addressed), so this is redundant with SHA256 but
+	// kept explicit: it is the field DownloadArtifact/FetchArtifactResult
+	// echo back, and its presence marks "bytes are retrievable" versus a
+	// manifest fact filed with no backing upload.
+	UploadID string `json:"upload_id,omitempty"`
 }
 
 // ArtifactRecord is the reports fold's view of one artifact's latest
@@ -62,9 +69,11 @@ type ArtifactRecord struct {
 	Revision   uint32
 	Kind       string
 	Name       string
+	MediaType  string
 	SizeBytes  uint64
 	SHA256     string
 	Path       string
+	UploadID   string
 }
 
 // reportsFold projects report facts: the latest summary per harp (with the
@@ -118,9 +127,11 @@ func (f *reportsFold) apply(fact Fact) {
 			Revision:   p.Revision,
 			Kind:       p.Kind,
 			Name:       p.Name,
+			MediaType:  p.MediaType,
 			SizeBytes:  p.SizeBytes,
 			SHA256:     p.SHA256,
 			Path:       p.Path,
+			UploadID:   p.UploadID,
 		}
 	}
 }
@@ -214,6 +225,7 @@ func (c *Coordinator) recordArtifact(harp string, seq uint64, a *agentcoordpb.Ar
 			SizeBytes:  a.GetSizeBytes(),
 			SHA256:     sha,
 			Path:       a.GetLabels()["path"],
+			UploadID:   a.GetUploadId(),
 		})}, nil
 	}); err != nil {
 		clidiag.Warn("ctxloom", "coordinator: journal artifact manifest for %s: %v", harp, err)
@@ -230,6 +242,19 @@ func (c *Coordinator) Artifacts(harp string) []ArtifactRecord {
 		}
 	})
 	return out
+}
+
+// artifactRecord looks up one (harp, artifact_id)'s latest-revision
+// manifest — DownloadArtifact's resolution accessor (E1d).
+func (c *Coordinator) artifactRecord(harp, artifactID string) (ArtifactRecord, bool) {
+	var (
+		rec ArtifactRecord
+		ok  bool
+	)
+	c.runs.View(func() {
+		rec, ok = c.reportsF.artifacts[harp][artifactID]
+	})
+	return rec, ok
 }
 
 // LatestReport returns the harp's most recent report line ("" when none).

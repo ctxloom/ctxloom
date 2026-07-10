@@ -1,4 +1,18 @@
-// coordination.proto — agentcoord.v1 (rev 9 — ctxloom Wave D1)
+// coordination.proto — agentcoord.v1 (rev 10 — ctxloom Wave E1)
+//
+// Changelog rev 9 -> rev 10 (pre-release, additive):
+//   - E1a: the deferred artifact-transfer surface (UploadArtifact/
+//     DownloadArtifact + their messages) lands on a NEW, separate
+//     ArtifactTransferService in artifacts.proto (same package) — see that
+//     file's header for the reserved-slot reconciliation and the rev-5
+//     sketch deviations. No field renumbering here; AgentRequest/
+//     CoordinatorResponse slot 15 (artifact_lookup) and CoordinatorRequest/
+//     AgentResponse slot 12 (state_snapshot) STAY reserved (Lookup/feedback/
+//     gates and StateSnapshot/Delta remain shelved).
+//   - E1c: Summary gains `publish_paths` (field 7) — the generic artifact-
+//     publish case: cell-local file paths the agent names explicitly,
+//     runner-read and uploaded via ArtifactTransferService alongside the
+//     automatic *.plan.md manifest stamping (unchanged).
 //
 // Changelog rev 8 -> rev 9 (pre-release, additive):
 //   - D1: new ConsumerService — WatchRuns (server-stream: a fold SNAPSHOT
@@ -1254,6 +1268,17 @@ message Summary {
   uint64 covers_through_seq = 5;
 
   repeated string artifact_ids = 6;
+
+  // E1c generic publish case: cell-local file paths (relative to the
+  // working directory) to publish as artifacts alongside this report —
+  // runner-read and uploaded via ArtifactTransferService, size-capped
+  // sanely (coord/artifacts.go). Automatic *.plan.md stamping happens
+  // regardless of this field; use it for other files you want retrievable
+  // after this session ends (e.g. from a container that will not survive).
+  repeated string publish_paths = 7 [(field_schema) = {
+    doc: "Cell-local file paths (relative to the working directory) to publish as artifacts alongside this report, in addition to the automatic *.plan.md manifest stamping. Runner-read and uploaded; size-capped",
+    example: "[\"findings/coverage.json\"]"
+  }];
 }
 
 // --- escape hatches ----------------------------------------------------------

@@ -35,7 +35,10 @@ type foldProjection struct {
 	// mailbox: role → pending message ids in order (cursor-sensitive)
 	Mailbox map[string][]string
 	// reports (B1.6): harp → latest summary line; harp → artifact_id →
-	// "rev/sha" (revision monotonicity + content addressing)
+	// "rev/sha/upload_id" (revision monotonicity + content addressing; E1c
+	// adds upload_id to the existing factArtifact fact kind — no NEW fact
+	// kind here, this is a field-level extension the equality projection
+	// must still cover exactly)
 	Reports   map[string]string
 	Artifacts map[string]map[string]string
 }
@@ -71,7 +74,7 @@ func projectRuns(runsF *runsFold, queueF *queueFold, rosterF *rosterFold, report
 	for harp, byID := range reportsF.artifacts {
 		m := map[string]string{}
 		for id, rec := range byID {
-			m[id] = fmt.Sprintf("%d/%s", rec.Revision, rec.SHA256)
+			m[id] = fmt.Sprintf("%d/%s/%s", rec.Revision, rec.SHA256, rec.UploadID)
 		}
 		p.Artifacts[harp] = m
 	}
@@ -143,11 +146,12 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 						Harp: harp, Scope: "SCOPE_PROGRESS",
 						Text: fmt.Sprintf("progress %d", step),
 					}))
-				case 5: // stamp an artifact manifest (B1.6 fact kind)
+				case 5: // stamp an artifact manifest (B1.6 fact kind; E1c adds UploadID)
 					harp := fmt.Sprintf("harp-%d", rng.Intn(7))
+					sha := fmt.Sprintf("%02x", rng.Intn(256))
 					appendFact(factAt(factArtifact, at, artifactFact{
 						Harp: harp, ArtifactID: fmt.Sprintf("plan/p%d", rng.Intn(3)),
-						Revision: uint32(rng.Intn(4) + 1), SHA256: fmt.Sprintf("%02x", rng.Intn(256)),
+						Revision: uint32(rng.Intn(4) + 1), SHA256: sha, UploadID: sha,
 					}))
 				}
 			}

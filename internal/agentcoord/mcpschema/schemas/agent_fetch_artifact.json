@@ -1,0 +1,54 @@
+{
+  "name": "agent_fetch_artifact",
+  "description": "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "agent_id": {
+        "description": "The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster)",
+        "examples": [
+          "swift-amber-falcon"
+        ],
+        "type": "string"
+      },
+      "artifact_id": {
+        "description": "The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report",
+        "examples": [
+          "plan/rollout"
+        ],
+        "type": "string"
+      },
+      "dest_path": {
+        "description": "Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via \"..\") is rejected",
+        "examples": [
+          "./rollout.plan.md"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "agent_id",
+      "artifact_id",
+      "dest_path"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "sha256": {
+        "contentEncoding": "base64",
+        "type": "string"
+      },
+      "size_bytes": {
+        "type": [
+          "integer",
+          "string"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

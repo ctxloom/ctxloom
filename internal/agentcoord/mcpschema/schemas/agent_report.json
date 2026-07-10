@@ -17,6 +17,18 @@
           "string"
         ]
       },
+      "publish_paths": {
+        "description": "Cell-local file paths (relative to the working directory) to publish as artifacts alongside this report, in addition to the automatic *.plan.md manifest stamping. Runner-read and uploaded; size-capped",
+        "examples": [
+          [
+            "findings/coverage.json"
+          ]
+        ],
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
       "scope": {
         "description": "Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary)",
         "enum": [

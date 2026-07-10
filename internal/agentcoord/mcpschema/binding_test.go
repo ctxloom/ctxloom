@@ -46,14 +46,17 @@ func TestGoldens_AgentRunRequireds(t *testing.T) {
 	assert.ElementsMatch(t, []string{"role", "input"}, in.Required)
 }
 
-// Every coordination tool is classified in the routing table, and the
-// classification is RouteCoordination (the binding table and routing table
-// cannot drift apart).
+// Every binding is classified in the routing table, and the classification
+// matches the binding's own declared Route (the binding table and routing
+// table cannot drift apart). Route's zero value is RouteCoordination, so
+// every binding predating E1 (which never sets Route) is still required to
+// route as coordination — only a binding that explicitly opts into a
+// different route (e.g. agent_fetch_artifact's RouteArtifactFetch) may.
 func TestRoutes_CoverCoordinationBindings(t *testing.T) {
 	routes := Routes()
 	for _, b := range CoordinationBindings() {
 		route, ok := routes[b.Tool]
 		require.True(t, ok, "binding %s missing from routing table", b.Tool)
-		assert.Equal(t, RouteCoordination, route, "binding %s must route as coordination", b.Tool)
+		assert.Equal(t, b.Route, route, "binding %s routing table entry must match its declared Route", b.Tool)
 	}
 }

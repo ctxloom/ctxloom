@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -32,7 +36,7 @@ import (
 // serves the whole ctxloom MCP surface over streamable HTTP on a
 // container-LOCAL unix socket, created BEFORE the harness spawns. The
 // harness's stdio `ctxloom mcp` shim forwards here (CTXLOOM_MCP_SOCKET); the
-// runner routes each tool per the three-way table (mcpschema.Routes):
+// runner routes each tool per the routing table (mcpschema.Routes):
 //
 //   - coordination tools → typed plane-2 frames on the RunChannel (the
 //     proto-canonical generated surface; the runner holds the one
@@ -41,7 +45,12 @@ import (
 //   - cell-local content tools → served locally (the data was delivered
 //     into the cell; same binary, same handlers);
 //   - host-resident tools → CustomRequest{ctxloom/<tool>} relay to the
-//     coordinator-side handlers (4MiB watched there).
+//     coordinator-side handlers (4MiB watched there);
+//   - artifact-fetch tools (E1d) → served locally by calling
+//     ArtifactTransferService directly on the runner's own credentialed
+//     connection (coord.Home.DownloadArtifact) — schema-derived like the
+//     coordination tools, but never a typed RunChannel frame; see
+//     mcpschema.RouteArtifactFetch.
 
 // runnerMCP is one runner's MCP endpoint: the unix listener + server.
 type runnerMCP struct {
@@ -172,16 +181,23 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home) (*mcp
 		registered[name] = true
 	}
 
-	// Coordination tools: the proto-canonical generated surface.
+	// Generated (proto-canonical) tools: coordination frames AND
+	// artifact-fetch both draw their schemas from mcpschema.Tools() — they
+	// differ only in which handler builder serves them (Binding.Route).
 	tools, err := mcpschema.Tools()
 	if err != nil {
 		return nil, err
 	}
 	for _, spec := range tools {
-		if routes[spec.Name] != mcpschema.RouteCoordination {
-			return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination — fix mcpschema.Routes", spec.Name)
+		var h mcp.ToolHandler
+		switch routes[spec.Name] {
+		case mcpschema.RouteCoordination:
+			h, err = coordinationHandler(home, harp, cwd, spec.Name)
+		case mcpschema.RouteArtifactFetch:
+			h, err = artifactFetchHandler(home, cwd, spec.Name)
+		default:
+			return nil, fmt.Errorf("runner MCP: generated tool %q is not classified as coordination or artifact-fetch — fix mcpschema.Routes", spec.Name)
 		}
-		h, err := coordinationHandler(home, harp, spec.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +274,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
 // runner-local recv/report), and project the result back with proto names.
-func coordinationHandler(home *coord.Home, harp, name string) (mcp.ToolHandler, error) {
+func coordinationHandler(home *coord.Home, harp, cwd, name string) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentRun:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -311,7 +327,7 @@ func coordinationHandler(home *coord.Home, harp, name string) (mcp.ToolHandler, 
 	case mcpschema.ToolAgentRecv:
 		return recvHandler(home), nil
 	case mcpschema.ToolAgentReport:
-		return reportHandler(home, harp), nil
+		return reportHandler(home, harp, cwd), nil
 	default:
 		return nil, fmt.Errorf("runner MCP: no handler for generated tool %q — extend coordinationHandler alongside the binding table", name)
 	}
@@ -408,10 +424,13 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 }
 
 // reportHandler is agent_report: file the Summary (and auto-stamped plan
-// manifests) as plane-1 events, returning once the coordinator's Ack covers
-// them (durably journaled).
-func reportHandler(home *coord.Home, harp string) mcp.ToolHandler {
-	stamper := &planStamper{harp: harp}
+// manifests + any explicitly published files) as plane-1 events, returning
+// once the coordinator's Ack covers them (durably journaled). E1c upgrade:
+// bytes are UPLOADED via ArtifactTransferService BEFORE the manifest fact is
+// filed — the ArtifactProduced fact carries upload_id (+ sha256), path stays
+// a label, never the transfer mechanism (manifests can no longer dangle).
+func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
+	stamper := &artifactStamper{harp: harp}
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var summary agentcoordpb.Summary
 		if err := unmarshalArgs(req, &summary); err != nil {
@@ -423,10 +442,50 @@ func reportHandler(home *coord.Home, harp string) mcp.ToolHandler {
 		if summary.GetScope() == agentcoordpb.Summary_SCOPE_UNSPECIFIED {
 			return nil, errors.New("agent_report: scope is required (SCOPE_PROGRESS | SCOPE_CHECKPOINT | SCOPE_FINAL | SCOPE_STEP)")
 		}
-		// Plan-stamping is the hook: session-dir *.plan.md files become
-		// artifact manifests (manifest-on-log; bytes stay in the session
-		// dir) whenever their content changed since the last stamp.
-		artifacts := stamper.changedManifests()
+
+		var artifacts []*agentcoordpb.ArtifactProduced
+
+		// Automatic plan-stamping: session-dir *.plan.md files, best-effort
+		// per file exactly as before E1 — a read/upload glitch on an
+		// AUTO-DISCOVERED file warns and is skipped; it never blocks the
+		// report (these files are not something the agent explicitly asked
+		// for THIS call).
+		for _, cand := range stamper.planCandidates() {
+			a, perr := stamper.publish(ctx, home, cand)
+			if perr != nil {
+				clidiag.Warn("ctxloom", "agent_report: plan stamp %s: %v", cand.absPath, perr)
+				continue
+			}
+			if a != nil {
+				artifacts = append(artifacts, a)
+			}
+		}
+
+		// E1c generic publish case: agent-DECLARED files. Unlike plan
+		// auto-discovery, a failure here is FAIL LOUD — the agent explicitly
+		// asked to publish a specific file; silently dropping it would be a
+		// correctness bug, not a degrade-gracefully case.
+		for _, rel := range summary.GetPublishPaths() {
+			abs, perr := resolveCellPath(cwd, rel)
+			if perr != nil {
+				return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
+			}
+			cand := artifactCandidate{
+				artifactID: "file/" + rel,
+				name:       filepath.Base(rel),
+				mediaType:  mimeByExt(rel),
+				kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_OTHER,
+				absPath:    abs,
+			}
+			a, perr := stamper.publish(ctx, home, cand)
+			if perr != nil {
+				return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
+			}
+			if a != nil {
+				artifacts = append(artifacts, a)
+			}
+		}
+
 		for _, a := range artifacts {
 			summary.ArtifactIds = append(summary.ArtifactIds, a.GetArtifactId())
 		}
@@ -444,16 +503,39 @@ func reportHandler(home *coord.Home, harp string) mcp.ToolHandler {
 	}
 }
 
-// planStamper tracks the session dir's *.plan.md content hashes and emits an
-// ArtifactProduced manifest for each new/changed plan (revision assignment
-// is the coordinator's — the producer sends 0).
-type planStamper struct {
-	harp string
-	mu   sync.Mutex
-	seen map[string]string // file name → hex sha256 last stamped
+// artifactPublishSizeCap bounds one file the runner reads and uploads on
+// agent_report's behalf (E1c: "runner-read, size-capped sanely") — checked
+// locally BEFORE the round trip; matches the coordinator's own
+// artifactUploadSizeCap (coord/artifacts.go), so a locally-oversized file
+// never even attempts the transfer.
+const artifactPublishSizeCap = 64 << 20
+
+// artifactCandidate is one file the runner considers for publish, from
+// either source (automatic plan-stamping or agent_report.publish_paths).
+type artifactCandidate struct {
+	artifactID string
+	name       string
+	mediaType  string
+	kind       agentcoordpb.ArtifactKind
+	absPath    string
 }
 
-func (p *planStamper) changedManifests() []*agentcoordpb.ArtifactProduced {
+// artifactStamper tracks content hashes already successfully uploaded,
+// keyed by artifact_id, so unchanged content is never re-uploaded (E1a's
+// idempotency rule applied at the source, ahead of the wire — the store's
+// own content addressing dedupes again at the coordinator regardless). It
+// performs the actual upload via ArtifactTransferService (E1c: the runner
+// reads the file cell-locally and uploads it).
+type artifactStamper struct {
+	harp string
+	mu   sync.Mutex
+	seen map[string]string // artifact_id → hex sha256 last successfully uploaded
+}
+
+// planCandidates lists the session dir's *.plan.md files as publish
+// candidates — unconditional on every report; publish decides per-file
+// whether content actually changed.
+func (p *artifactStamper) planCandidates() []artifactCandidate {
 	if p.harp == "" {
 		return nil
 	}
@@ -465,37 +547,148 @@ func (p *planStamper) changedManifests() []*agentcoordpb.ArtifactProduced {
 	if err != nil {
 		return nil
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.seen == nil {
-		p.seen = map[string]string{}
-	}
-	var out []*agentcoordpb.ArtifactProduced
+	var out []artifactCandidate
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.PlanFileExt) {
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
-		raw, rerr := os.ReadFile(path)
-		if rerr != nil {
-			clidiag.Warn("ctxloom", "agent_report: plan stamp %s: %v", path, rerr)
-			continue
-		}
-		sum := sha256.Sum256(raw)
-		hexSum := fmt.Sprintf("%x", sum)
-		if p.seen[e.Name()] == hexSum {
-			continue
-		}
-		p.seen[e.Name()] = hexSum
-		out = append(out, &agentcoordpb.ArtifactProduced{
-			ArtifactId: "plan/" + strings.TrimSuffix(e.Name(), paths.PlanFileExt),
-			Kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_IMPLEMENTATION_PLAN,
-			Name:       e.Name(),
-			MediaType:  "text/markdown",
-			SizeBytes:  uint64(len(raw)),
-			Sha256:     sum[:],
-			Labels:     map[string]string{"path": path},
+		out = append(out, artifactCandidate{
+			artifactID: "plan/" + strings.TrimSuffix(e.Name(), paths.PlanFileExt),
+			name:       e.Name(),
+			mediaType:  "text/markdown",
+			kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_IMPLEMENTATION_PLAN,
+			absPath:    filepath.Join(dir, e.Name()),
 		})
 	}
 	return out
+}
+
+// publish uploads one candidate IF its content changed since the last
+// successful upload for its artifact_id (nil, nil on no change — the common
+// case on every report after the first). seen is committed ONLY after a
+// successful upload, so a failed attempt is retried on the next call rather
+// than silently wedged as "already seen".
+func (p *artifactStamper) publish(ctx context.Context, home *coord.Home, c artifactCandidate) (*agentcoordpb.ArtifactProduced, error) {
+	raw, err := os.ReadFile(c.absPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", c.absPath, err)
+	}
+	if len(raw) > artifactPublishSizeCap {
+		return nil, fmt.Errorf("%s is %d bytes, over the %d-byte publish cap", c.absPath, len(raw), artifactPublishSizeCap)
+	}
+	sum := sha256.Sum256(raw)
+	hexSum := hex.EncodeToString(sum[:])
+
+	p.mu.Lock()
+	if p.seen == nil {
+		p.seen = map[string]string{}
+	}
+	unchanged := p.seen[c.artifactID] == hexSum
+	p.mu.Unlock()
+	if unchanged {
+		return nil, nil
+	}
+
+	receipt, err := home.UploadArtifact(ctx, c.artifactID, c.name, c.mediaType, sum, int64(len(raw)), bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("upload %s: %w", c.artifactID, err)
+	}
+
+	p.mu.Lock()
+	p.seen[c.artifactID] = hexSum
+	p.mu.Unlock()
+
+	return &agentcoordpb.ArtifactProduced{
+		ArtifactId: c.artifactID,
+		Kind:       c.kind,
+		Name:       c.name,
+		MediaType:  c.mediaType,
+		SizeBytes:  uint64(len(raw)),
+		Sha256:     sum[:],
+		Content:    &agentcoordpb.ArtifactProduced_UploadId{UploadId: receipt.GetUploadId()},
+		Labels:     map[string]string{"path": c.absPath},
+	}, nil
+}
+
+// mimeByExt guesses a publish_paths file's media type from its extension,
+// falling back to a generic octet stream — never a bare "" (labels/schema
+// consumers expect SOME value).
+func mimeByExt(path string) string {
+	if t := mime.TypeByExtension(filepath.Ext(path)); t != "" {
+		return t
+	}
+	return "application/octet-stream"
+}
+
+// resolveCellPath resolves a caller-supplied path against root (the
+// runner's cwd — the cell boundary) and rejects any result that escapes it
+// (e.g. via ".."), matching the cell-local content tools' existing security
+// boundary. Shared by agent_report's publish_paths (source) and
+// agent_fetch_artifact's dest_path (destination).
+func resolveCellPath(root, rel string) (string, error) {
+	if rel == "" {
+		return "", errors.New("path is required")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %q must be relative to the working directory, not absolute", rel)
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	absClean := filepath.Clean(filepath.Join(absRoot, rel))
+	if absClean != absRoot && !strings.HasPrefix(absClean, absRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes the working directory", rel)
+	}
+	return absClean, nil
+}
+
+// artifactFetchHandler builds the handler for one generated
+// RouteArtifactFetch tool — the mirror of coordinationHandler for the
+// artifact-transfer route.
+func artifactFetchHandler(home *coord.Home, cwd, name string) (mcp.ToolHandler, error) {
+	switch name {
+	case mcpschema.ToolAgentFetchArtifact:
+		return fetchArtifactHandler(home, cwd), nil
+	default:
+		return nil, fmt.Errorf("runner MCP: no handler for generated tool %q — extend artifactFetchHandler alongside the binding table", name)
+	}
+}
+
+// fetchArtifactHandler is agent_fetch_artifact (E1d): resolve dest_path
+// cell-safely, then hand off to Home.DownloadArtifact, which streams the
+// manifest header first, verifies the received content against it BEFORE
+// placing the file, and hard-fails on a mismatch (E1e) — never a partial or
+// corrupted file at dest_path.
+func fetchArtifactHandler(home *coord.Home, cwd string) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var m agentcoordpb.FetchArtifactRequest
+		if err := unmarshalArgs(req, &m); err != nil {
+			return nil, fmt.Errorf("agent_fetch_artifact: %w", err)
+		}
+		if m.GetAgentId() == "" {
+			return nil, errors.New("agent_fetch_artifact: agent_id is required")
+		}
+		if m.GetArtifactId() == "" {
+			return nil, errors.New("agent_fetch_artifact: artifact_id is required")
+		}
+		dest, err := resolveCellPath(cwd, m.GetDestPath())
+		if err != nil {
+			return nil, fmt.Errorf("agent_fetch_artifact: %w", err)
+		}
+		shaHex, size, err := home.DownloadArtifact(ctx, m.GetAgentId(), m.GetArtifactId(), dest)
+		if err != nil {
+			return nil, fmt.Errorf("agent_fetch_artifact: %w", err)
+		}
+		shaBytes, _ := hex.DecodeString(shaHex) // shaHex is our own hex.EncodeToString output
+		resp := &agentcoordpb.CoordinatorResponse{Status: &rpcstatus.Status{
+			Code:    int32(codes.OK),
+			Message: fmt.Sprintf("wrote %s (%d bytes, sha256 %s)", dest, size, shaHex),
+		}}
+		return coordinationResult(resp, &agentcoordpb.FetchArtifactResult{
+			Path:      dest,
+			Sha256:    shaBytes,
+			SizeBytes: uint64(size),
+		})
+	}
 }

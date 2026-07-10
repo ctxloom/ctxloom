@@ -13,6 +13,16 @@ The MCP surface is for **retrieving context during a session**: assembling conte
 
 ## Tools
 
+### agent_fetch_artifact
+
+Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `agent_id` | string | Yes | The harp of the session that produced the artifact (its own agent_id, or a spawned child's — from agent_run's child_agent_id or the roster) |
+| `artifact_id` | string | Yes | The artifact's id, from the producer's agent_report result (artifact_ids) or a relayed report |
+| `dest_path` | string | Yes | Where to write the bytes, resolved against this session's working directory — a path escaping it (e.g. via "..") is rejected |
+
 ### agent_recv
 
 Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.
@@ -29,6 +39,7 @@ File a structured report as a durable, journaled fact: PROGRESS (rolling status)
 |------|------|----------|-------------|
 | `artifact_ids` | string[] | No |  |
 | `covers_through_seq` | integer | No | Event-log compression hint: faithfully covers all events with seq <= covers_through_seq, so late joiners may start from the latest SCOPE_CHECKPOINT instead of replaying everything. |
+| `publish_paths` | string[] | No | Cell-local file paths (relative to the working directory) to publish as artifacts alongside this report, in addition to the automatic *.plan.md manifest stamping. Runner-read and uploaded; size-capped |
 | `scope` | string | Yes | Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary) (One of: `SCOPE_UNSPECIFIED`, `SCOPE_PROGRESS`, `SCOPE_STEP`, `SCOPE_CHECKPOINT`, `SCOPE_FINAL`) |
 | `step_id` | string | No | set when scope == SCOPE_STEP |
 | `structured` | object | No | Structured companion (decisions, open questions, metrics). |

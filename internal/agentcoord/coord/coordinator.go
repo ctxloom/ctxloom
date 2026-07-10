@@ -79,6 +79,11 @@ type Coordinator struct {
 	items    *Store
 	itemsF   *itemsFold
 	auditJ   *Store
+	// artifacts (E1b) is the content-addressed blob store backing
+	// ArtifactTransferService — NOT a journal (see artifactstore.go for why
+	// it needs no single-writer serialization); it lives alongside the
+	// journals in the same per-project state dir.
+	artifacts *artifactStore
 
 	spawner Spawner
 	slots   *turnSlots
@@ -225,6 +230,12 @@ func New(opts Options) (*Coordinator, error) {
 		return nil, err
 	}
 	c.auditJ = auditJ
+	artifacts, err := newArtifactStore(stateDir)
+	if err != nil {
+		c.closePartial()
+		return nil, err
+	}
+	c.artifacts = artifacts
 
 	c.adopt()
 	go c.runnerWatchdog()

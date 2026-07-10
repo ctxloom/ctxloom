@@ -29,7 +29,19 @@
 //   - the delegation orchestration that used to live in the parent's
 //     `ctxloom mcp` process (spawn queue under the D4 cap, §6a
 //     delivery-by-state, resume of ended children, oneshot bridging, the
-//     observation TapHub and the surviving bus verbs observe/roster/inject).
+//     observation TapHub and the surviving bus verbs observe/roster/inject);
+//   - artifact transfer (Wave E1, artifacts.go/artifactstore.go/
+//     homeartifacts.go): agentcoord.v1.ArtifactTransferService (chunked
+//     upload/download, credentialed on the SAME connection as
+//     RunnerChannel/RunChannel) backed by a content-addressed blob store
+//     (~/.ctxloom/coord/<project>/artifacts/<sha256>) — bytes move THROUGH
+//     the coordinator because containers and worktrees are not a shared
+//     filesystem. Deliberately OUTSIDE the CQRS boundary below: the store
+//     has no fold/projection of its own (the filesystem, addressed by
+//     content hash, is already its own source of truth); the LOGICAL
+//     manifest fact (ArtifactProduced, which artifact_id points at which
+//     content) still rides the ordinary CQRS run registry (reports.go),
+//     unchanged in kind, only richer in field (upload_id).
 //
 // SCOPE BOUNDARY (plan, CQRS discipline): CQRS applies to this runtime
 // coordinator's state ONLY — config loading, the selection builder, and

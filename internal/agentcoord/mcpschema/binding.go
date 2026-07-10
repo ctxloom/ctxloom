@@ -17,12 +17,13 @@ package mcpschema
 
 // Tool names — stable UX, decoupled from the proto message names they bind.
 const (
-	ToolAgentRun    = "agent_run"
-	ToolAgentSend   = "agent_send"
-	ToolAgentRecv   = "agent_recv"
-	ToolAgentStop   = "agent_stop"
-	ToolAgentReport = "agent_report"
-	ToolRoster      = "roster"
+	ToolAgentRun           = "agent_run"
+	ToolAgentSend          = "agent_send"
+	ToolAgentRecv          = "agent_recv"
+	ToolAgentStop          = "agent_stop"
+	ToolAgentReport        = "agent_report"
+	ToolRoster             = "roster"
+	ToolAgentFetchArtifact = "agent_fetch_artifact"
 )
 
 // Binding maps one coordination tool onto its proto messages. Input/Output
@@ -45,6 +46,16 @@ type Binding struct {
 	// message projections (agent_recv's output embeds PeerMessage).
 	SyntheticInput  func(p *Projector) (map[string]any, error)
 	SyntheticOutput func(p *Projector) (map[string]any, error)
+
+	// Route is this binding's classification (Routes(), below). The zero
+	// value is RouteCoordination — every binding predating E1 rides typed
+	// RunChannel plane-2 frames, so leaving this unset is correct for them.
+	// E1's agent_fetch_artifact is the first binding to set it explicitly:
+	// its schema is proto-derived like every other binding here, but it is
+	// served by a runner-local handler that calls ArtifactTransferService
+	// directly, never a typed AgentRequest/CoordinatorResponse frame — see
+	// RouteArtifactFetch's doc.
+	Route Route
 }
 
 // CoordinationBindings is the binding table: every coordination tool and the
@@ -123,6 +134,15 @@ func CoordinationBindings() []Binding {
 			Input:  "agentcoord.v1.ListRunsRequest",
 			Output: "agentcoord.v1.ListRunsResult",
 		},
+		{
+			// E1d: retrieve a reported artifact's bytes to a local path.
+			// RouteArtifactFetch, NOT RouteCoordination — see Binding.Route
+			// and RouteArtifactFetch's doc for why.
+			Tool:   ToolAgentFetchArtifact,
+			Input:  "agentcoord.v1.FetchArtifactRequest",
+			Output: "agentcoord.v1.FetchArtifactResult",
+			Route:  RouteArtifactFetch,
+		},
 	}
 }
 
@@ -144,6 +164,17 @@ const (
 	// transcript stores) that is not mounted into children; they relay as
 	// CustomRequest{name: "ctxloom/<tool>"} with coordinator-side handlers.
 	RouteHostRelay
+	// RouteArtifactFetch (E1d) tools stream bytes through the DEDICATED
+	// ArtifactTransferService, never the RunChannel typed-frame plane-2
+	// path (a chunked transfer has no business riding the same channel as
+	// status/event traffic — the whole point of splitting artifacts.proto
+	// out in the first place). The schema is still proto-derived like every
+	// RouteCoordination tool; only the SERVING mechanism differs: a
+	// runner-local handler calls DownloadArtifact directly on the runner's
+	// own credentialed connection, verifies the content hash, and places
+	// the file cell-locally — never a typed AgentRequest/
+	// CoordinatorResponse round-trip.
+	RouteArtifactFetch
 )
 
 // Routes returns the classification of EVERY tool on the ctxloom MCP
@@ -158,6 +189,10 @@ func Routes() map[string]Route {
 		ToolAgentStop:   RouteCoordination,
 		ToolAgentReport: RouteCoordination,
 		ToolRoster:      RouteCoordination,
+
+		// Artifact transfer (E1d) — the dedicated chunked-transfer service,
+		// not a typed plane-2 frame.
+		ToolAgentFetchArtifact: RouteArtifactFetch,
 
 		// Cell-local content — the data was delivered into the cell.
 		"assemble_context": RouteCellLocal,

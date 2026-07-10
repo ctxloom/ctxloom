@@ -101,21 +101,31 @@ type coordService struct {
 // or otherwise, may watch.
 const coordinatorServiceMethodPrefix = "/agentcoord.v1.CoordinatorService/"
 
+// artifactUploadFullMethod is the ONE ArtifactTransferService RPC a D1
+// read-only consumer credential must never authenticate (E1a: "consumers
+// are read-only" — upload mutates the store). DownloadArtifact is
+// deliberately NOT blocked here: consumer-class credentials may read,
+// exactly like ConsumerService (coord/artifacts.go's
+// authorizeArtifactDownload allows caller.Consumer unconditionally).
+const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadArtifact"
+
 // grpcServer builds the coordinator's gRPC server with per-stream credential
 // verification (identity is re-checked per request too — every handler calls
 // Identify again rather than trusting a cached principal). D1: a consumer
 // credential authenticates ConsumerService only — presenting one on
 // RunnerChannel/RunChannel/PublishEvents is a rejected identity, not just an
 // unauthorized verb, so a leaked viewer credential cannot mutate anything or
-// impersonate a runner/child (read-only scope enforced server-side).
+// impersonate a runner/child (read-only scope enforced server-side). E1a
+// extends the same rule to UploadArtifact (mutating) while leaving
+// DownloadArtifact open to consumers (read-only).
 func (c *Coordinator) grpcServer() *grpc.Server {
 	auth := func(ctx context.Context, fullMethod string) (Identity, error) {
 		id, ok := c.Identify(mdToken(ctx))
 		if !ok {
 			return Identity{}, status.Error(codes.Unauthenticated, "unknown or revoked credential")
 		}
-		if id.Consumer && strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) {
-			return Identity{}, status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call CoordinatorService")
+		if id.Consumer && (strings.HasPrefix(fullMethod, coordinatorServiceMethodPrefix) || fullMethod == artifactUploadFullMethod) {
+			return Identity{}, status.Error(codes.PermissionDenied, "a read-only consumer credential cannot call "+fullMethod)
 		}
 		return id, nil
 	}
@@ -135,6 +145,7 @@ func (c *Coordinator) grpcServer() *grpc.Server {
 	)
 	agentcoordpb.RegisterCoordinatorServiceServer(srv, &coordService{c: c})
 	agentcoordpb.RegisterConsumerServiceServer(srv, &consumerService{c: c})
+	agentcoordpb.RegisterArtifactTransferServiceServer(srv, &artifactService{c: c})
 	return srv
 }
 

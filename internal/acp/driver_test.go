@@ -1,9 +1,12 @@
 package acp
 
 import (
+	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -84,4 +87,40 @@ func TestConfigure_ClaudeAgentEngineStripsCLAUDECODE(t *testing.T) {
 	// Re-configuring doesn't duplicate the strip entry.
 	drv.Configure(&ACPConfig{AgentEngine: "claude"})
 	assert.Equal(t, []string{"CLAUDECODE"}, drv.stripEnv, "no duplicate strip entries across repeated Configure calls")
+}
+
+// TestChat_ModelEnvVar pins the model's ENV delivery (ACPConfig.ModelEnvVar):
+// when the embedding backend names the engine's native model env var (claude:
+// ANTHROPIC_MODEL), the requested model rides the spawned adapter's env —
+// load-bearing because claude-code-acp 0.16.2 silently ignores the `--model`
+// argv and would otherwise run the session on the user's saved interactive
+// default (the -32603 failure the resolveChatModel gate exists to prevent).
+func TestChat_ModelEnvVar(t *testing.T) {
+	b := NewChatDriver(ACPConfig{Command: "claude-code-acp", ModelEnvVar: "ANTHROPIC_MODEL"})
+	gotEnv := make(chan map[string]string, 1)
+	b.openTransport = func(_ context.Context, _ []string, env map[string]string, _ string) (*transport, error) {
+		gotEnv <- env
+		return nil, io.ErrUnexpectedEOF // spawn "fails": env capture is all this test needs
+	}
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent, 1)
+	callerEnv := map[string]string{"FOO": "bar"}
+	err := b.Chat(context.Background(), agent.ChatRequest{Model: "claude-sonnet-5", Env: callerEnv}, in, out)
+	require.Error(t, err)
+	env := <-gotEnv
+	assert.Equal(t, "claude-sonnet-5", env["ANTHROPIC_MODEL"], "the requested model rides the adapter env")
+	assert.Equal(t, "bar", env["FOO"], "the caller's env survives the overlay")
+	assert.NotContains(t, callerEnv, "ANTHROPIC_MODEL", "the caller's map is copied, never mutated")
+
+	// No ModelEnvVar configured → env passes through untouched. (Fresh
+	// channels: Chat closes out on return, per the StructuredChat contract.)
+	b2 := NewChatDriver(ACPConfig{Command: "kiro-cli acp"})
+	gotEnv2 := make(chan map[string]string, 1)
+	b2.openTransport = func(_ context.Context, _ []string, env map[string]string, _ string) (*transport, error) {
+		gotEnv2 <- env
+		return nil, io.ErrUnexpectedEOF
+	}
+	_ = b2.Chat(context.Background(), agent.ChatRequest{Model: "some-model", Env: map[string]string{"FOO": "bar"}},
+		make(chan agent.ChatMessage), make(chan agent.ChatEvent, 1))
+	assert.NotContains(t, <-gotEnv2, "ANTHROPIC_MODEL")
 }

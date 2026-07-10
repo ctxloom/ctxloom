@@ -58,6 +58,14 @@ func chatACPConfig(env map[string]string) acp.ACPConfig {
 		Command:  claudeACPAdapter,
 		Env:      env,
 		StripEnv: []string{"CLAUDECODE"},
+		// The requested model must ALSO ride the adapter env as the claude
+		// SDK's own ANTHROPIC_MODEL: claude-code-acp 0.16.2 silently ignores
+		// the driver's `--model` argv (verified live), and without the env
+		// var every session falls back to the user's saved INTERACTIVE
+		// default from ~/.claude/settings.json — a saved alias (e.g.
+		// "fable") then dies at the first session/prompt with the opaque
+		// -32603 the resolveChatModel gate exists to prevent.
+		ModelEnvVar: "ANTHROPIC_MODEL",
 	}
 }
 

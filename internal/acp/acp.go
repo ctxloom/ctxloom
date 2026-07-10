@@ -52,6 +52,15 @@ type ACPConfig struct {
 	AgentEngine string `mapstructure:"agent_engine"`
 	// Model is passed to the spawned agent via `--model` when set.
 	Model string `mapstructure:"model"`
+	// ModelEnvVar, when set, ALSO delivers the request's model into the
+	// spawned agent's environment under this variable name (e.g. claude's
+	// SDK selector ANTHROPIC_MODEL). Real adapters vary in whether the
+	// `--model` argv is honored at all — claude-code-acp 0.16.2 silently
+	// ignores it and runs the session on the user's saved interactive
+	// default, which the resolveChatModel gate exists to prevent — so the
+	// engine-native env var is the load-bearing delivery where the
+	// embedding backend knows one.
+	ModelEnvVar string `mapstructure:"model_env_var"`
 	// StripEnv names inherited environment variables REMOVED from the spawned
 	// agent's env. The embedding backend uses it to drop a variable whose
 	// inherited presence would be a false signal to the child engine — e.g.
@@ -81,6 +90,7 @@ type ACP struct {
 	agentName   string
 	agentEngine string
 	model       string
+	modelEnvVar string
 	stripEnv    []string
 
 	// openTransport spawns (or, in tests, fakes) the ACP subprocess transport.
@@ -141,6 +151,9 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	}
 	if c.Model != "" {
 		b.model = c.Model
+	}
+	if c.ModelEnvVar != "" {
+		b.modelEnvVar = c.ModelEnvVar
 	}
 	if len(c.StripEnv) > 0 {
 		b.stripEnv = c.StripEnv

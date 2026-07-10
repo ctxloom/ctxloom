@@ -62,3 +62,13 @@ func TestResolveModel_EmptyOrUnknownShapedFails(t *testing.T) {
 		assert.Empty(t, model)
 	}
 }
+
+// TestChatACPConfig_ModelEnvVar pins the ANTHROPIC_MODEL delivery config:
+// claude's adapter entry names the claude SDK's own model-selector env var,
+// because claude-code-acp 0.16.2 silently ignores the driver's --model argv
+// and would otherwise run every session on the user's saved interactive
+// default — re-opening the -32603 the resolveChatModel gate closed. The
+// driver-side delivery is pinned in internal/acp (TestChat_ModelEnvVar).
+func TestChatACPConfig_ModelEnvVar(t *testing.T) {
+	assert.Equal(t, "ANTHROPIC_MODEL", chatACPConfig(nil).ModelEnvVar)
+}

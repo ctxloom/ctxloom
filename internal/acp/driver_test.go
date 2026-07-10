@@ -61,3 +61,27 @@ func TestConfigure_StripEnv(t *testing.T) {
 	drv := NewChatDriver(ACPConfig{Command: "claude-code-acp", StripEnv: []string{"CLAUDECODE"}})
 	assert.Equal(t, []string{"CLAUDECODE"}, drv.stripEnv)
 }
+
+// TestConfigure_ClaudeAgentEngineStripsCLAUDECODE pins item 2: a GENERIC acp
+// entry whose agent_engine names claude (`type: acp`, `command:
+// "claude-code-acp"`, `agent_engine: claude`) drives the same claude engine
+// claude-code's own backend does, and inherits CLAUDECODE from the parent
+// claude's process tree exactly like it — but before this fix, only the
+// claude-code backend's OWN chatACPConfig strip applied; a user-configured
+// generic acp entry was left unstripped and died under a claude parent.
+func TestConfigure_ClaudeAgentEngineStripsCLAUDECODE(t *testing.T) {
+	drv := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "claude"})
+	assert.Contains(t, drv.stripEnv, "CLAUDECODE")
+
+	// Case-insensitive, and a user-configured strip_env is preserved alongside it.
+	drv2 := NewChatDriver(ACPConfig{Command: "claude-code-acp", AgentEngine: "Claude", StripEnv: []string{"FOO"}})
+	assert.ElementsMatch(t, []string{"FOO", "CLAUDECODE"}, drv2.stripEnv)
+
+	// A non-claude engine is untouched: only claude has this guard.
+	drv3 := NewChatDriver(ACPConfig{Command: "kiro-cli acp", AgentEngine: "kiro"})
+	assert.Empty(t, drv3.stripEnv)
+
+	// Re-configuring doesn't duplicate the strip entry.
+	drv.Configure(&ACPConfig{AgentEngine: "claude"})
+	assert.Equal(t, []string{"CLAUDECODE"}, drv.stripEnv, "no duplicate strip entries across repeated Configure calls")
+}

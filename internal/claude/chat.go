@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -58,4 +59,64 @@ func chatACPConfig(env map[string]string) acp.ACPConfig {
 		Env:      env,
 		StripEnv: []string{"CLAUDECODE"},
 	}
+}
+
+// claudeModelNicknames translates claude's documented INTERACTIVE model
+// nicknames — set via the TUI's `/model` picker and persisted as the user's
+// saved default — to the concrete, API-shaped model id the ACP/API path
+// actually accepts. A delegated child's whole engine chain is driven over ACP
+// (claude-code-acp), never the interactive TUI: a bare nickname reaching its
+// `--model` flag (or an unset model, which lets the adapter fall back to the
+// saved interactive default) is REJECTED at session/new with an opaque
+// -32603 ("There's an issue with the selected model") — the ACP/API surface,
+// unlike the interactive TUI, has no alias table of its own. This is the ONE
+// place that table lives; ResolveModel is the funnel every delegated child's
+// model resolves through (see internal/operations/delegate.go's
+// resolveChatModel, the upstream caller that actually gates the spawn).
+var claudeModelNicknames = map[string]string{
+	"fable":  "claude-fable-5",
+	"opus":   "claude-opus-4-8",
+	"sonnet": "claude-sonnet-5",
+	"haiku":  "claude-haiku-4-5",
+}
+
+// ResolveModel translates a configured/raw claude model string into the
+// concrete, ACP/API-shaped model id a delegated child's Chat spawn requires.
+//
+//   - A known interactive nickname (claudeModelNicknames) resolves to its
+//     concrete id.
+//   - A string that already LOOKS concrete (a "claude-" id carrying a version
+//     digit, e.g. "claude-sonnet-5" or a dated snapshot) passes through
+//     UNTOUCHED — a pinned concrete model is never rewritten.
+//   - Anything else — empty, or an unrecognized bare word that looks like
+//     another interactive-only alias ctxloom doesn't know how to translate —
+//     reports ok=false so the caller can fail loud instead of spawning a
+//     child the engine will reject with an opaque protocol error.
+func ResolveModel(raw string) (model string, ok bool) {
+	if raw == "" {
+		return "", false
+	}
+	if concrete, known := claudeModelNicknames[strings.ToLower(raw)]; known {
+		return concrete, true
+	}
+	if looksConcreteModel(raw) {
+		return raw, true
+	}
+	return "", false
+}
+
+// looksConcreteModel is a permissive shape check distinguishing an
+// already-resolved claude model id from a bare alias word no translation
+// table recognizes: it must carry claude's "claude-" prefix AND at least one
+// version digit (a bare word like a stray interactive nickname has neither).
+func looksConcreteModel(s string) bool {
+	if !strings.HasPrefix(s, "claude-") {
+		return false
+	}
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
 }

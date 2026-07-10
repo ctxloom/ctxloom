@@ -18,3 +18,47 @@ func TestChatACPConfig_StripsNestedSessionGuard(t *testing.T) {
 	assert.Equal(t, map[string]string{"FOO": "bar"}, cfg.Env, "backend env overlay passes through")
 	assert.Contains(t, cfg.StripEnv, "CLAUDECODE", "the nested-session guard must not leak into the child engine")
 }
+
+// TestResolveModel_TranslatesDocumentedNicknames pins the alias table: every
+// documented claude interactive nickname (settable via the TUI's `/model`
+// picker) resolves to its concrete, ACP/API-shaped id. Matching is
+// case-insensitive since the saved interactive default's casing is not
+// something ctxloom controls.
+func TestResolveModel_TranslatesDocumentedNicknames(t *testing.T) {
+	cases := map[string]string{
+		"fable":  "claude-fable-5",
+		"opus":   "claude-opus-4-8",
+		"sonnet": "claude-sonnet-5",
+		"haiku":  "claude-haiku-4-5",
+		"Fable":  "claude-fable-5",
+		"SONNET": "claude-sonnet-5",
+	}
+	for raw, want := range cases {
+		model, ok := ResolveModel(raw)
+		assert.True(t, ok, "nickname %q should resolve", raw)
+		assert.Equal(t, want, model, "nickname %q", raw)
+	}
+}
+
+// TestResolveModel_ConcretePassesThroughUntouched pins that an already-pinned
+// concrete model id is never rewritten — only the documented bare nicknames
+// are translated.
+func TestResolveModel_ConcretePassesThroughUntouched(t *testing.T) {
+	for _, raw := range []string{"claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001"} {
+		model, ok := ResolveModel(raw)
+		assert.True(t, ok, "concrete id %q should resolve", raw)
+		assert.Equal(t, raw, model, "a pinned concrete model must pass through untouched")
+	}
+}
+
+// TestResolveModel_EmptyOrUnknownShapedFails pins the fail-loud shape: an
+// empty model (never configured) and an unrecognized bare word (an
+// interactive-only alias ctxloom has no translation for) both report
+// unresolved rather than silently reaching the ACP/API path.
+func TestResolveModel_EmptyOrUnknownShapedFails(t *testing.T) {
+	for _, raw := range []string{"", "some-custom-alias", "latest", "default"} {
+		model, ok := ResolveModel(raw)
+		assert.False(t, ok, "raw %q must not resolve", raw)
+		assert.Empty(t, model)
+	}
+}

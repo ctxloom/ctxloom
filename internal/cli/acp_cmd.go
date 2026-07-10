@@ -253,17 +253,26 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, acpCoord *
 			}
 		}
 	})
+	// D3 (manly-grant (2)): a session gets the child-update push only when
+	// the coordinator actually stood up (sessionEnv above; nil on a bare
+	// harp-less session, or a degraded standup that already warned).
+	var watchChildren func(context.Context) (<-chan acpagent.ChildUpdate, func())
+	if sc := acpCoord.coordinator(); sc != nil {
+		watchChildren = acpChildWatcher(sc)
+	}
+
 	return &acpagent.EngineChat{
-		Context:      contextText,
-		In:           in,
-		Events:       events,
-		Errs:         errs,
-		Close:        closeOnce,
-		Harp:         harp,
-		Modes:        buildSessionModes(cfg, profile, defaultProfiles, currentAgent),
-		AssembleMode: assembleModeFunc(cfg, label),
-		Replay:       replay,
-		LLMs:         buildSessionLLMs(cfg, label),
+		Context:       contextText,
+		In:            in,
+		Events:        events,
+		Errs:          errs,
+		Close:         closeOnce,
+		Harp:          harp,
+		Modes:         buildSessionModes(cfg, profile, defaultProfiles, currentAgent),
+		AssembleMode:  assembleModeFunc(cfg, label),
+		Replay:        replay,
+		LLMs:          buildSessionLLMs(cfg, label),
+		WatchChildren: watchChildren,
 	}, nil
 }
 

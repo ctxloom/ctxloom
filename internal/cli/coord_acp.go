@@ -49,6 +49,16 @@ func (a *acpCoordinator) sessionEnv(cfg *config.Config, cwd, harp string) map[st
 	return env
 }
 
+// coordinator returns the hosted coordinator, or nil when standup was never
+// attempted (no session has opened yet) or already failed (warned once at
+// the time — see sessionEnv). D3 (acp_children.go) uses this to decide
+// whether a session gets the child-update push at all.
+func (a *acpCoordinator) coordinator() *coord.Coordinator {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.c
+}
+
 func (a *acpCoordinator) close() {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -111,8 +111,12 @@ func New(opts Options) *Controller {
 	}
 	c := &Controller{opts: opts, stopRoster: make(chan struct{})}
 	c.sur = NewSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
-	c.gate = NewOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, c.sur.FlushLocked)
+	// The guard runs inside the gate under the shared tty lock; its callbacks
+	// are the surround's *Locked accessors (same mutex, no re-entry).
+	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
+	c.gate = NewOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
 	c.sur.SetEngineIdle(c.gate.LastWriteNanos)
+	c.sur.SetPaintSafe(guard.SafeForPaint)
 	c.rt = NewResizeTranslator(opts.Resize, c.sur.Reserve(), c.sur.SetSize)
 	c.ic = NewInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
 		Engage:       c.engage,

@@ -67,6 +67,12 @@ type Surround struct {
 	engineBusyWindow time.Duration
 	lastEngineWrite  func() int64 // gate.LastWriteNanos; nil = always paint
 
+	// paintSafe reports whether the tty byte stream currently ends at a
+	// boundary a bar paint may follow (the gate guard's SafeForPaint). A
+	// paint attempted mid-stream re-marks dirty instead. nil = always safe.
+	// Called with mu held.
+	paintSafe func() bool
+
 	rows, cols int
 	active     bool // region established (enabled && big enough)
 	suspended  bool
@@ -99,6 +105,41 @@ func (s *Surround) Reserve() int { return s.reserve }
 
 // SetEngineIdle wires the gate's last-write clock for the busy heuristic.
 func (s *Surround) SetEngineIdle(lastWriteNanos func() int64) { s.lastEngineWrite = lastWriteNanos }
+
+// SetPaintSafe wires the gate guard's stream-boundary check; paints attempted
+// while the child stream is mid-sequence defer to the next safe flush.
+func (s *Surround) SetPaintSafe(safe func() bool) { s.paintSafe = safe }
+
+// regionBottomLocked is the guard's clamp bound: the last protected-region
+// row while the reservation stands, else 0 (child owns the full screen — no
+// clamping). Requires s.mu.
+func (s *Surround) regionBottomLocked() int {
+	if !s.active || s.restored {
+		return 0
+	}
+	return s.rows - s.reserve
+}
+
+// reassertLocked returns the bytes the guard inserts right behind a child
+// sequence that clobbered the region (RIS, DECSTR, alt-screen leave): scroll
+// region re-established and the bar repainted, wrapped in DECSC/DECRC so the
+// child's cursor position survives the DECSTBM home. Requires s.mu.
+func (s *Surround) reassertLocked() []byte {
+	if !s.active || s.suspended || s.restored {
+		return nil
+	}
+	b := make([]byte, 0, 128)
+	b = append(b, "\x1b7\x1b[1;"...)
+	b = strconv.AppendInt(b, int64(s.rows-s.reserve), 10)
+	b = append(b, 'r')
+	b = s.appendBarBody(b)
+	return append(b, "\x1b8"...)
+}
+
+// markDirtyLocked flags the bar for the gate's next afterWrite flush — the
+// guard's notice that a child sequence erased the bar row (ED 2/3, alt-screen
+// enter) without touching the margins. Requires s.mu (same write cycle).
+func (s *Surround) markDirtyLocked() { s.dirty.Store(true) }
 
 // SetSize records the REAL terminal size and (re)establishes or releases the
 // protected region as the reservation predicate flips. Called on the resize
@@ -214,9 +255,15 @@ func (s *Surround) Restore() {
 	_, _ = s.w.Write(s.buf)
 }
 
-// paintLocked renders the bar row. Requires s.mu.
+// paintLocked renders the bar row. Requires s.mu. A paint attempted while the
+// child stream ends mid-sequence (inside an OSC/DCS string) re-marks the bar
+// dirty for the next safe flush instead of tearing the sequence.
 func (s *Surround) paintLocked() {
 	if !s.active || s.suspended || s.restored {
+		return
+	}
+	if s.paintSafe != nil && !s.paintSafe() {
+		s.dirty.Store(true)
 		return
 	}
 	s.buf = s.appendBar(s.buf[:0])

@@ -19,18 +19,25 @@ type OutputGate struct {
 	ring *Ring
 	held bool
 
+	// guard filters every child byte bound for the tty: it clamps/repairs
+	// scroll-region clobbers and holds back trailing partial escape
+	// sequences/runes so the written stream always ends at a boundary a bar
+	// repaint may follow (see vtGuard). nil = raw passthrough.
+	guard *vtGuard
+
 	// afterWrite runs with mu held after each passthrough write — the
 	// surround's dirty-flush piggyback, so bar repaints ride between engine
-	// chunks instead of racing into the middle of a split escape sequence.
+	// chunks; the guard guarantees those boundaries never split an escape
+	// sequence or a rune.
 	afterWrite func()
 
 	lastWrite atomic.Int64 // unix nanos of the last passthrough write
 }
 
 // NewOutputGate wraps dst. mu is the tty lock shared with the Surround;
-// afterWrite may be nil.
-func NewOutputGate(mu *sync.Mutex, dst io.Writer, holdCapacity int, afterWrite func()) *OutputGate {
-	return &OutputGate{mu: mu, dst: dst, ring: NewRing(holdCapacity), afterWrite: afterWrite}
+// guard and afterWrite may be nil.
+func NewOutputGate(mu *sync.Mutex, dst io.Writer, holdCapacity int, guard *vtGuard, afterWrite func()) *OutputGate {
+	return &OutputGate{mu: mu, dst: dst, ring: NewRing(holdCapacity), guard: guard, afterWrite: afterWrite}
 }
 
 // Write implements the engine-output path.
@@ -40,12 +47,21 @@ func (g *OutputGate) Write(p []byte) (int, error) {
 	if g.held {
 		return g.ring.Write(p)
 	}
-	n, err := g.dst.Write(p)
+	out := p
+	if g.guard != nil {
+		out = g.guard.Filter(p)
+	}
+	var err error
+	if len(out) > 0 {
+		_, err = g.dst.Write(out)
+	}
 	g.lastWrite.Store(nowNanos())
 	if g.afterWrite != nil {
 		g.afterWrite()
 	}
-	return n, err
+	// Report the full chunk consumed: bytes the guard held back are pending
+	// inside it, not lost.
+	return len(p), err
 }
 
 // Hold diverts engine output into the ring (viewer engaged). Idempotent.
@@ -67,7 +83,14 @@ func (g *OutputGate) Release(pre []byte) {
 	g.held = false
 	data, dropped := g.ring.Drain()
 	if len(pre) > 0 {
+		// pre is the controller's own restore sequence — trusted, never filtered.
 		_, _ = g.dst.Write(pre)
+	}
+	if g.guard != nil && len(data) > 0 {
+		// The replay is child bytes like any other: same clamping, same
+		// holdback, so a region clobber recorded while the viewer was open
+		// can't slip through on release.
+		data = g.guard.Filter(data)
 	}
 	if len(data) > 0 {
 		_, _ = g.dst.Write(data)

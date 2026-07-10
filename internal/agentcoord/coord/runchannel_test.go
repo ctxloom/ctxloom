@@ -135,14 +135,13 @@ func TestRunChannel_ParkedRecvPushAndConsume(t *testing.T) {
 	h := childHome(t, c, out.RunID)
 
 	type recvOut struct {
-		msgs    []*agentcoordpb.PeerMessage
-		consume func()
-		err     error
+		msgs []*agentcoordpb.PeerMessage
+		err  error
 	}
 	got := make(chan recvOut, 1)
 	go func() {
-		msgs, consume, err := h.Recv(context.Background(), conformanceWait)
-		got <- recvOut{msgs, consume, err}
+		msgs, err := h.Recv(context.Background(), conformanceWait)
+		got <- recvOut{msgs, err}
 	}()
 
 	// The park must reach the coordinator before the send (push window).
@@ -167,14 +166,17 @@ func TestRunChannel_ParkedRecvPushAndConsume(t *testing.T) {
 	require.Len(t, r.msgs, 1)
 	assert.Equal(t, "hello child", r.msgs[0].GetText())
 
-	// Tentative until consumed: the message is still pending in the fold.
+	// Tentative until acknowledged: the message is still pending in the
+	// fold (reserved in the runtime ledger). The NEXT recv is the cursor-ack
+	// — its timeout is irrelevant to the acknowledgement.
 	assert.Equal(t, 0, c.pendingCount(out.Harp), "pushed ids are reserved (delivered-but-unacked)")
-	r.consume()
+	_, err = h.Recv(context.Background(), 50*time.Millisecond)
+	require.ErrorIs(t, err, ErrRecvTimeout)
 	require.Eventually(t, func() bool {
 		var pending int
 		c.mail.View(func() { pending = len(c.mailF.pendingFor(out.Harp)) })
 		return pending == 0
-	}, conformanceWait, 10*time.Millisecond, "the consume fact advances the durable cursor")
+	}, conformanceWait, 10*time.Millisecond, "the cursor-ack consume fact advances the durable cursor")
 }
 
 // TestRunChannel_CrashBeforeConsumeRedelivers: a runner that received a
@@ -188,7 +190,7 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 
 	got := make(chan []*agentcoordpb.PeerMessage, 1)
 	go func() {
-		msgs, _, err := h.Recv(context.Background(), conformanceWait)
+		msgs, err := h.Recv(context.Background(), conformanceWait)
 		if err == nil {
 			got <- msgs
 		}
@@ -209,11 +211,12 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 		t.Fatal("recv never completed")
 	}
 
-	// Crash before consume: the channel dies; its tentative reservation is
-	// released and the message RE-DELIVERS — the terminal path sees the
-	// leftover mail and resumes the harp as a fresh run with the message as
-	// its next turn (at-least-once, end to end).
-	h.Close(1, "")
+	// Crash before the cursor-ack: tear the channel down WITHOUT the clean
+	// Close (which would ack) — the tentative reservation is released and
+	// the message RE-DELIVERS: the terminal path sees the leftover mail and
+	// resumes the harp as a fresh run with the message as its next turn
+	// (at-least-once, end to end).
+	h.crash()
 	sp := c.spawner.(*fakeSpawner)
 	require.Eventually(t, func() bool {
 		if sp.spawnCount() < 2 {
@@ -239,7 +242,7 @@ func TestRunChannel_RecvPreemptionAndTimeout(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		_, _, err := h.Recv(context.Background(), conformanceWait)
+		_, err := h.Recv(context.Background(), conformanceWait)
 		firstErr <- err
 	}()
 	require.Eventually(t, func() bool {
@@ -249,7 +252,7 @@ func TestRunChannel_RecvPreemptionAndTimeout(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The newer receive preempts the parked one...
-	_, _, err := h.Recv(context.Background(), 50*time.Millisecond)
+	_, err := h.Recv(context.Background(), 50*time.Millisecond)
 	// ...and, with no mail arriving, itself times out.
 	require.ErrorIs(t, err, ErrRecvTimeout)
 

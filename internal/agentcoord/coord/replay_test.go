@@ -34,15 +34,21 @@ type foldProjection struct {
 	Roster map[string]string
 	// mailbox: role → pending message ids in order (cursor-sensitive)
 	Mailbox map[string][]string
+	// reports (B1.6): harp → latest summary line; harp → artifact_id →
+	// "rev/sha" (revision monotonicity + content addressing)
+	Reports   map[string]string
+	Artifacts map[string]map[string]string
 }
 
-// projectRuns builds the projection from a run-registry journal's three folds.
-func projectRuns(runsF *runsFold, queueF *queueFold, rosterF *rosterFold) foldProjection {
+// projectRuns builds the projection from a run-registry journal's folds.
+func projectRuns(runsF *runsFold, queueF *queueFold, rosterF *rosterFold, reportsF *reportsFold) foldProjection {
 	p := foldProjection{
-		Runs:    map[string]string{},
-		ByHarp:  map[string]string{},
-		Roster:  map[string]string{},
-		Mailbox: map[string][]string{},
+		Runs:      map[string]string{},
+		ByHarp:    map[string]string{},
+		Roster:    map[string]string{},
+		Mailbox:   map[string][]string{},
+		Reports:   map[string]string{},
+		Artifacts: map[string]map[string]string{},
 	}
 	for id, r := range runsF.runs {
 		p.Runs[id] = fmt.Sprintf("state=%s ended=%v cause=%s depth=%d cred=%v", r.State, r.Ended, r.Cause, r.Depth, r.CredHash != "")
@@ -58,6 +64,16 @@ func projectRuns(runsF *runsFold, queueF *queueFold, rosterF *rosterFold) foldPr
 	p.Executing = queueF.executing
 	for _, e := range rosterF.snapshot() {
 		p.Roster[e.Harp] = e.State
+	}
+	for harp := range reportsF.latest {
+		p.Reports[harp] = reportsF.latestSummary(harp)
+	}
+	for harp, byID := range reportsF.artifacts {
+		m := map[string]string{}
+		for id, rec := range byID {
+			m[id] = fmt.Sprintf("%d/%s", rec.Revision, rec.SHA256)
+		}
+		p.Artifacts[harp] = m
 	}
 	return p
 }
@@ -79,8 +95,8 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "runs.jsonl")
-			runsF, queueF, rosterF := newRunsFold(), newQueueFold(), newRosterFold()
-			store, err := openStore(path, runsF, queueF, rosterF)
+			runsF, queueF, rosterF, reportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+			store, err := openStore(path, runsF, queueF, rosterF, reportsF)
 			require.NoError(t, err)
 
 			rng := rand.New(rand.NewSource(seed))
@@ -95,7 +111,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 
 			for step := 0; step < 40; step++ {
 				at = at.Add(time.Second)
-				switch rng.Intn(4) {
+				switch rng.Intn(6) {
 				case 0: // enqueue a fresh run
 					id := fmt.Sprintf("run-%d", nextRun)
 					harp := fmt.Sprintf("harp-%d", nextRun%7) // harps reused (resume)
@@ -121,16 +137,28 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 						id := allRuns[rng.Intn(len(allRuns))]
 						appendFact(factAt(factRunHarness, at, runHarness{RunID: id, HarnessSessionID: "sid"}))
 					}
+				case 4: // file a report (B1.6 fact kind)
+					harp := fmt.Sprintf("harp-%d", rng.Intn(7))
+					appendFact(factAt(factSummary, at, summaryFact{
+						Harp: harp, Scope: "SCOPE_PROGRESS",
+						Text: fmt.Sprintf("progress %d", step),
+					}))
+				case 5: // stamp an artifact manifest (B1.6 fact kind)
+					harp := fmt.Sprintf("harp-%d", rng.Intn(7))
+					appendFact(factAt(factArtifact, at, artifactFact{
+						Harp: harp, ArtifactID: fmt.Sprintf("plan/p%d", rng.Intn(3)),
+						Revision: uint32(rng.Intn(4) + 1), SHA256: fmt.Sprintf("%02x", rng.Intn(256)),
+					}))
 				}
 			}
-			before := projectRuns(runsF, queueF, rosterF)
+			before := projectRuns(runsF, queueF, rosterF, reportsF)
 			require.NoError(t, store.Close())
 
 			// Replay the same journal into fresh folds.
-			rRunsF, rQueueF, rRosterF := newRunsFold(), newQueueFold(), newRosterFold()
-			rStore, err := openStore(path, rRunsF, rQueueF, rRosterF)
+			rRunsF, rQueueF, rRosterF, rReportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+			rStore, err := openStore(path, rRunsF, rQueueF, rRosterF, rReportsF)
 			require.NoError(t, err)
-			replayed := projectRuns(rRunsF, rQueueF, rRosterF)
+			replayed := projectRuns(rRunsF, rQueueF, rRosterF, rReportsF)
 			require.NoError(t, rStore.Close())
 
 			assert.Equal(t, before, replayed, "replaying the run-registry journal must reproduce the projection exactly")

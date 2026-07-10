@@ -69,7 +69,7 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home) (*runnerM
 		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", consumeAfterWrite(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)))
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	return &runnerMCP{socketPath: path, httpSrv: srv, cleanup: cleanup}, nil
@@ -363,8 +363,11 @@ func reflectIsNil(m proto.Message) bool {
 }
 
 // recvHandler is the runner-LOCAL agent_recv: park against the Home's
-// notice buffer; the consumption fact is emitted AFTER the response reaches
-// the shim (consumeAfterWrite middleware) so a crash in between re-delivers.
+// notice buffer. Returned messages stay tentative at the coordinator until
+// the NEXT recv (cursor-ack) or a clean runner shutdown acknowledges them —
+// the go-sdk streamable server runs tool handlers on session-scoped
+// contexts and holds POST streams open, so there is no per-response write
+// hook to ack on; a crash before the ack re-delivers (at-least-once).
 func recvHandler(home *coord.Home) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var in struct {
@@ -382,7 +385,7 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 		if wait > maxRecvWait {
 			wait = maxRecvWait
 		}
-		msgs, consume, err := home.Recv(ctx, wait)
+		msgs, err := home.Recv(ctx, wait)
 		if err != nil {
 			if errors.Is(err, coord.ErrRecvTimeout) {
 				return nil, fmt.Errorf("%w (waited %s)", coord.ErrRecvTimeout, wait)
@@ -400,7 +403,6 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 				items = append(items, v)
 			}
 		}
-		scheduleConsume(ctx, consume)
 		return &mcp.CallToolResult{StructuredContent: map[string]any{"messages": items}}, nil
 	}
 }
@@ -496,58 +498,4 @@ func (p *planStamper) changedManifests() []*agentcoordpb.ArtifactProduced {
 		})
 	}
 	return out
-}
-
-// --- consume-after-write middleware -------------------------------------------
-
-// consumeNoteKey carries the per-request consumption note.
-type consumeNoteKey struct{}
-
-type consumeNote struct {
-	mu  sync.Mutex
-	fns []func()
-}
-
-func (n *consumeNote) add(fn func()) {
-	n.mu.Lock()
-	n.fns = append(n.fns, fn)
-	n.mu.Unlock()
-}
-
-func (n *consumeNote) take() []func() {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	fns := n.fns
-	n.fns = nil
-	return fns
-}
-
-// consumeAfterWrite defers mail-consumption facts until AFTER the HTTP
-// response carrying the messages was written to the shim — the playbook's
-// tentative-delivery ordering. A crash before the write re-delivers; a crash
-// after it at worst duplicates (deduped on message_id downstream).
-func consumeAfterWrite(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		note := &consumeNote{}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), consumeNoteKey{}, note)))
-		for _, fn := range note.take() {
-			fn()
-		}
-	})
-}
-
-// scheduleConsume runs the delivery's consumption fact after the response
-// write when the transport carries the note (the HTTP middleware); on a
-// transport that does not thread the request context (or in tests), it runs
-// immediately — the at-least-once guarantee holds either way, only the
-// crash-window direction differs.
-func scheduleConsume(ctx context.Context, consume func()) {
-	if consume == nil {
-		return
-	}
-	if note, ok := ctx.Value(consumeNoteKey{}).(*consumeNote); ok {
-		note.add(consume)
-		return
-	}
-	consume()
 }

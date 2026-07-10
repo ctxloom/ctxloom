@@ -46,6 +46,11 @@ type Home struct {
 
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
+	// returned are message ids handed to the harness by the LAST Recv,
+	// not yet acknowledged: the NEXT Recv (cursor-ack) or a clean Close
+	// emits their consumption fact. A crash before either re-delivers
+	// (at-least-once; the safe direction).
+	returned []string
 	park     *homePark
 	parked   bool
 
@@ -357,17 +362,21 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 
 // Recv is the runner-LOCAL agent_recv: drain the notice buffer, or park
 // against it for up to wait (one park; a newer receive preempts —
-// ErrRecvPreempted). Returned messages are TENTATIVE until the returned
-// consume func runs (after the response reaches the shim): it journals the
-// consumption fact at the coordinator; a crash before it re-delivers
+// ErrRecvPreempted). Returned messages stay TENTATIVE at the coordinator
+// until acknowledged: this call first acks the PREVIOUS Recv's returned ids
+// (cursor-ack — the closest observable point to "the shim actually returned
+// them": the harness calling again proves it received the last batch), and
+// a clean Close acks the final batch. A crash before the ack re-delivers
 // (at-least-once, deduped on message_id).
-func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, func(), error) {
+func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
+	h.ackReturned()
 	h.mu.Lock()
 	if len(h.buffer) > 0 {
 		msgs := h.buffer
 		h.buffer = nil
 		h.mu.Unlock()
-		return msgs, h.consumeFunc(msgs), nil
+		h.recordReturned(msgs)
+		return msgs, nil
 	}
 	if prev := h.park; prev != nil && !prev.done {
 		// Newest preempts: the older poll completes with the typed error.
@@ -389,17 +398,45 @@ func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.Pe
 	case msgs := <-p.ch:
 		if msgs == nil {
 			// Preempted: the newer poll holds the park — no unpark event.
-			return nil, nil, ErrRecvPreempted
+			return nil, ErrRecvPreempted
 		}
 		h.unpark()
-		return msgs, h.consumeFunc(msgs), nil
+		h.recordReturned(msgs)
+		return msgs, nil
 	case <-timer.C:
-		return nil, nil, h.abandonPark(p, ErrRecvTimeout)
+		return nil, h.abandonPark(p, ErrRecvTimeout)
 	case <-ctx.Done():
-		return nil, nil, h.abandonPark(p, ctx.Err())
+		return nil, h.abandonPark(p, ctx.Err())
 	case <-h.ctx.Done():
-		return nil, nil, h.abandonPark(p, ErrCoordinatorUnreachable)
+		return nil, h.abandonPark(p, ErrCoordinatorUnreachable)
 	}
+}
+
+// recordReturned remembers a Recv's returned ids for the cursor-ack.
+func (h *Home) recordReturned(msgs []*agentcoordpb.PeerMessage) {
+	h.mu.Lock()
+	for _, m := range msgs {
+		h.consumed[m.GetMessageId()] = true // never re-deliver to this harness
+		h.returned = append(h.returned, m.GetMessageId())
+	}
+	h.mu.Unlock()
+}
+
+// ackReturned emits the consumption fact for everything a prior Recv handed
+// to the harness (the durable cursor advance).
+func (h *Home) ackReturned() {
+	h.mu.Lock()
+	ids := h.returned
+	h.returned = nil
+	h.mu.Unlock()
+	if len(ids) == 0 {
+		return
+	}
+	vals := make([]any, len(ids))
+	for i, id := range ids {
+		vals[i] = id
+	}
+	h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": vals})
 }
 
 // abandonPark resolves the timeout/cancel race against a delivery exactly
@@ -430,27 +467,6 @@ func (h *Home) unpark() {
 	h.mu.Unlock()
 	if was {
 		h.emitCustomEvent(CustomRecvUnparked, nil)
-	}
-}
-
-// consumeFunc builds the deferred consumption fact for one delivery: mark
-// locally (dedupe against re-push) and emit the mail_consumed custom event.
-func (h *Home) consumeFunc(msgs []*agentcoordpb.PeerMessage) func() {
-	ids := make([]string, 0, len(msgs))
-	for _, m := range msgs {
-		ids = append(ids, m.GetMessageId())
-	}
-	return func() {
-		h.mu.Lock()
-		for _, id := range ids {
-			h.consumed[id] = true
-		}
-		h.mu.Unlock()
-		vals := make([]any, len(ids))
-		for i, id := range ids {
-			vals[i] = id
-		}
-		h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": vals})
 	}
 }
 
@@ -518,9 +534,20 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 	}
 }
 
-// Close tears the home down: best-effort RunExited on the lifecycle link,
-// then both loops stop and the conn closes.
+// crash tears the home down WITHOUT the clean-shutdown acknowledgements —
+// the test seam simulating a runner crash (conformance: crash-before-ack
+// re-delivers).
+func (h *Home) crash() {
+	h.cancel()
+	_ = h.conn.Close()
+}
+
+// Close tears the home down: best-effort final cursor-ack (a CLEAN exit
+// acknowledges what the harness already received — a crash skips this and
+// re-delivers, the safe direction), best-effort RunExited on the lifecycle
+// link, then both loops stop and the conn closes.
 func (h *Home) Close(exitCode int, harnessSessionID string) {
+	h.ackReturned()
 	h.mu.Lock()
 	link := h.link
 	h.link = nil

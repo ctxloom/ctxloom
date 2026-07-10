@@ -196,15 +196,10 @@ func agentSetupNudge(workDir string, part int) string {
 // composeSystemMessage joins the non-empty SessionStart system messages with a
 // blank line. Empty inputs drop out, so passing only empties yields "" (no
 // systemMessage emitted), and any combination of the clear-recovery and
-// agent-setup nudges renders cleanly.
+// agent-setup nudges renders cleanly. It is the same non-empty-join as the
+// resume lead-block joiner, shared via operations.JoinLeadBlocks.
 func composeSystemMessage(msgs ...string) string {
-	parts := make([]string, 0, len(msgs))
-	for _, m := range msgs {
-		if m != "" {
-			parts = append(parts, m)
-		}
-	}
-	return strings.Join(parts, "\n\n")
+	return operations.JoinLeadBlocks(msgs...)
 }
 
 // selectChunk resolves which slice of the assembled context this hook

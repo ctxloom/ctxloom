@@ -34,8 +34,8 @@ func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace
 // runtime (the exact body of pb.DefaultClientFactory). The workspace is
 // expressed purely via the caller's RunOptions.WorkDir, so no per-workspace
 // launch machinery is needed here.
-func (None) SpawnClient(backendName, label string, verbosity int, _ Workspace) (pb.Client, error) {
-	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity})
+func (None) SpawnClient(backendName, label string, verbosity int, _ Workspace, spawnEnv map[string]string) (pb.Client, error) {
+	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: spawnEnv})
 }
 
 // hostWorkspace is the None policy's workspace: the live project directory with

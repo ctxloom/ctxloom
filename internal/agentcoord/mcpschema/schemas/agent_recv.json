@@ -1,0 +1,102 @@
+{
+  "name": "agent_recv",
+  "description": "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "wait": {
+        "description": "Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish",
+        "type": "integer"
+      }
+    },
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "messages": {
+        "items": {
+          "description": "Inbound relayed message from a sibling (or the coordinator itself, from_agent_id == \"\"). Reply via PeerSendRequest.in_reply_to. Until delivered, a queued PeerMessage is durable, role-addressed mailbox state at the coordinator: it survives coordinator process restarts and is delivered when the target reattaches.",
+          "properties": {
+            "artifacts": {
+              "items": {
+                "description": "Shared artifact vocabulary, retained through the rev-6 artifact split: PeerMessage.artifacts carries these by reference, and Result / ToolCallCompleted carry artifact-id strings. The rest of the artifact family (production, feedback, lookup, transfer) is deferred — see the header changelog.",
+                "properties": {
+                  "artifact_id": {
+                    "type": "string"
+                  },
+                  "external_uri": {
+                    "description": "set when directly fetchable",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "ARTIFACT_KIND_UNSPECIFIED",
+                      "ARTIFACT_KIND_TASK_LIST",
+                      "ARTIFACT_KIND_IMPLEMENTATION_PLAN",
+                      "ARTIFACT_KIND_CODE_DIFF",
+                      "ARTIFACT_KIND_WALKTHROUGH",
+                      "ARTIFACT_KIND_SCREENSHOT",
+                      "ARTIFACT_KIND_RECORDING",
+                      "ARTIFACT_KIND_REPORT",
+                      "ARTIFACT_KIND_DATASET",
+                      "ARTIFACT_KIND_DOCUMENT",
+                      "ARTIFACT_KIND_OTHER"
+                    ],
+                    "type": "string"
+                  },
+                  "media_type": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "description": "latest, unless a specific one was requested",
+                    "type": "integer"
+                  },
+                  "run_id": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "contentEncoding": "base64",
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "from_agent_id": {
+              "type": "string"
+            },
+            "from_run_id": {
+              "type": "string"
+            },
+            "in_reply_to": {
+              "type": "string"
+            },
+            "message_id": {
+              "type": "string"
+            },
+            "structured": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

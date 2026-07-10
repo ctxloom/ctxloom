@@ -1,0 +1,60 @@
+// annotations.proto — agentcoord.v1 schema annotations (rev 7, D3).
+//
+// LLM-facing schema metadata for the GENERATED MCP tool surface. Protobuf is
+// the canonical representation of the coordination vocabulary; the MCP tool
+// JSON Schemas (names, input/output shapes, descriptions) are derived from
+// the FileDescriptorSet by a build-time generator. Two inputs feed each
+// schema property:
+//
+//   - proto comments (SourceCodeInfo — present in a buf/protoc-built
+//     descriptor set, but STRIPPED from the descriptors protoc-gen-go embeds
+//     in generated code, which is why generation is build-time, not runtime);
+//   - these options, for what comments cannot express: REQUIRED-ness (proto3
+//     has no required fields), examples, and LLM-facing doc overrides where
+//     the wire comment is written for implementers rather than models.
+//
+// The options are read ONLY by the schema generator; nothing at runtime
+// consults them, and they impose no wire-format change.
+
+syntax = "proto3";
+
+package agentcoord.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/ctxloom/ctxloom/internal/agentcoord";
+
+// FieldSchema carries per-field schema metadata for the generated tool
+// surface.
+message FieldSchema {
+  // The field must be present in tool-call arguments (JSON Schema
+  // `required`). proto3 cannot express this; the generator can only learn
+  // it here.
+  bool required = 1;
+
+  // LLM-facing description OVERRIDING the field's leading comment. Use when
+  // the wire comment addresses implementers (idempotency keys, fold
+  // discipline) rather than a model choosing arguments.
+  string doc = 2;
+
+  // Example value, JSON-encoded (e.g. "\"parent\"", "{\"prompt\": \"...\"}").
+  // Emitted as the schema's `examples[0]`.
+  string example = 3;
+}
+
+// MessageSchema carries per-message schema metadata for the generated tool
+// surface.
+message MessageSchema {
+  // LLM-facing description OVERRIDING the message's leading comment.
+  string doc = 1;
+}
+
+extend google.protobuf.FieldOptions {
+  // Range 50000-99999 is reserved for internal use within individual
+  // organizations; this package never leaves ctxloom's build.
+  FieldSchema field_schema = 50100;
+}
+
+extend google.protobuf.MessageOptions {
+  MessageSchema message_schema = 50100;
+}

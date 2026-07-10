@@ -1,3 +1,14 @@
+// Package agentbus is the OBSERVATION socket for ctxloom's agent delegation:
+// the viewer verbs observe/roster/inject over a Unix socket under the serving
+// session's dir. The message-bus verbs (send/recv) and the in-memory broker
+// RETIRED with the agentcoord Wave B1 migration — durable role mailboxes live
+// in the runtime coordinator (internal/agentcoord/coord), children reach it
+// over authenticated streamable-HTTP MCP, and this socket survives ONLY for
+// the viewer until Wave D re-points observation onto the plane-1 event log.
+// The protocol is package-internal — one JSON request line per connection,
+// one JSON response line back (the observe op alone continues past its ack as
+// a stream of ObserveEvent lines) — and MUST NOT leak into any exported wire
+// contract.
 package agentbus
 
 import (
@@ -14,38 +25,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// The executor→orchestrator transport: a child engine's own `ctxloom mcp`
-// subprocess forwards agent_send/agent_recv here over a Unix socket (path from
-// SocketEnv), and observation clients (the feed resolver, the viewer) dial
-// the same socket for the observe/roster/inject verbs. The protocol is
-// package-internal — one JSON request line per connection, one JSON response
-// line back (the observe op alone continues past its ack as a stream of
-// ObserveEvent lines) — and MUST NOT leak into any exported wire contract.
+// ErrNotInjectable rejects a user injection whose target the coordinator does
+// not hold and cannot resume (an unknown harp, or a foreign process's session
+// — there is no delivery channel into another process's terminal, by design).
+var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
 
-// busRequest is one forwarded tool call. From is the caller's ambient
-// identity (its CTXLOOM_SESSION_HARP); the orchestrator's lineage — not the
-// caller — decides where "parent" routes.
+// busRequest is one viewer call.
 type busRequest struct {
-	Op     string `json:"op"` // "send" | "recv" | "observe" | "roster" | "inject"
-	From   string `json:"from"`
-	To     string `json:"to,omitempty"`
-	Kind   string `json:"kind,omitempty"`
-	Body   string `json:"body,omitempty"`
-	WaitMS int64  `json:"wait_ms,omitempty"`
-	Harp   string `json:"harp,omitempty"` // observe/inject: the target harp
+	Op   string `json:"op"` // "observe" | "roster" | "inject"
+	Body string `json:"body,omitempty"`
+	Harp string `json:"harp,omitempty"` // observe/inject: the target harp
 }
 
 type busResponse struct {
 	OK       bool          `json:"ok"`
 	Error    string        `json:"error,omitempty"`
 	ErrKind  string        `json:"error_kind,omitempty"`
-	Messages []Message     `json:"messages,omitempty"`
 	Roster   []RosterEntry `json:"roster,omitempty"`
 	Delivery string        `json:"delivery,omitempty"` // inject: the Delivery* mode applied
 }
 
 // Delivery modes an inject reports back (busResponse.Delivery): which §6a
-// delivery-by-state rule the orchestrator applied to the user's text. The
+// delivery-by-state rule the coordinator applied to the user's text. The
 // viewer renders these verbatim.
 const (
 	DeliveryCompletedRecv = "completed-recv" // completed the child's parked agent_recv
@@ -56,10 +57,8 @@ const (
 
 // ObserveEvent is one line on an observation stream (the observe verb's
 // vocabulary, after the ack). Exactly one of Entry, Complete, Gap, or Ended is
-// set per line: Entry/Complete mirror the child's live ChatEvents (Session/
-// Permission chatter does not map — see observeLines); Gap reports events the
-// observer's bounded buffer dropped; Ended closes the stream (the child's
-// engine exited or was torn down).
+// set per line: Entry/Complete mirror the child's live ChatEvents; Gap reports
+// events the observer's bounded buffer dropped; Ended closes the stream.
 type ObserveEvent struct {
 	Entry    *agent.SessionEntry `json:"entry,omitempty"`
 	Complete *agent.TurnMeta     `json:"complete,omitempty"`
@@ -67,8 +66,8 @@ type ObserveEvent struct {
 	Ended    bool                `json:"ended,omitempty"`
 }
 
-// RosterEntry is one session in an orchestrator's roster: a delegation child
-// it holds, with its lineage and coordinator-visible state. State is one of
+// RosterEntry is one session in a coordinator's roster: a delegation child it
+// holds, with its lineage and coordinator-visible state. State is one of
 // queued|executing|parked|idle|ended ("parked" = parked in agent_recv).
 type RosterEntry struct {
 	Harp             string `json:"harp"`
@@ -78,45 +77,34 @@ type RosterEntry struct {
 	LastActivityUnix int64  `json:"last_activity_unix,omitempty"`
 }
 
-// RosterFunc supplies the roster snapshot on demand. The orchestrator owns the
-// child-state bookkeeping, so the server asks it rather than mirroring state
-// into the broker (one source of truth; a future agent_list MCP tool shares
-// the same snapshot).
+// RosterFunc supplies the roster snapshot on demand. The coordinator owns the
+// child-state folds, so the server asks it rather than mirroring state (one
+// source of truth, two transports).
 type RosterFunc func() []RosterEntry
 
-// InjectFunc delivers user-typed text into a session the orchestrator holds,
-// reporting the Delivery* mode that applied. The orchestrator owns
-// delivery-by-state (complete a parked recv / wake / queue / resume), so the
-// server delegates rather than driving the broker directly.
+// InjectFunc delivers user-typed text into a session the coordinator holds,
+// reporting the Delivery* mode that applied.
 type InjectFunc func(harp, text string) (string, error)
 
 // errKind wire tags, mapped back to the typed sentinels client-side so a
 // forwarded failure is indistinguishable from a local one.
 const (
-	errKindTimeout       = "timeout"
-	errKindRouting       = "routing"
-	errKindSender        = "unknown-sender"
-	errKindBusy          = "busy"
 	errKindNotLive       = "not-live"
 	errKindNotInjectable = "not-injectable"
 )
 
-// maxBusLine bounds one protocol line (a briefing-sized body fits comfortably;
-// bulk data never rides the bus — it goes to the durable stores).
+// maxBusLine bounds one protocol line.
 const maxBusLine = 4 * 1024 * 1024
 
-// recvDialGrace pads the client's read deadline past the server-side wait so
-// the server's timer, not the socket, decides a recv timeout.
-const recvDialGrace = 15 * time.Second
+// dialGrace bounds the request/ack round trip.
+const dialGrace = 15 * time.Second
 
-// Server serves a broker over a Unix socket for forwarded executor calls,
-// plus the observation verbs (observe over hub, roster over the snapshot
-// func) and the inject verb (delegated to the orchestrator). hub, roster,
-// and inject may be nil: observe then answers not-live, roster answers empty,
-// and inject answers not-injectable.
+// Server serves the observation verbs over a Unix socket: observe over hub,
+// roster over the snapshot func, inject delegated to the coordinator. hub,
+// roster, and inject may be nil: observe then answers not-live, roster
+// answers empty, and inject answers not-injectable.
 type Server struct {
 	ln     net.Listener
-	broker *Broker
 	hub    *TapHub
 	roster RosterFunc
 	inject InjectFunc
@@ -124,11 +112,11 @@ type Server struct {
 	cancel context.CancelFunc
 }
 
-// Listen binds the broker (and the observation/injection surfaces) to a Unix
-// socket at path, replacing any stale socket file from a dead predecessor.
-// The accept loop runs until Close.
-func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc, inject InjectFunc) (*Server, error) {
-	// A leftover socket file refuses the bind; a dead orchestrator can't be
+// Listen binds the observation surfaces to a Unix socket at path, replacing
+// any stale socket file from a dead predecessor. The accept loop runs until
+// Close.
+func Listen(path string, hub *TapHub, roster RosterFunc, inject InjectFunc) (*Server, error) {
+	// A leftover socket file refuses the bind; a dead coordinator can't be
 	// listening, so unlinking is safe.
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
@@ -136,7 +124,7 @@ func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc, inject 
 		return nil, fmt.Errorf("agent bus: listen %s: %w", path, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{ln: ln, broker: broker, hub: hub, roster: roster, inject: inject, ctx: ctx, cancel: cancel}
+	s := &Server{ln: ln, hub: hub, roster: roster, inject: inject, ctx: ctx, cancel: cancel}
 	go s.acceptLoop()
 	return s, nil
 }
@@ -144,7 +132,7 @@ func Listen(path string, broker *Broker, hub *TapHub, roster RosterFunc, inject 
 // Addr returns the socket path the server is bound to.
 func (s *Server) Addr() string { return s.ln.Addr().String() }
 
-// Close stops the accept loop and unblocks parked forwarded receives.
+// Close stops the accept loop and ends open observation streams.
 func (s *Server) Close() error {
 	s.cancel()
 	return s.ln.Close()
@@ -160,9 +148,6 @@ func (s *Server) acceptLoop() {
 	}
 }
 
-// serveConn handles one forwarded call: read the request line, dispatch to
-// the broker (a recv parks right here, holding the connection open — that
-// parked call is what yields the child's execution slot), write the response.
 func (s *Server) serveConn(conn net.Conn) {
 	defer conn.Close()
 	r := bufio.NewReaderSize(conn, 64*1024)
@@ -184,17 +169,6 @@ func (s *Server) serveConn(conn net.Conn) {
 
 func (s *Server) dispatch(req busRequest) busResponse {
 	switch req.Op {
-	case "send":
-		if err := s.broker.SendFromChild(req.From, req.To, req.Kind, req.Body); err != nil {
-			return errResponse(err)
-		}
-		return busResponse{OK: true}
-	case "recv":
-		msgs, err := s.broker.Recv(s.ctx, req.From, time.Duration(req.WaitMS)*time.Millisecond)
-		if err != nil {
-			return errResponse(err)
-		}
-		return busResponse{OK: true, Messages: msgs}
 	case "roster":
 		var entries []RosterEntry
 		if s.roster != nil {
@@ -210,6 +184,10 @@ func (s *Server) dispatch(req busRequest) busResponse {
 			return errResponse(err)
 		}
 		return busResponse{OK: true, Delivery: mode}
+	case "send", "recv":
+		// Retired with the shim: children reach the coordinator over its
+		// authenticated MCP endpoint now; the socket keeps only the viewer.
+		return busResponse{Error: "bus op " + req.Op + " was retired: agent_send/agent_recv ride the coordinator MCP endpoint (CTXLOOM_COORD_URL)"}
 	default:
 		return busResponse{Error: fmt.Sprintf("unknown bus op %q", req.Op)}
 	}
@@ -217,9 +195,8 @@ func (s *Server) dispatch(req busRequest) busResponse {
 
 // serveObserve upgrades the connection to an observation stream: after the
 // ack line, ObserveEvent lines flow until the tap ends, the client
-// disconnects, or the server closes. Only CHILDREN this orchestrator holds
-// live are tappable — the orchestrator does not drive its own serving
-// session's engine, so the coordinator harp is always not-live here.
+// disconnects, or the server closes. Only CHILDREN the coordinator holds
+// live are tappable.
 func (s *Server) serveObserve(conn net.Conn, req busRequest) {
 	if s.hub == nil {
 		writeBusResponse(conn, errResponse(ErrNotLive))
@@ -293,42 +270,12 @@ func writeObserveEvent(conn net.Conn, ev ObserveEvent) error {
 func errResponse(err error) busResponse {
 	resp := busResponse{Error: err.Error()}
 	switch {
-	case errors.Is(err, ErrRecvTimeout):
-		resp.ErrKind = errKindTimeout
-	case errors.Is(err, ErrPeerRouting):
-		resp.ErrKind = errKindRouting
-	case errors.Is(err, ErrUnknownSender):
-		resp.ErrKind = errKindSender
-	case errors.Is(err, ErrRecvBusy):
-		resp.ErrKind = errKindBusy
 	case errors.Is(err, ErrNotLive):
 		resp.ErrKind = errKindNotLive
 	case errors.Is(err, ErrNotInjectable):
 		resp.ErrKind = errKindNotInjectable
 	}
 	return resp
-}
-
-// ForwardSend forwards one agent_send from a child's ctxloom-mcp process to
-// the orchestrator's broker at sock. from is the caller's ambient harp.
-func ForwardSend(sock, from, to, kind, body string) error {
-	resp, err := roundTrip(sock, busRequest{Op: "send", From: from, To: to, Kind: kind, Body: body}, recvDialGrace)
-	if err != nil {
-		return err
-	}
-	return respError(resp)
-}
-
-// ForwardRecv forwards one agent_recv, parking server-side for up to wait.
-func ForwardRecv(sock, from string, wait time.Duration) ([]Message, error) {
-	resp, err := roundTrip(sock, busRequest{Op: "recv", From: from, WaitMS: wait.Milliseconds()}, wait+recvDialGrace)
-	if err != nil {
-		return nil, err
-	}
-	if err := respError(resp); err != nil {
-		return nil, err
-	}
-	return resp.Messages, nil
 }
 
 // respError maps a wire error back to its typed sentinel, wrapped so the
@@ -338,14 +285,6 @@ func respError(resp busResponse) error {
 		return nil
 	}
 	switch resp.ErrKind {
-	case errKindTimeout:
-		return ErrRecvTimeout
-	case errKindRouting:
-		return ErrPeerRouting
-	case errKindSender:
-		return ErrUnknownSender
-	case errKindBusy:
-		return ErrRecvBusy
 	case errKindNotLive:
 		return ErrNotLive
 	case errKindNotInjectable:
@@ -355,12 +294,12 @@ func respError(resp busResponse) error {
 	}
 }
 
-// Inject sends user-typed text into harp via the orchestrator at sock — the
+// Inject sends user-typed text into harp via the coordinator at sock — the
 // viewer's inject verb. The returned mode is the Delivery* constant the
-// orchestrator reports; a target it doesn't hold and can't resume maps back
+// coordinator reports; a target it doesn't hold and can't resume maps back
 // to the typed ErrNotInjectable.
 func Inject(sock, harp, text string) (string, error) {
-	resp, err := roundTrip(sock, busRequest{Op: "inject", Harp: harp, Body: text}, recvDialGrace)
+	resp, err := roundTrip(sock, busRequest{Op: "inject", Harp: harp, Body: text}, dialGrace)
 	if err != nil {
 		return "", err
 	}
@@ -370,10 +309,10 @@ func Inject(sock, harp, text string) (string, error) {
 	return resp.Delivery, nil
 }
 
-// FetchRoster lists the orchestrator's held sessions over the bus socket at
+// FetchRoster lists the coordinator's held sessions over the bus socket at
 // sock — the observation viewer's roster source.
 func FetchRoster(sock string) ([]RosterEntry, error) {
-	resp, err := roundTrip(sock, busRequest{Op: "roster"}, recvDialGrace)
+	resp, err := roundTrip(sock, busRequest{Op: "roster"}, dialGrace)
 	if err != nil {
 		return nil, err
 	}
@@ -383,15 +322,15 @@ func FetchRoster(sock string) ([]RosterEntry, error) {
 	return resp.Roster, nil
 }
 
-// ObserveSession subscribes to a harp's live tap on the orchestrator at sock.
+// ObserveSession subscribes to a harp's live tap on the coordinator at sock.
 // Events stream on the returned channel until the tap ends (a final Ended
 // event), ctx is cancelled, or the connection drops; errs (buffered) carries a
-// terminal transport error. ErrNotLive when that orchestrator does not hold
+// terminal transport error. ErrNotLive when that coordinator does not hold
 // the harp's event stream — the caller's cue to tail the store instead.
 func ObserveSession(ctx context.Context, sock, harp string) (<-chan ObserveEvent, <-chan error, error) {
 	conn, err := net.DialTimeout("unix", sock, 5*time.Second)
 	if err != nil {
-		return nil, nil, fmt.Errorf("agent bus: dial orchestrator %s: %w", sock, err)
+		return nil, nil, fmt.Errorf("agent bus: dial coordinator %s: %w", sock, err)
 	}
 	payload, err := json.Marshal(busRequest{Op: "observe", Harp: harp})
 	if err != nil {
@@ -400,7 +339,7 @@ func ObserveSession(ctx context.Context, sock, harp string) (<-chan ObserveEvent
 	}
 	// The ack is bounded like any round trip; the stream after it lives until
 	// the tap ends, so the deadline is lifted once subscribed.
-	_ = conn.SetDeadline(time.Now().Add(recvDialGrace))
+	_ = conn.SetDeadline(time.Now().Add(dialGrace))
 	if _, err := conn.Write(append(payload, '\n')); err != nil {
 		conn.Close()
 		return nil, nil, fmt.Errorf("agent bus: send request: %w", err)
@@ -469,7 +408,7 @@ func ObserveSession(ctx context.Context, sock, harp string) (<-chan ObserveEvent
 func roundTrip(sock string, req busRequest, deadline time.Duration) (busResponse, error) {
 	conn, err := net.DialTimeout("unix", sock, 5*time.Second)
 	if err != nil {
-		return busResponse{}, fmt.Errorf("agent bus: dial orchestrator %s: %w", sock, err)
+		return busResponse{}, fmt.Errorf("agent bus: dial coordinator %s: %w", sock, err)
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(deadline))

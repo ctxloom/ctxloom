@@ -150,6 +150,12 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           just -f justfile.container gen-docs-check
 
+      # Drift gate for the proto-canonical MCP tool schemas: regenerate from
+      # the buf-built descriptor set and fail if the checked-in goldens are
+      # stale.
+      - name: Check generated MCP tool schemas are current
+        run: just -f justfile.container gen-mcp-schemas-check
+
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest

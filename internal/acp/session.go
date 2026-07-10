@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -61,7 +62,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	if open == nil {
 		open = b.spawnTransport
 	}
-	tr, err := open(ctx, b.chatArgv(req), req.Env, req.WorkDir)
+	tr, err := open(ctx, b.chatArgv(req), b.spawnEnv(req), req.WorkDir)
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		teardown()
 	}
 
-	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model}}) {
+	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID)}}) {
 		abort()
 		return ctx.Err()
 	}
@@ -194,7 +195,25 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	}
 }
 
-// setup runs the initialize + session/new handshake, returning the new session id.
+// spawnEnv is the adapter subprocess's env overlay: the caller's env, plus —
+// when the embedding backend configured ModelEnvVar — the requested model
+// under the engine's native env variable (see ACPConfig.ModelEnvVar: the
+// `--model` argv is not honored by every adapter, and a session silently
+// running on the user's saved interactive default is exactly the failure the
+// model gate exists to prevent). The caller's map is copied, never mutated.
+func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
+	if b.modelEnvVar == "" || req.Model == "" {
+		return req.Env
+	}
+	env := make(map[string]string, len(req.Env)+1)
+	maps.Copy(env, req.Env)
+	env[b.modelEnvVar] = req.Model
+	return env
+}
+
+// setup runs the initialize + session/new (or session/load, when resuming)
+// handshake, returning the session id the rest of the conversation runs
+// under.
 func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
 	initParams := initializeParams{
 		ProtocolVersion: api.ACPProtocolVersion,
@@ -215,7 +234,32 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 	if cwd == "" {
 		cwd = "." // spec asks for an absolute cwd; the host supplies one in practice.
 	}
-	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServersToACP(req.MCPServers)}
+	mcpServers := mcpServersToACP(req.MCPServers)
+
+	if req.ResumeSessionID != "" {
+		// session/load is capability-gated (unlike session/new): an agent
+		// that never advertised it would otherwise silently start a FRESH
+		// session under the resumed id's name, discarding continuity the
+		// caller explicitly asked for — fail loud instead (adapter/SDK gap,
+		// reportable, never worked around by falling back to session/new).
+		if !initResp.AgentCapabilities.LoadSession {
+			return "", fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
+		}
+		loadReq := api.LoadSessionRequest{Cwd: cwd, McpServers: mcpServers, SessionId: api.SessionId(req.ResumeSessionID)}
+		// session/load replays the resumed conversation's history as
+		// session/update notifications WHILE this call is in flight (per
+		// the ACP spec) — sess is already wired as conn's notification
+		// handler, so the replay flows to `out` as ordinary ChatEvents
+		// before this call returns; the caller's drain loop must already be
+		// running (Chat starts it before setup blocks here).
+		var loadResp json.RawMessage
+		if err := conn.Call(ctx, api.MethodSessionLoad, loadReq, &loadResp); err != nil {
+			return "", fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, err)
+		}
+		return api.SessionId(req.ResumeSessionID), nil
+	}
+
+	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
 	if err := conn.Call(ctx, api.MethodSessionNew, newReq, &newResp); err != nil {
 		return "", err

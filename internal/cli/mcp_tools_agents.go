@@ -2,64 +2,75 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// Agent-delegation tools (agent_run / agent_send / agent_recv). One process
+// Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
+// backed by the runtime coordinator (internal/agentcoord/coord). One process
 // plays one of two roles, fixed by environment at startup:
 //
-//   - ORCHESTRATOR (no CTXLOOM_BUS_SOCKET): this server coordinates — its
-//     agent_run spawns children whose ctxloom agent definitions are fully
-//     honored, the in-memory bus broker lives here, and agent_send/agent_recv
-//     address the children it holds.
-//   - EXECUTOR (CTXLOOM_BUS_SOCKET set): this server belongs to a spawned
-//     child's engine; agent_send/agent_recv FORWARD to the parent
-//     orchestrator's broker over the Unix socket, under the child's ambient
-//     identity (CTXLOOM_SESSION_HARP). agent_run still orchestrates locally
-//     (a sub-coordinator), bounded by the depth guard.
-
+//   - COORDINATOR HOST (no CTXLOOM_COORD_URL): this server owns delegation.
+//     `ctxloom run` and `ctxloom acp` stand the coordinator up eagerly and
+//     hand it to their engines via the env trio; a bare `ctxloom mcp` (an
+//     externally-launched harness — the orphaned-orchestrator fallback)
+//     builds one lazily on first agent-tool use. Either way the durable CQRS
+//     stores, credentials, and listeners live in the coordinator library.
+//   - FORWARDER (CTXLOOM_COORD_URL set): this server belongs to a spawned
+//     child's engine (or the parent harness of a hosting run/acp process);
+//     it never registers local tools at all — the WHOLE server is a
+//     stdio↔HTTP proxy onto the coordinator's MCP endpoint (mcp_forward.go),
+//     and identity derives from the credential per request, never from this
+//     process's env.
 const (
 	defaultRecvWait = 60 * time.Second
 	maxRecvWait     = 10 * time.Minute
 )
 
-// agentDelegation is the per-process dispatch state for the agent tools.
+// agentDelegation is the coordinator-host state behind the agent tools.
 type agentDelegation struct {
-	forwardSock string // executor mode: the parent orchestrator's bus socket
-	selfHarp    string // this process's ambient session identity
-	orch        *agentOrchestrator
+	self coord.Identity
+	c    *coord.Coordinator
 }
 
-func newAgentDelegation(cfg *config.Config) *agentDelegation {
+// selfIdentityFromEnv is the stdio server's ambient identity: the serving
+// session's harp, always depth 0 — the executor role died with the shim
+// (children run in forward mode and never reach this constructor).
+func selfIdentityFromEnv(projectDir string) coord.Identity {
+	return coord.Identity{
+		Harp:    os.Getenv("CTXLOOM_SESSION_HARP"),
+		Depth:   0,
+		Project: projectDir,
+	}
+}
+
+// newAgentDelegation stands the coordinator up for a bare `ctxloom mcp`
+// serving process: durable stores + listeners + the viewer socket under the
+// serving harp's dir. Children spawned from here reach back over the
+// coordinator's authenticated MCP endpoint exactly like run/acp-hosted ones.
+func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
-	harp := os.Getenv("CTXLOOM_SESSION_HARP")
-	return &agentDelegation{
-		forwardSock: os.Getenv(agentbus.SocketEnv),
-		selfHarp:    harp,
-		orch:        newAgentOrchestrator(cfg, harp, envAgentDepth(), cwd),
+	self := selfIdentityFromEnv(cwd)
+	c, err := newHostedCoordinator(cfg, cwd)
+	if err != nil {
+		return nil, err
 	}
-}
-
-// envAgentDepth reads this process's delegation depth (0 = root coordinator;
-// children see parent+1 via the env agent_run sets).
-func envAgentDepth() int {
-	n, err := strconv.Atoi(os.Getenv(agentDepthEnv))
-	if err != nil || n < 0 {
-		return 0
+	if err := c.BindSessionSocket(self.Harp); err != nil {
+		clidiag.Warn("ctxloom", "agent bus (viewer verbs) unavailable: %v", err)
 	}
-	return n
+	return &agentDelegation{self: self, c: c}, nil
 }
 
 type agentRunInput struct {
@@ -77,9 +88,11 @@ type agentRunResult struct {
 }
 
 type agentSendInput struct {
-	To   string `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (executors may ONLY address their parent)"`
-	Body string `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
-	Kind string `json:"kind,omitempty" jsonschema:"Optional message kind (e.g. result, question, error)"`
+	To         string         `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (delegated children may ONLY address their parent)"`
+	Body       string         `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
+	Kind       string         `json:"kind,omitempty" jsonschema:"Optional message kind (e.g. result, question, error)"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion (e.g. an ApprovalDecision projection when answering a relayed approval_request: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"})"`
+	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id — e.g. answering an escalation-ladder approval_request with an ApprovalDecision (structured)"`
 }
 
 type agentSendResult struct {
@@ -92,51 +105,74 @@ type agentRecvInput struct {
 }
 
 type agentBusMessage struct {
-	From string `json:"from"`
-	Kind string `json:"kind,omitempty"`
-	Body string `json:"body"`
+	MessageID  string         `json:"message_id,omitempty"`
+	From       string         `json:"from"`
+	Kind       string         `json:"kind,omitempty"`
+	Body       string         `json:"body"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion, when the sender attached one (e.g. an escalation-ladder approval_request's ApprovalRequest projection: reply with agent_send(in_reply_to: message_id, structured: an ApprovalDecision))"`
 }
 
 type agentRecvResult struct {
 	Messages []agentBusMessage `json:"messages"`
 }
 
-func (s *ctxServer) registerAgentTools(server *mcp.Server) {
-	// The docgen server registers with a nil cfg (handlers never invoked);
-	// live servers get their delegation state here, pre-serve and
-	// single-threaded (newAgentOrchestrator installs the executable trust
-	// gate on the shared cfg).
-	if s.cfg != nil && s.agents == nil {
-		s.agents = newAgentDelegation(s.cfg)
-	}
+type agentStopInput struct {
+	Harp string `json:"harp" jsonschema:"The child session harp to stop (its engine is killed and its execution slot freed; a later agent_send resumes it as a fresh run)"`
+}
 
+type agentStopResult struct {
+	Harp        string `json:"harp"`
+	Disposition string `json:"disposition"`
+}
+
+func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name: "agent_run",
-			Description: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as bus messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.",
+			Description: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.",
 		},
 		s.handleAgentRun)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name: "agent_send",
-			Description: "Send a bus message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Executors may only address \"parent\"; peer messaging routes via the coordinator. In-memory, at-most-once: durable results belong in reports/tasks, not the bus.",
+			Description: "Send a message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.",
 		},
 		s.handleAgentSend)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name: "agent_recv",
-			Description: "Receive pending bus messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish — the coordinator learns from the session record, not from silence.",
+			Description: "Receive pending mailbox messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: this call acknowledges the messages the previous call returned, and unacknowledged deliveries are re-delivered. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
 		},
 		s.handleAgentRecv)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name: "agent_stop",
+			Description: "Stop a delegated child session: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches it as a fresh run primed with its recorded history.",
+		},
+		s.handleAgentStop)
 }
 
+// delegation resolves the agent-tool backend, standing the coordinator up
+// lazily for a bare `ctxloom mcp` (the run/acp hosts inject theirs via
+// newCtxServerForIdentity).
 func (s *ctxServer) delegation() (*agentDelegation, error) {
-	if s.agents == nil {
+	s.agentsMu.Lock()
+	defer s.agentsMu.Unlock()
+	if s.agents != nil {
+		return s.agents, nil
+	}
+	if s.cfg == nil {
 		return nil, errors.New("agent delegation unavailable: server started without a loaded config")
 	}
-	return s.agents, nil
+	d, err := newAgentDelegation(s.cfg)
+	if err != nil {
+		return nil, fmt.Errorf("agent delegation unavailable: %w", err)
+	}
+	s.agents = d
+	return d, nil
 }
 
 func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, in agentRunInput) (*mcp.CallToolResult, *agentRunResult, error) {
@@ -144,7 +180,7 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := d.orch.run(ctx, in.Agent, in.Prompt)
+	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -164,18 +200,20 @@ func (s *ctxServer) handleAgentSend(_ context.Context, _ *mcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	if in.To == "" {
-		return nil, nil, errors.New(`agent_send: to is required (a child harp, or "parent" from an executor)`)
+		return nil, nil, errors.New(`agent_send: to is required (a child harp, or "parent" from a delegated child)`)
 	}
 	if in.Body == "" {
 		return nil, nil, errors.New("agent_send: body is required")
 	}
-	if d.forwardSock != "" {
-		if err := agentbus.ForwardSend(d.forwardSock, d.selfHarp, in.To, in.Kind, in.Body); err != nil {
-			return nil, nil, err
+	var structured json.RawMessage
+	if len(in.Structured) > 0 {
+		raw, merr := json.Marshal(in.Structured)
+		if merr != nil {
+			return nil, nil, fmt.Errorf("agent_send: encode structured: %w", merr)
 		}
-		return nil, &agentSendResult{To: in.To, Disposition: "sent to the coordinator"}, nil
+		structured = raw
 	}
-	disposition, err := d.orch.send(in.To, in.Kind, in.Body)
+	disposition, err := d.c.AgentSend(d.self, in.To, in.Kind, in.Body, structured, in.InReplyTo)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -194,21 +232,38 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	if wait > maxRecvWait {
 		wait = maxRecvWait
 	}
-	var msgs []agentbus.Message
-	if d.forwardSock != "" {
-		msgs, err = agentbus.ForwardRecv(d.forwardSock, d.selfHarp, wait)
-	} else {
-		msgs, err = d.orch.recv(ctx, wait)
-	}
+	msgs, err := d.c.AgentRecv(ctx, d.self, wait)
 	if err != nil {
-		if errors.Is(err, agentbus.ErrRecvTimeout) {
-			return nil, nil, fmt.Errorf("%w (waited %s)", agentbus.ErrRecvTimeout, wait)
+		if errors.Is(err, coord.ErrRecvTimeout) {
+			return nil, nil, fmt.Errorf("%w (waited %s)", coord.ErrRecvTimeout, wait)
 		}
 		return nil, nil, err
 	}
 	out := &agentRecvResult{Messages: make([]agentBusMessage, 0, len(msgs))}
 	for _, m := range msgs {
-		out.Messages = append(out.Messages, agentBusMessage{From: m.From, Kind: m.Kind, Body: m.Body})
+		bm := agentBusMessage{MessageID: m.ID, From: m.From, Kind: m.Kind, Body: m.Body}
+		if len(m.Structured) > 0 {
+			var structured map[string]any
+			if json.Unmarshal(m.Structured, &structured) == nil {
+				bm.Structured = structured
+			}
+		}
+		out.Messages = append(out.Messages, bm)
 	}
 	return nil, out, nil
+}
+
+func (s *ctxServer) handleAgentStop(_ context.Context, _ *mcp.CallToolRequest, in agentStopInput) (*mcp.CallToolResult, *agentStopResult, error) {
+	d, err := s.delegation()
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.Harp == "" {
+		return nil, nil, errors.New("agent_stop: harp is required (a child session harp; see the roster)")
+	}
+	disposition, err := d.c.AgentStop(d.self, in.Harp)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, &agentStopResult{Harp: in.Harp, Disposition: disposition}, nil
 }

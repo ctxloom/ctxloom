@@ -1,10 +1,20 @@
 version: v2
+inputs:
+  # The whole workspace, minus the vendored third-party protos: those exist
+  # only for import resolution, and generating them would collide with the
+  # canonical Go types in google.golang.org/genproto.
+  - directory: .
+    exclude_paths:
+      - internal/agentcoord/google
 plugins:
+  # `module=` routes each file's output next to its source via go_package
+  # (internal/lm/grpc, internal/agentcoord), replacing the single hardcoded
+  # `out` that predated the second proto module.
   - remote: buf.build/protocolbuffers/go
-    out: internal/lm/grpc
+    out: .
     opt:
-      - paths=source_relative
+      - module=github.com/ctxloom/ctxloom
   - remote: buf.build/grpc/go
-    out: internal/lm/grpc
+    out: .
     opt:
-      - paths=source_relative
+      - module=github.com/ctxloom/ctxloom

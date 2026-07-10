@@ -1,0 +1,86 @@
+{
+  "name": "roster",
+  "description": "List this session's delegated children (the roster): each entry's harp (agent_id), current run_id, state, latest report summary, and last activity. Terminal (ended) children are included only with include_terminal.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "include_descendants": {
+        "type": "boolean"
+      },
+      "include_terminal": {
+        "type": "boolean"
+      },
+      "role": {
+        "description": "filter",
+        "type": "string"
+      },
+      "task_id": {
+        "description": "Scope to one task, optionally including its descendant task tree — no prefix matching on opaque ids.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "runs": {
+        "items": {
+          "properties": {
+            "agent": {
+              "description": "agent_id and runner_id are coordinator-assigned and validated against the connection credential — never self-claimed by the agent process.",
+              "properties": {
+                "agent_id": {
+                  "description": "stable identity across runs",
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "harness": {
+                  "description": "e.g. \"claude-agent-sdk\", \"codex\", \"kiro-cli\"",
+                  "type": "string"
+                },
+                "harness_version": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "role": {
+                  "description": "coordinator-assigned role, e.g. \"reviewer\"",
+                  "type": "string"
+                },
+                "runner_id": {
+                  "description": "which runner hosts this agent's process",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "last_event_at": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "latest_summary": {
+              "description": "most recent Summary.text, truncated",
+              "type": "string"
+            },
+            "phase": {
+              "description": "StatusChanged.Phase name or \"TERMINAL\"",
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

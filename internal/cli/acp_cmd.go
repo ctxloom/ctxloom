@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,8 +54,16 @@ from the editor — 'ctxloom acp agents' prints the entries ready to paste.
 Stdout carries the protocol; all diagnostics go to stderr.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// COORDINATOR HOSTING (agentcoord Wave B1, review R1): an ACP-launched
+		// session has no run wrapper — acp opens engines directly — so it
+		// stands the runtime coordinator up itself, one per acp process,
+		// keyed by the process cwd's project. Each session/new mints its own
+		// owner credential and injects the reach-back trio. A standup failure
+		// degrades to no delegation (warned): the editor's chat still opens.
+		var acpCoord = newACPCoordinator()
+		defer acpCoord.close()
 		return acpagent.Serve(cmd.Context(), os.Stdin, os.Stdout, func(ctx context.Context, req acpagent.OpenRequest) (*acpagent.EngineChat, error) {
-			return openACPEngineChat(ctx, req, acpProfile, acpAgent, acpLLM)
+			return openACPEngineChat(ctx, req, acpCoord, acpProfile, acpAgent, acpLLM)
 		})
 	},
 }
@@ -78,7 +85,7 @@ var acpOpenGateMu sync.Mutex
 // a resume (session/load) it additionally fetches the recorded harp's history:
 // the entries replay to the ACP client, and a rendered transcript primes the
 // fresh engine via the first-turn lead block.
-func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfile, flagAgent, llmOverride string) (*acpagent.EngineChat, error) {
+func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, acpCoord *acpCoordinator, flagProfile, flagAgent, llmOverride string) (*acpagent.EngineChat, error) {
 	var (
 		cfg             *config.Config
 		profile         string
@@ -191,12 +198,12 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 	harp := req.ResumeHarp
 	var replay []agent.SessionEntry
 	if harp != "" {
-		entries, rerr := recordedSessionEntries(ctx, harp)
+		entries, rerr := operations.RecordedSessionEntries(ctx, harp)
 		if rerr != nil {
 			return nil, rerr
 		}
 		replay = entries
-		contextText = joinLeadBlocks(contextText, renderResumedTranscript(harp, replay))
+		contextText = operations.JoinLeadBlocks(contextText, operations.RenderResumedTranscript(harp, replay))
 	} else if entry, aerr := operations.AssignSession(req.Cwd, backendName); aerr != nil {
 		clidiag.Warn("ctxloom", "acp agent: session accounting unavailable; session will not be resumable: %v", aerr)
 	} else {
@@ -204,14 +211,23 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 	}
 
 	env := map[string]string{}
+	var spawnEnv map[string]string
 	if harp != "" {
 		// The engine (and its SessionStart hooks) see the harp exactly like an
 		// interactive run — this is what binds the engine's transcript to the
 		// harp so the session becomes loadable later.
 		env["CTXLOOM_SESSION_HARP"] = harp
+		// Coordinator reach-back trio: stamped onto the RUNNER's spawn env
+		// (B1.6 — the runner terminates MCP and holds the one credential;
+		// the engine env never carries it). ACP sessions run host-runtime at
+		// the editor's cwd, so the loopback endpoint reaches the runner.
+		if trio := acpCoord.sessionEnv(cfg, req.Cwd, harp); len(trio) > 0 {
+			spawnEnv = trio
+			spawnEnv["CTXLOOM_SESSION_HARP"] = harp
+		}
 	}
 
-	client, err := pb.DefaultClientFactory()(backendName, label, 0)
+	client, err := pb.NewSelfInvokingClientForLabelEnv(backendName, label, 0, spawnEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -373,84 +389,10 @@ func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.
 	}
 }
 
-// recordedSessionEntries resolves a harp to its recorded transcript entries
-// via the owning backend's session reader (the plugin reassembles and
-// normalizes its own native transcript).
-func recordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEntry, error) {
-	entry, err := operations.GetSession(harp)
-	if err != nil {
-		return nil, fmt.Errorf("unknown session %q: %w", harp, err)
-	}
-	if entry.SessionID == "" {
-		return nil, fmt.Errorf("session %q has no bound transcript to load", harp)
-	}
-	sess, err := pb.NewSessionReader(entry.Backend, 0).GetSession(ctx, entry.SessionID)
-	if err != nil {
-		return nil, fmt.Errorf("load session %q: %w", harp, err)
-	}
-	// Replay primes the resumed engine with the conversation the user had —
-	// subagent-interior (sidechain) entries stay out of it.
-	return agent.MainThreadEntries(sess.Entries), nil
-}
-
-// resumeTranscriptBudget caps how much rendered history primes the resumed
-// engine — the TAIL wins (most recent exchange matters most for continuation).
-const resumeTranscriptBudget = 32 * 1024
-
-// renderResumedTranscript renders recorded entries as a lead-block section the
-// fresh engine can continue from. Only conversation substance is included
-// (user/assistant text and tool-call names); thinking, tool output, and system
-// entries are bulk without continuation value.
-func renderResumedTranscript(harp string, entries []agent.SessionEntry) string {
-	var parts []string
-	for _, e := range entries {
-		switch e.Type {
-		case agent.EntryTypeUser:
-			if e.Content != "" {
-				parts = append(parts, "user: "+e.Content)
-			}
-		case agent.EntryTypeAssistant:
-			if e.Content != "" {
-				parts = append(parts, "assistant: "+e.Content)
-			}
-		case agent.EntryTypeToolUse:
-			if e.ToolName != "" {
-				parts = append(parts, "assistant ran tool: "+e.ToolName)
-			}
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-
-	start, total := len(parts), 0
-	for i := len(parts) - 1; i >= 0; i-- {
-		total += len(parts[i]) + 2
-		if total > resumeTranscriptBudget {
-			break
-		}
-		start = i
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Resumed session %s\n\nThis conversation continues a previous session; its recorded history follows.\n\n", harp)
-	if start > 0 {
-		fmt.Fprintf(&b, "(earlier history truncated: %d entries omitted)\n\n", start)
-	}
-	b.WriteString(strings.Join(parts[start:], "\n\n"))
-	return b.String()
-}
-
-// joinLeadBlocks joins first-turn lead blocks, dropping empties.
-func joinLeadBlocks(blocks ...string) string {
-	var nonEmpty []string
-	for _, b := range blocks {
-		if b != "" {
-			nonEmpty = append(nonEmpty, b)
-		}
-	}
-	return strings.Join(nonEmpty, "\n\n")
-}
+// The resume helpers (recorded transcript entries, rendered lead block, and
+// lead-block joining) live in internal/operations (resume.go) so the runtime
+// coordinator's ended-child resume and this ACP resume path share ONE
+// implementation — called directly at the resume site above.
 
 // loadConfigForDir loads ctxloom config as seen FROM dir (the ACP session's
 // cwd, which need not be this server process's cwd): it walks dir upward for a

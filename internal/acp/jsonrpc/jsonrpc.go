@@ -54,7 +54,18 @@ type Error struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func (e *Error) Error() string { return "acp: rpc error " + strconv.Itoa(e.Code) + ": " + e.Message }
+// Error renders the peer's error INCLUDING its data payload: agents commonly
+// reply with a generic message ("Internal error") and put the actual cause in
+// data (the ACP TS SDK wraps any thrown handler exception exactly that way),
+// so dropping data here would reduce a root cause to an opaque -32603 — the
+// child-obituary blindness the agentcoord Wave B1 debugging hit.
+func (e *Error) Error() string {
+	s := "acp: rpc error " + strconv.Itoa(e.Code) + ": " + e.Message
+	if len(e.Data) > 0 && string(e.Data) != "null" {
+		s += " (" + string(e.Data) + ")"
+	}
+	return s
+}
 
 // rpcMessage is the single wire frame covering all four JSON-RPC message kinds;
 // which fields are set (and omitempty) distinguishes them on decode:

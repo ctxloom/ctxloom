@@ -1,0 +1,77 @@
+{
+  "name": "agent_run",
+  "description": "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "budget": {
+        "description": "carved from the parent's budget",
+        "properties": {
+          "max_cost_usd_micros": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "max_turns": {
+            "type": "integer"
+          },
+          "max_wall_time": {
+            "description": "Duration, e.g. \"3s\"",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "constraints": {
+        "additionalProperties": true,
+        "description": "Optional model/tools/sandbox hints (unused today; the agent's own binding decides)",
+        "type": "object"
+      },
+      "input": {
+        "additionalProperties": true,
+        "description": "Child task input. `prompt` carries the child's briefing, delivered as its first turn",
+        "examples": [
+          {
+            "prompt": "Review the diff on branch X for correctness bugs"
+          }
+        ],
+        "type": "object"
+      },
+      "notify_on": {
+        "enum": [
+          "NOTIFY_ON_UNSPECIFIED",
+          "NOTIFY_ON_COMPLETION",
+          "NOTIFY_ON_NOTHING"
+        ],
+        "type": "string"
+      },
+      "role": {
+        "description": "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`)",
+        "examples": [
+          "code-reviewer"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "input",
+      "role"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "child_agent_id": {
+        "type": "string"
+      },
+      "child_run_id": {
+        "type": "string"
+      },
+      "child_task_id": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

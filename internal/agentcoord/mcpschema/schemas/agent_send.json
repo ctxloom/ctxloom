@@ -1,0 +1,70 @@
+{
+  "name": "agent_send",
+  "description": "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_ids": {
+        "description": "by reference, never by value",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "in_reply_to": {
+        "description": "Correlates a reply to an earlier inbound PeerMessage.message_id.",
+        "type": "string"
+      },
+      "structured": {
+        "additionalProperties": true,
+        "description": "Optional structured companion. `kind` names the message kind (e.g. result, question, error)",
+        "examples": [
+          {
+            "kind": "result"
+          }
+        ],
+        "type": "object"
+      },
+      "text": {
+        "description": "Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)",
+        "type": "string"
+      },
+      "to_agent_id": {
+        "description": "Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set",
+        "examples": [
+          "swift-amber-falcon"
+        ],
+        "type": "string"
+      },
+      "to_role": {
+        "description": "Role address. Delegated children may ONLY send to_role: \"parent\"; peer traffic routes via the coordinator",
+        "examples": [
+          "parent"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "delivery": {
+        "enum": [
+          "DELIVERY_UNSPECIFIED",
+          "DELIVERY_DELIVERED",
+          "DELIVERY_QUEUED",
+          "DELIVERY_DENIED"
+        ],
+        "type": "string"
+      },
+      "message_id": {
+        "description": "coordinator-assigned",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

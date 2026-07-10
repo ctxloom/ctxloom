@@ -114,20 +114,19 @@ func terminalUISources(workDir, selfHarp string) tui.Sources {
 	}
 }
 
-// sessionBusSocket resolves the socket of the orchestrator serving THIS
-// session's children: ambient CTXLOOM_BUS_SOCKET first, else the socket the
-// orchestrator binds in the session's harp dir (mcp_agent_orchestrator
-// socketPath). A missing socket is the normal no-orchestrator-yet case.
+// sessionBusSocket resolves the viewer-verb socket the coordinator binds under
+// THIS session's harp dir (coord.BindSessionSocket → agent-bus.sock). The
+// ambient-env candidate died with the executor shim — children carry no
+// socket path now. A missing socket is the normal no-coordinator-yet case.
 func sessionBusSocket(selfHarp string) (string, error) {
-	sock := os.Getenv(agentbus.SocketEnv)
-	if sock == "" && selfHarp != "" {
-		if dir, err := paths.HarpDir(selfHarp); err == nil {
-			sock = filepath.Join(dir, "agent-bus.sock")
-		}
-	}
-	if sock == "" {
+	if selfHarp == "" {
 		return "", os.ErrNotExist
 	}
+	dir, err := paths.HarpDir(selfHarp)
+	if err != nil {
+		return "", err
+	}
+	sock := filepath.Join(dir, "agent-bus.sock")
 	if _, err := os.Stat(sock); err != nil {
 		return "", err
 	}

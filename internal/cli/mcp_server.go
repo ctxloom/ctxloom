@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -21,15 +23,21 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// ctxServer holds shared state used by every SDK-backed tool handler.
-// One instance per process — the cfg is loaded during startup and stays
-// for the lifetime of the MCP session.
+// ctxServer holds shared state used by every SDK-backed tool handler. The
+// stdio server builds one per process (self identity from env); the
+// coordinator's HTTP endpoint builds one PER CREDENTIAL
+// (newCtxServerForIdentity) so every tool sees the caller's identity, never
+// the host process's env.
 type ctxServer struct {
 	cfg *config.Config
-	// agents is the delegation state (orchestrator + bus broker, or the
-	// executor-mode forwarder) behind the agent_* tools; nil on the docgen
-	// server, set by registerAgentTools.
-	agents *agentDelegation
+	// self is the caller identity every identity-consuming tool uses: from
+	// the credential on the coordinator's HTTP surface, from env on stdio.
+	self coord.Identity
+	// agents is the coordinator-backed delegation state behind the agent_*
+	// tools; nil until first use on a bare stdio server (lazy standup in
+	// delegation()), pre-bound on identity servers.
+	agents   *agentDelegation
+	agentsMu sync.Mutex
 }
 
 // mcpServerInstructions tells the client what this reduced MCP surface is for.
@@ -37,6 +45,37 @@ type ctxServer struct {
 // CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
 // guidance injected at session start).
 var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
+
+// sessionInstructions renders the server instructions for one caller
+// identity (the stdio server's env harp, or a coordinator credential's).
+func sessionInstructions(harp string) string {
+	instructions := mcpServerInstructions
+	if harp == "" {
+		return instructions
+	}
+	// Tell the LLM its own session name so it can self-reference
+	// ("save this as the swift-amber-falcon plan") and so plan-
+	// stamping correlates the right harp.
+	sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
+	// Resume provenance is a property of THIS serving process's session
+	// only, so the env read stays gated on the ambient harp matching.
+	if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" && harp == os.Getenv("CTXLOOM_SESSION_HARP") {
+		parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
+		if parts == "" {
+			parts = "session,tasks"
+		}
+		sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
+	}
+	// Point the LLM at this session's directory for plans. Implementation
+	// and strategy plans belong here (not in an ad-hoc .plan/ dir) so they
+	// travel with the session and can be recovered on resume. A session
+	// may produce several plans, so each is a separately named file with a
+	// .plan.md suffix sitting directly in the session directory.
+	if sessDir, perr := paths.HarpDir(harp); perr == nil {
+		sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). A session may have multiple plans — use distinct names and reference plans by their path.", sessDir, paths.PlanFileExt, filepath.Join(sessDir, "v1-removal"+paths.PlanFileExt))
+	}
+	return instructions + sessionLine
+}
 
 // runMCPServerSDK is the cobra RunE for `ctxloom mcp serve`. The SDK's
 // Server.Run handles its own stdin EOF and ctx-cancellation cleanup — we
@@ -46,11 +85,25 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
+	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
+	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
+	// proxy onto it. No local startup (config, sync, hooks) runs — the
+	// runner process owns the surface and the coordinator credential; this
+	// process holds neither. (The B1 forward-to-coordinator HTTP mode is
+	// DELETED: CTXLOOM_COORD_URL/CRED are consumed only by the runner now.)
+	if sock := os.Getenv(coord.EnvMCPSocket); sock != "" {
+		return runMCPForward(ctx, sock)
+	}
+
 	// Fail-loudly gate: checkpoint before the boot sequence so every
 	// fatal-class finding it records is caught here.
 	startupMark := strictness.Checkpoint()
 
-	s := &ctxServer{}
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		cwd = "."
+	}
+	s := &ctxServer{self: selfIdentityFromEnv(cwd)}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -71,30 +124,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 		return ferr
 	}
 
-	instructions := mcpServerInstructions
-	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
-		// Tell the LLM its own session name so it can self-reference
-		// ("save this as the swift-amber-falcon plan") and so plan-
-		// stamping correlates the right harp.
-		sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
-		if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" {
-			parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
-			if parts == "" {
-				parts = "session,tasks"
-			}
-			sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
-		}
-		// Point the LLM at this session's directory for plans. Implementation
-		// and strategy plans belong here (not in an ad-hoc .plan/ dir) so they
-		// travel with the session and can be recovered on resume. A session
-		// may produce several plans, so each is a separately named file with a
-		// .plan.md suffix sitting directly in the session directory.
-		if sessDir, perr := paths.HarpDir(harp); perr == nil {
-			sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). A session may have multiple plans — use distinct names and reference plans by their path.", sessDir, paths.PlanFileExt, filepath.Join(sessDir, "v1-removal"+paths.PlanFileExt))
-		}
-		instructions += sessionLine
-	}
-	opts := &mcp.ServerOptions{Instructions: instructions}
+	opts := &mcp.ServerOptions{Instructions: sessionInstructions(s.self.Harp)}
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Version: Version,

@@ -82,7 +82,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 		"the .git common-dir is mirrored identical-path")
 
 	// (1) TRANSPORT: Info() crosses the worktree-in-container gRPC boundary.
-	client, err := pol.SpawnClient("mock", "", 0, ws)
+	client, err := pol.SpawnClient("mock", "", 0, ws, nil)
 	require.NoError(t, err, "SpawnClient brings the plugin up in a container over the mounted worktree")
 	// Kill on cleanup so a later require failure can't leak a running container
 	// (Kill is idempotent: the explicit Kill below + this one both just `rm -f`).

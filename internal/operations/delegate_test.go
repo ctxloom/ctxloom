@@ -125,3 +125,91 @@ func TestPrepareAgentChat_OneshotFallback(t *testing.T) {
 	for range launch.Events { // drain to stream end
 	}
 }
+
+// claudeChatPrepareRequest builds an AgentChatRequest for a claude-code
+// delegated child, with a stub factory so PrepareAgentChat never touches real
+// isolation/plugin machinery — only resolveChatModel's gate is under test.
+func claudeChatPrepareRequest(rs *ResolvedAgent) AgentChatRequest {
+	return AgentChatRequest{
+		Resolved: rs,
+		WorkDir:  "/tmp",
+		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	}
+}
+
+// TestPrepareAgentChat_ClaudeModelTranslatesNickname pins item 1's alias
+// translation: a claude-code child configured with a bare interactive
+// nickname (the shape a user's saved `/model` default takes) resolves to the
+// concrete id before the engine ever spawns — never the raw alias the ACP/API
+// path rejects.
+func TestPrepareAgentChat_ClaudeModelTranslatesNickname(t *testing.T) {
+	resetStrictness(t)
+	rs := &ResolvedAgent{Name: "coordinator", Backend: config.BackendClaudeCode, Label: "claude-code", Model: "fable"}
+	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.Equal(t, "claude-fable-5", rs.Model, "the nickname resolves to its concrete id in place")
+	assert.Empty(t, strictness.All(), "a resolvable model records no finding")
+}
+
+// TestPrepareAgentChat_ClaudeModelPinnedConcretePassesThrough pins that an
+// already-concrete pinned model is never rewritten by the translation step.
+func TestPrepareAgentChat_ClaudeModelPinnedConcretePassesThrough(t *testing.T) {
+	resetStrictness(t)
+	rs := &ResolvedAgent{Name: "coordinator", Backend: config.BackendClaudeCode, Label: "claude-code", Model: "claude-opus-4-8"}
+	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.Equal(t, "claude-opus-4-8", rs.Model, "a pinned concrete model passes through untouched")
+}
+
+// TestPrepareAgentChat_ClaudeModelEmptyFailsLoud pins item 1's REQUIRED
+// behavior: a delegated claude child with no resolvable model never launches
+// and dies on an opaque ACP error — PrepareAgentChat refuses it up front, in
+// strict mode, with a strictness finding whose fix-it names the agent and the
+// llm label to pin. Degraded mode downgrades the refusal to a warning and
+// lets the (still-unresolved) launch proceed — CLAUDE.md's "things may be
+// broken, get me an agent" escape hatch.
+func TestPrepareAgentChat_ClaudeModelEmptyFailsLoud(t *testing.T) {
+	t.Run("strict: refused with a fix-it naming the agent and llm label", func(t *testing.T) {
+		resetStrictness(t)
+		rs := &ResolvedAgent{Name: "coordinator", Backend: config.BackendClaudeCode, Label: "claude-code", Model: ""}
+		p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
+		require.Error(t, err)
+		assert.Nil(t, p)
+		assert.Contains(t, err.Error(), "coordinator", "names the agent")
+		assert.Contains(t, err.Error(), "claude-code", "names the llm label")
+		assert.Contains(t, err.Error(), "pin model", "the fix-it names the remedy")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1)
+		assert.Equal(t, strictness.ClassConfig, findings[0].Class)
+		assert.Contains(t, findings[0].FixIt, "coordinator")
+		assert.Contains(t, findings[0].FixIt, "claude-code")
+	})
+
+	t.Run("degraded: launches anyway with a warning, no error", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		rs := &ResolvedAgent{Name: "coordinator", Backend: config.BackendClaudeCode, Label: "claude-code", Model: ""}
+		p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
+		require.NoError(t, err)
+		defer p.Abort()
+		assert.Empty(t, rs.Model, "degraded mode launches anyway rather than fabricating a model")
+		assert.Empty(t, strictness.All(), "degraded mode records nothing (Fail is a no-op)")
+	})
+}
+
+// TestPrepareAgentChat_NonClaudeModelUntouched pins that the model-resolution
+// gate is claude-code specific: another StructuredChat backend's model (even
+// empty) is never validated or rewritten — only claude's ACP path rejects an
+// unresolved model this way.
+func TestPrepareAgentChat_NonClaudeModelUntouched(t *testing.T) {
+	resetStrictness(t)
+	rs := &ResolvedAgent{Name: "w1", Backend: "mock", Label: "fast", Model: ""}
+	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.Empty(t, rs.Model)
+	assert.Empty(t, strictness.All())
+}

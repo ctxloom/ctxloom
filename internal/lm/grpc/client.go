@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"sync"
 
 	"github.com/hashicorp/go-hclog"
@@ -176,11 +177,19 @@ func (r *realLLMConnection) Kill()                                  { r.client.K
 
 // dialLLMConnection is the IoC seam tests override to avoid spawning
 // real subprocesses. Production points it at the real go-plugin machinery.
-var dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+var dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
+	c := exec.Command(cmd, args...)
+	if len(env) > 0 {
+		// Per-spawn runner env (the coordinator reach-back trio): stamped on
+		// the subprocess env, never the process-global launcher env (racy
+		// across concurrent spawns). go-plugin appends its handshake vars to
+		// a non-nil cmd.Env, so the base environment must ride along.
+		c.Env = append(os.Environ(), env...)
+	}
 	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: HandshakeConfig,
 		Plugins:         PluginMap,
-		Cmd:             exec.Command(cmd, args...),
+		Cmd:             c,
 		AllowedProtocols: []plugin.Protocol{
 			plugin.ProtocolGRPC,
 		},
@@ -256,8 +265,7 @@ func runnerFromConn(conn llmConnection) (*LLMRunner, error) {
 // The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
 func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) {
-	conn := dialLLMConnection(cmd, args, newPluginLogger(verbosity))
-	return runnerFromConn(conn)
+	return runnerFromConn(dialLLMConnection(cmd, args, nil, newPluginLogger(verbosity)))
 }
 
 // NewContainerClient creates a plugin client whose backend server runs INSIDE a
@@ -270,8 +278,7 @@ func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) 
 // carried for parity/diagnostics — the actual in-container argv is built by the
 // RunnerFunc (which knows the container's ctxloom path).
 func NewContainerClient(backendName, label string, verbosity int, runnerFunc ContainerRunnerFunc, socketTempDir string) (*LLMRunner, error) {
-	conn := dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity))
-	return runnerFromConn(conn)
+	return runnerFromConn(dialContainerConnection(runnerFunc, socketTempDir, newPluginLogger(verbosity)))
 }
 
 // NewSelfInvokingClient creates a plugin client that invokes "ctxloom llm serve <backend>".
@@ -288,6 +295,14 @@ func NewSelfInvokingClient(backendName string, verbosity int) (*LLMRunner, error
 // specific label (the run path) pass it so serve configures exactly that
 // entry; label may be empty when only the type is known.
 func NewSelfInvokingClientForLabel(backendName, label string, verbosity int) (*LLMRunner, error) {
+	return NewSelfInvokingClientForLabelEnv(backendName, label, verbosity, nil)
+}
+
+// NewSelfInvokingClientForLabelEnv is NewSelfInvokingClientForLabel with the
+// per-spawn runner env seam: spawnEnv entries are stamped onto the serve
+// SUBPROCESS env (the coordinator reach-back trio — the runner-terminated
+// MCP path's one credential holder). nil spawnEnv is the plain spawn.
+func NewSelfInvokingClientForLabelEnv(backendName, label string, verbosity int, spawnEnv map[string]string) (*LLMRunner, error) {
 	// Resolve the running binary upgrade-safely: after an in-place upgrade,
 	// bare os.Executable() reports "/path/ctxloom (deleted)" on Linux, which a
 	// long-running MCP server (distill/recover tools) would then exec and
@@ -298,7 +313,12 @@ func NewSelfInvokingClientForLabel(backendName, label string, verbosity int) (*L
 	if label != "" {
 		args = append(args, "--label", label)
 	}
-	return NewLLMRunner(executable, args, verbosity)
+	env := make([]string, 0, len(spawnEnv))
+	for k, v := range spawnEnv {
+		env = append(env, k+"="+v)
+	}
+	sort.Strings(env) // deterministic spawn env
+	return runnerFromConn(dialLLMConnection(executable, args, env, newPluginLogger(verbosity)))
 }
 
 // Info returns metadata about the plugin.

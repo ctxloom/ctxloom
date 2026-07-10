@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,8 +51,19 @@ var _ runner.Runner = (*containerRunner)(nil)
 // the host directory go-plugin created for the unix socket (passed to the
 // RunnerFunc); containerSocketDir is the fixed in-container path it is bind-mounted
 // to — the two seed the AddrTranslator's container↔host path swap.
-func newContainerRunner(rt Runtime, spec RunSpec, hostSocketDir, containerSocketDir string) (*containerRunner, error) {
+func newContainerRunner(rt Runtime, spec RunSpec, hostSocketDir, containerSocketDir string, spawnEnv map[string]string) (*containerRunner, error) {
 	cmd := exec.Command(rt.Binary(), rt.RunArgs(spec)...)
+	// Per-spawn env values ride the `run` PROCESS env (owner-readable only);
+	// the spec carries matching bare-name `-e NAME` forms so the runtime
+	// forwards them into the container without touching the argv.
+	if len(spawnEnv) > 0 {
+		kv := make([]string, 0, len(spawnEnv))
+		for k, v := range spawnEnv {
+			kv = append(kv, k+"="+v)
+		}
+		sort.Strings(kv)
+		cmd.Env = append(os.Environ(), kv...)
+	}
 	// No Stdin: go-plugin (this version) does not watch stdin for parent-death, so
 	// the plugin runs until the container is removed by Kill. Leaving Stdin nil
 	// keeps `docker run` from holding the host's terminal.
@@ -210,10 +223,19 @@ func swapPrefix(path, from, to string) string {
 // hosts): the in-container plugin is told to listen on TCP at that pinned port
 // (PLUGIN_LISTEN_TCP + PLUGIN_MIN_PORT/PLUGIN_MAX_PORT) and the run publishes it
 // to host loopback. 0 keeps the default unix-socket transport (Linux).
-func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, loopbackPort int) pb.ContainerRunnerFunc {
+func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, spawnEnv map[string]string, loopbackPort int) pb.ContainerRunnerFunc {
 	return func(_ hclog.Logger, cmd *exec.Cmd, hostSocketDir string) (runner.Runner, error) {
 		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts, loopbackPort)
-		return newContainerRunner(rt, spec, hostSocketDir, containerSocketDir)
+		// The per-spawn runner env crosses as bare names (renderRunSpec's
+		// `-e <name>` form); the values ride the run-process env
+		// (newContainerRunner), never this argv.
+		names := make([]string, 0, len(spawnEnv))
+		for k := range spawnEnv {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		spec.Env = append(spec.Env, names...)
+		return newContainerRunner(rt, spec, hostSocketDir, containerSocketDir, spawnEnv)
 	}
 }
 

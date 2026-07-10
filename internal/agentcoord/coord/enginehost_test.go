@@ -1,0 +1,509 @@
+package coord
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// fakeEngineHome records everything the engine host emits, standing in for a
+// dialed Home.
+type fakeEngineHome struct {
+	mu      sync.Mutex
+	events  []*agentcoordpb.AgentEvent
+	customs []struct {
+		Name  string
+		Value map[string]any
+	}
+	sink   func(*agentcoordpb.PeerMessage) bool
+	exited []struct {
+		Code      int
+		SessionID string
+		Terminal  bool
+	}
+	seq uint64
+
+	// requests (C2) records every plane-2 AgentRequest the engine host
+	// sent; requestFn scripts the response (nil = a canned DECLINE — safe
+	// default a test that doesn't care about approvals never trips over).
+	requests  []*agentcoordpb.AgentRequest
+	requestFn func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
+}
+
+func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	fn := f.requestFn
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(req)
+	}
+	return &agentcoordpb.CoordinatorResponse{
+		Status: okStatus(""),
+		Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
+			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
+		}},
+	}, nil
+}
+
+func (f *fakeEngineHome) requestedApprovals() []*agentcoordpb.ApprovalRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*agentcoordpb.ApprovalRequest
+	for _, r := range f.requests {
+		if a := r.GetApproval(); a != nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seq++
+	f.events = append(f.events, ev)
+	return f.seq
+}
+
+func (f *fakeEngineHome) emitCustomEvent(name string, value map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.customs = append(f.customs, struct {
+		Name  string
+		Value map[string]any
+	}{name, value})
+}
+
+func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sink = sink
+}
+
+func (f *fakeEngineHome) ReportRunExited(code int, sessionID string, terminal bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exited = append(f.exited, struct {
+		Code      int
+		SessionID string
+		Terminal  bool
+	}{code, sessionID, terminal})
+}
+
+func (f *fakeEngineHome) customNames() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.customs))
+	for i, c := range f.customs {
+		out[i] = c.Name
+	}
+	return out
+}
+
+func (f *fakeEngineHome) payloadKinds() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, ev := range f.events {
+		out = append(out, itemKind(ev))
+	}
+	return out
+}
+
+// scriptedChat is a StructuredChat whose turns are scripted: each received
+// text yields a Session event (first turn only), a thinking entry, an
+// assistant echo, a tool_use/tool_result pair, and a Complete.
+type scriptedChat struct {
+	mu       sync.Mutex
+	requests []agent.ChatRequest
+	texts    []string
+	turnGate chan struct{} // non-nil: turns block until released
+
+	// permission (C2), when set, is forwarded as ChatEvent.Permission
+	// before the turn's normal entries — the turn parks until the matching
+	// ChatMessage.Permission answer arrives, and answers records it.
+	permission *agent.PermissionRequest
+	answersMu  sync.Mutex
+	answers    []agent.PermissionAnswer
+}
+
+func (s *scriptedChat) recordedAnswers() []agent.PermissionAnswer {
+	s.answersMu.Lock()
+	defer s.answersMu.Unlock()
+	return append([]agent.PermissionAnswer(nil), s.answers...)
+}
+
+// arm (re-)schedules a permission request to forward on the NEXT turn this
+// scripted chat receives (C2 tests: scripting a second approval ask after
+// the first one resolved).
+func (s *scriptedChat) arm(pr *agent.PermissionRequest) {
+	s.mu.Lock()
+	s.permission = pr
+	s.mu.Unlock()
+}
+
+func (s *scriptedChat) recordedTexts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.texts...)
+}
+
+func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+	defer close(out)
+	s.mu.Lock()
+	s.requests = append(s.requests, req)
+	gate := s.turnGate
+	s.mu.Unlock()
+	send := func(ev agent.ChatEvent) bool {
+		select {
+		case out <- ev:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "native-sess-42"}}) {
+		return ctx.Err()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg, ok := <-in:
+			if !ok {
+				return nil
+			}
+			if msg.Permission != nil {
+				continue // a stray answer with no pending request in this fixture
+			}
+			if msg.Text == "" {
+				continue
+			}
+			s.mu.Lock()
+			s.texts = append(s.texts, msg.Text)
+			pr := s.permission
+			s.permission = nil // forward at most once, on the first matching turn
+			s.mu.Unlock()
+			if gate != nil {
+				select {
+				case <-gate:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if pr != nil {
+				if !send(agent.ChatEvent{Permission: pr}) {
+					return ctx.Err()
+				}
+				if !s.awaitPermissionAnswer(ctx, in, pr.ID) {
+					return ctx.Err()
+				}
+			}
+			if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}}) ||
+				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "echo: " + msg.Text}}) ||
+				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "grep", ToolInput: []byte(`{"q":"x"}`)}}) ||
+				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
+				!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+// awaitPermissionAnswer parks until a ChatMessage.Permission answering id
+// arrives on in, recording it (recordedAnswers). Returns false on ctx death
+// or in closing (the caller treats either as a fatal stream end, matching
+// the rest of this fixture's send() convention).
+func (s *scriptedChat) awaitPermissionAnswer(ctx context.Context, in <-chan agent.ChatMessage, id string) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case msg, ok := <-in:
+			if !ok {
+				return false
+			}
+			if msg.Permission != nil && msg.Permission.ID == id {
+				s.answersMu.Lock()
+				s.answers = append(s.answers, *msg.Permission)
+				s.answersMu.Unlock()
+				return true
+			}
+		}
+	}
+}
+
+func testStartRun(runID string) *agentcoordpb.StartRun {
+	spec, err := buildHarnessSpec(HarnessSpecInput{
+		Harness:     "claude-code",
+		Model:       "claude-sonnet-5",
+		Workspace:   "/work",
+		SessionHarp: "child-harp-1",
+		Permission:  agent.PermissionBypass,
+	})
+	if err != nil {
+		panic(err)
+	}
+	input, _ := structpb.NewStruct(map[string]any{"prompt": "CTX\n\ndo the thing"})
+	return &agentcoordpb.StartRun{RunId: runID, Harness: spec, Input: input, Role: "worker"}
+}
+
+// TestEngineHost_StartRunDrivesChatInProcess pins the whole runner half of
+// C1: StartRun decodes the spec, launches the backend's Chat IN-PROCESS, the
+// briefing rides the first turn, native events adapt onto plane-1
+// (RunStarted → turn_started → message/tool items → turn_idle), and the
+// native session id is reported via the harness_session custom event.
+func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode(), "StartRun must succeed: %s", resp.GetStatus().GetMessage())
+	require.NotNil(t, resp.GetStartRun())
+	assert.NotZero(t, resp.GetStartRun().GetPid())
+
+	// The briefing (context pre-joined) is the first turn, verbatim.
+	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "CTX\n\ndo the thing", sc.recordedTexts()[0])
+
+	// The turn's native events adapted onto plane-1.
+	require.Eventually(t, func() bool {
+		for _, n := range home.customNames() {
+			if n == CustomTurnIdle {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the turn boundary must reach plane-1")
+
+	kinds := home.payloadKinds()
+	assert.Contains(t, kinds, "run_started")
+	assert.Contains(t, kinds, "message_started")
+	assert.Contains(t, kinds, "message_delta")
+	assert.Contains(t, kinds, "message_completed")
+	assert.Contains(t, kinds, "tool_call_started")
+	assert.Contains(t, kinds, "tool_call_completed")
+	names := home.customNames()
+	assert.Contains(t, names, CustomHarnessSession, "the native session id reaches the coordinator's journal path")
+	assert.Contains(t, names, CustomTurnStarted)
+
+	// The chat request the backend saw matches the decoded spec.
+	sc.mu.Lock()
+	req := sc.requests[0]
+	sc.mu.Unlock()
+	assert.Equal(t, "/work", req.WorkDir)
+	assert.Equal(t, "claude-sonnet-5", req.Model)
+	assert.Equal(t, agent.PermissionBypass, req.Permissions)
+}
+
+// TestEngineHost_TurnSinkDeliversFramedMail: a coordinator-pushed
+// PeerMessage lands on the engine as a NEW TURN, framed with sender + kind
+// (manly-grant (6)).
+func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	home.mu.Lock()
+	sink := home.sink
+	home.mu.Unlock()
+	require.NotNil(t, sink, "startRun must register the turn sink")
+
+	structured, _ := structpb.NewStruct(map[string]any{"kind": "task"})
+	ok := sink(&agentcoordpb.PeerMessage{MessageId: "m-9", FromAgentId: "parent-harp", Text: "next assignment", Structured: structured})
+	require.True(t, ok)
+	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
+	got := sc.recordedTexts()[1]
+	assert.Contains(t, got, "[coordinator-delivered message from=parent-harp kind=task]")
+	assert.Contains(t, got, "next assignment")
+}
+
+// TestEngineHost_StartRunIdempotentOnReissue: the SAME run_id reissued
+// (reconnect) returns the cached result; a DIFFERENT run is refused
+// (max_concurrent_runs=1), and a mismatched A9 correlation is refused.
+func TestEngineHost_StartRunIdempotentOnReissue(t *testing.T) {
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+
+	mismatch := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-OTHER")}})
+	assert.NotEqual(t, int32(0), mismatch.GetStatus().GetCode(), "A9: a run this runner was not spawned for is refused")
+
+	first := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), first.GetStatus().GetCode())
+	again := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	assert.Same(t, first, again, "a reissued StartRun (same run_id) returns the cached result")
+}
+
+// TestEngineHost_ChatEndEmitsRunCompletedAndRunExited: when the engine's
+// stream ends, the adapter emits the terminal RunCompleted (usage in
+// micro-USD) and reports RunExited with the native session id.
+func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	ctx, cancel := context.WithCancel(context.Background())
+	eh := NewEngineHost(ctx, sc, "claude-code", "run-1")
+	eh.BindHome(home)
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+	require.Eventually(t, func() bool {
+		for _, n := range home.customNames() {
+			if n == CustomTurnIdle {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+
+	cancel() // kill the engine: Chat returns, the stream closes
+
+	require.Eventually(t, func() bool {
+		home.mu.Lock()
+		defer home.mu.Unlock()
+		return len(home.exited) == 1
+	}, 5*time.Second, 10*time.Millisecond, "chat end must report RunExited on the lifecycle link")
+
+	home.mu.Lock()
+	defer home.mu.Unlock()
+	assert.Equal(t, "native-sess-42", home.exited[0].SessionID)
+	assert.True(t, home.exited[0].Terminal)
+	var completed *agentcoordpb.RunCompleted
+	for _, ev := range home.events {
+		if rc := ev.GetRunCompleted(); rc != nil {
+			completed = rc
+		}
+	}
+	require.NotNil(t, completed, "the terminal RunCompleted must be emitted")
+	require.NotNil(t, completed.GetResult().GetUsage())
+	assert.Equal(t, uint64(10), completed.GetResult().GetUsage().GetInputTokens())
+	// 0.0000015 USD → 1.5 micros → round-half-even → 2.
+	assert.Equal(t, uint64(2), completed.GetResult().GetUsage().GetCostUsdMicros(), "money converts ONCE at the runner boundary, round-half-even")
+	assert.Equal(t, uint32(1), completed.GetResult().GetNumTurns())
+}
+
+// TestEngineHost_ForwardsPermissionAsApprovalRequest is the C2 runner-side
+// unit test, isolated from a real coordinator: a forwarded engine
+// permission request must (1) build an ApprovalRequest with the ACP tool
+// kind classified onto the contract's ApprovalKind, the title, and the raw
+// tool input as the payload; (2) translate the scripted ApprovalDecision
+// back into the matching PermissionOption; (3) journal an InteractionRecorded
+// item whose Detail carries the decision/note — the content the
+// approval_test.go integration tests cannot see directly (items are counted,
+// not materialized, on the coordinator's own journal).
+func TestEngineHost_ForwardsPermissionAsApprovalRequest(t *testing.T) {
+	home := &fakeEngineHome{}
+	home.requestFn = func(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+		return &agentcoordpb.CoordinatorResponse{
+			Status: okStatus(""),
+			Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
+				Decision: agentcoordpb.ApprovalDecision_DECISION_ACCEPT,
+				Note:     "rung 2/2: relay_to_role granted",
+			}},
+		}, nil
+	}
+	sc := &scriptedChat{permission: &agent.PermissionRequest{
+		ID: "perm-9", ToolName: "bash", Kind: "execute", ToolInput: []byte(`{"command":"ls"}`),
+		Options: []agent.PermissionOption{
+			{ID: "allow-1", Kind: "allow_once"},
+			{ID: "reject-1", Kind: "reject_once"},
+		},
+	}}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+	// The engine received the matching allow option.
+	require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	ans := sc.recordedAnswers()[0]
+	assert.Equal(t, "perm-9", ans.ID)
+	assert.Equal(t, "allow-1", ans.OptionID)
+
+	// The coordinator saw an ApprovalRequest with the classified kind, the
+	// title, and the tool input as payload.
+	require.Eventually(t, func() bool { return len(home.requestedApprovals()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	approval := home.requestedApprovals()[0]
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION, approval.GetKind())
+	assert.Equal(t, "bash", approval.GetTitle())
+	assert.Equal(t, "perm-9", approval.GetItemId())
+	require.NotNil(t, approval.GetPayload())
+	assert.Equal(t, "ls", approval.GetPayload().GetFields()["command"].GetStringValue())
+
+	// The InteractionRecorded item journaled the resolution's detail.
+	require.Eventually(t, func() bool {
+		for _, ev := range home.events {
+			if ev.GetInteraction() != nil {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "an InteractionRecorded event must be emitted")
+	home.mu.Lock()
+	defer home.mu.Unlock()
+	var interaction *agentcoordpb.InteractionRecorded
+	for _, ev := range home.events {
+		if ir := ev.GetInteraction(); ir != nil {
+			interaction = ir
+		}
+	}
+	require.NotNil(t, interaction)
+	assert.Equal(t, "approval", interaction.GetKind())
+	assert.Equal(t, agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED, interaction.GetResolution())
+	assert.Equal(t, "DECISION_ACCEPT", interaction.GetDetail().GetFields()["decision"].GetStringValue())
+	assert.Contains(t, interaction.GetDetail().GetFields()["note"].GetStringValue(), "rung 2/2")
+}
+
+// TestEngineHost_ApprovalDeclineCancels pins the DECLINE/CANCEL translation:
+// a DECLINE picks a reject option; a CANCEL picks NO option at all (the
+// engine's safe cancelled no-op — neither approves nor commits a remembered
+// rejection).
+func TestEngineHost_ApprovalDeclineCancels(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		decision   agentcoordpb.ApprovalDecision_Decision
+		wantOption string
+	}{
+		{name: "decline", decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, wantOption: "reject-1"},
+		{name: "cancel", decision: agentcoordpb.ApprovalDecision_DECISION_CANCEL, wantOption: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := &fakeEngineHome{}
+			home.requestFn = func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+				return &agentcoordpb.CoordinatorResponse{
+					Status: okStatus(""),
+					Kind:   &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{Decision: tc.decision}},
+				}, nil
+			}
+			sc := &scriptedChat{permission: &agent.PermissionRequest{
+				ID: "perm-x", ToolName: "bash", Kind: "execute",
+				Options: []agent.PermissionOption{
+					{ID: "allow-1", Kind: "allow_once"},
+					{ID: "reject-1", Kind: "reject_once"},
+				},
+			}}
+			eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+			eh.BindHome(home)
+			resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+			require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+			require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+			assert.Equal(t, tc.wantOption, sc.recordedAnswers()[0].OptionID)
+		})
+	}
+}

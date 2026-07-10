@@ -2,9 +2,11 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +19,27 @@ import (
 const (
 	clientName    = "ctxloom"
 	clientVersion = "1.0.0"
+)
+
+const (
+	// claudeEngineName is the agent_engine value naming claude (matched
+	// case-insensitively — see ACPConfig.AgentEngine's kiro/claude/codex/agy
+	// vocabulary). It keys the automatic CLAUDECODE strip below, and mirrors
+	// the same alias other ctxloom engine-name tables use for claude (e.g.
+	// internal/ltk/engine.engineAliases).
+	claudeEngineName = "claude"
+	// claudeGuardEnv is claude's nested-session guard variable (see
+	// internal/claude/chat.go's chatACPConfig doc comment for the full
+	// story): claude 2.x refuses to start with it set, and it leaks into a
+	// delegated child as pure process-tree lineage regardless of which
+	// backend spawned the child.
+	claudeGuardEnv = "CLAUDECODE"
+	// claudeModelEnvVar is the claude SDK's own model-selector env var (see
+	// internal/claude/chat.go's chatACPConfig doc comment): claude-code-acp
+	// 0.16.2 silently ignores the driver's --model argv, so this is the
+	// load-bearing delivery. A generic entry driving claude (agent_engine)
+	// gets it defaulted the same way claude-code's own backend does.
+	claudeModelEnvVar = "ANTHROPIC_MODEL"
 )
 
 // ACPConfig is the generic ACP client's typed LLM config. Unlike a per-engine
@@ -36,6 +59,34 @@ type ACPConfig struct {
 	AgentEngine string `mapstructure:"agent_engine"`
 	// Model is passed to the spawned agent via `--model` when set.
 	Model string `mapstructure:"model"`
+	// ModelEnvVar, when set, ALSO delivers the request's model into the
+	// spawned agent's environment under this variable name (e.g. claude's
+	// SDK selector ANTHROPIC_MODEL). Real adapters vary in whether the
+	// `--model` argv is honored at all — claude-code-acp 0.16.2 silently
+	// ignores it and runs the session on the user's saved interactive
+	// default, which the resolveChatModel gate exists to prevent — so the
+	// engine-native env var is the load-bearing delivery where the
+	// embedding backend knows one.
+	ModelEnvVar string `mapstructure:"model_env_var"`
+	// ModelConfigKey, when set, delivers the request's model via a
+	// `-c <key>=<value>` config-override flag INSTEAD OF the generic
+	// `--model` flag (mutually exclusive with it — see chatArgv). Wave C3
+	// finding: codex-acp 0.16.0 has NO `--model` flag at all — verified
+	// live, it REJECTS the argv outright at CLI parse (exit 2, "unexpected
+	// argument '--model' found"), which would break every codex chat spawn
+	// with a non-empty model, not just leave it silently ignored like
+	// claude-code-acp. codex-acp's own `-c key=value` override (its
+	// config.toml dotted-path convention, e.g. `-c model="o3"`, confirmed
+	// live) is the only mechanism that works.
+	ModelConfigKey string `mapstructure:"model_config_key"`
+	// StripEnv names inherited environment variables REMOVED from the spawned
+	// agent's env. The embedding backend uses it to drop a variable whose
+	// inherited presence would be a false signal to the child engine — e.g.
+	// claude's CLAUDECODE nested-session guard, which the delegated-child
+	// topology inherits from the parent engine's process tree even though the
+	// child is a deliberately-launched independent engine (see
+	// internal/claude/chat.go).
+	StripEnv []string `mapstructure:"strip_env"`
 
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
@@ -53,10 +104,13 @@ type ACP struct {
 	agent.LaunchBackend
 
 	// config knobs applied by Configure.
-	command     string
-	agentName   string
-	agentEngine string
-	model       string
+	command        string
+	agentName      string
+	agentEngine    string
+	model          string
+	modelEnvVar    string
+	modelConfigKey string
+	stripEnv       []string
 
 	// openTransport spawns (or, in tests, fakes) the ACP subprocess transport.
 	// nil → spawnTransport (a real `<agent> acp` process).
@@ -117,6 +171,38 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	if c.Model != "" {
 		b.model = c.Model
 	}
+	if c.ModelEnvVar != "" {
+		b.modelEnvVar = c.ModelEnvVar
+	}
+	if c.ModelConfigKey != "" {
+		b.modelConfigKey = c.ModelConfigKey
+	}
+	if len(c.StripEnv) > 0 {
+		b.stripEnv = c.StripEnv
+	}
+	// A generic ACP entry whose agent_engine names claude drives the SAME
+	// claude engine claude-code's own backend does (internal/claude/chat.go's
+	// chatACPConfig) — and inherits CLAUDECODE from the parent claude's
+	// process tree as pure lineage under agentcoord delegation exactly like
+	// that path, since claude 2.x refuses to start with the nested-session
+	// guard set regardless of which ctxloom backend spawned it. claude-code's
+	// own backend strips it unconditionally; a GENERIC entry only knows
+	// it is driving claude via agent_engine, so key the strip on that here —
+	// in addition to, never instead of, any user-configured strip_env.
+	if strings.EqualFold(b.agentEngine, claudeEngineName) {
+		if !slices.Contains(b.stripEnv, claudeGuardEnv) {
+			b.stripEnv = append(b.stripEnv, claudeGuardEnv)
+		}
+		// Wave C3 sibling of the strip above (mauve-plop item 2 / c5917a6
+		// precedent): a generic entry driving claude needs the SAME
+		// ANTHROPIC_MODEL delivery claude-code's own chatACPConfig sets,
+		// for the identical reason (claude-code-acp 0.16.2 silently
+		// ignores --model argv). Only DEFAULTS it — an explicit
+		// model_env_var in the entry (already applied above) always wins.
+		if b.modelEnvVar == "" {
+			b.modelEnvVar = claudeModelEnvVar
+		}
+	}
 	// If Command names the binary (the common case) and no explicit binary_path
 	// was given, adopt Command's first field as the binary so BaseBackend can run
 	// it. chatArgv still prepends Command's trailing args.
@@ -142,7 +228,12 @@ func (b *ACP) clock() func() time.Time {
 // direct-CLI flags. They are a pragmatic first cut: real ACP agents vary in which
 // flags they accept, so per-engine flag mapping (keyed on agent_engine) is a
 // later refinement. An agent that rejects an unknown flag would fail to spawn —
-// hence they are only appended when set.
+// hence they are only appended when set. Confirmed live per Wave C3: kiro-cli
+// acp accepts --agent/--model/--agent-engine at CLI-parse (its own documented
+// flags); codex-acp accepts NONE of the three — it exits 2 ("unexpected
+// argument") on any of them — which is exactly why ModelConfigKey exists
+// below as model's alternate delivery and why codex's embedding config
+// (internal/codex/chat.go) never sets Agent/AgentEngine.
 func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 	_, cmdArgs := splitCommand(b.command)
 
@@ -158,7 +249,15 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 		model = req.Model
 	}
 	if model != "" {
-		args = append(args, "--model", model)
+		if b.modelConfigKey != "" {
+			// codex-acp shape: `-c model="<value>"` — the value is parsed as
+			// TOML by the adapter itself (README: `-c model="o3"`; verified
+			// live), so it is quoted, never passed bare. Mutually exclusive
+			// with --model: an adapter that needs this rejects --model too.
+			args = append(args, "-c", fmt.Sprintf("%s=%q", b.modelConfigKey, model))
+		} else {
+			args = append(args, "--model", model)
+		}
 	}
 	if b.agentEngine != "" {
 		args = append(args, "--agent-engine", b.agentEngine)
@@ -194,10 +293,7 @@ type transportFunc func(ctx context.Context, argv []string, env map[string]strin
 func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, argv...)
 	cmd.Dir = workDir
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	cmd.Env = spawnEnv(os.Environ(), b.stripEnv, env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -221,6 +317,25 @@ func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]
 			return cmd.Wait()
 		},
 	}, nil
+}
+
+// spawnEnv builds the spawned agent's environment: the inherited base minus
+// the configured StripEnv variables, then the per-launch overlay appended
+// (os/exec dedupes on key, last wins). Stripping happens on the BASE only: an
+// overlay entry always lands, even for a stripped key — the caller set it
+// deliberately.
+func spawnEnv(base, strip []string, overlay map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overlay))
+	for _, kv := range base {
+		k, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(strip, k) {
+			out = append(out, kv)
+		}
+	}
+	for k, v := range overlay {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 // warnf routes a diagnostic through ctxloom's standard "ctxloom: warning:" path.

@@ -15,30 +15,59 @@ The MCP surface is for **retrieving context during a session**: assembling conte
 
 ### agent_recv
 
-Receive pending bus messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish — the coordinator learns from the session record, not from silence.
+Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `wait` | integer | No | Seconds to wait for a message (default 60, max 600). On timeout the call fails: drop the coordination, write your report/deferral state, and finish |
 
-### agent_run
+### agent_report
 
-Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as bus messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
+File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `agent` | string | Yes | Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored) |
-| `prompt` | string | Yes | The child's briefing — delivered as its first turn |
+| `artifact_ids` | string[] | No |  |
+| `covers_through_seq` | integer | No | Event-log compression hint: faithfully covers all events with seq <= covers_through_seq, so late joiners may start from the latest SCOPE_CHECKPOINT instead of replaying everything. |
+| `scope` | string | Yes | Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary) (One of: `SCOPE_UNSPECIFIED`, `SCOPE_PROGRESS`, `SCOPE_STEP`, `SCOPE_CHECKPOINT`, `SCOPE_FINAL`) |
+| `step_id` | string | No | set when scope == SCOPE_STEP |
+| `structured` | object | No | Structured companion (decisions, open questions, metrics). |
+| `text` | string | Yes | The report body, markdown |
+
+### agent_run
+
+Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `budget` | object | No | carved from the parent's budget |
+| `constraints` | object | No | Optional model/tools/sandbox hints (unused today; the agent's own binding decides) |
+| `input` | object | Yes | Child task input. `prompt` carries the child's briefing, delivered as its first turn |
+| `notify_on` | string | No | One of: `NOTIFY_ON_UNSPECIFIED`, `NOTIFY_ON_COMPLETION`, `NOTIFY_ON_NOTHING` |
+| `role` | string | Yes | Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`) |
 
 ### agent_send
 
-Send a bus message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Executors may only address "parent"; peer messaging routes via the coordinator. In-memory, at-most-once: durable results belong in reports/tasks, not the bus.
+Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `body` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
-| `kind` | string | No | Optional message kind (e.g. result, question, error) |
-| `to` | string | Yes | Recipient: a child session harp, or "parent" (executors may ONLY address their parent) |
+| `artifact_ids` | string[] | No | by reference, never by value |
+| `in_reply_to` | string | No | Correlates a reply to an earlier inbound PeerMessage.message_id. |
+| `structured` | object | No | Optional structured companion. `kind` names the message kind (e.g. result, question, error) |
+| `text` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
+| `to_agent_id` | string | No | Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set |
+| `to_role` | string | No | Role address. Delegated children may ONLY send to_role: "parent"; peer traffic routes via the coordinator |
+
+### agent_stop
+
+Stop a delegated child run: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `grace` | string | No | Duration, e.g. "3s" |
+| `reason` | string | No |  |
+| `run_id` | string | Yes | The child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id) |
 
 ### assemble_context
 
@@ -88,6 +117,17 @@ Recover context from the current session after /clear. Resolves the most recent 
 | `backend` | string | No | Backend to read session from (defaults to the configured default LLM) |
 | `model` | string | No | LLM model to use for distillation if needed |
 | `session_id` | string | No | Session ID to recover. If not provided, uses most recent session. |
+
+### roster
+
+List this session's delegated children (the roster): each entry's harp (agent_id), current run_id, state, latest report summary, and last activity. Terminal (ended) children are included only with include_terminal.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `include_descendants` | boolean | No |  |
+| `include_terminal` | boolean | No |  |
+| `role` | string | No | filter |
+| `task_id` | string | No | Scope to one task, optionally including its descendant task tree — no prefix matching on opaque ids. |
 
 ### search_content
 

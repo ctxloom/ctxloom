@@ -774,6 +774,37 @@ Examples:
 			}()
 		}
 
+		// COORDINATOR HOSTING (agentcoord B1.6): `ctxloom run` is a
+		// session-owning process, so it stands the runtime coordinator up —
+		// durable delegation stores, the gRPC RunnerChannel/RunChannel — and
+		// stamps the reach-back trio onto the RUNNER's spawn env (the
+		// per-spawn seam below), NOT the harness env: the parent routes
+		// through its own runner like every agent. The runner terminates
+		// MCP on a local socket; the harness's stdio `ctxloom mcp` forwards
+		// there, and every coordination tool becomes a typed plane-2 frame
+		// back HERE. A standup failure is a fatal finding (fail-loud):
+		// --degraded downgrades it and the harness's shim falls back to its
+		// own local orchestrator.
+		// Print (oneshot) runs host the coordinator too: the parent routes
+		// through its own runner in every topology, so a headless
+		// coordinator brief (the echo smoke) exercises the same
+		// runner-terminated path as an interactive session — the bare-mcp
+		// shim fallback is for externally-launched harnesses only.
+		var runnerSpawnEnv map[string]string
+		if activeHarp != "" {
+			if sessionCoord, coordEnv, cerr := hostCoordinatorForSession(cfg, workDir, activeHarp, agentRuntime); cerr != nil {
+				strictness.Fail(strictness.ClassApply,
+					"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
+					"agent coordinator startup failed: %v", cerr)
+			} else {
+				defer sessionCoord.Close()
+				runnerSpawnEnv = coordEnv
+				// The runner's local identity (session instructions, plan
+				// stamping) is the session harp.
+				runnerSpawnEnv["CTXLOOM_SESSION_HARP"] = activeHarp
+			}
+		}
+
 		// --seed-task: move one task from the resume source store into this
 		// freshly minted session's store, marked for active work. Used by
 		// `ctxloom tasks run` to spin a browsed task into its own session.
@@ -944,7 +975,7 @@ Examples:
 			// Spawn through the policy, carrying the resolved label so serve
 			// configures exactly this entry (not the first map-ordered entry of the
 			// same type).
-			client, err = policy.SpawnClient(backendName, label, runVerbosity, ws)
+			client, err = policy.SpawnClient(backendName, label, runVerbosity, ws, runnerSpawnEnv)
 			if err != nil {
 				return fmt.Errorf("failed to start plugin: %w", err)
 			}

@@ -118,6 +118,24 @@ func TestCall_ErrorResponse(t *testing.T) {
 	assert.Contains(t, rerr.Error(), "auth required")
 }
 
+// TestErrorString_IncludesData pins that the error's data payload rides the
+// Go error string. Agents (the ACP TS SDK in particular) reply to any thrown
+// handler exception with a generic "Internal error" message and the real
+// cause in data — the claude-code-acp session/new failure that motivated
+// this printed only "acp: rpc error -32603: Internal error" while the root
+// cause sat in data.details.
+func TestErrorString_IncludesData(t *testing.T) {
+	withData := &Error{Code: -32603, Message: "Internal error", Data: json.RawMessage(`{"details":"Query closed before response received"}`)}
+	assert.Equal(t,
+		`acp: rpc error -32603: Internal error ({"details":"Query closed before response received"})`,
+		withData.Error())
+
+	assert.Equal(t, "acp: rpc error -32000: auth required",
+		(&Error{Code: -32000, Message: "auth required"}).Error(), "no data → unchanged")
+	assert.Equal(t, "acp: rpc error -32603: Internal error",
+		(&Error{Code: -32603, Message: "Internal error", Data: json.RawMessage(`null`)}).Error(), "JSON null data adds nothing")
+}
+
 // TestNotify pins that a notification carries a method and no id.
 func TestNotify(t *testing.T) {
 	conn, serverDec, _ := newTestConn(t, &mockHandler{})

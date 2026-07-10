@@ -75,6 +75,13 @@ type LaunchSpec struct {
 	ExtraEnv    []string          // scoped auth env passthrough threaded into the run
 	ExtraMounts []Mount           // auth credential mounts + config overlays + gitdir mirror
 	AuthMode    containerAuthMode // how auth resolved (diagnostics; no secrets)
+
+	// SpawnEnv is the per-spawn env stamped onto the runner PROCESS (the
+	// coordinator reach-back trio + session identity). Host: appended to the
+	// subprocess cmd.Env. OCI: each key crosses as a bare-name `-e NAME`
+	// (value read from the `run` process env, which gets the KEY=VAL — the
+	// credential never lands in the world-readable argv).
+	SpawnEnv map[string]string
 }
 
 // RunSpec is the runtime-agnostic description of one plugin container: which image
@@ -171,7 +178,7 @@ func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
 	}
 
 	name := containerName(launch.AgentID)
-	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, loopbackPort)
+	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv, loopbackPort)
 	return pb.NewContainerClient(launch.BackendName, launch.Label, launch.Verbosity, runnerFunc, launch.HostSocketDir)
 }
 
@@ -320,7 +327,7 @@ func (Host) RemoveArgs(string) []string { return nil }
 // workspace is expressed purely via the caller's RunOptions.WorkDir, so only
 // BackendName/Label/Verbosity are consulted; the container fields are ignored.
 func (Host) Spawn(launch LaunchSpec) (pb.Client, error) {
-	return pb.NewSelfInvokingClientForLabel(launch.BackendName, launch.Label, launch.Verbosity)
+	return pb.NewSelfInvokingClientForLabelEnv(launch.BackendName, launch.Label, launch.Verbosity, launch.SpawnEnv)
 }
 
 // Expose renders the identity bind mount, same as the OCI runtimes — the host

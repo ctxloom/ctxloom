@@ -47,6 +47,13 @@ type ChatRequest struct {
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
 	// native config the engine reads from its cwd.
 	MCPServers []ChatMCPServer
+	// ResumeSessionID, when set, asks the backend to resume a prior native
+	// session instead of starting fresh (claude --resume <id>, codex
+	// thread/resume, ACP session/load). A backend that cannot resume (no
+	// native support, or the specific id is unknown to it) fails the call
+	// loudly rather than silently starting a fresh session under the old
+	// id's name — a delegated child's resumed context is load-bearing.
+	ResumeSessionID string
 }
 
 // ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
@@ -97,6 +104,14 @@ type PermissionRequest struct {
 	ToolName  string
 	ToolInput json.RawMessage
 	Options   []PermissionOption
+	// Kind is the connector-classified tool category, when the backend's
+	// native protocol supplies one (ACP's ToolCallKind: "execute" | "edit" |
+	// "delete" | "move" | "read" | "search" | "fetch" | "think" | "other").
+	// Empty means unclassified. Purely advisory metadata carried through to
+	// whatever buckets the request under a policy (e.g. the agentcoord
+	// escalation ladder's ApprovalKind, Wave C2) — backends that cannot
+	// classify simply leave it empty.
+	Kind string
 }
 
 // PermissionOption is one decision the engine offers for a permission request.
@@ -136,6 +151,12 @@ type TurnMeta struct {
 // ChatSessionInfo is one-time metadata emitted at the start of a chat (kept
 // distinct from SessionMeta, which is transcript-store metadata).
 type ChatSessionInfo struct {
+	// SessionID is the harness-NATIVE session id this conversation runs
+	// under (the ACP session id from session/new or session/load) — the
+	// resume handle a coordinator journals so a later respawn can continue
+	// the same native session (ChatRequest.ResumeSessionID). Empty when the
+	// backend exposes none.
+	SessionID      string
 	Model          string
 	PermissionMode string
 	ContextWindow  int

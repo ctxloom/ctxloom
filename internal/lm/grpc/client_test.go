@@ -248,7 +248,7 @@ func (f *fakeClientProtocol) Ping() error { return nil }
 func TestNewLLMRunner_ClientErrorTriggersKill(t *testing.T) {
 	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
@@ -263,7 +263,7 @@ func TestNewLLMRunner_DispenseErrorTriggersKill(t *testing.T) {
 		clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")},
 	}
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
@@ -280,7 +280,7 @@ func TestNewLLMRunner_WrongTypeTriggersKill(t *testing.T) {
 		},
 	}
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
@@ -297,7 +297,7 @@ func TestNewLLMRunner_HappyPath(t *testing.T) {
 		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
 	}
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
 	t.Cleanup(func() { dialLLMConnection = orig })
@@ -323,7 +323,7 @@ func TestDefaultClientFactory_PassesLabelToServe(t *testing.T) {
 	}
 	var gotArgs []string
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		gotArgs = args
 		return fake
 	}
@@ -359,7 +359,7 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 		clientResult: &fakeClientProtocol{dispenseResult: &GRPCClient{client: &fakeLLMClient{}}},
 	}
 	orig := dialLLMConnection
-	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	dialLLMConnection = func(cmd string, args []string, env []string, logger hclog.Logger) llmConnection {
 		gotCmd = cmd
 		gotArgs = args
 		return fake

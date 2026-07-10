@@ -1,0 +1,369 @@
+package coord
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// fakeEngine is one scripted child engine conversation. Turn texts are
+// recorded as received; each turn completes automatically unless gated
+// (turnGate non-nil — the test releases turns one by one), and the stream can
+// end itself after endAfterTurns turns (an engine that exits).
+type fakeEngine struct {
+	mu            sync.Mutex
+	texts         []string
+	gotEnv        map[string]string
+	gotRunnerEnv  map[string]string
+	turnGate      chan struct{}
+	endAfterTurns int
+	// oneshot marks the returned AgentChatLaunch as the no-structured-chat
+	// fallback (operations.AgentChatLaunch.Oneshot) — scripts a fakeSpawner
+	// child through children.go's oneshot bridging (PublishEvents + the
+	// parent-mailbox "result" bridge) without a real backend.
+	oneshot bool
+}
+
+func (f *fakeEngine) recordedTexts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.texts...)
+}
+
+func (f *fakeEngine) runnerEnv() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]string, len(f.gotRunnerEnv))
+	for k, v := range f.gotRunnerEnv {
+		out[k] = v
+	}
+	return out
+}
+
+func (f *fakeEngine) env() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]string, len(f.gotEnv))
+	for k, v := range f.gotEnv {
+		out[k] = v
+	}
+	return out
+}
+
+// launch adapts the fake engine onto the operations.AgentChatLaunch shape the
+// Spawner returns.
+func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runnerEnv map[string]string) *operations.AgentChatLaunch {
+	f.mu.Lock()
+	f.gotEnv = env
+	f.gotRunnerEnv = runnerEnv
+	f.mu.Unlock()
+	in := make(chan agent.ChatMessage)
+	events := make(chan agent.ChatEvent)
+	errs := make(chan error, 1)
+	turnCtx, cancel := context.WithCancel(ctx)
+	first := true
+	go func() {
+		defer close(errs)
+		defer close(events)
+		turns := 0
+		for msg := range in {
+			text := msg.Text
+			if first {
+				// The real launch prepends the lead context to the first
+				// turn; mirror it so lead-block assertions hold.
+				if contextText != "" {
+					text = contextText + "\n\n" + text
+				}
+				first = false
+			}
+			if text == "" {
+				continue
+			}
+			f.mu.Lock()
+			f.texts = append(f.texts, text)
+			gate := f.turnGate
+			f.mu.Unlock()
+			if gate != nil {
+				select {
+				case <-gate:
+				case <-turnCtx.Done():
+					return
+				}
+			}
+			select {
+			case events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "ok"}}:
+			case <-turnCtx.Done():
+				return
+			}
+			select {
+			case events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}:
+			case <-turnCtx.Done():
+				return
+			}
+			turns++
+			if f.endAfterTurns > 0 && turns >= f.endAfterTurns {
+				return
+			}
+		}
+	}()
+	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: cancel, Oneshot: f.oneshot}
+}
+
+// fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
+// It mints deterministic harps and scripts one fakeEngine per launch.
+type fakeSpawner struct {
+	mu       sync.Mutex
+	next     func() *fakeEngine
+	engines  []*fakeEngine
+	harpSeq  int
+	agents   map[string]fakeAgent // agent name → resolved plan bits
+	resolved []string
+	assigned []string
+	perms    []agent.PermissionMode
+	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
+	// spawns a REAL runner half (Home + EngineHost over the coordinator's
+	// live gRPC listeners) around it. chats/kills record per spawn.
+	nextChat func() *scriptedChat
+	chats    []*scriptedChat
+	kills    []func()
+}
+
+type fakeAgent struct {
+	perm        string // headless permission enum; "" refuses (D3)
+	runtime     string
+	profiles    []string
+	unknown     bool
+	viaStartRun bool // route this agent over the migrated StartRun path
+	// backend is the SpawnPlan.Backend this agent resolves to (rides into
+	// HarnessSpec.harness on the StartRun path). Empty defaults to "mock" —
+	// most tests don't care and the coordinator's own mechanics are
+	// backend-agnostic (C3 recon); tests pinning per-backend parity (e.g.
+	// TestStartRun_BackendParity) set it explicitly.
+	backend string
+	// ladder (C2) is an explicit test escalation ladder; nil derives the
+	// perm preset (mirrors prodSpawner.Resolve's buildLadder-or-preset
+	// call), so tests that don't care about approvals see prod-shaped
+	// defaults.
+	ladder Ladder
+}
+
+func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
+	if next == nil {
+		next = func() *fakeEngine { return &fakeEngine{} }
+	}
+	return &fakeSpawner{next: next, agents: agents}
+}
+
+func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.agents[agentName]
+	if !ok || a.unknown {
+		return nil, fmt.Errorf("agent %q not found", agentName)
+	}
+	// Mirror the production spawner's D3 strictness window: the headless
+	// gate's finding must abort the resolve in strict mode.
+	var (
+		perm     agent.PermissionMode
+		degraded []string
+	)
+	if gerr := func() error {
+		mark := strictnessCheckpoint()
+		perm, degraded = headlessSafePermission(agentName, a.perm)
+		return findingsError(mark)
+	}(); gerr != nil {
+		return nil, gerr
+	}
+	s.resolved = append(s.resolved, agentName)
+	ladder := a.ladder
+	if ladder == nil {
+		ladder = presetLadder(perm)
+	}
+	backend := a.backend
+	if backend == "" {
+		backend = "mock"
+	}
+	return &SpawnPlan{
+		AgentName:   agentName,
+		Backend:     backend,
+		Label:       "fast",
+		Profiles:    a.profiles,
+		Runtime:     a.runtime,
+		Context:     "FRAG-ONE",
+		Perm:        perm,
+		Ladder:      ladder,
+		Degraded:    degraded,
+		ViaStartRun: a.viaStartRun,
+	}, nil
+}
+
+func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.harpSeq++
+	harp := fmt.Sprintf("child-harp-%d", s.harpSeq)
+	s.assigned = append(s.assigned, harp)
+	return harp, nil
+}
+
+func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
+	s.mu.Lock()
+	e := s.next()
+	s.engines = append(s.engines, e)
+	s.perms = append(s.perms, plan.Perm)
+	s.mu.Unlock()
+	return e.launch(ctx, contextText, env, runnerEnv), nil
+}
+
+// StartEngine spawns the MIGRATED path's runner half for real: an in-process
+// Home dialing the coordinator's live listeners with the spawn-injected trio,
+// an EngineHost wired as its RunnerRequest handler, and a scripted
+// StructuredChat as the engine. Kill models SIGKILL (docker-stop): the
+// shared context dies — no RunExited, no clean teardown; the coordinator's
+// loss synthesis is what must notice.
+func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+	s.mu.Lock()
+	mk := s.nextChat
+	if mk == nil {
+		mk = func() *scriptedChat { return &scriptedChat{} }
+	}
+	sc := mk()
+	s.chats = append(s.chats, sc)
+	s.perms = append(s.perms, plan.Perm)
+	s.mu.Unlock()
+
+	sctx, cancel := context.WithCancel(ctx)
+	host := NewEngineHost(sctx, sc, plan.Backend, runnerEnv[EnvRunID])
+	home, err := NewHome(sctx, HomeConfig{
+		URL:     runnerEnv[EnvCoordURL],
+		Token:   runnerEnv[EnvCoordCred],
+		RunID:   runnerEnv[EnvRunID],
+		Harness: plan.Backend,
+		Version: "test",
+		Engine:  host.Handle,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	host.BindHome(home)
+	kill := func() {
+		cancel()
+		home.crash()
+	}
+	s.mu.Lock()
+	s.kills = append(s.kills, kill)
+	s.mu.Unlock()
+	return &EngineSpawn{
+		WorkDir: "/work",
+		Env:     env,
+		Model:   "test-model",
+		Kill:    kill,
+	}, nil
+}
+
+// chat returns the i-th scripted (StartRun-path) engine, nil if unspawned.
+func (s *fakeSpawner) chat(i int) *scriptedChat {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i >= len(s.chats) {
+		return nil
+	}
+	return s.chats[i]
+}
+
+// chatCount reports how many StartRun-path engines were spawned.
+func (s *fakeSpawner) chatCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.chats)
+}
+
+// killEngine simulates an EXTERNAL death of the i-th StartRun-path engine
+// (docker stop / kill -9): context torn down, connection severed, nothing
+// clean sent.
+func (s *fakeSpawner) killEngine(i int) {
+	s.mu.Lock()
+	kill := s.kills[i]
+	s.mu.Unlock()
+	kill()
+}
+
+// lastPerm returns the permission the most recent launch carried.
+func (s *fakeSpawner) lastPerm() agent.PermissionMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.perms) == 0 {
+		return agent.PermissionDefault
+	}
+	return s.perms[len(s.perms)-1]
+}
+
+func (s *fakeSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
+	return plan.Context
+}
+
+func (s *fakeSpawner) MarkSessionEnded(string) {}
+
+func (s *fakeSpawner) spawnCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.engines)
+}
+
+func (s *fakeSpawner) engine(i int) *fakeEngine {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i >= len(s.engines) {
+		return nil
+	}
+	return s.engines[i]
+}
+
+// newTestCoordinator builds a coordinator over a fake spawner in a temp state
+// dir, serving loopback listeners (so host children resolve a reach-back URL).
+// The Clock defaults to real time unless overridden.
+func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coordinator {
+	t.Helper()
+	c, err := New(Options{
+		ProjectDir: t.TempDir(),
+		StateDir:   t.TempDir(),
+		Spawner:    sp,
+		Clock:      clock,
+	})
+	if err != nil {
+		t.Fatalf("new coordinator: %v", err)
+	}
+	if err := c.Serve(); err != nil {
+		t.Fatalf("serve coordinator: %v", err)
+	}
+	t.Cleanup(c.Close)
+	return c
+}
+
+// mkTempDir returns a stable temp dir NOT auto-cleaned per sub-coordinator, so
+// adoption tests can relaunch coordinators over the SAME state dir.
+func mkTempDir(t *testing.T) string { return t.TempDir() }
+
+// newTestCoordinatorAt builds a mailbox-only test coordinator over a FIXED
+// state dir (for adoption/restart tests) with a no-op spawner and no
+// listeners — the mailbox verbs need neither. The caller closes it explicitly
+// (adoption tests relaunch over the same dir).
+func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
+	t.Helper()
+	c, err := New(Options{
+		ProjectDir: stateDir,
+		StateDir:   stateDir,
+		Spawner:    newFakeSpawner(nil, nil),
+		Clock:      nil,
+	})
+	if err != nil {
+		t.Fatalf("new coordinator: %v", err)
+	}
+	return c
+}

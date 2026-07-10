@@ -2,10 +2,13 @@ package operations
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -24,10 +27,15 @@ type AgentChatRequest struct {
 	// turn as a lead block — the chat substrate never runs Setup.
 	Context string
 	WorkDir string
-	// Env is the child engine's extra environment: the child's session harp,
-	// the bus socket, and the delegation depth (ambient identity — never
-	// client-claimed).
+	// Env is the child engine's extra environment: the child's session harp
+	// and project identity (ambient identity — never client-claimed).
 	Env map[string]string
+	// RunnerEnv is stamped per spawn onto the RUNNER process (`ctxloom llm
+	// serve`): the coordinator reach-back trio the runner-terminated MCP
+	// path consumes. host: cmd.Env on the subprocess; container: bare-name
+	// `-e` forms with values on the run-process env. Never merged into the
+	// engine env — the runner is the one credential holder.
+	RunnerEnv map[string]string
 	// Permissions is the already-gated headless-safe posture (D3: children
 	// never prompt; the caller refused or downgraded anything else).
 	Permissions agent.PermissionMode
@@ -105,6 +113,10 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		return p, nil
 	}
 
+	if err := resolveChatModel(rs); err != nil {
+		return nil, err
+	}
+
 	p.factory = req.Factory
 	p.workDir = req.WorkDir
 	if p.factory == nil {
@@ -120,9 +132,57 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 			p.Abort()
 			return nil, gerr
 		}
-		p.factory = isolation.FactoryForWorkspace(policy, ws)
+		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
 	}
 	return p, nil
+}
+
+// resolveChatModel resolves a delegated child's model into the concrete,
+// ACP/API-shaped id its Chat spawn requires, MUTATING rs.Model in place so
+// Start's ChatRequest (and any future reader of the resolved agent) sees the
+// resolved value with no further plumbing. Only claude-code needs this: its
+// Chat spawn rides the ACP/API path (internal/claude.ResolveModel), which
+// rejects both an unset model — silently inheriting the user's saved
+// INTERACTIVE default (e.g. an alias like "fable") — and a bare interactive
+// nickname; either dies at session/new with an opaque -32603. Other backends'
+// models pass through untouched: their Chat spawns don't share claude's ACP
+// nickname rejection.
+//
+// This IS the delegated child's backend config assembly step — PrepareAgentChat
+// assembles the ChatRequest Start hands the spawned engine, and this runs
+// before any of that is built. It deliberately lives here rather than in
+// agentcoord/coord/spawner.go: an analogous fail-loud gate already lives
+// there (headlessSafePermission, checkpointed inside Resolve), and this check
+// is its natural sibling — but spawner.go is under concurrent development on
+// a sibling slice (Wave B1.6), so the check sits one layer down instead,
+// upstream in operations, gating the exact same spawn moment (Start calls
+// straight through here with nothing in between).
+//
+// Wave C3 confirmed this stays claude-only: codex/kiro have no interactive-
+// nickname table to mis-resolve (claude's is the ONE alias layer in this
+// codebase), and both adapters accept a raw configured model string
+// verbatim through their own delivery mechanism (codex: -c model=<value>;
+// kiro: --model <value> — see internal/codex/chat.go, internal/kiro/chat.go)
+// with no silent-fallback failure mode analogous to claude's opaque -32603.
+// An empty model on either simply falls through to the adapter's own
+// configured default rather than a wrong one.
+func resolveChatModel(rs *ResolvedAgent) error {
+	if rs.Backend != config.BackendClaudeCode {
+		return nil
+	}
+	model, ok := claude.ResolveModel(rs.Model)
+	if ok {
+		rs.Model = model
+		return nil
+	}
+	fixIt := fmt.Sprintf("pin model: on llm config label %q or agent %q in .ctxloom/config.yaml", rs.Label, rs.Name)
+	strictness.Fail(strictness.ClassConfig, fixIt,
+		"agent_run: agent %q (llm label %q) resolves no model the ACP/API path accepts (got %q): an empty model silently inherits your saved interactive default, and a bare interactive alias (e.g. \"fable\") is rejected at chat-open",
+		rs.Name, rs.Label, rs.Model)
+	if strictness.Degraded() {
+		return nil // degraded: launch anyway with whatever was configured (rs.Model unchanged)
+	}
+	return fmt.Errorf("agent %q: no ACP-resolvable model for its delegated claude chat (llm label %q, got %q); %s", rs.Name, rs.Label, rs.Model, fixIt)
 }
 
 // Abort tears down a prepared-but-never-started launch's workspace.
@@ -133,8 +193,79 @@ func (p *PreparedAgentChat) Abort() {
 	}
 }
 
+// AgentEngineProcess is a spawned-but-not-chatting engine runner: the child's
+// `llm serve` process (or container) is up, isolation-prepared, and — with the
+// coordinator trio on its env — dialing home, but the go-plugin Chat stream
+// was never opened. The StartRun path's spawn half: engine control arrives
+// over the runner's own RunnerChannel; go-plugin here is only the process
+// spawn/kill transport.
+type AgentEngineProcess struct {
+	// WorkDir is the isolation-resolved workspace directory (what Chat's
+	// ChatRequest.WorkDir would have carried).
+	WorkDir string
+	// Env is the harness env the legacy Chat path would have sent: the
+	// workspace env merged under the request's extra env (ambient identity).
+	Env map[string]string
+	// Model is the RESOLVED model (post resolveChatModel — never an alias).
+	Model string
+	// Kill tears the engine process and its workspace down (idempotent).
+	Kill func()
+}
+
+// StartEngine spawns the engine runner process WITHOUT opening the go-plugin
+// Chat stream — the StartRun cutover's spawn half (Wave C1). The factory call
+// completes the go-plugin handshake eagerly, so a returned handle means the
+// runner process is up (and, with the coordinator trio stamped on it, dialing
+// home). Refused on the oneshot fallback: there is no persistent engine
+// process to host a StartRun.
+func (p *PreparedAgentChat) StartEngine(context.Context) (*AgentEngineProcess, error) {
+	if p.oneshot {
+		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
+	}
+	rs := p.req.Resolved
+	client, err := p.factory(rs.Backend, rs.Label, p.req.Verbosity)
+	if err != nil {
+		p.Abort()
+		return nil, err
+	}
+	env := p.workspaceEnv
+	if len(p.req.Env) > 0 {
+		merged := make(map[string]string, len(env)+len(p.req.Env))
+		maps.Copy(merged, env)
+		maps.Copy(merged, p.req.Env)
+		env = merged
+	}
+	var once sync.Once
+	return &AgentEngineProcess{
+		WorkDir: p.workDir,
+		Env:     env,
+		Model:   rs.Model,
+		Kill: func() {
+			once.Do(func() {
+				client.Kill()
+				p.Abort()
+			})
+		},
+	}, nil
+}
+
 // Start spawns the child and opens its turn stream. ctx bounds the child's
 // whole lifetime (the orchestrator's, not one tool call's).
+//
+// Wave C4 KILL-LIST VERIFICATION (R13-scoped): the branch below is the
+// delegated-child go-plugin Chat dial. It was NOT deleted — grepping
+// coord/children.go's two call sites (runChild, resumeChild) shows it is
+// reached ONLY when `!(plan.ViaStartRun && url != "")`, i.e. exactly two
+// documented, intentional cases: (a) a StructuredChat backend outside the
+// coordinator's ViaStartRun allowlist (coord/spawner.go's
+// viaStartRunBackends — today, no production backend; only test doubles),
+// and (b) C1's documented degraded-mode no-reach-back spawn fallback (a
+// StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and no
+// coordinator endpoint reachable — the runner could never dial home, so
+// StartRun is impossible and this is the only way the child launches at
+// all). Both are real, reachable, and intentional — this is NOT the general
+// delegated-child path anymore (claude/codex/kiro/acp with reach-back always
+// ride StartRun), so it stays, narrowly scoped and documented as such.
 func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error) {
 	if p.oneshot {
 		return p.startOneshot(ctx), nil

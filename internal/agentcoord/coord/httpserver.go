@@ -1,0 +1,274 @@
+package coord
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+)
+
+// MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
+// (http://<host>:<port>/mcp) for continuity — the runner derives its gRPC
+// dial target from the URL's host:port. The agent-facing HTTP-MCP handlers
+// were DELETED in B1.6 (deliverable 4): the gRPC RunChannel is the only
+// agent ingress now; the h2c listener stays for later frontends/watch APIs.
+const MCPPath = "/mcp"
+
+// coordServing is the coordinator's listener set: the loopback listener
+// (default) plus, only while a container runner is active, listeners on the
+// container-reachable bridge/host interfaces — never 0.0.0.0 (review R10).
+// One plaintext-HTTP/2 (h2c) listener carries the gRPC channels; non-gRPC
+// requests answer 404 (the tool surface lives at each RUNNER's local
+// socket).
+type coordServing struct {
+	c       *Coordinator
+	handler http.Handler
+	httpSrv *http.Server
+
+	mu       sync.Mutex
+	loopback net.Listener
+	loopURL  string
+	wide     []net.Listener
+	wideURL  string
+	widePort int
+}
+
+// endpointState persists the bound ports so a relaunched coordinator
+// re-binds the SAME endpoint (acceptance (4): adopted container
+// RunnerChannels re-Hello against a stable re-bindable endpoint).
+type endpointState struct {
+	LoopbackPort int `json:"loopback_port,omitempty"`
+	WidePort     int `json:"wide_port,omitempty"`
+}
+
+// Serve stands the listeners up: loopback by default; widening happens on
+// demand when a container child spawns.
+func (c *Coordinator) Serve() error {
+	if c.srv != nil {
+		return nil
+	}
+	s := &coordServing{c: c}
+
+	grpcSrv := c.grpcServer()
+	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc
+		// content-type. Nothing else is served here since the B1.6 surface
+		// shrink — the MCP tool path terminates at each runner's local
+		// socket; per-request credential auth lives in the gRPC
+		// interceptors.
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcSrv.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+	// Unencrypted HTTP/2 (h2c) via net/http's Protocols — the modern
+	// replacement for the deprecated x/net/http2/h2c wrapper. The bind is
+	// loopback/bridge-only (never 0.0.0.0); the credential authenticates
+	// every gRPC stream and request.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	s.httpSrv = &http.Server{Handler: s.handler, Protocols: protocols}
+
+	ep := s.loadEndpoint()
+	ln, err := bindPreferring("127.0.0.1", ep.LoopbackPort)
+	if err != nil {
+		return fmt.Errorf("coord: bind loopback listener: %w", err)
+	}
+	s.loopback = ln
+	s.loopURL = fmt.Sprintf("http://127.0.0.1:%d%s", ln.Addr().(*net.TCPAddr).Port, MCPPath)
+	go func() { _ = s.httpSrv.Serve(ln) }()
+	s.saveEndpoint()
+
+	c.srv = s
+	return nil
+}
+
+// bindPreferring binds host:port, falling back to an ephemeral port when the
+// recorded one is taken.
+func bindPreferring(host string, port int) (net.Listener, error) {
+	if port > 0 {
+		if ln, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprint(port))); err == nil {
+			return ln, nil
+		}
+	}
+	return net.Listen("tcp", net.JoinHostPort(host, "0"))
+}
+
+func (s *coordServing) endpointPath() string { return filepath.Join(s.c.stateDir, "endpoint.json") }
+
+func (s *coordServing) loadEndpoint() endpointState {
+	var ep endpointState
+	if raw, err := os.ReadFile(s.endpointPath()); err == nil {
+		_ = json.Unmarshal(raw, &ep)
+	}
+	return ep
+}
+
+func (s *coordServing) saveEndpoint() {
+	s.mu.Lock()
+	ep := endpointState{WidePort: s.widePort}
+	if s.loopback != nil {
+		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
+	}
+	s.mu.Unlock()
+	raw, _ := json.Marshal(ep)
+	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: persist endpoint: %v", err)
+	}
+}
+
+// LoopbackURL is the coordinator URL for host-side callers (the parent
+// harness's runner, host children's runners). Empty until Serve.
+func (c *Coordinator) LoopbackURL() string {
+	if c.srv == nil {
+		return ""
+	}
+	return c.srv.loopURL
+}
+
+// ReachURL resolves the URL a caller on runtimeAxis can dial — the hosting
+// glue uses it for the parent harness's env trio.
+func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
+	return c.reachURL(runtimeAxis)
+}
+
+// reachURL resolves the URL a child on runtimeAxis dials: loopback for host
+// runs; the widened bridge/host-interface listener for container runs
+// (opened on demand, never 0.0.0.0).
+func (c *Coordinator) reachURL(runtimeAxis string) (string, error) {
+	if c.srv == nil {
+		return "", errors.New("coordinator listeners are not up")
+	}
+	if runtimeAxis != "container" {
+		return c.srv.loopURL, nil
+	}
+	return c.srv.ensureWide()
+}
+
+// ensureWide opens the container-reachable listeners once and returns the
+// advertised URL. Candidate interfaces, most specific first: the container
+// runtime's bridge gateway (rootful daemons — e.g. docker0's 172.17.0.1),
+// then the host's primary outbound interface (rootless slirp/pasta setups
+// reach the host's non-loopback addresses). All candidates bind ONE shared
+// port so a single URL works wherever the packet lands. LABEL (plan): the
+// per-runtime reachability matrix is verified live by the smoke run, not
+// assumed here; an unbindable candidate set fails loudly at the spawn verb.
+func (s *coordServing) ensureWide() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wideURL != "" {
+		return s.wideURL, nil
+	}
+	candidates := containerReachIPs()
+	if len(candidates) == 0 {
+		return "", errors.New("no container-reachable host interface found (no bridge gateway, no primary outbound IP)")
+	}
+	port := s.widePort // recorded port first (stable re-bindable endpoint)
+	var bound []net.Listener
+	var boundIPs []string
+	for attempt := 0; attempt < 2; attempt++ {
+		bound, boundIPs = nil, nil
+		for _, ip := range candidates {
+			addr := net.JoinHostPort(ip, fmt.Sprint(port))
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				continue
+			}
+			if port == 0 {
+				port = ln.Addr().(*net.TCPAddr).Port
+			}
+			bound = append(bound, ln)
+			boundIPs = append(boundIPs, ip)
+		}
+		if len(bound) > 0 {
+			break
+		}
+		if port == 0 {
+			break
+		}
+		port = 0 // recorded port unavailable on every candidate: re-pick
+	}
+	if len(bound) == 0 {
+		return "", fmt.Errorf("could not bind a container-reachable listener on any of %v", candidates)
+	}
+	for _, ln := range bound {
+		go func(l net.Listener) { _ = s.httpSrv.Serve(l) }(ln)
+	}
+	s.wide = bound
+	s.widePort = port
+	// Advertise the FIRST bound candidate (bridge gateway preferred).
+	s.wideURL = fmt.Sprintf("http://%s%s", net.JoinHostPort(boundIPs[0], fmt.Sprint(port)), MCPPath)
+	go s.saveEndpoint()
+	return s.wideURL, nil
+}
+
+// close shuts every listener down.
+func (s *coordServing) close() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = s.httpSrv.Shutdown(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loopback != nil {
+		_ = s.loopback.Close()
+	}
+	for _, ln := range s.wide {
+		_ = ln.Close()
+	}
+}
+
+// containerReachIPs collects candidate host IPs a container can dial,
+// most specific first: each detected container runtime's default bridge
+// gateway, then the host's primary outbound interface IP.
+func containerReachIPs() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(ip string) {
+		ip = strings.TrimSpace(ip)
+		if ip != "" && ip != "<no value>" && !seen[ip] {
+			seen[ip] = true
+			out = append(out, ip)
+		}
+	}
+	for _, probe := range [][]string{
+		{"docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"},
+		{"podman", "network", "inspect", "podman", "--format", "{{range .Subnets}}{{.Gateway}}{{end}}"},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		outB, err := exec.CommandContext(ctx, probe[0], probe[1:]...).Output()
+		cancel()
+		if err == nil {
+			add(string(outB))
+		}
+	}
+	if ip := primaryOutboundIP(); ip != "" {
+		add(ip)
+	}
+	return out
+}
+
+// primaryOutboundIP resolves the host's primary outbound interface IP with a
+// connected UDP socket (no packets are sent).
+func primaryOutboundIP() string {
+	conn, err := net.Dial("udp", "203.0.113.1:9") // TEST-NET-3: never routed
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return addr.IP.String()
+	}
+	return ""
+}

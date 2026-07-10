@@ -1,6 +1,5 @@
 ---
-name: "recover"
-description: "recover"
+description: Recover context from the current session after /clear
 ---
 
 

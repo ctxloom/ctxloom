@@ -234,6 +234,21 @@ gen-docs:
 gen-docs-check: gen-docs
     git diff --exit-code -- website/src/content/docs/reference
 
+# Regenerate the proto-canonical MCP tool schemas from the buf-built
+# descriptor set (source info included by default).
+gen-mcp-schemas:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
+    buf build -o "$tmp"
+    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" -out internal/agentcoord/mcpschema/schemas
+
+# Drift gate: the checked-in schemas ARE the goldens — regenerate and fail on
+# any difference (the gen-docs-check pattern). Run in the CI lint job.
+gen-mcp-schemas-check: gen-mcp-schemas
+    git diff --exit-code -- internal/agentcoord/mcpschema/schemas
+
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's
 # non-zero exit when functions exceed the threshold, so this stays a report.

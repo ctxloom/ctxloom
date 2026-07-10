@@ -390,6 +390,19 @@ install: build-compressed
 uninstall:
     rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
+# Regenerate the proto-canonical MCP tool schemas (checked-in goldens under
+# internal/agentcoord/mcpschema/schemas/) from a buf-built FileDescriptorSet
+# WITH source info (buf includes SourceCodeInfo by default; the protoc
+# fallback is --descriptor_set_out --include_source_info). CI fails on drift
+# (gen-mcp-schemas-check in justfile.container).
+gen-mcp-schemas:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
+    buf build -o "$tmp"
+    go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" -out internal/agentcoord/mcpschema/schemas
+
 # Generate reference docs from their sources of truth: the CLI reference (man
 # pages + website markdown) from the cobra command tree, the MCP reference from
 # the live tool/resource registrations, and the config reference from the

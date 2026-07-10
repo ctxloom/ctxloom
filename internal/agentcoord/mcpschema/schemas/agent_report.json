@@ -1,0 +1,70 @@
+{
+  "name": "agent_report",
+  "description": "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "covers_through_seq": {
+        "description": "Event-log compression hint: faithfully covers all events with seq \u003c= covers_through_seq, so late joiners may start from the latest SCOPE_CHECKPOINT instead of replaying everything.",
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "scope": {
+        "description": "Report scope: SCOPE_PROGRESS (rolling status), SCOPE_STEP (one step's wrap-up), SCOPE_CHECKPOINT (resumable synthesis; supersedes prior checkpoints), SCOPE_FINAL (the deliverable summary)",
+        "enum": [
+          "SCOPE_UNSPECIFIED",
+          "SCOPE_PROGRESS",
+          "SCOPE_STEP",
+          "SCOPE_CHECKPOINT",
+          "SCOPE_FINAL"
+        ],
+        "examples": [
+          "SCOPE_FINAL"
+        ],
+        "type": "string"
+      },
+      "step_id": {
+        "description": "set when scope == SCOPE_STEP",
+        "type": "string"
+      },
+      "structured": {
+        "additionalProperties": true,
+        "description": "Structured companion (decisions, open questions, metrics).",
+        "type": "object"
+      },
+      "text": {
+        "description": "The report body, markdown",
+        "type": "string"
+      }
+    },
+    "required": [
+      "scope",
+      "text"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "properties": {
+      "artifact_ids": {
+        "description": "Plan-manifest artifacts stamped by this report (session-dir *.plan.md files, content-addressed)",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "journaled": {
+        "description": "The report is a durable journaled fact",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  }
+}

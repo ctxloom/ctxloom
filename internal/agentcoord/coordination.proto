@@ -287,6 +287,10 @@ message StartRunResult {
 // waits for a terminal RunCompleted on the RunChannel, escalates to
 // SIGTERM at grace expiry.
 message StopRun {
+  option (message_schema) = {
+    doc: "Stop a delegated child run: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history."
+  };
+
   string run_id = 1 [(field_schema) = {
     required: true,
     doc: "The child run to stop (from spawn's child_run_id, or the roster's current run_id — a resumed child runs under a FRESH run_id)"
@@ -543,6 +547,10 @@ message UserInputResult {
 // artifact references, or the child's Result which the coordinator
 // forwards per notify_on.
 message SpawnAgentRequest {
+  option (message_schema) = {
+    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum."
+  };
+
   // e.g. "test-writer"
   string role = 1 [(field_schema) = {
     required: true,
@@ -584,6 +592,10 @@ message SpawnAgentResult {
 // delivers to the target as a CoordinatorNotice.PeerMessage. No agent
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
+  option (message_schema) = {
+    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts."
+  };
+
   // or...
   string to_agent_id = 1 [(field_schema) = {
     doc: "Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set",
@@ -624,6 +636,10 @@ message PeerSendResult {
 // Sibling discovery/observability, so a parent can watch its children
 // (or peers watch each other) without private channels.
 message ListRunsRequest {
+  option (message_schema) = {
+    doc: "List this session's delegated children (the roster): each entry's harp (agent_id), current run_id, state, latest report summary, and last activity. Terminal (ended) children are included only with include_terminal."
+  };
+
   // Scope to one task, optionally including its descendant task tree —
   // no prefix matching on opaque ids.
   string task_id = 1;
@@ -1113,6 +1129,10 @@ enum ArtifactKind {
 // --- summaries ---------------------------------------------------------------
 
 message Summary {
+  option (message_schema) = {
+    doc: "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report."
+  };
+
   enum Scope {
     SCOPE_UNSPECIFIED = 0;
     SCOPE_PROGRESS = 1;    // rolling "what I'm doing / what's left"

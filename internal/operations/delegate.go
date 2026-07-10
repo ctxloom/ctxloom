@@ -2,10 +2,12 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -110,6 +112,10 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		return p, nil
 	}
 
+	if err := resolveChatModel(rs); err != nil {
+		return nil, err
+	}
+
 	p.factory = req.Factory
 	p.workDir = req.WorkDir
 	if p.factory == nil {
@@ -128,6 +134,45 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		p.factory = isolation.FactoryForWorkspace(policy, ws, req.RunnerEnv)
 	}
 	return p, nil
+}
+
+// resolveChatModel resolves a delegated child's model into the concrete,
+// ACP/API-shaped id its Chat spawn requires, MUTATING rs.Model in place so
+// Start's ChatRequest (and any future reader of the resolved agent) sees the
+// resolved value with no further plumbing. Only claude-code needs this: its
+// Chat spawn rides the ACP/API path (internal/claude.ResolveModel), which
+// rejects both an unset model — silently inheriting the user's saved
+// INTERACTIVE default (e.g. an alias like "fable") — and a bare interactive
+// nickname; either dies at session/new with an opaque -32603. Other backends'
+// models pass through untouched: their Chat spawns don't share claude's ACP
+// nickname rejection.
+//
+// This IS the delegated child's backend config assembly step — PrepareAgentChat
+// assembles the ChatRequest Start hands the spawned engine, and this runs
+// before any of that is built. It deliberately lives here rather than in
+// agentcoord/coord/spawner.go: an analogous fail-loud gate already lives
+// there (headlessSafePermission, checkpointed inside Resolve), and this check
+// is its natural sibling — but spawner.go is under concurrent development on
+// a sibling slice (Wave B1.6), so the check sits one layer down instead,
+// upstream in operations, gating the exact same spawn moment (Start calls
+// straight through here with nothing in between).
+func resolveChatModel(rs *ResolvedAgent) error {
+	if rs.Backend != config.BackendClaudeCode {
+		return nil
+	}
+	model, ok := claude.ResolveModel(rs.Model)
+	if ok {
+		rs.Model = model
+		return nil
+	}
+	fixIt := fmt.Sprintf("pin model: on llm config label %q or agent %q in .ctxloom/config.yaml", rs.Label, rs.Name)
+	strictness.Fail(strictness.ClassConfig, fixIt,
+		"agent_run: agent %q (llm label %q) resolves no model the ACP/API path accepts (got %q): an empty model silently inherits your saved interactive default, and a bare interactive alias (e.g. \"fable\") is rejected at chat-open",
+		rs.Name, rs.Label, rs.Model)
+	if strictness.Degraded() {
+		return nil // degraded: launch anyway with whatever was configured (rs.Model unchanged)
+	}
+	return fmt.Errorf("agent %q: no ACP-resolvable model for its delegated claude chat (llm label %q, got %q); %s", rs.Name, rs.Label, rs.Model, fixIt)
 }
 
 // Abort tears down a prepared-but-never-started launch's workspace.

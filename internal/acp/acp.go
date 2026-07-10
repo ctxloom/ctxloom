@@ -20,6 +20,21 @@ const (
 	clientVersion = "1.0.0"
 )
 
+const (
+	// claudeEngineName is the agent_engine value naming claude (matched
+	// case-insensitively — see ACPConfig.AgentEngine's kiro/claude/codex/agy
+	// vocabulary). It keys the automatic CLAUDECODE strip below, and mirrors
+	// the same alias other ctxloom engine-name tables use for claude (e.g.
+	// internal/ltk/engine.engineAliases).
+	claudeEngineName = "claude"
+	// claudeGuardEnv is claude's nested-session guard variable (see
+	// internal/claude/chat.go's chatACPConfig doc comment for the full
+	// story): claude 2.x refuses to start with it set, and it leaks into a
+	// delegated child as pure process-tree lineage regardless of which
+	// backend spawned the child.
+	claudeGuardEnv = "CLAUDECODE"
+)
+
 // ACPConfig is the generic ACP client's typed LLM config. Unlike a per-engine
 // config it does not name a fixed binary: `command` is the ACP-mode invocation of
 // whichever agent this entry drives (e.g. "kiro-cli acp", "claude-agent-acp"),
@@ -129,6 +144,18 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	}
 	if len(c.StripEnv) > 0 {
 		b.stripEnv = c.StripEnv
+	}
+	// A generic ACP entry whose agent_engine names claude drives the SAME
+	// claude engine claude-code's own backend does (internal/claude/chat.go's
+	// chatACPConfig) — and inherits CLAUDECODE from the parent claude's
+	// process tree as pure lineage under agentcoord delegation exactly like
+	// that path, since claude 2.x refuses to start with the nested-session
+	// guard set regardless of which ctxloom backend spawned it. claude-code's
+	// own backend strips it unconditionally; a GENERIC entry only knows
+	// it is driving claude via agent_engine, so key the strip on that here —
+	// in addition to, never instead of, any user-configured strip_env.
+	if strings.EqualFold(b.agentEngine, claudeEngineName) && !slices.Contains(b.stripEnv, claudeGuardEnv) {
+		b.stripEnv = append(b.stripEnv, claudeGuardEnv)
 	}
 	// If Command names the binary (the common case) and no explicit binary_path
 	// was given, adopt Command's first field as the binary so BaseBackend can run

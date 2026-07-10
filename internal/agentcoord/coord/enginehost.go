@@ -512,6 +512,17 @@ func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *
 // search/fetch/think/other) onto the contract's ApprovalKind. Unclassified
 // or unrecognized values fall back to TOOL_USE — the generic bucket, never
 // silently dropped.
+//
+// Wave C3 backend-parity recon: this mapping needs NO per-backend cases.
+// claude/codex/kiro/generic-acp all reach here through the SAME code path —
+// internal/acp/mapping.go's permissionRequestEvent decodes every adapter's
+// session/request_permission via the one pinned ACP SDK's api.ToolCallKind,
+// so "kind" is already protocol-normalized before it gets here regardless of
+// which real adapter binary (claude-code-acp/codex-acp/kiro-cli) produced
+// it — there is no adapter-specific vocabulary to extend against. A future
+// backend that classifies permissions OUTSIDE the ACP driver (a non-ACP
+// StructuredChat implementation) is the only case that would need a new
+// case here.
 func classifyApprovalKind(kind string) agentcoordpb.ApprovalRequest_ApprovalKind {
 	switch kind {
 	case "execute":

@@ -36,9 +36,14 @@ type SpawnPlan struct {
 	// ViaStartRun routes this child's engine control over the agentcoord
 	// StartRun path (spawn the runner process, await its dial-home, issue
 	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
-	// dial. Wave C1 scope gate: CLAUDE ONLY — codex/kiro also implement
-	// StructuredChat but stay on the legacy path until C3 verifies them
-	// per-backend.
+	// dial. Wave C1 landed claude-only; Wave C3 extends the gate to every
+	// backend that rides the shared internal/acp driver (see
+	// viaStartRunBackends) — codex, kiro, and the generic "acp" entry —
+	// once its recon confirmed the runner-side EngineHost/adaptation path
+	// (llm_serve.go) was ALREADY backend-agnostic (gated only on the
+	// agent.StructuredChat type assertion, never a backend-name check): the
+	// only real per-backend deltas lived in each backend's own chatACPConfig
+	// (model delivery), not in the coordinator/runner machinery.
 	ViaStartRun bool
 
 	resolved *operations.ResolvedAgent
@@ -101,6 +106,27 @@ func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFact
 	return s
 }
 
+// viaStartRunBackends is the C3 spawn-cutover gate: the set of backend types
+// whose delegated Chat implementation rides the shared internal/acp driver
+// (claude/codex/kiro embed it via their own chatACPConfig; "acp" IS it
+// directly — see internal/acp/registry.go's descriptor comment). C3 recon
+// confirmed the runner-side EngineHost (internal/cli/llm_serve.go) already
+// gates on the agent.StructuredChat type assertion alone, never a backend
+// name, so every member of this set gets the identical StartRun/adaptation/
+// approval-forwarding/resume machinery — only each backend's OWN
+// chatACPConfig differs (model delivery: internal/claude, internal/codex,
+// internal/kiro, internal/acp's agent_engine default). Backends NOT in this
+// set (antigravity, mock, and any future non-ACP StructuredChat backend)
+// stay on the legacy go-plugin Chat dial — this gate is deliberately an
+// allowlist of VERIFIED backends, not "implements StructuredChat", so a new
+// backend must be reviewed onto StartRun explicitly rather than swept in.
+var viaStartRunBackends = map[string]bool{
+	config.BackendClaudeCode: true,
+	"codex":                  true,
+	"kiro":                   true,
+	"acp":                    true,
+}
+
 func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
 	var (
 		rs       *operations.ResolvedAgent
@@ -135,12 +161,9 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Perm:      perm,
 		Ladder:    ladder,
 		Degraded:  degraded,
-		// C1 scope gate: delegated CLAUDE children ride StartRun; every
-		// other backend keeps the legacy go-plugin Chat dial until C3
-		// verifies it per-backend (claude first — the most-exercised
-		// driver; blanket-routing codex/kiro would sweep them in
-		// unverified).
-		ViaStartRun: rs.Backend == config.BackendClaudeCode,
+		// C3: every backend whose delegated Chat rides the shared ACP
+		// driver moves onto StartRun (see viaStartRunBackends).
+		ViaStartRun: viaStartRunBackends[rs.Backend],
 		resolved:    rs,
 	}, nil
 }

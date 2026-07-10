@@ -157,6 +157,15 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 // a sibling slice (Wave B1.6), so the check sits one layer down instead,
 // upstream in operations, gating the exact same spawn moment (Start calls
 // straight through here with nothing in between).
+//
+// Wave C3 confirmed this stays claude-only: codex/kiro have no interactive-
+// nickname table to mis-resolve (claude's is the ONE alias layer in this
+// codebase), and both adapters accept a raw configured model string
+// verbatim through their own delivery mechanism (codex: -c model=<value>;
+// kiro: --model <value> — see internal/codex/chat.go, internal/kiro/chat.go)
+// with no silent-fallback failure mode analogous to claude's opaque -32603.
+// An empty model on either simply falls through to the adapter's own
+// configured default rather than a wrong one.
 func resolveChatModel(rs *ResolvedAgent) error {
 	if rs.Backend != config.BackendClaudeCode {
 		return nil

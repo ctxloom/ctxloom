@@ -134,6 +134,12 @@ type fakeAgent struct {
 	profiles    []string
 	unknown     bool
 	viaStartRun bool // route this agent over the migrated StartRun path
+	// backend is the SpawnPlan.Backend this agent resolves to (rides into
+	// HarnessSpec.harness on the StartRun path). Empty defaults to "mock" —
+	// most tests don't care and the coordinator's own mechanics are
+	// backend-agnostic (C3 recon); tests pinning per-backend parity (e.g.
+	// TestStartRun_BackendParity) set it explicitly.
+	backend string
 	// ladder (C2) is an explicit test escalation ladder; nil derives the
 	// perm preset (mirrors prodSpawner.Resolve's buildLadder-or-preset
 	// call), so tests that don't care about approvals see prod-shaped
@@ -173,9 +179,13 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 	if ladder == nil {
 		ladder = presetLadder(perm)
 	}
+	backend := a.backend
+	if backend == "" {
+		backend = "mock"
+	}
 	return &SpawnPlan{
 		AgentName:   agentName,
-		Backend:     "mock",
+		Backend:     backend,
 		Label:       "fast",
 		Profiles:    a.profiles,
 		Runtime:     a.runtime,

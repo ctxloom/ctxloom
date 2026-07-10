@@ -88,6 +88,59 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond, "plane-1 items must journal (counted) for a migrated run")
 }
 
+// TestStartRun_BackendParity pins Wave C3's acceptance: codex, kiro, and the
+// generic "acp" entry ride the IDENTICAL StartRun mechanics claude proved in
+// C1 — the coordinator/runner machinery (EngineHost, HarnessSpec codec,
+// turn delivery, journaling) is backend-agnostic by construction (it only
+// ever threads plan.Backend through as an opaque string, see
+// runChildViaStartRun's Harness: rt.plan.Backend), so this is a hermetic,
+// per-backend structural proof: each backend label reaches the migrated
+// path (no legacy go-plugin Chat dial), completes a turn, and journals a
+// RunStarted whose harness field records the SPECIFIC backend. The
+// backend-SPECIFIC deltas (model delivery argv/env) live in each real
+// backend's own chatACPConfig and are pinned separately (internal/acp,
+// internal/codex, internal/kiro driver-level tests) — codex-acp and
+// kiro-cli acp both lack usable auth on the recon host (verified live: no
+// OPENAI_API_KEY/CODEX_API_KEY, and kiro-cli requires `kiro-cli login`
+// before it even opens its JSON-RPC loop), so a live multi-turn engine echo
+// could not be exercised for either; this scripted-adapter proof is the
+// stated hermetic substitute per the acceptance's own allowance.
+func TestStartRun_BackendParity(t *testing.T) {
+	for _, backend := range []string{"codex", "kiro", "acp"} {
+		t.Run(backend, func(t *testing.T) {
+			resetStrictness(t)
+			sp := newFakeSpawner(map[string]fakeAgent{
+				"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}, viaStartRun: true, backend: backend},
+			}, nil)
+			c := newTestCoordinator(t, sp, nil)
+
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing")
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				sc := sp.chat(0)
+				return sc != nil && len(sc.recordedTexts()) == 1
+			}, conformanceWait, 10*time.Millisecond, "backend %q must deliver the briefing via StartRun", backend)
+			assert.Contains(t, sp.chat(0).recordedTexts()[0], "do the thing")
+
+			require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+
+			// No legacy go-plugin Chat launch fired for this backend.
+			assert.Zero(t, sp.spawnCount(), "backend %q must not take the legacy Chat dial", backend)
+			assert.Equal(t, 1, sp.chatCount())
+
+			// The journal records THIS backend as the run's harness (proves
+			// plan.Backend rode the HarnessSpec unmodified, not coerced to
+			// claude or dropped).
+			require.Eventually(t, func() bool {
+				var counts map[string]int
+				c.items.View(func() { counts = c.itemsF.countsFor(out.RunID) })
+				return counts["run_started"] == 1
+			}, conformanceWait, 10*time.Millisecond, "backend %q must journal RunStarted on the migrated path", backend)
+		})
+	}
+}
+
 // TestStartRun_SendToIdleChildStartsTurn pins acceptance C1's turn delivery:
 // a parent send to an IDLE migrated child is pushed down the RunChannel and
 // becomes a NEW TURN on the engine (framed with sender + kind), and its

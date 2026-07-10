@@ -52,14 +52,29 @@ func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string
 // user's own commands. Cleanup reverts via the same manifest-scoped writer with
 // no exports (WriteCommandFiles(dir, nil, …)), which removes exactly the
 // manifest-tracked set and the manifest, leaving user commands untouched.
+//
+// Claude Code loads ~/.claude/commands alongside place.Dir()'s project scope, so
+// a project copy byte-identical to the global one would otherwise surface as a
+// duplicate slash-command. GlobalCommandsDir resolves that same user-global dir
+// (claude.go), and WriteCommandFiles forwards it to WriteManagedCommandFiles as
+// WithDedupHomeDir to dedup against it. When place.Dir() IS the home directory
+// itself (a global-scope delivery), the resolved home commands dir equals the
+// target commands dir exactly, and WriteManagedCommandFiles's own
+// dir==dedupHomeDir check disables the dedup — a directory never dedups against
+// itself — so no extra guard is needed here. If the home dir can't be resolved
+// (no $HOME), dedup is simply left off, matching "empty disables the dedup".
 func (d *fileTemplateDelivery) DeliverSkills(skills []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	fs := d.fs
-	if err := WriteCommandFiles(dir, skills, agent.WithCommandFS(fs)); err != nil {
+	opts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
+	if home, err := GlobalCommandsDir(); err == nil && home != "" {
+		opts = append(opts, agent.WithHomeCommandsDir(home))
+	}
+	if err := WriteCommandFiles(dir, skills, opts...); err != nil {
 		return nil, err
 	}
 	return deliveredFunc(func() error {
-		return WriteCommandFiles(dir, nil, agent.WithCommandFS(fs))
+		return WriteCommandFiles(dir, nil, opts...)
 	}), nil
 }
 

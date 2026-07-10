@@ -1,0 +1,254 @@
+package coord
+
+import (
+	"fmt"
+	"time"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// C2 — THE ESCALATION LADDER (policy surface). A ladder is an ORDERED list
+// of rungs; each answers a subset of ApprovalRequest kinds one of four ways.
+// serveApproval (runchannel.go) walks the rungs matching a request's kind IN
+// ORDER: auto_accept/auto_decline resolve immediately; relay_to_role/
+// surface_to_human park the request as mail to the target role and wait up
+// to the rung's timeout — a timeout FALLS THROUGH to the next matching
+// rung. Running off the end of the ladder bottoms at DECLINE (never a hang,
+// never a silent human-shaped gap). ACCEPT_FOR_SESSION caches (run, kind) at
+// the coordinator (coordinator.go) and short-circuits the whole walk on a
+// later like-kind request.
+
+// LadderAction is one rung's disposition.
+type LadderAction string
+
+const (
+	ActionAutoAccept     LadderAction = "auto_accept"
+	ActionAutoDecline    LadderAction = "auto_decline"
+	ActionRelayToRole    LadderAction = "relay_to_role"
+	ActionSurfaceToHuman LadderAction = "surface_to_human"
+)
+
+// LadderRung is one ordered, VALIDATED entry of an escalation ladder — the
+// parsed form of agents.EscalationRung (kind names resolved to the proto
+// enum, timeout parsed, action/role validated) that serveApproval consumes.
+type LadderRung struct {
+	// Kinds are the ApprovalKinds this rung answers; empty matches every
+	// kind (a catch-all rung).
+	Kinds  []agentcoordpb.ApprovalRequest_ApprovalKind
+	Action LadderAction
+	// Role is the relay_to_role/surface_to_human mail target — always
+	// ParentAddress in this window (flat-hub topology; validated at build).
+	Role    string
+	Timeout time.Duration
+}
+
+// Ladder is an agent's full, ordered escalation policy.
+type Ladder []LadderRung
+
+// defaultRelayTimeout bounds a relay_to_role/surface_to_human rung that
+// declares no explicit timeout — generous enough for an attended parent to
+// notice and answer, short enough that a scripted/unattended parent falls
+// through to the next rung (and ultimately DECLINE) in bounded time.
+const defaultRelayTimeout = 5 * time.Minute
+
+// approvalKindNames is the user-facing short-form vocabulary for
+// ApprovalRequest.ApprovalKind — deliberately hand-written (not derived from
+// the proto's enum-value reflection) so agent YAML stays readable and
+// independent of the wire's APPROVAL_KIND_ prefix.
+var approvalKindNames = map[string]agentcoordpb.ApprovalRequest_ApprovalKind{
+	"COMMAND_EXECUTION":     agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION,
+	"FILE_CHANGE":           agentcoordpb.ApprovalRequest_APPROVAL_KIND_FILE_CHANGE,
+	"TOOL_USE":              agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL_USE,
+	"PERMISSION_ESCALATION": agentcoordpb.ApprovalRequest_APPROVAL_KIND_PERMISSION_ESCALATION,
+	"ARTIFACT_REVIEW":       agentcoordpb.ApprovalRequest_APPROVAL_KIND_ARTIFACT_REVIEW,
+	"CUSTOM":                agentcoordpb.ApprovalRequest_APPROVAL_KIND_CUSTOM,
+}
+
+// presetLadder derives the degenerate ladder the existing permissions:
+// enum implies (kind-lilac compat — the enum keeps working unchanged for
+// every agent that declares no explicit escalation:):
+//
+//   - bypass: auto-accept every kind — mirrors decidePermission's old
+//     "allow under bypass" default, now expressed as a one-rung ladder.
+//   - plan: auto-decline the kinds that mutate state OUTRIGHT (file
+//     changes, permission escalation) and relay everything else —
+//     including COMMAND_EXECUTION, which is inherently ambiguous (a
+//     command can be as read-only as `ls` or as destructive as `rm -rf`)
+//     and so gets a judgment call rather than a reflexive decline.
+//   - default/acceptEdits: UNREACHABLE for a delegated child in practice —
+//     headlessSafePermission (spawner.go) already refuses them at spawn
+//     (D3's structural floor is unchanged by this ladder). The decline-all
+//     ladder here is a defensive fallback only, never the live path.
+func presetLadder(perm agent.PermissionMode) Ladder {
+	switch perm {
+	case agent.PermissionBypass:
+		return Ladder{{Action: ActionAutoAccept}}
+	case agent.PermissionPlan:
+		return Ladder{
+			{
+				Kinds: []agentcoordpb.ApprovalRequest_ApprovalKind{
+					agentcoordpb.ApprovalRequest_APPROVAL_KIND_FILE_CHANGE,
+					agentcoordpb.ApprovalRequest_APPROVAL_KIND_PERMISSION_ESCALATION,
+				},
+				Action: ActionAutoDecline,
+			},
+			{Action: ActionRelayToRole, Role: ParentAddress, Timeout: defaultRelayTimeout},
+		}
+	default:
+		return Ladder{{Action: ActionAutoDecline}}
+	}
+}
+
+// buildLadder validates and converts an agent's raw declared escalation:
+// block into a Ladder. Empty raw derives the preset from perm (the common
+// case: most agents never write an escalation: block). A non-empty raw
+// REPLACES the preset entirely — no merge — so an agent that customizes
+// escalation owns the whole ladder, including its own bottom.
+func buildLadder(agentName string, raw []agents.EscalationRung, perm agent.PermissionMode) (Ladder, error) {
+	if len(raw) == 0 {
+		return presetLadder(perm), nil
+	}
+	out := make(Ladder, 0, len(raw))
+	for i, r := range raw {
+		rung := LadderRung{Action: LadderAction(r.Action)}
+		switch rung.Action {
+		case ActionAutoAccept, ActionAutoDecline:
+			if r.Role != "" {
+				return nil, fmt.Errorf("agent %q escalation[%d]: role is not meaningful for action %q", agentName, i, r.Action)
+			}
+		case ActionRelayToRole, ActionSurfaceToHuman:
+			role := r.Role
+			if role == "" {
+				role = ParentAddress
+			}
+			if role != ParentAddress {
+				return nil, fmt.Errorf("agent %q escalation[%d]: role %q is not addressable — only %q is reachable in this window (flat-hub topology)", agentName, i, role, ParentAddress)
+			}
+			rung.Role = role
+			rung.Timeout = defaultRelayTimeout
+			if r.Timeout != "" {
+				d, err := time.ParseDuration(r.Timeout)
+				if err != nil {
+					return nil, fmt.Errorf("agent %q escalation[%d]: timeout %q: %w", agentName, i, r.Timeout, err)
+				}
+				if d <= 0 {
+					return nil, fmt.Errorf("agent %q escalation[%d]: timeout %q must be positive", agentName, i, r.Timeout)
+				}
+				rung.Timeout = d
+			}
+		default:
+			return nil, fmt.Errorf("agent %q escalation[%d]: unknown action %q (known: %s|%s|%s|%s)",
+				agentName, i, r.Action, ActionAutoAccept, ActionAutoDecline, ActionRelayToRole, ActionSurfaceToHuman)
+		}
+		for _, k := range r.Kinds {
+			kind, ok := approvalKindNames[k]
+			if !ok {
+				return nil, fmt.Errorf("agent %q escalation[%d]: unknown kind %q (known: %s)", agentName, i, k, knownKindNames())
+			}
+			rung.Kinds = append(rung.Kinds, kind)
+		}
+		out = append(out, rung)
+	}
+	return out, nil
+}
+
+// knownKindNames renders approvalKindNames' keys for an error message —
+// order is irrelevant (diagnostic text only), so no sort dependency.
+func knownKindNames() string {
+	s := ""
+	for k := range approvalKindNames {
+		if s != "" {
+			s += "|"
+		}
+		s += k
+	}
+	return s
+}
+
+// matches reports whether rung answers kind: an empty Kinds list is a
+// catch-all; otherwise kind must appear in it.
+func (r LadderRung) matches(kind agentcoordpb.ApprovalRequest_ApprovalKind) bool {
+	if len(r.Kinds) == 0 {
+		return true
+	}
+	for _, k := range r.Kinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// matchingRungs returns the ladder's rungs matching kind, in ladder order —
+// the walk serveApproval performs, one rung at a time, falling through on
+// timeout to the next entry this returns.
+func (l Ladder) matchingRungs(kind agentcoordpb.ApprovalRequest_ApprovalKind) []LadderRung {
+	var out []LadderRung
+	for _, r := range l {
+		if r.matches(kind) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// approvalKindName is approvalKindNames' inverse (for durable/audit
+// serialization — kind NAMES, not wire numbers, so the journals stay
+// jq-legible). Falls back to the wire enum's own String() for a kind this
+// package's short-form table doesn't cover (forward compatibility with a
+// later-added ApprovalKind).
+func approvalKindName(k agentcoordpb.ApprovalRequest_ApprovalKind) string {
+	for name, v := range approvalKindNames {
+		if v == k {
+			return name
+		}
+	}
+	return k.String()
+}
+
+// ladderToFact projects a Ladder onto its durable fact shape.
+func ladderToFact(l Ladder) []ladderRungFact {
+	if len(l) == 0 {
+		return nil
+	}
+	out := make([]ladderRungFact, 0, len(l))
+	for _, r := range l {
+		f := ladderRungFact{Action: string(r.Action), Role: r.Role}
+		if r.Timeout > 0 {
+			f.Timeout = r.Timeout.String()
+		}
+		for _, k := range r.Kinds {
+			f.Kinds = append(f.Kinds, approvalKindName(k))
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// ladderFromFact is ladderToFact's inverse. An unparseable timeout or an
+// unknown kind name (should not happen — buildLadder validated before this
+// was ever journaled) is dropped rather than failing replay: a fold must
+// never error on its own store's history.
+func ladderFromFact(facts []ladderRungFact) Ladder {
+	if len(facts) == 0 {
+		return nil
+	}
+	out := make(Ladder, 0, len(facts))
+	for _, f := range facts {
+		r := LadderRung{Action: LadderAction(f.Action), Role: f.Role}
+		if f.Timeout != "" {
+			if d, err := time.ParseDuration(f.Timeout); err == nil {
+				r.Timeout = d
+			}
+		}
+		for _, k := range f.Kinds {
+			if kind, ok := approvalKindNames[k]; ok {
+				r.Kinds = append(r.Kinds, kind)
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}

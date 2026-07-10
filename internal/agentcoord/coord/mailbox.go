@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -57,17 +58,26 @@ type pollResult struct {
 // newMessageID mints a mailbox message id (the dedupe key).
 func newMessageID() string { return randID("m-", 12) }
 
-// queueMail durably queues one message (fsynced before return), then
+// queueMail is queueMailPayload's common-case wrapper: no structured
+// companion, no reply correlation.
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
+	return c.queueMailPayload(from, to, kind, body, nil, "")
+}
+
+// queueMailPayload durably queues one message (fsynced before return), then
 // completes the recipient's waiting receive when one is open: a LOCAL parked
 // long-poll (bare-mcp path), or — tentatively — the recipient runner's
 // parked agent_recv via a pushed CoordinatorNotice (the cursor advances only
 // on the runner's mail_consumed fact). completed reports either. Routing
-// policy is the caller's.
-func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
-	msg := Message{ID: newMessageID(), From: from, To: to, Kind: kind, Body: body}
+// policy is the caller's. structured is an optional JSON-object companion
+// (e.g. the escalation ladder's relayed ApprovalRequest projection, Wave
+// C2); inReplyTo correlates this message to an earlier one's id.
+func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
+	msg := Message{ID: newMessageID(), From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{
 			MessageID: msg.ID, From: from, To: to, Kind: kind, Body: body,
+			Structured: structured, InReplyTo: inReplyTo,
 		})}, nil
 	}); err != nil {
 		return "", false, err

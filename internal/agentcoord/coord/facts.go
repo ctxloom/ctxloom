@@ -1,6 +1,9 @@
 package coord
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Fact kinds. Two journals: the run-registry journal (runs.jsonl — run
 // lifecycle, session credentials) and the mailbox journal (mailbox.jsonl —
@@ -68,6 +71,21 @@ type runEnqueued struct {
 	Depth      int    `json:"depth"`
 	Prompt     string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
 	Resume     bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
+	// Ladder is the run's resolved escalation ladder (Wave C2), journaled at
+	// enqueue so a later config edit cannot retroactively change a live
+	// run's policy and restart adoption recovers it without re-resolving
+	// config. Kind names, not wire numbers, so runs.jsonl stays
+	// jq-legible; ladder.go owns the (Ladder <-> []ladderRungFact)
+	// conversion.
+	Ladder []ladderRungFact `json:"ladder,omitempty"`
+}
+
+// ladderRungFact is LadderRung's durable JSON projection.
+type ladderRungFact struct {
+	Kinds   []string `json:"kinds,omitempty"`
+	Action  string   `json:"action"`
+	Role    string   `json:"role,omitempty"`
+	Timeout string   `json:"timeout,omitempty"`
 }
 
 // runState is factRunState's payload.
@@ -99,11 +117,13 @@ type sessionCred struct {
 
 // mailQueued is factMailQueued's payload.
 type mailQueued struct {
-	MessageID string `json:"message_id"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Kind      string `json:"kind,omitempty"`
-	Body      string `json:"body"`
+	MessageID  string          `json:"message_id"`
+	From       string          `json:"from"`
+	To         string          `json:"to"`
+	Kind       string          `json:"kind,omitempty"`
+	Body       string          `json:"body"`
+	Structured json.RawMessage `json:"structured,omitempty"`
+	InReplyTo  string          `json:"in_reply_to,omitempty"`
 }
 
 // mailConsumed is factMailConsumed's payload.

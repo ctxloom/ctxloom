@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"encoding/json"
 	"sort"
 	"time"
 )
@@ -31,6 +32,9 @@ type RunRecord struct {
 	HarnessSessionID string
 	EnqueuedAt       time.Time
 	LastActivity     time.Time
+	// Ladder is the run's resolved escalation ladder (Wave C2), fixed at
+	// enqueue.
+	Ladder Ladder
 }
 
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
@@ -64,17 +68,18 @@ func (f *runsFold) apply(fact Fact) {
 			return
 		}
 		f.runs[p.RunID] = &RunRecord{
-			RunID:      p.RunID,
-			Harp:       p.Harp,
-			Agent:      p.Agent,
-			ParentHarp: p.ParentHarp,
-			Runtime:    p.Runtime,
-			CredHash:   p.CredHash,
-			Depth:      p.Depth,
-			Prompt:     p.Prompt,
-			State:      StateQueued,
-			EnqueuedAt: fact.At,
+			RunID:        p.RunID,
+			Harp:         p.Harp,
+			Agent:        p.Agent,
+			ParentHarp:   p.ParentHarp,
+			Runtime:      p.Runtime,
+			CredHash:     p.CredHash,
+			Depth:        p.Depth,
+			Prompt:       p.Prompt,
+			State:        StateQueued,
+			EnqueuedAt:   fact.At,
 			LastActivity: fact.At,
+			Ladder:       ladderFromFact(p.Ladder),
 		}
 		f.byHarp[p.Harp] = p.RunID
 		if p.CredHash != "" {
@@ -333,6 +338,14 @@ type Message struct {
 	To   string `json:"to"`
 	Kind string `json:"kind,omitempty"`
 	Body string `json:"body"`
+	// Structured is an optional structured companion (arbitrary JSON object,
+	// e.g. the escalation ladder's relayed ApprovalRequest proto projection
+	// — Wave C2). Kept as raw JSON here so the mailbox fold stays proto-free;
+	// the gRPC/MCP edges convert to/from structpb.Struct.
+	Structured json.RawMessage `json:"structured,omitempty"`
+	// InReplyTo correlates this message to an earlier one's ID (e.g. an
+	// approval_request's relay and the parent's ApprovalDecision reply).
+	InReplyTo string `json:"in_reply_to,omitempty"`
 }
 
 // mailFold is the MAILBOX fold: durable role-addressed queues plus the
@@ -367,6 +380,7 @@ func (f *mailFold) apply(fact Fact) {
 		f.seen[p.MessageID] = true
 		f.pending[p.To] = append(f.pending[p.To], Message{
 			ID: p.MessageID, From: p.From, To: p.To, Kind: p.Kind, Body: p.Body,
+			Structured: p.Structured, InReplyTo: p.InReplyTo,
 		})
 	case factMailConsumed:
 		var p mailConsumed

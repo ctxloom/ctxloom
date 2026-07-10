@@ -160,6 +160,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Depth:      caller.Depth + 1,
 			Prompt:     prompt,
 			Resume:     resume,
+			Ladder:     ladderToFact(plan.Ladder),
 		})}, nil
 	}); err != nil {
 		return nil, "", err
@@ -635,6 +636,10 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		return
 	}
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
+	// The ACCEPT_FOR_SESSION cache (C2) is run-scoped: it must not outlive
+	// the run it was granted for (a resumed harp gets a fresh run_id and
+	// starts its ladder clean).
+	c.clearSessionAccepts(runID)
 
 	c.mu.Lock()
 	rt := c.attach[runID]

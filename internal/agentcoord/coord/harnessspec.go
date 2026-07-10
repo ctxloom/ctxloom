@@ -161,12 +161,20 @@ func decodeHarnessSpec(spec *agentcoordpb.HarnessSpec) (DecodedHarnessSpec, erro
 	}
 
 	out.Chat = agent.ChatRequest{
-		WorkDir:         spec.GetWorkspace(),
-		Model:           spec.GetModel(),
-		Env:             env,
-		Permissions:     perm,
-		MCPServers:      servers,
-		ResumeSessionID: spec.GetResumeSessionId(),
+		WorkDir:     spec.GetWorkspace(),
+		Model:       spec.GetModel(),
+		Env:         env,
+		Permissions: perm,
+		// ForwardPermissions is always true on the migrated StartRun path
+		// (Wave C2): the engine's permission requests surface as plane-2
+		// ApprovalRequests instead of the driver auto-deciding — the
+		// coordinator's escalation ladder (approval.go) is the decider now.
+		// permission_mode above is unchanged and still gates what may even
+		// run headless (D3's structural floor: bypass|plan only); the
+		// ladder is the policy layer riding ON TOP of that floor.
+		ForwardPermissions: true,
+		MCPServers:         servers,
+		ResumeSessionID:    spec.GetResumeSessionId(),
 	}
 	return out, nil
 }

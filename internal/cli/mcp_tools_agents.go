@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -87,9 +88,11 @@ type agentRunResult struct {
 }
 
 type agentSendInput struct {
-	To   string `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (delegated children may ONLY address their parent)"`
-	Body string `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
-	Kind string `json:"kind,omitempty" jsonschema:"Optional message kind (e.g. result, question, error)"`
+	To         string         `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (delegated children may ONLY address their parent)"`
+	Body       string         `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
+	Kind       string         `json:"kind,omitempty" jsonschema:"Optional message kind (e.g. result, question, error)"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion (e.g. an ApprovalDecision projection when answering a relayed approval_request: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"})"`
+	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id — e.g. answering an escalation-ladder approval_request with an ApprovalDecision (structured)"`
 }
 
 type agentSendResult struct {
@@ -102,9 +105,11 @@ type agentRecvInput struct {
 }
 
 type agentBusMessage struct {
-	From string `json:"from"`
-	Kind string `json:"kind,omitempty"`
-	Body string `json:"body"`
+	MessageID  string         `json:"message_id,omitempty"`
+	From       string         `json:"from"`
+	Kind       string         `json:"kind,omitempty"`
+	Body       string         `json:"body"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion, when the sender attached one (e.g. an escalation-ladder approval_request's ApprovalRequest projection: reply with agent_send(in_reply_to: message_id, structured: an ApprovalDecision))"`
 }
 
 type agentRecvResult struct {
@@ -200,7 +205,15 @@ func (s *ctxServer) handleAgentSend(_ context.Context, _ *mcp.CallToolRequest, i
 	if in.Body == "" {
 		return nil, nil, errors.New("agent_send: body is required")
 	}
-	disposition, err := d.c.AgentSend(d.self, in.To, in.Kind, in.Body)
+	var structured json.RawMessage
+	if len(in.Structured) > 0 {
+		raw, merr := json.Marshal(in.Structured)
+		if merr != nil {
+			return nil, nil, fmt.Errorf("agent_send: encode structured: %w", merr)
+		}
+		structured = raw
+	}
+	disposition, err := d.c.AgentSend(d.self, in.To, in.Kind, in.Body, structured, in.InReplyTo)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,7 +241,14 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	}
 	out := &agentRecvResult{Messages: make([]agentBusMessage, 0, len(msgs))}
 	for _, m := range msgs {
-		out.Messages = append(out.Messages, agentBusMessage{From: m.From, Kind: m.Kind, Body: m.Body})
+		bm := agentBusMessage{MessageID: m.ID, From: m.From, Kind: m.Kind, Body: m.Body}
+		if len(m.Structured) > 0 {
+			var structured map[string]any
+			if json.Unmarshal(m.Structured, &structured) == nil {
+				bm.Structured = structured
+			}
+		}
+		out.Messages = append(out.Messages, bm)
 	}
 	return nil, out, nil
 }

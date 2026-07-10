@@ -30,4 +30,21 @@
 // SCOPE BOUNDARY (plan, CQRS discipline): CQRS applies to this runtime
 // coordinator's state ONLY — config loading, the selection builder, and
 // surface delivery have no read model and stay event-free.
+//
+// D3 EVOLUTION (Wave C2 — ladder.go/approval.go): D3 originally meant
+// "children never prompt" — a delegated child had to declare a
+// headless-safe permission_mode (bypass|plan) because it had no channel to
+// surface an interactive prompt, and a forwarded engine permission request
+// was auto-decided at the driver boundary (allow under bypass, else
+// reject). permission_mode is UNCHANGED and still gates what a child may
+// even attempt headless — that structural floor stands. What changes: a
+// migrated (StartRun) child now ALWAYS forwards its engine's permission
+// requests as plane-2 ApprovalRequests (harnessspec.go), and the
+// coordinator's ESCALATION LADDER decides — auto_accept, auto_decline, or
+// RELAY the request as durable mail to the parent role, which may itself be
+// a human-attended session. D3 restated: children may now park on
+// approvals; the "never prompts" guarantee becomes "never prompts a HUMAN
+// unless a ladder rung says so" (relay_to_role / surface_to_human) — every
+// other path (auto_accept, auto_decline, a relay's timeout fallback) still
+// resolves without a human anywhere in the loop, bottoming at DECLINE.
 package coord

@@ -26,7 +26,13 @@ type SpawnPlan struct {
 	Runtime   string
 	Context   string
 	Perm      agent.PermissionMode
-	Degraded  []string
+	// Ladder is the resolved (preset-or-declared, validated) escalation
+	// ladder (Wave C2) this child's ApprovalRequests walk. Resolved once at
+	// spawn time from the agent's declared escalation: (or the Perm preset)
+	// so a later config edit cannot retroactively change a live run's
+	// policy — enqueueRun journals it onto the run record.
+	Ladder   Ladder
+	Degraded []string
 	// ViaStartRun routes this child's engine control over the agentcoord
 	// StartRun path (spawn the runner process, await its dial-home, issue
 	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
@@ -115,6 +121,10 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	}(); gerr != nil {
 		return nil, gerr
 	}
+	ladder, err := buildLadder(agentName, rs.Escalation, perm)
+	if err != nil {
+		return nil, fmt.Errorf("agent_run: %w", err)
+	}
 	return &SpawnPlan{
 		AgentName: agentName,
 		Backend:   rs.Backend,
@@ -123,6 +133,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Runtime:   rs.Runtime,
 		Context:   rs.Context,
 		Perm:      perm,
+		Ladder:    ladder,
 		Degraded:  degraded,
 		// C1 scope gate: delegated CLAUDE children ride StartRun; every
 		// other backend keeps the legacy go-plugin Chat dial until C3
@@ -258,12 +269,16 @@ func childVerbosity() int {
 	return 0
 }
 
-// headlessSafePermission enforces D3: children never prompt, so the agent
-// must DECLARE a headless-safe permission enum — an absent field is refused
-// exactly like a non-headless-safe one, loudly. Under degraded mode the
-// refusal becomes a warning and the child launches at the MOST RESTRICTIVE
-// headless-safe posture: degraded never widens a child's permissions, it
-// narrows them.
+// headlessSafePermission enforces D3's structural floor: children never
+// prompt the ENGINE inline, so the agent must DECLARE a headless-safe
+// permission enum (bypass|plan) — an absent field is refused exactly like a
+// non-headless-safe one, loudly. Under degraded mode the refusal becomes a
+// warning and the child launches at the MOST RESTRICTIVE headless-safe
+// posture: degraded never widens a child's permissions, it narrows them.
+// This is a SEPARATE axis from the escalation ladder (ladder.go): the floor
+// says whether the child may run headless AT ALL; the ladder — resolved
+// from the SAME perm right below — says what happens to the approval
+// requests it makes while doing so (see doc.go's "D3 EVOLUTION").
 func headlessSafePermission(name, declared string) (agent.PermissionMode, []string) {
 	if declared != "" {
 		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {

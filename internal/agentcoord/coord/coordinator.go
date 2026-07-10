@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentbus"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -76,6 +78,12 @@ type Coordinator struct {
 	runners     map[string]*runnerSession // credHash → connected runner
 	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
 	chans       map[string]*runChan       // role harp → live RunChannel
+	// approvals (C2) parks one outstanding relay-to-role/surface-to-human
+	// approval per mailbox message id — the correlation a parent's
+	// agent_send in_reply_to resolves (approval.go).
+	approvals map[string]*pendingApproval
+	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
+	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -353,9 +361,11 @@ func (c *Coordinator) Roster() []RosterEntry {
 
 // AgentSend delivers a message per §6a delivery-by-state. Children address
 // only their parent (hub-and-spoke); the session owner addresses its
-// children by harp.
-func (c *Coordinator) AgentSend(caller Identity, to, kind, body string) (string, error) {
-	_, _, disposition, err := c.peerSend(caller, to, kind, body)
+// children by harp. structured/inReplyTo are Wave C2's escalation-ladder
+// vocabulary — see peerSend for the in_reply_to interception this enables
+// (a parent answering a relayed approval_request).
+func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	_, _, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
 }
 
@@ -363,7 +373,21 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string) (string,
 // and the plane-2 PeerSendRequest handler: routing policy, durable queue,
 // delivery-by-state. delivered reports a completed waiting receive (a local
 // parked poll, or a tentative push into the recipient runner's parked recv).
-func (c *Coordinator) peerSend(caller Identity, to, kind, body string) (msgID string, delivered bool, disposition string, err error) {
+//
+// inReplyTo is checked FIRST against outstanding relayed approvals
+// (resolveApprovalReply, approval.go): a match resolves the parked ladder
+// rung and returns immediately WITHOUT queuing ordinary mail — the reply's
+// job is to unblock the coordinator's own serveApproval wait on the CHILD's
+// RunChannel, not to start a new mailbox conversation. A miss (no pending
+// approval with that id, or the caller isn't its addressed target) falls
+// through to ordinary delivery, so a stale/duplicate in_reply_to degrades
+// gracefully rather than erroring the send.
+func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
+	if inReplyTo != "" {
+		if disposition, rerr, matched := c.resolveApprovalReply(caller, inReplyTo, structured); matched {
+			return inReplyTo, true, disposition, rerr
+		}
+	}
 	if caller.IsChild() {
 		parent := ""
 		c.runs.View(func() {
@@ -378,7 +402,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string) (msgID st
 			return "", false, "", ErrPeerRouting
 		}
 		c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-		id, completed, qerr := c.queueMail(caller.Harp, parent, kind, body)
+		id, completed, qerr := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
 		if qerr != nil {
 			return "", false, "", qerr
 		}
@@ -394,7 +418,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string) (msgID st
 		return "", false, "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	msgID, delivered, err = c.queueMail(caller.Harp, to, kind, body)
+	msgID, delivered, err = c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", false, "", err
 	}

@@ -385,15 +385,31 @@ func (c *Coordinator) pushMail(role string) {
 }
 
 // peerMessageProto projects a mailbox message onto the wire shape. Kind
-// rides structured.kind (PeerMessage has no kind field by design).
+// rides structured.kind (PeerMessage has no kind field by design); any
+// caller-supplied Structured payload (e.g. an escalation ladder's relayed
+// ApprovalRequest projection, Wave C2) merges under it — kind always wins on
+// a key collision, so a caller cannot spoof the message's own kind.
 func peerMessageProto(m Message) *agentcoordpb.PeerMessage {
 	pm := &agentcoordpb.PeerMessage{
 		MessageId:   m.ID,
 		FromAgentId: m.From,
 		Text:        m.Body,
+		InReplyTo:   m.InReplyTo,
+	}
+	fields := map[string]any{}
+	if len(m.Structured) > 0 {
+		var extra map[string]any
+		if err := json.Unmarshal(m.Structured, &extra); err == nil {
+			for k, v := range extra {
+				fields[k] = v
+			}
+		}
 	}
 	if m.Kind != "" {
-		pm.Structured, _ = structpb.NewStruct(map[string]any{"kind": m.Kind})
+		fields["kind"] = m.Kind
+	}
+	if len(fields) > 0 {
+		pm.Structured, _ = structpb.NewStruct(fields)
 	}
 	return pm
 }
@@ -485,6 +501,8 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 		return c.serveListRuns(caller, kind.ListRuns)
 	case *agentcoordpb.AgentRequest_StopRun:
 		return c.serveStopRun(caller, kind.StopRun)
+	case *agentcoordpb.AgentRequest_Approval:
+		return c.serveApproval(caller, kind.Approval)
 	case *agentcoordpb.AgentRequest_Custom:
 		return c.serveCustom(caller, kind.Custom)
 	default:
@@ -510,12 +528,16 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_send: text is required")}
 	}
 	kind := ""
+	var structured json.RawMessage
 	if s := req.GetStructured(); s != nil {
 		if v, ok := s.GetFields()["kind"]; ok {
 			kind = v.GetStringValue()
 		}
+		if raw, merr := protojson.Marshal(s); merr == nil {
+			structured = raw
+		}
 	}
-	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText())
+	msgID, delivered, disposition, err := c.peerSend(caller, to, kind, req.GetText(), structured, req.GetInReplyTo())
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}

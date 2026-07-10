@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,14 @@ type ACPConfig struct {
 	AgentEngine string `mapstructure:"agent_engine"`
 	// Model is passed to the spawned agent via `--model` when set.
 	Model string `mapstructure:"model"`
+	// StripEnv names inherited environment variables REMOVED from the spawned
+	// agent's env. The embedding backend uses it to drop a variable whose
+	// inherited presence would be a false signal to the child engine — e.g.
+	// claude's CLAUDECODE nested-session guard, which the delegated-child
+	// topology inherits from the parent engine's process tree even though the
+	// child is a deliberately-launched independent engine (see
+	// internal/claude/chat.go).
+	StripEnv []string `mapstructure:"strip_env"`
 
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
@@ -57,6 +66,7 @@ type ACP struct {
 	agentName   string
 	agentEngine string
 	model       string
+	stripEnv    []string
 
 	// openTransport spawns (or, in tests, fakes) the ACP subprocess transport.
 	// nil → spawnTransport (a real `<agent> acp` process).
@@ -116,6 +126,9 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	}
 	if c.Model != "" {
 		b.model = c.Model
+	}
+	if len(c.StripEnv) > 0 {
+		b.stripEnv = c.StripEnv
 	}
 	// If Command names the binary (the common case) and no explicit binary_path
 	// was given, adopt Command's first field as the binary so BaseBackend can run
@@ -194,10 +207,7 @@ type transportFunc func(ctx context.Context, argv []string, env map[string]strin
 func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, argv...)
 	cmd.Dir = workDir
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	cmd.Env = spawnEnv(os.Environ(), b.stripEnv, env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -221,6 +231,25 @@ func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]
 			return cmd.Wait()
 		},
 	}, nil
+}
+
+// spawnEnv builds the spawned agent's environment: the inherited base minus
+// the configured StripEnv variables, then the per-launch overlay appended
+// (os/exec dedupes on key, last wins). Stripping happens on the BASE only: an
+// overlay entry always lands, even for a stripped key — the caller set it
+// deliberately.
+func spawnEnv(base, strip []string, overlay map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overlay))
+	for _, kv := range base {
+		k, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(strip, k) {
+			out = append(out, kv)
+		}
+	}
+	for k, v := range overlay {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 // warnf routes a diagnostic through ctxloom's standard "ctxloom: warning:" path.

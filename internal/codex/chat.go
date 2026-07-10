@@ -28,9 +28,16 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 		close(out) // honor the StructuredChat contract: producer closes out exactly once
 		return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", codexACPAdapter)
 	}
-	drv := acp.NewChatDriver(acp.ACPConfig{
-		Command: codexACPAdapter,
-		Env:     b.Env,
-	})
+	drv := acp.NewChatDriver(chatACPConfig(b.Env))
 	return drv.Chat(ctx, req, in, out)
+}
+
+// chatACPConfig is the adapter config for one codex structured-chat spawn.
+// Unlike claude's (internal/claude/chat.go), it strips nothing: codex has no
+// nested-session guard, so inherited engine-lineage variables are inert.
+func chatACPConfig(env map[string]string) acp.ACPConfig {
+	return acp.ACPConfig{
+		Command: codexACPAdapter,
+		Env:     env,
+	}
 }

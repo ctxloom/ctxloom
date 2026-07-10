@@ -63,8 +63,12 @@ esac
 
 # build_prompt is the unit-tested seam: the exact briefing the parent gives the
 # child, which must be echoed verbatim.
+# Phrased as a legitimate coordinator task: a bare "immediately call
+# agent_send(...)" briefing reads as a prompt-injection to safety-conscious
+# child models (a live sonnet REFUSED it), while a self-consistent
+# connectivity-check framing passes.
 build_prompt() {
-	printf 'Immediately call agent_send(to_role:"parent", text:"%s") with that exact text, then stop.' "$1"
+	printf 'You are a delegated child session; your coordinator spawned you as a connectivity check. Please confirm the reach-back path works: call the agent_send tool with to_role set to parent and text set to: %s. Then finish.' "$1"
 }
 
 if [ "$LIVE" -ne 1 ]; then

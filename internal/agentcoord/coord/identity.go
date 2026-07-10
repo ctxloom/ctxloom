@@ -13,8 +13,9 @@ const (
 	// admission). 256-bit, hex; only its SHA-256 is ever persisted.
 	EnvCoordCred = "CTXLOOM_COORD_CRED"
 	// EnvRunID is the coordinator-minted run id for a spawned child's
-	// runner, so RunnerChannel Hello correlates before StartRun exists
-	// (plan A9). Absent on the parent-session credential.
+	// runner, so RunnerChannel Hello correlates the runner to the run the
+	// coordinator will StartRun on it (plan A9). Absent on the
+	// parent-session credential.
 	EnvRunID = "CTXLOOM_RUN_ID"
 	// EnvMCPSocket is the container-local (or host user-private) unix
 	// socket path of the RUNNER's MCP endpoint. The runner creates the

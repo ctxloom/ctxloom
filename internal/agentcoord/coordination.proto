@@ -1,4 +1,17 @@
-// coordination.proto — agentcoord.v1 (rev 7 — ctxloom Wave B1.6)
+// coordination.proto — agentcoord.v1 (rev 8 — ctxloom Wave C0)
+//
+// Changelog rev 7 -> rev 8 (pre-release, additive; comment-only — no field
+// changes):
+//   - C0/A8: documented the HarnessSpec.config Struct-key convention that
+//     carries the delegated child's session harp (CTXLOOM_SESSION_HARP):
+//     key "ctxloom.session_harp". HarnessSpec gains no typed field for it —
+//     the A3 boundary (only permission_mode is typed; MCP config/env and now
+//     the harp stay in the Struct, harness-specific shapes) already covers
+//     this; A8 just needed the convention written down.
+//   - Documented on RunStarted/StartRunResult: harness_session_id is
+//     journaled by the coordinator (run.harness fact) and feeds
+//     HarnessSpec.resume_session_id on a later retry/resume of the same
+//     harp — closing the loop the fields already implied.
 //
 // Changelog rev 6 -> rev 7 (pre-release, additive):
 //   - D1: AgentRequest gains `stop_run` (CoordinatorResponse the matching
@@ -267,9 +280,20 @@ message HarnessSpec {
   repeated string extra_args = 4;
   // Tool policy, MCP config, env — harness-specific. Permission mode
   // does NOT ride here; it is the typed permission_mode field below.
+  //
+  // C0/A8 convention (documented, not typed — see the A3 boundary above):
+  // the delegated child's session harp (CTXLOOM_SESSION_HARP) rides key
+  // "ctxloom.session_harp" as a plain string value. Runners read it from
+  // here rather than a typed field because it is ctxloom-specific ambient
+  // identity, not a harness-native concept every consumer of this contract
+  // would need to know about.
   google.protobuf.Struct config = 5;
   // Harness-native session to resume instead of starting fresh
-  // (claude --resume <id>, codex thread/resume). Retry-with-context.
+  // (claude --resume <id>, codex thread/resume). Retry-with-context. Fed
+  // from the coordinator's own journal: StartRunResult.harness_session_id
+  // (below) is recorded as the run.harness fact when a run first reports
+  // it, and a later respawn of the same harp reads it back into this
+  // field.
   string resume_session_id = 6;
   // The security-relevant contract for delegated children: a headless
   // child must declare a headless-safe mode (it has no channel to
@@ -279,7 +303,12 @@ message HarnessSpec {
 }
 
 message StartRunResult {
-  string harness_session_id = 1;  // native session/thread id, for resume
+  // Native session/thread id, for resume. The coordinator JOURNALS this
+  // (run.harness fact, keyed on run_id) the moment it learns it — whether
+  // reported here at spawn time or later on a RunExited frame — and feeds
+  // it back as HarnessSpec.resume_session_id when the same harp's next run
+  // attempt starts (a fresh run_id; the harp is what stays continuous).
+  string harness_session_id = 1;
   int64 pid = 2;
 }
 
@@ -889,6 +918,11 @@ message AgentEvent {
 
 // --- lifecycle ----------------------------------------------------------------
 
+// config echoes the StartRun HarnessSpec the coordinator issued — including,
+// per the resume_session_id doc above, whether this attempt started fresh or
+// resumed a prior harness_session_id, so the log alone shows resume lineage
+// without cross-referencing the StartRun request that is not itself durable
+// (requests/responses are control-plane, never part of the event log).
 message RunStarted {
   google.protobuf.Struct input = 1;   // task input as given to the agent
   AgentIdentity agent = 2;            // repeated here so the log is

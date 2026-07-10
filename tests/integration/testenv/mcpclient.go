@@ -137,13 +137,22 @@ func (c *MCPClient) Close() error {
 	return nil
 }
 
+// send writes one newline-delimited JSON-RPC request to the server's stdin.
+// Its former near-duplicate, internal/agentbus/socket.go's writeObserveEvent
+// (the retired bus protocol's line writer), was deleted whole in D2 — this
+// is now the sole surviving instance of the marshal-then-newline-write
+// shape, kept here rather than shared: it serves a different wire (stdio
+// JSON-RPC, not the Unix-socket bus protocol) and a different layer (test
+// harness, not production).
 func (c *MCPClient) send(msg map[string]any) error {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	_, err = c.stdin.Write(append(data, '\n'))
-	return err
+	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return nil
 }
 
 // recvByID consumes lines until a response with the given id arrives, skipping

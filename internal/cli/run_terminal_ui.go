@@ -2,12 +2,10 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -48,8 +46,12 @@ func validateTerminalUIConfig(cfg *config.Config) {
 // setupTerminalUI builds the observation layer for an interactive tty run:
 // prefix interceptor, surround bar, and the bubbletea overlay factory. It
 // returns nil when the layer can't be built (e.g. a bad prefix key under
-// --degraded) — the caller then runs on the unwrapped seams.
-func setupTerminalUI(ctx context.Context, cfg *config.Config, id terminalUIIdentity, stdin io.Reader, resize <-chan *pb.WindowSize) *termui.Controller {
+// --degraded) — the caller then runs on the unwrapped seams. sessionCoord is
+// THIS run's own hosted coordinator (nil when coordinator startup failed or
+// was skipped, e.g. no activeHarp) — D2: the terminal viewer reaches
+// roster/inject IN-PROCESS now (this run process IS the coordinator), never
+// over a socket.
+func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coord.Coordinator, id terminalUIIdentity, stdin io.Reader, resize <-chan *pb.WindowSize) *termui.Controller {
 	prefix, err := termui.ParsePrefixKey(cfg.UIPrefixKey())
 	if err != nil {
 		// Only reachable in degraded mode (the gate aborts otherwise): run
@@ -57,7 +59,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, id terminalUIIdent
 		clidiag.Warn("ctxloom", "terminal viewer disabled: %v", err)
 		return nil
 	}
-	src := terminalUISources(id.WorkDir, id.Harp)
+	src := terminalUISources(sessionCoord, id.WorkDir, id.Harp)
 	return termui.New(termui.Options{
 		Stdin:    stdin,
 		TTY:      os.Stdout,
@@ -71,7 +73,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, id terminalUIIdent
 			Model:      id.Model,
 			PrefixHint: termui.CaretHint(prefix),
 		},
-		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(id.Harp) },
+		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(sessionCoord) },
 		NewOverlay:  func() termui.Overlay { return tui.NewOverlay(ctx, src, prefix) },
 		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
 	})
@@ -80,17 +82,25 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, id terminalUIIdent
 // terminalUISources wires the overlay's data seams to the session index, the
 // per-harp feed resolver, and the harp session dir. The contexts the closures
 // receive are the overlay's watch contexts (run-scoped via the factory).
-func terminalUISources(workDir, selfHarp string) tui.Sources {
+// sessionCoord's roster/Inject calls are IN-PROCESS Go method calls (D2) —
+// this run process hosts the coordinator itself, so there is no transport to
+// dial for its OWN terminal viewer (unlike `ctxloom session watch`, a
+// separate process, which reaches a coordinator over ConsumerService —
+// operations.WatchSessionFeed).
+func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string) tui.Sources {
 	return tui.Sources{
 		Roster: func(ctx context.Context) ([]tui.RosterRow, error) {
 			index, err := operations.ListSessionsForProject(workDir)
 			if err != nil {
 				return nil, err
 			}
-			// The bus roster is enrichment (children lineage/state) — its
-			// absence never blanks the pane.
-			bus, _ := sessionBusRoster(selfHarp)
-			return tui.BuildRoster(index, bus, selfHarp), nil
+			// The coordinator roster is enrichment (children lineage/state)
+			// — its absence (no coordinator hosted) never blanks the pane.
+			var held []coord.RosterEntry
+			if sessionCoord != nil {
+				held = sessionCoord.Roster()
+			}
+			return tui.BuildRoster(index, held, selfHarp), nil
 		},
 		Watch: func(ctx context.Context, harp string) (*tui.Feed, error) {
 			wctx, cancel := context.WithCancel(ctx)
@@ -109,60 +119,25 @@ func terminalUISources(workDir, selfHarp string) tui.Sources {
 			return dir, os.MkdirAll(dir, 0o755)
 		},
 		Inject: func(harp, text string) (string, error) {
-			return sessionBusInject(selfHarp, harp, text)
+			if sessionCoord == nil {
+				return "", coord.ErrNotInjectable
+			}
+			return sessionCoord.Inject(harp, text)
 		},
 	}
 }
 
-// sessionBusSocket resolves the viewer-verb socket the coordinator binds under
-// THIS session's harp dir (coord.BindSessionSocket → agent-bus.sock). The
-// ambient-env candidate died with the executor shim — children carry no
-// socket path now. A missing socket is the normal no-coordinator-yet case.
-func sessionBusSocket(selfHarp string) (string, error) {
-	if selfHarp == "" {
-		return "", os.ErrNotExist
+// surroundRoster adapts the coordinator's native roster onto the surround
+// bar's local mirror type (termui stays dependency-light — its own
+// documented convention). nil sessionCoord (no coordinator hosted) is an
+// empty roster, not an error: the bar degrades to showing just this session.
+func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, error) {
+	if sessionCoord == nil {
+		return nil, nil
 	}
-	dir, err := paths.HarpDir(selfHarp)
-	if err != nil {
-		return "", err
-	}
-	sock := filepath.Join(dir, "agent-bus.sock")
-	if _, err := os.Stat(sock); err != nil {
-		return "", err
-	}
-	return sock, nil
-}
-
-// sessionBusRoster fetches the roster from this session's orchestrator.
-func sessionBusRoster(selfHarp string) ([]agentbus.RosterEntry, error) {
-	sock, err := sessionBusSocket(selfHarp)
-	if err != nil {
-		return nil, err
-	}
-	return agentbus.FetchRoster(sock)
-}
-
-// sessionBusInject delivers user-typed text into harp through this session's
-// orchestrator — the viewer's inject seam. Unlike the roster (enrichment), a
-// missing orchestrator here is a real failure the viewer must show: there is
-// no other channel into a delegated child.
-func sessionBusInject(selfHarp, harp, text string) (string, error) {
-	sock, err := sessionBusSocket(selfHarp)
-	if err != nil {
-		return "", fmt.Errorf("no agent orchestrator is reachable for this session: %w", err)
-	}
-	return agentbus.Inject(sock, harp, text)
-}
-
-// surroundRoster adapts the bus roster onto the surround's local mirror type
-// (the hot-path package stays dependency-light).
-func surroundRoster(selfHarp string) ([]termui.RosterEntry, error) {
-	bus, err := sessionBusRoster(selfHarp)
-	if err != nil {
-		return nil, err
-	}
-	rows := make([]termui.RosterEntry, len(bus))
-	for i, b := range bus {
+	held := sessionCoord.Roster()
+	rows := make([]termui.RosterEntry, len(held))
+	for i, b := range held {
 		rows[i] = termui.RosterEntry{Harp: b.Harp, Agent: b.Agent, State: b.State, LastActivityUnix: b.LastActivityUnix}
 	}
 	return rows, nil

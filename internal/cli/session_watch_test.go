@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,13 +18,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -415,39 +416,104 @@ func TestRunSessionWatch_UnknownSource(t *testing.T) {
 
 // --- live source through the published command ---
 
+// fakeConsumerServer is a hermetic double for agentcoord.v1.ConsumerService
+// (D1/D2) — just enough to drive `ctxloom session watch`'s live path under
+// test, the same level of realism the retired agentbus test used for its
+// fake TapHub-backed bus server (see internal/operations/sessionfeed_test.go
+// for the twin of this helper; duplicated rather than shared because the two
+// live in different packages and this is the only test in this package that
+// needs it).
+type fakeConsumerServer struct {
+	agentcoordpb.UnimplementedConsumerServiceServer
+	mu   sync.Mutex
+	runs []*agentcoordpb.ListRunsResult_RunInfo
+	subs map[chan *agentcoordpb.AgentEvent]struct{}
+}
+
+func newFakeConsumerServer() *fakeConsumerServer {
+	return &fakeConsumerServer{subs: map[chan *agentcoordpb.AgentEvent]struct{}{}}
+}
+
+func (f *fakeConsumerServer) ListRuns(context.Context, *agentcoordpb.ListRunsRequest) (*agentcoordpb.ListRunsResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return &agentcoordpb.ListRunsResult{Runs: f.runs}, nil
+}
+
+func (f *fakeConsumerServer) WatchRuns(_ *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
+	ch := make(chan *agentcoordpb.AgentEvent, 32)
+	f.mu.Lock()
+	f.subs[ch] = struct{}{}
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		delete(f.subs, ch)
+		f.mu.Unlock()
+	}()
+	if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Snapshot{Snapshot: &agentcoordpb.RosterSnapshot{}}}); err != nil {
+		return err
+	}
+	for {
+		select {
+		case ev := <-ch:
+			if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Event{Event: ev}}); err != nil {
+				return err
+			}
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
+	}
+}
+
+func (f *fakeConsumerServer) push(t *testing.T, ev *agentcoordpb.AgentEvent) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.subs) > 0
+	}, 5*time.Second, 5*time.Millisecond, "no WatchRuns subscriber attached")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for ch := range f.subs {
+		ch <- ev
+	}
+}
+
+// startFakeCoordinator serves f over a real loopback gRPC listener and
+// writes the endpoint.json internal/agentcoord/discover globs for — the D2
+// discovery mechanism that replaced the retired agent-bus.sock convention.
+func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
+	t.Helper()
+	srv := grpc.NewServer()
+	agentcoordpb.RegisterConsumerServiceServer(srv, f)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+
+	dir := filepath.Join(home, ".ctxloom", "coord", "proj")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	body := fmt.Sprintf(`{"loopback_port":%d,"consumer_cred":"test-cred"}`, ln.Addr().(*net.TCPAddr).Port)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte(body), 0o600))
+}
+
 // TestRunSessionWatch_LiveTapE2E: the published command transparently gains
-// the live source — a fake orchestrator-held child, observed over a real bus
-// socket discovered from the environment, streams NDJSON entries and
-// boundaries as they happen, and the watch ends cleanly when the child's
-// stream closes.
+// the live source — a fake coordinator (D1 ConsumerService), discovered from
+// ~/.ctxloom/coord/*/endpoint.json, streams NDJSON entries and boundaries as
+// they happen, and the watch ends cleanly on RunCompleted.
 func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
-	testsupport.Isolate(t)
+	home := testsupport.Isolate(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 
-	hub := agentbus.NewTapHub()
-	// The coordinator binds the viewer-verb socket under the owner harp's
-	// session dir; discovery (busSocketCandidates) globs the sessions root,
-	// so binding there is what the live tap finds (the ambient-env candidate
-	// died with the executor shim).
-	harpDir, err := paths.HarpDir(entry.HarpName)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(harpDir, 0o755))
-	sock := filepath.Join(harpDir, "agent-bus.sock")
-	srv, err := agentbus.Listen(sock, hub, nil, nil)
-	require.NoError(t, err)
-	defer srv.Close()
-
-	// The fake coordinator: holds the child's stream, consuming at its own
-	// pace, while the watch taps it.
-	in := make(chan agent.ChatEvent)
-	consumed := hub.Tee(entry.HarpName, in)
-	go func() {
-		for range consumed {
-		}
-	}()
+	f := newFakeConsumerServer()
+	f.runs = []*agentcoordpb.ListRunsResult_RunInfo{{
+		RunId: "run-1",
+		Agent: &agentcoordpb.AgentIdentity{AgentId: entry.HarpName},
+	}}
+	startFakeCoordinator(t, home, f)
 
 	out := &syncBuffer{}
 	cmd := &cobra.Command{}
@@ -459,25 +525,15 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runSessionWatch(cmd, []string{entry.HarpName}) }()
 
-	// The watch's subscription races the first push (live taps deliver from
-	// subscribe-time forward), so emit entries until one lands in the output.
-	pusherStop := make(chan struct{})
-	pusherDone := make(chan struct{})
-	go func() {
-		defer close(pusherDone)
-		for {
-			select {
-			case in <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "live-hello"}}:
-			case <-pusherStop:
-				return
-			}
-			select {
-			case <-time.After(10 * time.Millisecond):
-			case <-pusherStop:
-				return
-			}
-		}
-	}()
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageStarted{MessageStarted: &agentcoordpb.MessageStarted{
+		MessageId: "m-1", Role: agentcoordpb.MessageRole_MESSAGE_ROLE_ASSISTANT, Channel: agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL,
+	}}})
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageDelta{MessageDelta: &agentcoordpb.MessageDelta{
+		MessageId: "m-1", Text: "live-hello",
+	}}})
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageCompleted{MessageCompleted: &agentcoordpb.MessageCompleted{
+		MessageId: "m-1",
+	}}})
 	require.Eventually(t, func() bool {
 		for _, e := range entryLines(out.String()) {
 			if e.Content == "live-hello" {
@@ -486,19 +542,21 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 		}
 		return false
 	}, 5*time.Second, 5*time.Millisecond, "a live entry must reach the NDJSON stream")
-	close(pusherStop)
-	<-pusherDone
 
-	in <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	// "ctxloom/turn_idle" mirrors coord.CustomTurnIdle / operations'
+	// customEventTurnIdle — a literal duplicate, documented on all three
+	// sides (see internal/agentcoord/discover's file header for why this
+	// package cannot import coord).
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "ctxloom/turn_idle"}}})
 	require.Eventually(t, func() bool {
 		return strings.Contains(out.String(), `"boundary"`)
-	}, 5*time.Second, 5*time.Millisecond, "the turn Complete must arrive as a boundary")
+	}, 5*time.Second, 5*time.Millisecond, "turn_idle must arrive as a boundary")
 
-	close(in) // the child's engine exits → the live watch ends on its own
+	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}})
 	select {
 	case werr := <-done:
-		require.NoError(t, werr, "a live watch must end cleanly when the child ends")
+		require.NoError(t, werr, "a live watch must end cleanly on RunCompleted")
 	case <-time.After(5 * time.Second):
-		t.Fatal("watch did not end after the child's stream closed")
+		t.Fatal("watch did not end after RunCompleted")
 	}
 }

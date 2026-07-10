@@ -1,19 +1,21 @@
 package tui
 
 import (
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // BuildRoster merges the session index (every session of this project) with
-// an orchestrator's live roster (children with lineage + delivery state) into
-// the overlay's display rows: index order preserved (most recent first, the
-// running session pinned on top), children lineage-indented directly under
-// their parent. A harp present in both keeps the index row's engine and takes
-// the bus row's richer agent/state; a bus child with no index entry (e.g. a
-// containerized child whose transcript hasn't landed) still shows.
-func BuildRoster(index []sessions.Entry, bus []agentbus.RosterEntry, selfHarp string) []RosterRow {
-	busByHarp := make(map[string]agentbus.RosterEntry, len(bus))
+// the coordinator's live roster (children with lineage + delivery state,
+// D2: coord.RosterEntry — was agentbus.RosterEntry before the bus package
+// retired) into the overlay's display rows: index order preserved (most
+// recent first, the running session pinned on top), children
+// lineage-indented directly under their parent. A harp present in both keeps
+// the index row's engine and takes the held row's richer agent/state; a
+// held child with no index entry (e.g. a containerized child whose
+// transcript hasn't landed) still shows.
+func BuildRoster(index []sessions.Entry, bus []coord.RosterEntry, selfHarp string) []RosterRow {
+	busByHarp := make(map[string]coord.RosterEntry, len(bus))
 	for _, b := range bus {
 		busByHarp[b.Harp] = b
 	}

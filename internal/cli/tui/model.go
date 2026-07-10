@@ -83,7 +83,7 @@ type feedClosedMsg struct {
 }
 type injectResultMsg struct {
 	harp string
-	mode string // agentbus.Delivery* on success
+	mode string // coord.Delivery* on success (internal/agentcoord/coord)
 	err  error
 }
 

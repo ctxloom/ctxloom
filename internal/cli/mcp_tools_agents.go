@@ -12,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
@@ -54,9 +53,10 @@ func selfIdentityFromEnv(projectDir string) coord.Identity {
 }
 
 // newAgentDelegation stands the coordinator up for a bare `ctxloom mcp`
-// serving process: durable stores + listeners + the viewer socket under the
-// serving harp's dir. Children spawned from here reach back over the
-// coordinator's authenticated MCP endpoint exactly like run/acp-hosted ones.
+// serving process: durable stores + listeners (D2: ConsumerService is part
+// of that listener set — no separate per-harp viewer bind step exists
+// anymore). Children spawned from here reach back over the coordinator's
+// authenticated MCP endpoint exactly like run/acp-hosted ones.
 func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -66,9 +66,6 @@ func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 	c, err := newHostedCoordinator(cfg, cwd)
 	if err != nil {
 		return nil, err
-	}
-	if err := c.BindSessionSocket(self.Harp); err != nil {
-		clidiag.Warn("ctxloom", "agent bus (viewer verbs) unavailable: %v", err)
 	}
 	return &agentDelegation{self: self, c: c}, nil
 }

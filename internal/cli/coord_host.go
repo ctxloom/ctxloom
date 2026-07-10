@@ -7,7 +7,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
@@ -115,11 +114,11 @@ func hostCoordinatorForSession(cfg *config.Config, projectDir, ownerHarp, runtim
 }
 
 // sessionOwnerEnv mints one session-owner credential on an already-hosted
-// coordinator and returns the env trio for that owner's harness.
+// coordinator and returns the env trio for that owner's harness. D2 retired
+// the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
+// ride ConsumerService, a single coordinator-wide surface Serve() already
+// stood up — nothing left to bind here.
 func sessionOwnerEnv(c *coord.Coordinator, ownerHarp, runtimeAxis string) (map[string]string, error) {
-	if err := c.BindSessionSocket(ownerHarp); err != nil {
-		clidiag.Warn("ctxloom", "agent bus (viewer verbs) unavailable: %v", err)
-	}
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
 		return nil, err

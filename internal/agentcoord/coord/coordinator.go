@@ -10,12 +10,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+)
+
+// ErrNotInjectable rejects a user injection whose target the coordinator does
+// not hold and cannot resume (an unknown harp, or a foreign process's session
+// — there is no delivery channel into another process's terminal, by
+// design). Relocated from the retired internal/agentbus package (D2): the
+// vocabulary was always native to the coordinator's own Inject method; the
+// bus socket was just one of two transports wrapping it.
+var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
+
+// Delivery modes Inject reports back: which §6a delivery-by-state rule the
+// coordinator applied to the user's text. Relocated from internal/agentbus
+// (D2) — same vocabulary, now native rather than borrowed from the retired
+// bus wire protocol.
+const (
+	DeliveryCompletedRecv = "completed-recv" // completed the child's parked agent_recv
+	DeliveryNewTurn       = "new-turn"       // woke an idle child into a new turn
+	DeliveryQueued        = "queued"         // queued for the child's next turn boundary
+	DeliveryResumed       = "resumed"        // relaunched an ended session, the text as its next turn
 )
 
 // Options configures a Coordinator.
@@ -65,11 +82,10 @@ type Coordinator struct {
 
 	spawner Spawner
 	slots   *turnSlots
-	hub     *agentbus.TapHub
 	// watch is the D1 consumer broadcast hub: every AgentEvent processed on
 	// any RunChannel is teed here, live, for ConsumerService.WatchRuns
-	// subscribers (consumer.go) — generalized across runs, unlike hub (which
-	// stays scoped to the legacy per-harp Chat tap until D2 retires it).
+	// subscribers (consumer.go). D2 retired the legacy per-harp agentbus
+	// TapHub this superseded — watch is now the ONLY live-tap mechanism.
 	watch *watchHub
 	// consumerCreds is the D1 read-only credential class (consumer.go):
 	// minted fresh per process at Serve(), never journaled.
@@ -94,9 +110,6 @@ type Coordinator struct {
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
-
-	busMu      sync.Mutex
-	busServers map[string]*agentbus.Server // owner harp → viewer-verb socket
 
 	closeOnce sync.Once
 }
@@ -149,7 +162,6 @@ func New(opts Options) (*Coordinator, error) {
 		releaseOwner:  release,
 		spawner:       opts.Spawner,
 		slots:         newTurnSlots(agentTurnCap),
-		hub:           agentbus.NewTapHub(),
 		watch:         newWatchHub(),
 		consumerCreds: &consumerCreds{},
 		attach:        make(map[string]*childRt),
@@ -159,7 +171,6 @@ func New(opts Options) (*Coordinator, error) {
 		runners:       make(map[string]*runnerSession),
 		runnerReady:   make(map[string]chan struct{}),
 		chans:         make(map[string]*runChan),
-		busServers:    make(map[string]*agentbus.Server),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -249,9 +260,9 @@ func (c *Coordinator) adopt() {
 	}
 }
 
-// Close tears the coordinator down: listeners, bus sockets, journals, owner
-// lock. Live children are killed via their launch close (the run process is
-// their lifetime).
+// Close tears the coordinator down: listeners, journals, owner lock. Live
+// children are killed via their launch close (the run process is their
+// lifetime).
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.cancel()
@@ -269,12 +280,6 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		c.busMu.Lock()
-		for _, srv := range c.busServers {
-			_ = srv.Close()
-		}
-		c.busServers = map[string]*agentbus.Server{}
-		c.busMu.Unlock()
 		if c.srv != nil {
 			c.srv.close()
 		}
@@ -499,7 +504,7 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 		}
 	})
 	if rec == nil {
-		return "", fmt.Errorf("inject: %q is not a child of this coordinator: %w", harp, agentbus.ErrNotInjectable)
+		return "", fmt.Errorf("inject: %q is not a child of this coordinator: %w", harp, ErrNotInjectable)
 	}
 	c.audit("inject", UserSender, map[string]string{"harp": harp})
 	_, completed, err := c.queueMail(UserSender, harp, "", text)
@@ -510,15 +515,15 @@ func (c *Coordinator) Inject(harp, text string) (string, error) {
 		clidiag.Warn("ctxloom", "inject %s: mirror notice: %v", harp, merr)
 	}
 	if completed {
-		return agentbus.DeliveryCompletedRecv, nil
+		return DeliveryCompletedRecv, nil
 	}
 	switch c.driveQueued(harp) {
 	case StateEnded:
-		return agentbus.DeliveryResumed, nil
+		return DeliveryResumed, nil
 	case StateIdle:
-		return agentbus.DeliveryNewTurn, nil
+		return DeliveryNewTurn, nil
 	default:
-		return agentbus.DeliveryQueued, nil
+		return DeliveryQueued, nil
 	}
 }
 
@@ -534,57 +539,9 @@ func injectDigest(text string) string {
 	return fmt.Sprintf("%s… (%d chars total)", string(r[:injectDigestRunes]), len(r))
 }
 
-// Hub exposes the live-observation tap hub (the bus observe verb's source).
-func (c *Coordinator) Hub() *agentbus.TapHub { return c.hub }
-
-// BindSessionSocket binds the viewer-verb bus socket (observe/roster/inject —
-// send/recv died with the shim) under the owner harp's session dir, exactly
-// where the pre-coordinator orchestrator bound it, so the feed resolver and
-// viewer discovery are unchanged. Idempotent per harp.
-func (c *Coordinator) BindSessionSocket(ownerHarp string) error {
-	if ownerHarp == "" {
-		return nil
-	}
-	c.busMu.Lock()
-	defer c.busMu.Unlock()
-	if _, ok := c.busServers[ownerHarp]; ok {
-		return nil
-	}
-	path, err := sessionSocketPath(ownerHarp)
-	if err != nil {
-		return err
-	}
-	roster := func() []agentbus.RosterEntry {
-		snap := c.Roster()
-		out := make([]agentbus.RosterEntry, len(snap))
-		for i, e := range snap {
-			out[i] = agentbus.RosterEntry{Harp: e.Harp, Agent: e.Agent, State: e.State, Parent: e.Parent, LastActivityUnix: e.LastActivityUnix}
-		}
-		return out
-	}
-	srv, err := agentbus.Listen(path, c.hub, roster, c.Inject)
-	if err != nil {
-		return err
-	}
-	c.busServers[ownerHarp] = srv
-	return nil
-}
-
-// sunPathHeadroom keeps socket paths under the portable sun_path limit.
-const sunPathHeadroom = 100
-
-func sessionSocketPath(ownerHarp string) (string, error) {
-	if dir, err := paths.HarpDir(ownerHarp); err == nil {
-		path := filepath.Join(dir, "agent-bus.sock")
-		if len(path) <= sunPathHeadroom {
-			if merr := os.MkdirAll(dir, 0o755); merr == nil {
-				return path, nil
-			}
-		}
-	}
-	dir, err := os.MkdirTemp("", "ctxloom-bus-")
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "agent-bus.sock"), nil
-}
+// D2 retired the agentbus-backed viewer socket entirely (BindSessionSocket,
+// the per-owner-harp agent-bus.sock, Hub()): observe/roster/inject now ride
+// ConsumerService (consumer.go) — a single coordinator-wide surface, not a
+// per-session-owner socket — so no per-harp bind step exists anymore. Inject
+// itself (below) is unchanged; it was always native to the coordinator, the
+// socket was only ever one of two transports wrapping it.

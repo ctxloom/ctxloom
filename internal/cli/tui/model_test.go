@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/termui"
@@ -65,7 +65,7 @@ func (f *fakeSources) sources() Sources {
 				return "", f.injectErr
 			}
 			if f.injectMode == "" {
-				return agentbus.DeliveryQueued, nil
+				return coord.DeliveryQueued, nil
 			}
 			return f.injectMode, nil
 		},
@@ -372,7 +372,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 
 func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "idle"})
-	f.injectMode = agentbus.DeliveryNewTurn
+	f.injectMode = coord.DeliveryNewTurn
 	m := openSelected(t, newTestModel(f, nil), f)
 
 	m, _ = step(t, m, keyMsg("i"))
@@ -383,13 +383,13 @@ func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 
 	m, _ = step(t, m, cmd())
 	require.Equal(t, [][2]string{{"h1", "go left"}}, f.injected)
-	assert.Equal(t, "injected into h1: "+agentbus.DeliveryNewTurn, m.status,
+	assert.Equal(t, "injected into h1: "+coord.DeliveryNewTurn, m.status,
 		"the delivery mode renders inline")
 }
 
 func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "ended"})
-	f.injectErr = agentbus.ErrNotInjectable
+	f.injectErr = coord.ErrNotInjectable
 	m := openSelected(t, newTestModel(f, nil), f)
 
 	m, _ = step(t, m, keyMsg("i"))
@@ -398,7 +398,7 @@ func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 	require.NotNil(t, cmd)
 	m, _ = step(t, m, cmd())
 	assert.Contains(t, m.errMsg, "inject h1:")
-	assert.Contains(t, m.errMsg, agentbus.ErrNotInjectable.Error(),
+	assert.Contains(t, m.errMsg, coord.ErrNotInjectable.Error(),
 		"the bus's typed refusal renders inline")
 }
 

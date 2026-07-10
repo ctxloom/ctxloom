@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -793,12 +794,18 @@ Examples:
 		// runner-terminated path as an interactive session — the bare-mcp
 		// shim fallback is for externally-launched harnesses only.
 		var runnerSpawnEnv map[string]string
+		// sessionCoord is hoisted (D2) so the terminal UI, below, can reach
+		// ConsumerService/Inject IN-PROCESS — this run IS the coordinator's
+		// own hosting process, so its own terminal viewer never needs a
+		// network hop (the agentbus socket it used to dial is gone).
+		var sessionCoord *coord.Coordinator
 		if activeHarp != "" {
-			if sessionCoord, coordEnv, cerr := hostCoordinatorForSession(cfg, workDir, activeHarp, agentRuntime); cerr != nil {
+			if sc, coordEnv, cerr := hostCoordinatorForSession(cfg, workDir, activeHarp, agentRuntime); cerr != nil {
 				strictness.Fail(strictness.ClassApply,
 					"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",
 					"agent coordinator startup failed: %v", cerr)
 			} else {
+				sessionCoord = sc
 				defer sessionCoord.Close()
 				runnerSpawnEnv = coordEnv
 				// The runner's local identity (session instructions, plan
@@ -1012,7 +1019,7 @@ Examples:
 			// signal-cancelled ctx) unwinds scroll region, held output, and
 			// raw mode together.
 			if stdin != nil && !runPlainTerminal {
-				if ui := setupTerminalUI(ctx, cfg, terminalUIIdentity{
+				if ui := setupTerminalUI(ctx, cfg, sessionCoord, terminalUIIdentity{
 					WorkDir: workDir,
 					Harp:    activeHarp,
 					Agent:   boundAgent,

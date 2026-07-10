@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
@@ -33,7 +33,7 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 			{HarpName: "unrelated-flat-owl", Backend: "codex"},
 			{HarpName: "swift-elm-fox", Backend: "claude-code"},
 		},
-		[]agentbus.RosterEntry{
+		[]coord.RosterEntry{
 			{Harp: "swift-elm-fox", Agent: "developer", State: "executing", Parent: "perky-same-chevy"},
 			{Harp: "deep-oak-hen", Agent: "finder", State: "ended", Parent: "perky-same-chevy"},
 		},
@@ -54,7 +54,7 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 }
 
 func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
-	rows := BuildRoster(nil, []agentbus.RosterEntry{
+	rows := BuildRoster(nil, []coord.RosterEntry{
 		{Harp: "lost-kid", Agent: "finder", State: "queued", Parent: "gone-parent"},
 	}, "")
 	require.Len(t, rows, 1)

@@ -451,14 +451,19 @@ func (c *Coordinator) onTurnIdle(role string) {
 }
 
 // driveChild consumes the child's event stream, handling turn boundaries and
-// idle wakes, until the stream closes. The stream is teed through the
-// observation hub so observers can subscribe by harp; the tee never adds
-// backpressure here (TapHub's invariant).
+// idle wakes, until the stream closes. This is the LEGACY go-plugin Chat
+// path only (a degraded no-reach-back spawn, or a StructuredChat backend
+// outside the viaStartRun allowlist — spawner.go's viaStartRunBackends);
+// D2 retired its agentbus TapHub tee along with the rest of the bus package.
+// A legacy child is therefore not LIVE-observable via ConsumerService (D1's
+// watchHub only covers RunChannel item events, which this path never emits)
+// — an accepted, documented gap on an already-degraded path; its transcript
+// still tails via the store fallback (operations.WatchSessionFeed) like any
+// session.
 func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch) {
-	events := c.hub.Tee(rt.harp, launch.Events)
 	for {
 		select {
-		case ev, ok := <-events:
+		case ev, ok := <-launch.Events:
 			if !ok {
 				c.endChild(rt, launch)
 				return

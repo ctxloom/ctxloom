@@ -3,16 +3,18 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
+	"io"
+	"net/url"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/agentbus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -20,11 +22,19 @@ import (
 
 // This file is the per-harp observation-feed resolver (agent-io plan §3): ONE
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
-// it. The LIVE TAP — an orchestrator currently holding the child's event
-// stream, reached over its agent-bus socket — is preferred; the STORE TAIL
-// (the S0 locators: WatchSession by bound session id, WatchHistoryByPath by
-// located transcript) is the workhorse fallback. Consumers never know which
-// source fed them.
+// it. The LIVE TAP — a coordinator currently holding the child's run, reached
+// over its D1 ConsumerService (internal/agentcoord/discover finds candidate
+// coordinators; this package cannot import internal/agentcoord/coord
+// directly — that package imports operations, so the reverse import would
+// cycle) — is preferred; the STORE TAIL (the S0 locators: WatchSession by
+// bound session id, WatchHistoryByPath by located transcript) is the
+// workhorse fallback. Consumers never know which source fed them.
+//
+// D2 note: this package cannot import internal/agentcoord/coord (the cycle
+// above), so it cannot construct coord.Identity or read coord's exported
+// vocabulary directly — it speaks the wire contract (internal/agentcoord,
+// the generated proto package, which has no such cycle) over a bare gRPC
+// client instead.
 
 // FeedSource selects how WatchSessionFeed sources a harp's feed.
 type FeedSource string
@@ -115,67 +125,144 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 	return watchStoreFeed(ctx, entry, backend)
 }
 
-// watchLiveFeed dials each candidate bus socket and subscribes on the first
-// orchestrator that holds the harp live. A dead socket file or a typed
-// not-live answer just moves to the next candidate.
+// watchLiveFeed dials each candidate coordinator (internal/agentcoord/
+// discover, most-recently-active first) over ConsumerService and subscribes
+// on the first one that holds the harp live. A candidate the harp isn't
+// live on, or that's unreachable, just moves to the next.
 func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
-	socks := busSocketCandidates()
-	if len(socks) == 0 {
-		return nil, fmt.Errorf("no coordinator bus socket found (no session-dir sockets)")
+	endpoints := discover.List()
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("no coordinator endpoint found (no ~/.ctxloom/coord/*/endpoint.json)")
 	}
 	var lastErr error
-	for _, sock := range socks {
-		obsEvents, obsErrs, err := agentbus.ObserveSession(ctx, sock, entry.HarpName)
-		if err != nil {
-			lastErr = err
-			continue
+	for _, ep := range endpoints {
+		feed, err := watchConsumerFeed(ctx, ep, entry, backend)
+		if err == nil {
+			return feed, nil
 		}
-		events, errs := adaptLiveFeed(ctx, entry, backend, obsEvents, obsErrs)
-		return &SessionFeed{Source: "live", Events: events, Errs: errs}, nil
+		lastErr = err
 	}
 	return nil, lastErr
 }
 
-// busSocketCandidates lists the sockets a live tap could sit behind: every
-// session-dir socket — the coordinator binds
-// <sessions>/<owner harp>/agent-bus.sock, and the index does not record a
-// child's parent, so the scan is the discovery. (The ambient
-// CTXLOOM_BUS_SOCKET candidate died with the executor shim in the agentcoord
-// migration — children no longer carry a socket path.) Most-recently-active
-// sockets are tried first; dead files fail the dial in microseconds.
-func busSocketCandidates() []string {
-	var out []string
-	root, err := paths.HomeSessionsDir()
+// consumerDialTimeout bounds the ListRuns lookup that decides whether a
+// candidate coordinator holds the harp — the WatchRuns stream itself, once
+// opened, has no deadline (it runs until the caller cancels or the run
+// ends).
+const consumerDialTimeout = 5 * time.Second
+
+// bearerToken is a grpc.PerRPCCredentials carrying a D1 consumer credential
+// (mirrors coord/runnerlink.go's bearerCreds — that package cannot be
+// imported here, see the file header).
+type bearerToken string
+
+func (b bearerToken) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"authorization": "Bearer " + string(b)}, nil
+}
+func (bearerToken) RequireTransportSecurity() bool { return false }
+
+// watchConsumerFeed dials one coordinator candidate, resolves the harp to a
+// live run_id via ListRuns (ConsumerService has no by-harp lookup — the
+// roster is small; a client-side scan is simplest), and opens WatchRuns
+// filtered to that run. Returns an error (never partially wires up a feed)
+// when this candidate does not hold the harp, so the caller moves on.
+func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *sessions.Entry, backend string) (*SessionFeed, error) {
+	u, err := url.Parse(ep.URL)
+	if err != nil || u.Host == "" {
+		return nil, fmt.Errorf("watch: parse coordinator endpoint %q: %w", ep.URL, err)
+	}
+	conn, err := grpc.NewClient(u.Host,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(bearerToken(ep.Cred)))
 	if err != nil {
-		return out
+		return nil, fmt.Errorf("watch: dial coordinator %s: %w", ep.URL, err)
 	}
-	matches, _ := filepath.Glob(filepath.Join(root, "*", "agent-bus.sock"))
-	sort.Slice(matches, func(i, j int) bool { return socketMTime(matches[i]).After(socketMTime(matches[j])) })
-	out = append(out, matches...)
-	return out
+	client := agentcoordpb.NewConsumerServiceClient(conn)
+
+	lctx, cancel := context.WithTimeout(ctx, consumerDialTimeout)
+	runs, err := client.ListRuns(lctx, &agentcoordpb.ListRunsRequest{IncludeTerminal: false})
+	cancel()
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("watch: list runs at %s: %w", ep.URL, err)
+	}
+	runID := ""
+	for _, r := range runs.GetRuns() {
+		if r.GetAgent().GetAgentId() == entry.HarpName {
+			runID = r.GetRunId()
+			break
+		}
+	}
+	if runID == "" {
+		_ = conn.Close()
+		return nil, fmt.Errorf("watch: %q is not held live by the coordinator at %s", entry.HarpName, ep.URL)
+	}
+
+	stream, err := client.WatchRuns(ctx, &agentcoordpb.WatchRunsRequest{RunIds: []string{runID}})
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("watch: open WatchRuns at %s: %w", ep.URL, err)
+	}
+	// The first frame is always a RosterSnapshot (D1 contract) — this call
+	// already has a fresher one from ListRuns above; discard it.
+	if _, err := stream.Recv(); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("watch: read snapshot frame at %s: %w", ep.URL, err)
+	}
+
+	events, errs := adaptConsumerFeed(ctx, entry, backend, conn, stream)
+	return &SessionFeed{Source: "live", Events: events, Errs: errs}, nil
 }
 
-func socketMTime(path string) time.Time {
-	if fi, err := os.Stat(path); err == nil {
-		return fi.ModTime()
-	}
-	return time.Time{}
+// consumerFeedState is the per-feed item-lifecycle accumulator: the reverse
+// of enginehost.go's forward adapt() (agent.ChatEvent -> AgentEvent) — here
+// AgentEvent's started/delta*/completed item lifecycle folds back onto whole
+// agent.SessionEntry values the existing WatchEvent/NDJSON vocabulary
+// already renders. Best-effort, like the retired agentbus adapter it
+// replaces: an entry recorded while the snapshot read runs can appear twice
+// (scrollback and live).
+type consumerFeedState struct {
+	msgs  map[string]*agent.SessionEntry // message_id -> accumulating entry
+	tools map[string]string              // tool_call_id -> tool name (for the matching result)
 }
 
-// adaptLiveFeed normalizes a live observation stream onto the WatchEvent
-// vocabulary, stitching scrollback from the store first: live subscriptions
-// deliver from subscribe-time forward (history is the store's job), so the
-// harp's recorded transcript — when one exists — replays as entry events
-// ahead of the live stream. The seam is best-effort: an entry recorded while
-// the snapshot read runs can appear twice (snapshot and live); a harp with no
-// transcript (e.g. a generic-acp child) starts at now. Live boundaries carry
-// feed-relative indexes, and after a gap they are approximate.
-func adaptLiveFeed(ctx context.Context, entry *sessions.Entry, backend string, obsEvents <-chan agentbus.ObserveEvent, obsErrs <-chan error) (<-chan SessionFeedEvent, <-chan error) {
+// entryTypeFromRoute reverses enginehost.go's messageRouting: role+channel
+// back to the transcript's EntryType. Only ASSISTANT/REASONING and
+// SYSTEM/LOG combinations are ever emitted runner-side (messageRouting's own
+// cases), so this is a closed, small mapping — not a general contract
+// projection.
+func entryTypeFromRoute(role agentcoordpb.MessageRole, channel agentcoordpb.MessageChannel) agent.SessionEntryType {
+	switch {
+	case role == agentcoordpb.MessageRole_MESSAGE_ROLE_ASSISTANT && channel == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_REASONING:
+		return agent.EntryTypeThinking
+	case role == agentcoordpb.MessageRole_MESSAGE_ROLE_ASSISTANT:
+		return agent.EntryTypeAssistant
+	default:
+		return agent.EntryTypeSystem
+	}
+}
+
+// customEventTurnIdle mirrors coord.CustomTurnIdle (internal/agentcoord/
+// coord/runchannel.go) — a literal string duplicate, documented on both
+// sides, because this package cannot import coord (see the file header).
+const customEventTurnIdle = "ctxloom/turn_idle"
+
+// adaptConsumerFeed normalizes a live ConsumerService.WatchRuns stream onto
+// the WatchEvent vocabulary, stitching scrollback from the store first (see
+// adaptLiveFeed's retired doc comment for the rationale — unchanged by D2).
+// Unlike the retired agentbus tap, the D1 watchHub broadcast this stream
+// rides does NOT report drops (consumer.go: a stalled subscriber silently
+// loses its own newest events rather than the tap's drop-oldest+gap
+// accounting) — so this feed never emits a Gap marker. A lagging viewer
+// simply sees fewer live entries; the store tail (or a fresh watch) remains
+// exact.
+func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
 	events := make(chan SessionFeedEvent)
 	errs := make(chan error, 1)
 	go func() {
 		defer close(events)
 		defer close(errs)
+		defer func() { _ = conn.Close() }()
 		emit := func(fe SessionFeedEvent) bool {
 			select {
 			case events <- fe:
@@ -197,33 +284,84 @@ func adaptLiveFeed(ctx context.Context, entry *sessions.Entry, backend string, o
 			}
 		}
 		lastBoundary := sent
-		for ev := range obsEvents {
-			switch {
-			case ev.Gap > 0:
-				if !emit(SessionFeedEvent{Gap: ev.Gap}) {
-					return
+
+		st := consumerFeedState{msgs: map[string]*agent.SessionEntry{}, tools: map[string]string{}}
+		flush := func(e agent.SessionEntry) bool {
+			sent++
+			return emit(SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: pb.EntryToProto(e)}}})
+		}
+		boundary := func() bool {
+			if sent <= lastBoundary {
+				return true // a boundary with no new material emits nothing
+			}
+			ok := emit(boundaryFeedEvent(lastBoundary, sent))
+			lastBoundary = sent
+			return ok
+		}
+
+		for {
+			frame, rerr := stream.Recv()
+			if rerr != nil {
+				if rerr != io.EOF && ctx.Err() == nil {
+					errs <- fmt.Errorf("watch: consumer stream: %w", rerr)
 				}
-			case ev.Entry != nil:
-				if !emit(SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: pb.EntryToProto(*ev.Entry)}}}) {
-					return
+				return
+			}
+			ev := frame.GetEvent()
+			if ev == nil {
+				continue // a stray extra snapshot frame — ignored
+			}
+			switch p := ev.GetPayload().(type) {
+			case *agentcoordpb.AgentEvent_MessageStarted:
+				st.msgs[p.MessageStarted.GetMessageId()] = &agent.SessionEntry{
+					Type: entryTypeFromRoute(p.MessageStarted.GetRole(), p.MessageStarted.GetChannel()),
 				}
-				sent++
-			case ev.Complete != nil:
-				// A turn boundary with no new material (a cancelled turn) emits
-				// nothing — same as the store tail's stall rule.
-				if sent > lastBoundary {
-					if !emit(boundaryFeedEvent(lastBoundary, sent)) {
+			case *agentcoordpb.AgentEvent_MessageDelta:
+				if m := st.msgs[p.MessageDelta.GetMessageId()]; m != nil {
+					m.Content += p.MessageDelta.GetText()
+				}
+			case *agentcoordpb.AgentEvent_MessageCompleted:
+				id := p.MessageCompleted.GetMessageId()
+				if m := st.msgs[id]; m != nil {
+					delete(st.msgs, id)
+					if !flush(*m) {
 						return
 					}
-					lastBoundary = sent
 				}
-			case ev.Ended:
-				return // the child's engine exited; the feed ends with it
+			case *agentcoordpb.AgentEvent_ToolCallStarted:
+				st.tools[p.ToolCallStarted.GetToolCallId()] = p.ToolCallStarted.GetToolName()
+				if !flush(agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: p.ToolCallStarted.GetToolName()}) {
+					return
+				}
+			case *agentcoordpb.AgentEvent_ToolCallCompleted:
+				id := p.ToolCallCompleted.GetToolCallId()
+				name := st.tools[id]
+				delete(st.tools, id)
+				if !flush(agent.SessionEntry{
+					Type: agent.EntryTypeToolResult, ToolName: name,
+					ToolOutput: p.ToolCallCompleted.GetResultText(), IsError: p.ToolCallCompleted.GetIsError(),
+				}) {
+					return
+				}
+			case *agentcoordpb.AgentEvent_Custom:
+				if p.Custom.GetName() == customEventTurnIdle {
+					if !boundary() {
+						return
+					}
+				}
+			case *agentcoordpb.AgentEvent_RunCompleted:
+				// Flush any message left open by an abrupt ending, then end
+				// the feed — no further events will ever arrive for this
+				// run_id (a resume mints a fresh one).
+				for id, m := range st.msgs {
+					delete(st.msgs, id)
+					if !flush(*m) {
+						return
+					}
+				}
+				_ = boundary()
+				return
 			}
-		}
-		// Stream ended without an Ended line: surface the transport fault.
-		if e := <-obsErrs; e != nil {
-			errs <- e
 		}
 	}()
 	return events, errs

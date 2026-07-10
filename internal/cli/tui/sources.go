@@ -8,11 +8,11 @@ import (
 )
 
 // Sources are the overlay's data seams. The CLI wires them to the operations
-// feed resolver, the session index, and the agent-bus roster; tests inject
-// fakes.
+// feed resolver, the session index, and the coordinator's roster; tests
+// inject fakes.
 type Sources struct {
 	// Roster lists the observable sessions (index sessions merged with
-	// orchestrator-held children — see BuildRoster).
+	// coordinator-held children — see BuildRoster).
 	Roster func(ctx context.Context) ([]RosterRow, error)
 	// Watch opens a harp's observation feed (operations.WatchSessionFeed
 	// behind a cancel).
@@ -21,8 +21,8 @@ type Sources struct {
 	// exports land in for harp — the harp's ctxloom session dir.
 	ExportDir func(harp string) (string, error)
 	// Inject delivers user-typed text into harp through the serving
-	// orchestrator's agent bus, returning the delivery mode it reports
-	// (agentbus.Delivery*). Nil when no bus can ever be reached.
+	// coordinator, returning the delivery mode it reports (coord.Delivery*,
+	// internal/agentcoord/coord). Nil when no coordinator is hosted.
 	Inject func(harp, text string) (string, error)
 	// Now is the export-filename clock; nil means time.Now.
 	Now func() time.Time

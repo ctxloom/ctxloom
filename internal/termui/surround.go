@@ -38,9 +38,10 @@ type BarInfo struct {
 	PrefixHint string
 }
 
-// RosterEntry is the surround's view of one orchestrator-held child —
-// deliberately a local mirror of agentbus.RosterEntry so this hot-path
-// package stays dependency-light and hermetically testable.
+// RosterEntry is the surround's view of one coordinator-held child —
+// deliberately a local mirror of coord.RosterEntry (internal/agentcoord/
+// coord; agentbus retired in D2) so this hot-path package stays
+// dependency-light and hermetically testable.
 type RosterEntry struct {
 	Harp             string
 	Agent            string

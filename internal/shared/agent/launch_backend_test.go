@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -36,8 +37,9 @@ func (noopSkills) RegisterFromContent(string, []CommandExport) error { return ni
 // recordSet is a fake SurfaceSet capturing the inputs its Build closure received
 // and, when delivered, logging each surface's cleanup into a shared order slice so
 // a test can assert LIFO teardown. It records which delivery method (isolated vs
-// shared-cwd) the cell used and the dir it targeted. contextErr forces the FIRST
-// surface (context) to fail its delivery, exercising the injection-hook fallback.
+// SharedRealization) the cell used and the dir it targeted. contextErr forces the
+// FIRST surface (context) to fail its delivery, exercising the injection-hook
+// fallback.
 type recordSet struct {
 	order      *[]string
 	contextErr error
@@ -46,7 +48,6 @@ type recordSet struct {
 	isolatedDir string
 
 	usedShared  bool
-	usedDir     string // dir SharedCwdDeliveries was called with
 	deliverDirs []string
 }
 
@@ -68,22 +69,47 @@ func (s *recordSet) Deliveries() []Delivery {
 	return out
 }
 
-func (s *recordSet) SharedCwdDeliveries(dir string) []RaceSafeDelivery {
-	s.usedShared = true
-	s.usedDir = dir
-	out := make([]RaceSafeDelivery, 0, 4)
+// SupportedApproaches advertises every kind at UnsafeFile (the fake surfaces
+// additionally offer DeliverIsolated — like claude's flag-backed surfaces), so
+// WithEverything selects all four.
+func (s *recordSet) SupportedApproaches(SurfaceKind) []Approach {
+	return []Approach{ApproachUnsafeFile}
+}
+
+// DefaultApproach reports UnsafeFile for every kind — the fake set's only approach.
+func (s *recordSet) DefaultApproach(SurfaceKind) (Approach, bool) { return ApproachUnsafeFile, true }
+
+// SurfaceFor resolves kind to the matching fake surface (fresh, sharing the set so
+// its Deliver/DeliverIsolated record into the same slices).
+func (s *recordSet) SurfaceFor(kind SurfaceKind, _ Approach) (Delivery, error) {
 	for _, sf := range s.surfaces() {
-		out = append(out, sf)
+		if sf.Kind() == kind {
+			return sf, nil
+		}
 	}
-	return out
+	return nil, fmt.Errorf("no fake surface for %s", kind)
+}
+
+// SharedRealization reports the fake surface's isolated path for every kind —
+// mirroring a fully flag-backed backend (claude) so DeliverShared always converts
+// rather than falling back to a loud well-known write.
+func (s *recordSet) SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool) {
+	s.usedShared = true
+	for _, sf := range s.surfaces() {
+		if sf.Kind() == kind {
+			return sf.DeliverIsolated, true
+		}
+	}
+	return nil, false
 }
 
 func (s *recordSet) handle(label string) Delivered {
 	return recordDelivered{order: s.order, label: label}
 }
 
-// recordSurface is one fake surface implementing both Delivery (isolated cell) and
-// RaceSafeDelivery (shared cell), so the same double works in every cell.
+// recordSurface is one fake surface implementing Delivery (isolated cell) and
+// additionally offering DeliverIsolated (the shape a SharedRealization closure
+// wraps), so the same double works whichever way a cell delivers it.
 type recordSurface struct {
 	set   *recordSet
 	label string

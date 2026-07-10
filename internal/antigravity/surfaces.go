@@ -12,23 +12,22 @@ import (
 
 // This file lands antigravity's package on the unified surface-delivery seam
 // (internal/shared/agent/cells.go): each of agy's surfaces as an object that
-// implements agent.Delivery (the engine's well-known write). It is ADDITIVE:
-// every surface object WRAPS an existing antigravity writer verbatim — the
-// ContextWriter core (AntigravityHookWriter.WriteContext → .agents/AGENTS.md),
-// the shared MCP-file reconciler (mcpFile().WriteServers → .agents/mcp_config.json),
-// the hooks.json writer helpers WriteSettings composes, and the managed-command
-// writer (WriteCommandFiles → .agents/skills/). Nothing here is wired into the
-// launch path (launch_backend.go / Setup / buildArgs); that cutover is Phase 2
-// (plan S4).
+// implements agent.Delivery (the engine's well-known write). Every surface object
+// WRAPS an existing antigravity writer verbatim — the ContextWriter core
+// (AntigravityHookWriter.WriteContext → .agents/AGENTS.md), the shared MCP-file
+// reconciler (mcpFile().WriteServers → .agents/mcp_config.json), the hooks.json
+// writer helpers WriteSettings composes, and the managed-command writer
+// (WriteCommandFiles → .agents/skills/).
 //
 // Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
 // race-safe coverage"): agy exposes NO out-of-cwd redirect (no --mcp-config /
-// --settings / --append-system-prompt equivalent), so EVERY antigravity surface
-// is WELL-KNOWN-ONLY — a plain agent.Delivery, never a agent.RaceSafeDelivery.
-// Per-agent CONCURRENT isolation for agy therefore requires a private cwd
-// (worktree) or container cell, never a SharedCell.
+// --settings / --append-system-prompt equivalent) and NO SharedRealization (see
+// Surfaces.SharedRealization below), so EVERY antigravity surface is
+// WELL-KNOWN-ONLY. Per-agent CONCURRENT isolation for agy therefore requires a
+// private cwd (worktree) or container cell; a SHARED-cwd delivery falls back to
+// the loud well-known write.
 //
-//	surface  | well-known target             | also RaceSafeDelivery?
+//	surface  | well-known target             | also a SharedRealization?
 //	---------|-------------------------------|-----------------------
 //	context  | .agents/AGENTS.md             | ❌ no flag
 //	MCP      | .agents/mcp_config.json       | ❌ no flag
@@ -67,7 +66,8 @@ func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// UnsafeInfo returns agy's context identity for the Unsafe warning.
+// UnsafeInfo returns agy's context identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *contextSurface) UnsafeInfo() string { return "antigravity/context" }
 
 // Kind reports agy's context surface (.agents/AGENTS.md).
@@ -92,7 +92,8 @@ func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	return deliveredFunc(func() error { return w.mcpFile(dir).RemoveServers() }), nil
 }
 
-// UnsafeInfo returns agy's MCP identity for the Unsafe warning.
+// UnsafeInfo returns agy's MCP identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *mcpSurface) UnsafeInfo() string { return "antigravity/mcp" }
 
 // Kind reports agy's MCP surface (.agents/mcp_config.json).
@@ -144,7 +145,8 @@ func (s *hooksSurface) Deliver(dir string) (agent.Delivered, error) {
 	}), nil
 }
 
-// UnsafeInfo returns agy's hooks identity for the Unsafe warning.
+// UnsafeInfo returns agy's hooks identity for the DeliverShared fallback's
+// warning (ResolvedSelection.deliverOneShared's unsafeNamed check, cells.go).
 func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
 
 // Kind reports agy's hooks surface (.agents/hooks.json) as the settings surface —
@@ -194,38 +196,62 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // Deliveries returns every surface as a plain agent.Delivery, in a stable order,
 // for iteration by an isolated cell (worktree / container / materialize target),
 // where a well-known write into a private dir is safe. This is the ONLY way agy's
-// surfaces reach a cell: none is race-safe, so a SharedCell can accept an agy
-// surface only through the loud agent.Unsafe adapter (see SharedCwdDeliveries).
+// surfaces reach a cell directly: none has a SharedRealization, so a SHARED-cwd
+// delivery falls back to the loud well-known write (see Surfaces.SharedRealization
+// below).
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Skills}
 }
 
-// SharedCwdDeliveries wraps every agy surface in the loud agent.Unsafe adapter for
-// a SharedCell (the user's live cwd) at dir. agy offers no out-of-cwd flag for
-// ANY surface, so a shared cwd is the sanctioned last resort — an isolated cell
-// (worktree/container) is always the first preference. Each returned value is a
-// RaceSafeDelivery, so it is assignable to SharedCell.Deliver.
-func (s Surfaces) SharedCwdDeliveries(dir string) []agent.RaceSafeDelivery {
-	return []agent.RaceSafeDelivery{
-		agent.Unsafe(s.Context, dir),
-		agent.Unsafe(s.MCP, dir),
-		agent.Unsafe(s.Hooks, dir),
-		agent.Unsafe(s.Skills, dir),
-	}
+// agyApproaches is agy's DECLARED per-surface approach table (vital-tiger v2
+// per-provider dispatch): every surface is a single native file — agy has no
+// out-of-cwd flag and no SessionStart hook (it reads .agents/AGENTS.md directly).
+// The mechanical lookups ride agent.ApproachTable; only this table is agy's.
+var agyApproaches = agent.ApproachTable{
+	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
+	agent.SurfaceMCP:      {agent.ApproachUnsafeFile},
+	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
-// Compile-time capability contracts. Every agy surface is Delivery-ONLY: none is
-// assignable to agent.RaceSafeDelivery, the compile-time guarantee that no agy
-// surface can enter a SharedCell except through agent.Unsafe.
+// SupportedApproaches reports agy's declared approach table for kind.
+func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
+	return agyApproaches.Supported(kind)
+}
+
+// DefaultApproach reports agy's default (first-declared: the native file)
+// approach for kind.
+func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
+	return agyApproaches.Default(kind)
+}
+
+// SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via the
+// shared table lookup (agy's hooks file IS its settings surface). Any other
+// approach is unsupported.
+func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
+	return agyApproaches.SurfaceFor("antigravity", map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Hooks,
+		agent.SurfaceSkills:   s.Skills,
+	}, kind, a)
+}
+
+// SharedRealization reports no realization for any kind: agy has no out-of-cwd
+// redirect for ANY surface, so a SHARED-cwd delivery always falls back to the
+// loud well-known write.
+func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
+	return nil, false
+}
+
+// Compile-time capability contracts. Every agy surface is a KindedDelivery.
 var (
-	_ agent.UnsafeSurface  = (*contextSurface)(nil)
-	_ agent.UnsafeSurface  = (*mcpSurface)(nil)
-	_ agent.UnsafeSurface  = (*hooksSurface)(nil)
 	_ agent.KindedDelivery = (*contextSurface)(nil)
 	_ agent.KindedDelivery = (*mcpSurface)(nil)
 	_ agent.KindedDelivery = (*hooksSurface)(nil)
 	_ agent.Delivered      = deliveredFunc(nil)
-	// Surfaces exposes both delivery sets (Deliveries + SharedCwdDeliveries), so
-	// it satisfies agent.SurfaceSet.
+	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware
+	// dispatch (SupportedApproaches / DefaultApproach / SurfaceFor /
+	// SharedRealization), so it satisfies agent.SurfaceSet.
 	_ agent.SurfaceSet = Surfaces{}
 )

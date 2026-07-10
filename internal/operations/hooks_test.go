@@ -148,7 +148,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
-	_, _, errs := agent.Select(set).WithSettings().WithMCP().DeliverUnder(dir)
+	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(dir)
 	require.Empty(t, errs)
 }
 
@@ -613,6 +613,72 @@ fragments:
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 	assert.NotEmpty(t, result.ContextHash) // Should have context hash since fragments were found
+}
+
+// TestApplyHooks_ClaudeCode_NoNativeContextFile pins the vital-tiger v2 guardrail:
+// claude's apply-context rides WithContext(Hook) — the settings-carried
+// SessionStart inject hook + the regenerated cache file — so apply must NEVER
+// also write a native CLAUDE.md (that would DOUBLE the context, the exact
+// regression the design forbids). The settings.json hook is still present.
+func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	tmpDir := "/project"
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return &config.Config{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
+				},
+			},
+		}, nil
+	}
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:           "claude-code",
+		RegenerateContext: true,
+		FS:                fs,
+		ExecPath:          "/usr/bin/ctxloom",
+		ConfigLoader:      mockConfigLoader,
+		WorkDir:           tmpDir,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "applied", result.Status)
+
+	exists, err := afero.Exists(fs, "/project/CLAUDE.md")
+	require.NoError(t, err)
+	assert.False(t, exists, "claude apply must never write a native CLAUDE.md alongside the inject hook")
+
+	exists, err = afero.Exists(fs, "/project/.claude/settings.json")
+	require.NoError(t, err)
+	assert.True(t, exists, "the settings.json carrying the inject hook must still be written")
+}
+
+// TestApplyHooks_Codex_NoNativeContextFile pins the same guardrail for codex:
+// its context surface is Hook-only (no CLAUDE.md-style native file exists for
+// codex at all), so apply must write only config.toml — never a stray native
+// context file.
+func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	tmpDir := "/project"
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return &config.Config{}, nil
+	}
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "codex",
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      tmpDir,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "applied", result.Status)
+
+	exists, err := afero.Exists(fs, "/project/.codex/config.toml")
+	require.NoError(t, err)
+	assert.True(t, exists, "codex's config.toml must be written")
 }
 
 // TestApplyHooks_RegenerateContext_AntigravityAgentsMD pins the antigravity

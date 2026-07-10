@@ -64,27 +64,25 @@ func sampleInputs() SurfaceInputs {
 // ---- compile-time capability guarantees -----------------------------------
 
 // The seam's contracts, proven by these assignments compiling. Context/MCP/
-// settings are dual-capable; skills is Delivery-only.
+// settings ADDITIONALLY offer DeliverIsolated (the method SharedRealization
+// returns as a value — see TestSurfaces_SharedRealization below); skills is
+// Delivery-only, so a SHARED-cwd delivery of it always falls back to the loud
+// well-known write (proven live in TestSkillsSurface_Unsafe_WarnsAndProceeds).
 var (
-	_ agent.Delivery         = (*contextSurface)(nil)
-	_ agent.RaceSafeDelivery = (*contextSurface)(nil)
-	_ agent.Delivery         = (*mcpSurface)(nil)
-	_ agent.RaceSafeDelivery = (*mcpSurface)(nil)
-	_ agent.Delivery         = (*settingsSurface)(nil)
-	_ agent.RaceSafeDelivery = (*settingsSurface)(nil)
-	_ agent.Delivery         = (*skillsSurface)(nil)
+	_ agent.Delivery = (*contextSurface)(nil)
+	_ agent.Delivery = (*mcpSurface)(nil)
+	_ agent.Delivery = (*settingsSurface)(nil)
+	_ agent.Delivery = (*skillsSurface)(nil)
+	_ interface {
+		DeliverIsolated() (agent.Delivered, error)
+	} = (*contextSurface)(nil)
+	_ interface {
+		DeliverIsolated() (agent.Delivered, error)
+	} = (*mcpSurface)(nil)
+	_ interface {
+		DeliverIsolated() (agent.Delivered, error)
+	} = (*settingsSurface)(nil)
 )
-
-// Negative case — the compile-time guarantee, which cannot be asserted at
-// runtime and so is documented here:
-//
-//	SharedCell{}.Deliver(surfaces.Skills)   // COMPILE ERROR
-//
-// *skillsSurface implements only agent.Delivery, not agent.RaceSafeDelivery
-// (claude has no out-of-cwd flag for .claude/commands/), so it is NOT assignable
-// to SharedCell.Deliver's RaceSafeDelivery parameter. The only way skills reaches
-// a shared cwd is the explicit, warned agent.Unsafe(surfaces.Skills, …) — proven
-// live in TestSkillsSurface_Unsafe_WarnsAndProceeds below.
 
 // ---- context surface -------------------------------------------------------
 
@@ -105,7 +103,7 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "cleanup reverses the whole-file write")
 }
 
-// context RaceSafeDelivery writes the framed <hash>.sysprompt.md into the
+// context DeliverIsolated writes the framed <hash>.sysprompt.md into the
 // out-of-cwd placement (via appendFlagDelivery) and exposes it via Path() — and
 // does NOT touch the well-known CLAUDE.md.
 func TestContextSurface_DeliverIsolated_WritesSyspromptAndExposesPath(t *testing.T) {
@@ -153,7 +151,7 @@ func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 	assert.NotContains(t, servers, AppMCPServerName, "cleanup reverts ctxloom servers")
 }
 
-// MCP RaceSafeDelivery writes .mcp.json into the OUT-OF-CWD placement and exposes
+// MCP DeliverIsolated writes .mcp.json into the OUT-OF-CWD placement and exposes
 // that path for --mcp-config; the well-known cwd is left untouched.
 func TestMCPSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	cwd := t.TempDir()      // the "shared cwd" — must stay clean
@@ -194,7 +192,7 @@ func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
 	assert.NotContains(t, settings, "hooks", "cleanup reverts ctxloom hooks")
 }
 
-// settings RaceSafeDelivery writes .claude/settings.json into the OUT-OF-CWD
+// settings DeliverIsolated writes .claude/settings.json into the OUT-OF-CWD
 // placement and exposes that path for --settings.
 func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	cwd := t.TempDir()
@@ -232,63 +230,55 @@ func TestSkillsSurface_DeliverWritesCommands(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "cleanup reverts the skill export")
 }
 
-// skills has no out-of-cwd flag, so a SharedCell reaches it only through
-// agent.Unsafe — which WARNS to stderr AND PROCEEDS with the well-known write
-// into the shared cwd (a sanctioned, permitted action, never a fatal abort).
+// skills has no out-of-cwd flag and no SharedRealization, so DeliverShared falls
+// back to the well-known write — WARNING to stderr AND PROCEEDING (a sanctioned,
+// permitted action, never a fatal abort).
 func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
-	// agent.Unsafe accepts skills (a self-describing UnsafeSurface) and returns a
-	// RaceSafeDelivery.
-	rs := agent.Unsafe(s.Skills, cwd)
+	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	require.NoError(t, err)
 
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		handle, err := rs.DeliverIsolated()
-		require.NoError(t, err)
-		require.NoError(t, handle.Cleanup())
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
+	require.Len(t, delivered, 1)
 
-	assert.Contains(t, stderr, "warning:", "Unsafe streams a loud WARN")
+	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
 	assert.Contains(t, stderr, "skills")
 	assert.Contains(t, stderr, "shared cwd")
-	// It PROCEEDED: before cleanup the write landed under the shared cwd.
-	// (Deliver→Cleanup above removed it; re-run the write to confirm the target.)
-	handle, err := s.Skills.Deliver(cwd)
-	require.NoError(t, err)
+	// It PROCEEDED: the well-known write landed under the shared cwd.
 	assert.FileExists(t, filepath.Join(cwd, ".claude", "commands", "review.md"),
 		"the well-known write proceeded into the shared cwd")
-	require.NoError(t, handle.Cleanup())
+	require.NoError(t, delivered[0].Cleanup())
 }
 
 // ---- cells wiring (the vertical slice) -------------------------------------
 
-// A SharedCell accepts claude's race-safe surfaces (context/MCP/settings via a
-// flag) and, for skills, the Unsafe-wrapped surface — the SharedCwdDeliveries
-// helper packages exactly that set for iteration.
+// DeliverShared converts claude's flag-backed surfaces (context/MCP/settings) via
+// SharedRealization with no warning, and falls back to the loud well-known write
+// for skills (no realization) — the builder's shared-cwd terminal packages exactly
+// that set for iteration.
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd := t.TempDir()
 	isolated := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
 
-	// Direct: the three flag-backed surfaces are assignable to SharedCell.Deliver.
-	for _, surface := range []agent.RaceSafeDelivery{s.Context, s.MCP, s.Settings} {
-		d, err := (agent.SharedCell{}).Deliver(surface)
-		require.NoError(t, err)
-		require.NotNil(t, d)
-	}
+	r, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
 
-	// The helper packages all four for the shared cwd (skills wrapped in Unsafe).
-	rs := s.SharedCwdDeliveries(cwd)
-	require.Len(t, rs, 4)
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		for _, surface := range rs {
-			d, err := (agent.SharedCell{}).Deliver(surface)
-			require.NoError(t, err)
-			require.NotNil(t, d)
-		}
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
-	assert.Contains(t, stderr, "warning:", "the Unsafe skills member warns when the SharedCell delivers it")
+	require.Len(t, delivered, 4, "context, MCP, settings, and skills all deliver")
+	assert.Contains(t, stderr, "warning:", "the skills fallback warns when DeliverShared delivers it")
 }
 
 // An isolated cell accepts EVERY surface as a plain Delivery — Deliveries() is the
@@ -312,6 +302,86 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, ".mcp.json"))
 	assert.FileExists(t, filepath.Join(dir, ".claude", "settings.json"))
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
+}
+
+// ---- approach dispatch (vital-tiger v2) -------------------------------------
+
+// SupportedApproaches pins claude's per-surface table: context offers all three
+// approaches (native file, out-of-cwd system-prompt scratch, settings-carried
+// hook); mcp/settings/skills offer only the native file.
+func TestSurfaces_SupportedApproaches(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	assert.ElementsMatch(t, []agent.Approach{agent.ApproachUnsafeFile, agent.ApproachSystemPrompt, agent.ApproachHook},
+		s.SupportedApproaches(agent.SurfaceContext))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceMCP))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSkills))
+}
+
+// DefaultApproach is UnsafeFile (the native file) for every surface claude has —
+// never SystemPrompt or Hook, which are explicit caller choices.
+func TestSurfaces_DefaultApproach(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+		a, ok := s.DefaultApproach(kind)
+		require.True(t, ok, "%s has a default approach", kind)
+		assert.Equal(t, agent.ApproachUnsafeFile, a)
+	}
+}
+
+// SurfaceFor(context, Hook) is a documented no-op: claude's apply-context rides
+// the settings-carried inject hook + regenerated cache file, so nothing extra is
+// written (a static CLAUDE.md alongside the hook would double the context).
+func TestSurfaceFor_ContextHookIsNoOp(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
+	require.NoError(t, err)
+	require.NotNil(t, d, "a real (no-op) Delivery, not nil")
+
+	dir := t.TempDir()
+	handle, err := d.Deliver(dir)
+	require.NoError(t, err)
+	assert.Nil(t, handle, "Hook writes nothing — nil handle, the shared no-op convention")
+	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
+}
+
+// SurfaceFor(context, UnsafeFile | SystemPrompt) both resolve to the SAME
+// dual-capable contextSurface instance — the cell (not the surface) decides which
+// method to call.
+func TestSurfaceFor_ContextUnsafeFileAndSystemPromptShareInstance(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	unsafeFile, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	require.NoError(t, err)
+	systemPrompt, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachSystemPrompt)
+	require.NoError(t, err)
+	assert.Same(t, s.Context, unsafeFile)
+	assert.Same(t, s.Context, systemPrompt)
+}
+
+// An unsupported (kind, approach) combination errors loudly.
+func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+	_, err := s.SurfaceFor(agent.SurfaceMCP, agent.ApproachSystemPrompt)
+	assert.Error(t, err, "claude's MCP surface has no system-prompt approach")
+}
+
+// SharedRealization is present for context/MCP/settings (claude's out-of-cwd
+// scratch conversion) and ABSENT for skills (no out-of-cwd flag exists for
+// slash-commands) — claude is the only backend with any realization at all.
+func TestSurfaces_SharedRealization(t *testing.T) {
+	isolated := t.TempDir()
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings} {
+		realize, ok := s.SharedRealization(kind)
+		require.True(t, ok, "%s has a scratch realization", kind)
+		require.NotNil(t, realize)
+	}
+	_, ok := s.SharedRealization(agent.SurfaceSkills)
+	assert.False(t, ok, "skills has no out-of-cwd flag")
 }
 
 // readJSON reads a JSON object file into a map.

@@ -61,25 +61,18 @@ func sampleInputs() agent.SurfaceInputs {
 
 // ---- compile-time capability guarantees -----------------------------------
 //
-// Every codex surface is Delivery-ONLY (codex exposes no out-of-cwd redirect),
-// proven by these assignments compiling with NO agent.RaceSafeDelivery line.
+// Every codex surface is Delivery-ONLY (codex exposes no out-of-cwd redirect and
+// no SharedRealization), proven by these assignments compiling.
 var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*configSurface)(nil)
 	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // codex's prompts surface
 )
 
-// Negative case — the compile-time guarantee, which cannot be asserted at
-// runtime and so is documented here:
-//
-//	SharedCell{}.Deliver(surfaces.Skills)   // COMPILE ERROR
-//	SharedCell{}.Deliver(surfaces.Config)   // COMPILE ERROR
-//
-// No codex surface implements agent.RaceSafeDelivery (codex has no
-// --mcp-config / --settings / --append-system-prompt equivalent), so none is
-// assignable to SharedCell.Deliver's RaceSafeDelivery parameter. The only way a
-// codex surface reaches a shared cwd is the explicit, warned agent.Unsafe(…) —
-// proven live in TestUnsafe_WarnsAndProceeds below.
+// No codex surface has a SharedRealization (codex has no --mcp-config /
+// --settings / --append-system-prompt equivalent), so a SHARED-cwd delivery of
+// any codex surface always falls back to the loud well-known write — proven live
+// in TestUnsafe_WarnsAndProceeds below.
 
 // contextFile returns the single .md context file WriteContextFile wrote under
 // dir's context cache (there is exactly one for one delivery).
@@ -185,34 +178,35 @@ func TestSkillsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	assert.False(t, exists, "cleanup reverts the manifest-tracked prompt")
 }
 
-// ---- Unsafe (the only path to a shared cwd) --------------------------------
+// ---- no SharedRealization (the only path to a shared cwd) ------------------
 
-// A codex surface has no out-of-cwd flag, so a SharedCell reaches it only through
-// agent.Unsafe — which WARNS to stderr AND PROCEEDS with the well-known write
-// into the shared cwd (a sanctioned, permitted action, never a fatal abort).
+// A codex surface has no out-of-cwd flag and no SharedRealization, so
+// DeliverShared falls back to the well-known write — WARNING to stderr AND
+// PROCEEDING (a sanctioned, permitted action, never a fatal abort).
 func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := agent.Unsafe(s.Skills, cwd)
+	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	require.NoError(t, err)
 
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		handle, err := rs.DeliverIsolated()
-		require.NoError(t, err)
-		require.NoError(t, handle.Cleanup())
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
+	require.Len(t, delivered, 1)
 
-	assert.Contains(t, stderr, "warning:", "Unsafe streams a loud WARN")
+	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
 	assert.Contains(t, stderr, "skills")
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
-	handle, err := s.Skills.Deliver(cwd)
-	require.NoError(t, err)
 	exists, _ := afero.Exists(fs, filepath.Join(cwd, ".codex", "prompts", "review.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd")
-	require.NoError(t, handle.Cleanup())
+	require.NoError(t, delivered[0].Cleanup())
 }
 
 // ---- cells wiring ----------------------------------------------------------
@@ -243,21 +237,82 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	assert.True(t, exists)
 }
 
-// The SharedCell packages every codex surface through Unsafe (codex has no
-// race-safe surface), and each warns when the cell delivers it.
+// DeliverShared falls back to the well-known write for every codex surface (codex
+// has no SharedRealization), and each warns when it delivers.
 func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	rs := s.SharedCwdDeliveries(cwd)
-	require.Len(t, rs, 3)
+	r, err := agent.Select(s).WithEverything().Build()
+	require.NoError(t, err)
+
+	var delivered []agent.Delivered
 	stderr := captureStderr(t, func() {
-		for _, surface := range rs {
-			d, err := (agent.SharedCell{}).Deliver(surface)
-			require.NoError(t, err)
-			require.NotNil(t, d)
-		}
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
 	})
-	assert.Contains(t, stderr, "warning:", "every codex surface warns when a SharedCell delivers it")
+	require.Len(t, delivered, 3, "context (cache file), config, and skills each deliver")
+	assert.Contains(t, stderr, "warning:", "every codex surface warns when DeliverShared delivers it")
+}
+
+// ---- approach dispatch (vital-tiger v2) -------------------------------------
+
+// SupportedApproaches pins codex's per-surface table: context is Hook-only (codex
+// has no CLAUDE.md-style native file), settings/skills are native-file-only, and
+// MCP is absent (folded into the config/settings surface).
+func TestSurfaces_SupportedApproaches(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+
+	assert.Equal(t, []agent.Approach{agent.ApproachHook}, s.SupportedApproaches(agent.SurfaceContext))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSkills))
+	assert.Empty(t, s.SupportedApproaches(agent.SurfaceMCP), "MCP folds into config.toml — no distinct surface")
+}
+
+// DefaultApproach is Hook for context (codex's only approach), the native file for
+// settings/skills, and absent for the folded MCP kind.
+func TestSurfaces_DefaultApproach(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+
+	a, ok := s.DefaultApproach(agent.SurfaceContext)
+	require.True(t, ok)
+	assert.Equal(t, agent.ApproachHook, a)
+
+	a, ok = s.DefaultApproach(agent.SurfaceSettings)
+	require.True(t, ok)
+	assert.Equal(t, agent.ApproachUnsafeFile, a)
+
+	_, ok = s.DefaultApproach(agent.SurfaceMCP)
+	assert.False(t, ok, "MCP is folded/absent for codex")
+}
+
+// SurfaceFor(context, Hook) resolves to the real cache-file write (codex's ONLY
+// context approach performs real work, unlike claude's Hook no-op); naming
+// UnsafeFile for codex's context is unsupported — codex has no native context
+// file at all.
+func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewSurfaces(sampleInputs(), fs)
+
+	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
+	require.NoError(t, err)
+	dir := t.TempDir()
+	handle, err := d.Deliver(dir)
+	require.NoError(t, err)
+	require.NotNil(t, handle, "codex's Hook approach performs the real cache-file write")
+
+	_, err = s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	assert.Error(t, err, "codex has no native context file — UnsafeFile is unsupported")
+}
+
+// SharedRealization is absent for every kind: codex has no out-of-cwd redirect,
+// so a SHARED-cwd delivery always falls back to the loud well-known write.
+func TestSurfaces_SharedRealization_Absent(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceSkills} {
+		_, ok := s.SharedRealization(kind)
+		assert.False(t, ok, "%s: codex has no out-of-cwd realization", kind)
+	}
 }

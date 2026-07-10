@@ -241,53 +241,73 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 }
 
 // applyHooksToBackend writes one backend's managed config into the project via
-// the surfaces × cells seam: settings (hooks) + MCP + skills, but NEVER a native
-// context file. The hook set is assembled fresh per backend (config +
-// default-profile + bundle-shipped + context-injection, via AssembleManagedHooks)
-// so this write matches the `ctxloom run` Setup path and avoids duplicate-hook
-// accumulation from aliasing freshCfg.Hooks across the loop.
+// the surfaces × cells seam: settings (hooks) + MCP + context + skills. The hook
+// set is assembled fresh per backend (config + default-profile + bundle-shipped +
+// context-injection, via AssembleManagedHooks) so this write matches the
+// `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
+// freshCfg.Hooks across the loop.
 //
 // Apply INSTALLS runtime context injection for the HOOK backends (claude/codex):
 // the regenerated contextHash keys the SessionStart inject-context hook INTO their
 // settings/config surface (the crucial difference from materialize, which passes ""
 // so context stays static). Their context reaches a launched agent via that hook +
-// the regenerated cache file, NOT a native file, so the selection omits .WithContext()
-// for them — a static claude CLAUDE.md alongside the hook would double the context.
+// the regenerated cache file, NOT a native file, so the selection names
+// WithContext(Hook) for them — resolving (for claude) to a documented no-op that
+// writes nothing: a static CLAUDE.md alongside the hook would double the context.
 //
 // The NATIVE-file backends (antigravity/kiro) read context from .agents/AGENTS.md /
-// .kiro/steering and DIVERT the injection hook, so for them apply DOES materialize
-// the context surface with the assembled context (contextViaNativeFile). Skills are
-// delivered only when there are prompts, preserving the prior guard (no prompts ⇒
-// command files left untouched).
+// .kiro/steering and DIVERT the injection hook, so for them apply names
+// WithContext(UnsafeFile), materializing the context surface with the assembled
+// context. contextViaHook (descriptor-keyed via SupportedApproaches) picks the
+// right approach per backend — the enum-driven replacement for the retired
+// contextViaNativeFile bool. Skills are delivered only when there are prompts,
+// preserving the prior guard (no prompts ⇒ command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
-	nativeContext := backends.ContextViaNativeFile(backendName)
 
-	inputs := agent.SurfaceInputs{
+	set := backends.BuildSurfaces(backendName, agent.SurfaceInputs{
+		// Empty when context was not regenerated this round (assembledContext ==
+		// ""), which strips a native-file backend's managed context section —
+		// matching the prior write. Ignored by the hook-context backends (claude
+		// context via Hook writes no native file; codex's context surface reads
+		// Fragments, not this string), so it is safe to set for every backend.
+		Context:          p.assembledContext,
 		MCP:              &p.freshCfg.MCP,
 		BundleMCP:        p.bundleMCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: p.freshCfg.Settings.ShouldManageStatusline(),
 		Skills:           backends.CommandExportsFor(backendName, p.prompts),
-	}
-	if nativeContext {
-		// Empty when context was not regenerated this round, which strips the
-		// backend's managed native-context section — matching the prior write.
-		inputs.Context = p.assembledContext
-	}
-	set := backends.BuildSurfaces(backendName, inputs, p.fs)
+	}, p.fs)
 
-	sel := agent.Select(set).WithSettings().WithMCP()
-	if nativeContext {
-		sel = sel.WithContext()
+	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)
+	if contextViaHook(set) {
+		sel = sel.WithContext(agent.ContextWriteHook)
+	} else {
+		sel = sel.WithContext(agent.ContextWriteUnsafeFile)
 	}
 	if len(p.prompts) > 0 {
-		sel = sel.WithSkills()
+		sel = sel.WithSkills(agent.SkillsWriteUnsafeFile)
 	}
 	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
 		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
 	}
 	return nil
+}
+
+// contextViaHook reports whether the backend delivers context through the
+// SessionStart inject-context hook (claude/codex — their context surface
+// advertises agent.ApproachHook) rather than a native context file
+// (antigravity/kiro, UnsafeFile only). It is the descriptor-keyed replacement for
+// the retired backends.ContextViaNativeFile: apply reads it to pick
+// WithContext(Hook) vs WithContext(UnsafeFile), so a static native file is never
+// written alongside the hook.
+func contextViaHook(set agent.SurfaceSet) bool {
+	for _, a := range set.SupportedApproaches(agent.SurfaceContext) {
+		if a == agent.ApproachHook {
+			return true
+		}
+	}
+	return false
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

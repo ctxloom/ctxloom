@@ -33,7 +33,7 @@ func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfi
 		BundleMCP:        bundleMCP,
 		ManageStatusline: manageStatusline,
 	}, fs)
-	_, _, errs := agent.Select(set).WithSettings().WithMCP().DeliverUnder(dir)
+	_, _, errs := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile).DeliverUnder(dir)
 	require.Empty(t, errs)
 }
 

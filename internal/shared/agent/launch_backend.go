@@ -270,13 +270,17 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// Launch delivers the WHOLE surface set, so it drives the builder over the same
 	// full selection materialize/apply use — the builder is the single selection
 	// input everywhere. Launch KEEPS its own cell machinery (a SharedCell over the
-	// race-safe set, an isolated cell over the well-known set): only the surface
-	// LIST is derived from the selection, not the cell/placement choice.
-	sel := Select(set).WithEverything()
+	// SharedRealization-converted / warned-native set, an isolated cell over the
+	// well-known set): only the surface LIST is derived from the selection, not the
+	// cell/placement choice.
+	resolved, err := Select(set).WithEverything().Build()
+	if err != nil {
+		return err
+	}
 
 	if req.CellKind == CellKindShared {
-		for i, s := range sel.SelectedRaceSafe(b.WorkDir()) {
-			d, err := (SharedCell{}).Deliver(s)
+		for i, rs := range resolved.surfaces {
+			d, err := resolved.deliverOneShared(rs, b.WorkDir())
 			if err != nil {
 				if i == 0 && !b.delivery.RawContext && b.recoverContextViaHook(req) {
 					continue
@@ -298,8 +302,8 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	} else {
 		cell = NewDirectoryIsolatedCell(b.WorkDir())
 	}
-	for _, s := range sel.Selected() {
-		d, err := cell.Deliver(s)
+	for _, kd := range resolved.Deliveries() {
+		d, err := cell.Deliver(kd)
 		if err != nil {
 			return fmt.Errorf("failed to deliver surface: %w", err)
 		}

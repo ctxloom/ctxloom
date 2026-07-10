@@ -1,0 +1,176 @@
+package agent
+
+import "fmt"
+
+// This file defines the APPROACH ENUMS the surface-selection builder (cells.go)
+// dispatches on — the vital-tiger v2 rework — plus the shared, DATA-driven
+// ApproachTable each backend declares its per-provider dispatch through. Every
+// `.WithX()` on the builder takes a per-surface, caller-facing enum (ContextWrite
+// / MCPWrite / SettingsWrite / SkillsWrite) whose race-capable values are
+// UNSAFE-NAMED: choosing UnsafeFile is the caller's loud acknowledgment that
+// ctxloom does not lock projects, so a live shared-cwd session may be using that
+// exact well-known file. Each per-surface enum converts (via the unexported
+// approach() method) to the single shared dispatch key, Approach, that
+// SurfaceSet.SupportedApproaches / DefaultApproach / SurfaceFor key on —
+// per-surface enum types make a cross-surface mismatch (an MCP approach on the
+// context surface) a compile error, while the shared Approach type is what the
+// per-provider dispatch tables actually key on.
+
+// Approach is the delivery MECHANISM a caller selects for one surface — the
+// engine-specific WAY that surface's bytes reach the model. It is the dispatch key
+// SurfaceSet.SupportedApproaches / DefaultApproach / SurfaceFor / SharedRealization
+// key on; callers never construct one directly — they name a per-surface enum
+// value (ContextWrite / MCPWrite / SettingsWrite / SkillsWrite), which converts to
+// this shared space via its approach() method.
+type Approach int
+
+const (
+	// ApproachUnsafeFile writes the engine's native, well-known file the engine
+	// reads directly (CLAUDE.md, AGENTS.md, .kiro/steering, .mcp.json,
+	// settings.json / config.toml, command/skill dirs…). "unsafe" names itself
+	// LOUDLY here because choosing it IS the race acknowledgment: a well-known
+	// write into a SHARED live cwd cannot be locked against a concurrent session
+	// using those exact files. Into an isolated (private) cell it is always safe —
+	// isolation IS the conversion.
+	ApproachUnsafeFile Approach = iota
+	// ApproachSystemPrompt writes claude's framed context to an out-of-cwd scratch
+	// file consumed via --append-system-prompt-file — semantically distinct from a
+	// native file (the content enters the system prompt, not project memory).
+	// claude context only.
+	ApproachSystemPrompt
+	// ApproachHook delivers context via a SessionStart inject-context hook reading
+	// a regenerated cache file — COUPLED to the settings surface (the hook rides
+	// it). claude/codex context only.
+	ApproachHook
+)
+
+// String renders the approach for diagnostics and error text.
+func (a Approach) String() string {
+	switch a {
+	case ApproachSystemPrompt:
+		return "system-prompt"
+	case ApproachHook:
+		return "hook"
+	default:
+		return "unsafe-file"
+	}
+}
+
+// ContextWrite names HOW the context surface is delivered. The caller ALWAYS
+// states the approach explicitly (there is no silent default at the call site);
+// the backend validates the choice against SupportedApproaches(SurfaceContext) at
+// Build().
+type ContextWrite int
+
+const (
+	// ContextWriteUnsafeFile writes the engine's native context file (CLAUDE.md /
+	// AGENTS.md / .kiro/steering). agy/kiro's only approach; claude's and codex's
+	// native-file option (codex has none — see codex's SupportedApproaches).
+	ContextWriteUnsafeFile ContextWrite = iota
+	// ContextWriteSystemPrompt writes claude's framed context to an out-of-cwd
+	// scratch file passed via --append-system-prompt-file. claude only.
+	ContextWriteSystemPrompt
+	// ContextWriteHook delivers context via the SessionStart inject-context hook
+	// carried in the settings surface. claude/codex only.
+	ContextWriteHook
+)
+
+// String renders the context-write approach for diagnostics.
+func (c ContextWrite) String() string { return c.approach().String() }
+
+// approach converts the caller-facing enum to the shared dispatch key.
+func (c ContextWrite) approach() Approach {
+	switch c {
+	case ContextWriteSystemPrompt:
+		return ApproachSystemPrompt
+	case ContextWriteHook:
+		return ApproachHook
+	default:
+		return ApproachUnsafeFile
+	}
+}
+
+// MCPWrite names HOW the MCP surface is delivered. Every backend's MCP surface
+// (where present — codex folds it into settings) has exactly one approach today,
+// so the enum exists for symmetry with ContextWrite and as an extension point.
+type MCPWrite int
+
+// MCPWriteUnsafeFile writes the engine's native MCP file (.mcp.json,
+// mcp_config.json, .kiro/settings/mcp.json).
+const MCPWriteUnsafeFile MCPWrite = iota
+
+// String renders the MCP-write approach for diagnostics.
+func (m MCPWrite) String() string { return m.approach().String() }
+
+// approach converts the caller-facing enum to the shared dispatch key.
+func (m MCPWrite) approach() Approach { return ApproachUnsafeFile }
+
+// SettingsWrite names HOW the settings/hooks surface is delivered (engines that
+// fold MCP or context into it carry the whole folded file along).
+type SettingsWrite int
+
+// SettingsWriteUnsafeFile writes the engine's native settings/hooks file
+// (.claude/settings.json, codex config.toml, .agents/hooks.json, kiro agent JSON).
+const SettingsWriteUnsafeFile SettingsWrite = iota
+
+// String renders the settings-write approach for diagnostics.
+func (w SettingsWrite) String() string { return w.approach().String() }
+
+// approach converts the caller-facing enum to the shared dispatch key.
+func (w SettingsWrite) approach() Approach { return ApproachUnsafeFile }
+
+// SkillsWrite names HOW the skills surface is delivered. Every engine has exactly
+// one approach (the native command/skill dir).
+type SkillsWrite int
+
+// SkillsWriteUnsafeFile writes the engine's native skills/command dir
+// (.claude/commands/, $CODEX_HOME/prompts, .agents/skills/, .kiro/skills/).
+const SkillsWriteUnsafeFile SkillsWrite = iota
+
+// String renders the skills-write approach for diagnostics.
+func (w SkillsWrite) String() string { return w.approach().String() }
+
+// approach converts the caller-facing enum to the shared dispatch key.
+func (w SkillsWrite) approach() Approach { return ApproachUnsafeFile }
+
+// ApproachTable is a backend's DECLARED per-surface approach support — the data
+// half of the per-provider dispatch. Each backend declares one as a literal in
+// its own surfaces.go (the design's "backend advertises its support"): the
+// per-kind slice lists the supported approaches with the FIRST entry as the
+// backend's default (what WithEverything selects); a kind absent from the table
+// is absent/folded for that backend (codex's MCP rides its config surface).
+// The mechanical method bodies (SupportedApproaches / DefaultApproach /
+// SurfaceFor) are shared here so only the TABLES differ per backend — never a
+// re-implemented switch.
+type ApproachTable map[SurfaceKind][]Approach
+
+// Supported returns the declared approaches for kind (nil = kind absent/folded),
+// implementing SurfaceSet.SupportedApproaches over the table.
+func (t ApproachTable) Supported(kind SurfaceKind) []Approach { return t[kind] }
+
+// Default returns the FIRST declared approach for kind — the backend's default —
+// or false when kind is absent/folded, implementing SurfaceSet.DefaultApproach
+// over the table.
+func (t ApproachTable) Default(kind SurfaceKind) (Approach, bool) {
+	if a := t[kind]; len(a) > 0 {
+		return a[0], true
+	}
+	return 0, false
+}
+
+// SurfaceFor resolves one (kind, a) against the table and the backend's
+// kind→surface map, implementing the common skeleton of SurfaceSet.SurfaceFor:
+// the approach is validated against the declared support, then the concrete
+// surface is looked up. backend names the errors. A backend whose resolution is
+// not purely kind-keyed (claude's multi-approach context) handles that arm itself
+// before delegating here.
+func (t ApproachTable) SurfaceFor(backend string, surfaces map[SurfaceKind]Delivery, kind SurfaceKind, a Approach) (Delivery, error) {
+	if !containsApproach(t[kind], a) {
+		return nil, fmt.Errorf("%s: no %s surface via %s", backend, kind, a)
+	}
+	d, ok := surfaces[kind]
+	if !ok {
+		return nil, fmt.Errorf("%s: no %s surface", backend, kind)
+	}
+	return d, nil
+}

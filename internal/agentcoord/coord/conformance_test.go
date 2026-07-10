@@ -179,7 +179,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	for i := 1; i <= 3; i++ {
-		disp, serr := c.AgentSend(ownerIdentity(), out.Harp, "", fmt.Sprintf("follow-up %d", i))
+		disp, serr := c.AgentSend(ownerIdentity(), out.Harp, "", fmt.Sprintf("follow-up %d", i), nil, "")
 		require.NoError(t, serr)
 		assert.Contains(t, disp, "queued")
 	}
@@ -200,11 +200,11 @@ func TestAgentSend_UnknownRecipient(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 
-	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", "", "hello")
+	_, err := c.AgentSend(ownerIdentity(), "nonexistent-harp", "", "hello", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown recipient")
 
-	_, err = c.AgentSend(ownerIdentity(), ParentAddress, "", "hello")
+	_, err = c.AgentSend(ownerIdentity(), ParentAddress, "", "hello", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no parent")
 }
@@ -221,9 +221,9 @@ func TestChildSend_ParentOnly(t *testing.T) {
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 
-	_, err = c.AgentSend(child, ParentAddress, "result", "finding A")
+	_, err = c.AgentSend(child, ParentAddress, "result", "finding A", nil, "")
 	require.NoError(t, err)
-	_, err = c.AgentSend(child, "some-sibling-harp", "", "psst")
+	_, err = c.AgentSend(child, "some-sibling-harp", "", "psst", nil, "")
 	require.ErrorIs(t, err, ErrPeerRouting)
 
 	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
@@ -254,7 +254,7 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	// Drain the synthesized terminal notice so the resume assertion is clean.
 	_, _ = c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
 
-	disp, err := c.AgentSend(ownerIdentity(), out.Harp, "", "one more thing")
+	disp, err := c.AgentSend(ownerIdentity(), out.Harp, "", "one more thing", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "resuming")
 
@@ -325,7 +325,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	gates[1] <- struct{}{}
 	require.Eventually(t, func() bool { return rosterState(c, second.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.AgentSend(ownerIdentity(), first.Harp, "answer", "42")
+	_, err = c.AgentSend(ownerIdentity(), first.Harp, "answer", "42", nil, "")
 	require.NoError(t, err)
 	<-recvDone
 	gates[0] <- struct{}{}
@@ -368,7 +368,7 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"a parked child must not block the queue")
 
-	disp, err := c.AgentSend(ownerIdentity(), first.Harp, "answer", "42")
+	disp, err := c.AgentSend(ownerIdentity(), first.Harp, "answer", "42", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disp, "waiting agent_recv")
 	select {

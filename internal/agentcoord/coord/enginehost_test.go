@@ -30,6 +30,40 @@ type fakeEngineHome struct {
 		Terminal  bool
 	}
 	seq uint64
+
+	// requests (C2) records every plane-2 AgentRequest the engine host
+	// sent; requestFn scripts the response (nil = a canned DECLINE — safe
+	// default a test that doesn't care about approvals never trips over).
+	requests  []*agentcoordpb.AgentRequest
+	requestFn func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
+}
+
+func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	fn := f.requestFn
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(req)
+	}
+	return &agentcoordpb.CoordinatorResponse{
+		Status: okStatus(""),
+		Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
+			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
+		}},
+	}, nil
+}
+
+func (f *fakeEngineHome) requestedApprovals() []*agentcoordpb.ApprovalRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*agentcoordpb.ApprovalRequest
+	for _, r := range f.requests {
+		if a := r.GetApproval(); a != nil {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
@@ -93,6 +127,28 @@ type scriptedChat struct {
 	requests []agent.ChatRequest
 	texts    []string
 	turnGate chan struct{} // non-nil: turns block until released
+
+	// permission (C2), when set, is forwarded as ChatEvent.Permission
+	// before the turn's normal entries — the turn parks until the matching
+	// ChatMessage.Permission answer arrives, and answers records it.
+	permission *agent.PermissionRequest
+	answersMu  sync.Mutex
+	answers    []agent.PermissionAnswer
+}
+
+func (s *scriptedChat) recordedAnswers() []agent.PermissionAnswer {
+	s.answersMu.Lock()
+	defer s.answersMu.Unlock()
+	return append([]agent.PermissionAnswer(nil), s.answers...)
+}
+
+// arm (re-)schedules a permission request to forward on the NEXT turn this
+// scripted chat receives (C2 tests: scripting a second approval ask after
+// the first one resolved).
+func (s *scriptedChat) arm(pr *agent.PermissionRequest) {
+	s.mu.Lock()
+	s.permission = pr
+	s.mu.Unlock()
 }
 
 func (s *scriptedChat) recordedTexts() []string {
@@ -126,16 +182,29 @@ func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-cha
 			if !ok {
 				return nil
 			}
+			if msg.Permission != nil {
+				continue // a stray answer with no pending request in this fixture
+			}
 			if msg.Text == "" {
 				continue
 			}
 			s.mu.Lock()
 			s.texts = append(s.texts, msg.Text)
+			pr := s.permission
+			s.permission = nil // forward at most once, on the first matching turn
 			s.mu.Unlock()
 			if gate != nil {
 				select {
 				case <-gate:
 				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if pr != nil {
+				if !send(agent.ChatEvent{Permission: pr}) {
+					return ctx.Err()
+				}
+				if !s.awaitPermissionAnswer(ctx, in, pr.ID) {
 					return ctx.Err()
 				}
 			}
@@ -145,6 +214,29 @@ func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-cha
 				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
 				!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
 				return ctx.Err()
+			}
+		}
+	}
+}
+
+// awaitPermissionAnswer parks until a ChatMessage.Permission answering id
+// arrives on in, recording it (recordedAnswers). Returns false on ctx death
+// or in closing (the caller treats either as a fatal stream end, matching
+// the rest of this fixture's send() convention).
+func (s *scriptedChat) awaitPermissionAnswer(ctx context.Context, in <-chan agent.ChatMessage, id string) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case msg, ok := <-in:
+			if !ok {
+				return false
+			}
+			if msg.Permission != nil && msg.Permission.ID == id {
+				s.answersMu.Lock()
+				s.answers = append(s.answers, *msg.Permission)
+				s.answersMu.Unlock()
+				return true
 			}
 		}
 	}
@@ -303,4 +395,115 @@ func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
 	// 0.0000015 USD → 1.5 micros → round-half-even → 2.
 	assert.Equal(t, uint64(2), completed.GetResult().GetUsage().GetCostUsdMicros(), "money converts ONCE at the runner boundary, round-half-even")
 	assert.Equal(t, uint32(1), completed.GetResult().GetNumTurns())
+}
+
+// TestEngineHost_ForwardsPermissionAsApprovalRequest is the C2 runner-side
+// unit test, isolated from a real coordinator: a forwarded engine
+// permission request must (1) build an ApprovalRequest with the ACP tool
+// kind classified onto the contract's ApprovalKind, the title, and the raw
+// tool input as the payload; (2) translate the scripted ApprovalDecision
+// back into the matching PermissionOption; (3) journal an InteractionRecorded
+// item whose Detail carries the decision/note — the content the
+// approval_test.go integration tests cannot see directly (items are counted,
+// not materialized, on the coordinator's own journal).
+func TestEngineHost_ForwardsPermissionAsApprovalRequest(t *testing.T) {
+	home := &fakeEngineHome{}
+	home.requestFn = func(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+		return &agentcoordpb.CoordinatorResponse{
+			Status: okStatus(""),
+			Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
+				Decision: agentcoordpb.ApprovalDecision_DECISION_ACCEPT,
+				Note:     "rung 2/2: relay_to_role granted",
+			}},
+		}, nil
+	}
+	sc := &scriptedChat{permission: &agent.PermissionRequest{
+		ID: "perm-9", ToolName: "bash", Kind: "execute", ToolInput: []byte(`{"command":"ls"}`),
+		Options: []agent.PermissionOption{
+			{ID: "allow-1", Kind: "allow_once"},
+			{ID: "reject-1", Kind: "reject_once"},
+		},
+	}}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh.BindHome(home)
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+	// The engine received the matching allow option.
+	require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	ans := sc.recordedAnswers()[0]
+	assert.Equal(t, "perm-9", ans.ID)
+	assert.Equal(t, "allow-1", ans.OptionID)
+
+	// The coordinator saw an ApprovalRequest with the classified kind, the
+	// title, and the tool input as payload.
+	require.Eventually(t, func() bool { return len(home.requestedApprovals()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	approval := home.requestedApprovals()[0]
+	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_COMMAND_EXECUTION, approval.GetKind())
+	assert.Equal(t, "bash", approval.GetTitle())
+	assert.Equal(t, "perm-9", approval.GetItemId())
+	require.NotNil(t, approval.GetPayload())
+	assert.Equal(t, "ls", approval.GetPayload().GetFields()["command"].GetStringValue())
+
+	// The InteractionRecorded item journaled the resolution's detail.
+	require.Eventually(t, func() bool {
+		for _, ev := range home.events {
+			if ev.GetInteraction() != nil {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "an InteractionRecorded event must be emitted")
+	home.mu.Lock()
+	defer home.mu.Unlock()
+	var interaction *agentcoordpb.InteractionRecorded
+	for _, ev := range home.events {
+		if ir := ev.GetInteraction(); ir != nil {
+			interaction = ir
+		}
+	}
+	require.NotNil(t, interaction)
+	assert.Equal(t, "approval", interaction.GetKind())
+	assert.Equal(t, agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED, interaction.GetResolution())
+	assert.Equal(t, "DECISION_ACCEPT", interaction.GetDetail().GetFields()["decision"].GetStringValue())
+	assert.Contains(t, interaction.GetDetail().GetFields()["note"].GetStringValue(), "rung 2/2")
+}
+
+// TestEngineHost_ApprovalDeclineCancels pins the DECLINE/CANCEL translation:
+// a DECLINE picks a reject option; a CANCEL picks NO option at all (the
+// engine's safe cancelled no-op — neither approves nor commits a remembered
+// rejection).
+func TestEngineHost_ApprovalDeclineCancels(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		decision   agentcoordpb.ApprovalDecision_Decision
+		wantOption string
+	}{
+		{name: "decline", decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, wantOption: "reject-1"},
+		{name: "cancel", decision: agentcoordpb.ApprovalDecision_DECISION_CANCEL, wantOption: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := &fakeEngineHome{}
+			home.requestFn = func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+				return &agentcoordpb.CoordinatorResponse{
+					Status: okStatus(""),
+					Kind:   &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{Decision: tc.decision}},
+				}, nil
+			}
+			sc := &scriptedChat{permission: &agent.PermissionRequest{
+				ID: "perm-x", ToolName: "bash", Kind: "execute",
+				Options: []agent.PermissionOption{
+					{ID: "allow-1", Kind: "allow_once"},
+					{ID: "reject-1", Kind: "reject_once"},
+				},
+			}}
+			eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+			eh.BindHome(home)
+			resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+			require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+			require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+			assert.Equal(t, tc.wantOption, sc.recordedAnswers()[0].OptionID)
+		})
+	}
 }

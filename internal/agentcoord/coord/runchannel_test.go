@@ -152,7 +152,7 @@ func TestRunChannel_ParkedRecvPushAndConsume(t *testing.T) {
 		return ch != nil && ch.parked
 	}, conformanceWait, 10*time.Millisecond)
 
-	disposition, err := c.AgentSend(ownerIdentity(), out.Harp, "", "hello child")
+	disposition, err := c.AgentSend(ownerIdentity(), out.Harp, "", "hello child", nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, disposition, "waiting agent_recv")
 
@@ -202,7 +202,7 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 		return ch != nil && ch.parked
 	}, conformanceWait, 10*time.Millisecond)
 
-	_, err := c.AgentSend(ownerIdentity(), out.Harp, "", "fragile")
+	_, err := c.AgentSend(ownerIdentity(), out.Harp, "", "fragile", nil, "")
 	require.NoError(t, err)
 	select {
 	case msgs := <-got:

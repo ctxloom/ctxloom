@@ -101,7 +101,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "second task")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "second task", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -189,7 +189,7 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 
 	// A later send resumes the harp as a fresh run...
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "carry on")
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "carry on", nil, "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 10*time.Millisecond,

@@ -134,6 +134,11 @@ type fakeAgent struct {
 	profiles    []string
 	unknown     bool
 	viaStartRun bool // route this agent over the migrated StartRun path
+	// ladder (C2) is an explicit test escalation ladder; nil derives the
+	// perm preset (mirrors prodSpawner.Resolve's buildLadder-or-preset
+	// call), so tests that don't care about approvals see prod-shaped
+	// defaults.
+	ladder Ladder
 }
 
 func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
@@ -164,6 +169,10 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 		return nil, gerr
 	}
 	s.resolved = append(s.resolved, agentName)
+	ladder := a.ladder
+	if ladder == nil {
+		ladder = presetLadder(perm)
+	}
 	return &SpawnPlan{
 		AgentName:   agentName,
 		Backend:     "mock",
@@ -172,6 +181,7 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 		Runtime:     a.runtime,
 		Context:     "FRAG-ONE",
 		Perm:        perm,
+		Ladder:      ladder,
 		Degraded:    degraded,
 		ViaStartRun: a.viaStartRun,
 	}, nil

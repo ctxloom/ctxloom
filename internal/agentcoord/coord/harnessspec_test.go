@@ -41,12 +41,15 @@ func TestHarnessSpec_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "child-harp-9", out.SessionHarp)
 	assert.Equal(t, agent.ChatRequest{
-		WorkDir:         "/work/child-1",
-		Model:           "claude-sonnet-5",
-		Env:             map[string]string{"CTXLOOM_PROJECT_ID": "proj-1"},
-		Permissions:     agent.PermissionBypass,
-		MCPServers:      []agent.ChatMCPServer{{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}},
-		ResumeSessionID: "native-sess-1",
+		WorkDir:     "/work/child-1",
+		Model:       "claude-sonnet-5",
+		Env:         map[string]string{"CTXLOOM_PROJECT_ID": "proj-1"},
+		Permissions: agent.PermissionBypass,
+		// C2: the migrated path always forwards permissions now — the
+		// coordinator's escalation ladder is the decider, not the driver.
+		ForwardPermissions: true,
+		MCPServers:         []agent.ChatMCPServer{{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}},
+		ResumeSessionID:    "native-sess-1",
 	}, out.Chat)
 }
 

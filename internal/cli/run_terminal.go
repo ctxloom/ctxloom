@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/vpio"
 	"golang.org/x/term"
 )
 
@@ -38,4 +39,22 @@ func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *pb.WindowSize,
 		})
 	}
 	return os.Stdin, watchResize(ctx, os.Stdin), restore
+}
+
+// pumpResize is the above-the-seam half of SIGWINCH→Resize plumbing: it
+// ranges over a terminal-size channel (from watchResize, optionally rewired
+// through the termui surround) and relays each event onto a vpio.Session's
+// Resize method. The below-the-seam half — actually putting the resize on
+// the wire — lives entirely inside the vpio.Launcher implementation
+// (internal/vpio/goplugin). A nil channel is a no-op: oneshot runs never
+// wire resize, matching the pre-extraction `if resize != nil` guard.
+func pumpResize(session vpio.Session, resize <-chan *pb.WindowSize) {
+	if resize == nil {
+		return
+	}
+	go func() {
+		for ws := range resize {
+			session.Resize(ws.Rows, ws.Cols)
+		}
+	}()
 }

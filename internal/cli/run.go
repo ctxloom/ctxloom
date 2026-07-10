@@ -31,6 +31,8 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/vpio"
+	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
 
 var (
@@ -991,8 +993,12 @@ Examples:
 		}
 
 		// For an interactive run the frontend owns the terminal: raw mode + stdin
-		// + resize are pumped over the bidi Run stream to the controller's pty.
-		// Oneshot runs need none of that.
+		// + resize are pumped over the VIRTUALIZED-PROCESS-IO (vpio) seam —
+		// internal/vpio — to the controller's pty. Oneshot runs need none of
+		// that. Everything in this block stays above the seam: it references
+		// only pb.WindowSize (the wire's resize payload shape, not a transport
+		// call) and vpio types from here down, never a transport client method
+		// directly.
 		var stdin io.Reader
 		var stdout io.Writer = os.Stdout
 		var resize <-chan *pb.WindowSize
@@ -1019,21 +1025,33 @@ Examples:
 				}
 			}
 			// Deferred via closure (the value above may be the composed one) so
-			// a panic inside client.Run can't strand the shell in raw mode.
+			// a panic inside the session can't strand the shell in raw mode.
 			// restoreTerm is idempotent; the inline call below still restores
 			// before any normal-path output.
 			defer func() { restoreTerm() }()
 		}
 
-		// Run the AI plugin
-		exitCode, err := client.Run(ctx, req, stdin, stdout, os.Stderr, resize)
+		// Run the AI plugin over the vpio seam. goplugin.Launcher is the seam's
+		// SWAP POINT: it wraps the existing go-plugin Run stream (client.Run,
+		// unchanged) below the seam; a future docker-exec or host-pty
+		// vpio.Launcher plugs in here without this call site changing.
+		session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
+			Stdin:  stdin,
+			Stdout: stdout,
+			Stderr: os.Stderr,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to start plugin: %w", err)
+		}
+		pumpResize(session, resize)
+		status, err := session.Wait()
 		restoreTerm()
 		if err != nil {
 			return fmt.Errorf("AI plugin failed: %w", err)
 		}
 
-		if exitCode != 0 {
-			return &ExitError{Code: int(exitCode)}
+		if status.Code != 0 {
+			return &ExitError{Code: int(status.Code)}
 		}
 
 		return nil

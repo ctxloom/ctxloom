@@ -25,6 +25,7 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 |---|---|---|
 | **control-plane** | Everything before the wire: user-facing configuration & setup, profile/bundle/context assembly, isolation policy, and spawning the runner into its worktree/container. Owns what the user configures; transmits it. | `internal/cli/run.go`, `internal/config`, `internal/lm/isolation`, `internal/lm/backends` (assembly) |
 | **wire** | The network-agnostic control-plane→runner transport. Carries **all** data the runner needs; assumes **no** shared filesystem (the runner may be remote). | gRPC (`SetupRequest`, plugin server) |
+| **virtualized-process-io (vpio)** | The host-side transport for an interactive agent **turn**, formalized behind one interface so the frontend (raw-terminal ownership, SIGWINCH→resize plumbing, the termui surround, stdin-close semantics, exit propagation) never touches a transport directly. Distinct from the **wire**: the wire carries the *loadout*, once, before the turn starts; vpio carries the *turn itself* (stdio + resize + signal + exit), for as long as it runs. Current (only) implementation: **go-plugin** — wraps the existing hashicorp/go-plugin-backed bidirectional `Run` RPC (`internal/lm/grpc`, `llm.proto`'s `Run`); the wire protocol is unchanged, only the host-side call shape is. Registered future swaps (not yet implemented): **docker-exec** (attach to an already-running container's process via `docker exec -it`, for the container-isolation runtime) and **host-pty** (a bare local pty-spawned process, for a non-plugin engine). | `internal/vpio` (`Launcher`/`Session`/`ProcessSpec`/`ExitStatus`); go-plugin impl `internal/vpio/goplugin`; consumers `internal/cli/run.go`, `internal/cli/init.go` |
 | **runner** | Everything after the wire: receives transmitted config/content, **materializes it locally** (the delivery seam), and drives the engine. Neutral about mechanism — it may spawn a process or call an API. | `internal/shared/agent` (`LaunchBackend`) + the per-engine backends |
 | **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / kiro / antigravity backends |
 | **provider** / **model** | Standard sub-terms *beneath* an engine, for the model/API layer: `provider` = the vendor (Anthropic/OpenAI), `model` = the specific LLM. Industry-standard pair (Vercel AI SDK, opencode, Goose, Cline, LiteLLM, OpenRouter) — do not coin here. | (config for API-backed engines) |
@@ -47,6 +48,13 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
   noun for "the CLI-product-or-direct-API backend a tool drives." The category
   words ("coding agent", "CLI agent", Zed/ACP "external agent") all collide with
   "agent." "engine" is unclaimed at this layer, so we use it.
+- **"virtualized-process-io" names the role, not the transport.** go-plugin,
+  docker-exec, and host-pty are three different ways to get bytes in and out
+  of something that *behaves like* an interactive process (a pty-driven
+  stdio/resize/signal/exit contract) even when — as with go-plugin today —
+  there is no literal local process to attach to (it's a bidi RPC stream to
+  an already-running subprocess). "vpio" names that shared behavioral
+  contract so the transport can change without the frontend caring.
 - **"provider" + "model" comply with industry** for the model/API sub-layer only.
   We do *not* stretch "provider" to mean the engine — established "provider" means
   the vendor (Anthropic), not the product (claude-code), and would imply API-first.

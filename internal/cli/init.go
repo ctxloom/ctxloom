@@ -24,6 +24,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/vpio"
+	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -469,7 +471,19 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	}()
 	defer signal.Stop(sigCh)
 
-	_, err = client.Run(ctx, req, runStdin, os.Stdout, os.Stderr, resize)
+	// Run the discovery session over the vpio seam (internal/vpio) — the same
+	// go-plugin-wrapping goplugin.Launcher `ctxloom run`'s interactive path
+	// uses, so both callers share one transport implementation.
+	session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
+		Stdin:  runStdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+	if err != nil {
+		return fmt.Errorf("AI session failed to start: %w", err)
+	}
+	pumpResize(session, resize)
+	_, err = session.Wait()
 	restoreTerm()
 	if err != nil {
 		return fmt.Errorf("AI session ended: %w", err)

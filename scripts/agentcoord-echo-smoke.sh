@@ -3,8 +3,8 @@
 #
 # Drives a real ctxloom session that delegates one turn to a configured agent
 # and asserts the child echoes a marker phrase back through the coordinator's
-# durable role mailbox — the whole B1 reach-back path end to end (spawn →
-# coordinator MCP endpoint → agent_send → parent agent_recv).
+# durable role mailbox — the whole reach-back path end to end (spawn → runner
+# unix-socket MCP → RunChannel plane-2 → durable mailbox → parent agent_recv).
 #
 #   scripts/agentcoord-echo-smoke.sh [--agent NAME] [--runtime host|container]
 #
@@ -33,13 +33,15 @@ agentcoord-echo-smoke.sh — the sonnet `coder` echo (Wave B acceptance 1)
                      (default: print the plan and exit 0 — a self-smoke)
   -h, --help         this help
 
-The live round-trip:
-  1. `ctxloom run` stands up the coordinator (durable stores + MCP endpoint +
-     RunnerChannel) and injects CTXLOOM_COORD_URL / _CRED into the harness.
-  2. The harness calls agent_run(agent=<AGENT>, prompt="echo back exactly: <MARKER>").
-  3. The child forwards its ctxloom MCP tools to the coordinator (forward mode),
-     runs, and agent_send(to:"parent") the marker.
-  4. The parent agent_recv sees the marker → PASS.
+The live round-trip (B1.6 runner-terminated topology):
+  1. `ctxloom run` stands up the runtime coordinator (durable stores + gRPC
+     RunnerChannel/RunChannel) and stamps CTXLOOM_COORD_URL / _CRED onto the
+     RUNNER's spawn env; the runner serves MCP on a local unix socket the
+     harness's stdio shim forwards to (CTXLOOM_MCP_SOCKET).
+  2. The harness calls agent_run(role=<AGENT>, input.prompt="echo ... <MARKER>").
+  3. The child's runner turns its agent_send(to_role:"parent") into a typed
+     plane-2 PeerSendRequest back to the coordinator.
+  4. The parent's agent_recv sees the marker → PASS.
 USAGE
 }
 
@@ -62,7 +64,7 @@ esac
 # build_prompt is the unit-tested seam: the exact briefing the parent gives the
 # child, which must be echoed verbatim.
 build_prompt() {
-	printf 'Immediately call agent_send(to:"parent", kind:"result", body:"%s") with that exact text, then stop.' "$1"
+	printf 'Immediately call agent_send(to_role:"parent", text:"%s") with that exact text, then stop.' "$1"
 }
 
 if [ "$LIVE" -ne 1 ]; then
@@ -94,7 +96,7 @@ cleanup() {
 }
 trap cleanup EXIT
 prompt="$(build_prompt "$MARKER")"
-coordinator_brief="Call agent_run(agent:\"$AGENT\", prompt:\"$prompt\"). Then call agent_recv (wait:120) and print any message body you receive. Then stop."
+coordinator_brief="Call agent_run(role:\"$AGENT\", input:{prompt:\"$prompt\"}). Then call agent_recv (wait:120) and print any message text you receive. Then stop."
 
 # CTXLOOM_VERBOSE=1 turns on the CHILD-side launch diagnostics: the
 # coordinator's spawner forwards the child `llm serve` plugin's stderr (which

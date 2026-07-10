@@ -35,7 +35,7 @@ check "self-smoke exit code" "0" "$rc"
 check_contains "default agent in plan" "agent:   coder" "$out"
 check_contains "default runtime in plan" "runtime: host" "$out"
 check_contains "default marker in plan" "hello world via ctxloom" "$out"
-check_contains "plan builds the echo prompt" 'agent_send(to:"parent"' "$out"
+check_contains "plan builds the echo prompt" 'agent_send(to_role:"parent"' "$out"
 
 # 2. Flags flow into the plan.
 out="$(bash "$script" --agent reviewer --runtime container --marker "PONG-42")"

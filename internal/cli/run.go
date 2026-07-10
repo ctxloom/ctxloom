@@ -785,8 +785,13 @@ Examples:
 		// back HERE. A standup failure is a fatal finding (fail-loud):
 		// --degraded downgrades it and the harness's shim falls back to its
 		// own local orchestrator.
+		// Print (oneshot) runs host the coordinator too: the parent routes
+		// through its own runner in every topology, so a headless
+		// coordinator brief (the echo smoke) exercises the same
+		// runner-terminated path as an interactive session — the bare-mcp
+		// shim fallback is for externally-launched harnesses only.
 		var runnerSpawnEnv map[string]string
-		if activeHarp != "" && !runPrint {
+		if activeHarp != "" {
 			if sessionCoord, coordEnv, cerr := hostCoordinatorForSession(cfg, workDir, activeHarp, agentRuntime); cerr != nil {
 				strictness.Fail(strictness.ClassApply,
 					"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation reach-back",

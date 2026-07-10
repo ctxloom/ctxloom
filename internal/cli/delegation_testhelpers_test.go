@@ -57,6 +57,24 @@ func headlessAgent(profiles ...string) agents.Agent {
 // stays alive without a real engine. The coord conformance suite covers the
 // delegation semantics; here we only need the production spawn path to reach a
 // live child.
+//
+// Wave C4 mock/test migration note: this fixture uses config.LLMConfig{Type:
+// "mock"} (backend "mock"), which is StructuredChat but NOT on the
+// coordinator's ViaStartRun allowlist (coord/spawner.go's
+// viaStartRunBackends) — so it deliberately rides the delegated-child
+// go-plugin Chat dial (operations/delegate.go's Start, non-oneshot branch)
+// rather than StartRun. That is NOT redundant with the coord package's own
+// fakeSpawner-based conformance suite (delegation SEMANTICS: turn ordering,
+// D3, resume, roster, approvals — see conformance_test.go and friends): this
+// fixture exists only to reach a REAL *coord.Coordinator (production
+// prodSpawner, not coord's unexported/package-internal fakeSpawner) so the
+// CLI tool-handler PLUMBING can be pinned end-to-end. Faking that over
+// StartRun instead would require simulating a whole runner process dialing
+// home over RunnerChannel/RunChannel (coord's own fakeSpawner.StartEngine
+// does exactly this, in-package) — a materially bigger fixture for a test
+// that does not care which transport carried the turn. Left as-is,
+// consciously: it is the surviving legacy-dial consumer this wave's
+// reachability proof accounts for, not a migration gap.
 type fakeChatEngine struct {
 	mu    sync.Mutex
 	texts []string

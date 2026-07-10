@@ -251,6 +251,21 @@ func (p *PreparedAgentChat) StartEngine(context.Context) (*AgentEngineProcess, e
 
 // Start spawns the child and opens its turn stream. ctx bounds the child's
 // whole lifetime (the orchestrator's, not one tool call's).
+//
+// Wave C4 KILL-LIST VERIFICATION (R13-scoped): the branch below is the
+// delegated-child go-plugin Chat dial. It was NOT deleted — grepping
+// coord/children.go's two call sites (runChild, resumeChild) shows it is
+// reached ONLY when `!(plan.ViaStartRun && url != "")`, i.e. exactly two
+// documented, intentional cases: (a) a StructuredChat backend outside the
+// coordinator's ViaStartRun allowlist (coord/spawner.go's
+// viaStartRunBackends — today, no production backend; only test doubles),
+// and (b) C1's documented degraded-mode no-reach-back spawn fallback (a
+// StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and no
+// coordinator endpoint reachable — the runner could never dial home, so
+// StartRun is impossible and this is the only way the child launches at
+// all). Both are real, reachable, and intentional — this is NOT the general
+// delegated-child path anymore (claude/codex/kiro/acp with reach-back always
+// ride StartRun), so it stays, narrowly scoped and documented as such.
 func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error) {
 	if p.oneshot {
 		return p.startOneshot(ctx), nil

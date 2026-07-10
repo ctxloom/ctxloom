@@ -379,3 +379,71 @@ func TestApproval_PlanPresetAutoDeclinesFileChange(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, "auto_decline", entries[0].Detail["action"])
 }
+
+// TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder is the Wave C4
+// opportunistic pickup of C2 residual 3: C2 only proved the escalation
+// ladder never touches the legacy go-plugin Chat dial via a STRUCTURAL
+// zero-diff argument (the ladder lives entirely inside the StartRun/
+// RunChannel machinery a legacy child never attaches to), not a runtime
+// test. C4's kill-list verification confirms a legacy consumer still
+// exists post-kill (the degraded no-reach-back fallback + any
+// non-allowlisted StructuredChat backend — see delegate.go's Start doc), so
+// the test is not moot: it spawns a LEGACY (non-StartRun) child alongside a
+// MIGRATED child that walks the full plan-preset approval-relay round trip,
+// and pins that the two run entirely independently — the legacy child never
+// touches the plane-1 approval item journal, keeps taking turns unaffected
+// by its sibling's ladder activity, and the migrated child's relay resolves
+// exactly as TestApproval_RelayRoundTrip proves in isolation.
+func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
+	resetStrictness(t)
+	permReq := commandExecRequest("perm-legacy-sibling")
+	sp := newFakeSpawner(map[string]fakeAgent{
+		"worker": {perm: "plan", runtime: "container", profiles: []string{"p1"}, viaStartRun: true},
+		// "legacy" declares no viaStartRun (zero value: false) — it rides
+		// fakeSpawner.Launch, the legacy go-plugin Chat dial's test analog.
+		"legacy": {perm: "bypass", profiles: []string{"p1"}},
+	}, func() *fakeEngine { return &fakeEngine{} })
+	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
+	c := newTestCoordinator(t, sp, nil)
+
+	legacyOut, err := c.AgentRun(context.Background(), ownerIdentity(), "legacy", "hello")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := sp.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the legacy child must take its first turn")
+
+	workerOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+	require.NoError(t, err)
+	var msgs []Message
+	require.Eventually(t, func() bool {
+		msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+		return err == nil && len(msgs) == 1
+	}, conformanceWait, 10*time.Millisecond, "the migrated child's relay must land in the parent's mailbox")
+	msg := msgs[0]
+	assert.Equal(t, "approval_request", msg.Kind)
+
+	decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT", "note": "reviewed"})
+	require.NoError(t, err)
+	_, err = c.AgentSend(ownerIdentity(), workerOut.Harp, "", "reviewed", decision, msg.ID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		sc := sp.chat(0)
+		return sc != nil && len(sc.recordedAnswers()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the migrated child must receive the coordinator's decision")
+	assert.Equal(t, "allow-1", sp.chat(0).recordedAnswers()[0].OptionID)
+
+	// The legacy child never touched the plane-1 approval item journal (that
+	// fold is keyed by run_id; only the migrated child's StartRun run ever
+	// wrote to it) and keeps taking turns, unaffected by its sibling's ladder
+	// activity.
+	c.items.View(func() {
+		assert.Zero(t, c.itemsF.countsFor(legacyOut.RunID)["interaction"],
+			"the legacy child never rides the plane-1 approval item journal")
+	})
+	_, err = c.AgentSend(ownerIdentity(), legacyOut.Harp, "", "second turn", nil, "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return len(sp.engine(0).recordedTexts()) == 2
+	}, conformanceWait, 10*time.Millisecond, "the legacy child keeps taking turns independent of its migrated sibling's ladder activity")
+}

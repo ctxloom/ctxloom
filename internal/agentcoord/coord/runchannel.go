@@ -33,6 +33,19 @@ const (
 	// current state after a reconnect.
 	CustomRecvParked   = "ctxloom/recv_parked"
 	CustomRecvUnparked = "ctxloom/recv_unparked"
+	// CustomHarnessSession reports the harness-NATIVE session id the moment
+	// the engine host learns it (the ACP Session event) — the coordinator
+	// journals it (run.harness fact) as the resume handle, so a child killed
+	// mid-run can respawn with HarnessSpec.resume_session_id. Value:
+	// {"session_id": "..."}.
+	CustomHarnessSession = "ctxloom/harness_session"
+	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
+	// transitions: started when engine output begins a turn, idle at its
+	// completion boundary. The coordinator folds them into the §6a roster
+	// state (executing/idle) and the D4 slot accounting — the migrated
+	// path's replacement for the coordinator-side driveChild state machine.
+	CustomTurnStarted = "ctxloom/turn_started"
+	CustomTurnIdle    = "ctxloom/turn_idle"
 	// CustomToolPrefix namespaces host-relay tool requests
 	// (CustomRequest{name: "ctxloom/<tool>"}).
 	CustomToolPrefix = "ctxloom/"

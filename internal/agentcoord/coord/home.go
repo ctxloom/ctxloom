@@ -53,6 +53,14 @@ type Home struct {
 	returned []string
 	park     *homePark
 	parked   bool
+	// turnQ/turnPending are the ENGINE-HOST turn-delivery seam (§6a,
+	// runner-side): once a hosted engine registers a sink (SetTurnSink), a
+	// pushed PeerMessage with no recv parked is queued here in arrival
+	// order and handed to the engine as a NEW TURN; the pump emits the
+	// mail_consumed fact only AFTER the engine accepted it (at-least-once
+	// preserved — a crash between notice and hand-off re-delivers).
+	turnQ       chan *agentcoordpb.PeerMessage
+	turnPending map[string]bool
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
@@ -113,14 +121,15 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	hctx, cancel := context.WithCancel(ctx)
 	h := &Home{
-		cfg:      cfg,
-		ctx:      hctx,
-		cancel:   cancel,
-		conn:     conn,
-		ackCh:    make(chan struct{}),
-		pending:  make(map[string]*homeReq),
-		consumed: make(map[string]bool),
-		linkDone: make(chan struct{}),
+		cfg:         cfg,
+		ctx:         hctx,
+		cancel:      cancel,
+		conn:        conn,
+		ackCh:       make(chan struct{}),
+		pending:     make(map[string]*homeReq),
+		consumed:    make(map[string]bool),
+		turnPending: make(map[string]bool),
+		linkDone:    make(chan struct{}),
 	}
 	go h.runnerChannelLoop()
 	go h.runChannelLoop()
@@ -306,11 +315,18 @@ func (h *Home) advanceAck(seq uint64) {
 	h.ackCh = make(chan struct{})
 }
 
-// deliverNotice buffers one pushed PeerMessage (deduped on message_id
-// against the buffer and consumption history) and completes a parked recv.
+// deliverNotice routes one pushed PeerMessage (deduped on message_id against
+// the buffer, the turn queue, and consumption history) by the runner's state
+// — the §6a delivery-by-state seam, runner side:
+//
+//  1. a PARKED recv → complete it (the harness is actively polling);
+//  2. no park but a hosted ENGINE registered a turn sink → queue for
+//     delivery as a NEW TURN (arrival order; the pump below);
+//  3. neither → buffer for a future recv (pre-engine window, or a
+//     shim-only child without a hosted engine).
 func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	h.mu.Lock()
-	if h.consumed[pm.GetMessageId()] {
+	if h.consumed[pm.GetMessageId()] || h.turnPending[pm.GetMessageId()] {
 		h.mu.Unlock()
 		return
 	}
@@ -319,6 +335,16 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 			h.mu.Unlock()
 			return
 		}
+	}
+	if p := h.park; (p == nil || p.done) && h.turnQ != nil {
+		h.turnPending[pm.GetMessageId()] = true
+		q := h.turnQ
+		h.mu.Unlock()
+		select {
+		case q <- pm:
+		case <-h.ctx.Done():
+		}
+		return
 	}
 	h.buffer = append(h.buffer, pm)
 	p := h.park
@@ -332,6 +358,86 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	h.mu.Unlock()
 	if msgs != nil {
 		p.ch <- msgs
+	}
+}
+
+// turnQueueCap bounds the engine turn-delivery queue. Far above any realistic
+// mailbox depth; enqueue blocks (never drops) if ever reached.
+const turnQueueCap = 256
+
+// SetTurnSink registers a hosted engine's turn-delivery seam: sink hands one
+// coordinator-delivered message to the engine as a new turn, returning
+// whether the engine accepted it (false = engine gone; the message returns
+// to the buffer). Already-buffered messages (queued before the engine
+// started) drain through the sink first, in arrival order. One sink per
+// Home — a runner hosts one run.
+func (h *Home) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
+	h.mu.Lock()
+	if h.turnQ != nil {
+		h.mu.Unlock()
+		return
+	}
+	q := make(chan *agentcoordpb.PeerMessage, turnQueueCap)
+	for _, pm := range h.buffer {
+		h.turnPending[pm.GetMessageId()] = true
+		q <- pm // fresh buffered channel: never blocks (buffer << cap)
+	}
+	h.buffer = nil
+	h.turnQ = q
+	h.mu.Unlock()
+	go h.turnPump(q, sink)
+}
+
+// turnPump serializes turn deliveries (one at a time, arrival order) and
+// emits the mail_consumed fact only AFTER the engine accepted the message —
+// the turn path's analog of the recv cursor-ack: a runner crash between the
+// pushed notice and the hand-off re-delivers on reattach (at-least-once,
+// deduped on message_id at both ends).
+func (h *Home) turnPump(q <-chan *agentcoordpb.PeerMessage, sink func(*agentcoordpb.PeerMessage) bool) {
+	for {
+		select {
+		case pm := <-q:
+			ok := sink(pm)
+			h.mu.Lock()
+			delete(h.turnPending, pm.GetMessageId())
+			if ok {
+				h.consumed[pm.GetMessageId()] = true
+			} else {
+				h.buffer = append(h.buffer, pm) // engine gone: back to the recv buffer
+			}
+			h.mu.Unlock()
+			if ok {
+				h.emitCustomEvent(CustomMailConsumed, map[string]any{"message_ids": []any{pm.GetMessageId()}})
+			}
+		case <-h.ctx.Done():
+			return
+		}
+	}
+}
+
+// ReportRunExited sends a best-effort RunExited on the live lifecycle link
+// WITHOUT tearing the home down — the engine host's chat-ended signal (the
+// runner process itself stays up until the coordinator kills it; the
+// coordinator's loss synthesis covers a link that is down).
+func (h *Home) ReportRunExited(exitCode int, harnessSessionID string, terminalEventSeen bool) {
+	if h.cfg.RunID == "" {
+		return // a session-owner runner hosts no spawned run
+	}
+	h.mu.Lock()
+	link := h.link
+	h.mu.Unlock()
+	if link == nil {
+		return
+	}
+	if err := link.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_RunExited{
+		RunExited: &agentcoordpb.RunExited{
+			RunId:             h.cfg.RunID,
+			ExitCode:          int32(exitCode),
+			HarnessSessionId:  harnessSessionID,
+			TerminalEventSeen: terminalEventSeen,
+		},
+	}}); err != nil {
+		clidiag.Warn("ctxloom", "runner: report RunExited: %v (coordinator will synthesize loss)", err)
 	}
 }
 

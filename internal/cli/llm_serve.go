@@ -75,13 +75,29 @@ var llmServeCmd = &cobra.Command{
 		// below is what accepts the Chat/Run that spawns it — assert, don't
 		// race). A dial failure is a warning, never a launch blocker: the
 		// coordinator synthesizes RunExited on runner loss either way.
+		//
+		// A SPAWNED run's runner (RunID set) whose backend speaks
+		// StructuredChat also stands up the ENGINE HOST: the coordinator's
+		// StartRun launches the conversation IN-PROCESS here (Wave C1) —
+		// the go-plugin Chat RPC is never dialed for a delegated child;
+		// go-plugin remains only this process's spawn/kill transport.
 		var home *coord.Home
 		if homeCfg.URL != "" && homeCfg.Token != "" {
+			var engineHost *coord.EngineHost
+			if homeCfg.RunID != "" {
+				if sc, ok := backend.(agent.StructuredChat); ok {
+					engineHost = coord.NewEngineHost(cmd.Context(), sc, backendName, homeCfg.RunID)
+					homeCfg.Engine = engineHost.Handle
+				}
+			}
 			h, herr := coord.NewHome(cmd.Context(), homeCfg)
 			if herr != nil {
 				clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 			} else {
 				home = h
+				if engineHost != nil {
+					engineHost.BindHome(home)
+				}
 				if cfg != nil {
 					if endpoint, merr := serveRunnerMCP(cfg, harp, home); merr != nil {
 						clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)

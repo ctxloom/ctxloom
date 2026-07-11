@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -482,5 +483,183 @@ func TestInject_DeliveryModes(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.Inject("foreign-session-harp", "hello?")
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNotInjectable, "a non-child target is the typed refusal, not just any error")
+}
+
+// TestInject_MirrorDigestTruncatesLongText pins the O3 mirror's 120-rune
+// digest bound (coordinator.go's injectDigestRunes/injectDigest, :560): a
+// digest over the bound is truncated AT A RUNE boundary (not bytes — the
+// probe text below is multi-byte per rune) with the "… (N chars total)"
+// suffix; the full text still reaches the CHILD verbatim (queueMail's first
+// call takes the untruncated body — only the parent-facing mirror digests).
+func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := sp.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	long := strings.Repeat("π", 130) // 130 RUNES (2 bytes each) — proves rune counting, not byte counting
+	_, err = c.Inject(out.Harp, long)
+	require.NoError(t, err)
+
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, KindUserInjected, msgs[0].Kind)
+	wantDigest := string([]rune(long)[:120]) + "… (130 chars total)"
+	assert.Equal(t, wantDigest, msgs[0].Body)
+
+	gate <- struct{}{} // release the held turn so the child's turnGate goroutine doesn't leak past the test
+	require.Eventually(t, func() bool {
+		texts := sp.engine(0).recordedTexts()
+		return len(texts) == 2 && texts[1] == long
+	}, conformanceWait, 10*time.Millisecond, "the child itself receives the injection VERBATIM, undigested")
+}
+
+// TestInject_WakesIdleChildAsNewTurn pins the DeliveryNewTurn mode: injecting
+// into a child idling at a turn boundary (no queued mail) wakes it into a
+// fresh turn carrying the injected text (driveQueued's StateIdle branch,
+// coordinator.go:551).
+func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+
+	mode, err := c.Inject(out.Harp, "wake up")
+	require.NoError(t, err)
+	assert.Equal(t, DeliveryNewTurn, mode)
+
+	require.Eventually(t, func() bool {
+		texts := sp.engine(0).recordedTexts()
+		return len(texts) == 2 && texts[1] == "wake up"
+	}, conformanceWait, 10*time.Millisecond)
+
+	// The O3 mirror fires for every delivery mode, this one included.
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, KindUserInjected, msgs[0].Kind)
+}
+
+// TestInject_ResumesEndedChild pins the DeliveryResumed mode: injecting into
+// a child whose session already ended relaunches it (coordinator.go's
+// driveQueued StateEnded branch -> resumeChild), the injected text riding
+// the resumed session's first turn — the same resume mechanics
+// TestAgentSend_ResumesEndedChild pins for agent_send, now proven for the
+// user-injection seam.
+func TestInject_ResumesEndedChild(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} })
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+	// Drain the synthesized terminal notice (KindExited) so the mirror
+	// assertion below is clean. terminateRun journals the Ended state before
+	// it queues the exited notice (children.go:691), so the two Evenutallys
+	// above and below close a real — if narrow — window; retry-drain rather
+	// than a single fixed-timeout recv (a flat 20ms drain raced this and
+	// occasionally left the exited notice to arrive bundled with the mirror).
+	require.Eventually(t, func() bool {
+		msgs, _ := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
+		for _, m := range msgs {
+			if m.Kind == KindExited {
+				return true
+			}
+		}
+		return false
+	}, conformanceWait, 10*time.Millisecond, "the ended child's terminal notice never reached the parent")
+
+	mode, err := c.Inject(out.Harp, "one more thing")
+	require.NoError(t, err)
+	assert.Equal(t, DeliveryResumed, mode)
+
+	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		e := sp.engine(1)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	resumedFirst := sp.engine(1).recordedTexts()[0]
+	assert.Contains(t, resumedFirst, "one more thing", "the injected text is the resumed session's first turn")
+	assert.Contains(t, resumedFirst, "FRAG-ONE", "the agent's composed context primes the resume")
+
+	// The resumed engine shares the spawner's endAfterTurns:1 script too (it
+	// completes its own one turn and exits), so a SECOND KindExited notice
+	// may land alongside the O3 mirror here — search for the mirror rather
+	// than asserting an exact count.
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	var mirrors []Message
+	for _, m := range msgs {
+		if m.Kind == KindUserInjected {
+			mirrors = append(mirrors, m)
+		}
+	}
+	require.Len(t, mirrors, 1, "exactly one O3 mirror for this one injection")
+	assert.Equal(t, out.Harp, mirrors[0].From)
+}
+
+// TestInject_CompletesParkedRecvWithUserSenderIdentity pins two invariants
+// together: the child mail Inject queues is sent from UserSender ("user"),
+// distinguishable from its parent's own messages — and when the target
+// itself is parked in its OWN agent_recv (independent of the coordinator-
+// driven turn loop — the same parking TestParkedRecvYieldsSlot/
+// TestAgentRun_TwoChildrenAndSlotHandoff exercise), Inject completes that
+// parked receive directly (DeliveryCompletedRecv), not merely a turn-
+// boundary queue.
+func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
+		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		e := sp.engine(0)
+		return e != nil && len(e.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond)
+
+	recvDone := make(chan []Message, 1)
+	go func() {
+		msgs, _ := c.AgentRecv(context.Background(), Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}, conformanceWait)
+		recvDone <- msgs
+	}()
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
+
+	mode, err := c.Inject(out.Harp, "direct note")
+	require.NoError(t, err)
+	assert.Equal(t, DeliveryCompletedRecv, mode)
+
+	select {
+	case msgs := <-recvDone:
+		require.Len(t, msgs, 1)
+		assert.Equal(t, UserSender, msgs[0].From, "the child sees the injection came from the user, not its parent")
+		assert.Equal(t, "direct note", msgs[0].Body)
+	case <-time.After(conformanceWait):
+		t.Fatal("the parked recv never completed")
+	}
+
+	// The O3 mirror still reaches the parent even on the completed-recv path.
+	pmsgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	require.Len(t, pmsgs, 1)
+	assert.Equal(t, KindUserInjected, pmsgs[0].Kind)
+
+	gate <- struct{}{} // release the held turn so its goroutine doesn't leak past the test
 }

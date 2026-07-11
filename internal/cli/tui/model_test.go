@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -421,4 +422,62 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 	m2, _ = step(t, m2, keyMsg("i"))
 	assert.False(t, m2.injecting)
 	assert.Contains(t, m2.errMsg, "inject unavailable")
+}
+
+// F1 deliverable 5 (opportunistic unit gaps): View() layouts not yet
+// asserted — roster windowing around the selection (model.go:616's
+// rosterLines), padCell truncation (:643), and header/follow title states.
+
+func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
+	assert.Equal(t, "hi   ", padCell("hi", 5), "short strings are space-padded to width")
+	assert.Equal(t, "hell…", padCell("hello world", 5), "long strings truncate to width-1 runes plus an ellipsis")
+	assert.Equal(t, "", padCell("anything", 0), "a non-positive width truncates to empty")
+}
+
+func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
+	rows := make([]RosterRow, 20)
+	for i := range rows {
+		rows[i] = RosterRow{Harp: fmt.Sprintf("h%d", i), State: "live"}
+	}
+	f := newFakeSources(t.TempDir(), rows...)
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	// contentHeight() for the quick panel is testGeo().PanelRows-2 = 8, so
+	// with 20 rows the pane can't show them all — select the LAST row and
+	// confirm the window scrolled to keep it visible while the first row
+	// falls out of view. moveDown updates m.sel (and m.feedHarp, via
+	// openFeed) synchronously before returning its cmd — rosterLines only
+	// reads m.sel/m.rows, so the returned feed-open cmd need not be driven
+	// here (unlike the feed-content tests elsewhere in this file).
+	for range rows[1:] {
+		m, _ = step(t, m, keyMsg("j"))
+	}
+	view := m.View()
+	assert.Contains(t, view, "h19", "the selected (last) row stays visible")
+	assert.NotContains(t, view, "h0", "the far-scrolled-past first row leaves the visible window")
+}
+
+func TestModel_HeaderShowsAgentEngineMetaSourceAndFollowMarker(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", Agent: "dev", Engine: "claude-code", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	view := m.View()
+	assert.Contains(t, view, "feed: h1 (dev·claude-code) · live · ▼ follow")
+}
+
+func TestModel_HeaderOmitsFollowMarkerWhenNotFollowing(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f, nil), f)
+	m, _ = step(t, m, keyMsg("j")) // consume the first-key chord window
+	m, _ = step(t, m, keyMsg("f")) // after the first key, f toggles follow off
+
+	view := m.View()
+	assert.Contains(t, view, "feed: h1")
+	assert.NotContains(t, view, "▼ follow")
+}
+
+func TestModel_HeaderPlaceholderWithNoFeedSelected(t *testing.T) {
+	f := newFakeSources(t.TempDir())
+	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
+	assert.Contains(t, m.View(), "feed: —")
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -386,25 +387,48 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 
 	// session_id is recorded forward by the `ctxloom hook session-bind`
 	// SessionStart hook (see sessionBindCmd), which reads it straight from
-	// the backend's documented hook payload. A harp with no bound ID never
-	// started a backend session under that hook — there is nothing to
-	// distill, so fail clearly rather than guess at a binding.
+	// the backend's documented hook payload. A container-runtime harp's
+	// bind hook runs INSIDE the container, though, and the host session
+	// index (~/.ctxloom/sessions/index.yaml) is deliberately not mounted in
+	// (only <harp>/persist* and tasks are) — so a container harp's
+	// session_id never gets bound host-side, even though its transcript IS
+	// reachable host-side (operations.GetSession already resolved
+	// entry.TranscriptPath for it via fillTranscriptByLocation). Load the
+	// session by that path instead of failing; only hard-error when we have
+	// neither a bound id nor a transcript path — genuinely nothing to
+	// distill.
 	sessionID := entry.SessionID
+	var preloaded *agent.Session
 	if sessionID == "" {
-		return fmt.Errorf("harp %q has no session_id bound; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
+		if entry.TranscriptPath == "" {
+			return fmt.Errorf("harp %q has no session_id bound and no transcript path recorded; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
+		}
+		hist, herr := operations.HistoryForBackend(backendName)
+		if herr != nil {
+			return fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
+		}
+		preloaded, err = hist.GetSessionByPath(entry.TranscriptPath)
+		if err != nil {
+			return fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, err)
+		}
 	}
 
 	// Progress notes go to stderr as best-effort status.
 	progress := iox.NewErrWriter(cmd.ErrOrStderr())
-	progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
+	if sessionID != "" {
+		progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
+	} else {
+		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
+	}
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:       cfg.GetCompactionLLM(),
-		Model:     cfg.GetCompactionModel(),
-		Backend:   backendName,
-		ChunkSize: cfg.GetCompactionChunkSize(),
-		SessionID: sessionID,
-		WorkDir:   entry.ProjectDir,
-		HarpName:  harpName,
+		LLM:              cfg.GetCompactionLLM(),
+		Model:            cfg.GetCompactionModel(),
+		Backend:          backendName,
+		ChunkSize:        cfg.GetCompactionChunkSize(),
+		SessionID:        sessionID,
+		PreloadedSession: preloaded,
+		WorkDir:          entry.ProjectDir,
+		HarpName:         harpName,
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

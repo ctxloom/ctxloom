@@ -72,6 +72,25 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 		return nil, fmt.Errorf("send run start: %w", err)
 	}
 
+	// Neither a keystroke source nor a resize source: nothing else will ever
+	// be sent on this stream (oneshot, or an interactive turn whose frontend
+	// has no real tty — see interactiveTerminal). Half-close the send
+	// direction now instead of leaving it open for the whole run. The
+	// server's Recv loop (server.go's Run) treats a Recv error — which
+	// CloseSend causes immediately via io.EOF — as "the frontend is done
+	// sending" and closes its own resizeCh/stdin pipe on exactly that signal.
+	// ptyrunner's pre-Start wait (initialResizeWait) is keyed off that
+	// channel closing (the already-correct ok==false fast path), so this
+	// turns what was an unconditional 300ms blind wait into an immediate
+	// start. CloseSend is a normal bidi-stream lifecycle call (not a new wire
+	// message) and is safe here because no pump goroutine below will ever
+	// run concurrently with it in this branch.
+	if stdin == nil && resize == nil {
+		sendMu.Lock()
+		_ = stream.CloseSend()
+		sendMu.Unlock()
+	}
+
 	// Pump keystrokes. At end of run the goroutine is typically parked in
 	// stdin.Read; it exits when that read returns (error, or a stray byte the
 	// dead stream rejects). For the one-shot `ctxloom run` process the parked

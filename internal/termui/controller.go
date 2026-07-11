@@ -28,13 +28,19 @@ type Overlay interface {
 // OverlayFactory builds a fresh overlay per engagement.
 type OverlayFactory func() Overlay
 
-// OverlayGeometry is the real terminal size plus the quick panel's height
-// budget (the controller owns the panel-region policy so it can clear exactly
-// that region on disengage).
+// OverlayGeometry is the overlay's DRAWABLE terminal size: Rows is the real
+// terminal's row count with the surround's reserved bottom row already
+// subtracted (Cols is unaffected — the reservation is rows-only), exactly
+// like the engine's own viewport (ResizeTranslator.Translate). PanelRows is
+// the quick panel's height budget on top of that. Because Rows already
+// excludes the reserved row, neither the panel (rows Rows−PanelRows+1..Rows)
+// nor a full-screen presentation (whose content height is Rows) can ever
+// address it. The controller owns the panel-region policy so it can clear
+// exactly that region on disengage.
 type OverlayGeometry struct {
 	Cols, Rows int
-	// PanelRows is the quick panel's height, bar row included: the overlay's
-	// bottom PanelRows rows of the screen.
+	// PanelRows is the quick panel's height: the overlay's bottom PanelRows
+	// rows of the DRAWABLE screen (Rows above).
 	PanelRows int
 }
 
@@ -117,6 +123,15 @@ func New(opts Options) *Controller {
 	c.gate = NewOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
 	c.sur.SetEngineIdle(c.gate.LastWriteNanos)
 	c.sur.SetPaintSafe(guard.SafeForPaint)
+	// Erase the primary screen once at terminal takeover. The session picker and
+	// startup lines render as plain text on the primary screen; the surround's
+	// DECSTBM (emitted by SetSize below) homes the cursor but erases nothing, and
+	// the child engine then paints its onboarding prompts with cursor-addressed
+	// writes that leave the picker's characters in the cells they don't touch —
+	// producing a cell-level interleave. Clear here, before the bar is painted, so
+	// the surround and child both draw onto a clean screen. ED 2 (not 3) keeps the
+	// picker output in scrollback rather than nuking it.
+	_, _ = io.WriteString(opts.TTY, "\x1b[H\x1b[2J")
 	c.rt = NewResizeTranslator(opts.Resize, c.sur.Reserve(), c.sur.SetSize)
 	c.ic = NewInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
 		Engage:       c.engage,
@@ -196,7 +211,13 @@ func (c *Controller) engage() io.Writer {
 		c.sessionMu.Unlock()
 		return nil
 	}
-	geo := OverlayGeometry{Cols: cols, Rows: rows, PanelRows: panelRows(rows)}
+	// The overlay draws only the DRAWABLE rows — the same
+	// reservation-subtracted height the engine's own viewport gets
+	// (ResizeTranslator.Translate is the single source of truth for that
+	// subtraction) — so its content can never reach the surround's reserved
+	// bottom row.
+	drawable := int(c.rt.Translate(&pb.WindowSize{Rows: uint32(rows), Cols: uint32(cols)}).Rows)
+	geo := OverlayGeometry{Cols: cols, Rows: drawable, PanelRows: panelRows(drawable)}
 	c.overlayMu.Lock()
 	c.overlay = ov
 	c.overlayMu.Unlock()

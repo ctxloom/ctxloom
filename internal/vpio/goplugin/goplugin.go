@@ -68,6 +68,21 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 	// doesn't park forever — mirrors the pre-extraction contract, where the
 	// SIGWINCH-sourced channel itself closed on ctx.Done() (see
 	// internal/cli/run_resize_unix.go).
+	//
+	// NOTE (DEFECT T2, deliberately NOT fixed here): a run.go caller whose
+	// interactive turn has no real tty passes a nil ProcessSpec.Stdin, and
+	// above-the-seam's pumpResize is then a no-op — so in that case nothing
+	// will ever call Session.Resize below, and this resizeCh sits live,
+	// unfed, and open until ctx.Done() (i.e. the whole run), forcing
+	// ptyrunner's pre-Start wait to always run its full initialResizeWait.
+	// Deciding "no resize is coming" from spec.Stdin here was tried and
+	// reverted: it broke TestSession_ResizeRelaysOntoTheWire, which
+	// deliberately calls Resize with a nil-Stdin ProcessSpec and expects it
+	// to relay — Session.Resize is documented as independent of Stdin, so a
+	// Launcher cannot infer "no resize ever" from Stdin's nilness alone.
+	// Fixing this properly needs an explicit "no resize" signal from the
+	// caller (e.g. a new vpio.ProcessSpec field, threaded from run.go's own
+	// nil-resize local), which is outside the files this fix is scoped to.
 	go func() {
 		<-ctx.Done()
 		s.stop()

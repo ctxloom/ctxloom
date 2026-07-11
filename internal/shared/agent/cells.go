@@ -139,6 +139,14 @@ type SurfaceInputs struct {
 	Hooks            *wire.HooksConfig
 	ManageStatusline bool
 	Skills           []CommandExport
+	// SelfContainedSkills, when true, tells a backend's skills surface to
+	// materialize skills WITHOUT deduping against the delivering machine's own
+	// skill/command directories (e.g. claude's ~/.claude/commands) — for portable
+	// `profile materialize --target` artifacts whose launch environment is not
+	// this host. Live launch, `manage hooks install` apply, and container
+	// delivery all share their process/home with the launch environment, so they
+	// leave this false (the default) and keep self-resolving dedup ON.
+	SelfContainedSkills bool
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A

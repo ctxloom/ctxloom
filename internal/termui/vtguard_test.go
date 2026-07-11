@@ -144,6 +144,55 @@ func TestVTGuard_ByteFidelityUnderArbitraryChunking(t *testing.T) {
 	}
 }
 
+// TestVTGuard_ChildDECSCSlotLifecycle pins the single-slot DECSC guard: an open
+// child save (ESC 7) blocks paints, a DECRC (ESC 8) reopens them, a second ESC 7
+// keeps it closed (not a depth), and a RIS resets the slot. Byte output stays
+// verbatim throughout — only the paint-boundary verdict changes.
+func TestVTGuard_ChildDECSCSlotLifecycle(t *testing.T) {
+	g, _ := newTestGuard(23)
+	assert.True(t, g.SafeForPaint(), "ground: paints allowed")
+
+	assert.Equal(t, "\x1b7", filterAll(g, "\x1b7"))
+	assert.False(t, g.SafeForPaint(), "open child DECSC blocks a bar paint")
+
+	// A second DECSC is still one slot — the flag stays set, not a stack.
+	assert.Equal(t, "\x1b7", filterAll(g, "\x1b7"))
+	assert.False(t, g.SafeForPaint(), "a second DECSC keeps the slot occupied")
+
+	assert.Equal(t, "\x1b8", filterAll(g, "\x1b8"))
+	assert.True(t, g.SafeForPaint(), "one DECRC releases the slot")
+
+	// RIS resets the saved-cursor slot even with a save outstanding.
+	filterAll(g, "\x1b7")
+	assert.False(t, g.SafeForPaint())
+	filterAll(g, "\x1bc")
+	assert.True(t, g.SafeForPaint(), "RIS clears the saved-cursor slot")
+}
+
+// TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave is the R2 starvation
+// guard: a soft reset (DECSTR) and an alt-screen leave (1049l) both reset/consume
+// the terminal's saved-cursor slot, so a child DECSC left open before them no
+// longer holds a cell. The guard must clear childSaved on those paths or it
+// starves every bar paint until a far-off DECRC/RIS.
+func TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave(t *testing.T) {
+	t.Run("DECSTR", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		filterAll(g, "\x1b7")
+		assert.False(t, g.SafeForPaint(), "open child DECSC blocks paints")
+		filterAll(g, "\x1b[!p") // DECSTR: resets the saved-cursor slot
+		assert.True(t, g.SafeForPaint(),
+			"DECSTR resets the saved slot; childSaved must clear, not starve paints")
+	})
+	t.Run("alt-screen-leave", func(t *testing.T) {
+		g, _ := newTestGuard(23)
+		filterAll(g, "\x1b7")
+		assert.False(t, g.SafeForPaint())
+		filterAll(g, "\x1b[?1049l") // leave alt screen: restores/consumes the slot
+		assert.True(t, g.SafeForPaint(),
+			"alt-screen leave consumes the saved slot; childSaved must clear")
+	})
+}
+
 func TestVTGuard_AbortedStringReprocessesEscape(t *testing.T) {
 	g, _ := newTestGuard(23)
 	// An ESC inside an OSC that is NOT an ST aborts the string and starts a

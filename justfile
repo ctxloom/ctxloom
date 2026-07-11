@@ -12,7 +12,7 @@ export GOWORK := "off"
 # Standardized stamp format across the ctxloom family:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
 # versionator emits the compact datetime (no separator); sed inserts the 'T'.
-version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); d=$(versionator output version -t "{{Dirty}}" 2>/dev/null); if [ -n "$d" ]; then echo "$v-dirty"; else echo "$v"; fi; else echo dev; fi`
 
 # ===== Version management (versionator) =====
 

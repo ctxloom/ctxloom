@@ -115,6 +115,11 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 		}
 	}()
 	t.Cleanup(func() {
+		// Close drains any in-flight overlay goroutine (engage → runOverlay)
+		// by waiting on sessionMu; without it that goroutine can outlive the
+		// test and read the nowNanos seam concurrently with the next test's
+		// swap of it (a cross-test data race). tearHarness already Closes here.
+		h.c.Close()
 		_ = pw.Close()
 		close(h.src)
 		<-h.pumpEnd
@@ -155,7 +160,7 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("overlay never started")
 	}
-	assert.Equal(t, 24, geo.Rows)
+	assert.Equal(t, 23, geo.Rows, "geo.Rows is the DRAWABLE height (real 24 rows minus the surround's 1-row reservation)")
 	assert.Equal(t, 80, geo.Cols)
 	assert.Equal(t, 8, geo.PanelRows, "bottom third floored at 8 rows")
 	assert.Contains(t, h.tty.String(), "\x1b7\x1b[r",
@@ -173,7 +178,7 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	h.overlay.release <- nil
 	waitFor(t, "held output replayed", func() bool { return strings.Contains(h.tty.String(), "HELD-OUTPUT") })
 	out := h.tty.String()
-	clearAt := strings.LastIndex(out, "\x1b[17;1H\x1b[J") // rows−panel+1 = 24−8+1
+	clearAt := strings.LastIndex(out, "\x1b[16;1H\x1b[J") // drawable−panel+1 = (24−1)−8+1
 	regionAt := strings.LastIndex(out, "\x1b[1;23r")
 	cursorAt := strings.LastIndex(out, "\x1b8")
 	replayAt := strings.Index(out, "HELD-OUTPUT")
@@ -190,6 +195,76 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	// Interceptor is back to passthrough.
 	_, _ = h.stdinW.Write([]byte("typed-after"))
 	waitFor(t, "passthrough restored", func() bool { return h.engine.String() == "typed-after" })
+}
+
+// TestController_EngageGeometryExcludesReservedRow is DEFECT D: the overlay
+// used to be handed the FULL terminal height (geo.Rows == the real terminal
+// rows), so its last content row (geo.Rows−geo.PanelRows+1 .. geo.Rows)
+// landed exactly on the surround's reserved bar row (real row `rows`). The
+// overlay must instead be handed the DRAWABLE rows — the same
+// reservation-subtracted height the engine's own viewport gets
+// (ResizeTranslator.Translate) — so neither the quick panel nor a
+// full-screen presentation (whose totalHeight is geo.Rows) can ever address
+// that row.
+func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
+	h := newCtlHarness(t, nil)
+	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+
+	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
+	require.NoError(t, err)
+	var geo OverlayGeometry
+	select {
+	case geo = <-h.overlay.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("overlay never started")
+	}
+
+	const realRows = 24
+	assert.Equal(t, realRows-SurroundReserve, geo.Rows,
+		"the overlay's Rows is the DRAWABLE height (real rows minus the surround's reservation)")
+
+	lastContentRow := geo.Rows - geo.PanelRows + 1 + geo.PanelRows - 1
+	assert.LessOrEqual(t, lastContentRow, realRows-SurroundReserve,
+		"the overlay's last content row must never reach the reserved bar row (real row %d)", realRows)
+	assert.Equal(t, geo.Rows, lastContentRow, "sanity: last content row is exactly geo.Rows")
+}
+
+// TestController_ResizeWhileEngagedDoesNotRepaintBar is the suspend-guard
+// defect: Surround.SetSize did not check s.suspended, so a SIGWINCH arriving
+// while the overlay owns the screen repainted the bar (and re-established
+// DECSTBM) directly on top of the live overlay. While suspended, a resize
+// must update recorded size state (so ResumeSequence and the translator pick
+// up the new dimensions) without writing anything to the tty; the repaint is
+// deferred to ResumeSequence on release.
+func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
+	h := newCtlHarness(t, nil)
+	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+
+	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
+	require.NoError(t, err)
+	select {
+	case <-h.overlay.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("overlay never started")
+	}
+
+	before := h.tty.String()
+	h.src <- &pb.WindowSize{Rows: 30, Cols: 100} // SIGWINCH while engaged
+	// The resize's translated size still reaches the (held) engine viewport —
+	// that path is unaffected by suspension — but nothing may land on the
+	// live tty: no DECSTBM re-assert, no bar repaint.
+	ws := h.drainTranslated(t)
+	assert.Equal(t, uint32(29), ws.Rows, "the translated size still reflects the new dimensions")
+	assert.Equal(t, before, h.tty.String(), "a resize while the overlay owns the screen must not paint the tty")
+
+	// Release: the NEW size (recorded during suspension) must be what
+	// ResumeSequence re-establishes, proving the resize wasn't just dropped.
+	h.overlay.release <- nil
+	waitFor(t, "resume with the new size", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;29r") })
 }
 
 func TestController_DoublePressLiteralAbortsOverlay(t *testing.T) {

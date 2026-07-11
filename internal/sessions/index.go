@@ -65,6 +65,16 @@ type Entry struct {
 	// when the session isn't distilled.
 	Distilled   bool   `yaml:"-" json:"distilled"`
 	EssencePath string `yaml:"-" json:"essence_path,omitempty"`
+
+	// LastActivity is the last-worked time used to order the resume picker:
+	// most-recent-first by actual activity, not by session creation. Computed
+	// on read (see ActivityTime) from the transcript's mtime when available,
+	// falling back to StartedAt for a session that has no transcript yet or
+	// whose transcript can't be stat'd. Never persisted and never exposed over
+	// the JSON wire (`session list --format json`) — the same computed-on-read,
+	// local-only posture as Distilled/EssencePath — so this is purely an
+	// in-memory ordering aid.
+	LastActivity time.Time `yaml:"-" json:"-"`
 }
 
 // Index is the on-disk form of the session index.
@@ -408,8 +418,32 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 	return &out, nil
 }
 
+// ActivityTime returns e's last-worked time for resume-picker ordering: the
+// transcript's mtime when TranscriptPath is set and stat succeeds, falling
+// back to StartedAt for a never-worked session (no transcript bound/located
+// yet) or one whose transcript can no longer be stat'd. Exported so a caller
+// merging in rows that never went through ListForProject (e.g. run.go's
+// raw/not-yet-adopted backend transcript rows) can compute the same signal
+// without duplicating the fallback logic.
+//
+// Callers should compute this ONCE per entry — e.g. stash it in
+// Entry.LastActivity as ListForProject does below — rather than calling it
+// from inside a sort comparator: a stat per comparison does not scale to a
+// large index (100+ sessions means O(n log n) stats instead of O(n)).
+func ActivityTime(e Entry) time.Time {
+	if e.TranscriptPath != "" {
+		if info, err := os.Stat(e.TranscriptPath); err == nil {
+			return info.ModTime()
+		}
+	}
+	return e.StartedAt
+}
+
 // ListForProject returns entries whose ProjectDir == projectDir, sorted
-// most-recent-first. Used by the picker.
+// most-recent-first by last-worked time (transcript mtime, falling back to
+// StartedAt — see ActivityTime), not by creation time. A session that keeps
+// getting resumed and worked must stay above a newer-CREATED-but-untouched
+// one. Used by the picker.
 func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	idx, err := m.Load()
 	if err != nil {
@@ -419,10 +453,19 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
 			fillTranscriptByLocation(&e)
+			// Computed once per entry here, not inside the sort comparator.
+			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastActivity.Equal(out[j].LastActivity) {
+			return out[i].LastActivity.After(out[j].LastActivity)
+		}
+		// Deterministic tiebreak: same activity time (e.g. both fell back to
+		// StartedAt, or transcripts stat'd to the same mtime granularity).
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
 	return out, nil
 }
 

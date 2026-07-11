@@ -177,12 +177,13 @@ func init() {
 		// a wellKnownPlacement is fine.
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 			return claude.NewSurfaces(claude.SurfaceInputs{
-				Context:          in.Context,
-				MCP:              in.MCP,
-				BundleMCP:        in.BundleMCP,
-				Hooks:            in.Hooks,
-				ManageStatusline: in.ManageStatusline,
-				Skills:           in.Skills,
+				Context:             in.Context,
+				MCP:                 in.MCP,
+				BundleMCP:           in.BundleMCP,
+				Hooks:               in.Hooks,
+				ManageStatusline:    in.ManageStatusline,
+				Skills:              in.Skills,
+				SelfContainedSkills: in.SelfContainedSkills,
 			}, wellKnownPlacement{}, fs)
 		},
 		exports:              claudeExports,

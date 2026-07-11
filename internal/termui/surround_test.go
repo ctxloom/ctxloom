@@ -104,6 +104,45 @@ func TestSurround_SuspendResume(t *testing.T) {
 	assert.Contains(t, tty.String(), "kid→ended", "painting works again after resume")
 }
 
+// TestSurround_SetSizeWhileSuspendedDoesNotPaint is the suspend-guard
+// defect: SetSize did not check s.suspended, so a resize arriving while an
+// overlay owns the screen (Suspend) painted the bar / re-established the
+// scroll region directly onto the tty, clobbering the live overlay. The new
+// size must still be RECORDED (so ResumeSequence and the resize translator
+// pick up the new dimensions on release) but nothing may reach the tty until
+// then.
+func TestSurround_SetSizeWhileSuspendedDoesNotPaint(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	s.Suspend()
+	tty.Reset()
+
+	s.SetSize(30, 100) // SIGWINCH while the overlay is engaged
+	assert.Empty(t, tty.String(), "a resize while suspended must not write to the tty")
+
+	seq := string(s.ResumeSequence())
+	assert.Contains(t, seq, "\x1b[1;29r", "resume re-establishes the region at the NEW (recorded) size")
+	assert.NotContains(t, seq, "\x1b[1;23r", "the stale pre-resize region must not be what resume re-establishes")
+}
+
+// TestSurround_SetSizeWhileSuspendedTracksReservationActiveFlip covers the
+// edge where a resize during suspension crosses the minRowsForReserve
+// threshold: the active flag must reflect the LATEST size so ResumeSequence
+// makes the right call (paint or not) without ever painting mid-suspension.
+func TestSurround_SetSizeWhileSuspendedTracksReservationActiveFlip(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	s.Suspend()
+	tty.Reset()
+
+	s.SetSize(4, 80) // shrink below minRowsForReserve while suspended
+	assert.Empty(t, tty.String(), "no tty write while suspended, even on a reservation-deactivating resize")
+
+	assert.Nil(t, s.ResumeSequence(), "resume must not re-establish a region the terminal is now too small for")
+}
+
 func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h", PrefixHint: "^]"})

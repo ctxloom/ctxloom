@@ -221,7 +221,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	waitForComposition(t, "held output replayed", func() bool { return strings.Contains(tty.String(), "HELD-OUTPUT") })
 
 	out := tty.String()
-	clearAt := strings.LastIndex(out, "\x1b[17;1H\x1b[J") // rows-panelRows+1 = 24-8+1
+	clearAt := strings.LastIndex(out, "\x1b[16;1H\x1b[J") // drawable-panelRows+1 = (24-1)-8+1
 	regionAt := strings.LastIndex(out, "\x1b[1;23r")
 	cursorAt := strings.LastIndex(out, "\x1b8")
 	replayAt := strings.Index(out, "HELD-OUTPUT")

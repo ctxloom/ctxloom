@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -239,14 +240,26 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 
 	targetSessionID := in.SessionID
 	if targetSessionID == "" {
-		sessions, err := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("list sessions: %w", err)
+		// Identity-first: the active harp's own session-index binding is the exact
+		// transcript for the current session — set once, at bind time, and never
+		// touched again. An mtime-position pick is unreliable here because Claude
+		// Code (and other backends) rewrite/touch a transcript file when a session
+		// is resumed, so "newest by mtime" is not reliably "the session that just
+		// ended" (seedy-apron). Only fall back to the mtime pick when the harp is
+		// unbound (the SessionStart bind hook never fired) or its bound backend
+		// doesn't match the one being read from.
+		activeEntry, _ := operations.GetSession(s.self.Harp)
+		targetSessionID = recoverTargetSessionID(activeEntry, backendName, nil, fileExists)
+		if targetSessionID == "" {
+			sessionsList, err := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
+			if err != nil {
+				return nil, nil, fmt.Errorf("list sessions: %w", err)
+			}
+			if len(sessionsList) == 0 {
+				return nil, &loadSessionResult{Loaded: false, Message: "No sessions found."}, nil
+			}
+			targetSessionID = recoverTargetSessionID(nil, backendName, sessionsList, fileExists)
 		}
-		if len(sessions) == 0 {
-			return nil, &loadSessionResult{Loaded: false, Message: "No sessions found."}, nil
-		}
-		targetSessionID = sessions[0].ID
 	}
 
 	// Recover targets the live current session, which is still growing. Normally
@@ -255,6 +268,33 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	// re-distilling — a cached essence from an earlier /clear in this same session
 	// covers only an earlier slice. redistillWhenUnknown=true encodes that bias.
 	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, true)
+}
+
+// recoverTargetSessionID resolves which session recover_session should target
+// when the caller didn't pass one explicitly. It prefers the active harp's own
+// index-bound session id (identity, exact) over mtimeSessions[0] (a
+// mtime-position pick that a resumed/touched transcript elsewhere can
+// invalidate) — UNLESS the bound entry's transcript no longer exists on disk
+// (rotated/deleted, a stale index entry left over from an earlier session):
+// trusting a dead id would skip the mtime listing and return an id nothing
+// can load, so a stale binding degrades to the mtime fallback exactly like an
+// unbound harp (FINDING #4). transcriptExists is injected (production passes
+// fileExists) so this stays pure for testability; mtimeSessions is assumed
+// most-recent-first (every backend's ListSessions ordering). Called twice by
+// the handler: first with mtimeSessions=nil (identity-only probe, so the —
+// potentially subprocess-spawning — mtime listing is skipped whenever
+// identity resolves), then with activeEntry=nil once the listing has
+// actually been fetched.
+func recoverTargetSessionID(activeEntry *sessions.Entry, backendName string, mtimeSessions []agent.SessionMeta, transcriptExists func(string) bool) string {
+	if activeEntry != nil && activeEntry.SessionID != "" &&
+		(activeEntry.Backend == "" || activeEntry.Backend == backendName) &&
+		(activeEntry.TranscriptPath == "" || transcriptExists(activeEntry.TranscriptPath)) {
+		return activeEntry.SessionID
+	}
+	if len(mtimeSessions) > 0 {
+		return mtimeSessions[0].ID
+	}
+	return ""
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
@@ -284,9 +324,13 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		return nil, nil, fmt.Errorf("backend %q not found", backendName)
 	}
 
-	// Fallback for pre-binding history (no index entry): the second-most-recent
-	// transcript in the agent's own store is the previous one (the most recent is
-	// the active session).
+	// Fallback for pre-binding history (no index entry): pick the newest
+	// transcript in the agent's own store that ISN'T the active session's own
+	// bound id (when known), rather than assuming the active session is
+	// positionally first (metas[0]) and blindly taking metas[1] as "previous" —
+	// a transcript touched elsewhere (e.g. by a resume) can out-rank the active
+	// session by mtime and shift every position by one, so a blind index-1 pick
+	// can return the active session itself or an unrelated foreign transcript.
 	if sessionID == "" {
 		metas, lerr := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
 		if lerr != nil {
@@ -294,9 +338,11 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 			// tool error: warn and fall through to the "no previous session" result.
 			clidiag.Warn("ctxloom", "list previous sessions: %v", lerr)
 		}
-		if len(metas) >= 2 {
-			sessionID = metas[1].ID
+		activeSessionID := ""
+		if activeEntry, aerr := operations.GetSession(s.self.Harp); aerr == nil && activeEntry != nil {
+			activeSessionID = activeEntry.SessionID
 		}
+		sessionID = previousSessionFromMtime(activeSessionID, metas)
 	}
 
 	if sessionID == "" {
@@ -307,6 +353,37 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	}
 
 	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, false)
+}
+
+// previousSessionFromMtime is the last-resort pick for get_previous_session
+// when the session index has no authoritative "previous" entry (pre-binding
+// history, or a project the index has never seen): the newest-by-mtime
+// transcript other than activeSessionID (when known), instead of assuming the
+// active session sits at position 0. Pure for testability; metas is assumed
+// most-recent-first. Returns "" when nothing remains (e.g. the store holds
+// only the active session, or is empty).
+//
+// When activeSessionID is unknown (""), metas[0] cannot be ruled out — during
+// a live session it in fact IS the active session, since a growing transcript
+// ranks newest by mtime. Returning it would hand the caller their own live
+// session as "previous" (strictly worse than the old positional metas[1]
+// pick this replaced). So the no-active-known case assumes metas[0] is the
+// active session and returns metas[1] (the second-newest) instead — never
+// metas[0].
+func previousSessionFromMtime(activeSessionID string, metas []agent.SessionMeta) string {
+	if activeSessionID == "" {
+		if len(metas) < 2 {
+			return ""
+		}
+		return metas[1].ID
+	}
+	for _, m := range metas {
+		if m.ID == activeSessionID {
+			continue
+		}
+		return m.ID
+	}
+	return ""
 }
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.

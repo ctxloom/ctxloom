@@ -47,17 +47,24 @@ func (m *MemStore) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	return append([]Entry(nil), survivors...), nil
 }
 
-// ListForProject returns entries for projectDir, most-recent-first.
+// ListForProject returns entries for projectDir, most-recent-first by
+// last-worked time (see ActivityTime), matching *Manager.ListForProject.
 func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Entry
 	for _, e := range m.sessions {
 		if e.ProjectDir == projectDir {
+			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastActivity.Equal(out[j].LastActivity) {
+			return out[i].LastActivity.After(out[j].LastActivity)
+		}
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
 	return out, nil
 }
 

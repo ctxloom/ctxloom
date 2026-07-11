@@ -51,6 +51,13 @@ type CompactionConfig struct {
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
+	// PreloadedSession, when set, is returned directly by loadSessionToCompact
+	// instead of resolving a session id through source/CurrentSession. Used by
+	// container-harp distill: the SessionStart bind hook runs inside the
+	// container and never reaches the host's session index, so the host only
+	// knows the mounted transcript path, not a session id. The caller loads the
+	// session by path itself and hands it in here.
+	PreloadedSession *agent.Session
 }
 
 // CompactionResult holds the result of a compaction operation.
@@ -249,12 +256,44 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
 	}
 
+	if c.config.PreloadedSession != nil {
+		return c.config.PreloadedSession, nil
+	}
+
+	explicitSessionID := c.config.SessionID != ""
+	sessionID := c.config.SessionID
+	if !explicitSessionID {
+		// Identity-first: when a harp is known, its session-index binding is the
+		// exact transcript for the current session — set once at bind time and
+		// never touched again. CurrentSession's mtime-newest pick is unreliable
+		// here because a backend rewrites/touches a transcript file when a
+		// session is resumed, so "newest by mtime" is not reliably "the session
+		// that just ended" (seedy-apron). Only fall back to CurrentSession when
+		// there's no harp (e.g. a bare `ctxloom memory compact` outside any
+		// tracked session) or it isn't bound yet (bind hook never fired).
+		sessionID = c.identityBoundSessionID()
+	}
+
 	var session *agent.Session
 	var err error
-	if c.config.SessionID != "" {
-		session, err = c.source.GetSession(ctx, c.config.SessionID)
+	if sessionID != "" {
+		session, err = c.source.GetSession(ctx, sessionID)
 		if err != nil {
-			return nil, fmt.Errorf("get session %s: %w", c.config.SessionID, err)
+			if explicitSessionID {
+				// The caller (e.g. `session distill <harp>`) asked for exactly
+				// this session — never silently substitute another one.
+				return nil, fmt.Errorf("get session %s: %w", sessionID, err)
+			}
+			// The identity-bound id came from the index, not the caller, and its
+			// transcript no longer exists (rotated/deleted — a stale index
+			// entry). Recovery must never block (CLAUDE.md fault tolerance): fall
+			// through to CurrentSession, the same genuine last resort the
+			// empty-SessionID path always used before identity-first binding was
+			// added (FINDING #5).
+			session, err = c.source.CurrentSession(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("get current session: %w", err)
+			}
 		}
 	} else {
 		session, err = c.source.CurrentSession(ctx)
@@ -351,6 +390,33 @@ func (c *Compactor) resolveHarpName() string {
 		return c.config.HarpName
 	}
 	return os.Getenv("CTXLOOM_SESSION_HARP")
+}
+
+// identityBoundSessionID returns the session id bound to this compactor's harp
+// in the session index, or "" when there is no harp, no index entry, the entry
+// isn't bound yet (SessionStart hasn't fired), or the entry's recorded backend
+// doesn't match the one this compactor is reading from (a bound id is only
+// valid within its own backend's transcript store). Best-effort: an index read
+// failure degrades to "" so distillation still proceeds via the mtime-based
+// CurrentSession fallback rather than erroring — recovery must never block
+// (CLAUDE.md fault tolerance).
+func (c *Compactor) identityBoundSessionID() string {
+	harpName := c.resolveHarpName()
+	if harpName == "" {
+		return ""
+	}
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return ""
+	}
+	entry, _ := mgr.Find(harpName)
+	if entry == nil || entry.SessionID == "" {
+		return ""
+	}
+	if entry.Backend != "" && entry.Backend != c.config.Backend {
+		return ""
+	}
+	return entry.SessionID
 }
 
 // updateSessionIndex best-effort records the session ID against the harp (so a

@@ -266,6 +266,40 @@ func TestFileTemplateDelivery_DeliverSkills_HomeScopeDeliveryDisablesDedup(t *te
 	assert.Contains(t, string(manifest), "recover.md", "a home-scope delivery must still manifest-track its write")
 }
 
+// TestFileTemplateDelivery_DeliverSkills_SelfContainedSkipsHomeDedup verifies
+// the materialize-only opt-out (sour-feed): `profile materialize --target` must
+// produce a PORTABLE, self-contained tree, so a skill that happens to be
+// deduped against the DELIVERING machine's ~/.claude/commands must still land
+// in the target when selfContainedSkills is set — the launch environment is
+// not this host and would otherwise silently lose it. The default (false)
+// behavior — dedup against home, as live launch/apply/container want — must be
+// unchanged.
+func TestFileTemplateDelivery_DeliverSkills_SelfContainedSkipsHomeDedup(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
+	writeRenderedHomeCommand(t, fakeHome, dup)
+
+	// Default (false): unchanged — still dedups against home.
+	projectDir := t.TempDir()
+	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
+	_, err := d.DeliverSkills([]agent.CommandExport{dup})
+	require.NoError(t, err)
+	assert.NoFileExists(t, filepath.Join(projectDir, ".claude", "commands", "recover.md"),
+		"default (non-self-contained) delivery must still dedup against home")
+
+	// selfContainedSkills = true: the portable target must keep the skill even
+	// though it shadows a command in the delivering machine's home.
+	selfContainedDir := t.TempDir()
+	sc := newFileTemplateDelivery(fakePlacement{dir: selfContainedDir}, nil)
+	sc.selfContainedSkills = true
+	_, err = sc.DeliverSkills([]agent.CommandExport{dup})
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(selfContainedDir, ".claude", "commands", "recover.md"),
+		"selfContainedSkills delivery must NOT dedup against the delivering machine's home — the portable target must keep every skill")
+}
+
 // TestFileTemplateDelivery_DeliverSettings verifies the settings surface (hooks +
 // statusline) is written into the injected Placement identically to
 // writeSettingsFile, and that Cleanup reverts ctxloom hooks + managed statusline

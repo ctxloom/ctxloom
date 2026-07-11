@@ -23,6 +23,13 @@ import (
 type fileTemplateDelivery struct {
 	place agent.Placement
 	fs    afero.Fs
+	// selfContainedSkills, when true, makes DeliverSkills skip the
+	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every skill lands in the
+	// target regardless of what happens to exist in the delivering machine's
+	// ~/.claude/commands. Only skillsSurface.Deliver ever sets this (from
+	// agent.SurfaceInputs.SelfContainedSkills, materialize's opt-out) — it is
+	// irrelevant to DeliverMCP/DeliverSettings and left false everywhere else.
+	selfContainedSkills bool
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
@@ -63,12 +70,20 @@ func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string
 // dir==dedupHomeDir check disables the dedup — a directory never dedups against
 // itself — so no extra guard is needed here. If the home dir can't be resolved
 // (no $HOME), dedup is simply left off, matching "empty disables the dedup".
+//
+// When d.selfContainedSkills is set (materialize's opt-out), the
+// GlobalCommandsDir()/WithHomeCommandsDir step is skipped entirely: the target
+// is a PORTABLE artifact whose launch environment is not this host, so deduping
+// against the delivering machine's home would silently drop skills that only
+// happen to already exist here.
 func (d *fileTemplateDelivery) DeliverSkills(skills []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	fs := d.fs
 	opts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
-	if home, err := GlobalCommandsDir(); err == nil && home != "" {
-		opts = append(opts, agent.WithHomeCommandsDir(home))
+	if !d.selfContainedSkills {
+		if home, err := GlobalCommandsDir(); err == nil && home != "" {
+			opts = append(opts, agent.WithHomeCommandsDir(home))
+		}
 	}
 	if err := WriteCommandFiles(dir, skills, opts...); err != nil {
 		return nil, err

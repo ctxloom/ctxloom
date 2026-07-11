@@ -20,6 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // syncBuffer is a thread-safe buffer for concurrent read/write in tests.
@@ -169,6 +171,46 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	if err == nil && result != nil {
 		assert.NotEqual(t, 0, result.ExitCode, "timed-out command should have non-zero exit")
 	}
+}
+
+// =============================================================================
+// Initial-Size Tests (DEFECT lucid-judo: garbled paint until manual resize)
+// =============================================================================
+
+// TestRunInteractive_SizesPTYBeforeChildStarts pins the lucid-judo root cause:
+// go-pty allocates the pty at its own default winsize, and the pre-fix code
+// applied resize events ONLY via a goroutine started AFTER Start() — a chase
+// that can never catch a child whose first paint runs before the size
+// arrives. In production the real size travels a whole chain of goroutine
+// hops plus a gRPC round trip before it reaches here (see run.go's
+// interactiveTerminal → termui.Controller → ResizeTranslator →
+// goplugin.Launcher → the wire → this package); a single in-process channel
+// send is far faster than that, so a same-process test has to reintroduce a
+// comparable delay to exercise the real race — otherwise the pre-start
+// goroutine always "wins" trivially and the test can't tell the two
+// implementations apart. `stty size` (no sleep) is the fast child: it reads
+// its controlling terminal's size and exits immediately, well inside the
+// delay window, so this only passes if the pty was already sized BEFORE
+// Start — not chased in afterward.
+func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "stty size")
+
+	const wireDelay = 50 * time.Millisecond
+	resize := make(chan agent.WindowSize, 1)
+	go func() {
+		time.Sleep(wireDelay)
+		resize <- agent.WindowSize{Rows: 55, Cols: 111} // an arbitrary, non-default size
+	}()
+
+	var stdout bytes.Buffer
+	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, resize)
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
+		"the pty must already report the frontend's real size (55 111) at the child's "+
+			"first read, not go-pty's default winsize — RunInteractive must wait for the "+
+			"first resize value and apply it before Start, not race the child against it")
 }
 
 // =============================================================================

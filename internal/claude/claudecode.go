@@ -62,12 +62,13 @@ func NewClaudeCode() *ClaudeCode {
 // can read Context/MCP/Settings.Path() after a SharedCell delivery.
 func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) agent.SurfaceSet {
 	b.surfaces = NewSurfaces(SurfaceInputs{
-		Context:          in.Context,
-		MCP:              in.MCP,
-		BundleMCP:        in.BundleMCP,
-		Hooks:            in.Hooks,
-		ManageStatusline: in.ManageStatusline,
-		Skills:           in.Skills,
+		Context:             in.Context,
+		MCP:                 in.MCP,
+		BundleMCP:           in.BundleMCP,
+		Hooks:               in.Hooks,
+		ManageStatusline:    in.ManageStatusline,
+		Skills:              in.Skills,
+		SelfContainedSkills: in.SelfContainedSkills,
 	}, dirPlacement{dir: isolatedDir}, nil)
 	return b.surfaces
 }

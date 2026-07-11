@@ -144,9 +144,19 @@ func (s *Surround) markDirtyLocked() { s.dirty.Store(true) }
 // SetSize records the REAL terminal size and (re)establishes or releases the
 // protected region as the reservation predicate flips. Called on the resize
 // translator's goroutine for the initial size and every SIGWINCH.
+//
+// While an overlay is suspending the bar (Suspend), the overlay owns the
+// whole screen (the controller reset the scroll region to full on engage), so
+// a SIGWINCH arriving mid-engagement must not write anything here — a region
+// re-assert or bar repaint would land directly on the live overlay. The size
+// (and the reservation-active flag it drives) is still recorded so
+// ResumeSequence and the resize translator pick up the latest dimensions;
+// the actual region+bar paint is deferred to ResumeSequence on release.
 func (s *Surround) SetSize(rows, cols int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	prevRows := s.rows
+	wasActive := s.active
 	s.rows, s.cols = rows, cols
 	if !s.enabled || s.restored {
 		return
@@ -154,21 +164,47 @@ func (s *Surround) SetSize(rows, cols int) {
 	if !reserveActive(rows, s.reserve) {
 		if s.active {
 			s.active = false
-			// Terminal shrank below usefulness: hand the full region back.
-			_, _ = s.w.Write([]byte("\x1b[r"))
+			if !s.suspended {
+				// Terminal shrank below usefulness: hand the full region back.
+				_, _ = s.w.Write([]byte("\x1b[r"))
+			}
 		}
 		return
 	}
 	s.active = true
+	if s.suspended {
+		return
+	}
 	// DECSTBM 1..rows-reserve protects the bar rows from engine scrolling;
 	// the engine's PTY is (rows-reserve) tall so its cursor addressing never
 	// reaches them either. DECSTBM homes the cursor — harmless: the engine
 	// repaints on the SIGWINCH that accompanies every size change.
 	s.buf = s.buf[:0]
+	// A resize moves the reserved bottom row: the previous bar row is left
+	// stranded — inside the new region on a grow, dropped below it on a shrink —
+	// so clear it before establishing the new region, otherwise the old bar
+	// generation lingers on the primary screen. Addressed absolutely (CUP
+	// ignores margins), it clears while the row is still reachable. Both the
+	// clear and the region set (DECSTBM) touch only the ACTIVE cursor, never the
+	// terminal's SAVED-cursor slot, so they are safe to emit unconditionally.
+	if wasActive && prevRows > 0 && prevRows != rows {
+		s.buf = append(s.buf, "\x1b["...)
+		s.buf = strconv.AppendInt(s.buf, int64(prevRows), 10)
+		s.buf = append(s.buf, ";1H\x1b[2K"...)
+	}
 	s.buf = append(s.buf, "\x1b[1;"...)
 	s.buf = strconv.AppendInt(s.buf, int64(rows-s.reserve), 10)
 	s.buf = append(s.buf, 'r')
-	s.buf = s.appendBar(s.buf)
+	// Only the DECSC-wrapped bar BODY paint clobbers the single saved-cursor
+	// slot. SYNC-REQUIRED: paintSafe (the guard's SafeForPaint, read under this
+	// same tty lock) reports false while a child DECSC is open; skip the body
+	// paint then and mark dirty so the existing SafeForPaint-gated flush repaints
+	// once the child's DECRC closes the slot — never clobber an open child save.
+	if s.paintSafe == nil || s.paintSafe() {
+		s.buf = s.appendBar(s.buf)
+	} else {
+		s.dirty.Store(true)
+	}
 	_, _ = s.w.Write(s.buf)
 }
 

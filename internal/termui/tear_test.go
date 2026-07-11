@@ -449,6 +449,36 @@ func TestGate_BarRepaintNeverSplitsChildRune(t *testing.T) {
 	assertBarPaintsAtGroundBoundaries(t, h.tty.String(), 24)
 }
 
+// TestSurround_ResizeClobbersChildSavedCursor is the R1 surviving vector: a
+// SIGWINCH fires while the child's DECSC is still open. SetSize re-establishes
+// the region and repaints the bar — its DECSC-wrapped body paint would overwrite
+// the terminal's single saved-cursor slot, so the child's later DECRC restores
+// to the wrong cell. The region set and old-row clear are slot-safe and may run;
+// only the bar BODY paint must defer while a child save is open.
+func TestSurround_ResizeClobbersChildSavedCursor(t *testing.T) {
+	h := newTearHarness(t, 24, 120)
+
+	// Child saves its cursor at row 10, col 5 (0-indexed (9,4)) then moves away
+	// (so the active cursor differs from the saved slot — the clobber shows).
+	h.child("\x1b[10;5H")  // move -> (9,4)
+	h.child("\x1b7")       // DECSC: save slot = (9,4)
+	h.child("\x1b[20;30H") // move -> (19,29); slot still (9,4)
+
+	// A SIGWINCH grows the terminal while the child's save is open.
+	h.c.sur.SetSize(30, 120)
+
+	// Child restores its saved cursor and writes a marker where it saved.
+	h.child("\x1b8") // DECRC: intends (9,4)
+	h.child("Z")
+	h.feed()
+
+	if got := h.emu.grid[9][4]; got != 'Z' {
+		t.Fatalf("child's saved cursor did not survive a resize repaint: marker 'Z' "+
+			"landed elsewhere, row10/col5 (0-idx 9,4) = %q; full row 10 = %q",
+			string(got), h.emu.row(9))
+	}
+}
+
 // assertBarPaintsAtGroundBoundaries verifies every bar repaint in the
 // captured stream begins at a parser-ground boundary (never inside a split
 // sequence, string, or rune).

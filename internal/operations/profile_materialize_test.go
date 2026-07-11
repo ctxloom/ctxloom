@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -54,6 +56,49 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 	require.NoError(t, err, "CLAUDE.md must be written to the target dir")
 	assert.Contains(t, string(data), "MATERIALIZED-CONTENT",
 		"the assembled fragment block is the CLAUDE.md payload")
+}
+
+// TestMaterializeProfile_KeepsHomeShadowedSkill is the end-to-end regression for
+// sour-feed: `profile materialize --target` must produce a PORTABLE,
+// self-contained tree, so a builtin skill (e.g. "recover") that happens to be
+// byte-identical to a file already sitting in the MATERIALIZING machine's own
+// ~/.claude/commands must still land in --target. Pre-fix, claude's
+// DeliverSkills unconditionally deduped against GlobalCommandsDir(), silently
+// dropping it — exactly the observed cr-correctness bug (3 built-ins missing
+// for claude-code only, present for antigravity/kiro/codex, because this host
+// happened to already have them installed under ~/.claude/commands).
+func TestMaterializeProfile_KeepsHomeShadowedSkill(t *testing.T) {
+	cfg, target := materializeFixture(t, "X")
+
+	// Render the "recover" builtin skill exactly as materialize itself will (same
+	// LoadSkillExports/CommandExportsFor pipeline profile_materialize.go drives),
+	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
+	// a materializing host that has already installed its own commands (e.g. via
+	// `manage hooks install`), which the --target launch environment does NOT
+	// share.
+	exports := backends.CommandExportsFor("claude-code", backends.LoadSkillExports(cfg, []string{"reviewer"}))
+	var seeded bool
+	for _, e := range exports {
+		if e.Name != "recover" {
+			continue
+		}
+		home := filepath.Join(os.Getenv("HOME"), ".claude", "commands")
+		require.NoError(t, os.MkdirAll(home, 0o755))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(home, "recover.md"), []byte(claude.TransformToClaudeCommand(e)), 0o644))
+		seeded = true
+		break
+	}
+	require.True(t, seeded, "precondition: the recover builtin skill must be among the exports")
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"reviewer"}, Target: target,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Wrote, "skills")
+
+	assert.FileExists(t, filepath.Join(target, ".claude", "commands", "recover.md"),
+		"a skill byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 
 // TestMaterializeProfile_BackendAlias proves `claude` maps to claude-code.

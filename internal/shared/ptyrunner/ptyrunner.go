@@ -7,11 +7,29 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"time"
 
 	"github.com/aymanbagabas/go-pty"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
+
+// initialResizeWait bounds how long RunInteractive waits for the frontend's
+// first resize event before starting the child anyway. go-pty allocates a
+// pty at its own default winsize (0x0), not the real terminal's — if the
+// child paints before ANY resize reaches it, that first paint uses the wrong
+// geometry, and because SIGWINCH only fires on an actual size change, a real
+// size that happens to coincide with whatever the child assumed never
+// self-heals either (see DEFECT lucid-judo). The frontend always sends its
+// captured terminal size once, up front, before anything else (see
+// run_resize_unix.go's watchResize), but it travels a chain of goroutine
+// hops plus a gRPC round trip to get here, so it cannot be assumed to be
+// already buffered — hence a wait, not a non-blocking check. The wait is
+// bounded rather than indefinite because an interactive run whose stdin is
+// not a real terminal (see interactiveTerminal's non-tty branch) legitimately
+// never sends a resize at all; that path must degrade to the pre-fix
+// default-size behavior instead of hanging.
+const initialResizeWait = 300 * time.Millisecond
 
 // Result contains the exit code from running a command. The session's output
 // is NOT captured here: an interactive TUI redraws constantly for hours, so
@@ -50,12 +68,28 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	done := make(chan struct{})
 	defer close(done)
 
+	// Give the pty its real size BEFORE the child exists: see
+	// initialResizeWait. ok=false (closed with nothing sent) and the timeout
+	// both fall through to Start() at the pty's default size, same as before
+	// this wait existed.
+	if resize != nil {
+		select {
+		case ws, ok := <-resize:
+			if ok {
+				_ = ptty.Resize(int(ws.Cols), int(ws.Rows))
+			}
+		case <-time.After(initialResizeWait):
+		case <-ctx.Done():
+		}
+	}
+
 	// Start command on PTY slave
 	if err := c.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Apply terminal resizes pushed from the frontend over the wire.
+	// Apply subsequent terminal resizes (every SIGWINCH after the initial
+	// size consumed above) pushed from the frontend over the wire.
 	if resize != nil {
 		go func() {
 			for {

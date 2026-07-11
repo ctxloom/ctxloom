@@ -117,6 +117,13 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		Hooks:            hooks,
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 		Skills:           skills,
+		// The --target tree is a PORTABLE, self-contained artifact meant to be
+		// launched on a DIFFERENT machine (an externally-launched agent, CI) with
+		// ctxloom out of the loop. Deduping skills against THIS (materializing)
+		// machine's ~/.claude/commands would silently drop any skill that happens
+		// to already exist here — wrong, since the launch environment won't have
+		// it. So materialize alone opts out of that dedup (sour-feed).
+		SelfContainedSkills: true,
 	}, fs)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail

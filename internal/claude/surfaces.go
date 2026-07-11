@@ -184,14 +184,19 @@ func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSetting
 // fileTemplateDelivery.DeliverSkills, which owns its own cleanup, so they are NOT
 // the shared agent.ManagedSkillsDelivery.)
 type skillsSurface struct {
-	skills []agent.CommandExport
-	fs     afero.Fs
+	skills              []agent.CommandExport
+	fs                  afero.Fs
+	selfContainedSkills bool // mirrors SurfaceInputs.SelfContainedSkills; see DeliverSkills
 }
 
 // Deliver writes .claude/commands/ into dir via the reused file-template skills
-// writer.
+// writer. selfContainedSkills rides along so a materialize target (a portable,
+// self-contained tree) skips deduping against the delivering machine's
+// ~/.claude/commands — see fileTemplateDelivery.DeliverSkills.
 func (s *skillsSurface) Deliver(dir string) (agent.Delivered, error) {
-	return newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverSkills(s.skills)
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.selfContainedSkills = s.selfContainedSkills
+	return d.DeliverSkills(s.skills)
 }
 
 // UnsafeInfo returns claude's skills identity for the DeliverShared fallback's
@@ -212,6 +217,11 @@ type SurfaceInputs struct {
 	Hooks            *wire.HooksConfig
 	ManageStatusline bool
 	Skills           []agent.CommandExport
+	// SelfContainedSkills mirrors agent.SurfaceInputs.SelfContainedSkills: when
+	// true, DeliverSkills skips deduping against the delivering machine's
+	// ~/.claude/commands, so a portable `profile materialize --target` tree keeps
+	// every skill. Every caller but materialize leaves this false.
+	SelfContainedSkills bool
 }
 
 // Surfaces is claude's set of delivery surfaces for one run, exposed so the
@@ -236,7 +246,7 @@ func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfac
 		Context:  newContextSurface(in.Context, isolated, fs),
 		MCP:      &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated},
 		Settings: &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, fs: fs, isolated: isolated},
-		Skills:   &skillsSurface{skills: in.Skills, fs: fs},
+		Skills:   &skillsSurface{skills: in.Skills, fs: fs, selfContainedSkills: in.SelfContainedSkills},
 	}
 }
 

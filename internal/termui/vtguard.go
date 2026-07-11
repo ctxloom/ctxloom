@@ -45,7 +45,16 @@ type vtGuard struct {
 	tail   []byte // pending incomplete UTF-8 rune, re-emitted first next chunk
 	oscBel bool   // current string mode also terminates on BEL (OSC does)
 	torn   bool   // written stream ends in a child-torn sequence fragment
-	out    []byte // output scratch, reused; returned slice valid until next call
+	// childSaved tracks the child's DECSC (ESC 7) save into the terminal's
+	// SINGLE saved-cursor slot: true from an ESC 7 until the matching ESC 8
+	// (DECRC) releases it. This is one slot, not a depth — a second ESC 7 keeps
+	// it set, an ESC 8 (or a RIS, which resets the slot) clears it. While set,
+	// SafeForPaint defers bar paints, whose own DECSC would otherwise overwrite
+	// the child's saved cell and make its later DECRC restore to the wrong spot.
+	// SYNC-REQUIRED: written in Filter and read by SafeForPaint (the surround's
+	// paint gate), both under the shared tty lock — keep all access on that lock.
+	childSaved bool
+	out        []byte // output scratch, reused; returned slice valid until next call
 }
 
 type vtState int
@@ -70,11 +79,12 @@ func newVTGuard(regionBottom func() int, reassert func() []byte, barDamaged func
 
 // SafeForPaint reports whether the bytes written so far end at a boundary a
 // bar repaint may follow: everything except mid-string (OSC/DCS), the
-// overflowed-CSI escape valve, and a child-torn fragment. A pending held-back
-// ESC/CSI is safe — those bytes were never written, so the terminal's parser
-// sits in ground state.
+// overflowed-CSI escape valve, a child-torn fragment, and — the DECSC guard —
+// an outstanding child cursor save. A pending held-back ESC/CSI is safe — those
+// bytes were never written, so the terminal's parser sits in ground state.
 func (g *vtGuard) SafeForPaint() bool {
-	return g.state != vtString && g.state != vtStringEsc && g.state != vtGarbage && !g.torn
+	return g.state != vtString && g.state != vtStringEsc && g.state != vtGarbage &&
+		!g.torn && !g.childSaved
 }
 
 // Filter transforms one child chunk into the bytes to write. The returned
@@ -126,11 +136,26 @@ func (g *vtGuard) stepEsc(b byte) {
 		g.emitSeq(b)
 		g.state = vtString
 		g.oscBel = false
-	case b == 'c':
-		// RIS: full reset — margins gone, screen cleared, cursor homed. The
-		// child expects a virgin terminal; re-establishing the region and bar
-		// right here is the standing translation (DECSTBM re-homes, a no-op).
+	case b == '7':
+		// DECSC: the child saved its cursor into the terminal's single slot.
+		// Hold off bar paints (their own DECSC would overwrite it) until the
+		// child's DECRC releases the slot.
 		g.emitSeq(b)
+		g.childSaved = true
+		g.state = vtGround
+	case b == '8':
+		// DECRC: the child restored (and freed) its saved cursor; the slot is
+		// available for a bar paint again.
+		g.emitSeq(b)
+		g.childSaved = false
+		g.state = vtGround
+	case b == 'c':
+		// RIS: full reset — margins gone, screen cleared, cursor homed, saved
+		// slot reset. The child expects a virgin terminal; re-establishing the
+		// region and bar right here is the standing translation (DECSTBM
+		// re-homes, a no-op).
+		g.emitSeq(b)
+		g.childSaved = false
 		g.insertReassert()
 		g.state = vtGround
 	case b == 0x1b:
@@ -264,16 +289,28 @@ func (g *vtGuard) finishCSI() {
 		g.seq = g.seq[:0]
 		return
 	case final == 'p' && intermediate == '!' && bottom > 0:
-		// DECSTR soft reset: margins reset to full screen, cursor untouched.
+		// DECSTR soft reset: margins reset to full screen, active cursor
+		// untouched — but the saved-cursor slot is reset, so a child DECSC left
+		// open no longer holds its cell. Clear childSaved (as RIS does) so it
+		// can't starve paints.
 		g.emitPending()
+		g.childSaved = false
 		g.insertReassert()
 		return
 	case (final == 'l' || final == 'h') && private && csiParamsContainAltScreen(body[1:]):
 		g.emitPending()
-		if final == 'l' && bottom > 0 {
-			// Leaving the alt screen restores a main screen whose margins the
-			// alt app may have left anywhere; re-assert and repaint.
-			g.insertReassert()
+		if final == 'l' {
+			// Leaving the alt screen restores/consumes the main-screen
+			// saved-cursor slot (1049l), so a child DECSC left open no longer
+			// holds its cell — clear childSaved lest it starve paints.
+			g.childSaved = false
+			if bottom > 0 {
+				// The alt app may have left the main-screen margins anywhere;
+				// re-assert and repaint.
+				g.insertReassert()
+			} else if g.barDamaged != nil {
+				g.barDamaged()
+			}
 		} else if g.barDamaged != nil {
 			// Entering (1049 clears the alt screen): the bar row starts blank
 			// there; the margins carry over, so a repaint is all it needs.

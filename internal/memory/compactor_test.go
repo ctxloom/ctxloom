@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -449,6 +450,8 @@ func TestCompact_NoHistorySupport(t *testing.T) {
 }
 
 func TestCompact_NoSession(t *testing.T) {
+	testsupport.Isolate(t) // see TestCompact_EmptySession: isolates CTXLOOM_SESSION_HARP
+	// so identityBoundSessionID can't resolve a real ambient session.
 	mockHistory := &mockSessionHistory{currentSession: nil}
 	mockBe := &mockBackend{history: mockHistory}
 
@@ -462,6 +465,10 @@ func TestCompact_NoSession(t *testing.T) {
 }
 
 func TestCompact_EmptySession(t *testing.T) {
+	testsupport.Isolate(t) // isolates CTXLOOM_SESSION_HARP too — this test's mock
+	// has no harp-index binding, and without isolation an ambient real session's
+	// CTXLOOM_SESSION_HARP would make identityBoundSessionID resolve a REAL
+	// session id from the real ~/.ctxloom/sessions/index.yaml.
 	mockHistory := &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID:      "empty-session",
@@ -534,6 +541,8 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 // TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is
 // subagent-interior has nothing to distill.
 func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
+	testsupport.Isolate(t) // see TestCompact_EmptySession: isolates CTXLOOM_SESSION_HARP
+	// so identityBoundSessionID can't resolve a real ambient session.
 	mockHistory := &mockSessionHistory{
 		currentSession: &agent.Session{
 			ID: "interior-only",
@@ -851,6 +860,48 @@ func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
 	assert.Contains(t, loaded.Body, "distilled ok", "successful chunks are saved")
 }
 
+// refusingSessionSource is a pb.SessionSource whose every method fails the
+// test if called — used to prove PreloadedSession short-circuits
+// loadSessionToCompact entirely, without consulting source/CurrentSession.
+type refusingSessionSource struct{ t *testing.T }
+
+func (r refusingSessionSource) GetSession(context.Context, string) (*agent.Session, error) {
+	r.t.Fatal("GetSession must not be called when PreloadedSession is set")
+	return nil, nil
+}
+func (r refusingSessionSource) ListSessions(context.Context) ([]agent.SessionMeta, error) {
+	r.t.Fatal("ListSessions must not be called when PreloadedSession is set")
+	return nil, nil
+}
+func (r refusingSessionSource) CurrentSession(context.Context) (*agent.Session, error) {
+	r.t.Fatal("CurrentSession must not be called when PreloadedSession is set")
+	return nil, nil
+}
+
+// TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource pins the
+// container-harp distill fix (paced-gift): when only the mounted transcript
+// path is known host-side (no bound session_id), the caller loads the
+// session by path itself and hands it to the compactor via
+// CompactionConfig.PreloadedSession. loadSessionToCompact must return it
+// directly, never touching c.source (identity-bound lookup, CurrentSession,
+// or otherwise) — the source is wired to fail the test if consulted.
+func TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource(t *testing.T) {
+	preloaded := &agent.Session{
+		ID: "preloaded-session",
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeUser, Content: "hi from container harp"},
+		},
+	}
+	c := &Compactor{
+		config: CompactionConfig{PreloadedSession: preloaded},
+		source: refusingSessionSource{t: t},
+	}
+
+	got, err := c.loadSessionToCompact(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, preloaded, got, "loadSessionToCompact must return the preloaded session as-is")
+}
+
 func TestCompact_BySessionID(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
@@ -887,6 +938,179 @@ func TestCompact_BySessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "specific-session", result.SessionID)
+}
+
+// TestCompact_CurrentSession_PrefersIdentityBoundOverMtime is the seedy-apron
+// regression test: when compacting "the current session" (no SessionID given),
+// the compactor must use the harp's session-index binding — recorded once at
+// session-start and never touched again — rather than whatever the backend's
+// mtime-position "current session" pick returns. A backend rewrites/touches a
+// transcript's mtime when a session is resumed, so the mtime-newest transcript
+// is not reliably the one that just ended; here it deliberately reports a
+// DIFFERENT, "newer" session than the one actually bound to the harp.
+func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/project", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "correct-session", ""))
+
+	mockHistory := &mockSessionHistory{
+		// What an mtime-position pick ("current session") would wrongly return —
+		// a stale/resumed transcript that out-ranks the real one by mtime.
+		currentSession: &agent.Session{
+			ID:      "stale-resumed-session",
+			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "stale"}},
+		},
+		sessions: map[string]*agent.Session{
+			"correct-session": {
+				ID:      "correct-session",
+				Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "correct"}},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte("Distilled content"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+		Backend:         "claude-code",
+		HarpName:        entry.HarpName,
+		// SessionID intentionally left empty: "compact my current session".
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "correct-session", result.SessionID,
+		"must use the harp's identity-bound session, not the mtime-position pick")
+}
+
+// TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp pins the genuine-last-
+// resort behavior: with no harp (nothing to bind identity against — e.g. a
+// bare `ctxloom memory compact` run outside any tracked session), the mtime-
+// based CurrentSession path still resolves as before.
+func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID:      "mtime-current-session",
+			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hi"}},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte("Distilled content"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+		// No HarpName, no SessionID.
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "mtime-current-session", result.SessionID)
+}
+
+// TestCompact_IdentityBoundStaleFallsBackToCurrentSession is the FINDING #5
+// regression test: the harp is bound to a session id in the index, but that
+// id's transcript no longer exists in the backend's store (rotated/deleted —
+// a stale index entry). loadSessionToCompact must degrade to the
+// mtime-based CurrentSession — the genuine last resort — rather than hard-
+// erroring, the same fault-tolerant posture the empty-SessionID path always
+// had before the identity-bound lookup was added.
+func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp("/project", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "dead-session", ""))
+
+	mockHistory := &mockSessionHistory{
+		// "dead-session" is intentionally absent from sessions: its transcript
+		// is gone. currentSession is the genuine last-resort fallback.
+		currentSession: &agent.Session{
+			ID:      "mtime-current-session",
+			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hi"}},
+		},
+		sessions: map[string]*agent.Session{},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte("Distilled content"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+		Backend:         "claude-code",
+		HarpName:        entry.HarpName,
+		// SessionID intentionally left empty: "compact my current session".
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "a stale identity binding must degrade to CurrentSession, not hard-error")
+	assert.Equal(t, "mtime-current-session", result.SessionID)
+}
+
+// TestCompact_ExplicitSessionIDStaleHardErrors pins the boundary the fix must
+// NOT cross: `session distill <harp>` (and any other explicit-SessionID
+// caller) asked for exactly that session, so a missing transcript must still
+// hard-error rather than silently substituting CurrentSession.
+func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID:      "mtime-current-session",
+			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hi"}},
+		},
+		sessions: map[string]*agent.Session{},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte("Distilled content"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+		Backend:         "claude-code",
+		SessionID:       "dead-session", // explicit, and absent from sessions
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	assert.Error(t, err, "an explicitly requested session that can't be found must still hard-error")
 }
 
 // =============================================================================

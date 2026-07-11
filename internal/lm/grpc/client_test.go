@@ -85,10 +85,11 @@ func (f *fakeLLMClient) GetPlans(ctx context.Context, in *GetPlansRequest, opts 
 // responses, then EOF. The non-Recv methods of grpc.ClientStream are
 // no-ops; tests don't exercise them.
 type fakeStream struct {
-	responses []*RunResponse
-	recvErr   error // non-nil aborts the stream after current queue
-	idx       int
-	sent      []*RunInput // captures what the client Sends (start, stdin, resize)
+	responses      []*RunResponse
+	recvErr        error // non-nil aborts the stream after current queue
+	idx            int
+	sent           []*RunInput // captures what the client Sends (start, stdin, resize)
+	closeSendCalls int
 }
 
 func (s *fakeStream) Send(in *RunInput) error {
@@ -121,7 +122,10 @@ func (s *fakeStream) Recv() (*RunResponse, error) {
 // grpc.ClientStream method stubs — only Recv() carries semantics here.
 func (s *fakeStream) Header() (metadata.MD, error) { return nil, nil }
 func (s *fakeStream) Trailer() metadata.MD         { return nil }
-func (s *fakeStream) CloseSend() error             { return nil }
+func (s *fakeStream) CloseSend() error {
+	s.closeSendCalls++
+	return nil
+}
 func (s *fakeStream) Context() context.Context     { return context.Background() }
 func (s *fakeStream) SendMsg(m any) error          { return nil }
 func (s *fakeStream) RecvMsg(m any) error          { return nil }
@@ -177,6 +181,49 @@ func TestGRPCClient_RunWithModelInfo_CapturesExitAndModel(t *testing.T) {
 	assert.Equal(t, int32(42), result.ExitCode)
 	require.NotNil(t, result.ModelInfo)
 	assert.Equal(t, "haiku", result.ModelInfo.ModelName)
+}
+
+// TestGRPCClient_RunWithModelInfo_ClosesSendWhenNoStdinNoResize pins the T2
+// fix: a caller with neither a stdin source nor a resize source (oneshot, or
+// an interactive run whose frontend has no real tty) will never send
+// anything past the initial RunStart, so RunWithModelInfo must half-close
+// the stream immediately. This is what lets the server's Recv loop
+// (server.go) close its own resizeCh right away instead of only at the end
+// of the run, which is what let ptyrunner's pre-Start wait always burn its
+// full initialResizeWait for these callers.
+func TestGRPCClient_RunWithModelInfo_ClosesSendWhenNoStdinNoResize(t *testing.T) {
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	fake := &fakeLLMClient{runStream: stream}
+	c := &GRPCClient{client: fake}
+
+	var stdout, stderr bytes.Buffer
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, &stdout, &stderr, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, stream.closeSendCalls,
+		"nil stdin and nil resize means nothing else will ever be sent — CloseSend must fire once")
+}
+
+// TestGRPCClient_RunWithModelInfo_DoesNotCloseSendWithLiveResize guards the
+// other half of the T2 fix: a caller that DOES have a resize source (even if
+// stdin is nil) still intends to send more input, so CloseSend must not fire
+// — the resize pump goroutine below needs the send half to stay open.
+func TestGRPCClient_RunWithModelInfo_DoesNotCloseSendWithLiveResize(t *testing.T) {
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_ExitCode{ExitCode: 0}},
+	}}
+	fake := &fakeLLMClient{runStream: stream}
+	c := &GRPCClient{client: fake}
+
+	resize := make(chan *WindowSize)
+	close(resize) // drains immediately; the point is only that it's non-nil
+
+	var stdout, stderr bytes.Buffer
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, nil, &stdout, &stderr, resize)
+	require.NoError(t, err)
+	assert.Equal(t, 0, stream.closeSendCalls,
+		"a live (even if already-closed) resize channel means the caller intends to send resizes — must not half-close")
 }
 
 func TestGRPCClient_Run_PropagatesStartError(t *testing.T) {

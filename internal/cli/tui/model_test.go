@@ -457,6 +457,62 @@ func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
 	assert.NotContains(t, view, "h0", "the far-scrolled-past first row leaves the visible window")
 }
 
+// TestModel_RosterLinesShowAgentNameAtRealisticDepth is DEFECT C's
+// verification: a live incident reported the agents pane's agent-name column
+// rendering blank. A prior finder assessed this as an OCCLUSION artifact of
+// the overlay geometry bug (DEFECT D — the panel's mispositioned bottom edge
+// let the child engine's own held screen bleed through where the roster
+// pane's agent-name text should have been), not missing roster data — the
+// same coord-fed rows already render fine in the surround's status bar. This
+// test pins the DATA/RENDER path directly (independent of any real terminal
+// paint): production-realistic three-word harp names, one root and one
+// lineage-indented child (the incident's actual shape — a coordinator with a
+// finder child), must show their "·agent" suffix in rosterLines' output.
+// This passes both before and after the DEFECT D geometry fix (rosterLines is
+// a pure string builder untouched by OverlayGeometry), which is exactly the
+// point: it demonstrates the blank column was never a data/render bug, so
+// DEFECT D's geometry fix — which stops the overlay from ever sharing the
+// reserved row with stale/held screen content — is what resolves it.
+func TestModel_RosterLinesShowAgentNameAtRealisticDepth(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "aloof-mean-stove", Agent: "dev", State: "executing", Depth: 0},
+		RosterRow{Harp: "sixth-royal-kelp", Agent: "finder", State: "executing", Depth: 1},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	lines := m.rosterLines(m.contentHeight())
+	joined := strings.Join(lines, "\n")
+	assert.Contains(t, joined, "aloof-mean-stove·dev",
+		"root row's agent name renders")
+	assert.Contains(t, joined, "sixth-royal-kelp·finder",
+		"depth-1 (lineage-indented) child's agent name renders — the incident's actual shape")
+}
+
+// TestModel_RosterLinesTruncateNeverBlank is a companion finding, not a
+// regression this task fixes: rosterPaneWidth (26) is a fixed budget
+// independent of OverlayGeometry, and a long harp name plus a long
+// agent-kind label (e.g. "coordinator", used elsewhere in this codebase as a
+// real agent kind) on the SELECTED row (which loses one more column to the
+// selection style, padCell(…, rosterPaneWidth-1)) can truncate the "·agent"
+// suffix down to a couple of characters. That is a pre-existing,
+// out-of-scope column-width tradeoff — NOT the incident's "blank agent-name
+// column": padCell always truncates from the END, so the harp name (which
+// comes first) is never the part that disappears, and the line is never
+// empty/whitespace-only. This is the evidence that rosterLines cannot
+// produce the incident's fully-blank column on its own — supporting the
+// occlusion (DEFECT D geometry) explanation over a data/render bug.
+func TestModel_RosterLinesTruncateNeverBlank(t *testing.T) {
+	f := newFakeSources(t.TempDir(),
+		RosterRow{Harp: "aloof-mean-stove", Agent: "coordinator", State: "executing", Depth: 0},
+	)
+	m := openSelected(t, newTestModel(f, nil), f)
+
+	lines := m.rosterLines(m.contentHeight())
+	require.NotEmpty(t, lines)
+	assert.NotEmpty(t, strings.TrimSpace(lines[0]), "the selected row's line is never blank")
+	assert.Contains(t, lines[0], "aloof-mean-stove", "truncation eats the tail (agent suffix), never the harp name")
+}
+
 func TestModel_HeaderShowsAgentEngineMetaSourceAndFollowMarker(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", Agent: "dev", Engine: "claude-code", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)

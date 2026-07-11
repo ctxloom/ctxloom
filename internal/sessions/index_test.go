@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func newManager(t *testing.T) *Manager {
@@ -142,6 +144,68 @@ func TestListForProject_FiltersAndSorts(t *testing.T) {
 	// Most-recent first.
 	assert.Equal(t, b.HarpName, list[0].HarpName)
 	assert.Equal(t, a.HarpName, list[1].HarpName)
+}
+
+// TestListForProject_OrdersByLastActivityNotStartedAt pins the resume-picker
+// ordering bug fix: a session that was CREATED earlier but has been RESUMED
+// and WORKED since (newer transcript mtime) must rank above a session that
+// was created more recently but never touched (StartedAt newer, but no
+// activity beyond creation). Sorting on StartedAt alone (the old behavior)
+// got this backwards.
+func TestListForProject_OrdersByLastActivityNotStartedAt(t *testing.T) {
+	testsupport.Isolate(t)
+	m := newManager(t)
+	dir := t.TempDir()
+
+	workedTranscript := filepath.Join(dir, "worked.jsonl")
+	require.NoError(t, os.WriteFile(workedTranscript, []byte("{}\n"), 0o644))
+
+	now := time.Now().UTC().Truncate(time.Second)
+	workedStarted := now.Add(-24 * time.Hour) // created a day ago...
+	recentActivity := now.Add(-5 * time.Minute)
+	require.NoError(t, os.Chtimes(workedTranscript, recentActivity, recentActivity)) // ...but worked 5 minutes ago
+
+	untouchedStarted := now.Add(-1 * time.Hour) // created more recently, never opened since
+
+	idx := &Index{Sessions: []Entry{
+		{HarpName: "worked-session", ProjectDir: "/proj", StartedAt: workedStarted, TranscriptPath: workedTranscript},
+		{HarpName: "untouched-session", ProjectDir: "/proj", StartedAt: untouchedStarted},
+	}}
+	require.NoError(t, m.saveLocked(idx))
+
+	list, err := m.ListForProject("/proj")
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "worked-session", list[0].HarpName,
+		"resumed+worked session (newer transcript mtime) must rank above a newer-created but untouched session")
+	assert.Equal(t, "untouched-session", list[1].HarpName)
+}
+
+// TestListForProject_FallsBackToStartedAt covers the two cases where no
+// transcript-mtime signal is available: no transcript at all, and a
+// transcript path that no longer stats (deleted/unreadable). Both must fall
+// back to ordering by StartedAt rather than sorting a zero-value activity
+// time to the bottom.
+func TestListForProject_FallsBackToStartedAt(t *testing.T) {
+	testsupport.Isolate(t)
+	m := newManager(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	idx := &Index{Sessions: []Entry{
+		// No transcript at all.
+		{HarpName: "newer-no-transcript", ProjectDir: "/proj", StartedAt: now},
+		{HarpName: "older-no-transcript", ProjectDir: "/proj", StartedAt: now.Add(-time.Hour)},
+		// A transcript path that doesn't exist on disk (stat fails).
+		{HarpName: "newest-dangling-transcript", ProjectDir: "/proj", StartedAt: now.Add(time.Hour), TranscriptPath: "/nonexistent/gone.jsonl"},
+	}}
+	require.NoError(t, m.saveLocked(idx))
+
+	list, err := m.ListForProject("/proj")
+	require.NoError(t, err)
+	require.Len(t, list, 3)
+	assert.Equal(t, "newest-dangling-transcript", list[0].HarpName)
+	assert.Equal(t, "newer-no-transcript", list[1].HarpName)
+	assert.Equal(t, "older-no-transcript", list[2].HarpName)
 }
 
 func TestMarkEnded(t *testing.T) {

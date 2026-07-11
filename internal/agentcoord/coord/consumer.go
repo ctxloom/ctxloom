@@ -117,21 +117,76 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (<-chan *agentcoordpb.Agent
 	return sub.ch, cancel
 }
 
-// broadcast fans ev out to every matching subscriber, NEVER blocking the
-// caller: a full subscriber ring drops ev for that subscriber only (a
-// simpler discipline than TapObserver's drop-oldest+gap-accounting — D1's
-// pre-made semantics promise live delta text, not a gap-free guarantee; a
-// lagging viewer's next event still arrives, and roster/ListRuns always
-// gives it a consistent non-live fallback).
+// broadcast fans ev out to every matching subscriber. Two invariants govern
+// this function, and both are load-bearing:
+//
+//  1. NEVER block the caller. This runs synchronously inside
+//     handleAgentEvent, on the goroutine that services a live RunChannel's
+//     recv loop (runchannel.go) — stalling here stalls that runner's
+//     liveness. A full subscriber ring therefore drops ev for that
+//     subscriber only (a simpler discipline than TapObserver's
+//     drop-oldest+gap-accounting — D1's pre-made semantics promise live
+//     delta text, not a gap-free guarantee; a lagging viewer's next event
+//     still arrives, and roster/ListRuns always gives it a consistent
+//     non-live fallback).
+//  2. The one terminal event a run ever emits (RunCompleted — "terminal;
+//     exactly one per run", coordination.proto) fights for delivery instead
+//     of taking its chances with the plain drop above: silently losing it
+//     both evades any seq-based gap detection (nothing arrives afterward to
+//     reveal the hole) and hangs a consumer that waits on it forever
+//     (operations.adaptConsumerFeed only ends the feed on RunCompleted).
+//     sendTerminal below evicts a queued event to make room — bounded,
+//     still never a blocking send — rather than trading invariant 1 away
+//     even for this one event. The evicted event becomes an honest seq gap,
+//     which is exactly what PART 1's consumer-side detection is for.
 func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	_, terminal := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
 	for sub := range h.subs {
 		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
 			continue
 		}
+		if terminal {
+			sendTerminal(sub.ch, ev)
+			continue
+		}
 		select {
 		case sub.ch <- ev:
+		default:
+		}
+	}
+}
+
+// terminalEvictAttempts bounds sendTerminal's evict-then-retry loop: a
+// handful of tries, never an unbounded or blocking one.
+const terminalEvictAttempts = 4
+
+// sendTerminal places a run's terminal event onto ch, evicting one
+// already-queued event (oldest first — ch is a plain FIFO channel) to make
+// room when the ring is full. Both selects stay non-blocking throughout:
+// this races the serving loop that is concurrently draining ch from the
+// other end (consumerService.WatchRuns / Coordinator.WatchRuns's forwarding
+// goroutine), which is fine either way — if that loop already freed a slot,
+// the send succeeds without needing an eviction; if the eviction "misses"
+// because the loop got there first, the next send attempt succeeds instead.
+func sendTerminal(ch chan *agentcoordpb.AgentEvent, ev *agentcoordpb.AgentEvent) {
+	for attempt := 0; ; attempt++ {
+		select {
+		case ch <- ev:
+			return
+		default:
+		}
+		if attempt == terminalEvictAttempts {
+			// Every attempt raced a full ring that never yielded a slot —
+			// acceptable-but-unlikely (it would take the serving loop
+			// refilling the ring as fast as we can evict from it): fall
+			// through and drop, same as any other event this hub ever
+			// drops under sustained overload.
+			return
+		}
+		select {
+		case <-ch: // evict the oldest queued event to make room
 		default:
 		}
 	}

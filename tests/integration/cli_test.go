@@ -314,6 +314,32 @@ fragments:
 	assert.Contains(t, recorded, "Go coding guidelines from subdirectory")
 }
 
+// TestRun_NonTTYStdinNeverEngagesTerminalUI makes explicit what every other
+// TestRun_* case in this file already proves implicitly (Run's stdin is
+// unset, so os/exec gives the child /dev/null, never a tty): a non-tty stdin
+// skips the whole terminal observation layer (surround bar + prefix-key
+// viewer). Unlike those cases, this one omits --print, so the run attempts
+// INTERACTIVE mode (pb.ExecutionMode_INTERACTIVE) rather than short-circuiting
+// to ONESHOT before ever reaching run_terminal.go's interactiveTerminal —
+// proving the term.IsTerminal(stdin) gate itself, which --print bypasses
+// entirely, correctly declines to wrap a non-tty stdin.
+func TestRun_NonTTYStdinNeverEngagesTerminalUI(t *testing.T) {
+	env := setupTestEnv(t)
+	mockLM, err := env.SetupMockLM()
+	require.NoError(t, err)
+	require.NoError(t, mockLM.SetResponse("plain response"))
+
+	writeFragment(t, env, "non-tty-fragment", nil, "non-tty test content")
+
+	_ = env.Run("run", "-f", "non-tty-fragment", "hello non-tty")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	out := env.LastOutput()
+	assert.NotContains(t, out, "\x1b[1;", "a non-tty stdin never establishes the surround's protected region")
+	assert.NotContains(t, out, "\x1b7\x1b[r", "a non-tty stdin never wires the prefix interceptor")
+	assert.Contains(t, out, "plain response", "the run still completes normally on the unwrapped seams")
+}
+
 // =============================================================================
 // MCP Command - Critical Paths
 // =============================================================================

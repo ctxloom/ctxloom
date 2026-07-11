@@ -161,6 +161,113 @@ func assistantMessage(t *testing.T, f *fakeConsumerServer, id, text string) {
 	}}})
 }
 
+// pushToolCall pushes a single self-contained ToolCallStarted event at seq —
+// unlike assistantMessage's three-frame message lifecycle, ToolCallStarted
+// flushes to exactly one feed entry per push (runchannel.go's item
+// lifecycle), which is what the seq-gap table test below needs: a clean
+// one-event-in, one-entry-out correspondence so a Gap marker's position
+// relative to the surrounding entries is unambiguous.
+func pushToolCall(t *testing.T, f *fakeConsumerServer, seq uint64) {
+	t.Helper()
+	f.push(t, &agentcoordpb.AgentEvent{
+		Seq: seq,
+		Payload: &agentcoordpb.AgentEvent_ToolCallStarted{ToolCallStarted: &agentcoordpb.ToolCallStarted{
+			ToolCallId: fmt.Sprintf("tc-%d", seq),
+			ToolName:   fmt.Sprintf("seq-%d", seq),
+		}},
+	})
+}
+
+// TestAdaptConsumerFeed_SeqGapDetection is PART 1's contract test: the
+// seq-discontinuity disciplines documented on adaptConsumerFeed's seq
+// bookkeeping (mid-run baseline join, reconnect-reissue duplicate, seq==0
+// tolerance, gap-then-continue) plus the emission shape itself — a
+// standalone SessionFeedEvent{Gap: n} arriving BEFORE the entry that
+// revealed the jump, exactly the contract the CLI (session_watch.go) and
+// tui (feed.go) renderers already read.
+func TestAdaptConsumerFeed_SeqGapDetection(t *testing.T) {
+	type step struct {
+		seq     uint64
+		wantGap int // 0 means: no Gap event expected ahead of this seq's entry
+	}
+	cases := []struct {
+		name  string
+		steps []step
+	}{
+		{
+			name: "mid-run baseline join: the first observed seq is not a gap",
+			steps: []step{
+				{seq: 41}, // joining mid-run: no matter how high, this is the baseline
+				{seq: 42},
+				{seq: 43},
+			},
+		},
+		{
+			name: "contiguous: no gaps",
+			steps: []step{{seq: 1}, {seq: 2}, {seq: 3}},
+		},
+		{
+			name: "jump: a gap with the correct dropped count",
+			steps: []step{
+				{seq: 1},
+				{seq: 5, wantGap: 3}, // 2, 3, 4 dropped
+			},
+		},
+		{
+			name: "duplicate after reconnect: no gap, and lastSeq is not regressed",
+			steps: []step{
+				{seq: 1}, {seq: 2}, {seq: 3},
+				{seq: 2}, // a reissued duplicate (home.go reconnect reissue): ignored, not a gap
+				{seq: 4}, // contiguous off the ORIGINAL lastSeq=3 — proves the duplicate never regressed it
+			},
+		},
+		{
+			name: "seq==0 interleaved: no gap accounting, and it does not disturb its neighbors",
+			steps: []step{
+				{seq: 1},
+				{seq: 0}, // no in-repo producer emits this; the streaming path tolerates it
+				{seq: 2}, // contiguous off lastSeq=1 — the seq==0 event left lastSeq untouched
+			},
+		},
+		{
+			name: "gap then continue: subsequent events resume normal contiguous accounting",
+			steps: []step{
+				{seq: 1},
+				{seq: 5, wantGap: 3},
+				{seq: 6},
+				{seq: 7},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := testsupport.Isolate(t)
+			harp := seedFeedHarp(t, home, false)
+			f := newFakeConsumerServer()
+			f.setRuns(runInfoFor(harp, "run-1"))
+			startFakeCoordinator(t, home, "proj", f)
+
+			feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+			require.NoError(t, err)
+
+			for _, s := range tc.steps {
+				pushToolCall(t, f, s.seq)
+				if s.wantGap > 0 {
+					gapEv := nextFeedEvent(t, feed.Events)
+					require.Nil(t, gapEv.Event, "seq %d: expected a standalone Gap event with no Event payload", s.seq)
+					assert.Equal(t, s.wantGap, gapEv.Gap, "seq %d: dropped count", s.seq)
+				}
+				entryEv := nextFeedEvent(t, feed.Events)
+				assert.Zero(t, entryEv.Gap, "seq %d: the entry event itself must not carry Gap", s.seq)
+				require.NotNil(t, entryEv.Event, "seq %d: expected an entry event", s.seq)
+				_, ok := entryEv.Event.GetEvent().(*pb.WatchEvent_Entry)
+				assert.True(t, ok, "seq %d: expected a WatchEvent_Entry, got %T", s.seq, entryEv.Event.GetEvent())
+			}
+		})
+	}
+}
+
 func turnIdle(t *testing.T, f *fakeConsumerServer) {
 	t.Helper()
 	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: customEventTurnIdle}}})

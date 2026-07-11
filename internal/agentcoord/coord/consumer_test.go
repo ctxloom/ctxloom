@@ -102,6 +102,139 @@ func TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText(t *testing.T) {
 	assert.Contains(t, sawDeltaText, "do the thing", "the scripted engine echoes the turn text verbatim")
 }
 
+// customFillEvent is one cheap, non-terminal AgentEvent for filling a
+// watchHub subscriber's ring without needing a real run.
+func customFillEvent(seq uint64) *agentcoordpb.AgentEvent {
+	return &agentcoordpb.AgentEvent{
+		Seq: seq, RunId: "r",
+		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
+	}
+}
+
+// TestWatchHub_Broadcast_TerminalEvictsOnFullBufferAndNonTerminalStillDrops
+// is PART 2's hub-level contract test: a full subscriber ring still drops a
+// non-terminal event exactly as before (invariant 1, unchanged), but the
+// run's one terminal event (RunCompleted) evicts the oldest queued event to
+// make room rather than being silently lost — and never blocks the caller
+// either way. "Direct seq inspection" (the brief's alternative to routing
+// through PART 1) proves the eviction here: a baseline event is drained
+// first, the ring is filled contiguously behind it, and after the terminal
+// broadcast the next drained seq skips exactly the one evicted event.
+func TestWatchHub_Broadcast_TerminalEvictsOnFullBufferAndNonTerminalStillDrops(t *testing.T) {
+	h := newWatchHub()
+	ch, cancel := h.subscribe(nil)
+	defer cancel()
+
+	// Baseline: one event, drained immediately (mirrors PART 1's own
+	// baseline discipline — this fixes "the next expected seq" at 2).
+	h.broadcast(customFillEvent(1))
+	baseline := <-ch
+	require.Equal(t, uint64(1), baseline.GetSeq())
+
+	// Fill the ring to capacity (seq 2..257) without draining — the slow
+	// subscriber broadcast's own doc comment (invariant 1) describes.
+	for i := 0; i < watchRingSize; i++ {
+		h.broadcast(customFillEvent(uint64(2 + i)))
+	}
+	require.Len(t, ch, watchRingSize, "the ring must be completely full before the assertions below mean anything")
+
+	// A NON-terminal event on a full ring must still drop (invariant 1 is
+	// unchanged by this fix) — and broadcast must not block doing it.
+	overflowDone := make(chan struct{})
+	go func() {
+		h.broadcast(customFillEvent(uint64(2 + watchRingSize)))
+		close(overflowDone)
+	}()
+	select {
+	case <-overflowDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("broadcast of a non-terminal event must never block, even on a full ring")
+	}
+	assert.Len(t, ch, watchRingSize, "a non-terminal event must still be dropped when the ring is full")
+
+	// The terminal event fights for delivery — it must arrive despite the
+	// full ring, and broadcast must still never block.
+	term := &agentcoordpb.AgentEvent{
+		Seq: uint64(3 + watchRingSize), RunId: "r",
+		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}},
+	}
+	termDone := make(chan struct{})
+	go func() {
+		h.broadcast(term)
+		close(termDone)
+	}()
+	select {
+	case <-termDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("broadcast of the terminal event must never block")
+	}
+
+	// Drain the ring and confirm: the terminal event is in it, capacity was
+	// never exceeded (exactly one slot was evicted to make room), and the
+	// first drained seq after the baseline reveals the evicted hole.
+	var gotTerminal bool
+	var firstAfterBaseline uint64
+	drained := 0
+drain:
+	for {
+		select {
+		case ev := <-ch:
+			drained++
+			if firstAfterBaseline == 0 {
+				firstAfterBaseline = ev.GetSeq()
+			}
+			if _, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
+				gotTerminal = true
+			}
+		default:
+			break drain
+		}
+	}
+	assert.True(t, gotTerminal, "the terminal event must be received despite the full ring")
+	assert.Equal(t, watchRingSize, drained, "ring size unchanged: one slot was evicted to make room, not grown")
+	assert.Equal(t, uint64(3), firstAfterBaseline, "the oldest queued event (seq 2) must have been evicted — a real, honest gap")
+}
+
+// TestSendTerminal_EvictsOldestWhenFull is a focused unit test on the
+// bounded-retry shape itself: the FIFO channel's oldest queued event (not
+// some other one) is what gets evicted, and the terminal event lands right
+// after it — one eviction, one successful retry, well inside
+// terminalEvictAttempts.
+func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
+	ch := make(chan *agentcoordpb.AgentEvent, 2)
+	ch <- &agentcoordpb.AgentEvent{Seq: 1}
+	ch <- &agentcoordpb.AgentEvent{Seq: 2}
+	term := &agentcoordpb.AgentEvent{Seq: 3, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
+
+	sendTerminal(ch, term)
+
+	require.Len(t, ch, 2, "sendTerminal must not grow the ring — evict one, then place one")
+	got := <-ch
+	assert.Equal(t, uint64(2), got.GetSeq(), "the OLDEST queued event (seq 1) must be the one evicted, not seq 2")
+	got = <-ch
+	assert.Same(t, term, got, "the terminal event must be the one placed")
+}
+
+// TestSendTerminal_NeverBlocksWhenChannelIsWedged proves the bounded give-up
+// path: a channel nobody will ever read from or write to concurrently (the
+// worst case — no eviction ever succeeds) still returns promptly instead of
+// blocking forever, matching consumer.go's never-block invariant even for
+// the terminal-delivery exception.
+func TestSendTerminal_NeverBlocksWhenChannelIsWedged(t *testing.T) {
+	ch := make(chan *agentcoordpb.AgentEvent) // unbuffered; nothing ever sends or receives concurrently
+	term := &agentcoordpb.AgentEvent{Seq: 1, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
+	done := make(chan struct{})
+	go func() {
+		sendTerminal(ch, term)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sendTerminal must give up and return after its bounded attempts, never block forever")
+	}
+}
+
 // TestConsumerService_ListRuns pins the unary poll alternative: the same
 // roster projection plane-2 ListRuns exposes, reachable without a stream.
 func TestConsumerService_ListRuns(t *testing.T) {

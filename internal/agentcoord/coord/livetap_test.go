@@ -54,14 +54,17 @@ func tuiGeo() termui.OverlayGeometry {
 // here, not merely a style choice.
 //
 // Gap markers (feed.go:27 — itemsFromFeedEvent's Gap>0 branch): NOT
-// exercised end-to-end here. operations.SessionFeedEvent.Gap is never set
-// anywhere on the live path any more (grep confirms; sessionfeed.go's own
-// doc comment on adaptConsumerFeed says so explicitly: D1's watchHub
-// broadcast "does NOT report drops... this feed never emits a Gap marker")
-// — the field is a vestige of the retired agentbus tap. The rendering side
-// (an itemsFromFeedEvent Gap>0 producing a visible notice) is covered
-// synthetically by model_test.go's TestModel_GapRendersNotice; there is no
-// live producer left to wire it to end-to-end.
+// exercised end-to-end in THIS test (it drives one clean turn end-to-end;
+// no drop is ever provoked here) — but the note this comment used to carry
+// ("Gap is never set anywhere on the live path any more... the field is a
+// vestige of the retired agentbus tap") is now obsolete: watchHub's
+// broadcast (consumer.go) is a real, live producer of drops again (a full
+// subscriber ring), operations.adaptConsumerFeed (sessionfeed.go) now
+// detects the resulting seq discontinuity and emits Gap for it, and
+// livetap_gap_test.go in this same package proves the rendering side
+// end-to-end: a real seq gap on the wire reaching a real notice in the real
+// tui.Overlay. model_test.go's TestModel_GapRendersNotice remains the
+// synthetic unit-level check one level further down (Gap>0 -> notice item).
 
 // liveTapChat is a minimal agent.StructuredChat: one assistant entry plus a
 // turn boundary per received turn. It stands in for coord/enginehost_test.go's

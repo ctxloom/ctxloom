@@ -250,12 +250,16 @@ const customEventTurnIdle = "ctxloom/turn_idle"
 // adaptConsumerFeed normalizes a live ConsumerService.WatchRuns stream onto
 // the WatchEvent vocabulary, stitching scrollback from the store first (see
 // adaptLiveFeed's retired doc comment for the rationale — unchanged by D2).
-// Unlike the retired agentbus tap, the D1 watchHub broadcast this stream
-// rides does NOT report drops (consumer.go: a stalled subscriber silently
-// loses its own newest events rather than the tap's drop-oldest+gap
-// accounting) — so this feed never emits a Gap marker. A lagging viewer
-// simply sees fewer live entries; the store tail (or a fresh watch) remains
-// exact.
+// The D1 watchHub broadcast this stream rides (consumer.go) is a
+// non-blocking send on a bounded per-subscriber ring: a stalled subscriber
+// silently loses events at the HUB, which never notices the drop itself.
+// This adapter recovers truth from the wire's own seq (per-run monotonic,
+// starts at 1, no gaps at the source — coordination.proto's AgentEvent.seq
+// contract): a jump ahead of the last observed seq means the hub dropped
+// exactly that many events, and the loop below emits a Gap marker for it
+// before converting the arriving event's own payload. See the seq
+// bookkeeping just inside the main receive loop for the three disciplines
+// (mid-run baseline join, reconnect-reissue duplicates, seq==0 tolerance).
 func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
 	events := make(chan SessionFeedEvent)
 	errs := make(chan error, 1)
@@ -285,6 +289,13 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 		}
 		lastBoundary := sent
 
+		// Seq-discontinuity tracking (truthful gap detection — see this
+		// function's doc comment). haveSeq gates the BASELINE case: a
+		// subscription can join mid-run, so the jump from zero to the
+		// first observed seq is not a gap, just where we started looking.
+		var lastSeq uint64
+		haveSeq := false
+
 		st := consumerFeedState{msgs: map[string]*agent.SessionEntry{}, tools: map[string]string{}}
 		flush := func(e agent.SessionEntry) bool {
 			sent++
@@ -311,6 +322,36 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 			if ev == nil {
 				continue // a stray extra snapshot frame — ignored
 			}
+
+			// Truthful gap detection: a hub-side drop (consumer.go's
+			// broadcast, non-blocking on a full ring) leaves no trace at
+			// the hub, but the source stamps seq contiguously — so a jump
+			// here is the drop's only remaining evidence. Emitted BEFORE
+			// this event's own payload conversion below: the renderers
+			// (CLI session_watch.go, tui feed.go) expect Gap to arrive as
+			// its own SessionFeedEvent, not attached to the entry after it.
+			if seq := ev.GetSeq(); seq != 0 {
+				switch {
+				case !haveSeq:
+					lastSeq, haveSeq = seq, true
+				case seq <= lastSeq:
+					// A reconnect reissues unacked events verbatim
+					// (home.go), so a subscriber can see a seq repeat.
+					// That is a duplicate, not a gap: ignore it for gap
+					// accounting and leave lastSeq where it stood.
+				default:
+					if seq > lastSeq+1 {
+						if !emit(SessionFeedEvent{Gap: int(seq - lastSeq - 1)}) {
+							return
+						}
+					}
+					lastSeq = seq
+				}
+			}
+			// seq == 0 (no in-repo producer emits it, but the streaming
+			// path tolerates it): skip gap accounting entirely for this
+			// event: neither a baseline, a duplicate, nor a gap.
+
 			switch p := ev.GetPayload().(type) {
 			case *agentcoordpb.AgentEvent_MessageStarted:
 				st.msgs[p.MessageStarted.GetMessageId()] = &agent.SessionEntry{

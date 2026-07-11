@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	ctxloomconfig "github.com/ctxloom/ctxloom/internal/config"
 )
 
 // MockLM provides a fake language model for testing.
@@ -69,10 +71,16 @@ func (m *MockLM) WriteConfig() error {
 	// Extract sections to preserve (profiles only - defaults will be rebuilt)
 	profilesSection := extractYAMLSection(existingConfig, "profiles:")
 
-	// Build config with mock settings (schema v4: labeled configs + role map,
-	// config.use_distilled under the config: section).
+	// Build config with mock settings (current schema: labeled configs + role
+	// map, config.use_distilled under the config: section). Pinned to
+	// ctxloomconfig.CurrentConfigVersion rather than a hardcoded number so this
+	// fixture can never itself fall behind the schema again: a stale version
+	// here would make loading apply an in-memory upgrade, which on a real pty
+	// (both stdin and stdout a tty) fires the interactive "rewrite to the
+	// current format?" confirmUpgrade prompt (internal/cli/run.go) — exactly
+	// what forced the F2 pty tests to carry -y.
 	var config strings.Builder
-	config.WriteString("version: 4\n")
+	_, _ = fmt.Fprintf(&config, "version: %d\n", ctxloomconfig.CurrentConfigVersion)
 	config.WriteString("llm:\n")
 	config.WriteString("  configs:\n")
 	config.WriteString("    mock:\n")

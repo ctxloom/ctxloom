@@ -202,8 +202,22 @@ validate:
 proto:
     buf generate
 
-# Lint code
-lint:
+# Compile-check the `-tags integration` build fence — a cheap rot gate for
+# tag-gated tests (tests/integration/*_test.go). Nothing else on the default
+# path ever type-checks this tag: golangci-lint runs the default build only,
+# and `test`/coverage exclude build-tagged files by construction (they simply
+# don't match `./...` without the tag). A test file that only compiles under
+# the tag can therefore bit-rot silently — exactly what happened to
+# acp_agent_test.go (stale agent.ChatRequest.AutoApprove field, replaced by
+# the Permissions/PermissionMode enum) and acp_live_test.go
+# (claude.NewClaudeCode's old one-arg signature), both invisible until
+# something finally ran `go vet -tags integration`. vet, not test/run — stays
+# cheap enough to gate every lint pass.
+vet-integration:
+    go vet -tags integration ./tests/...
+
+# Lint code, plus the integration-tag rot gate (see vet-integration).
+lint: vet-integration
     golangci-lint run
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the

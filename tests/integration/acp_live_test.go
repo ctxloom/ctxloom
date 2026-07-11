@@ -69,8 +69,9 @@ func TestACPLive_ClaudeCodeAdapter(t *testing.T) {
 			// Pin a universally-available model: the adapter's nested claude
 			// otherwise inherits the host's default, which may be unavailable to
 			// the adapter's API path (observed live with a session-only model).
-			Env:         map[string]string{"ANTHROPIC_MODEL": "sonnet"},
-			AutoApprove: false,
+			Env: map[string]string{"ANTHROPIC_MODEL": "sonnet"},
+			// Permissions left at the zero value (PermissionDefault): no
+			// auto-approve, matching the old AutoApprove: false intent.
 		}, in, out)
 	}()
 
@@ -112,7 +113,7 @@ func TestACPLive_ClaudeBackendDelegation(t *testing.T) {
 		t.Cleanup(func() { _ = os.Setenv("CLAUDECODE", orig) })
 	}
 
-	backend := claude.NewClaudeCode(nil)
+	backend := claude.NewClaudeCode()
 	var chat agent.StructuredChat = backend // the bridge's own type assertion
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

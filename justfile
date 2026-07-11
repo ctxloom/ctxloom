@@ -113,7 +113,8 @@ _ensure-covdata:
 # Run all tests (builds ctxloom first for acceptance tests).
 # Coverage is filtered through .coverignore so generated files
 # (protobuf, gRPC) don't drag the reported number down.
-test: build _ensure-covdata
+# vet-integration is the tag-gated-test compile rot gate (see its comment).
+test: build _ensure-covdata vet-integration
     #!/usr/bin/env bash
     set -e
     go test -race -coverprofile=coverage.raw.out ./...
@@ -196,6 +197,21 @@ test-coverage: cover
 # default `go test ./...`; run it explicitly here.
 test-conformance:
     go test -race -tags conformance ./internal/lm/conformance/...
+
+# Compile-check the `-tags integration` build fence — a cheap rot gate for
+# tag-gated tests (tests/integration/*_test.go). No container needed: vet
+# doesn't touch CGO/treesitter, just the generated proto stubs (`just build`
+# once in a fresh worktree first). Nothing else on the default path ever
+# type-checks this tag: golangci-lint runs the default build only, and
+# `test`/coverage exclude build-tagged files by construction. A test file
+# that only compiles under the tag can therefore bit-rot silently — exactly
+# what happened to acp_agent_test.go (stale agent.ChatRequest.AutoApprove
+# field) and acp_live_test.go (claude.NewClaudeCode's old one-arg signature),
+# both invisible until something finally ran this. Wired into both `test`
+# below and `lint` (justfile.container), so it gates the default local AND CI
+# paths. vet, not test/run — stays cheap.
+vet-integration:
+    go vet -tags integration ./tests/...
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build

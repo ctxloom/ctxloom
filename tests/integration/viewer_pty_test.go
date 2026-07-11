@@ -23,12 +23,15 @@ import (
 // internal/cli/tui/overlay_test.go) cannot reach, since those construct
 // termui.Controller/tui.Overlay directly rather than through `ctxloom run`.
 //
-// Gotcha for anyone extending this file: a v4-schema MockLM config (as
-// SetupMockLM writes) triggers an interactive "rewrite to the current
-// schema?" confirmation the moment BOTH stdin and stdout are a real tty
-// (internal/cli/run.go's confirmUpgrade / isInteractiveTerminal) — which a
-// pty always is. Every RunPTY invocation below passes -y (runAssumeYes) to
-// auto-commit that upgrade instead of hanging on an unanswered prompt.
+// Gotcha for anyone extending this file: SetupMockLM writes config.yaml at
+// ctxloomconfig.CurrentConfigVersion, so loading it never triggers the
+// interactive "rewrite to the current schema?" confirmation. A config
+// version behind CurrentConfigVersion WOULD trigger it the moment BOTH
+// stdin and stdout are a real tty (internal/cli/run.go's confirmUpgrade /
+// isInteractiveTerminal) — which a pty always is — hanging every RunPTY
+// invocation below on an unanswered prompt. If MockLM ever falls behind the
+// schema again, pass -y (runAssumeYes) to auto-commit the upgrade rather
+// than reintroducing the hang.
 //
 // Timing note (why engage/quit keys are pre-queued, not sent reactively):
 // the mock backend's Execute (internal/lm/backends/mock.go) writes its
@@ -85,7 +88,7 @@ func setupPTYTestEnv(t *testing.T) *testenv.TestEnvironment {
 func TestRunPTY_SurroundBarPaints(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-y", "-f", "viewer-fragment", "hello from the bar test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-f", "viewer-fragment", "hello from the bar test")
 	require.NoError(t, err)
 	defer sess.Close()
 
@@ -118,7 +121,7 @@ func TestRunPTY_SurroundBarPaints(t *testing.T) {
 func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-y", "-f", "viewer-fragment", "hello from the engage test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-f", "viewer-fragment", "hello from the engage test")
 	require.NoError(t, err)
 	defer sess.Close()
 
@@ -156,7 +159,7 @@ func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-y", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
 	require.NoError(t, err)
 	defer sess.Close()
 

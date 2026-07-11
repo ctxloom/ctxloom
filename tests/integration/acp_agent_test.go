@@ -64,20 +64,21 @@ func TestACPAgent_SelfConformance(t *testing.T) {
 // real process + plugin boundaries: the mock engine raises a scripted
 // permission request → `ctxloom acp` forwards it to its ACP client (the outer
 // driver) as session/request_permission → the driver decides (allow under
-// AutoApprove, reject otherwise) → the decision rides back down and the mock
-// echoes the verdict.
+// PermissionBypass, reject otherwise — agent.PermissionMode.AllowsWithoutPrompt,
+// the generalized replacement for the old AutoApprove bool) → the decision
+// rides back down and the mock echoes the verdict.
 func TestACPAgent_PermissionPassThrough(t *testing.T) {
 	env := setupTestEnv(t)
 	_, err := env.SetupMockLM()
 	require.NoError(t, err)
 
 	cases := []struct {
-		name        string
-		autoApprove bool
-		want        string
+		name  string
+		perms agent.PermissionMode
+		want  string
 	}{
-		{"approved", true, "mock chat: permission granted"},
-		{"rejected", false, "mock chat: permission denied"},
+		{"approved", agent.PermissionBypass, "mock chat: permission granted"},
+		{"rejected", agent.PermissionDefault, "mock chat: permission denied"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +94,7 @@ func TestACPAgent_PermissionPassThrough(t *testing.T) {
 
 			done := make(chan error, 1)
 			go func() {
-				done <- drv.Chat(ctx, agent.ChatRequest{WorkDir: env.ProjectDir, AutoApprove: tc.autoApprove}, in, out)
+				done <- drv.Chat(ctx, agent.ChatRequest{WorkDir: env.ProjectDir, Permissions: tc.perms}, in, out)
 			}()
 
 			var texts []string

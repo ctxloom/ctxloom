@@ -126,15 +126,23 @@ type Config struct {
 	// func. Never persisted.
 	execGate bundles.ContentGate
 
-	// companionSeedOnce/companionSeedCache memoize companionBundleSeed
-	// (ProbeCompanionLoadouts) for this Config's LIFETIME: probing execs a
-	// subprocess per discovered companion, and SeededBundleLoader is called
-	// repeatedly within one process (hooks, MCP, fragments, assembly) —
-	// without this, each call would re-pay that cost. Deliberately
-	// per-Config (not a package var): tests construct fresh Configs and must
-	// never observe another test's fake companion output.
-	companionSeedOnce  sync.Once
-	companionSeedCache map[string]*bundles.Bundle
+	// companionSeed memoizes companionBundleSeed (ProbeCompanionLoadouts) for
+	// this Config's LIFETIME: probing execs a subprocess per discovered
+	// companion, and SeededBundleLoader is called repeatedly within one
+	// process (hooks, MCP, fragments, assembly) — without this, each call
+	// would re-pay that cost. Deliberately per-Config (not a package var):
+	// tests construct fresh Configs and must never observe another test's
+	// fake companion output.
+	//
+	// Held by POINTER, not as a value sync.Once field: Config is copied by
+	// value in existing callers (e.g. table-driven tests ranging over a
+	// []struct{... config Config ...}), and a struct containing a sync.Once
+	// value must never be copied (govet copylocks) — a value field here
+	// would break every one of those callers. companionSeedInitMu (a
+	// package-level lock, not a Config field, so copying Config is still
+	// cheap and safe) guards the lazy allocation of the pointer; the actual
+	// probe is still memoized exactly once via the pointee's sync.Once.
+	companionSeed *companionSeedState
 
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -1014,11 +1022,33 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	c.companionSeedOnce.Do(func() {
-		c.companionSeedCache = ProbeCompanionLoadouts(c.TrustRoot())
+	companionSeedInitMu.Lock()
+	if c.companionSeed == nil {
+		c.companionSeed = &companionSeedState{}
+	}
+	state := c.companionSeed
+	companionSeedInitMu.Unlock()
+
+	state.once.Do(func() {
+		state.cache = ProbeCompanionLoadouts(c.TrustRoot())
 	})
-	return c.companionSeedCache
+	return state.cache
 }
+
+// companionSeedState is the memoized result of one Config's companion-loadout
+// probe, held by pointer from Config.companionSeed — see that field's doc for
+// why this can't be a value sync.Once field on Config directly.
+type companionSeedState struct {
+	once  sync.Once
+	cache map[string]*bundles.Bundle
+}
+
+// companionSeedInitMu guards ONLY the lazy allocation of a Config's
+// companionSeed pointer (a handful of instructions); the actual probe work
+// stays memoized via companionSeedState's own sync.Once, unlocked. A
+// package-level lock rather than a Config field, so it never participates in
+// a struct copy.
+var companionSeedInitMu sync.Mutex
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
 // a bundle at a specific commit and parses the bytes into a Bundle. It dispatches

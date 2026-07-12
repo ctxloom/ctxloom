@@ -255,3 +255,123 @@ func TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	_ = cfg.SeededBundleLoader(false)
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
 }
+
+// --- Unconditional resolvers pick up companion loadout content, GATED -----
+//
+// These prove item 5's acceptance bar directly: ltk/taskloom content must
+// still reach a real session via the companion loadout, unconditionally
+// (matching the old embedded-bundle behavior), but — the RED LINE — never
+// through the builtin nil-gate exemption. Each test below drives the SAME
+// gate a real session would (a plain deny/allow func, not nil), so an
+// exemption bug would show up as content leaking through a DENY.
+
+const companionLoadoutWithEverything = `
+version: "1.0.0"
+fragments:
+  ltk:
+    content: "ltk fragment body"
+hooks:
+  pre_tool:
+    - command: ltk evaluate
+      matcher: Bash
+      type: command
+mcp:
+  ltk-server:
+    command: ltk
+    args: ["serve"]
+`
+
+func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte, error) {
+	t.Helper()
+	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
+	require.NoError(t, err)
+	return func(string) ([]byte, error) { return envelope, nil }
+}
+
+func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	t.Run("trusted gate: companion hook is included", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		result := cfg.ResolveBundleHooks(nil)
+		require.Len(t, result.PreTool, 1)
+		assert.Equal(t, "ltk evaluate", result.PreTool[0].Command)
+		assert.Equal(t, "bundle:"+remote.CompanionSource+"@ltk", result.PreTool[0].SCM)
+	})
+
+	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		result := cfg.ResolveBundleHooks(nil)
+		assert.Empty(t, result.PreTool, "a companion hook must be withheld by a denying gate — a builtin would NOT be (it's exempt below rejection)")
+	})
+}
+
+func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testing.T) {
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	t.Run("trusted gate: companion MCP server is included", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		result := cfg.ResolveBundleMCPServers(nil)
+		require.Contains(t, result, "ltk-server")
+		assert.Equal(t, "bundle:"+remote.CompanionSource+"@ltk", result["ltk-server"].SCM)
+	})
+
+	t.Run("denying gate withholds it", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		result := cfg.ResolveBundleMCPServers(nil)
+		assert.NotContains(t, result, "ltk-server")
+	})
+}
+
+func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testing.T) {
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	t.Run("trusted gate: companion fragment is included, ref carries the companion source (not builtin:)", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		var seenRef, seenSigner string
+		got := cfg.ResolveBuiltinBundleFragments(func(ref string, _ []byte, _, signer string) bool {
+			seenRef, seenSigner = ref, signer
+			return true
+		})
+		var found bool
+		for _, f := range got {
+			if f.Name == remote.CompanionSource+"@ltk#fragments/ltk" {
+				found = true
+			}
+		}
+		assert.True(t, found, "companion fragment must be present with the companion's own ref, not a builtin: ref")
+		assert.Equal(t, remote.CompanionSource+"@ltk#fragments/ltk", seenRef)
+		assert.Empty(t, seenSigner, "this loadout is unsigned")
+	})
+
+	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		got := cfg.ResolveBuiltinBundleFragments(func(string, []byte, string, string) bool { return false })
+		for _, f := range got {
+			assert.NotEqual(t, remote.CompanionSource+"@ltk#fragments/ltk", f.Name,
+				"a companion fragment must be withheld by a denying gate — a true builtin fragment is exempt and would NOT be")
+		}
+	})
+}

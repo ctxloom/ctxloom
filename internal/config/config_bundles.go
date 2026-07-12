@@ -96,9 +96,14 @@ func warnMissingCompanion(bin, hint string) {
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
 // caller's selected profiles (or the configured defaults when none are passed),
 // plus servers shipped by built-in bundles embedded in the binary
-// (resources/builtin_bundles). Mirrors ResolveBundleHooks: any future built-in
-// that ships an MCP server is picked up automatically, tagged with
-// SCM="bundle:builtin:<name>" so reconciliation can identify it.
+// (resources/builtin_bundles) and by every discovered COMPANION's loadout
+// (S8 — a companion's MCP registration is unconditional, matching the old
+// embedded-bundle behavior for taskloom, but NEVER exempt like a builtin: it
+// is routed through the identical extraction+gate path a profile-referenced
+// bundle uses, so trusted-signer/approved/pending applies). Mirrors
+// ResolveBundleHooks: any future built-in that ships an MCP server is picked
+// up automatically, tagged with SCM="bundle:builtin:<name>" so reconciliation
+// can identify it.
 func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
@@ -109,6 +114,24 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// no-gating convention there) so a builtin item can still be REJECTED —
 	// see resolveBuiltinBundleMCPServers.
 	maps.Copy(result, resolveBuiltinBundleMCPServers(c.execGate))
+
+	// SeededBundleLoader includes remote bundles from the active lockfile
+	// AND every discovered companion's loadout, seeded under its
+	// ctxloom:companion@<bin> ref; without it, MCP servers shipped in remote
+	// bundles (or a companion loadout) silently disappear after extraction is
+	// removed (see docs/bundle-review-plan.md Phase 1.2).
+	bundleLoader := c.SeededBundleLoader(false)
+
+	// Companion loadouts are resolved through loadMCPFromBundleRef — the SAME
+	// path a profile-referenced bundle uses (Load -> extractMCPFromBundle) —
+	// so a companion's server is judged by ITS bundle's own source ref and
+	// verified Signer(), never the builtin exemption. Sorted for a
+	// deterministic result across runs.
+	for _, ref := range sortedCompanionRefs(c) {
+		for name, server := range loadMCPFromBundleRef(ref, bundleLoader, c.execGate) {
+			result[name] = server
+		}
+	}
 
 	// Scope to the caller's selected profiles (e.g. `run -p`); when none are
 	// passed, fall back to the configured defaults so the `manage`/apply-hooks
@@ -124,11 +147,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	}
 
 	// Load each profile and collect MCP servers.
-	// SeededBundleLoader includes remote bundles from the active lockfile;
-	// without it, MCP servers shipped in remote bundles silently disappear
-	// after extraction is removed (see docs/bundle-review-plan.md Phase 1.2).
 	profileLoader := c.GetProfileLoader()
-	bundleLoader := c.SeededBundleLoader(false)
 
 	for _, profileName := range profiles {
 		// Resolve through the recursive resolver so bundles inherited from
@@ -225,8 +244,11 @@ func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
 // in the caller's selected profiles (or the configured defaults when none
 // are passed), plus the always-on hooks shipped by built-in bundles embedded
-// in the binary (resources/builtin_bundles). Mirrors ResolveBundleMCPServers.
-// Each emitted hook carries SCM source info so apply-hooks can identify
+// in the binary (resources/builtin_bundles) and by every discovered
+// COMPANION's loadout (S8 — unconditional like a builtin hook, e.g. ltk's
+// pre-tool guard or taskloom's session-bind, but NEVER exempt like one: see
+// ResolveBundleMCPServers for why). Mirrors ResolveBundleMCPServers. Each
+// emitted hook carries SCM source info so apply-hooks can identify
 // ctxloom-managed entries when reconciling the backend's settings.json.
 func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	var result wire.UnifiedHooks
@@ -238,12 +260,20 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// reachable by a rejection).
 	result.Append(resolveBuiltinBundleHooks(c.execGate))
 
+	bundleLoader := c.SeededBundleLoader(false)
+
+	// Companion loadout hooks: same extraction+gate path a profile-referenced
+	// bundle uses, keyed and signed by the companion's OWN bundle — never the
+	// builtin exemption. Sorted for a deterministic result across runs.
+	for _, ref := range sortedCompanionRefs(c) {
+		result.Append(loadHooksFromBundleRef(ref, bundleLoader, c.execGate))
+	}
+
 	profiles := c.resolveProfileScope(profileNames)
 	if len(profiles) == 0 || len(c.AppPaths) == 0 {
 		return result
 	}
 	profileLoader := c.GetProfileLoader()
-	bundleLoader := c.SeededBundleLoader(false)
 
 	for _, profileName := range profiles {
 		// Resolve recursively so hooks shipped by bundles inherited from
@@ -259,6 +289,21 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 		}
 	}
 	return result
+}
+
+// sortedCompanionRefs returns the discovered companion loadout refs
+// (ctxloom:companion@<bin>) in deterministic sorted order — the map
+// companionBundleSeed returns has random iteration order, and every
+// unconditional resolver here promises a stable result across runs (a
+// stable context/settings hash).
+func sortedCompanionRefs(c *Config) []string {
+	seed := c.companionBundleSeed()
+	refs := make([]string, 0, len(seed))
+	for ref := range seed {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
@@ -398,12 +443,13 @@ type BuiltinFragment struct {
 // open and its withheld-ref tally. nil (management/listing callers) is fully
 // ungated, matching every other resolver here.
 func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []BuiltinFragment {
+	preferDistilled := c.ShouldUseDistilled()
+	var out []BuiltinFragment
+
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
 		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-		return nil
 	}
-	var out []BuiltinFragment
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
@@ -418,36 +464,61 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []Built
 		if _, missing := builtinBundleCompanionMissing(&b); missing {
 			continue
 		}
-		fragNames := make([]string, 0, len(b.Fragments))
-		for fragName := range b.Fragments {
-			fragNames = append(fragNames, fragName)
+		// A builtin carries NO signer: it is not signed and must not be
+		// (signing bytes embedded in the binary that verifies them is
+		// circular — spec §4.5). The "builtin:" ref prefix is what routes it
+		// to the decision function's builtin step, which sits BELOW
+		// rejection so a user can still reject a builtin.
+		out = fragmentsFromBundle(out, "builtin:"+name, &b, "", preferDistilled, gate)
+	}
+
+	// Companion loadouts (S8): unconditional like a builtin fragment (the
+	// old embedded-bundle behavior for ltk/taskloom), but NEVER exempt like
+	// one — ref carries the companion's own ctxloom:companion@<bin> source
+	// and signer carries its VERIFIED publisher identity, so it reaches
+	// EffectiveTrust's trusted-signer/approved/pending steps like any other
+	// seeded bundle. Do NOT route this through the builtin ref prefix above:
+	// that is precisely the nil-gate/exemption bypass the trust rework
+	// forbids for third-party content.
+	companions := c.companionBundleSeed()
+	for _, ref := range sortedCompanionRefs(c) {
+		b := companions[ref]
+		out = fragmentsFromBundle(out, ref, b, b.Signer(), preferDistilled, gate)
+	}
+	return out
+}
+
+// fragmentsFromBundle extracts every fragment in b as BuiltinFragment
+// entries in a stable (sorted-by-name) order, applying gate per item
+// (ref = "<source>#fragments/<name>", using the caller-supplied signer) and
+// skipping empty content. Shared by the embedded-builtin loop above (signer
+// "", ref "builtin:<name>") and the companion-loadout loop (signer
+// b.Signer(), ref "ctxloom:companion@<bin>") — the only two callers, which
+// differ solely in source/signer.
+func fragmentsFromBundle(out []BuiltinFragment, source string, b *bundles.Bundle, signer string, preferDistilled bool, gate bundles.ContentGate) []BuiltinFragment {
+	fragNames := make([]string, 0, len(b.Fragments))
+	for fragName := range b.Fragments {
+		fragNames = append(fragNames, fragName)
+	}
+	sort.Strings(fragNames)
+	for _, fragName := range fragNames {
+		frag := b.Fragments[fragName]
+		content := frag.EffectiveContent(preferDistilled)
+		if strings.TrimSpace(content) == "" {
+			continue
 		}
-		sort.Strings(fragNames)
-		for _, fragName := range fragNames {
-			frag := b.Fragments[fragName]
-			preferDistilled := c.ShouldUseDistilled()
-			content := frag.EffectiveContent(preferDistilled)
-			if strings.TrimSpace(content) == "" {
-				continue
+		ref := source + "#fragments/" + fragName
+		if gate != nil {
+			payload, form := frag.ContentPayload(preferDistilled)
+			if !gate(ref, payload, string(form), signer) {
+				continue // withheld by the trust gate (e.g. rejected, or pending)
 			}
-			if gate != nil {
-				payload, form := frag.ContentPayload(preferDistilled)
-				ref := "builtin:" + name + "#fragments/" + fragName
-				// A builtin carries NO signer: it is not signed and must not be
-				// (signing bytes embedded in the binary that verifies them is
-				// circular — spec §4.5). The "builtin:" ref prefix is what routes
-				// it to the decision function's builtin step, which sits BELOW
-				// rejection so a user can still reject a builtin.
-				if !gate(ref, payload, string(form), "") {
-					continue // withheld by the trust gate (e.g. rejected)
-				}
-			}
-			out = append(out, BuiltinFragment{
-				Name:         "builtin:" + name + "#fragments/" + fragName,
-				Content:      content,
-				Installation: frag.Installation,
-			})
 		}
+		out = append(out, BuiltinFragment{
+			Name:         ref,
+			Content:      content,
+			Installation: frag.Installation,
+		})
 	}
 	return out
 }

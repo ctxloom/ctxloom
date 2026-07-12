@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // mockProfileLoader is a mock ProfileLoader for testing.
@@ -372,41 +373,76 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 	assert.Empty(t, result.Context)
 }
 
-// TestAssembleContext_InjectsBuiltinFragments verifies the always-on built-in
-// bundle fragments (ltk, taskloom) are appended to assembled context when their
-// companion binary is present — the fragment counterpart to the unconditional
-// hook/MCP injection — and absent when the companion is not on PATH.
-func TestAssembleContext_InjectsBuiltinFragments(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+// TestAssembleContext_InjectsCompanionLoadoutFragments verifies the
+// always-on fragment injection that used to come from the embedded
+// ltk/taskloom builtin bundles now comes from their LOADOUTS (S8): a
+// companion discovered on PATH that emits `loadout --format json` has its
+// fragments appended to assembled context (the loader here carries a nil
+// gate — setupContextTestFS's convention — so this proves the injection
+// wiring itself; gating is proven separately in
+// internal/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
+func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
+	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
+		[]byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
+	require.NoError(t, err)
+	taskloomEnvelope, err := signing.EncodeLoadoutEnvelope(
+		[]byte("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
+	require.NoError(t, err)
 
 	t.Run("companions present → fragments injected", func(t *testing.T) {
-		restore := config.SetLookPathForTesting(func(bin string) (string, error) {
-			return "/usr/bin/" + bin, nil // every companion is "installed"
+		_, loader := setupContextTestFS(t)
+		// A fresh Config per sub-test: companion probing is memoized once per
+		// Config's lifetime, so sharing one across sub-tests with different
+		// fakes would silently reuse the first sub-test's cached result.
+		cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+			return "/fake/" + bin, nil // every companion is "installed"
 		})
-		defer restore()
+		defer restoreLook()
+		restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+			switch path {
+			case "/fake/ltk":
+				return ltkEnvelope, nil
+			case "/fake/taskloom":
+				return taskloomEnvelope, nil
+			default:
+				return nil, exec.ErrNotFound
+			}
+		})
+		defer restoreProbe()
 
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
 		require.NoError(t, err)
-		assert.Contains(t, result.Context, "llm-tool-killer", "ltk briefing injected")
-		assert.Contains(t, result.Context, "taskloom", "taskloom briefing injected")
-		assert.Contains(t, result.FragmentsLoaded, "builtin:ltk#fragments/ltk")
-		assert.Contains(t, result.FragmentsLoaded, "builtin:taskloom#fragments/taskloom")
+		assert.Contains(t, result.Context, "llm-tool-killer briefing")
+		assert.Contains(t, result.Context, "taskloom briefing")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@ltk#fragments/ltk")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@taskloom#fragments/taskloom")
 	})
 
-	t.Run("companion absent → that bundle's fragments skipped", func(t *testing.T) {
-		restore := config.SetLookPathForTesting(func(bin string) (string, error) {
+	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
+		_, loader := setupContextTestFS(t)
+		cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
 			if bin == "ltk" {
 				return "", exec.ErrNotFound // ltk not installed
 			}
-			return "/usr/bin/" + bin, nil
+			return "/fake/" + bin, nil
 		})
-		defer restore()
+		defer restoreLook()
+		restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+			if path == "/fake/taskloom" {
+				return taskloomEnvelope, nil
+			}
+			return nil, exec.ErrNotFound
+		})
+		defer restoreProbe()
 
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
 		require.NoError(t, err)
-		assert.NotContains(t, result.FragmentsLoaded, "builtin:ltk#fragments/ltk", "absent companion is skipped")
-		assert.Contains(t, result.FragmentsLoaded, "builtin:taskloom#fragments/taskloom", "present companion still injects")
+		assert.NotContains(t, result.FragmentsLoaded, "ctxloom:companion@ltk#fragments/ltk", "absent companion is skipped")
+		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@taskloom#fragments/taskloom", "present companion still injects")
 	})
 }
 

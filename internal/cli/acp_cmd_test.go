@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,19 +13,39 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // TestACPSessionMCPServers: an ACP session-open composes the managed MCP set
-// from the session's cwd config — ctxloom's own context server plus the
-// builtin-bundle companions (taskloom) — for session/new injection, and a
-// client-supplied server of the same name wins over the managed entry.
+// from the session's cwd config — ctxloom's own context server plus every
+// discovered companion's loadout (S8 — taskloom's `taskloom mcp` server used
+// to be an embedded builtin bundle, now its own loadout) — for session/new
+// injection, and a client-supplied server of the same name wins over the
+// managed entry.
 func TestACPSessionMCPServers(t *testing.T) {
-	// Builtin companion servers are PATH-gated; pin lookPath so the taskloom
-	// entry resolves deterministically regardless of the host.
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/fake/bin", nil })
-	defer restore()
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	cfg := &config.Config{AppPaths: []string{appDir}}
 
-	got := acpSessionMCPServers(&config.Config{}, "claude-code", nil, nil)
+	// taskloom's loadout is PATH-gated (companion discovery); this Config
+	// never calls SetExecutableTrustGate, so ResolveBundleMCPServers runs
+	// with a nil gate (no enforcement, matching its management/listing
+	// convention) — an unsigned fake loadout is sufficient to exercise the
+	// injection wiring itself.
+	restore := config.SetLookPathForTesting(func(bin string) (string, error) {
+		if bin == "taskloom" {
+			return "/fake/taskloom", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	defer restore()
+	envelope, err := signing.EncodeLoadoutEnvelope(
+		[]byte("version: \"1.0.0\"\nmcp:\n  taskloom:\n    command: taskloom\n    args: [\"mcp\"]\n"), nil, "")
+	require.NoError(t, err)
+	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
+
+	got := acpSessionMCPServers(cfg, "claude-code", nil, nil)
 
 	byName := make(map[string]agent.ChatMCPServer, len(got))
 	for _, s := range got {
@@ -38,7 +61,7 @@ func TestACPSessionMCPServers(t *testing.T) {
 	assert.Equal(t, []string{"mcp"}, byName["taskloom"].Args)
 
 	// Dedup: the client already supplies a "taskloom" server → not injected.
-	deduped := acpSessionMCPServers(&config.Config{}, "claude-code", nil,
+	deduped := acpSessionMCPServers(cfg, "claude-code", nil,
 		[]agent.ChatMCPServer{{Name: "taskloom", Command: "/custom/taskloom"}})
 	for _, s := range deduped {
 		assert.NotEqual(t, "taskloom", s.Name, "client-supplied name must win over the managed entry")

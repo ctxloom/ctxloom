@@ -23,9 +23,10 @@ import (
 // NewCommand builds the `loadout` cobra command for a companion binary.
 //
 // binName is used only in help text. bundleYAML is the companion's own
-// go:embed'd loadout bundle bytes. sig is an OPTIONAL detached publish
-// signature over bundleYAML (namespace signing.NamespacePublish), embedded
-// the same way at release build time; nil/empty emits unsigned — legal,
+// embedded (via the go embed directive) loadout bundle bytes. sig is an
+// OPTIONAL detached publish signature over bundleYAML (namespace
+// signing.NamespacePublish), embedded the same way at release build time;
+// nil/empty emits unsigned — legal,
 // ordinary, and routes to ctxloom's review path rather than an error (spec
 // §10.1). No release signing pipeline exists yet, so every in-repo companion
 // passes nil today; this seam is what a future signed build changes through

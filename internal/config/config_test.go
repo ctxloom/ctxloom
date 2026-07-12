@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -1340,17 +1341,19 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 // ResolveBundleMCPServers Tests
 // =============================================================================
 
-// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond the
-// built-in bundles' servers (currently the taskloom bundle's `taskloom mcp`),
-// which apply unconditionally — no profile reference required, mirroring
-// ResolveBundleHooks.
+// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond
+// embedded-builtin-bundle servers (none remain: S8 moved taskloom's `taskloom
+// mcp` registration onto its own loadout, discovered on PATH — none of these
+// callers fake the loadout probe, so with no real companion binary reachable
+// the result is empty) and, defensively, that anything present still carries
+// a recognized SCM prefix.
 func onlyBuiltinMCPServers(t *testing.T, result map[string]wire.MCPServer) {
 	t.Helper()
 	for name, server := range result {
-		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:"),
-			"unexpected non-builtin MCP server %q (SCM %q)", name, server.SCM)
+		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:") || strings.HasPrefix(server.SCM, "bundle:ctxloom:companion@"),
+			"unexpected non-builtin, non-companion MCP server %q (SCM %q)", name, server.SCM)
 	}
-	assert.Contains(t, result, "taskloom", "builtin taskloom MCP server must always resolve")
+	assert.Empty(t, result, "no embedded builtin bundle ships an MCP server anymore, and these callers don't fake a companion loadout probe")
 }
 
 // stubLookPath pins the companion-gating seam: every binary resolves except
@@ -1406,91 +1409,22 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
-// Companion gating: a builtin bundle's MCP server whose binary is absent from
-// PATH must degrade to no entry — a broken server in every backend is worse
-// than a missing feature (fault-tolerance over completeness).
-func TestResolveBuiltinBundleMCPServers_MissingBinarySkipped(t *testing.T) {
-	stubLookPath(t, "taskloom")
-	got := resolveBuiltinBundleMCPServers(nil)
-	assert.NotContains(t, got, "taskloom", "missing companion binary must not register a server")
-}
-
-// Companion gating for fragments: a builtin bundle's always-on fragment is
-// injected only when the bundle's companion binary resolves — briefing the
-// agent about a tool that isn't installed is noise, matching the hook/MCP gate.
-func TestResolveBuiltinBundleFragments_CompanionGating(t *testing.T) {
-	names := func(frags []BuiltinFragment) []string {
-		out := make([]string, len(frags))
-		for i, f := range frags {
-			out[i] = f.Name
-		}
-		return out
-	}
-
-	t.Run("companions present inject their fragments", func(t *testing.T) {
-		stubLookPath(t)
-		cfg := &Config{}
-		got := names(cfg.ResolveBuiltinBundleFragments(nil))
-		assert.Contains(t, got, "builtin:ltk#fragments/ltk")
-		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom")
-	})
-
-	t.Run("absent companion drops that bundle's fragments", func(t *testing.T) {
-		stubLookPath(t, "ltk")
-		cfg := &Config{}
-		got := names(cfg.ResolveBuiltinBundleFragments(nil))
-		assert.NotContains(t, got, "builtin:ltk#fragments/ltk", "missing ltk must not inject its briefing")
-		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom", "present companion still injects")
-	})
-
-	t.Run("fragments carry their content", func(t *testing.T) {
-		stubLookPath(t)
-		cfg := &Config{}
-		for _, f := range cfg.ResolveBuiltinBundleFragments(nil) {
-			if f.Name == "builtin:ltk#fragments/ltk" {
-				assert.Contains(t, f.Content, "llm-tool-killer")
-				return
-			}
-		}
-		t.Fatal("ltk fragment not found")
-	})
-}
-
-// Companion gating for hooks: the ltk bundle's pre_tool hook applies only when
-// the ltk binary resolves; ctxloom's own hooks (session-bind, stamp-plan) are
-// never gated.
-func TestResolveBuiltinBundleHooks_CompanionGating(t *testing.T) {
-	hasLtkHook := func(hooks wire.UnifiedHooks) bool {
-		for _, h := range hooks.PreTool {
-			if strings.HasPrefix(h.Command, "ltk ") {
-				return true
-			}
-		}
-		return false
-	}
-	hasStampPlan := func(hooks wire.UnifiedHooks) bool {
-		for _, h := range hooks.PostFileEdit {
-			if strings.Contains(h.Command, "hook stamp-plan") {
-				return true
-			}
-		}
-		return false
-	}
-
-	t.Run("ltk present registers the pre-tool hook", func(t *testing.T) {
-		stubLookPath(t)
-		hooks := resolveBuiltinBundleHooks(nil)
-		assert.True(t, hasLtkHook(hooks), "ltk on PATH must surface the builtin pre-tool hook")
-		assert.True(t, hasStampPlan(hooks))
-	})
-
-	t.Run("ltk absent degrades to no hook, ctxloom hooks remain", func(t *testing.T) {
-		stubLookPath(t, "ltk")
-		hooks := resolveBuiltinBundleHooks(nil)
-		assert.False(t, hasLtkHook(hooks), "missing ltk must not register a broken hook")
-		assert.True(t, hasStampPlan(hooks), "ctxloom's own hooks are never gated")
-	})
-}
+// NOTE: the embedded-builtin companion-gating tests that used to live here
+// (TestResolveBuiltinBundleMCPServers_MissingBinarySkipped,
+// TestResolveBuiltinBundleFragments_CompanionGating,
+// TestResolveBuiltinBundleHooks_CompanionGating) drove resolveBuiltinBundleHooks
+// / resolveBuiltinBundleMCPServers / ResolveBuiltinBundleFragments against the
+// REAL embedded resources/builtin_bundles/{ltk,taskloom}.yaml fixtures. S8
+// deleted those fixtures — ltk/taskloom now contribute this same content via
+// their own LOADOUTS, discovered on PATH, not embedded in the binary. The
+// equivalent coverage (present/absent/probe-failure, content, and gating —
+// including the property that a DENYING gate withholds companion content,
+// which a true builtin exemption would NOT) now lives in
+// companion_loadout_test.go: see
+// TestProbeCompanionLoadouts_* (discovery/verify/parse),
+// TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated,
+// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated, and
+// TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated.
 
 // Regression: a bundle reachable only through profile inheritance must still
 // have its MCP server resolved. Before the fix, ResolveBundleMCPServers read a
@@ -1674,27 +1608,42 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			"a hook from a parent-inherited bundle must resolve (recursive ResolveProfile)")
 	})
 
-	t.Run("unresolvable profile and bundle ref are skipped, builtins remain", func(t *testing.T) {
+	t.Run("unresolvable profile and bundle ref are skipped, companion loadout hooks remain", func(t *testing.T) {
 		appDir, profilesDir, _ := newProject(t)
 		// A default profile that does not exist (ResolveProfile errors → skip) and
 		// a profile referencing a bundle that is not on disk (Load errors → skip).
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "real.yaml"),
 			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
 
+		// taskloom's stamp-plan hook used to come from the embedded builtin
+		// bundle (always-on, no profile gating); it now comes from taskloom's
+		// LOADOUT (S8), discovered on PATH — fake that discovery here.
+		restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+			if bin == "taskloom" {
+				return "/fake/taskloom", nil
+			}
+			return "", exec.ErrNotFound
+		})
+		defer restoreLook()
+		envelope, err := signing.EncodeLoadoutEnvelope(
+			[]byte("version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n"), nil, "")
+		require.NoError(t, err)
+		restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+		defer restoreProbe()
+
 		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, AppPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"a ghost bundle ref contributes no hooks")
-		// The builtin taskloom bundle always contributes its stamp-plan hook.
-		foundBuiltin := false
+		found := false
 		for _, h := range result.PostFileEdit {
-			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:builtin:taskloom" {
-				foundBuiltin = true
+			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:ctxloom:companion@taskloom" {
+				found = true
 			}
 		}
-		assert.True(t, foundBuiltin,
-			"builtin hooks survive when profile-gated resolution skips everything")
+		assert.True(t, found,
+			"companion loadout hooks survive when profile-gated resolution skips everything")
 	})
 }
 
@@ -1815,55 +1764,44 @@ mcp:
 	assert.Empty(t, result.PostFileEdit)
 }
 
-// TestResolveBuiltinBundleHooks asserts the embedded tasks bundle is
-// parseable and its hooks ride through to UnifiedHooks tagged with the
-// builtin SCM marker. This is the regression guard for the "ctxloom
-// core functionality prompts/tasks ship with the binary" directive: if
-// the YAML in resources/builtin_bundles/ breaks or the embed directive
-// stops picking it up, apply-hooks would silently lose the plan-stamping
-// hook. This test fires before that ships.
+// TestResolveBuiltinBundleHooks proves the embedded-builtin-bundle hook path
+// degrades cleanly to a zero-valued UnifiedHooks now that no embedded bundle
+// ships a companion wire-in (S8 deleted resources/builtin_bundles/{ltk,
+// taskloom}.yaml — that content now rides their own loadouts, discovered on
+// PATH; see TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated). The
+// SCM-tagging contract for any FUTURE embedded builtin is still pinned
+// directly via a synthetic bundle through extractHooksFromBundle — the exact
+// code path resolveBuiltinBundleHooks takes.
 func TestResolveBuiltinBundleHooks(t *testing.T) {
 	hooks := resolveBuiltinBundleHooks(nil)
+	assert.Empty(t, hooks.PreTool)
+	assert.Empty(t, hooks.PostTool)
+	assert.Empty(t, hooks.SessionStart)
+	assert.Empty(t, hooks.SessionEnd)
+	assert.Empty(t, hooks.PreShell)
+	assert.Empty(t, hooks.PostFileEdit, "no embedded builtin bundle ships a hook anymore")
 
-	// The tasks bundle ships no PostTool hook: TodoWrite auto-capture was
-	// removed. Tasks are created/updated only via the MCP tools or CLI.
-	assert.Empty(t, hooks.PostTool, "taskloom bundle must not ship a PostTool (TodoWrite capture) hook")
-
-	require.NotEmpty(t, hooks.PostFileEdit, "taskloom bundle must contribute a PostFileEdit hook (stamp-plan)")
-	foundStamp := false
-	for _, h := range hooks.PostFileEdit {
-		if strings.Contains(h.Command, "hook stamp-plan") {
-			foundStamp = true
-			assert.Equal(t, "bundle:builtin:taskloom", h.SCM)
-		}
-	}
-	assert.True(t, foundStamp, "stamp-plan hook missing from builtin taskloom bundle")
+	synthetic := extractHooksFromBundle(&bundles.Bundle{
+		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
+	}, "builtin:future-bundle", nil)
+	require.Len(t, synthetic.PostFileEdit, 1)
+	assert.Equal(t, "bundle:builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
+		"extractHooksFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
 }
 
-// TestResolveBuiltinBundleMCPServers asserts the built-in MCP-server
-// path doesn't error against the embedded YAMLs and that every server
-// shipped from a built-in is tagged with the builtin SCM marker. The
-// taskloom bundle registers the standalone task-store server (`taskloom mcp`),
-// so the real call must surface it. The SCM-tag invariant is also pinned
-// via extractMCPFromBundle with "builtin:<name>" as the source — the
-// same code path resolveBuiltinBundleMCPServers takes.
+// TestResolveBuiltinBundleMCPServers proves the embedded-builtin-bundle
+// MCP-server path degrades cleanly to an empty (non-nil) map now that no
+// embedded bundle ships an MCP server (S8 moved taskloom's `taskloom mcp`
+// registration onto its own loadout; see
+// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated). The
+// SCM-tag contract for any FUTURE embedded builtin is still pinned directly
+// via extractMCPFromBundle with "builtin:<name>" as the source — the same
+// code path resolveBuiltinBundleMCPServers takes.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
 	got := resolveBuiltinBundleMCPServers(nil)
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
-
-	// The taskloom bundle ships the standalone task-store MCP server.
-	require.Contains(t, got, "taskloom", "builtin taskloom bundle must register the taskloom MCP server")
-	assert.Equal(t, "taskloom", got["taskloom"].Command)
-	assert.Equal(t, []string{"mcp"}, got["taskloom"].Args)
-
-	// Every built-in MCP server must carry the builtin SCM marker
-	// (extractMCPFromBundle prepends "bundle:" to the "builtin:<name>"
-	// source) so apply-mcp can identify it as ctxloom-managed.
-	for name, server := range got {
-		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:"),
-			"server %q from built-in bundle must have SCM prefix bundle:builtin:, got %q", name, server.SCM)
-	}
+	assert.Empty(t, got, "no embedded builtin bundle ships an MCP server anymore")
 
 	// Pin the contract directly: a synthetic builtin source through
 	// extractMCPFromBundle produces the expected SCM tag.

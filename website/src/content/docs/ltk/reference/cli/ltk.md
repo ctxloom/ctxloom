@@ -39,6 +39,7 @@ retry the right way. See docs/RULES.md for the full rule model.
 * [ltk check](/ltk/reference/cli/ltk_check/)	 - Check whether a shell command would be allowed (structured output)
 * [ltk completion](/ltk/reference/cli/ltk_completion/)	 - Generate the autocompletion script for the specified shell
 * [ltk evaluate](/ltk/reference/cli/ltk_evaluate/)	 - Evaluate a hook payload from stdin and emit an allow/deny decision
+* [ltk loadout](/ltk/reference/cli/ltk_loadout/)	 - Print ltk's ctxloom loadout — the bundle content ltk contributes to a session
 * [ltk manage](/ltk/reference/cli/ltk_manage/)	 - Install or remove the pre-tool hook in your LLM agent's config
 * [ltk version](/ltk/reference/cli/ltk_version/)	 - Print the ltk version
 

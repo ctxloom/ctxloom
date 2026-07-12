@@ -108,12 +108,20 @@ func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 	})
 }
 
-// TestResolveBundleHooks_BuiltinsUnconditional pins the always-on path: even a
-// bare config with no profiles surfaces the built-in bundle hooks (session-bind
-// + plan stamping) shipped embedded in the binary.
+// TestResolveBundleHooks_BuiltinsUnconditional pinned the always-on path when
+// session-bind + plan-stamping shipped as EMBEDDED builtin bundle hooks. S8
+// moved that content onto taskloom's own loadout (discovered on PATH, not
+// embedded — see TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated
+// in companion_loadout_test.go), which requires a project directory to seed
+// into (companionBundleSeed's AppPaths guard). A truly bare Config (no
+// AppPaths — nothing to be an "unconditional" project-level bundle FOR) now
+// correctly surfaces no hooks at all, which is what this pins today.
 func TestResolveBundleHooks_BuiltinsUnconditional(t *testing.T) {
 	hooks := (&Config{}).ResolveBundleHooks(nil)
-
-	assert.NotEmpty(t, hooks.SessionStart, "built-in bundles ship a session_start hook")
-	assert.NotEmpty(t, hooks.PostFileEdit, "built-in bundles ship a post_file_edit hook")
+	assert.Empty(t, hooks.PreTool)
+	assert.Empty(t, hooks.PostTool)
+	assert.Empty(t, hooks.SessionStart)
+	assert.Empty(t, hooks.SessionEnd)
+	assert.Empty(t, hooks.PreShell)
+	assert.Empty(t, hooks.PostFileEdit, "a bare Config with no project directory has no bundle (embedded or companion) to surface hooks from")
 }

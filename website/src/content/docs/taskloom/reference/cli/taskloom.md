@@ -35,6 +35,7 @@ of precedence. Agents reach the same store via the MCP tools served by
 * [taskloom completion](/taskloom/reference/cli/taskloom_completion/)	 - Generate the autocompletion script for the specified shell
 * [taskloom edit](/taskloom/reference/cli/taskloom_edit/)	 - Replace a task's text in place (full new text)
 * [taskloom list](/taskloom/reference/cli/taskloom_list/)	 - List tasks, optionally filtered by status or term
+* [taskloom loadout](/taskloom/reference/cli/taskloom_loadout/)	 - Print taskloom's ctxloom loadout — the bundle content taskloom contributes to a session
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends
 * [taskloom mcp](/taskloom/reference/cli/taskloom_mcp/)	 - Serve the task tools over MCP on stdio
 * [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)

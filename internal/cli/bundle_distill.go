@@ -74,12 +74,14 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	distiller := newLLMDistillerForLabel(cfg, label)
 
 	var totalFiles, totalItems, totalSkipped int
+	var invalidated []string
 	for _, filePath := range files {
 		res, err := operations.DistillBundleFile(cmd.Context(), operations.DistillBundleFileRequest{
 			Path:      filePath,
 			Force:     bundleDistillForce,
 			DryRun:    bundleDistillDryRun,
 			Distiller: distiller,
+			Cfg:       cfg,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -92,10 +94,37 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		if res.Saved {
 			totalFiles++
 		}
+		for _, inv := range res.Invalidated {
+			invalidated = append(invalidated, filePath+"#"+inv)
+		}
 	}
 
 	printDistillSummary(totalItems, totalFiles, totalSkipped)
+	printDistillInvalidatedApprovals(invalidated)
 	return nil
+}
+
+// printDistillInvalidatedApprovals is the re-distill LOUD PATH (spec §10.4):
+// fired at the moment invalidation is CAUSED, by the command that caused it —
+// never silently discovered later at the next `ctxloom review`. It explains
+// WHY in one sentence (so a user does not go looking for a way to silence it)
+// and names the exact recovery command.
+func printDistillInvalidatedApprovals(refs []string) {
+	if len(refs) == 0 {
+		return
+	}
+	fmt.Printf("\n⚠ %d approval(s) invalidated.\n\n", len(refs))
+	fmt.Println("  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
+	fmt.Println("  covered the previous bytes — the agent would now see text nobody has")
+	fmt.Println("  reviewed, so they are back to pending and are withheld until you review")
+	fmt.Println("  them.")
+	fmt.Println()
+	for _, ref := range refs {
+		fmt.Printf("    %s\n", ref)
+	}
+	fmt.Println()
+	fmt.Println("  Review them:            ctxloom review")
+	fmt.Println("  (Raw forms are unaffected — their approvals still stand.)")
 }
 
 // renderDistillItems prints one line per item outcome and returns the count of

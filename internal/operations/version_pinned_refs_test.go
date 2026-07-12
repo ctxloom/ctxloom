@@ -15,7 +15,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // cqVersionRef is the canonical bundle ref of the acme "cq" bundle used by these
@@ -26,12 +25,12 @@ const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/c
 // versionPinnedLoader builds an exposure-style loader over the acme/cq bundle:
 // a seeded lockfile-default bundle, a fake version resolver serving per-commit
 // bundles (an absent commit errors, simulating a fetch failure), and a real
-// trust contentGate resolving against store + an untrusted acme remote. It is
-// the operations-level analogue of bundles.versionedLoader.
-func versionPinnedLoader(t *testing.T, store *trust.Store, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Loader, *config.Config) {
+// trust contentGate resolving against records + an untrusted acme remote. It
+// is the operations-level analogue of bundles.versionedLoader.
+func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Loader, *config.Config) {
 	t.Helper()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	gate := (&contentGate{cfg: cfg, records: records}).allow
 
 	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		b, ok := versions[commit]
@@ -66,10 +65,10 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
-	store := newTrustStore(t)
+	fx := newTrustFixture(t)
 	// Trust the PINNED version's content (its own hash) — `ctxloom trust` on it.
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx.approveFragment("cq", "solid", "V1-BODY")
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "pinned", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c1:fragments/solid"},
 	})
@@ -89,9 +88,9 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "solid", "V1-BODY")
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: cqVersionRef + "@c1#fragments/solid"}},
 	})
@@ -110,9 +109,9 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("DEFAULT-BODY"), ""))
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "solid", "DEFAULT-BODY")
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "plain", config.Profile{
 		BundleItems: []string{cqVersionRef + ":fragments/solid"},
 	})
@@ -135,10 +134,10 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 			"beta":  {Content: "BETA-V1"},
 		}},
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/alpha", fragHash("ALPHA-V1"), ""))
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/beta", fragHash("BETA-V1"), ""))
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "alpha", "ALPHA-V1")
+	fx.approveFragment("cq", "beta", "BETA-V1")
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "wholepin", config.Profile{
 		Bundles: []string{cqVersionRef + "@c1"},
 	})
@@ -160,8 +159,8 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c2": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V2-BODY"}}},
 	}
-	store := newTrustStore(t) // no grant yet for V2-BODY
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx := newTrustFixture(t) // no grant yet for V2-BODY
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "pinned2", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c2:fragments/solid"},
 	})
@@ -175,8 +174,8 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 
 	// `ctxloom trust` of the pinned version's own hash exposes it (fresh loader so
 	// the version cache + withheld set don't carry the prior decision).
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V2-BODY"), ""))
-	loader2, _ := versionPinnedLoader(t, store, def, versions)
+	fx.approveFragment("cq", "solid", "V2-BODY")
+	loader2, _ := versionPinnedLoader(t, fx.records(), def, versions)
 	res2, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Loader: loader2})
 	require.NoError(t, err)
 	assert.Contains(t, res2.Context, "V2-BODY", "granting the pinned version's hash exposes it")
@@ -200,9 +199,9 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 		"c1": {Fragments: map[string]bundles.BundleFragment{"good": {Content: "GOOD-V1"}}},
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/good", fragHash("GOOD-V1"), ""))
-	loader, cfg := versionPinnedLoader(t, store, def, versions)
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "good", "GOOD-V1")
+	loader, cfg := versionPinnedLoader(t, fx.records(), def, versions)
 	cfg = profileCfg(cfg, "mixed", config.Profile{
 		BundleItems: []string{
 			cqVersionRef + "@c1:fragments/good",

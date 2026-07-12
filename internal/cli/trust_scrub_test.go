@@ -9,11 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -27,7 +28,8 @@ import (
 // project root (where .claude/.mcp.json lands).
 func scrubProjectRoot(t *testing.T) string {
 	t.Helper()
-	testsupport.Isolate(t) // junk HOME so config.Load reads only this project
+	testsupport.Isolate(t)        // junk HOME so config.Load reads only this project
+	t.Setenv("SSH_AUTH_SOCK", "") // no ssh-agent — trust/blacklist take the unsigned path deterministically
 	root := t.TempDir()
 	t.Setenv(projectroot.EnvVar, root)
 
@@ -108,7 +110,7 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 // the trust mutation still persists and the command does not error — the trust
 // change already landed, so a refresh failure is only a warning.
 func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
-	root := scrubProjectRoot(t)
+	scrubProjectRoot(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -130,8 +132,12 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 	require.NoError(t, runBlacklist(c, cfg, "tools#mcp/alpha"),
 		"a failed managed-artifact refresh must not fail the blacklist")
 
-	store := loadTrustStore(t, filepath.Join(root, paths.AppDirName))
-	item, ok := store.Lookup(remote.LocalSource, "tools#mcp/alpha")
-	require.True(t, ok, "the rejection must persist even when the post-mutation refresh fails")
-	assert.Equal(t, trust.StateRejected, item.State)
+	alpha := bundles.BundleMCP{Command: "alpha-cmd"}
+	alphaPayload, perr := alpha.ContentPayload()
+	require.NoError(t, perr)
+	ref := trust.Ref{Bundle: "tools", Kind: trust.KindMCP, Name: "alpha", IsLocal: true}
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedRefReject(signing.KindMCP, countersignRefFor(ref)),
+		"the rejection must persist even when the post-mutation refresh fails")
+	assert.True(t, store.HasUnsignedContentReject(signing.KindMCP, signing.FormRaw, alphaPayload))
 }

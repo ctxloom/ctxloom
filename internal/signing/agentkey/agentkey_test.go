@@ -199,3 +199,10 @@ func TestDiscover_ExplicitFingerprintMatchesAgentIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fp, got.Fingerprint)
 }
+
+func TestIsHardwareBacked(t *testing.T) {
+	signer, _ := newTestIdentity(t, "plain")
+
+	assert.False(t, IsHardwareBacked(signer.PublicKey()), "a plain ed25519 key is software, not hardware")
+	assert.False(t, IsHardwareBacked(nil))
+}

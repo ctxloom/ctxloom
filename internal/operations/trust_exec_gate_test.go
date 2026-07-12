@@ -11,12 +11,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
-
-// hookHashOf is the executable-surface hash a bundle-hook acceptance binds to.
-func hookHashOf(h bundles.BundleHook) string { return h.ComputeContentHash() }
 
 const (
 	gatePostgresRef = acmeBundle + "tooling#mcp/postgres"
@@ -33,8 +30,6 @@ func toolingHookPayload() []byte {
 	}
 	return p
 }
-func postgresHash() string    { return bundles.HashPayload(postgresPayload()) }
-func toolingHookHash() string { return bundles.HashPayload(toolingHookPayload()) }
 
 // TestExecGate_MCP_CascadeResolves drives the REAL decision function through
 // the gate func on an MCP-server ref: an approval ALLOWS exposure, an unsigned
@@ -42,15 +37,16 @@ func toolingHookHash() string { return bundles.HashPayload(toolingHookPayload())
 // the executable choke's deny path — the security-critical surface.
 func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	fx := newTrustFixture(t)
 
 	// Pending (never reviewed) + unsigned → DENY.
-	store := newTrustStore(t)
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
 		"an unreviewed unsigned MCP server must be withheld")
 
 	// Approval of the exact bytes → ALLOW.
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#mcp/postgres", postgresHash(), ""))
+	postgresRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
+	fx.approve(postgresRef, signing.FormRaw, postgresPayload())
 	assert.True(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
 		"an approved MCP server must be exposed")
 
@@ -59,7 +55,7 @@ func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 		"a changed MCP executable surface (new bytes) must re-gate")
 
 	// Rejection beats the approval → DENY.
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#mcp/postgres", postgresHash()))
+	fx.rejectItem(postgresRef, signing.FormRaw, postgresPayload())
 	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
 		"a rejected MCP server must be withheld even after a prior approval")
 }
@@ -68,17 +64,18 @@ func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 // bundle-hook ref: approved → ALLOW, unsigned unreviewed → DENY, rejected → DENY.
 func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	fx := newTrustFixture(t)
 
-	store := newTrustStore(t)
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 	assert.False(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
 		"an unreviewed unsigned bundle hook must be withheld")
 
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash(), ""))
+	hookRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}
+	fx.approve(hookRef, signing.FormRaw, toolingHookPayload())
 	assert.True(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
 		"an approved bundle hook must be applied")
 
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash()))
+	fx.rejectItem(hookRef, signing.FormRaw, toolingHookPayload())
 	assert.False(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
 		"a rejected bundle hook must be withheld")
 }
@@ -89,15 +86,16 @@ func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 // while a rejection still beats the exemption.
 func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	store := newTrustStore(t)
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	fx := newTrustFixture(t)
+	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 
 	assert.True(t, gate(gatePostgresRef, postgresPayload(), "raw", trustedPublisher),
 		"a trusted publisher's MCP server is exempt from review")
 	assert.True(t, gate(gateHookRef, toolingHookPayload(), "raw", trustedPublisher),
 		"a trusted publisher's bundle hook is exempt from review")
 
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#mcp/postgres", postgresHash()))
+	postgresRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
+	fx.rejectItem(postgresRef, signing.FormRaw, postgresPayload())
 	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", trustedPublisher),
 		"rejection beats the trusted-signer exemption")
 }
@@ -113,6 +111,8 @@ func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -127,11 +127,12 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	// Local bundle MCP servers are project-authored (first-party), so they are
 	// exposed with no review state. A rejection still withholds one — the
-	// rejected step precedes the local exemption.
-	store, err := getTrustStore(cfg, nil, nil)
-	require.NoError(t, err)
-	noisyHash := mcpHashOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}})
-	require.NoError(t, store.SetRejected(remote.LocalSource, "mcp-bundle#mcp/noisy-server", noisyHash))
+	// rejected step precedes the local exemption. Recorded UNSIGNED (spec
+	// §9.5) directly in the real user store the default gate reads.
+	noisyPayload := mcpPayloadOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}})
+	installUnsignedRejection(t,
+		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
+		signing.FormRaw, noisyPayload)
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleMCPServers(nil)
@@ -156,21 +157,24 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 func TestExecGate_ResolveBundleMCPServers_BuiltinRejectable(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
-	store, err := getTrustStore(cfg, nil, nil)
-	require.NoError(t, err)
 	// Matches resources/builtin_bundles/taskloom.yaml's mcp.taskloom entry
-	// exactly (Command/Args/Installation are the ComputeContentHash preimage —
-	// Notes is excluded).
-	taskloomHash := mcpHashOf(bundles.BundleMCP{
+	// exactly (Command/Args/Installation are the ContentPayload preimage —
+	// Notes is excluded). Recorded UNSIGNED (spec §9.5) directly in the real
+	// user store the default gate reads.
+	taskloomPayload := mcpPayloadOf(bundles.BundleMCP{
 		Command:      "taskloom",
 		Args:         []string{"mcp"},
 		Installation: "brew install ctxloom/tap/taskloom",
 	})
-	require.NoError(t, store.SetRejected("builtin:ctxloom", "taskloom#mcp/taskloom", taskloomHash))
+	installUnsignedRejection(t,
+		trust.Ref{Bundle: "taskloom", Kind: trust.KindMCP, Name: "taskloom", IsBuiltin: true},
+		signing.FormRaw, taskloomPayload)
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleMCPServers(nil)
@@ -184,6 +188,8 @@ func TestExecGate_ResolveBundleMCPServers_BuiltinRejectable(t *testing.T) {
 func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -198,10 +204,12 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	// Local bundle hooks are first-party (project-authored); a rejection still
 	// withholds one — the rejected step precedes the local exemption.
-	store, err := getTrustStore(cfg, nil, nil)
-	require.NoError(t, err)
-	denyHash := hookHashOf(bundles.BundleHook{Command: "echo deny", Type: "command"})
-	require.NoError(t, store.SetRejected(remote.LocalSource, "hook-bundle#hooks/session_start/0", denyHash))
+	// Recorded UNSIGNED (spec §9.5) directly in the real user store.
+	denyPayload, perr := (&bundles.BundleHook{Command: "echo deny", Type: "command"}).ContentPayload()
+	require.NoError(t, perr)
+	installUnsignedRejection(t,
+		trust.Ref{Bundle: "hook-bundle", Kind: trust.KindHook, Name: "session_start/0", IsLocal: true},
+		signing.FormRaw, denyPayload)
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleHooks(nil)
@@ -221,12 +229,14 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	assert.False(t, denyApplied, "rejected local bundle hook must NOT be applied")
 }
 
-// TestExecGate_FailClosed proves the executable gate withholds on any failure to
-// positively justify exposure (denyAll store, unparseable ref) and tallies the
-// withheld refs for the pending advisory.
+// TestExecGate_FailClosed proves the executable gate withholds on any failure
+// to positively justify exposure (a fresh/empty records store — nothing ever
+// approved — and an unparseable ref) and tallies the withheld refs for the
+// pending advisory.
 func TestExecGate_FailClosed(t *testing.T) {
-	// denyAll (unreadable store) → every executable withheld, all recorded.
-	g := &contentGate{denyAll: true}
+	// A fresh, empty records store → every executable withheld, all recorded
+	// as pending (nothing has ever been approved).
+	g := &contentGate{records: newTrustFixture(t).records()}
 	e := &ExecutableTrustGate{gate: g}
 	assert.False(t, e.Gate()(gatePostgresRef, postgresPayload(), "raw", ""))
 	assert.False(t, e.Gate()(gateHookRef, toolingHookPayload(), "raw", ""))
@@ -236,7 +246,7 @@ func TestExecGate_FailClosed(t *testing.T) {
 	assert.Equal(t, 0, rejected)
 
 	// Unparseable ref → withhold (no selector).
-	g2 := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, store: newTrustStore(t)}
+	g2 := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, records: newTrustFixture(t).records()}
 	assert.False(t, g2.allow("garbage-without-selector", pbytes("abc"), "raw", ""),
 		"a ref the gate cannot address must be withheld")
 	assert.Contains(t, g2.withheldRefs(), "garbage-without-selector")
@@ -251,9 +261,9 @@ func TestExecGate_FailClosed(t *testing.T) {
 // pending from rejected: one unreviewed item and one rejected item withhold as
 // (1 pending, 1 rejected).
 func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
-	store := newTrustStore(t)
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash()))
-	g := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, store: store}
+	fx := newTrustFixture(t)
+	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}, signing.FormRaw, toolingHookPayload())
+	g := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, records: fx.records()}
 
 	assert.False(t, g.allow(gatePostgresRef, postgresPayload(), "raw", ""), "pending item withheld")
 	assert.False(t, g.allow(gateHookRef, toolingHookPayload(), "raw", ""), "rejected item withheld")
@@ -269,6 +279,8 @@ func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
 // beats the local exemption. The gate is rebuilt after the mutation so it reads
 // the freshly-persisted store.
 func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	bundlesDir := filepath.Join(appDir, "cache", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))

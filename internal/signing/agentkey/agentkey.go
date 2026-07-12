@@ -368,6 +368,26 @@ func findByPublicKey(ag agent.Agent, pub ssh.PublicKey, source string) (*Discove
 	return nil, fmt.Errorf("key %s is not loaded in ssh-agent", ssh.FingerprintSHA256(pub))
 }
 
+// IsHardwareBacked reports whether pub's key TYPE is self-identifying as
+// hardware-backed (spec §9.1.2, posture P3): sk-ssh-ed25519@openssh.com or
+// sk-ecdsa-sha2-nistp256@openssh.com. This is the ONLY signing posture ctxloom
+// can detect honestly from the public key alone — whether a plain key is
+// guarded by `ssh-add -c` (confirm-before-use) has no protocol-visible
+// signal (agent.Agent.List returns key blob + comment, nothing else) and
+// must be self-attested by the user, never inferred (spec §9.1.2: "I looked
+// for another honest signal and there is none").
+func IsHardwareBacked(pub ssh.PublicKey) bool {
+	if pub == nil {
+		return false
+	}
+	switch pub.Type() {
+	case ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+		return true
+	default:
+		return false
+	}
+}
+
 // candidatesFromSigners builds the ambiguous-choice candidate list. Comments
 // come from List() (Signers() carries no comment), matched to each signer by
 // public key blob; a lookup failure just omits the comment rather than

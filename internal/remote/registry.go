@@ -376,8 +376,8 @@ func (r *Registry) List() []*Remote {
 
 // Has checks if a remote exists.
 // reprise:ignore — a trivial RLock/map-membership accessor; reprise groups it by
-// structure alone with unrelated cross-package lookups (trust.Store's denylist/
-// grant/posture accessors), which legitimately differ. Not real duplication.
+// structure alone with unrelated cross-package lookups (e.g. countersign.Store's
+// unsigned-marker accessors), which legitimately differ. Not real duplication.
 func (r *Registry) Has(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

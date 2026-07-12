@@ -692,7 +692,7 @@ func TestExtractBundleName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := extractBundleName(tt.path)
+			got := ExtractBundleName(tt.path)
 			assert.Equal(t, tt.want, got)
 		})
 	}

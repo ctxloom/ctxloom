@@ -1,17 +1,21 @@
 # Content signing: design and rationale
 
-> ## NOT IMPLEMENTED — NOTHING IN THIS DOCUMENT SHIPS TODAY
+> ## PARTIALLY IMPLEMENTED — read trust-model.md for what actually ships
 >
-> **Every command, file path, config key, and behavior described below does not
-> exist.** There is no `ctxloom sign`, no `allowed_signers`, no countersignature,
-> no `.sig` file. Grep the tree: `sshsig`, `allowed_signers`, and `countersign`
-> return zero hits in Go source. This is a design under construction, being built
-> in parallel with this document.
+> The publisher-trust decision function, live publisher verification, and the
+> countersignature approval/rejection store described below **have shipped**
+> (`internal/signing`, `internal/signing/allowedsigners`,
+> `internal/signing/countersign`, `operations.EffectiveTrust`). `ctxloom sign`
+> and `ctxloom signer` (the key-management CLI this document also describes)
+> have **not** — key discovery for `ctxloom review` is a deliberately minimal
+> stand-in (`internal/signing/agentkey`) pending that slice.
 >
 > **ctxloom's actual, current, shipped trust model is
-> [trust-model.md](trust-model.md).** That is the normative doc. Read this one as
-> an argument for what should be built, never as a description of what ctxloom
-> does.
+> [trust-model.md](trust-model.md).** That is the normative doc, kept
+> synchronized with the code. Read this one for the RATIONALE — why the design
+> looks the way it does — not as a line-by-line description of what ships;
+> some details below (exact CLI surface, some file layouts) were superseded
+> during implementation.
 >
 > The technical authority is the signature-envelope spec. Where this document and
 > the spec disagree, the spec wins.

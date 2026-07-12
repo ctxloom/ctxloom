@@ -13,9 +13,9 @@ import (
 )
 
 // contentGate is the per-item trust gate bound into a bundle loader's content
-// choke (bundles.fragmentContent/skillContent). It owns a trust store + remote
-// registry built ONCE so the decision function resolves without per-item file
-// I/O, and resolves each item fail-closed: any parse/evaluation error withholds
+// choke (bundles.fragmentContent/skillContent). It owns a review-records store
+// built ONCE so the decision function resolves without per-item file I/O, and
+// resolves each item fail-closed: any parse/evaluation error withholds
 // (returns false), matching the security mandate that "couldn't evaluate" must
 // never mean "allow".
 //
@@ -25,14 +25,8 @@ import (
 // remote content past the gate.
 type contentGate struct {
 	cfg     *config.Config
-	store   *trust.Store
 	records ReviewRecords
 	fs      afero.Fs
-
-	// denyAll withholds everything. Set when the trust store cannot be opened —
-	// it may hold rejections we must not silently skip (mirrors
-	// EffectiveTrust's and TrustStamper's corrupt-store posture).
-	denyAll bool
 
 	// withheld records every ref this gate denied, mapped to the deciding
 	// source (pending vs rejected) so the advisory can tally them apart. The
@@ -49,10 +43,6 @@ type contentGate struct {
 // call per resolved item. It is fail-closed: any path that cannot positively
 // justify exposure records the ref and withholds (returns false).
 func (g *contentGate) allow(ref string, payload []byte, form, signer string) bool {
-	if g.denyAll {
-		g.record(ref, trust.SourcePending)
-		return false
-	}
 	tRef, _, _, err := parseTrustItemRef(ref)
 	if err != nil {
 		// A ref we cannot address cannot be trusted — withhold rather than expose
@@ -66,7 +56,6 @@ func (g *contentGate) allow(ref string, payload []byte, form, signer string) boo
 		Payload: payload,
 		Form:    form,
 		Signer:  signer,
-		Store:   g.store,
 		Records: g.records,
 		FS:      g.fs,
 	})
@@ -123,32 +112,22 @@ func (g *contentGate) withheldTally() (pending, rejected int) {
 	return pending, rejected
 }
 
-// newContentGate builds the fragment/prompt content gate for cfg. The store/fs
-// are injection points for testing; production passes nil and they are built
-// from cfg (OS fs unless cfg carries an injected one).
-func newContentGate(cfg *config.Config, store *trust.Store, fs afero.Fs) bundles.ContentGate {
-	return buildContentGate(cfg, store, fs).allow
+// newContentGate builds the fragment/prompt content gate for cfg. records/fs
+// are injection points for testing; production passes nil records and they
+// are built from cfg (OS fs unless cfg carries an injected one).
+func newContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) bundles.ContentGate {
+	return buildContentGate(cfg, records, fs).allow
 }
 
 // buildContentGate constructs the *contentGate behind newContentGate (and the
-// executable gate). It is the shared builder: it opens the trust store once,
-// failing closed to denyAll when unreadable. Returning the struct (not just
+// executable gate). It is the shared builder. Returning the struct (not just
 // g.allow) lets the executable gate read the withheld tally afterward.
-func buildContentGate(cfg *config.Config, store *trust.Store, fs afero.Fs) *contentGate {
+func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *contentGate {
 	g := &contentGate{cfg: cfg, fs: fs}
-
-	if store == nil {
-		s, err := getTrustStore(cfg, nil, fs)
-		if err != nil {
-			// Fail closed: an unreadable store may hide rejections; deny every
-			// gated item rather than degrade to allow-by-default.
-			clidiag.Warn("ctxloom", "trust store unreadable; withholding all gated content: %v", err)
-			g.denyAll = true
-			return g
-		}
-		store = s
+	if records == nil {
+		records = newCountersignRecords(cfg, fs)
 	}
-	g.store = store
+	g.records = records
 	return g
 }
 
@@ -163,9 +142,9 @@ func buildContentGate(cfg *config.Config, store *trust.Store, fs afero.Fs) *cont
 // settings (fail-closed). It tallies withheld refs so the caller can surface a
 // content-free advisory.
 //
-// Construct ONCE per apply/run (it builds the trust store + registry up
-// front). A nil *ExecutableTrustGate is a no-op (Gate() returns nil = no
-// gating), matching the nil bundles.ContentGate convention.
+// Construct ONCE per apply/run (it builds the review-records store up front).
+// A nil *ExecutableTrustGate is a no-op (Gate() returns nil = no gating),
+// matching the nil bundles.ContentGate convention.
 type ExecutableTrustGate struct {
 	gate *contentGate
 }
@@ -202,7 +181,7 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // fragment|prompt resources, fragment-reading hooks, and SessionStart regen — so
 // management/listing paths keep using the gate-free bundleLoader and can still
 // resolve pending content (to review, accept, or stamp it). cfg.FS() is
-// threaded so the gate's trust store reads/writes the same filesystem as the
+// threaded so the gate's review-records store reads the same filesystem as the
 // rest of the operation (OS fs in production, a virtualized fs in tests).
 func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Loader {
 	gate := newContentGate(cfg, nil, cfgFS(cfg))

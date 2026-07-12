@@ -672,8 +672,13 @@ func ValidateBundleName(name string) error {
 	return nil
 }
 
-// extractBundleName extracts bundle name from file path.
-func extractBundleName(path string) string {
+// ExtractBundleName derives a bundle's name from its file path: the parent
+// directory name for a "bundle.yaml" leaf, else the filename without
+// extension. Exported so other packages addressing a bundle FILE as a
+// trust.Ref{IsLocal:true} item (e.g. operations.DistillBundleFile's
+// re-distill invalidation check) key it identically to how the loader itself
+// names a bundle — one definition, not two that can drift apart.
+func ExtractBundleName(path string) string {
 	base := filepath.Base(path)
 
 	// If it's bundle.yaml, use parent directory name

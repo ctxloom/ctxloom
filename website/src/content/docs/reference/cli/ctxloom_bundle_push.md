@@ -35,7 +35,9 @@ ctxloom bundle push <name> [remote] [flags]
 ```
   -h, --help             help for push
   -m, --message string   Commit message
+      --no-sign          don't sign, even if sign.default is true
       --pr               Create a pull request instead of pushing directly
+      --sign             sign the published bundle (spec §3.1)
 ```
 
 ### Options inherited from parent commands

@@ -93,11 +93,15 @@ func (s *ctxServer) getSessionsDir() string {
 	return paths.ProjectSessionsDir(s.cfg.AppDir)
 }
 
+// This and the sibling registerXTools functions share a duplicate shape by
+// construction (a run of mcp.AddTool calls). Their tool descriptions are
+// independent content; a change to one implies nothing about the others.
+// reprise:accept-drift
 func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "compact_session",
-			Description: "Compact current or specified session log into a distilled summary. Use this to compress a session log when context is running low.",
+			Description: "Pre-bake a session's persisted log into a distilled summary on disk, for recovery in a LATER session. This reads the stored transcript and spawns its own LLM calls; it does NOT touch the live conversation and frees no context. It is not a substitute for the harness's native compaction — for live context pressure, use that. Call this before ending or clearing a session whose essence should survive it.",
 		},
 		s.handleCompactSession)
 

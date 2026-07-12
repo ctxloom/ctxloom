@@ -315,6 +315,17 @@ func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
 	return content
 }
 
+// ContentPayload returns the exact bytes EffectiveContent(preferDistilled)
+// would serve, and the form they were exposed in. This is the SINGLE preimage
+// builder for a fragment: EffectiveContentHash below hashes exactly this
+// function's output, and nothing else in the codebase — including a future
+// countersignature (signature envelope spec §3.2) — is permitted to define
+// "the bytes of this fragment" any other way. Two definitions is the bug.
+func (f *BundleFragment) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
+	content, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
+	return []byte(content), form
+}
+
 // EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
 // returns, and reports their form. This is the hash the per-item trust gate binds
 // to (trust rework, TR0): it covers the bytes actually exposed to the agent —
@@ -322,8 +333,8 @@ func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
 // ContentHash field. The form is provenance so a raw-form grant cannot validate a
 // distilled exposure.
 func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
-	content, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
-	return hashContent([]byte(content)), form
+	payload, form := f.ContentPayload(preferDistilled)
+	return hashContent(payload), form
 }
 
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
@@ -345,12 +356,52 @@ func (p *BundleSkill) EffectiveContent(preferDistilled bool) string {
 	return content
 }
 
+// ContentPayload returns the exact bytes EffectiveContent(preferDistilled)
+// would serve, and the form they were exposed in. See
+// BundleFragment.ContentPayload — same single-preimage-builder contract.
+func (p *BundleSkill) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
+	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
+	return []byte(content), form
+}
+
 // EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
 // returns, and reports their form. See BundleFragment.EffectiveContentHash — same
 // contract for the per-item trust gate (trust rework, TR0).
 func (p *BundleSkill) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
-	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
-	return hashContent([]byte(content)), form
+	payload, form := p.ContentPayload(preferDistilled)
+	return hashContent(payload), form
+}
+
+// mcpContentPayload is the canonical encoding shared by ContentPayload; it
+// is factored out so the "unreachable JSON error" fallback below can still
+// report a stable digest through hashContent without duplicating the struct.
+type mcpContentPayload struct {
+	Command      string            `json:"command"`
+	Args         []string          `json:"args"`
+	Env          map[string]string `json:"env"`
+	Installation string            `json:"installation"`
+}
+
+// ContentPayload returns the canonical JSON encoding of the MCP server's
+// executable surface — Command, Args (order significant), Env (key-sorted),
+// and Installation. Notes are excluded (human-only, never executed).
+// encoding/json provides the determinism: it sorts map keys, so reordering
+// Env yields identical bytes while reordering Args (a slice) does not.
+//
+// This is the SINGLE preimage builder for an MCP server: ComputeContentHash
+// below hashes exactly this function's output, and a future countersignature
+// (signature envelope spec §3.2/§3.3) must too. Unlike the fragment/skill
+// preimage, this one IS a canonicalization — an existing, already-shipped one
+// (spec §3.3.2) — because an MCP server has no "raw bytes"; it is structured
+// fields with no other faithful serialization.
+func (m *BundleMCP) ContentPayload() ([]byte, error) {
+	canonical := mcpContentPayload{
+		Command:      m.Command,
+		Args:         m.Args,
+		Env:          m.Env,
+		Installation: m.Installation,
+	}
+	return json.Marshal(canonical)
 }
 
 // ComputeContentHash hashes a canonical encoding of the MCP server's executable
@@ -360,18 +411,7 @@ func (p *BundleSkill) EffectiveContentHash(preferDistilled bool) (string, Conten
 // reordering Args (a slice) does not. This is the hash an MCP trust grant binds to
 // (trust rework, TR0); an MCP server has no distilled form, so there is one hash.
 func (m *BundleMCP) ComputeContentHash() string {
-	canonical := struct {
-		Command      string            `json:"command"`
-		Args         []string          `json:"args"`
-		Env          map[string]string `json:"env"`
-		Installation string            `json:"installation"`
-	}{
-		Command:      m.Command,
-		Args:         m.Args,
-		Env:          m.Env,
-		Installation: m.Installation,
-	}
-	data, err := json.Marshal(canonical)
+	data, err := m.ContentPayload()
 	if err != nil {
 		// Unreachable: the struct holds only strings/[]string/map[string]string,
 		// none of which json.Marshal can fail on. Fail closed to a stable digest
@@ -381,30 +421,44 @@ func (m *BundleMCP) ComputeContentHash() string {
 	return hashContent(data)
 }
 
-// ComputeContentHash hashes a canonical encoding of the hook's executable
+// hookContentPayload is the canonical encoding shared by ContentPayload.
+type hookContentPayload struct {
+	Matcher         string `json:"matcher"`
+	Type            string `json:"type"`
+	Command         string `json:"command"`
+	Prompt          string `json:"prompt"`
+	PreToolFallback bool   `json:"pre_tool_fallback"`
+}
+
+// ContentPayload returns the canonical JSON encoding of the hook's executable
 // surface — Matcher, Type, Command, Prompt, and the PreToolFallback flag: the
 // fields that determine what runs and how it fires. Timeout/Async (operational
 // knobs) and the firing event are excluded — the event is carried by the hook's
 // id, and excluding it keeps the content-hash denylist event-agnostic so the
-// same malicious command is blocked wherever it is wired. encoding/json provides
-// the determinism (stable field order). This is the hash a bundle-hook trust
-// grant binds to (trust rework, TR5); a hook has no distilled form, so there is
-// one hash. Mirrors BundleMCP.ComputeContentHash.
-func (h *BundleHook) ComputeContentHash() string {
-	canonical := struct {
-		Matcher         string `json:"matcher"`
-		Type            string `json:"type"`
-		Command         string `json:"command"`
-		Prompt          string `json:"prompt"`
-		PreToolFallback bool   `json:"pre_tool_fallback"`
-	}{
+// same malicious command is blocked wherever it is wired. encoding/json
+// provides the determinism (stable field order).
+//
+// This is the SINGLE preimage builder for a hook: ComputeContentHash below
+// hashes exactly this function's output, and a future countersignature must
+// too. Mirrors BundleMCP.ContentPayload — same "already-shipped
+// canonicalization, not a new one" contract (spec §3.3.2).
+func (h *BundleHook) ContentPayload() ([]byte, error) {
+	canonical := hookContentPayload{
 		Matcher:         h.Matcher,
 		Type:            h.Type,
 		Command:         h.Command,
 		Prompt:          h.Prompt,
 		PreToolFallback: h.PreToolFallback,
 	}
-	data, err := json.Marshal(canonical)
+	return json.Marshal(canonical)
+}
+
+// ComputeContentHash hashes a canonical encoding of the hook's executable
+// surface. This is the hash a bundle-hook trust grant binds to (trust rework,
+// TR5); a hook has no distilled form, so there is one hash. Mirrors
+// BundleMCP.ComputeContentHash.
+func (h *BundleHook) ComputeContentHash() string {
+	data, err := h.ContentPayload()
 	if err != nil {
 		// Unreachable (only strings + a bool); fail closed to a stable digest.
 		return hashContent([]byte("ctxloom:hook-content-hash-error"))

@@ -1,0 +1,6 @@
+version: "1.0"
+author: acme
+fragments:
+  go-testing:
+    content: |
+      Use table-driven tests in Go.

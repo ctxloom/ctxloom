@@ -366,6 +366,84 @@ func TestBundleMCP_ComputeContentHash(t *testing.T) {
 }
 
 // =============================================================================
+// ContentPayload — the single preimage builder invariant (signature envelope
+// spec §3.2: "there must be exactly one definition of 'the bytes of item X in
+// form F' in the codebase"). These tests prove ComputeContentHash/
+// EffectiveContentHash hash EXACTLY the bytes ContentPayload returns, so a
+// countersignature built over ContentPayload's output and a hash computed by
+// these methods can never drift apart.
+// =============================================================================
+
+func TestBundleFragment_ContentPayload_IsHashPreimage(t *testing.T) {
+	frag := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+
+	rawPayload, rawForm := frag.ContentPayload(false)
+	distPayload, distForm := frag.ContentPayload(true)
+
+	assert.Equal(t, []byte("RAW-BYTES"), rawPayload)
+	assert.Equal(t, FormRaw, rawForm)
+	assert.Equal(t, []byte("DISTILLED-BYTES"), distPayload)
+	assert.Equal(t, FormDistilled, distForm)
+
+	// EffectiveContentHash must hash exactly these bytes — same function,
+	// not a re-derivation.
+	rawHash, rawHashForm := frag.EffectiveContentHash(false)
+	distHash, distHashForm := frag.EffectiveContentHash(true)
+	assert.Equal(t, hashContent(rawPayload), rawHash)
+	assert.Equal(t, rawForm, rawHashForm)
+	assert.Equal(t, hashContent(distPayload), distHash)
+	assert.Equal(t, distForm, distHashForm)
+}
+
+func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
+	skill := BundleSkill{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+
+	rawPayload, rawForm := skill.ContentPayload(false)
+	distPayload, distForm := skill.ContentPayload(true)
+
+	assert.Equal(t, []byte("RAW-BYTES"), rawPayload)
+	assert.Equal(t, FormRaw, rawForm)
+	assert.Equal(t, []byte("DISTILLED-BYTES"), distPayload)
+	assert.Equal(t, FormDistilled, distForm)
+
+	rawHash, _ := skill.EffectiveContentHash(false)
+	distHash, _ := skill.EffectiveContentHash(true)
+	assert.Equal(t, hashContent(rawPayload), rawHash)
+	assert.Equal(t, hashContent(distPayload), distHash)
+}
+
+func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
+	mcp := BundleMCP{
+		Command:      "postgres-mcp",
+		Args:         []string{"--host", "db"},
+		Env:          map[string]string{"PGUSER": "admin"},
+		Installation: "npm i -g postgres-mcp",
+		Notes:        "human-only, excluded",
+	}
+
+	payload, err := mcp.ContentPayload()
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"installation":"npm i -g postgres-mcp"}`, string(payload))
+
+	// ComputeContentHash must hash exactly these bytes.
+	assert.Equal(t, hashContent(payload), mcp.ComputeContentHash())
+}
+
+func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
+	hook := BundleHook{
+		Matcher:         "Bash",
+		Type:            "command",
+		Command:         "echo hi",
+		Prompt:          "",
+		PreToolFallback: true,
+	}
+
+	payload, err := hook.ContentPayload()
+	require.NoError(t, err)
+	assert.Equal(t, hashContent(payload), hook.ComputeContentHash())
+}
+
+// =============================================================================
 // Bundle Tests
 // =============================================================================
 

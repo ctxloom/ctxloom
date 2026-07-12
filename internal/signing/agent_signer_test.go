@@ -40,7 +40,7 @@ func TestSign_ViaSSHAgentClient(t *testing.T) {
 
 	// agentClient.Signers()[0] IS an ssh.Signer — the exact type Sign()
 	// takes. No adapter, no second library.
-	var agentSigner ssh.Signer = signers[0]
+	agentSigner := signers[0]
 
 	payload := []byte("bundle bytes signed via ssh-agent")
 	armored, err := Sign(payload, agentSigner, "publish.v1.ctxloom.dev")

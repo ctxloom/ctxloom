@@ -162,3 +162,126 @@ func countOccurrences(s, sub string) int {
 	}
 	return count
 }
+
+// ==========================================================================
+// RetireSuperseded — removing ignore rules that a newer layout invalidated
+// ==========================================================================
+
+// TestRetireSuperseded_RemovesBlanketCtxloomRule is the core regression. Older
+// ctxloom wrote a blanket `.ctxloom/` ignore, which predates version-controlled
+// content living INSIDE .ctxloom/content/. Left in place it silently un-tracks
+// the project's own content: git add reports nothing and a content repo
+// publishes an empty tree. Ensure only appends, so nothing could ever remove it.
+func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("# OS files\n.DS_Store\n\n# ctxloom local files\n.ctxloom/\n"), 0644))
+
+	changed, err := RetireSuperseded(dir)
+	require.NoError(t, err)
+	assert.True(t, changed, "retiring a blanket .ctxloom/ rule must report a change")
+
+	got := readGitignore(t, dir)
+	assert.NotContains(t, got, "\n.ctxloom/\n", "the blanket rule must be gone")
+	assert.NotContains(t, got, "# ctxloom local files", "its orphaned header must go too")
+	assert.Contains(t, got, ".DS_Store", "unrelated user entries must survive")
+	assert.Contains(t, got, "# OS files", "unrelated user comments must survive")
+}
+
+// TestRetireSuperseded_PreservesGranularRules guards against over-matching: the
+// current granular private-state patterns are all prefixed .ctxloom/ and must
+// NOT be mistaken for the blanket rule.
+func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte(".ctxloom/cache/\n.ctxloom/sessions/\n.ctxloom/project-id\n"), 0644))
+
+	changed, err := RetireSuperseded(dir)
+	require.NoError(t, err)
+	assert.False(t, changed, "granular patterns are current, not superseded")
+
+	got := readGitignore(t, dir)
+	for _, p := range PrivateStatePatterns {
+		if p == ".ctxloom/cache/" || p == ".ctxloom/sessions/" || p == ".ctxloom/project-id" {
+			assert.Contains(t, got, p)
+		}
+	}
+}
+
+// TestRetireSuperseded_Idempotent pins that a clean file is left untouched.
+func TestRetireSuperseded_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	original := "# OS files\n.DS_Store\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(original), 0644))
+
+	changed, err := RetireSuperseded(dir)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, original, readGitignore(t, dir), "a file with nothing to retire must not be rewritten")
+}
+
+// TestRetireSuperseded_MissingFile is a no-op, not an error: a project may have
+// no .gitignore at all.
+func TestRetireSuperseded_MissingFile(t *testing.T) {
+	changed, err := RetireSuperseded(t.TempDir())
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+// TestRetireSuperseded_ThenEnsure_UnignoresContent pins the end-to-end repair an
+// old project needs: after retire+Ensure, private state stays ignored while
+// .ctxloom/content/ (and config/lock alongside it) becomes trackable again.
+func TestRetireSuperseded_ThenEnsure_UnignoresContent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
+
+	_, err := RetireSuperseded(dir)
+	require.NoError(t, err)
+	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+
+	got := readGitignore(t, dir)
+	assert.NotContains(t, got, "\n.ctxloom/\n", "content must no longer be blanket-ignored")
+	for _, p := range PrivateStatePatterns {
+		assert.Contains(t, got, p, "private state must still be ignored: %s", p)
+	}
+}
+
+// TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules guards the leak that
+// retirement could otherwise cause. The hook path calls Ensure with ONLY
+// TransientArtifactPatterns. The blanket .ctxloom/ rule it retires was the very
+// thing keeping cache/ and sessions/ out of git, so Ensure must install the
+// granular private-state replacement even when the caller never asked for it —
+// otherwise repairing the content bug leaks private working state into the repo.
+func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("# ctxloom local files\n.ctxloom/\n"), 0644))
+
+	// Exactly what internal/operations/hooks.go passes.
+	require.NoError(t, Ensure(dir, Comment, TransientArtifactPatterns...))
+
+	got := readGitignore(t, dir)
+	assert.NotContains(t, got, "\n.ctxloom/\n", "the blanket rule must be retired")
+	for _, p := range PrivateStatePatterns {
+		assert.Contains(t, got, p,
+			"retiring the blanket rule must not leak private state: %s should still be ignored", p)
+	}
+	for _, p := range TransientArtifactPatterns {
+		assert.Contains(t, got, p, "the caller's own patterns must still be written: %s", p)
+	}
+}
+
+// TestEnsure_NoBlanketRule_DoesNotInjectPrivateState pins the converse: Ensure
+// must not smuggle PrivateStatePatterns into projects that never had the
+// superseded rule. Only a retirement triggers the replacement.
+func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# OS files\n.DS_Store\n"), 0644))
+
+	require.NoError(t, Ensure(dir, Comment, TransientArtifactPatterns...))
+
+	got := readGitignore(t, dir)
+	assert.NotContains(t, got, ".ctxloom/cache/",
+		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
+}

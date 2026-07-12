@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Comment is the header under which ctxloom's ignore patterns are grouped.
@@ -61,12 +63,112 @@ var WorktreeArtifactPatterns = []string{
 	".ctxloom/cache/",
 }
 
+// SupersededPatterns are ignore rules written by older ctxloom versions that a
+// current ctxloom must actively RETIRE rather than merely stop writing. A
+// blanket .ctxloom/ rule predates version-controlled content moving INTO
+// .ctxloom/ (content/, plus config.yaml, remotes.yaml and lock.yaml alongside
+// it). Left in place it silently un-tracks the project's own content: `git add`
+// reports nothing, and a content repo publishes an empty tree while every
+// consumer's bundle refs fail to resolve. Ensure only ever appends, so no
+// amount of re-running it can undo this — retirement must be explicit.
+//
+// Only the BLANKET forms belong here. The granular .ctxloom/<subdir>/ patterns
+// in PrivateStatePatterns are current and must never be matched.
+var SupersededPatterns = []string{".ctxloom", ".ctxloom/", "/.ctxloom", "/.ctxloom/"}
+
+// supersededComments are ctxloom-authored headers that head nothing once their
+// patterns are retired. Scoped to headers ctxloom itself wrote — a user's own
+// comment is never removed, even if it sits above a retired rule.
+var supersededComments = []string{"# ctxloom local files"}
+
+// RetireSuperseded removes any SupersededPatterns line (and any ctxloom-authored
+// header left heading nothing) from projectDir/.gitignore, reporting whether the
+// file changed. An absent .gitignore is a no-op, not an error. Callers that
+// write the private-state block should retire first, then Ensure.
+func RetireSuperseded(projectDir string) (bool, error) {
+	return RetireSupersededFile(filepath.Join(projectDir, ".gitignore"))
+}
+
+// RetireSupersededFile is RetireSuperseded targeting an arbitrary ignore file.
+func RetireSupersededFile(path string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	superseded := make(map[string]bool, len(SupersededPatterns))
+	for _, p := range SupersededPatterns {
+		superseded[p] = true
+	}
+	orphanHeader := make(map[string]bool, len(supersededComments))
+	for _, c := range supersededComments {
+		orphanHeader[c] = true
+	}
+
+	lines := strings.Split(string(content), "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if superseded[trimmed] {
+			// Drop a ctxloom-authored header immediately above it, which would
+			// otherwise be left heading nothing.
+			for len(kept) > 0 {
+				last := strings.TrimSpace(kept[len(kept)-1])
+				if orphanHeader[last] {
+					kept = kept[:len(kept)-1]
+					continue
+				}
+				break
+			}
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	updated := strings.Join(kept, "\n")
+	if updated == string(content) {
+		return false, nil
+	}
+	if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Ensure appends the given patterns to projectDir/.gitignore under a single
 // comment header, creating the file if absent. It is idempotent: only patterns
 // not already present (by exact trimmed-line match) are written, and when none
 // are missing the file is left untouched. An empty patterns list is a no-op.
+//
+// It first retires any SupersededPatterns. Retirement lives HERE, not at the
+// call sites, because appending is powerless against a blanket .ctxloom/: git
+// gives no way to re-include a path whose parent directory is excluded, so the
+// granular patterns would be written and silently overridden, leaving the
+// project's own .ctxloom/content/ invisible. Every writer of a project
+// .gitignore must repair that rule, so no caller is given the chance to forget.
 func Ensure(projectDir, comment string, patterns ...string) error {
-	return EnsureFile(filepath.Join(projectDir, ".gitignore"), comment, patterns...)
+	path := filepath.Join(projectDir, ".gitignore")
+
+	retired, err := RetireSupersededFile(path)
+	if err != nil {
+		return err
+	}
+	if retired {
+		// The blanket rule just removed WAS what kept private state out of git.
+		// Install its replacement in the SAME block as the caller's patterns —
+		// not every caller passes PrivateStatePatterns (the hook path passes only
+		// transient artifacts), and retiring without replacing would leak cache/
+		// and sessions/ into the repo. Retirement and its replacement are one
+		// migration.
+		patterns = dedupe(append(append([]string{}, PrivateStatePatterns...), patterns...))
+		clidiag.WarnOnce("ctxloom",
+			"removed a blanket .ctxloom/ rule from .gitignore: it predates version-controlled content living under .ctxloom/content/ and was hiding that content from git — replaced it with the granular private-state rules; review and commit the .gitignore change")
+	}
+
+	return EnsureFile(path, comment, patterns...)
 }
 
 // EnsureFile is Ensure targeting an arbitrary ignore file (e.g. a common-dir
@@ -88,6 +190,23 @@ func EnsureFile(path, comment string, patterns ...string) error {
 		return nil
 	}
 	return appendBlock(path, content, comment, missing)
+}
+
+// dedupe returns patterns with duplicates removed, preserving first-seen order.
+// Needed when the private-state replacement is prepended to a caller's list that
+// already contains it — missingPatterns dedupes against the FILE, not within the
+// requested set, so a repeated pattern would otherwise be written twice.
+func dedupe(patterns []string) []string {
+	seen := make(map[string]bool, len(patterns))
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 // missingPatterns returns the patterns not already present in content, matched

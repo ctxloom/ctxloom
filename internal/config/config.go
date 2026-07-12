@@ -1038,10 +1038,24 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 	state := c.companionSeed
 	companionSeedInitMu.Unlock()
 
+	// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins over
+	// everything, INCLUDING an injected probe: "off" must mean no companion code
+	// runs, not "off unless something wired an override". Disabled short-circuits
+	// before any probe is selected, so no companion subprocess is executed and no
+	// loadout is contributed — skipping the exec, not discarding its result, is
+	// the point, since probing shells out to whatever companion binaries happen
+	// to be on the host's PATH.
+	if CompanionsDisabled() {
+		return nil
+	}
+
+	// Otherwise a Config's own override (the test seam) wins over the real probe,
+	// so a parallel test can pin its own fixture without touching the global.
 	probe := c.companionProbe
 	if probe == nil {
 		probe = ProbeCompanionLoadouts
 	}
+
 	state.once.Do(func() {
 		state.cache = probe(c.TrustRoot())
 	})

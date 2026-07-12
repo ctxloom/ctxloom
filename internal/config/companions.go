@@ -288,6 +288,36 @@ func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func()
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are discovered.
+// companionsDisabled is the process-wide companion switch, set once at startup
+// from CTXLOOM_NO_COMPANIONS and the --no-companions flag (the flag wins when
+// both are set). It mirrors strictness.SetDegraded rather than living on Config
+// because config.Load is called from ~10 places across the CLI: a per-Config
+// toggle applied at one of them would silently miss the others.
+//
+// Deliberately NO config key: turning companions off is a per-invocation or CI
+// decision, not project state someone can leave set and later wonder why their
+// ltk skills vanished.
+var (
+	companionsMu       sync.Mutex
+	companionsDisabled bool
+)
+
+// SetCompanionsDisabled turns companion-loadout discovery off (or back on) for
+// the process. When off, no companion binary is executed and no companion
+// skills/hooks/MCP/context are contributed.
+func SetCompanionsDisabled(v bool) {
+	companionsMu.Lock()
+	defer companionsMu.Unlock()
+	companionsDisabled = v
+}
+
+// CompanionsDisabled reports whether companion-loadout discovery is off.
+func CompanionsDisabled() bool {
+	companionsMu.Lock()
+	defer companionsMu.Unlock()
+	return companionsDisabled
+}
+
 func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 	bins := DiscoverCompanions()
 	type probed struct {

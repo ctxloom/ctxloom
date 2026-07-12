@@ -22,6 +22,13 @@ var Version = "dev"
 // downgrades fatal startup findings back to warn-and-continue.
 var degradedFlag bool
 
+// noCompanionsFlag backs the persistent --no-companions flag: skip companion
+// loadout discovery entirely. Discovery EXECUTES the companion binaries found on
+// PATH, so a run's skills/hooks/MCP/context otherwise vary with what the machine
+// has installed; this makes a run reproducible (and is what CI and hermetic tests
+// want). Env fallback: CTXLOOM_NO_COMPANIONS=1.
+var noCompanionsFlag bool
+
 // ExitError is returned when a command needs to exit with a specific code.
 // This allows deferred cleanup to run before the process exits.
 type ExitError struct {
@@ -60,6 +67,14 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if cmd.Root().PersistentFlags().Changed("degraded") {
 			strictness.SetDegraded(degradedFlag)
+		}
+		// Same shape as --degraded: CTXLOOM_NO_COMPANIONS was already applied
+		// pre-dispatch, and an explicitly set flag wins over it in either
+		// direction. Applied here (not after GetConfig) because config.Load is
+		// called from ~10 sites across the CLI — a per-Config toggle would only
+		// take effect on whichever one happened to be wired.
+		if cmd.Root().PersistentFlags().Changed("no-companions") {
+			config.SetCompanionsDisabled(noCompanionsFlag)
 		}
 	},
 	Long: `ctxloom manages context for AI coding assistants.
@@ -122,6 +137,13 @@ func init() {
 	// it; management commands simply ignore it). Env fallback: CTXLOOM_DEGRADED=1.
 	rootCmd.PersistentFlags().BoolVar(&degradedFlag, "degraded", false,
 		"degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway")
+
+	// Companion loadouts are discovered by EXECUTING the companion binaries on
+	// PATH (ltk, taskloom, ...), so what a run sees depends on what the machine
+	// has installed. This turns that off for a reproducible run.
+	// Env fallback: CTXLOOM_NO_COMPANIONS=1.
+	rootCmd.PersistentFlags().BoolVar(&noCompanionsFlag, "no-companions", false,
+		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context")
 
 	// The isolation layer bakes this stamp into agent images (ctxloom.version
 	// label) and compares it against present images to rebuild stale ones; it

@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -19,6 +20,16 @@ func main() {
 	// config cannot excuse itself.
 	if os.Getenv("CTXLOOM_DEGRADED") == "1" {
 		strictness.SetDegraded(true)
+	}
+
+	// Companion discovery off from the environment, read BEFORE dispatch for the
+	// same reason: the pre-cobra window can already assemble context, and probing
+	// EXECUTES the companion binaries on PATH. CTXLOOM_NO_COMPANIONS=1 is the
+	// mechanism for a subprocess/CI that must not depend on what the host has
+	// installed; the persistent --no-companions flag wins over it once parsed
+	// (see cli root's PersistentPreRun).
+	if os.Getenv("CTXLOOM_NO_COMPANIONS") == "1" {
+		config.SetCompanionsDisabled(true)
 	}
 
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1)

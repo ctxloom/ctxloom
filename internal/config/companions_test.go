@@ -12,6 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // BuiltinCompanionBins is now the UNION of DiscoverCompanions' first-party
@@ -170,4 +173,60 @@ echo '{"name":"goodtool","version":"v9.9.9"}'`)
 		require.Error(t, err)
 		assert.Less(t, time.Since(start), 5*time.Second, "WaitDelay must cut the pipe wait short")
 	})
+}
+
+// ==========================================================================
+// Companion disable switch (--no-companions / CTXLOOM_NO_COMPANIONS)
+// ==========================================================================
+
+// TestCompanionsDisabled_SkipsProbeEntirely is the contract of the switch:
+// when companions are disabled process-wide, discovery must not run at all —
+// no companion subprocess is executed and no loadout is contributed. Probing
+// execs whatever companion binaries sit on the host PATH, so this is what makes
+// a run (and CI) reproducible regardless of the machine.
+func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+
+	probed := 0
+	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
+		probed++
+		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
+	}
+
+	SetCompanionsDisabled(true)
+
+	assert.Empty(t, cfg.companionBundleSeed(), "no companion loadout may be contributed when disabled")
+	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
+}
+
+// TestCompanionsEnabled_ProbesByDefault is the converse: the default is on, so
+// the switch cannot silently suppress companions for everyone.
+func TestCompanionsEnabled_ProbesByDefault(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	SetCompanionsDisabled(false)
+
+	probed := 0
+	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
+		probed++
+		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
+	}
+
+	assert.Len(t, cfg.companionBundleSeed(), 1)
+	assert.Equal(t, 1, probed)
+}
+
+// TestDisableCompanionProbe_BeatsGlobalEnabled pins the precedence a test needs:
+// the per-Config seam wins over the process-wide switch, so a parallel test can
+// pin its own fixture without depending on (or clobbering) global state.
+func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
+	t.Cleanup(func() { SetCompanionsDisabled(false) })
+	SetCompanionsDisabled(false) // companions ON process-wide
+
+	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg.DisableCompanionProbe()
+
+	assert.Empty(t, cfg.companionBundleSeed(),
+		"a Config that disabled its own probe must see no companions even when the process has them enabled")
 }

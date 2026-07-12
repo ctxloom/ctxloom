@@ -7,11 +7,11 @@ import (
 var bundleCmd = &cobra.Command{
 	Use:    "bundle",
 	Short:  "Manage ctxloom bundles",
-	Hidden: true, // Use fragment/prompt commands for content management
-	Long: `Manage ctxloom bundles - versioned collections of fragments, prompts, and MCP servers.
+	Hidden: true, // Use fragment/skill commands for content management
+	Long: `Manage ctxloom bundles - versioned collections of fragments, skills, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
-prompts, and optional MCP server configurations with a single version.
+skills, and optional MCP server configurations with a single version.
 
 Examples:
   ctxloom bundle list                  # List all installed bundles

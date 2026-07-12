@@ -13,10 +13,10 @@ Manage ctxloom bundles
 
 ### Synopsis
 
-Manage ctxloom bundles - versioned collections of fragments, prompts, and MCP servers.
+Manage ctxloom bundles - versioned collections of fragments, skills, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
-prompts, and optional MCP server configurations with a single version.
+skills, and optional MCP server configurations with a single version.
 
 Examples:
   ctxloom bundle list                  # List all installed bundles

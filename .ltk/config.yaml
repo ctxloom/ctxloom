@@ -1,6 +1,6 @@
 # llm-tool-killer rules for ctxloom — build/test/install go through `just` so
 # they match CI (devcontainer, build tags, ldflags, test isolation).
-# Rule model: https://github.com/ctxloom/llm-tool-killer/blob/main/docs/RULES.md
+# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md
 version: 1
 
 defaults:

@@ -46,33 +46,48 @@ trusted-sources set. First match wins; it is fail-closed:
    on the repo/ref-agnostic denylist → **DENY**.
 2. **local** — the item was authored in this project (`ctxloom:local`), any kind
    including MCP servers and hooks → **ALLOW**.
-3. **trusted source** — the item's repo is in the trusted-sources set → **ALLOW**
+3. **builtin** — the item is shipped inside the binary itself
+   (`resources/builtin_bundles`) → **ALLOW**.
+4. **trusted source** — the item's repo is in the trusted-sources set → **ALLOW**
    (updates included).
-4. **accepted** — the item is accepted *and* the recorded hash for its current
+5. **accepted** — the item is accepted *and* the recorded hash for its current
    effective form matches the recomputed content hash → **ALLOW**.
-5. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
+6. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
    startup notice.
 
-Rejection is checked first so it beats the first-party exemption: a user can
-reject an item even from a trusted source or a builtin. An empty hash slot (a
-lazily-migrated v1 acceptance recorded only one form) or a form mismatch does not
-satisfy step 4 — the exact materialization being exposed was never reviewed, so
-it stays pending. An unreadable trust store or remote registry **denies
-everything** (fail closed) and, in strict mode (the fail-loudly workstream), is a
-fatal startup finding rather than a silent degrade to deny-all.
+Rejection is checked first so it beats every exemption: a user can reject an
+item even from a trusted source or a **builtin**. This is enforced, not just
+documented — builtin bundles are routed through the SAME decision function as
+everything else (`trust.Ref{IsBuiltin: true}`, keyed under the synthetic
+identity `builtin:ctxloom` so a builtin item can never collide with a
+project-local bundle of the same name), and step 1's rejection check runs
+before step 3's builtin exemption. An empty hash slot (a lazily-migrated v1
+acceptance recorded only one form) or a form mismatch does not satisfy step 5 —
+the exact materialization being exposed was never reviewed, so it stays
+pending. An unreadable trust store or remote registry **denies everything**
+(fail closed) and, in strict mode (the fail-loudly workstream), is a fatal
+startup finding rather than a silent degrade to deny-all.
 
-Builtin bundles never reach this resolver: they are ungated upstream (their
-resolvers pass no gate), so trusting the binary trusts them.
+`builtin:ctxloom` is a plain identity string, not a cryptographic signature —
+nothing about a builtin bundle is verified beyond "it shipped inside this
+binary" (trusting the binary trusts what it ships, same as always). It exists
+purely so builtin items are addressable and rejectable through the same
+identity shape the store already uses for local (`ctxloom:local`) and remote
+(canonical repo URL) items.
 
 ## First-party sources
 
-Three source classes are exempt from review:
+Three source classes are exempt from review by default (but not from
+rejection — see the decision function above):
 
 - **Local** — items authored in this project, keyed to the `ctxloom:local`
   source. Locality is honest: a seeded or cloned bundle stamps its canonical
   remote ref, so a *copy* of remote content keys as remote and is **not**
   local-trusted. "You wrote it here, you trust it; a clone of it is not yours."
-- **Builtin** — bundles compiled into the binary. Never gated.
+- **Builtin** — bundles compiled into the binary, keyed to the synthetic
+  `builtin:ctxloom` identity. Allowed by default (step 3) with no review
+  friction — but, unlike local content's step-2 placement, this is a distinct
+  step specifically so a rejection (step 1) can still reach it.
 - **Trusted sources** — remotes whose content is exempt, updates included.
 
 ### Trusted sources
@@ -153,19 +168,25 @@ context.
 
 | Choke | Covers | On deny |
 |-------|--------|---------|
-| Content gate | fragments, skills (text) | absent from assembled context |
-| Executable gate — MCP | bundle MCP servers | omitted from backend settings |
-| Executable gate — hooks | bundle hooks | omitted from backend settings |
+| Content gate | fragments, skills (text) — including builtin fragments | absent from assembled context |
+| Executable gate — MCP | bundle MCP servers — including builtin servers | omitted from backend settings |
+| Executable gate — hooks | bundle hooks — including builtin hooks | omitted from backend settings |
 | Executable gate — command export | skill slash-commands | not exported |
 | Tooling collection (`CollectTooling`) | `tooling` declarations | withheld from Containerfile proposals |
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
+
+Builtin content passes through every one of these chokes exactly like
+remote/local content — it is simply allowed by default at the decision
+function's builtin step (see above) rather than needing review. The chokes
+that resolve builtins on a caller-supplied gate (`c.execGate` for MCP/hooks,
+the exposure loader's content gate for fragments) stay ungated on
+management/listing paths, matching the existing convention for every other
+item kind — that path never gates ANY item, builtin or not.
 
 **Ungated by design:**
 
 - **Profiles** — a profile definition is orchestration, never gated; its
   constituent items still gate at their own chokes.
-- **Builtin bundles** — shipped inside the binary; trusting the binary trusts
-  them. Every builtin resolver bypasses the gate.
 
 ## Lifecycle
 
@@ -191,7 +212,11 @@ context.
 ## Identity
 
 Items key as `{canonical repo URL} + {bundle}#{kind}/{name}` with no version;
-hashes carry the version dimension. Repo URLs are canonicalized (scheme, `.git`,
+hashes carry the version dimension. Local items key under the fixed
+`ctxloom:local` token in place of a repo URL; builtin items key under the fixed
+`builtin:ctxloom` token — both sentinels so local and builtin items can never
+collide with a real remote repo URL, or with each other. Repo URLs are
+canonicalized (scheme, `.git`,
 `git@`, host case; path case only on case-folding forges) on both sides of every
 comparison, so a URL-spelling variant cannot escape a rejection or manufacture a
 match. A moved or renamed item keeps neither its accepted state (new ref →

@@ -218,6 +218,33 @@ fragments:
 	assert.NotContains(t, res.Context, "BLOCKED-MARKER", "rejected local fragment must be withheld")
 }
 
+// TestContentGate_UnrecognizedSourceRef_FailsClosed proves the fail-open bug
+// in parseTrustItemRef's fallback: a bundle seeded under a source ref that
+// SUPERFICIALLY looks like a canonical URL but fails remote.ParseReference
+// (here: missing the required "@<type>/<path>" suffix) must NOT be silently
+// downgraded to "local" — that bypasses the trust gate and review entirely.
+// A genuinely local bundle (a bare name, no scheme marker at all — see
+// TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds and the
+// "plain local bundle name" case in TestParseTrustItemRef) must keep working;
+// this test is the companion proving the OTHER half: a malformed/unrecognized
+// scheme-qualified ref must fail closed instead.
+func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	reg := newRegistry(t) // no remotes registered/trusted
+	gate := &contentGate{cfg: cfg, store: newTrustStore(t), registry: reg}
+
+	// "https://github.com/acme/repo" is missing "@bundles/<name>" — it fails
+	// remote.ParseReference (parseHTTPSReference: "URL reference missing item
+	// path"), but it is unmistakably an ATTEMPTED canonical ref, not a bare
+	// local bundle name.
+	const unrecognizedSourceRef = "https://github.com/acme/repo"
+	ref := unrecognizedSourceRef + "#fragments/evil"
+
+	allowed := gate.allow(ref, fragHash("evil body"), rawForm)
+	assert.False(t, allowed,
+		"content seeded under an unrecognized source ref must be withheld, never silently treated as local")
+}
+
 // TestExposureGate_SessionStartRegen_Withholds proves the SessionStart regen
 // entrypoint (ApplyHooks RegenerateContext → regenerateContext → exposureLoader)
 // withholds a rejected fragment from the injected context file while keeping

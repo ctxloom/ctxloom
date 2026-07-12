@@ -131,11 +131,16 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 
 // TestResolveBundleMCPServers_GatedEndToEnd drives the full profile→bundle→
 // settings path with a field-injected gate: a denied profile-bundle MCP server
-// is absent from the resolved set while a trusted one survives, and an in-binary
-// builtin server is exempt (never consulted).
+// is absent from the resolved set while a trusted one survives, and an
+// in-binary builtin server IS now routed through the same gate (unlike the old
+// gate=nil bypass) but this fake gate only denies refs matching its
+// denySubstrs, so the builtin server — allowed by default at its own decision
+// step — still comes through unless specifically rejected (see
+// operations.TestExecGate_ResolveBundleMCPServers_BuiltinRejectable for the
+// rejection-reaches-a-builtin proof against the REAL decision function).
 func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	// Make companion binaries resolvable so the builtin servers (taskloom, …) are
-	// included — proving they bypass the gate.
+	// included — proving they still come through once routed via the gate.
 	restore := SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
 
@@ -161,7 +166,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 			foundBuiltin = true
 		}
 	}
-	assert.True(t, foundBuiltin, "in-binary builtin MCP servers are exempt from the gate")
+	assert.True(t, foundBuiltin, "in-binary builtin MCP servers pass the gate (allowed by default) when not rejected")
 }
 
 // TestResolveBundleHooks_GatedEndToEnd drives the full path for hooks: a denied

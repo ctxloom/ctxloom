@@ -131,8 +131,11 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
 	// — independent of profile selection, and skipped when their companion
-	// binary is absent. Appended after profile/request content.
-	contextContent, loadedNames = appendBuiltinFragments(cfg, contextContent, loadedNames)
+	// binary is absent. Appended after profile/request content. Gated through
+	// the SAME content gate as loader-resolved fragments (loader.Gate(), nil
+	// for an injected gate-free loader) so a rejected builtin fragment is
+	// withheld exactly like a rejected builtin MCP server/hook.
+	contextContent, loadedNames = appendBuiltinFragments(cfg, loader.Gate(), contextContent, loadedNames)
 
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden and how to review it.
@@ -168,9 +171,10 @@ func missingFrom(requested, loaded []string) []string {
 
 // appendBuiltinFragments appends the always-on built-in bundle fragments to the
 // assembled context, joined with the same separator LoadMultiple uses so the
-// output is indistinguishable from loader-sourced fragments.
-func appendBuiltinFragments(cfg *config.Config, content string, loaded []string) (string, []string) {
-	builtins := cfg.ResolveBuiltinBundleFragments()
+// output is indistinguishable from loader-sourced fragments. gate is the
+// content gate builtins are routed through (see ResolveBuiltinBundleFragments).
+func appendBuiltinFragments(cfg *config.Config, gate bundles.ContentGate, content string, loaded []string) (string, []string) {
+	builtins := cfg.ResolveBuiltinBundleFragments(gate)
 	if len(builtins) == 0 {
 		return content, loaded
 	}

@@ -549,14 +549,15 @@ func TestSetBlacklist_DenylistsBothForms(t *testing.T) {
 
 func TestParseTrustItemRef(t *testing.T) {
 	tests := []struct {
-		name       string
-		ref        string
-		wantRepo   string
-		wantBundle string
-		wantKind   trust.ItemKind
-		wantName   string
-		wantLocal  bool
-		wantErr    bool
+		name        string
+		ref         string
+		wantRepo    string
+		wantBundle  string
+		wantKind    trust.ItemKind
+		wantName    string
+		wantLocal   bool
+		wantBuiltin bool
+		wantErr     bool
 	}{
 		{
 			name: "canonical remote fragment", ref: "https://github.com/acme/repo@bundles/tooling#fragments/solid",
@@ -570,9 +571,20 @@ func TestParseTrustItemRef(t *testing.T) {
 			name: "plain local bundle name", ref: "myb#prompts/review",
 			wantBundle: "myb", wantKind: trust.KindPrompt, wantName: "review", wantLocal: true,
 		},
+		{
+			name: "builtin source ref", ref: "builtin:taskloom#mcp/taskloom",
+			wantBundle: "taskloom", wantKind: trust.KindMCP, wantName: "taskloom", wantBuiltin: true,
+		},
 		{name: "missing selector", ref: "tooling", wantErr: true},
 		{name: "unknown kind", ref: "tooling#widgets/x", wantErr: true},
 		{name: "empty name", ref: "tooling#fragments/", wantErr: true},
+		// Fail-closed: an unrecognized source ref that LOOKS like an attempted
+		// canonical/local ref must error, never silently resolve local (the
+		// fail-open bug — see TestContentGate_UnrecognizedSourceRef_FailsClosed
+		// for the end-to-end proof through the gate).
+		{name: "malformed https ref (missing @type/path)", ref: "https://github.com/acme/repo#fragments/x", wantErr: true},
+		{name: "malformed git@ ref (missing @type/path)", ref: "git@github.com:acme/repo#fragments/x", wantErr: true},
+		{name: "malformed ctxloom:local ref (unknown type)", ref: "ctxloom:local@widgets/x#fragments/y", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -587,9 +599,9 @@ func TestParseTrustItemRef(t *testing.T) {
 				t.Fatalf("parseTrustItemRef(%q): %v", tt.ref, err)
 			}
 			if tref.RepoURL != tt.wantRepo || tref.Bundle != tt.wantBundle || tref.Kind != tt.wantKind ||
-				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal {
-				t.Errorf("got %+v, want repo=%q bundle=%q kind=%q name=%q local=%v",
-					tref, tt.wantRepo, tt.wantBundle, tt.wantKind, tt.wantName, tt.wantLocal)
+				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal || tref.IsBuiltin != tt.wantBuiltin {
+				t.Errorf("got %+v, want repo=%q bundle=%q kind=%q name=%q local=%v builtin=%v",
+					tref, tt.wantRepo, tt.wantBundle, tt.wantKind, tt.wantName, tt.wantLocal, tt.wantBuiltin)
 			}
 		})
 	}

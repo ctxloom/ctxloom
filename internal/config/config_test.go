@@ -1411,7 +1411,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 // than a missing feature (fault-tolerance over completeness).
 func TestResolveBuiltinBundleMCPServers_MissingBinarySkipped(t *testing.T) {
 	stubLookPath(t, "taskloom")
-	got := resolveBuiltinBundleMCPServers()
+	got := resolveBuiltinBundleMCPServers(nil)
 	assert.NotContains(t, got, "taskloom", "missing companion binary must not register a server")
 }
 
@@ -1430,7 +1430,7 @@ func TestResolveBuiltinBundleFragments_CompanionGating(t *testing.T) {
 	t.Run("companions present inject their fragments", func(t *testing.T) {
 		stubLookPath(t)
 		cfg := &Config{}
-		got := names(cfg.ResolveBuiltinBundleFragments())
+		got := names(cfg.ResolveBuiltinBundleFragments(nil))
 		assert.Contains(t, got, "builtin:ltk#fragments/ltk")
 		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom")
 	})
@@ -1438,7 +1438,7 @@ func TestResolveBuiltinBundleFragments_CompanionGating(t *testing.T) {
 	t.Run("absent companion drops that bundle's fragments", func(t *testing.T) {
 		stubLookPath(t, "ltk")
 		cfg := &Config{}
-		got := names(cfg.ResolveBuiltinBundleFragments())
+		got := names(cfg.ResolveBuiltinBundleFragments(nil))
 		assert.NotContains(t, got, "builtin:ltk#fragments/ltk", "missing ltk must not inject its briefing")
 		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom", "present companion still injects")
 	})
@@ -1446,7 +1446,7 @@ func TestResolveBuiltinBundleFragments_CompanionGating(t *testing.T) {
 	t.Run("fragments carry their content", func(t *testing.T) {
 		stubLookPath(t)
 		cfg := &Config{}
-		for _, f := range cfg.ResolveBuiltinBundleFragments() {
+		for _, f := range cfg.ResolveBuiltinBundleFragments(nil) {
 			if f.Name == "builtin:ltk#fragments/ltk" {
 				assert.Contains(t, f.Content, "llm-tool-killer")
 				return
@@ -1479,14 +1479,14 @@ func TestResolveBuiltinBundleHooks_CompanionGating(t *testing.T) {
 
 	t.Run("ltk present registers the pre-tool hook", func(t *testing.T) {
 		stubLookPath(t)
-		hooks := resolveBuiltinBundleHooks()
+		hooks := resolveBuiltinBundleHooks(nil)
 		assert.True(t, hasLtkHook(hooks), "ltk on PATH must surface the builtin pre-tool hook")
 		assert.True(t, hasStampPlan(hooks))
 	})
 
 	t.Run("ltk absent degrades to no hook, ctxloom hooks remain", func(t *testing.T) {
 		stubLookPath(t, "ltk")
-		hooks := resolveBuiltinBundleHooks()
+		hooks := resolveBuiltinBundleHooks(nil)
 		assert.False(t, hasLtkHook(hooks), "missing ltk must not register a broken hook")
 		assert.True(t, hasStampPlan(hooks), "ctxloom's own hooks are never gated")
 	})
@@ -1823,7 +1823,7 @@ mcp:
 // stops picking it up, apply-hooks would silently lose the plan-stamping
 // hook. This test fires before that ships.
 func TestResolveBuiltinBundleHooks(t *testing.T) {
-	hooks := resolveBuiltinBundleHooks()
+	hooks := resolveBuiltinBundleHooks(nil)
 
 	// The tasks bundle ships no PostTool hook: TodoWrite auto-capture was
 	// removed. Tasks are created/updated only via the MCP tools or CLI.
@@ -1849,7 +1849,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 // same code path resolveBuiltinBundleMCPServers takes.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
-	got := resolveBuiltinBundleMCPServers()
+	got := resolveBuiltinBundleMCPServers(nil)
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
 
 	// The taskloom bundle ships the standalone task-store MCP server.

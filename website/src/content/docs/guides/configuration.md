@@ -2,7 +2,9 @@
 title: "Configuration"
 ---
 
-ctxloom uses YAML configuration files stored in the `.ctxloom/` directory.
+Every `ctxloom run -f go-development -f testing-patterns -p backend-developer` is a flag set you'd otherwise have to remember and retype each session. Put the same choices in `.ctxloom/config.yaml` instead and commit it: everyone on the project runs plain `ctxloom run` and gets the same fragments and profile, without needing to know which flags this repo requires.
+
+ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 
 ## Directory Structure
 

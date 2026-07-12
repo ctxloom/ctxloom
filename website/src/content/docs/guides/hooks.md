@@ -2,11 +2,11 @@
 title: "Hooks and Context Injection"
 ---
 
-ctxloom uses hooks to automatically inject context into your AI coding sessions. This guide explains how the hook system works and how to configure it.
+You never paste your standards into a new session again. Start Claude Code (or Antigravity) in a project with ctxloom configured, and your fragments and profile are already in the conversation before you type a word.
+
+For Claude Code, this rides a **SessionStart hook**: ctxloom assembles your configured context, writes it to disk, and the hook injects it when the session starts. Antigravity has no SessionStart event, so it gets the same context a different way (below). This guide explains both flows and how to configure them.
 
 ## How Context Injection Works
-
-When you start a Claude Code session, ctxloom automatically injects your configured context (fragments, profiles) into the conversation. This happens through a **SessionStart hook** that runs before each session.
 
 ### The Flow
 

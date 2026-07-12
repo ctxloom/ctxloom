@@ -2,7 +2,9 @@
 title: "Quick Start"
 ---
 
-Get up and running with ctxloom in minutes.
+Every new session starts blank: the AI doesn't know your error-handling convention or the review checklist you settled on last sprint, so you re-explain it — or it guesses wrong. ctxloom fixes that once: write your standards down as fragments, and every session gets them automatically.
+
+Here's what that buys you, then how to get it running in a few minutes.
 
 ## What ctxloom Does
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // recordingGate denies any ref containing one of denySubstrs and records every
@@ -131,18 +133,28 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 
 // TestResolveBundleMCPServers_GatedEndToEnd drives the full profile→bundle→
 // settings path with a field-injected gate: a denied profile-bundle MCP server
-// is absent from the resolved set while a trusted one survives, and an
-// in-binary builtin server IS now routed through the same gate (unlike the old
-// gate=nil bypass) but this fake gate only denies refs matching its
-// denySubstrs, so the builtin server — allowed by default at its own decision
-// step — still comes through unless specifically rejected (see
-// operations.TestExecGate_ResolveBundleMCPServers_BuiltinRejectable for the
-// rejection-reaches-a-builtin proof against the REAL decision function).
+// is absent from the resolved set while a trusted one survives, and a
+// COMPANION LOADOUT's MCP server (S8) is routed through the identical gate —
+// never exempt like the old in-binary builtin path was before that gate
+// threading fix — so it comes through only because this fake gate's
+// denySubstrs doesn't happen to match it (see
+// TestExecGate_ResolveBundleMCPServers_CompanionRejectable for the proof that
+// a companion server CAN be specifically withheld, and
+// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated for the
+// full allow/deny pair against this exact wiring).
 func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
-	// Make companion binaries resolvable so the builtin servers (taskloom, …) are
-	// included — proving they still come through once routed via the gate.
-	restore := SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
-	defer restore()
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		if bin == "ltk" {
+			return "/fake/ltk", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	defer restoreLook()
+	envelope, err := signing.EncodeLoadoutEnvelope(
+		[]byte("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
+	require.NoError(t, err)
+	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -160,13 +172,13 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	assert.Contains(t, result, "quiet-server", "trusted profile-bundle MCP server must be written")
 	assert.NotContains(t, result, "noisy-server", "denied profile-bundle MCP server must NOT be written")
 
-	foundBuiltin := false
+	foundCompanion := false
 	for _, srv := range result {
-		if strings.HasPrefix(srv.SCM, "bundle:builtin:") {
-			foundBuiltin = true
+		if strings.HasPrefix(srv.SCM, "bundle:ctxloom:companion@") {
+			foundCompanion = true
 		}
 	}
-	assert.True(t, foundBuiltin, "in-binary builtin MCP servers pass the gate (allowed by default) when not rejected")
+	assert.True(t, foundCompanion, "a companion loadout MCP server passes the SAME gate as a profile-bundle server — not specifically denied here, and never exempt")
 }
 
 // TestResolveBundleHooks_GatedEndToEnd drives the full path for hooks: a denied

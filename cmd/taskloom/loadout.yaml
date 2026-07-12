@@ -1,8 +1,12 @@
-# Built-in ctxloom taskloom bundle. Embedded into the ctxloom binary via
-# resources/embed.go and surfaced through Config.ResolveBundleHooks
-# unconditionally — no profile reference required, no remote pull, no
-# manual install. The same YAML is mirrored at examples/bundles/taskloom.yaml
-# for users who want to inspect or fork it.
+# taskloom's own loadout — the content taskloom contributes to a ctxloom
+# session via `taskloom loadout --format json` (signature-envelope spec
+# §4.3). This is a bundles.Bundle document: ctxloom discovers this binary on
+# PATH, execs the loadout command, and seeds the resulting bundle into the
+# trust gate under the ctxloom:companion@taskloom source ref — same shape a
+# remote bundle takes, same review path when unsigned. It replaces the
+# formerly-embedded resources/builtin_bundles/taskloom.yaml, which is now
+# deleted from ctxloom itself: this file is the single source of truth for
+# what taskloom tells ctxloom about itself.
 
 version: 1.2.0
 tags:
@@ -10,7 +14,7 @@ tags:
   - workflow
   - productivity
   - ctxloom-native
-author: ctxloom
+author: taskloom
 
 description: |
   Persistent task tracking via the standalone `taskloom` binary

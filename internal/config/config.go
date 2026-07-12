@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,24 @@ type Config struct {
 	// operations can't be imported here, so the gate is a plain bundles.ContentGate
 	// func. Never persisted.
 	execGate bundles.ContentGate
+
+	// companionSeed memoizes companionBundleSeed (ProbeCompanionLoadouts) for
+	// this Config's LIFETIME: probing execs a subprocess per discovered
+	// companion, and SeededBundleLoader is called repeatedly within one
+	// process (hooks, MCP, fragments, assembly) — without this, each call
+	// would re-pay that cost. Deliberately per-Config (not a package var):
+	// tests construct fresh Configs and must never observe another test's
+	// fake companion output.
+	//
+	// Held by POINTER, not as a value sync.Once field: Config is copied by
+	// value in existing callers (e.g. table-driven tests ranging over a
+	// []struct{... config Config ...}), and a struct containing a sync.Once
+	// value must never be copied (govet copylocks) — a value field here
+	// would break every one of those callers. companionSeedInitMu (a
+	// package-level lock, not a Config field, so copying Config is still
+	// cheap and safe) guards the lazy allocation of the pointer; the actual
+	// probe is still memoized exactly once via the pointee's sync.Once.
+	companionSeed *companionSeedState
 
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -947,22 +966,31 @@ func (c *Config) GetBundleDirs() []string {
 }
 
 // SeededBundleLoader returns a bundles.Loader that sees fs-installed local
-// bundles plus every remote bundle in the active lockfile, pre-loaded from
-// the local git clone cache and SHA-pinned. This is the read-path loader
-// every caller should use after PR 1: remote bundles no longer live on disk
-// as extracted YAML, so the seeding step is what makes them visible at all.
+// bundles, every remote bundle in the active lockfile (pre-loaded from the
+// local git clone cache and SHA-pinned), and every discovered companion's
+// loadout (S8 — ProbeCompanionLoadouts, seeded under its
+// ctxloom:companion@<bin> ref). This is the read-path loader every caller
+// should use after PR 1: remote bundles no longer live on disk as extracted
+// YAML, so the seeding step is what makes them (and companion loadouts,
+// which never touch disk at all) visible.
 //
 // Failures are degraded gracefully (CLAUDE.md fault tolerance): a missing
-// lockfile, unregistered remote, or single bad SHA produces a stderr
-// warning and the loader returns the rest.
+// lockfile, unregistered remote, single bad SHA, or unreachable/invalid
+// companion loadout produces a stderr warning and the loader returns the
+// rest.
 func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
 	if c.fs != nil {
 		// Thread the injected filesystem so fs-installed local bundle discovery
 		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithFS(c.fs))
 	}
-	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
-		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
+	remoteSeed := c.loadRemoteBundleSeed()
+	companionSeed := c.companionBundleSeed()
+	if len(remoteSeed) > 0 || len(companionSeed) > 0 {
+		merged := make(map[string]*bundles.Bundle, len(remoteSeed)+len(companionSeed))
+		maps.Copy(merged, remoteSeed)
+		maps.Copy(merged, companionSeed)
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(merged))
 	}
 	// Multi-version coexistence (trust rework, TR5): give every read-path loader
 	// the capability to materialize a specific historical commit-version of a
@@ -974,6 +1002,53 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 	}
 	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
 }
+
+// companionBundleSeed discovers and probes every companion's loadout
+// (ProbeCompanionLoadouts) exactly once per Config — see
+// companionSeedOnce/companionSeedCache — verifying any signature against
+// THIS config's full trust root (embedded + user + project allowed_signers,
+// same root verifyBundlePublisher uses for remote bundles below). The
+// result merges into SeededBundleLoader's seed map alongside
+// loadRemoteBundleSeed's remote bundles: same seam, same gate, same review
+// path (operations.EffectiveTrust, unchanged) — a companion loadout is not
+// a parallel trust mechanism.
+//
+// Skipped entirely when there is no project directory (mirrors
+// loadRemoteBundleSeed's own AppPaths guard): companion content only
+// matters for a real project session, and this keeps a bare/management
+// Config — the shape most unit tests construct — from spawning companion
+// subprocesses it has no use for.
+func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	companionSeedInitMu.Lock()
+	if c.companionSeed == nil {
+		c.companionSeed = &companionSeedState{}
+	}
+	state := c.companionSeed
+	companionSeedInitMu.Unlock()
+
+	state.once.Do(func() {
+		state.cache = ProbeCompanionLoadouts(c.TrustRoot())
+	})
+	return state.cache
+}
+
+// companionSeedState is the memoized result of one Config's companion-loadout
+// probe, held by pointer from Config.companionSeed — see that field's doc for
+// why this can't be a value sync.Once field on Config directly.
+type companionSeedState struct {
+	once  sync.Once
+	cache map[string]*bundles.Bundle
+}
+
+// companionSeedInitMu guards ONLY the lazy allocation of a Config's
+// companionSeed pointer (a handful of instructions); the actual probe work
+// stays memoized via companionSeedState's own sync.Once, unlocked. A
+// package-level lock rather than a Config field, so it never participates in
+// a struct copy.
+var companionSeedInitMu sync.Mutex
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
 // a bundle at a specific commit and parses the bytes into a Bundle. It dispatches

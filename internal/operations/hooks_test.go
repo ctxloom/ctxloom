@@ -32,14 +32,18 @@ package operations
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -47,6 +51,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // ==========================================================================
@@ -686,7 +691,21 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 // ApplyHooks with RegenerateContext must land the assembled context in the
 // managed section of .agents/AGENTS.md (which agy reads), and the injection
 // hook must NOT appear as a dead entry in .agents/hooks.json.
+//
+// A companion loadout (S8) is faked to contribute a real PostFileEdit hook —
+// standing in for taskloom's stamp-plan, which used to come from the now-
+// deleted embedded builtin bundle. Without SOME real managed hook content,
+// antigravity's hooks.json writer intentionally never creates a stray empty
+// file (internal/antigravity/antigravity.go's saveHooksFile: "never create a
+// stray empty {} file"), which would make this test's hooks.json read fail
+// for a reason that has nothing to do with what it's actually pinning. The
+// fake loadout is SIGNED and its key TRUSTED (a project allowed_signers
+// entry) so the real executable trust gate ApplyHooks wires in (TR5) allows
+// it through as trusted-signer, rather than withholding it pending review —
+// an unsigned companion hook would silently make this test assert on
+// nothing, for reasons unrelated to what it pins.
 func TestApplyHooks_RegenerateContext_AntigravityAgentsMD(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := filepath.Join(appDir, "cache", "bundles")
@@ -702,6 +721,30 @@ fragments:
       - Always validate input
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
+
+	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		if bin == "taskloom" {
+			return "/fake/taskloom", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	defer restoreLook()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sshSigner, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+	pubLine := string(ssh.MarshalAuthorizedKey(sshSigner.PublicKey()))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "allowed_signers"),
+		[]byte("taskloom@example.com namespaces=\""+signing.NamespacePublish+"\" "+pubLine), 0644))
+
+	loadoutYAML := []byte("version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n")
+	sig, err := signing.Sign(loadoutYAML, sshSigner, signing.NamespacePublish)
+	require.NoError(t, err)
+	envelope, err := signing.EncodeLoadoutEnvelope(loadoutYAML, sig, "taskloom@example.com")
+	require.NoError(t, err)
+	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{

@@ -48,7 +48,7 @@ retry the right way. See docs/RULES.md for the full rule model.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd())
+	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd(), newLoadoutCmd())
 	registerDocsCmd(root)
 	return root
 }

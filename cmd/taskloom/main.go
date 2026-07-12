@@ -9,6 +9,9 @@ func main() {
 	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
 	// the shared reference-doc generator on the tree. See docs_gen.go.
 	registerDocsCmd(rootCmd)
+	// newLoadoutCmd is a factory (not wired via this file's own init()
+	// convention) so registration has no hidden ordering dependency.
+	rootCmd.AddCommand(newLoadoutCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

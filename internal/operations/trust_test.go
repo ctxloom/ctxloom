@@ -516,6 +516,17 @@ func TestParseTrustItemRef(t *testing.T) {
 			name: "builtin source ref", ref: "builtin:taskloom#mcp/taskloom",
 			wantBundle: "taskloom", wantKind: trust.KindMCP, wantName: "taskloom", wantBuiltin: true,
 		},
+		// A companion loadout ref (S8) — the "one thing that can go wrong":
+		// remote.ParseReference must RECOGNIZE it (so it never falls into the
+		// unrecognized-source guard below) and it must land as neither local
+		// nor builtin, so it reaches EffectiveTrust's trusted-signer/approved/
+		// pending steps like any other third-party content. See
+		// TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied for the
+		// end-to-end gate proof.
+		{
+			name: "companion loadout ref", ref: "ctxloom:companion@ltk#fragments/ltk",
+			wantRepo: remote.CompanionSource, wantBundle: "ltk", wantKind: trust.KindFragment, wantName: "ltk",
+		},
 		{name: "missing selector", ref: "tooling", wantErr: true},
 		{name: "unknown kind", ref: "tooling#widgets/x", wantErr: true},
 		{name: "empty name", ref: "tooling#fragments/", wantErr: true},
@@ -546,4 +557,60 @@ func TestParseTrustItemRef(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied is THE gate-integration
+// test the companion loadout protocol (S8) exists to prove: a companion
+// loadout item, seeded under the ctxloom:companion@<bin> source ref, is
+// GATED — it is neither auto-allowed as local (step 2, which would bypass
+// review entirely for third-party content) nor denied as an unrecognized
+// source (parseTrustItemRef's fail-closed guard, which — before this ref was
+// taught to remote.ParseReference — would have refused the ref outright and
+// silently withheld every companion item forever). It lands exactly where
+// third-party content belongs: pending when unsigned, trusted-signer when
+// signed by a key this machine trusts to publish.
+func TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied(t *testing.T) {
+	ref := "ctxloom:companion@ltk#fragments/ltk"
+
+	tref, loadRef, _, err := parseTrustItemRef(ref)
+	require.NoError(t, err, "a companion ref MUST be recognized by remote.ParseReference, never fail-closed as unrecognized")
+	assert.Equal(t, "ctxloom:companion@ltk", loadRef)
+	assert.False(t, tref.IsLocal, "a companion loadout is THIRD-PARTY content — it must never take the local auto-allow exemption")
+	assert.False(t, tref.IsBuiltin, "a companion loadout is not compiled into this binary — it must never take the builtin exemption")
+	assert.Equal(t, remote.CompanionSource, tref.RepoURL)
+	assert.Equal(t, "ltk", tref.Bundle)
+
+	payload := pbytes("ltk-fragment-body")
+
+	t.Run("unsigned companion content is PENDING, not local, not denied-as-unrecognized", func(t *testing.T) {
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Records: fakeRecords{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourcePending, res.Source, "unsigned third-party content is withheld for review, exactly like a remote bundle")
+	})
+
+	t.Run("companion content signed by a trusted publisher key is ALLOWED as trusted-signer", func(t *testing.T) {
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
+			Records: fakeRecords{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Allow, res.Decision)
+		assert.Equal(t, trust.SourceTrustedSigner, res.Source)
+	})
+
+	t.Run("a rejection of the companion ref still wins over a trusted signer", func(t *testing.T) {
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
+			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
+				return r.RepoURL == remote.CompanionSource && r.Bundle == "ltk"
+			}},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourceRejected, res.Source, "rejection is supreme even over a trusted-signer companion")
+	})
 }

@@ -18,6 +18,13 @@ func TestCanonicalRepoURL(t *testing.T) {
 		{"shorthand owner/repo", "acme/repo", "https://github.com/acme/repo"},
 		{"empty", "", ""},
 		{"local token passthrough", "ctxloom:local", "ctxloom:local"},
+		// Without this special case, remote.NormalizeURL's "no scheme, no
+		// slash" fallback would mangle "ctxloom:companion" into
+		// "https://ctxloom:companion" — the exact bug the ctxloom:local case
+		// above exists to avoid, and a companion loadout ref's whole reason
+		// for being recognized/gated (not local, not unrecognized) depends on
+		// its RepoURL canonicalizing to itself.
+		{"companion token passthrough", "ctxloom:companion", "ctxloom:companion"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

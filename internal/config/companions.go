@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -54,16 +59,30 @@ type CompanionStatus struct {
 	Err     error  // version-probe failure for a present binary
 }
 
-// BuiltinCompanionBins returns the unique non-ctxloom executables referenced
-// by the embedded built-in bundles' hooks and MCP servers, sorted. Deriving
-// the set from the YAML (rather than a hardcoded list) means a new built-in
-// bundle's companion is probed at boot automatically.
+// BuiltinCompanionBins returns the unique non-ctxloom companion executables
+// ctxloom knows to look for at boot, sorted: the UNION of DiscoverCompanions
+// (the loadout-protocol discovery set, S8 — first-party list ∪
+// ctxloom-companion-* on PATH) and any companion still referenced by an
+// embedded built-in bundle's hooks/MCP (now typically none — S8 moved
+// ltk/taskloom off this path onto their own loadouts — kept for any FUTURE
+// built-in bundle that wires in a companion directly). Both status reporting
+// (printCompanionStatus) and the version-probe loop (ProbeCompanions) read
+// this list, so a companion that adopts either mechanism is probed at boot
+// automatically.
 func BuiltinCompanionBins() []string {
-	seen := map[string]bool{}
+	seen := make(map[string]bool)
+	for _, bin := range DiscoverCompanions() {
+		seen[bin] = true
+	}
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
 		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
-		return nil
+		out := make([]string, 0, len(seen))
+		for bin := range seen {
+			out = append(out, bin)
+		}
+		sort.Strings(out)
+		return out
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
@@ -147,4 +166,174 @@ func companionVersion(path string) (string, error) {
 		return "", errors.New("version --format json output has no version field")
 	}
 	return info.Version, nil
+}
+
+// ===== Companion LOADOUT discovery (signature-envelope spec §4.3, §6) =====
+//
+// A companion loadout is a THIRD-PARTY bundle a binary on PATH advertises
+// about itself (`<bin> loadout --format json`), distinct from the built-in
+// bundles above (which ship INSIDE the ctxloom binary and are exempt from
+// review). Discovery here only finds candidate binaries; it does not decide
+// trust — every discovered loadout is seeded into Config.SeededBundleLoader
+// under the ctxloom:companion@<bin> source ref and flows through the
+// UNCHANGED trust gate (operations.EffectiveTrust) exactly like a remote
+// bundle. See config.go's companionBundleSeed / SeededBundleLoader wiring.
+
+// firstPartyCompanions are the shipped, first-class companions that do NOT
+// match the ctxloom-companion-* PATH convention below (their names predate
+// it) but are still discovered unconditionally. reprise is listed for
+// completeness (per the agreed discovery contract, "first-party list UNION
+// ctxloom-companion-* on PATH") even though it does not implement `loadout`
+// yet — its loadout is a separate-repo follow-up; a probe of it degrades
+// exactly like any other companion whose loadout subcommand is absent
+// (silently skipped, never an error).
+var firstPartyCompanions = []string{"ltk", "taskloom", "reprise"}
+
+// companionPathPrefix is the PATH-naming convention a THIRD-PARTY companion
+// opts into so ctxloom discovers it without a hardcoded name: any executable
+// on PATH named ctxloom-companion-<name> is a discovery candidate.
+const companionPathPrefix = "ctxloom-companion-"
+
+// pathDirs is the $PATH-scanning seam for tests.
+var pathDirs = func() []string {
+	return filepath.SplitList(os.Getenv("PATH"))
+}
+
+// readDir is the directory-listing seam for tests (companions-on-PATH scan).
+var readDir = os.ReadDir
+
+// DiscoverCompanions returns the deduplicated, sorted set of companion
+// binary names to probe for a loadout: the shipped first-party list UNION
+// every name on PATH matching the ctxloom-companion-* convention. First-
+// party binaries do not match the glob (their names predate the
+// convention), so both mechanisms are required — neither alone finds every
+// companion (signature-envelope spec §6 discovery).
+func DiscoverCompanions() []string {
+	seen := make(map[string]bool, len(firstPartyCompanions))
+	for _, bin := range firstPartyCompanions {
+		seen[bin] = true
+	}
+	for _, bin := range companionsOnPathByConvention() {
+		seen[bin] = true
+	}
+	out := make([]string, 0, len(seen))
+	for bin := range seen {
+		out = append(out, bin)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// companionsOnPathByConvention scans every $PATH directory for entries named
+// ctxloom-companion-*, mirroring shell PATH resolution: the first directory
+// containing a given name wins over a later duplicate. It does not check the
+// executable bit (permission semantics differ by OS, and an attempted exec
+// of a non-executable file degrades cleanly through the same "probe failed,
+// skip it" path every other companion failure takes) — this is a candidate
+// LIST, not a trust decision.
+func companionsOnPathByConvention() []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, dir := range pathDirs() {
+		entries, err := readDir(dir)
+		if err != nil {
+			continue // unreadable/absent PATH entry — ordinary, not a warning
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, companionPathPrefix) || seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// companionLoadoutOutput runs a companion's loadout probe; seam for tests,
+// mirrors companionVersionOutput exactly (same timeout/WaitDelay discipline
+// — a wedged companion degrades to a warning, never a stalled startup).
+var companionLoadoutOutput = func(path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "loadout", "--format", "json")
+	cmd.WaitDelay = companionProbeWaitDelay
+	return cmd.Output()
+}
+
+// SetCompanionLoadoutOutputForTesting overrides the loadout-probe exec seam
+// and returns a restore function. Companion of SetCompanionVersionOutputForTesting.
+func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func() {
+	prev := companionLoadoutOutput
+	companionLoadoutOutput = fn
+	return func() { companionLoadoutOutput = prev }
+}
+
+// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), and for
+// each one present on PATH execs `<bin> loadout --format json`, verifies any
+// signature against root, and parses the result into a bundles.Bundle keyed
+// by its ctxloom:companion@<bin> canonical ref — ready to merge into a
+// SeededBundleLoader seed map exactly like a remote bundle.
+//
+// A companion that is absent from PATH, whose probe fails or times out
+// (including a first-party name that does not implement `loadout` yet, e.g.
+// reprise today), or whose loadout is unparseable or fails signature
+// verification (tamper) is SKIPPED with a warning — NEVER fatal, NEVER a
+// crash, and NEVER auto-allowed: an invalid loadout is simply absent from
+// the returned map, so it contributes nothing rather than degrading to
+// unsigned-but-trusted content (spec: "a companion loadout from a companion
+// is withheld, never crashes, never auto-allowed").
+//
+// Probes run concurrently (mirrors ProbeCompanions), each bounded by
+// companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
+// regardless of how many companions are discovered.
+func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
+	bins := DiscoverCompanions()
+	type probed struct {
+		ref string
+		b   *bundles.Bundle
+	}
+	slots := make([]*probed, len(bins))
+	var wg sync.WaitGroup
+	for i, bin := range bins {
+		wg.Add(1)
+		go func(i int, bin string) {
+			defer wg.Done()
+			path, err := lookPath(bin)
+			if err != nil {
+				return // not installed — ordinary, not a warning
+			}
+			raw, err := companionLoadoutOutput(path)
+			if err != nil {
+				// No `loadout` subcommand, non-zero exit, or timeout — a
+				// companion that hasn't adopted the protocol yet (or is
+				// wedged) simply contributes nothing this session.
+				return
+			}
+			bundleBytes, signer, derr := signing.DecodeLoadoutEnvelope(raw, root, time.Now())
+			if derr != nil {
+				clidiag.Warn("ctxloom", "companion %q: invalid loadout envelope, withholding: %v", bin, derr)
+				return
+			}
+			b, perr := bundles.ParseBundle(bundleBytes)
+			if perr != nil {
+				clidiag.Warn("ctxloom", "companion %q: unparseable loadout bundle, withholding: %v", bin, perr)
+				return
+			}
+			ref := remote.CompanionSource + "@" + bin
+			b.Name = ref
+			b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
+			slots[i] = &probed{ref: ref, b: b}
+		}(i, bin)
+	}
+	wg.Wait()
+
+	out := make(map[string]*bundles.Bundle, len(bins))
+	for _, p := range slots {
+		if p != nil {
+			out[p.ref] = p.b
+		}
+	}
+	return out
 }

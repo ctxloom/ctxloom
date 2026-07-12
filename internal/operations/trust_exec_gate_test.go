@@ -2,6 +2,7 @@ package operations
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -101,15 +103,16 @@ func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 }
 
 // TestExecGate_ResolveBundleMCPServers_RealCascade drives the FULL profile→
-// bundle→settings path with the REAL executable gate over a LOCAL on-disk bundle:
-// a first-party local MCP server is written while a rejected sibling is
-// withheld, and the in-binary builtin servers — routed through the same REAL
-// decision function, allowed by default at their own step — still come
-// through with no review state recorded (see
-// TestExecGate_ResolveBundleMCPServers_BuiltinRejectable for the companion
-// proof that a REJECTED builtin item is withheld).
+// bundle→settings path with the REAL executable gate over a LOCAL on-disk
+// bundle: a first-party local MCP server is written while a rejected sibling
+// is withheld. See TestExecGate_ResolveBundleMCPServers_CompanionRejectable
+// for the companion-loadout analogue of "an item can still be rejected
+// beyond its default exemption" — S8 moved ltk/taskloom off the in-binary
+// builtin exemption (this test used to assert on) onto their own loadouts,
+// which are trusted-signer/pending like any other third-party content, never
+// exempt.
 func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
+	restore := config.SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound })
 	defer restore()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
@@ -139,48 +142,45 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	assert.Contains(t, result, "quiet-server", "first-party local MCP server must be written to settings")
 	assert.NotContains(t, result, "noisy-server", "rejected local MCP executable must be withheld")
-	builtin := false
-	for _, s := range result {
-		if s.SCM == "bundle:builtin:taskloom" {
-			builtin = true
-		}
-	}
-	assert.True(t, builtin, "in-binary builtin MCP servers are allowed by default (not rejected) through the same gate")
 }
 
-// TestExecGate_ResolveBundleMCPServers_BuiltinRejectable proves builtin bundles
-// are reachable by the rejection step — docs/trust-model.md states "a user can
-// reject an item even from a trusted source or a builtin" (rejection beats
-// everything), but until this fix builtin resolvers passed gate=nil and could
-// never be rejected. A REJECTED builtin MCP server (the taskloom companion's
-// "taskloom" server) must be withheld exactly like a rejected remote/local one.
-func TestExecGate_ResolveBundleMCPServers_BuiltinRejectable(t *testing.T) {
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
-	defer restore()
+// TestExecGate_ResolveBundleMCPServers_CompanionRejectable proves a companion
+// loadout's MCP server is reachable by the rejection step exactly like any
+// other third-party content: docs/trust-model.md states rejection beats
+// everything, including a trusted signer. This is the companion-loadout
+// analogue of the deleted TestExecGate_ResolveBundleMCPServers_BuiltinRejectable
+// (S8 moved ltk/taskloom off the in-binary builtin exemption that test used
+// to drive onto their own loadouts, which are never exempt).
+func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
+	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		if bin == "ltk" {
+			return "/fake/ltk", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	defer restoreLook()
+	envelope, err := signing.EncodeLoadoutEnvelope(
+		[]byte("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
+	require.NoError(t, err)
+	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
+
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
-	// Matches resources/builtin_bundles/taskloom.yaml's mcp.taskloom entry
-	// exactly (Command/Args/Installation are the ContentPayload preimage —
-	// Notes is excluded). Recorded UNSIGNED (spec §9.5) directly in the real
-	// user store the default gate reads.
-	taskloomPayload := mcpPayloadOf(bundles.BundleMCP{
-		Command:      "taskloom",
-		Args:         []string{"mcp"},
-		Installation: "brew install ctxloom/tap/taskloom",
-	})
+	ltkPayload := mcpPayloadOf(bundles.BundleMCP{Command: "ltk", Args: []string{"serve"}})
 	installUnsignedRejection(t,
-		trust.Ref{Bundle: "taskloom", Kind: trust.KindMCP, Name: "taskloom", IsBuiltin: true},
-		signing.FormRaw, taskloomPayload)
+		trust.Ref{RepoURL: remote.CompanionSource, Bundle: "ltk", Kind: trust.KindMCP, Name: "ltk-server"},
+		signing.FormRaw, ltkPayload)
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleMCPServers(nil)
 
-	assert.NotContains(t, result, "taskloom",
-		"a REJECTED builtin MCP server must be withheld — rejection beats the builtin exemption")
+	assert.NotContains(t, result, "ltk-server",
+		"a REJECTED companion MCP server must be withheld — rejection beats the trusted-signer exemption, and it was pending (unsigned) besides")
 }
 
 // TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: a first-party

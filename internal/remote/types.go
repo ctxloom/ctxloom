@@ -130,6 +130,18 @@ type Reference struct {
 	// ContentVersion is usually empty (the version is the surrounding project's
 	// own VCS state); a non-empty value pins to a project revision.
 	IsLocal bool
+
+	// IsCompanion indicates a ctxloom:companion@<bin> reference — a bundle
+	// EMITTED LIVE by a companion binary on PATH (`<bin> loadout --format
+	// json`, signature-envelope spec §4.3), rather than read from a git tree.
+	// Deliberately a SEPARATE flag from IsLocal: a companion loadout is
+	// third-party content arriving from elsewhere (the binary's author, not
+	// this project), so it must NOT auto-allow the way local content does — it
+	// is judged by who signed it (trusted-signer) or sent to review (pending),
+	// exactly like a remote bundle. See operations.parseTrustItemRef, which
+	// relies on IsLocal staying false here to route it through the gate
+	// instead of the local exemption.
+	IsCompanion bool
 }
 
 // LockEntry represents a locked dependency in the lockfile.

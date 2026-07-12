@@ -139,25 +139,18 @@ func TestGetDefaultRemotes(t *testing.T) {
 	}
 }
 
-func TestGetBuiltinBundle(t *testing.T) {
-	data, err := GetBuiltinBundle("taskloom")
-	if err != nil {
-		t.Fatalf("GetBuiltinBundle(tasks): %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("tasks bundle must be non-empty")
-	}
-	// Sanity-check the shape — bundle YAML always has a version key.
-	if !strings.Contains(string(data), "version:") {
-		t.Error("tasks bundle should declare a version")
-	}
-	// It ships the stamp-plan hook; it must NOT ship a TodoWrite capture
-	// hook (auto-capture was removed — tasks go through the MCP tools/CLI).
-	if !strings.Contains(string(data), "hook stamp-plan") {
-		t.Error("tasks bundle should ship the stamp-plan hook")
-	}
-	if strings.Contains(string(data), "tasks capture") {
-		t.Error("tasks bundle must not ship the removed TodoWrite capture hook")
+// TestGetBuiltinBundle_TaskloomDeleted proves taskloom is no longer an
+// embedded builtin bundle (signature-envelope spec §4.3, S8): its content
+// (fragment, hooks, MCP server) now ships from its own binary's loadout
+// (`taskloom loadout --format json`, cmd/taskloom/loadout.yaml), discovered
+// on PATH — see internal/config's ProbeCompanionLoadouts and
+// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated. This
+// replaces the old TestGetBuiltinBundle, which asserted the OPPOSITE
+// (taskloom.yaml present and non-empty) — that fixture is gone by design.
+func TestGetBuiltinBundle_TaskloomDeleted(t *testing.T) {
+	_, err := GetBuiltinBundle("taskloom")
+	if err == nil {
+		t.Fatal("taskloom.yaml must no longer be an embedded builtin bundle — it ships from its own loadout now")
 	}
 }
 
@@ -168,23 +161,24 @@ func TestGetBuiltinBundle_Unknown(t *testing.T) {
 	}
 }
 
-func TestListBuiltinBundles(t *testing.T) {
+// TestListBuiltinBundles_NoneEmbeddedByDefault replaces the old assertion
+// that "taskloom" is always present. S8 deleted the last two embedded
+// bundles (ltk, taskloom); resources/builtin_bundles/ now carries only a
+// README (see its doc comment) so the go:embed directive has a file to
+// embed. ListBuiltinBundles must therefore report none, and must still
+// strip the .yaml extension for whatever it DOES find (future builtins).
+func TestListBuiltinBundles_NoneEmbeddedByDefault(t *testing.T) {
 	names, err := ListBuiltinBundles()
 	if err != nil {
 		t.Fatalf("ListBuiltinBundles: %v", err)
 	}
-	// Must include the tasks bundle ctxloom embeds.
-	found := false
 	for _, n := range names {
-		if n == "taskloom" {
-			found = true
-		}
 		if strings.HasSuffix(n, ".yaml") {
 			t.Errorf("ListBuiltinBundles must strip the .yaml extension; got %q", n)
 		}
 	}
-	if !found {
-		t.Errorf("expected 'taskloom' bundle in list, got %v", names)
+	if len(names) != 0 {
+		t.Errorf("expected no embedded builtin bundles (ltk/taskloom moved to their own loadouts), got %v", names)
 	}
 }
 

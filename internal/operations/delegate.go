@@ -39,6 +39,12 @@ type AgentChatRequest struct {
 	// Permissions is the already-gated headless-safe posture (D3: children
 	// never prompt; the caller refused or downgraded anything else).
 	Permissions agent.PermissionMode
+	// Workspace is the caller's per-invocation workspace-axis override
+	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
+	// cfg.Workspace when set; empty falls back to cfg.Workspace exactly like
+	// today — the same session-level-orchestration-trait-vs-agent-trait split
+	// operations.memberAxes already draws for map/weave's --workspace.
+	Workspace string
 	// MCPServers is the composed managed set for the child session (the
 	// chat paths never run Setup, so the servers ride the session).
 	MCPServers []agent.ChatMCPServer
@@ -95,12 +101,19 @@ type PreparedAgentChat struct {
 // the same isolationGateMu window serialization.
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
+	// GAP 2: the caller's per-agent_run workspace choice overrides the
+	// project default; empty (the common case — no override supplied)
+	// preserves today's cfg.Workspace behavior exactly.
+	workspace := cfg.Workspace
+	if req.Workspace != "" {
+		workspace = req.Workspace
+	}
 	p := &PreparedAgentChat{
 		cfg:         cfg,
 		req:         req,
 		contextText: req.Context,
 		axes: isolation.Axes{
-			Workspace: isolation.WorkspaceAxis(cfg.Workspace),
+			Workspace: isolation.WorkspaceAxis(workspace),
 			Runtime:   isolation.RuntimeAxis(rs.Runtime),
 		},
 	}

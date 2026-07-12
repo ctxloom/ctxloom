@@ -87,7 +87,15 @@ type RunOutcome struct {
 // resolve exactly as `run --agent` does, gate the permission enum (D3), mint
 // the harp + run id + credential, journal the enqueue under the D4 cap, and
 // return immediately — everything after spawn rides the mailboxes.
-func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string) (*RunOutcome, error) {
+//
+// workspace is GAP 2's per-call workspace-axis override (none|worktree;
+// empty = project default, cfg.Workspace). Unlike the runtime axis — an
+// AGENT trait Resolve already carries on the plan — the workspace axis is an
+// ORCHESTRATION trait the CALLER supplies per invocation, mirroring
+// operations.memberAxes' map/weave --workspace shape: it is set on the
+// resolved plan here, never inside Resolve (agent-definition resolution
+// stays pure — see spawner.go's Resolve/GAP 1).
+func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string) (*RunOutcome, error) {
 	if agentName == "" {
 		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
 	}
@@ -106,6 +114,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if err != nil {
 		return nil, err
 	}
+	plan.Workspace = workspace
 
 	harp, err := c.spawner.AssignSession(c.projectDir, plan.Backend)
 	if err != nil {
@@ -800,6 +809,12 @@ func (c *Coordinator) resumeChild(harp string) {
 		}
 		return
 	}
+	// GAP 2 deferral: the ORIGINAL agent_run's workspace override is not
+	// journaled on runEnqueued, so a resumed harp always falls back to the
+	// project default (cfg.Workspace) rather than reusing its prior
+	// worktree choice. Persisting it is a durable-fact/fold change outside
+	// this fix's scope (agent_run/spawner/delegate/mcp-input surface only);
+	// tracked as deferred work.
 	// D5: the resumed run's own parent_run_id must reflect the PARENT'S
 	// CURRENT live run (not the stale run_id recorded at the ORIGINAL
 	// enqueue) — the parent may itself have been resumed since. Empty when

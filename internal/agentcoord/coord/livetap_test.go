@@ -255,7 +255,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	defer cancel()
 
 	owner := coord.Identity{Harp: "coordinator-harp", Depth: 0}
-	out, err := c.AgentRun(ctx, owner, "worker", "hello from the coordinator")
+	out, err := c.AgentRun(ctx, owner, "worker", "hello from the coordinator", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 

@@ -56,7 +56,7 @@ func childHome(t *testing.T, c *Coordinator, runID string) *Home {
 
 func spawnResearcher(t *testing.T, c *Coordinator) *RunOutcome {
 	t.Helper()
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "")
 	require.NoError(t, err)
 	return out
 }

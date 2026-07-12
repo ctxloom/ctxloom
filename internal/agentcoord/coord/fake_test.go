@@ -131,6 +131,10 @@ type fakeSpawner struct {
 	nextChat func() *scriptedChat
 	chats    []*scriptedChat
 	kills    []func()
+	// workspaces records each Launch/StartEngine call's plan.Workspace, in
+	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
+	// -> here), without needing real isolation machinery.
+	workspaces []string
 }
 
 type fakeAgent struct {
@@ -216,6 +220,7 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 	e := s.next()
 	s.engines = append(s.engines, e)
 	s.perms = append(s.perms, plan.Perm)
+	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.mu.Unlock()
 	return e.launch(ctx, contextText, env, runnerEnv), nil
 }
@@ -235,6 +240,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	sc := mk()
 	s.chats = append(s.chats, sc)
 	s.perms = append(s.perms, plan.Perm)
+	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
@@ -302,6 +308,17 @@ func (s *fakeSpawner) lastPerm() agent.PermissionMode {
 		return agent.PermissionDefault
 	}
 	return s.perms[len(s.perms)-1]
+}
+
+// lastWorkspace returns the SpawnPlan.Workspace the most recent Launch/
+// StartEngine call carried (GAP 2 threading proof).
+func (s *fakeSpawner) lastWorkspace() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.workspaces) == 0 {
+		return ""
+	}
+	return s.workspaces[len(s.workspaces)-1]
 }
 
 func (s *fakeSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {

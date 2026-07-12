@@ -38,7 +38,7 @@ func TestCredentialRevocation_SeversParkedPoll(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 

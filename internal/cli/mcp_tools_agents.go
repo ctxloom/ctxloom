@@ -73,6 +73,13 @@ func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 type agentRunInput struct {
 	Agent  string `json:"agent" jsonschema:"Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored)"`
 	Prompt string `json:"prompt" jsonschema:"The child's briefing — delivered as its first turn"`
+	// Workspace is GAP 2's per-call workspace-axis override: today every
+	// agent_run child shares the parent's live project checkout, so a
+	// code-editing child can stomp it mid-session. "worktree" carves the
+	// child its own isolated git worktree instead — matching run/map/weave
+	// --workspace's enum. Empty falls back to the project's cfg.Workspace
+	// default (unchanged behavior).
+	Workspace string `json:"workspace,omitempty" jsonschema:"Session workspace axis for this child: \"none\" (shared project checkout) or \"worktree\" (its own isolated git worktree — use this for a code-editing child so it never touches the shared checkout). Empty = project default"`
 }
 
 type agentRunResult struct {
@@ -177,7 +184,7 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt)
+	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace)
 	if err != nil {
 		return nil, nil, err
 	}

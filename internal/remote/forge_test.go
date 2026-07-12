@@ -110,15 +110,15 @@ func TestRegistry_ForgePersistence(t *testing.T) {
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)
 
 	// A save must preserve both the forge label on the remote and the forges
-	// block.
-	require.NoError(t, reg.SetTrustBundles("myprofiles", true))
+	// block. Trigger a persist with a save-backed mutation (setting the default).
+	require.NoError(t, reg.SetDefault("myprofiles"))
 
 	reg2, err := NewRegistry(path)
 	require.NoError(t, err)
 	rem2, err := reg2.Get("myprofiles")
 	require.NoError(t, err)
 	assert.Equal(t, "work-ghe", rem2.Forge, "forge label survives save round-trip")
-	assert.True(t, rem2.TrustBundles)
+	assert.Equal(t, "myprofiles", reg2.GetDefault())
 
 	forges := reg2.Forges()
 	require.Contains(t, forges, "work-ghe")

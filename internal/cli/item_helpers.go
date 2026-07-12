@@ -85,7 +85,7 @@ type itemRow struct {
 	SourceURL   string `json:"source_url,omitempty"`
 	// Trusted, TrustSource, and State are the effective-trust stamp: whether
 	// the decision function currently exposes this item, which step decided it
-	// (rejected|local|trusted-source|accepted|pending), and the three-state
+	// (rejected|local|builtin|trusted-signer|accepted|pending), and the three-state
 	// review rendering (pending|accepted|rejected — exempt allows render
 	// accepted, with TrustSource saying why). They are populated only for
 	// --format json (see stampItemTrust); the human listing is unchanged. An

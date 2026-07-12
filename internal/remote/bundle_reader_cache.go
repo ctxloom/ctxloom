@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // CachingBundleReader is the read-through cache decorator for any
@@ -29,6 +31,9 @@ type CachingBundleReader struct {
 type bundleCacheKey struct {
 	name string
 	sha  string
+	// sig distinguishes a bundle's detached signature from its bytes, so the
+	// two can never be served for one another out of the same cache slot.
+	sig bool
 }
 
 // NewCachingBundleReader wraps src so subsequent reads of the same (name,
@@ -100,6 +105,51 @@ func (c *CachingBundleReader) ReadBundleBytes(ctx context.Context, name string) 
 	return data, nil
 }
 
+// ReadBundleSignature forwards to the inner source when it can serve detached
+// signatures, memoizing successes by (name, sha, sig) exactly like the bytes.
+//
+// An inner source that does NOT implement BundleSignatureSource reports
+// not-found rather than erroring: a source with no signature surface serves
+// unsigned content, which is legal and ordinary (spec §10.1). Failures — the
+// not-found included — are never cached, so they cost one tree lookup each and
+// can never pin a bundle to "unsigned" for the life of the process.
+func (c *CachingBundleReader) ReadBundleSignature(ctx context.Context, name string) ([]byte, error) {
+	if c == nil || c.inner == nil {
+		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
+	}
+	src, ok := c.inner.(BundleSignatureSource)
+	if !ok {
+		return nil, fmt.Errorf("no signature for %s: %w", name, errs.ErrRemoteContentNotFound)
+	}
+
+	entry, ok := c.inner.LockEntryFor(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
+	}
+	key := bundleCacheKey{name: name, sha: entry.SHA, sig: true}
+
+	c.mu.RLock()
+	if cached, ok := c.cache[key]; ok {
+		c.mu.RUnlock()
+		return cached, nil
+	}
+	c.mu.RUnlock()
+
+	data, err := src.ReadBundleSignature(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.cache[key] = data
+	c.mu.Unlock()
+	return data, nil
+}
+
 // Ensure the decorator still satisfies BundleByteSource — that's the
-// whole point of decorating.
-var _ BundleByteSource = (*CachingBundleReader)(nil)
+// whole point of decorating — and passes the signature surface through.
+var (
+	_ BundleByteSource      = (*CachingBundleReader)(nil)
+	_ BundleSignatureSource = (*CachingBundleReader)(nil)
+	_ BundleSignatureSource = (*BundleReader)(nil)
+)

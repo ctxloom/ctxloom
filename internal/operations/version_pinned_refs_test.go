@@ -31,8 +31,7 @@ const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/c
 func versionPinnedLoader(t *testing.T, store *trust.Store, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Loader, *config.Config) {
 	t.Helper()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
-	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
+	gate := (&contentGate{cfg: cfg, store: store}).allow
 
 	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		b, ok := versions[commit]

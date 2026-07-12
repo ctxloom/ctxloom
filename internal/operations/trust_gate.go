@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -20,16 +19,15 @@ import (
 // (returns false), matching the security mandate that "couldn't evaluate" must
 // never mean "allow".
 //
-// It deliberately does NOT recompute the content hash: the loader computes the
-// effective-content hash (and form) of the exact bytes about to be exposed and
-// passes them in, so the gate keys on what the agent would actually see (the
-// pre-mustache EffectiveContent — substitution only injects project-authored
-// profile vars and cannot smuggle remote content past the gate).
+// It receives the exact BYTES about to be exposed (pre-mustache) rather than a
+// precomputed hash, so the decision can verify rather than merely compare —
+// substitution only injects project-authored profile vars and cannot smuggle
+// remote content past the gate.
 type contentGate struct {
-	cfg      *config.Config
-	store    *trust.Store
-	registry *remote.Registry
-	fs       afero.Fs
+	cfg     *config.Config
+	store   *trust.Store
+	records ReviewRecords
+	fs      afero.Fs
 
 	// denyAll withholds everything. Set when the trust store cannot be opened —
 	// it may hold rejections we must not silently skip (mirrors
@@ -50,7 +48,7 @@ type contentGate struct {
 // allow is the bundles.ContentGate the loader (and the executable resolvers)
 // call per resolved item. It is fail-closed: any path that cannot positively
 // justify exposure records the ref and withholds (returns false).
-func (g *contentGate) allow(ref, contentHash, form string) bool {
+func (g *contentGate) allow(ref string, payload []byte, form, signer string) bool {
 	if g.denyAll {
 		g.record(ref, trust.SourcePending)
 		return false
@@ -64,12 +62,13 @@ func (g *contentGate) allow(ref, contentHash, form string) bool {
 		return false
 	}
 	res, err := EffectiveTrust(g.cfg, EffectiveTrustRequest{
-		Ref:         tRef,
-		ContentHash: contentHash,
-		Form:        form,
-		Store:       g.store,
-		Registry:    g.registry,
-		FS:          g.fs,
+		Ref:     tRef,
+		Payload: payload,
+		Form:    form,
+		Signer:  signer,
+		Store:   g.store,
+		Records: g.records,
+		FS:      g.fs,
 	})
 	if err != nil || res == nil {
 		clidiag.Warn("ctxloom", "trust gate: withholding %q (evaluation error): %v", ref, err)
@@ -124,20 +123,19 @@ func (g *contentGate) withheldTally() (pending, rejected int) {
 	return pending, rejected
 }
 
-// newContentGate builds the fragment/prompt content gate for cfg. The
-// store/registry/fs are injection points for testing; production passes nil and
-// they are built from cfg (OS fs unless cfg carries an injected one).
-func newContentGate(cfg *config.Config, store *trust.Store, registry *remote.Registry, fs afero.Fs) bundles.ContentGate {
-	return buildContentGate(cfg, store, registry, fs).allow
+// newContentGate builds the fragment/prompt content gate for cfg. The store/fs
+// are injection points for testing; production passes nil and they are built
+// from cfg (OS fs unless cfg carries an injected one).
+func newContentGate(cfg *config.Config, store *trust.Store, fs afero.Fs) bundles.ContentGate {
+	return buildContentGate(cfg, store, fs).allow
 }
 
 // buildContentGate constructs the *contentGate behind newContentGate (and the
-// executable gate). It is the shared builder: it opens the trust store (failing
-// closed to denyAll when unreadable) and builds the remote registry once.
-// Returning the struct (not just g.allow) lets the executable gate read the
-// withheld tally afterward.
-func buildContentGate(cfg *config.Config, store *trust.Store, registry *remote.Registry, fs afero.Fs) *contentGate {
-	g := &contentGate{cfg: cfg, registry: registry, fs: fs}
+// executable gate). It is the shared builder: it opens the trust store once,
+// failing closed to denyAll when unreadable. Returning the struct (not just
+// g.allow) lets the executable gate read the withheld tally afterward.
+func buildContentGate(cfg *config.Config, store *trust.Store, fs afero.Fs) *contentGate {
+	g := &contentGate{cfg: cfg, fs: fs}
 
 	if store == nil {
 		s, err := getTrustStore(cfg, nil, fs)
@@ -151,14 +149,6 @@ func buildContentGate(cfg *config.Config, store *trust.Store, registry *remote.R
 		store = s
 	}
 	g.store = store
-
-	if g.registry == nil {
-		if reg, rerr := effectiveTrustRegistry(cfg, EffectiveTrustRequest{FS: fs}); rerr == nil {
-			g.registry = reg
-		}
-		// else leave nil: EffectiveTrust rebuilds + fail-closes per call at the
-		// trusted-source step without disturbing the earlier-step precedence.
-	}
 	return g
 }
 
@@ -183,7 +173,7 @@ type ExecutableTrustGate struct {
 // NewExecutableTrustGate builds the executable gate for cfg (production passes
 // the OS fs via cfg).
 func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate {
-	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, nil, cfgFS(cfg))}
+	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, cfgFS(cfg))}
 }
 
 // Gate returns the bundles.ContentGate the resolvers/loaders consult, or nil
@@ -215,7 +205,7 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // threaded so the gate's trust store reads/writes the same filesystem as the
 // rest of the operation (OS fs in production, a virtualized fs in tests).
 func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Loader {
-	gate := newContentGate(cfg, nil, nil, cfgFS(cfg))
+	gate := newContentGate(cfg, nil, cfgFS(cfg))
 	opts = append(opts, bundles.WithTrustGate(gate))
 	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 }

@@ -17,17 +17,30 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// ContentGate is the per-item trust gate (trust rework, TR5) for resolved
-// fragment/prompt content. It receives an item's full ref
-// ("<bundle>#<kind>/<name>"), the effective-content hash of the EXACT bytes
-// about to be exposed (pre-mustache), and the form ("raw"|"distilled"), and
-// reports whether the item may be exposed (true) or must be withheld (false).
+// ContentGate is the per-item trust gate for resolved fragment/prompt content.
+// It receives:
+//
+//   - ref     — the item's full ref, "<bundle>#<kind>/<name>"
+//   - payload — the EXACT bytes about to be exposed (pre-mustache)
+//   - form    — "raw" | "distilled"
+//   - signer  — the bundle's VERIFIED publisher identity, or "" for unsigned
+//
+// and reports whether the item may be exposed (true) or must be withheld
+// (false).
+//
+// It takes BYTES, not a content hash, and that is the point: a hash can only be
+// compared against a recorded hash, and a recorded hash is a file anything can
+// write. Bytes can be VERIFIED against a signature. Handing the gate a
+// precomputed hash would make the fast path "is this hash in the store?" — which
+// is exactly the forgeable-file weakness the signature design exists to remove
+// (spec §9.3, trap #2). The hash still exists, as an index; it just stopped
+// being the authority.
 //
 // A nil gate means no enforcement — management/listing loaders resolve content
 // without gating so they can still see pending items (to review, accept, or
 // stamp them). Fail-closed semantics are the gate's own responsibility: a
-// resolve/hash/store error must return false (withhold), never default-allow.
-type ContentGate func(ref, contentHash, form string) bool
+// resolve/store error must return false (withhold), never default-allow.
+type ContentGate func(ref string, payload []byte, form, signer string) bool
 
 // Loader loads bundles from disk (and an optional in-memory seed), caching
 // parsed results for the lifetime of the loader.
@@ -145,17 +158,21 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 // Returns true to expose. A nil gate (management/listing loaders) always
 // exposes. A withheld item is recorded — deduplicated by ref — so an assembly
 // caller can surface the count ("N withheld") via Withheld without leaking
-// content. The hash MUST be the effective-content hash of the exact bytes about
-// to be exposed (pre-mustache), so the gate keys on what the agent would see.
+// content.
+//
+// payload MUST be the exact bytes about to be exposed (pre-mustache), so the
+// gate decides on what the agent would actually see; profile-variable
+// substitution happens after and cannot smuggle content past the gate.
 // source is the bundle's honest source ref (Bundle.contentSourceRef): canonical
 // for a cloned bundle so its text gates like an executable, the local name for a
 // project bundle so its text auto-trusts — the SAME keying the exec gate uses.
-func (l *Loader) gateContent(source, kindDir, itemName, contentHash string, form ContentForm) bool {
+// signer is the bundle's verified publisher identity, carried straight through.
+func (l *Loader) gateContent(source, kindDir, itemName string, payload []byte, form ContentForm, signer string) bool {
 	if l.gate == nil {
 		return true
 	}
 	ref := source + "#" + kindDir + "/" + itemName
-	if l.gate(ref, contentHash, string(form)) {
+	if l.gate(ref, payload, string(form), signer) {
 		return true
 	}
 	l.withheldMu.Lock()

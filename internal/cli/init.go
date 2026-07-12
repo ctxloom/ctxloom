@@ -358,9 +358,8 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 		return nil, nil
 	}
 
-	fmt.Println("Repos you add here are marked TRUSTED: their bundle changes apply on pull")
-	fmt.Println("without a review prompt. Only add repos you control or trust; revoke any")
-	fmt.Println("time with `ctxloom remote untrust <name>`.")
+	fmt.Println("Repos you add here are addresses only — their content takes the review path")
+	fmt.Println("('ctxloom review') until you sign your bundles and trust your own signing key.")
 	fmt.Println("Enter GitHub repos (e.g., 'myuser/ctxloom-profiles'), one per line. Blank line when done.")
 	var repos []string
 	for {
@@ -596,8 +595,8 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
-	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo, trusted — its bundle")
-	fmt.Println("changes apply on pull without review; revoke with: ctxloom remote untrust ctxloom-default)")
+	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo). Its content is trusted")
+	fmt.Println("once signed by ctxloom's publishing key; until then it takes the review path.")
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
@@ -689,10 +688,15 @@ func writeInitialConfig(appDir, engine string) error {
 
 // personalRemoteRequests builds the AddRemote requests for the user's personal
 // repos. The first is named "personal"; subsequent ones get "personal-2",
-// "personal-3", … so each is a distinct, addressable remote. Personal repos are
-// the user's own, so they are trusted by default. A non-empty forge binds every
-// remote to that forge (github, git, or a configured label) instead of letting
-// resolution fall back to URL-host matching.
+// "personal-3", … so each is a distinct, addressable remote. A non-empty forge
+// binds every remote to that forge (github, git, or a configured label) instead
+// of letting resolution fall back to URL-host matching.
+//
+// A remote is no longer trusted on add (spec §11): trusting content is now
+// keyed to a publisher KEY, not to the repo it came from. To auto-trust your own
+// personal repo's content, sign its bundles and add your key — `ctxloom sign`
+// and `ctxloom signer add` (later slices). Until then its content takes the
+// review path, which is exactly right for content nobody has vouched for.
 func personalRemoteRequests(repos []string, forge string) []operations.AddRemoteRequest {
 	reqs := make([]operations.AddRemoteRequest, 0, len(repos))
 	for i, repo := range repos {
@@ -700,14 +704,13 @@ func personalRemoteRequests(repos []string, forge string) []operations.AddRemote
 		if i > 0 {
 			name = fmt.Sprintf("personal-%d", i+1)
 		}
-		reqs = append(reqs, operations.AddRemoteRequest{Name: name, URL: repo, Trust: true, Forge: forge})
+		reqs = append(reqs, operations.AddRemoteRequest{Name: name, URL: repo, Forge: forge})
 	}
 	return reqs
 }
 
 // addPersonalRemotes registers the user's personal repos. Failures warn and
-// continue (an unknown --forge label rolls that single remote back). Trust is
-// visible in the output and revokable via `ctxloom remote untrust`.
+// continue (an unknown --forge label rolls that single remote back).
 func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 	if len(repos) == 0 {
 		return
@@ -721,7 +724,7 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 		if _, addErr := operations.AddRemote(cmd.Context(), cfg, req); addErr != nil {
 			clidiag.Warn("ctxloom", "failed to add remote %q (%s): %v", req.Name, req.URL, addErr)
 		} else {
-			fmt.Printf("Added remote %q: %s (trusted — revoke with: ctxloom remote untrust %s)\n", req.Name, req.URL, req.Name)
+			fmt.Printf("Added remote %q: %s (content takes the review path — 'ctxloom review')\n", req.Name, req.URL)
 		}
 	}
 }

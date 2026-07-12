@@ -32,17 +32,12 @@ func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
-// GetRegistry is the exported alias for getRegistry, used by cmd-layer tool
-// handlers that need direct registry access (e.g. the trust_remote tool).
-func GetRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
-	return getRegistry(cfg, opts...)
-}
-
-// RemoteEntry represents a remote in operation results.
+// RemoteEntry represents a remote in operation results. A remote is now just an
+// address to fetch from — it carries no trust flag (spec §11); trust is a
+// property of the publisher KEY, surfaced by `ctxloom signer list`.
 type RemoteEntry struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Trusted bool   `json:"trusted"` // mirrors Remote.TrustBundles: bundle changes auto-apply without review
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // ListRemotesRequest is empty but exists for consistency.
@@ -81,9 +76,8 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 
 	for _, r := range remotes {
 		result.Remotes = append(result.Remotes, RemoteEntry{
-			Name:    r.Name,
-			URL:     r.URL,
-			Trusted: r.TrustBundles,
+			Name: r.Name,
+			URL:  r.URL,
 		})
 	}
 
@@ -100,11 +94,6 @@ type AddRemoteRequest struct {
 	// the URL host (configured base_url match → built-in github for github.com →
 	// generic git).
 	Forge string `json:"forge,omitempty"`
-
-	// Trust, when true, marks the remote as trusted on add (bundle changes from
-	// it auto-apply without review). Used for the user's own personal repos
-	// registered during `ctxloom init`.
-	Trust bool `json:"trust,omitempty"`
 
 	// Registry is an optional pre-configured registry (for testing).
 	Registry *remote.Registry `json:"-"`
@@ -175,16 +164,10 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 
 	valid, validErr := fetcher.ValidateRepo(ctx, owner, repo)
 
-	// Trust on add (e.g. the user's own personal repos during init): bundle
-	// changes from a trusted remote auto-apply without review. Roll the
-	// registration back on failure like every other failure path above, or a
-	// retry of the same add would fail on the duplicate name.
-	if req.Trust {
-		if err := registry.SetTrustBundles(req.Name, true); err != nil {
-			_ = registry.Remove(req.Name)
-			return nil, fmt.Errorf("trust remote %q: %w", req.Name, err)
-		}
-	}
+	// A remote carries no trust on add. Its content is born pending and takes
+	// the review path until either a human reviews it or its publisher key is
+	// added to allowed_signers — adding a REMOTE (an address) and trusting a
+	// PUBLISHER (a key) are now separate acts, deliberately (spec §11).
 
 	rem, err := registry.Get(req.Name)
 	if err != nil || rem == nil {
@@ -319,43 +302,11 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 	return registry, nil
 }
 
-// SetRemoteTrustRequest is the input for SetRemoteTrust.
-type SetRemoteTrustRequest struct {
-	Name  string `json:"name"`
-	Trust bool   `json:"trust"`
-
-	Registry *remote.Registry `json:"-"`
-	FS       afero.Fs         `json:"-"`
-}
-
-// SetRemoteTrustResult reports the trust change. Status is "trusted" or
-// "untrusted".
-type SetRemoteTrustResult struct {
-	Status string `json:"status"`
-	Name   string `json:"name"`
-	Trust  bool   `json:"trust"`
-}
-
-// SetRemoteTrust sets whether a remote's bundle changes are auto-trusted. The
-// trust mutation lives here so every frontend (the MCP trust_remote tool today)
-// goes through the same path rather than poking the registry directly.
-func SetRemoteTrust(_ context.Context, cfg *config.Config, req SetRemoteTrustRequest) (*SetRemoteTrustResult, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	registry, err := defaultRemoteRegistry(cfg, DefaultRemoteRequest{Registry: req.Registry, FS: req.FS})
-	if err != nil {
-		return nil, err
-	}
-	if err := registry.SetTrustBundles(req.Name, req.Trust); err != nil {
-		return nil, err
-	}
-	status := "untrusted"
-	if req.Trust {
-		status = "trusted"
-	}
-	return &SetRemoteTrustResult{Status: status, Name: req.Name, Trust: req.Trust}, nil
-}
+// `ctxloom remote trust|untrust` and its SetRemoteTrust operation are DELETED,
+// not deprecated (signature-envelope spec §11). Source trust — "everything this
+// URL publishes reaches the agent unreviewed" — was hash-blind and is gone.
+// Trusting a publisher is now `ctxloom signer add <principal> --key …`, which
+// trusts a KEY and verifies the bytes. There is no parallel dormant path.
 
 // UpdateRemoteRequest contains parameters for updating cached remote repos.
 type UpdateRemoteRequest struct {

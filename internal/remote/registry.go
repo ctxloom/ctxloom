@@ -117,9 +117,8 @@ func (r *Registry) save() error {
 	remotesMap := make(map[string]Remote)
 	for name, remote := range r.remotes {
 		remotesMap[name] = Remote{
-			URL:          remote.URL,
-			TrustBundles: remote.TrustBundles,
-			Forge:        remote.Forge,
+			URL:   remote.URL,
+			Forge: remote.Forge,
 		}
 	}
 	if len(remotesMap) > 0 {
@@ -242,28 +241,6 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 
 	remoteCopy := *remote
 	return &remoteCopy, nil
-}
-
-// SetTrustBundles toggles the TrustBundles flag on the named remote and
-// persists the registry. Used by the trust_remote MCP tool to opt a remote
-// in or out of the bundle-review prompt (docs/bundle-review-plan.md).
-func (r *Registry) SetTrustBundles(name string, trust bool) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	rem, ok := r.remotes[name]
-	if !ok {
-		return fmt.Errorf("remote not found: %s", name)
-	}
-	if rem.TrustBundles == trust {
-		return nil
-	}
-	rem.TrustBundles = trust
-	if err := r.save(); err != nil {
-		rem.TrustBundles = !trust // rollback
-		return err
-	}
-	return nil
 }
 
 // SetForge binds the named remote to a forge label and persists the registry.

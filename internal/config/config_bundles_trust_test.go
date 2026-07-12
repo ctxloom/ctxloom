@@ -18,9 +18,9 @@ import (
 // ref shape "<bundle>#mcp/<name>" / "<bundle>#hooks/<event>/<index>" and the
 // item's ComputeContentHash. A nil seen map just decides.
 func recordingGate(seen map[string]string, denySubstrs ...string) bundles.ContentGate {
-	return func(ref, hash, _ string) bool {
+	return func(ref string, payload []byte, _, _ string) bool {
 		if seen != nil {
-			seen[ref] = hash
+			seen[ref] = bundles.HashPayload(payload)
 		}
 		for _, s := range denySubstrs {
 			if strings.Contains(ref, s) {
@@ -65,7 +65,7 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	denyAll := func(string, string, string) bool { return false }
+	denyAll := func(string, []byte, string, string) bool { return false }
 	got := extractMCPFromBundle(b, "remote/tools", denyAll)
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
@@ -123,7 +123,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PreTool:  []bundles.BundleHook{{Command: "echo a", Type: "command"}},
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
-	denyAll := func(string, string, string) bool { return false }
+	denyAll := func(string, []byte, string, string) bool { return false }
 	got := extractHooksFromBundle(b, "remote/tools", denyAll)
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")

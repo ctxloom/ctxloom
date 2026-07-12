@@ -28,6 +28,20 @@ type BundleByteSource interface {
 	HasBundle(name string) bool
 }
 
+// BundleSignatureSource is the OPTIONAL detached-signature read surface. It is
+// deliberately separate from BundleByteSource rather than folded into it: a byte
+// source that cannot serve signatures is a legitimate, complete source (a plain
+// directory of bundles, a test fake), and every such source must keep working —
+// its content is simply unsigned. Callers type-assert for this interface and
+// treat its absence exactly as they treat a missing .sig: unsigned content,
+// review path, no error.
+type BundleSignatureSource interface {
+	// ReadBundleSignature returns the raw armored signature covering name's
+	// bytes at its locked SHA, or an error wrapping errs.ErrRemoteContentNotFound
+	// when the bundle carries no signature.
+	ReadBundleSignature(ctx context.Context, name string) ([]byte, error)
+}
+
 // BundleReader serves bundle YAML for remote bundles, version-pinned to the
 // SHA recorded in the lockfile, by reading from the local git clone cache.
 //
@@ -99,6 +113,38 @@ func (r *BundleReader) LockEntryFor(bundleName string) (LockEntry, bool) {
 // bundleName matches lockfile keys ("remoteName/path"). Returns
 // ErrBundleNotInLockfile if no entry exists.
 func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) ([]byte, error) {
+	return r.fetchAtLockedSHA(ctx, bundleName, "")
+}
+
+// SignatureSuffix is the detached-signature sibling suffix: a bundle at
+// <path>.yaml carries its publisher signature at <path>.yaml.sig, in the SAME
+// tree at the SAME pinned SHA (spec §4.1). The sibling path convention is
+// itself a public contract — a new path would be a new contract (spec §12).
+const SignatureSuffix = ".sig"
+
+// ReadBundleSignature returns the raw armored publisher signature for
+// bundleName — the detached `<bundle>.yaml.sig` sibling — read from the clone's
+// object store at the bundle's OWN locked SHA, so the signature and the bytes it
+// covers can never come from different commits.
+//
+// It is the identical fetch as ReadBundleBytes with the suffix appended: no
+// network, no second SHA resolution, one extra tree lookup on an already-open
+// tree.
+//
+// An ABSENT signature returns an error wrapping errs.ErrRemoteContentNotFound.
+// That is not a failure — it is how "this bundle is unsigned" is signalled
+// (spec §4.1, §10.1), and callers MUST distinguish it from a real error rather
+// than treating every signature-read failure alike.
+func (r *BundleReader) ReadBundleSignature(ctx context.Context, bundleName string) ([]byte, error) {
+	return r.fetchAtLockedSHA(ctx, bundleName, SignatureSuffix)
+}
+
+// fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches
+// <path><suffix> at that SHA. The suffix is the ONLY difference between reading
+// a bundle and reading its detached signature, which is exactly the property
+// that makes the sibling-.sig carrier free: same fetcher, same tree, same
+// commit.
+func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix string) ([]byte, error) {
 	if r == nil || r.lock == nil {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
@@ -134,7 +180,7 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}
 
-	filePath := ref.BuildFilePath(ref.ItemType)
+	filePath := ref.BuildFilePath(ref.ItemType) + suffix
 
 	data, err := fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)
 	if err != nil {

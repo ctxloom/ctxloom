@@ -2,11 +2,13 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -22,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -1068,12 +1071,33 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 
+	// The trust root (embedded + user + project allowed_signers) is resolved once
+	// for the whole seed. This is the ONLY place the raw bundle bytes and their
+	// detached signature are both in hand, so it is where publisher verification
+	// must happen (spec §8.1) — before parse, over the file bytes.
+	root := c.TrustRoot()
+
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
 	for canonical, data := range rawBytes {
 		entry, ok := lock.Bundles[canonical]
 		if !ok {
 			continue
 		}
+
+		// Verify BEFORE parse, over the exact file bytes. Three outcomes:
+		//   unsigned/untrusted-key → signer "" → review path (the common case);
+		//   verified              → the publisher principal, stamped below;
+		//   TAMPER                → withhold the bundle entirely, never degrade
+		//                           it to unsigned (that would let an attacker
+		//                           downgrade a signed bundle by corrupting its
+		//                           .sig — spec §10.2).
+		signer, verr := verifyBundlePublisher(reader, canonical, data, root)
+		if errors.Is(verr, signing.ErrSignatureTampered) {
+			strictness.FailOnce(strictness.ClassTrust, "re-pull the bundle, or investigate the source — its signature does not cover its bytes",
+				"remote bundle %q has a signature that does not verify over its content; withholding it: %v", canonical, verr)
+			continue
+		}
+
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
 			// Same fatal class as the read failure above: a pinned bundle whose
@@ -1085,9 +1109,30 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.
 		b.Name = canonical
 		b.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
+		b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
 		loaded[canonical] = b
 	}
 	return loaded
+}
+
+// verifyBundlePublisher reads a bundle's detached `.sig` sibling and verifies it
+// over the bundle's raw file bytes against the trust root. A MISSING signature
+// (the common case) is unsigned content, not an error: it returns ("", nil). A
+// signature by an untrusted key is likewise unsigned-to-us. Only a trusted key's
+// signature that does not cover these bytes — or a structurally invalid blob —
+// is a tamper signal, returned as signing.ErrSignatureTampered for the caller to
+// withhold on.
+func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string, data []byte, root signing.TrustRoot) (string, error) {
+	sig, sigErr := reader.ReadBundleSignature(context.Background(), canonical)
+	if sigErr != nil {
+		// A missing .sig — or any read failure — is treated as UNSIGNED. Absence
+		// is the documented "unsigned" signal (spec §4.1); a non-not-found read
+		// error is degraded the same way rather than blocking the bundle, because
+		// the fail-safe direction is "more review", and an unsigned bundle is
+		// withheld until a human reviews it anyway.
+		return "", nil
+	}
+	return signing.VerifyPublisher(data, sig, root, time.Now())
 }
 
 // SourceName returns a human-readable name for the config source.

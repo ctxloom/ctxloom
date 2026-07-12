@@ -15,8 +15,8 @@ import (
 // (trust-simplify). `trust` records accepted, `blacklist` records rejected —
 // the same states the interactive `ctxloom review` porcelain (slice 2) writes.
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
-// The coarse, separate `remote trust/untrust` (trusted-sources set) lives in
-// remote.go.
+// (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
+// publisher signing key, not a remote; see docs/trust-model.md.)
 
 var trustCmd = &cobra.Command{
 	Use:   "trust <ref>",

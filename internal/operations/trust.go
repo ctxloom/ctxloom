@@ -26,23 +26,118 @@ func getTrustStore(cfg *config.Config, injected *trust.Store, fs afero.Fs) (*tru
 	return trust.New(paths.TrustPath(baseDir), trust.WithFS(getFS(fs)))
 }
 
-// EffectiveTrustRequest carries the inputs for the trust decision function. The
-// caller supplies the item Ref, the content hash of the bytes actually being
-// exposed, and the Form those bytes are in ("raw" | "distilled") — the resolver
-// never fetches or hashes, that is the caller's job. Store/Registry/FS are
-// optional injection points for testing.
+// EffectiveTrustRequest carries the inputs for the trust decision function.
+//
+// The caller supplies the item Ref, the exact PAYLOAD BYTES about to be exposed
+// (pre-mustache), the Form those bytes are in, and the item's verified Signer.
+// Bytes, not a hash: a hash can only ever be compared, and this decision must be
+// able to VERIFY — a signature is over bytes, and the store's hash index finds a
+// candidate signature but never decides anything (spec §9.3, trap #2).
 type EffectiveTrustRequest struct {
-	Ref         trust.Ref
-	ContentHash string
-	// Form names which materialization ContentHash covers (bundles.FormRaw or
-	// bundles.FormDistilled, as a string). An accepted item only allows when the
-	// recorded hash for THIS form matches — an unknown/empty form matches no
-	// slot, so it resolves pending (fail closed).
+	Ref     trust.Ref
+	Payload []byte
+	// Form names which materialization Payload is (bundles.FormRaw or
+	// bundles.FormDistilled, as a string; exec items use FormRaw). An approval
+	// only allows when it covers THIS form — an unknown/empty form matches
+	// nothing, so it resolves pending (fail closed).
 	Form string
+	// Signer is the VERIFIED publisher identity of the document this item was
+	// parsed out of (bundles.Bundle.Signer): the principal of an allowed_signers
+	// entry whose key made a valid publish signature over that document's bytes,
+	// or "builtin:ctxloom", or "" for unsigned. It is an INPUT to the decision,
+	// never a state of the item — a signed item with an untrusted key is not a
+	// fourth state, it is pending (spec §8, red line 1).
+	//
+	// It is NEVER a claim read from content. See bundles.Bundle.signer.
+	Signer string
 
-	Store    *trust.Store     `json:"-"`
-	Registry *remote.Registry `json:"-"`
-	FS       afero.Fs         `json:"-"`
+	Store *trust.Store `json:"-"`
+	// Records is the review-record backing store. Optional: nil builds the
+	// hash-pair acceptance ledger over Store. This is the S6 seam — see
+	// ReviewRecords.
+	Records ReviewRecords `json:"-"`
+	FS      afero.Fs      `json:"-"`
+}
+
+// ReviewRecords is the seam between the DECISION FUNCTION (steps 1 and 5, whose
+// shape is settled) and the STORE that records human review decisions (whose
+// shape is not).
+//
+// Today it is backed by the hash-pair acceptance ledger — `.ctxloom/trust.yaml`,
+// a plain file that anything able to write it can forge an acceptance into,
+// including the agent ctxloom just launched. The countersignature store replaces
+// that backing with signatures over the reviewed bytes, at which point a
+// hand-edited record becomes inert noise rather than an approval.
+//
+// The point of this interface is that the swap changes only what implements it.
+// Both methods already take the PAYLOAD BYTES rather than a hash, which is the
+// shape a signature verification needs and a hash comparison does not — so the
+// countersignature implementation slots in without reshaping the decision
+// function or any of its call sites.
+type ReviewRecords interface {
+	// Rejected reports a rejection covering this ref OR exactly these bytes.
+	// The two components are deliberately different scopes: the ref block is
+	// sticky (it survives the content changing under the ref), while the content
+	// rejection is ref-agnostic (a renamed or moved identical copy stays
+	// rejected). Both must be honored, and it must be evaluated for EVERY item —
+	// including unsigned ones and ones whose publisher signature failed to
+	// verify. A rejection is of bytes, not of provenance.
+	Rejected(ref trust.Ref, payload []byte) bool
+
+	// Approved reports that a human approved exactly these bytes, at this ref,
+	// in this form. Any change to the exposed bytes must drop the approval and
+	// return the item to pending.
+	Approved(ref trust.Ref, payload []byte, form string) bool
+}
+
+// ledgerRecords implements ReviewRecords over the hash-pair acceptance ledger
+// (trust.Store). It hashes the payload with the SAME primitive that produced the
+// recorded hashes (bundles.HashPayload), so an approval recorded at review time
+// and an exposure checked at gate time cannot disagree about what "these bytes"
+// means.
+//
+// TO BE DELETED IN S6, whole, along with the trust.Store hash-pair ledger it
+// wraps. Nothing else in the decision function moves.
+type ledgerRecords struct {
+	store *trust.Store
+}
+
+func (l ledgerRecords) Rejected(ref trust.Ref, payload []byte) bool {
+	if l.store == nil {
+		return false
+	}
+	// Ref-level block: sticky, survives the content changing under the ref.
+	item, found := l.store.Lookup(ref.CanonicalURL(), ref.Key())
+	if found && item.State == trust.StateRejected {
+		return true
+	}
+	// Content denylist: repo- and ref-agnostic, so a renamed identical copy
+	// stays rejected. An empty payload can never match a recorded hash.
+	if len(payload) == 0 {
+		return false
+	}
+	return l.store.DeniedHash(bundles.HashPayload(payload))
+}
+
+func (l ledgerRecords) Approved(ref trust.Ref, payload []byte, form string) bool {
+	if l.store == nil || len(payload) == 0 {
+		return false
+	}
+	item, found := l.store.Lookup(ref.CanonicalURL(), ref.Key())
+	if !found || item.State != trust.StateAccepted {
+		return false
+	}
+	// The recorded hash for THIS form must match. An empty slot or a form
+	// mismatch means the exact materialization being exposed was never
+	// reviewed, so it stays pending.
+	var recorded string
+	switch form {
+	case string(bundles.FormRaw):
+		recorded = item.RawHash
+	case string(bundles.FormDistilled):
+		recorded = item.DistilledHash
+	}
+	return recorded != "" && recorded == bundles.HashPayload(payload)
 }
 
 // EffectiveTrustResult reports the decision outcome and which step decided it.
@@ -73,119 +168,110 @@ func (r EffectiveTrustResult) State() trust.State {
 	}
 }
 
-// EffectiveTrust is the sole owner of the per-item trust decision function
-// (trust-simplify). It unifies the review-state store with the trusted-sources
-// set (remotes.yaml's TrustBundles) at read time, evaluating exactly:
+// EffectiveTrust is the sole owner of the per-item trust decision function.
+// First-match-wins, fail-closed:
 //
-//	DENY  if state rejected OR content hash denylisted   (rejected)
-//	ALLOW if the item is local (project-authored)         (local)
-//	ALLOW if the item is a builtin (shipped in the binary) (builtin)
-//	ALLOW if the repo is a trusted source                 (trusted-source)
-//	ALLOW if accepted AND current-form hash matches       (accepted)
-//	else DENY                                             (pending)
+//  1. REJECTED       DENY   a rejection covers this ref, or these exact bytes
+//  2. LOCAL          ALLOW  authored in this project
+//  3. BUILTIN        ALLOW  compiled into this binary
+//  4. TRUSTED SIGNER ALLOW  a key trusted to PUBLISH signed these bytes
+//  5. APPROVED       ALLOW  a human approved exactly these bytes, here, in this form
+//  6. otherwise      DENY   pending — withheld until a human reviews it
 //
-// Rejection is checked first so it beats every exemption — local, builtin, and
-// trusted source alike (a user can reject an item even from a trusted source or
-// a builtin). It is fail-closed: a corrupt/unreadable trust store or remote
-// registry denies rather than degrading to allow-by-default, and any step that
-// cannot positively justify exposure falls through to the terminal pending-DENY.
+// REJECTION IS SUPREME and it is step 1 for a reason: a user must be able to
+// reject content signed by the ctxloom release key itself, and to reject a
+// builtin. No signature can un-reject anything, and no verification may
+// short-circuit ahead of it — step 1 is evaluated even when the publisher
+// signature is absent or failed to verify, because a rejection is of BYTES, not
+// of provenance.
+//
+// Step 4 is where SIGNATURES enter, and what they buy is authentication, never
+// authorization: it allows because a key trusted for the publish namespace
+// signed exactly these bytes. It replaces the deleted trust_bundles source
+// bypass, which allowed because of the URL the bytes arrived from and never
+// looked at the content at all. Signed still does not mean safe — that is why
+// review (steps 1 and 5) is a separate axis and why rejection outranks every
+// signature, including ours.
+//
+// Red line: NO STATE WAS ADDED. Signer is an input, never a state. An item is
+// pending, approved, or rejected; a signed item whose key you do not trust is
+// not a fourth thing — it is pending.
+//
+// Nothing here reads or writes lock.yaml (ADR 0033): the lockfile pins
+// dependencies and is not a security surface. Verification happens at the
+// EXPOSURE choke, not at fetch or lock time — a pull of an unsigned, badly
+// signed, or rejected bundle SUCCEEDS, and its content is withheld here.
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
-	store, err := getTrustStore(cfg, req.Store, req.FS)
-	if err != nil {
-		// A trust store we cannot read may hold rejections we would otherwise
-		// miss — deny everything rather than silently reopen it. Fatal-class in
-		// strict mode (a deny-all session is not the session the user set up).
-		strictness.Fail(strictness.ClassTrust, "fix or remove .ctxloom/trust.yaml, then re-review (ctxloom review)",
-			"trust store unreadable, denying all items: %v", err)
-		return decide(trust.Deny, trust.SourcePending), nil
+	records := req.Records
+	if records == nil {
+		store, err := getTrustStore(cfg, req.Store, req.FS)
+		if err != nil {
+			// A store we cannot read may hold REJECTIONS we would otherwise miss —
+			// deny everything rather than silently reopen the gate. Fatal-class in
+			// strict mode (a deny-all session is not the session the user set up).
+			strictness.Fail(strictness.ClassTrust, "fix or remove .ctxloom/trust.yaml, then re-review (ctxloom review)",
+				"trust store unreadable, denying all items: %v", err)
+			return decide(trust.Deny, trust.SourcePending), nil
+		}
+		records = ledgerRecords{store: store}
 	}
 
-	repoURL := req.Ref.CanonicalURL()
-	refKey := req.Ref.Key()
-
-	// 1. Rejected — the ref's recorded state, or the exact content on the
-	//    repo/ref-agnostic denylist (a renamed identical copy stays rejected).
-	//    Beats every exemption, including local and trusted sources.
-	item, found := store.Lookup(repoURL, refKey)
-	if (found && item.State == trust.StateRejected) || store.DeniedHash(req.ContentHash) {
+	// 1. REJECTED. Checked FIRST, ahead of every allow — including the trusted
+	//    signer and the builtin. Rejection is supreme.
+	if records.Rejected(req.Ref, req.Payload) {
 		return decide(trust.Deny, trust.SourceRejected), nil
 	}
-	// 2. Project-authored LOCAL items are first-party — every kind, including
-	//    executables (config-level MCP, ctxloom:local, and project-bundle
-	//    hooks/MCP). Locality is honest here: the gate and stamps key bundle
-	//    items by their source ref (canonical for a cloned bundle → IsLocal
-	//    false, so a clone falls through to the review states). "You authored it
-	//    in this project, so it is trusted; a clone is not."
+	// 2. LOCAL: authored in this project — first-party, every kind, including
+	//    executables. Locality is honest: a seeded or cloned bundle stamps its
+	//    canonical remote ref, so a COPY of remote content keys as remote and is
+	//    not local-trusted. "You wrote it here, you trust it; a clone of it is
+	//    not yours."
 	if req.Ref.IsLocal {
 		return decide(trust.Allow, trust.SourceLocal), nil
 	}
-	// 3. Builtin: shipped inside this binary (resources/builtin_bundles).
-	//    Authenticated by the binary itself — trusting ctxloom trusts what it
-	//    ships — so allowed by default with no review friction. Unlike the
-	//    prior gate=nil bypass, this step is reachable: step 1's rejection
-	//    check already ran, so a user's rejection of a builtin item is
-	//    enforced (trust-model.md: rejection beats even a builtin).
+	// 3. BUILTIN: compiled into this binary. Authenticated BY the binary —
+	//    trusting ctxloom trusts what it ships — and deliberately NOT signed
+	//    (signing bytes embedded in the binary doing the verifying is circular).
+	//    It is a distinct step, below rejection, precisely so step 1 can reach it.
 	if req.Ref.IsBuiltin {
 		return decide(trust.Allow, trust.SourceBuiltin), nil
 	}
-	// 4. Trusted source: everything the repo publishes — updates included — is
-	//    exempt from review (remotes.yaml TrustBundles membership).
-	registry, rerr := effectiveTrustRegistry(cfg, req)
-	if rerr != nil {
-		clidiag.Warn("ctxloom", "trust: remote registry unreadable, denying: %v", rerr)
-		return decide(trust.Deny, trust.SourcePending), nil
+	// 4. TRUSTED SIGNER: a key this machine trusts for the PUBLISH namespace made
+	//    a signature over the exact bytes of the document this item came from,
+	//    and that signature verified — at load, before any YAML parse.
+	//
+	//    A non-empty Signer means exactly that and cannot mean anything else:
+	//    it is stamped only by signing.VerifyPublisher's return value, which
+	//    resolves the principal from allowed_signers (never from any advisory
+	//    field in the content) and only after checking the key is trusted FOR
+	//    THIS NAMESPACE. A bundle cannot declare its own signer; see
+	//    bundles.Bundle.signer.
+	//
+	//    trust.BuiltinSigner is excluded explicitly. It is a SYNTHETIC identity,
+	//    not a cryptographic one — nothing about a builtin is verified beyond
+	//    "it shipped inside this binary", which is what step 3 above says. A
+	//    builtin is allowed as a BUILTIN, at its own step, and never as a
+	//    "trusted publisher". Without this guard, any future path that stamped
+	//    the synthetic token onto a non-builtin bundle would silently launder it
+	//    into a verified publisher, so the guard is here rather than in the
+	//    caller's discipline.
+	if req.Signer != "" && req.Signer != trust.BuiltinSigner {
+		return decide(trust.Allow, trust.SourceTrustedSigner), nil
 	}
-	if trusted, ok := remoteTrusted(registry, repoURL); ok && trusted {
-		return decide(trust.Allow, trust.SourceTrustedSource), nil
+	// 5. APPROVED: a human reviewed exactly these bytes, at this ref, in this
+	//    form. Any change to the exposed bytes drops the approval and returns the
+	//    item to pending.
+	if records.Approved(req.Ref, req.Payload, req.Form) {
+		return decide(trust.Allow, trust.SourceAccepted), nil
 	}
-	// 5. Accepted at the current hash: a human reviewed exactly these bytes.
-	//    The recorded hash for the CURRENT form must match — an empty slot (lazy
-	//    v1 migration recorded only one form) or a form mismatch means this
-	//    exact materialization was never reviewed, so it stays pending.
-	if found && item.State == trust.StateAccepted && req.ContentHash != "" {
-		var recorded string
-		switch req.Form {
-		case string(bundles.FormRaw):
-			recorded = item.RawHash
-		case string(bundles.FormDistilled):
-			recorded = item.DistilledHash
-		}
-		if recorded != "" && recorded == req.ContentHash {
-			return decide(trust.Allow, trust.SourceAccepted), nil
-		}
-	}
-	// 6. Terminal fail-closed default: pending, withheld until reviewed.
+	// 6. Terminal fail-closed default: pending, withheld until reviewed. This is
+	//    where unsigned content lands, where signed-but-untrusted-key content
+	//    lands, and where content whose bytes changed lands.
 	return decide(trust.Deny, trust.SourcePending), nil
 }
 
 func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
 	return &EffectiveTrustResult{Decision: d, Source: s}
-}
-
-// effectiveTrustRegistry returns the remote registry for the trusted-source
-// step, building it lazily so the earlier (store-only) steps never touch the
-// registry fs. Honors an injected registry for testing.
-func effectiveTrustRegistry(cfg *config.Config, req EffectiveTrustRequest) (*remote.Registry, error) {
-	if req.Registry != nil {
-		return req.Registry, nil
-	}
-	return getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
-}
-
-// remoteTrusted reports whether a remote whose canonical URL matches canonicalURL
-// is registered, and whether it carries TrustBundles (trusted-sources set
-// membership). Both sides are canonicalized through the SAME function so a
-// registered remote and the ref's repo URL cannot diverge on a spelling variant.
-func remoteTrusted(reg *remote.Registry, canonicalURL string) (trusted bool, found bool) {
-	if reg == nil || canonicalURL == "" {
-		return false, false
-	}
-	for _, rem := range reg.List() {
-		if trust.CanonicalRepoURL(rem.URL) == canonicalURL {
-			return rem.TrustBundles, true
-		}
-	}
-	return false, false
 }
 
 // --- Mutations (the plumbing under `ctxloom trust` / `ctxloom blacklist`) -----
@@ -412,68 +498,106 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 	}
 }
 
-// computeItemHashPair loads the bundle and computes the item's (raw, distilled)
-// content-hash pair — the pair an acceptance binds to. rawHash always covers
-// the raw authored bytes (or the executable surface for mcp/hooks, which have
-// no distilled form); distilledHash covers the distilled rewrite and is empty
-// when no distilled form exists (or distillation is suppressed via NoDistill).
-// The hashes always cover the exact bytes that would be exposed in each form —
-// never the author-supplied content_hash field.
-func computeItemHashPair(loader *bundles.Loader, tRef trust.Ref, loadRef string) (rawHash, distilledHash string, err error) {
+// computeItemPayloadPair loads the bundle and returns the item's (raw,
+// distilled) PAYLOAD BYTES — the exact preimages the decision function and any
+// signature both key on. rawPayload always covers the raw authored bytes (or the
+// canonical executable surface for mcp/hooks, which have no distilled form);
+// distilledPayload covers the distilled rewrite and is nil when no distilled
+// form exists (or distillation is suppressed via NoDistill).
+//
+// Bytes are the primitive and hashes are derived from them (computeItemHashPair
+// below), never the other way round: there is exactly ONE definition of "the
+// bytes of item X in form F" in this codebase — bundles.ContentPayload — and
+// everything that needs those bytes, or a hash of them, or a signature over
+// them, comes through here. Two definitions is the bug.
+//
+// It also returns the bundle's VERIFIED publisher identity (empty for unsigned),
+// so a caller resolving an item by ref gets the same signer the exposure gate
+// would see.
+func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef string) (rawPayload, distilledPayload []byte, signer string, err error) {
 	bundle, err := loader.Load(loadRef)
 	if err != nil {
-		return "", "", err
+		return nil, nil, "", err
 	}
-	// hashPair extracts both form hashes from the shared distillable-item hash
-	// primitive: preferDistilled=false always yields the raw form;
+	signer = bundle.Signer()
+
+	// payloadPair extracts both form payloads from the shared distillable-item
+	// preimage builder: preferDistilled=false always yields the raw form;
 	// preferDistilled=true yields the distilled form exactly when one exists.
-	hashPair := func(effective func(bool) (string, bundles.ContentForm)) (string, string) {
-		raw, _ := effective(false)
-		if h, form := effective(true); form == bundles.FormDistilled {
-			return raw, h
+	payloadPair := func(payload func(bool) ([]byte, bundles.ContentForm)) ([]byte, []byte) {
+		raw, _ := payload(false)
+		if p, form := payload(true); form == bundles.FormDistilled {
+			return raw, p
 		}
-		return raw, ""
+		return raw, nil
 	}
 	switch tRef.Kind {
 	case trust.KindFragment:
 		frag, ok := bundle.Fragments[tRef.Name]
 		if !ok {
-			return "", "", fmt.Errorf("fragment %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("fragment %q not found in bundle %q", tRef.Name, loadRef)
 		}
-		rawHash, distilledHash = hashPair(frag.EffectiveContentHash)
-		return rawHash, distilledHash, nil
+		rawPayload, distilledPayload = payloadPair(frag.ContentPayload)
+		return rawPayload, distilledPayload, signer, nil
 	case trust.KindPrompt:
 		prompt, ok := bundle.Skills[tRef.Name]
 		if !ok {
-			return "", "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
 		}
-		rawHash, distilledHash = hashPair(prompt.EffectiveContentHash)
-		return rawHash, distilledHash, nil
+		rawPayload, distilledPayload = payloadPair(prompt.ContentPayload)
+		return rawPayload, distilledPayload, signer, nil
 	case trust.KindMCP:
 		mcp, ok := bundle.MCP[tRef.Name]
 		if !ok {
-			return "", "", fmt.Errorf("mcp server %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("mcp server %q not found in bundle %q", tRef.Name, loadRef)
 		}
-		return mcp.ComputeContentHash(), "", nil
+		payload, perr := mcp.ContentPayload()
+		if perr != nil {
+			return nil, nil, "", fmt.Errorf("mcp server %q payload: %w", tRef.Name, perr)
+		}
+		return payload, nil, signer, nil
 	case trust.KindHook:
 		// tRef.Name is the hook's "<event>/<index>" identity (see Entries()).
 		entry, ok := bundle.Hooks.EntryByID(tRef.Name)
 		if !ok {
-			return "", "", fmt.Errorf("hook %q not found in bundle %q", tRef.Name, loadRef)
+			return nil, nil, "", fmt.Errorf("hook %q not found in bundle %q", tRef.Name, loadRef)
 		}
-		return entry.Hook.ComputeContentHash(), "", nil
+		payload, perr := entry.Hook.ContentPayload()
+		if perr != nil {
+			return nil, nil, "", fmt.Errorf("hook %q payload: %w", tRef.Name, perr)
+		}
+		return payload, nil, signer, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q", tRef.Kind)
+		return nil, nil, "", fmt.Errorf("unknown item kind %q", tRef.Kind)
 	}
 }
 
-// computeItemHash resolves the item's CURRENT effective form — distilled when
-// cfg prefers it and a distilled form exists, else raw — returning its hash and
-// form: the same bytes assembly would expose.
-func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, loadRef string) (string, bundles.ContentForm, error) {
-	rawHash, distilledHash, err := computeItemHashPair(loader, tRef, loadRef)
+// computeItemHashPair derives the item's (raw, distilled) content-hash pair from
+// the payload pair above — the pair the acceptance LEDGER binds to. It exists
+// only to serve that ledger (SetItemTrust / SetBlacklist); it is not, and must
+// not become, an input to the exposure decision, which keys on bytes.
+//
+// S6 NOTE: when approvals become countersignatures, this and its two callers'
+// hash bookkeeping go with the ledger.
+func computeItemHashPair(loader *bundles.Loader, tRef trust.Ref, loadRef string) (rawHash, distilledHash string, err error) {
+	rawPayload, distilledPayload, _, err := computeItemPayloadPair(loader, tRef, loadRef)
 	if err != nil {
 		return "", "", err
+	}
+	rawHash = bundles.HashPayload(rawPayload)
+	if distilledPayload != nil {
+		distilledHash = bundles.HashPayload(distilledPayload)
+	}
+	return rawHash, distilledHash, nil
+}
+
+// computeItemPayload resolves the item's CURRENT effective form — distilled when
+// cfg prefers it and a distilled form exists, else raw — returning the exact
+// bytes assembly would expose, their form, and the bundle's verified signer.
+func computeItemPayload(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, loadRef string) ([]byte, bundles.ContentForm, string, error) {
+	rawPayload, distilledPayload, signer, err := computeItemPayloadPair(loader, tRef, loadRef)
+	if err != nil {
+		return nil, "", "", err
 	}
 	// ShouldUseDistilled defaults true; guard a nil cfg so an injected-loader
 	// caller (tests) need not construct a full config.
@@ -481,10 +605,10 @@ func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref,
 	if cfg != nil {
 		preferDistilled = cfg.ShouldUseDistilled()
 	}
-	if preferDistilled && distilledHash != "" {
-		return distilledHash, bundles.FormDistilled, nil
+	if preferDistilled && distilledPayload != nil {
+		return distilledPayload, bundles.FormDistilled, signer, nil
 	}
-	return rawHash, bundles.FormRaw, nil
+	return rawPayload, bundles.FormRaw, signer, nil
 }
 
 // --- list-JSON stamping -------------------------------------------------------
@@ -502,11 +626,11 @@ func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref,
 // fail-closed DENY (never "trusted"), so a listing can never crash and a hash
 // failure can never produce a trusted stamp. Not safe for concurrent use.
 type TrustStamper struct {
-	cfg      *config.Config
-	loader   *bundles.Loader
-	store    *trust.Store
-	registry *remote.Registry
-	fs       afero.Fs
+	cfg     *config.Config
+	loader  *bundles.Loader
+	store   *trust.Store
+	records ReviewRecords
+	fs      afero.Fs
 
 	// denyAll short-circuits every stamp to a fail-closed DENY. Set when the
 	// trust store cannot be opened — it may hide rejections we must not
@@ -514,9 +638,9 @@ type TrustStamper struct {
 	denyAll bool
 }
 
-// TrustStamperOption injects a pre-built dependency, mirroring the loader/
-// registry option style. Tests drive the stamper over an in-memory
-// store/registry/loader; production builds them from cfg.
+// TrustStamperOption injects a pre-built dependency, mirroring the loader
+// option style. Tests drive the stamper over an in-memory store/loader;
+// production builds them from cfg.
 type TrustStamperOption func(*TrustStamper)
 
 // WithStampStore injects a pre-built trust store.
@@ -524,9 +648,10 @@ func WithStampStore(s *trust.Store) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.store = s }
 }
 
-// WithStampRegistry injects a pre-built remote registry.
-func WithStampRegistry(r *remote.Registry) TrustStamperOption {
-	return func(ts *TrustStamper) { ts.registry = r }
+// WithStampRecords injects a pre-built review-record store, bypassing the
+// ledger built over WithStampStore. The S6 seam for listings.
+func WithStampRecords(r ReviewRecords) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.records = r }
 }
 
 // WithStampLoader injects a pre-built bundle loader (it must resolve the same
@@ -535,18 +660,15 @@ func WithStampLoader(l *bundles.Loader) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.loader = l }
 }
 
-// WithStampFS injects the filesystem used to build the store/registry/loader
-// when they are not supplied directly.
+// WithStampFS injects the filesystem used to build the store/loader when they
+// are not supplied directly.
 func WithStampFS(fs afero.Fs) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.fs = fs }
 }
 
 // NewTrustStamper builds a stamper for cfg. It never errors: if the trust store
 // cannot be opened, every subsequent stamp denies (fail closed), matching
-// EffectiveTrust. The remote registry is built once on the happy path; if it
-// cannot be built it is left nil and resolved per call (still fail-closed at the
-// trusted-source step, while the earlier steps — rejected/local — keep their
-// precedence).
+// EffectiveTrust.
 func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamper {
 	ts := &TrustStamper{cfg: cfg}
 	for _, o := range opts {
@@ -555,7 +677,7 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 	if ts.loader == nil && cfg != nil {
 		ts.loader = bundleLoader(cfg)
 	}
-	if ts.store == nil {
+	if ts.records == nil && ts.store == nil {
 		store, err := getTrustStore(cfg, nil, ts.fs)
 		if err != nil {
 			clidiag.Warn("ctxloom", "trust store unreadable, denying all stamps: %v", err)
@@ -564,25 +686,15 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 			ts.store = store
 		}
 	}
-	if ts.registry == nil && !ts.denyAll {
-		if reg, err := effectiveTrustRegistry(cfg, EffectiveTrustRequest{FS: ts.fs}); err != nil {
-			// Leave nil: EffectiveTrust rebuilds (and fail-closes) per call without
-			// disturbing the earlier-step precedence for items that never reach the
-			// trusted-source step.
-			clidiag.Warn("ctxloom", "trust: remote registry unreadable, source-step stamps will deny: %v", err)
-		} else {
-			ts.registry = reg
-		}
-	}
 	return ts
 }
 
 // ForRef stamps a fragment/prompt/mcp item addressed by its full list ref
 // "<source>#<kind>/<name>". It materializes the item's effective content through
-// the shared loader (cached per bundle) to compute the content hash + form the
-// decision function keys on, honoring ShouldUseDistilled. A parse/resolve/hash
-// failure stamps a fail-closed DENY (SourcePending): never trusted, never an
-// error (fault tolerance + fail-closed for the trust signal).
+// the shared loader (cached per bundle) to get the exact payload bytes + form +
+// verified signer the decision function keys on, honoring ShouldUseDistilled. A
+// parse/resolve failure stamps a fail-closed DENY (SourcePending): never
+// trusted, never an error (fault tolerance + fail-closed for the trust signal).
 func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 	if ts.denyAll {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
@@ -591,58 +703,83 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	hash, form, err := computeItemHash(ts.cfg, ts.loader, tRef, loadRef)
+	payload, form, signer, err := computeItemPayload(ts.cfg, ts.loader, tRef, loadRef)
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return ts.resolve(tRef, hash, string(form))
+	return ts.resolve(tRef, payload, string(form), signer)
 }
 
 // ForLocalMCP stamps a configured (project-local) MCP server, which carries no
-// bundle ref. It hashes the server's executable surface
-// (BundleMCP.ComputeContentHash — Command+Args+Env+Installation) and resolves it
+// bundle ref and therefore no publisher signature. It resolves the server's
+// executable surface (BundleMCP.ContentPayload — Command+Args+Env+Installation)
 // as a local mcp item, which the decision function ALLOWS via the first-party
-// local exemption (the user configured it in this project themselves) — unless
-// it has been explicitly rejected (ref state or content denylist), which beats
-// the exemption.
+// local exemption at step 2 (the user configured it in this project themselves)
+// — unless it has been explicitly rejected at step 1, which beats the exemption.
+// Signing is irrelevant here and its absence is not a downgrade: local content
+// never needed a key and still does not.
 func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) EffectiveTrustResult {
 	if ts.denyAll {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
+	payload, err := srv.ContentPayload()
+	if err != nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+	}
 	ref := trust.Ref{Kind: trust.KindMCP, Name: name, IsLocal: true}
-	return ts.resolve(ref, srv.ComputeContentHash(), string(bundles.FormRaw))
+	return ts.resolve(ref, payload, string(bundles.FormRaw), "")
 }
 
 // ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
-// mirroring the exec choke. It hashes the hook's executable surface
-// (BundleHook.ComputeContentHash) and resolves it through the decision function.
+// mirroring the exec choke. It resolves the hook's executable surface
+// (BundleHook.ContentPayload) through the decision function.
+//
 // The source ref (canonical for a cloned bundle, the local name for a project
-// bundle) is parsed so IsLocal/RepoURL are honest — a project-authored hook is
-// first-party (local exemption), a cloned one follows its review state — the
-// SAME ref config.extractHooksFromBundle gates on and `ctxloom trust
-// <src>#hooks/<id>` addresses, so the stamped posture is exactly what the gate
-// enforces. It takes the in-hand entry rather than re-loading the bundle.
+// bundle) is parsed so IsLocal/RepoURL are honest, and the bundle's verified
+// SIGNER is resolved through the shared (cached) loader — because the stamp must
+// agree with the gate. config.extractHooksFromBundle gates this same hook with
+// the bundle's signer in hand; a stamp that omitted it would report "pending"
+// for a hook the gate actually exposes, which is a lie in a security display.
 func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) EffectiveTrustResult {
 	if ts.denyAll {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	tRef, _, _, err := parseTrustItemRef(source + "#hooks/" + entry.ID())
+	tRef, loadRef, _, err := parseTrustItemRef(source + "#hooks/" + entry.ID())
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return ts.resolve(tRef, entry.Hook.ComputeContentHash(), string(bundles.FormRaw))
+	payload, perr := entry.Hook.ContentPayload()
+	if perr != nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
+	}
+	return ts.resolve(tRef, payload, string(bundles.FormRaw), ts.signerFor(loadRef))
 }
 
-// resolve runs the decision function with the stamper's shared store + registry
-// so no per-item file I/O happens on the happy path.
-func (ts *TrustStamper) resolve(ref trust.Ref, hash, form string) EffectiveTrustResult {
+// signerFor returns the verified publisher identity of the bundle at loadRef,
+// or "" when it is unsigned or cannot be loaded. Fail-safe: an unresolvable
+// bundle yields no signer, which means MORE review, never more exposure.
+func (ts *TrustStamper) signerFor(loadRef string) string {
+	if ts.loader == nil || loadRef == "" {
+		return ""
+	}
+	bundle, err := ts.loader.Load(loadRef)
+	if err != nil {
+		return ""
+	}
+	return bundle.Signer()
+}
+
+// resolve runs the decision function with the stamper's shared store so no
+// per-item file I/O happens on the happy path.
+func (ts *TrustStamper) resolve(ref trust.Ref, payload []byte, form, signer string) EffectiveTrustResult {
 	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
-		Ref:         ref,
-		ContentHash: hash,
-		Form:        form,
-		Store:       ts.store,
-		Registry:    ts.registry,
-		FS:          ts.fs,
+		Ref:     ref,
+		Payload: payload,
+		Form:    form,
+		Signer:  signer,
+		Store:   ts.store,
+		Records: ts.records,
+		FS:      ts.fs,
 	})
 	if err != nil || res == nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}

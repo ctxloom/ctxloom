@@ -56,7 +56,7 @@ func pendingRefs(res *PendingReviewResult) map[string]string {
 func TestPendingReview_FreshStoreAllPending(t *testing.T) {
 	res, err := PendingReview(nil, PendingReviewRequest{
 		Store:    newTrustStore(t),
-		Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false}),
+		Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo}),
 		Loader:   reviewLoader(reviewBundle()),
 		FS:       afero.NewMemMapFs(),
 	})
@@ -155,11 +155,16 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#fragments/solid")
 	})
 
-	t.Run("trusted source is exempt — nothing pending", func(t *testing.T) {
+	t.Run("trusted publisher is exempt — nothing pending", func(t *testing.T) {
+		// A bundle carrying a verified publisher signer is allowed at step 4, so
+		// review shows nothing for it (an item from a trusted publisher is not
+		// pending and must never be presented for review as though it were).
+		signed := reviewBundle()
+		signed.StampSigner(trustedPublisher)
 		res, err := PendingReview(nil, PendingReviewRequest{
 			Store:    newTrustStore(t),
-			Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: true}),
-			Loader:   reviewLoader(reviewBundle()),
+			Registry: newRegistry(t),
+			Loader:   reviewLoader(signed),
 			FS:       afero.NewMemMapFs(),
 		})
 		require.NoError(t, err)
@@ -319,7 +324,7 @@ func TestAcceptReviewItems_BundleAcceptAll(t *testing.T) {
 	store := newTrustStore(t)
 	fs := afero.NewMemMapFs()
 	loader := reviewLoader(reviewBundle())
-	registry := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
+	registry := newRegistry(t, remoteSpec{name: "acme", url: trustRepo})
 
 	res, err := PendingReview(nil, PendingReviewRequest{Store: store, Registry: registry, Loader: loader, FS: fs})
 	require.NoError(t, err)

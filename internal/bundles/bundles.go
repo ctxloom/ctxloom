@@ -64,6 +64,50 @@ type Bundle struct {
 	// (cloned) source — the lockfile key shape, e.g. "https://…@bundles/x". It is
 	// empty for a project (fs) bundle. Set at seed time (WithSeededBundles).
 	sourceRef string `yaml:"-"`
+
+	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
+	// principal of the allowed_signers entry whose key made a valid publish
+	// signature over exactly those bytes (signing.VerifyPublisher), or the
+	// synthetic "builtin:ctxloom" for a bundle compiled into this binary. Empty
+	// means UNSIGNED — no signature, or one by a key this machine does not trust
+	// to publish — which is legal, ordinary, and takes the review path.
+	//
+	// It is unexported and yaml:"-" ON PURPOSE, and that is a security property,
+	// not a style choice. A bundle file cannot set its own signer: writing
+	// `signer: releases@ctxloom.dev` into a YAML document does exactly nothing
+	// (TestParseBundle_YAMLCannotForgeSigner). The only way this field becomes
+	// non-empty is StampSigner, called by a load path that has already VERIFIED a
+	// signature against the trust root. Anyone can write a string into a file;
+	// nobody can forge a signature. This is implementer trap #3.
+	signer string `yaml:"-"`
+}
+
+// Signer returns the bundle's verified publisher identity, or "" when the bundle
+// is unsigned (see the signer field). A non-empty value means: a key trusted by
+// THIS machine for the publish namespace made a signature over exactly this
+// bundle's file bytes, and that signature verified. It is never an unverified
+// claim, and it never comes from the bundle's own content.
+func (b *Bundle) Signer() string {
+	if b == nil {
+		return ""
+	}
+	return b.signer
+}
+
+// StampSigner records the verified publisher identity for this bundle. Call it
+// ONLY from a load path that has actually verified a signature against the trust
+// root (or that is stamping the synthetic builtin identity). Stamping an
+// unverified string here would forge a trusted publisher, which is the whole
+// attack this design exists to prevent.
+//
+// Forgetting to call it is fail-SAFE by construction: the bundle stays unsigned,
+// and unsigned content is withheld until a human reviews it. The failure mode of
+// forgetting is "more review", never "more exposure".
+func (b *Bundle) StampSigner(signer string) {
+	if b == nil {
+		return
+	}
+	b.signer = signer
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust
@@ -263,6 +307,19 @@ const (
 func hashContent(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// HashPayload is the exported name for the one content-hash primitive: it hashes
+// a payload produced by a ContentPayload builder, and it is the ONLY way any
+// caller outside this package may turn item bytes into a content hash.
+//
+// The hash is an INDEX, never an authority. It answers "which recorded decision
+// might be about these bytes"; it never answers "may these bytes be exposed" —
+// that is the decision function's job, and once approvals are countersignatures
+// it will be a signature verification. A hash match is a candidate, not a
+// verdict (spec §9.3, trap #2).
+func HashPayload(payload []byte) string {
+	return hashContent(payload)
 }
 
 // resolveEffective is the one shared compute primitive for the distillable item

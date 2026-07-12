@@ -1,0 +1,90 @@
+package config
+
+import (
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+)
+
+// embeddedSigners returns ctxloom's own compiled-in trust root: the public keys
+// of the ctxloom release and bundle-publishing pipelines (spec §7, location 1).
+//
+// It is EMPTY today, and that is a deliberate, load-bearing statement rather
+// than a stub: those keys do not exist yet — no release pipeline signs anything
+// (spec §6 surfaces 1 and 2 are unbuilt). Shipping a placeholder key here would
+// be worse than shipping none, because a trust root nobody controls is a trust
+// root an attacker might.
+//
+// The consequence is honest and intended: until ctxloom-default's bundles are
+// actually signed by a key named here, its content is UNSIGNED and takes the
+// review path like any other third-party content. That is a real, visible
+// behavior change from the deleted trust_bundles flag, which trusted that
+// remote's LOCATION hash-blind and forever.
+func embeddedSigners() *allowedsigners.Store {
+	return allowedsigners.NewStore()
+}
+
+// TrustRoot returns the union of every allowed_signers location: ctxloom's
+// embedded defaults, the user store (~/.ctxloom/allowed_signers), and the
+// project store (.ctxloom/allowed_signers). All locations are unioned — a key
+// counts for the namespaces it lists wherever it is listed — because precedence
+// lives in the DECISION FUNCTION, never in the filesystem (spec §7, §9.2).
+//
+// It never fails. A missing store is simply no keys; an unreadable or malformed
+// one warns and contributes whatever lines did parse. Every one of those
+// degradations moves toward LESS exposure, never more: fewer trusted keys means
+// more content is unsigned, and unsigned content is withheld until a human
+// reviews it (spec §10.5).
+func (c *Config) TrustRoot() *allowedsigners.Store {
+	fs := c.fs
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+	stores := []*allowedsigners.Store{embeddedSigners()}
+	for _, path := range c.allowedSignersPaths() {
+		stores = append(stores, c.parseAllowedSigners(fs, path))
+	}
+	return allowedsigners.Union(stores...)
+}
+
+// allowedSignersPaths lists the on-disk trust-root files in union order (user,
+// then project), skipping the project path when it resolves to the same file as
+// the user one (a home-rooted .ctxloom, where both names denote one file).
+func (c *Config) allowedSignersPaths() []string {
+	var out []string
+	if home, err := paths.HomeAllowedSignersPath(); err == nil {
+		out = append(out, home)
+	}
+	if len(c.AppPaths) > 0 {
+		project := paths.AllowedSignersPath(c.AppPaths[0])
+		if len(out) == 0 || out[0] != project {
+			out = append(out, project)
+		}
+	}
+	return out
+}
+
+// parseAllowedSigners reads and parses one allowed_signers file. An absent file
+// contributes nothing and is not an error — the overwhelmingly common case is
+// that neither store exists. A malformed LINE is skipped with a warning while
+// the file's valid entries still load, matching ssh-keygen's own behavior: one
+// bad line must not silently disarm every other key in the file.
+func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.Store {
+	f, err := fs.Open(path)
+	if err != nil {
+		return nil // absent (or unreadable): no keys from here
+	}
+	defer func() { _ = f.Close() }()
+
+	store, parseErrs, err := allowedsigners.Parse(f)
+	if err != nil {
+		clidiag.Warn("ctxloom", "allowed_signers %s unreadable, ignoring it: %v", path, err)
+		return nil
+	}
+	for _, pe := range parseErrs {
+		clidiag.Warn("ctxloom", "allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
+	}
+	return store
+}

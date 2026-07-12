@@ -5,15 +5,15 @@
 // (a human reviewed this exact content, bound to its raw/distilled hash pair),
 // or rejected (withheld permanently, with a content-hash denylist companion so
 // a renamed identical copy stays rejected). First-party sources — local
-// content, builtin bundles, and trusted sources (remotes.yaml TrustBundles) —
-// are exempt from review; rejection beats even the first-party exemption.
+// content, builtin bundles, and content from a trusted PUBLISHER (a signing key
+// in allowed_signers, verified over the bytes) — are exempt from review;
+// rejection beats even the first-party exemption.
 //
 // This package owns only the persistent store (afero-backed trust.yaml) plus
 // the addressing/canonicalization primitives. The decision function itself
-// lives in operations.EffectiveTrust, which unifies this store with the
-// trusted-sources set at read time. The store never fetches or hashes content
-// — callers compute the content hashes (see bundles.EffectiveContentHash) and
-// pass them in.
+// lives in operations.EffectiveTrust, which resolves this store together with
+// the verified publisher signer. The store never fetches or hashes content —
+// callers pass in the exact bytes (see bundles.ContentPayload).
 package trust
 
 import (
@@ -52,9 +52,17 @@ const (
 	// old gate=nil bypass) reachable by SourceRejected: a user can reject a
 	// builtin item and have that rejection enforced.
 	SourceBuiltin Source = "builtin"
-	// SourceTrustedSource: the item's repo is in the trusted-sources set
-	// (a registry remote carrying TrustBundles).
-	SourceTrustedSource Source = "trusted-source"
+	// SourceTrustedSigner: the item's bundle carries a VERIFIED publisher
+	// signature by a key this machine trusts for the publish namespace
+	// (allowed_signers). Trust is keyed to the signing IDENTITY, not to the
+	// repo the bytes arrived from: a fork, a typosquat, a compromised forge, or
+	// a tampered clone object cannot produce content that verifies under the key
+	// you actually trusted.
+	//
+	// This REPLACES the deleted trusted-source (remotes.yaml trust_bundles)
+	// step, which trusted a LOCATION and was hash-blind — a compromised URL
+	// could serve changed content forever and the gate would pass it.
+	SourceTrustedSigner Source = "trusted-signer"
 	// SourceAccepted: a human accepted this item and the recorded hash for the
 	// current effective form matches the recomputed content hash.
 	SourceAccepted Source = "accepted"

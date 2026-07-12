@@ -10,14 +10,22 @@ are listed under Known gaps).
 **A human sees third-party content — including every update to it — before the
 LLM does.** First-party content is exempt: material you authored in this project
 (`ctxloom:local`), builtin bundles shipped inside the binary, and content from a
-**trusted source** (`ctxloom-default` and your own personal/team remotes). Every
-other remote item is born **pending** and is withheld from the agent until a
-human reviews it.
+**trusted publisher** — a bundle signed by a key you trust for the publish
+namespace (`allowed_signers`). Every other remote item is born **pending** and is
+withheld from the agent until a human reviews it.
+
+Trust is keyed to the signing **identity**, not to the location the bytes arrived
+from. A fork, a typosquatted host, a compromised forge, or a tampered clone
+object cannot produce content that verifies under the key you actually trusted.
+This replaces the old `trust_bundles` source-trust flag, which trusted a URL
+hash-blind — a location can be substituted; a signature over the bytes cannot.
 
 There is one trust layer, not two. The lockfile is pure dependency pinning —
-which commit of a bundle is installed — and grants no exposure. Whether an
-individual item ever reaches the agent is decided per item, at exposure, by its
-content hash.
+which commit of a bundle is installed — and grants no exposure (ADR 0033: it is
+not a security surface, and nothing here reads or writes it). Whether an
+individual item ever reaches the agent is decided per item, at the **exposure
+choke** — never at fetch or lock time. A pull of an unsigned, badly-signed, or
+rejected bundle succeeds; its content is withheld when it would be exposed.
 
 ## Item states
 
@@ -38,25 +46,44 @@ three states:
 
 ## The decision function
 
-One resolver, `operations.EffectiveTrust`, owns every exposure decision. It
-evaluates the item's current content hash against the store and the
-trusted-sources set. First match wins; it is fail-closed:
+One resolver, `operations.EffectiveTrust`, owns every exposure decision. It is
+fed the exact **bytes** about to be exposed (never a precomputed hash — a hash
+can only be compared against a file anything can write; bytes can be *verified*),
+the item's `Ref`, its `Form`, and its **verified publisher `Signer`**. First
+match wins; it is fail-closed:
 
-1. **rejected** — the ref's recorded rejected state, or the item's content hash
-   on the repo/ref-agnostic denylist → **DENY**.
+1. **rejected** — a rejection covers this ref, or covers exactly these bytes
+   (the repo/ref-agnostic content denylist) → **DENY**.
 2. **local** — the item was authored in this project (`ctxloom:local`), any kind
    including MCP servers and hooks → **ALLOW**.
 3. **builtin** — the item is shipped inside the binary itself
-   (`resources/builtin_bundles`) → **ALLOW**.
-4. **trusted source** — the item's repo is in the trusted-sources set → **ALLOW**
-   (updates included).
-5. **accepted** — the item is accepted *and* the recorded hash for its current
-   effective form matches the recomputed content hash → **ALLOW**.
+   (`resources/builtin_bundles`, synthetic signer `builtin:ctxloom`) → **ALLOW**.
+   Builtins are deliberately **not** signed — signing bytes embedded in the
+   binary that verifies them is circular.
+4. **trusted signer** — the item's bundle carries a non-empty verified publisher
+   `Signer`: a key trusted for the publish namespace signed exactly these file
+   bytes, and the signature verified at load, before any parse → **ALLOW**
+   (updates included). This replaces the deleted hash-blind `trust_bundles`
+   source bypass. The synthetic `builtin:ctxloom` identity is explicitly
+   excluded here — a builtin is allowed *as a builtin* (step 3), never laundered
+   into a "trusted publisher".
+5. **approved** — a human reviewed exactly these bytes, at this ref, in this form
+   → **ALLOW**. Any change to the exposed bytes drops the approval to pending.
 6. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
-   startup notice.
+   startup notice. This is where unsigned content lands, where signed-but-
+   untrusted-key content lands, and where content whose bytes changed lands.
+
+**A signature authenticates; it never authorizes.** A validly-signed malicious
+fragment is still malicious — signed does *not* mean safe. That is why review
+(steps 1 and 5) is a separate axis and why rejection outranks every signature,
+including ctxloom's own. There is no "signed" item state: `Signer` is an *input*
+to the decision, never a state. An item is pending, approved, or rejected; a
+signed item whose key you do not trust is not a fourth thing — it is pending.
 
 Rejection is checked first so it beats every exemption: a user can reject an
-item even from a trusted source or a **builtin**. This is enforced, not just
+item even from a trusted publisher or a **builtin**, and step 1 is evaluated even
+when the publisher signature is absent or failed to verify (a rejection is of
+*bytes*, not of provenance). This is enforced, not just
 documented — builtin bundles are routed through the SAME decision function as
 everything else (`trust.Ref{IsBuiltin: true}`, keyed under the synthetic
 identity `builtin:ctxloom` so a builtin item can never collide with a
@@ -64,16 +91,19 @@ project-local bundle of the same name), and step 1's rejection check runs
 before step 3's builtin exemption. An empty hash slot (a lazily-migrated v1
 acceptance recorded only one form) or a form mismatch does not satisfy step 5 —
 the exact materialization being exposed was never reviewed, so it stays
-pending. An unreadable trust store or remote registry **denies everything**
-(fail closed) and, in strict mode (the fail-loudly workstream), is a fatal
-startup finding rather than a silent degrade to deny-all.
+pending. An unreadable trust store **denies everything** (fail closed) and, in
+strict mode (the fail-loudly workstream), is a fatal startup finding rather than
+a silent degrade to deny-all. A malformed `allowed_signers` file degrades toward
+*fewer* trusted keys — more content unsigned, more review — never toward more
+exposure.
 
 `builtin:ctxloom` is a plain identity string, not a cryptographic signature —
 nothing about a builtin bundle is verified beyond "it shipped inside this
 binary" (trusting the binary trusts what it ships, same as always). It exists
 purely so builtin items are addressable and rejectable through the same
 identity shape the store already uses for local (`ctxloom:local`) and remote
-(canonical repo URL) items.
+(canonical repo URL) items. It is explicitly rejected at step 4 so it can never
+be mistaken for a cryptographically-verified publisher.
 
 ## First-party sources
 
@@ -88,24 +118,41 @@ rejection — see the decision function above):
   `builtin:ctxloom` identity. Allowed by default (step 3) with no review
   friction — but, unlike local content's step-2 placement, this is a distinct
   step specifically so a rejection (step 1) can still reach it.
-- **Trusted sources** — remotes whose content is exempt, updates included.
+- **Trusted publisher** — a bundle whose file bytes were signed by a key you
+  trust for the publish namespace, verified at load. Updates included: change
+  the bytes and the publisher's signature no longer covers them, so the bundle
+  re-verifies (or falls to pending) on the next load.
 
-### Trusted sources
+### Trusted publishers
 
-The trusted-sources set is the remotes carrying `trust_bundles: true` in
-`remotes.yaml`. Membership means: everything this source publishes — text *and*
-executables, now and in every future update — reaches the agent without per-item
-review.
+Trust is a property of a **signing key**, not of a remote. The trust root is a
+union of `allowed_signers` files (OpenSSH format, verbatim): ctxloom's embedded
+defaults, `~/.ctxloom/allowed_signers` (user), and `.ctxloom/allowed_signers`
+(committable project store). All are unioned; precedence lives in the decision
+function, never in the filesystem. A publisher signature is over the raw bundle
+**file** bytes and is carried as a detached sibling `<bundle>.yaml.sig` in the
+same git tree at the same pinned SHA — verified before any YAML parse.
 
-- `ctxloom-default` ships trusted.
-- `init --remote` adds your personal repos to the set.
-- `ctxloom remote trust <name>` adds a remote (behind a confirmation that names
-  the consequence); `ctxloom remote untrust <name>` removes it.
+The `namespaces="…"` option in `allowed_signers` **is** the role system: a key
+trusted only to publish cannot approve content, and vice versa. A signature by a
+key that is not in your trust root, or that is scoped to the wrong namespace, is
+simply **unsigned content to you** — quiet, no error, it takes the review path.
+A signature that is present but does **not** verify over the bytes it sits beside
+(a trusted key over different bytes, or a corrupted blob) is **tamper**: the
+bundle is withheld entirely, never degraded to unsigned.
 
-Third-party remotes default untrusted; their content is born pending. Trust a
-source only when you would run anything it publishes. Trusting a source does not
-touch per-item states: an item you rejected stays rejected even after its source
-becomes trusted.
+Third-party unsigned remotes default to pending; their content is reviewed like
+anything else. Managing signer keys (`ctxloom signer add|list|remove`) and
+producing signatures (`ctxloom sign`) are later slices; a hand-edited
+`allowed_signers` file works today. Signing/verification is CLI-only and is
+**never** exposed over MCP — handing the agent a `signer add` capability would
+defeat the property this design exists to provide.
+
+> **Removed:** the `trust_bundles: true` remote flag, the trusted-sources set,
+> and `ctxloom remote trust|untrust`. Adding a remote (an address) and trusting a
+> publisher (a key) are now separate acts. `init --remote` no longer flips a
+> trust flag — a personal repo's content takes the review path until you sign it
+> and trust your own key.
 
 ## The review ceremony
 
@@ -147,10 +194,17 @@ past the gate, because the hash covers the bytes before substitution.
 
 | File | Contents |
 |------|----------|
-| `.ctxloom/trust.yaml` | `version: 2`; `items[]` `{repo_url, ref, state: accepted\|rejected, raw_hash?, distilled_hash?, reviewed_at}`; `denylist[]` (bare content hashes of rejected items). Pending items have no entry. |
-| `.ctxloom/remotes.yaml` | remotes with `trust_bundles` flags (trusted-sources membership) and custom forges |
+| `.ctxloom/trust.yaml` | The **approval ledger**: `version: 2`; `items[]` `{repo_url, ref, state: accepted\|rejected, raw_hash?, distilled_hash?, reviewed_at}`; `denylist[]` (bare content hashes of rejected items). Pending items have no entry. Backs decision steps 1 and 5 today (see the S6 note below). |
+| `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
+| `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
+| `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `cache/trust/objects/` | content-addressed snapshots of accepted bytes, keyed by hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
+
+The decision function's approval/rejection steps read the ledger through a
+`ReviewRecords` seam that already takes the exposed **bytes**, not a hash — so
+the countersignature store can replace the hash-pair ledger without reshaping the
+decision function or any call site.
 
 `trust.yaml` is committable: a team or CI inherits review decisions a human
 already made. A version-1 store (grants / blacklist / bundle postures / baseline
@@ -243,6 +297,21 @@ Addressed:
   nothing is applied without per-item human acceptance.
 - **Content-form-flip escape** — closed by binding acceptance to the full
   `(raw, distilled)` hash pair.
+- **Publisher impersonation / supply-chain substitution** — content claiming to
+  come from a trusted publisher but not signed by its key is unsigned content
+  (review path); a fork, typosquat, MITM'd fetch, or tampered clone object cannot
+  produce bytes that verify under the trusted key. A trusted key's signature that
+  does not cover the bytes it sits beside is treated as **tamper** and the bundle
+  is withheld, so corrupting a `.sig` cannot downgrade a signed bundle to an
+  unsigned one.
+
+Explicitly **not** addressed by signing: **signed ≠ safe** (a signature says
+*who*, never *whether it is good for you* — the release key can sign a malicious
+fragment, which is why review and rejection are separate axes); a **writable
+trust root** (an attacker who can append to `allowed_signers` can name their own
+key); and a **host agent holding `SSH_AUTH_SOCK`** (approvals are off-by-default
+against your own agent unless you use `ssh-add -c`, a hardware key, or a
+container — see the signature-envelope spec §9).
 
 ## Known gaps and accepted risks
 
@@ -255,11 +324,12 @@ Addressed:
    reordering hooks shifts identities; a sticky ref block can land on a different
    hook than the one rejected. The content denylist still catches identical
    content. Content-derived hook IDs would be more robust.
-3. **Trusted sources are broad.** One flag grants unreviewed SHA advance *and*
-   blanket exposure of text + executables, updates included. `ctxloom-default`
-   ships with it on. Splitting the two halves (auto-apply vs auto-expose) is a
-   possible future refinement.
+3. **Inherited trust is broad.** Trusting a publisher key exposes everything that
+   key ever signs — text *and* executables, all future updates — without per-item
+   review. This is narrower than the deleted `trust_bundles` (an identity cannot
+   be forked or typosquatted the way a URL could) but it is not *narrow*: a
+   careless or compromised key auto-exposes into your agent. Mitigations: scope
+   keys with `namespaces="…"`, keep reviewer keys hardware-backed, and remember
+   rejection is supreme (a developer can always reject unilaterally).
 4. **`$PAGER` during review** is user-controlled code execution at review time;
    acknowledged in code as an accepted, OS-conventional risk.
-</content>
-</invoke>

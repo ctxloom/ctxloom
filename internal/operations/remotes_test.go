@@ -220,37 +220,11 @@ func TestSetAndGetDefaultRemote(t *testing.T) {
 	assert.Empty(t, got.Name, "cleared default reads back empty")
 }
 
-func TestSetRemoteTrust(t *testing.T) {
-	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	res, err := SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "alice", Trust: true, Registry: registry})
-	require.NoError(t, err)
-	assert.Equal(t, "trusted", res.Status)
-
-	res, err = SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "alice", Trust: false, Registry: registry})
-	require.NoError(t, err)
-	assert.Equal(t, "untrusted", res.Status)
-}
-
-func TestListRemotes_SurfacesTrust(t *testing.T) {
-	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-	require.NoError(t, registry.Add("bob", "https://github.com/bob/ctxloom"))
-	_, err := SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "bob", Trust: true, Registry: registry})
-	require.NoError(t, err)
-
-	result, err := ListRemotes(context.Background(), nil, ListRemotesRequest{Registry: registry})
-	require.NoError(t, err)
-	require.Len(t, result.Remotes, 2)
-
-	byName := map[string]RemoteEntry{}
-	for _, r := range result.Remotes {
-		byName[r.Name] = r
-	}
-	assert.False(t, byName["alice"].Trusted, "untrusted remote should report Trusted=false")
-	assert.True(t, byName["bob"].Trusted, "trusted remote should report Trusted=true")
-}
+// Source trust (`ctxloom remote trust`, the RemoteEntry.Trusted flag) is
+// DELETED (spec §11). A remote carries no trust; trust is a property of the
+// publisher key, tested in internal/signing and the decision-function suite.
+// The tests that exercised the removed mechanism (TestSetRemoteTrust,
+// TestListRemotes_SurfacesTrust, TestAddRemote_TrustOnAdd) are gone with it.
 
 // fakeCloner stands in for *remote.RepoCache in AddRemote tests so the eager
 // clone-on-add never performs a real git clone / network call. It records the
@@ -266,25 +240,6 @@ func (f *fakeCloner) EnsureFullRepo(_ context.Context, repoURL string, _ remote.
 		return "", f.err
 	}
 	return "/fake/cache/" + repoURL, nil
-}
-
-func TestAddRemote_TrustOnAdd(t *testing.T) {
-	registry, _ := setupTestRegistry(t)
-	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
-
-	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
-		Name:     "alice",
-		URL:      "https://github.com/alice/ctxloom",
-		Trust:    true,
-		Registry: registry,
-		Fetcher:  fetcher,
-		Cache:    &fakeCloner{},
-	})
-	require.NoError(t, err)
-
-	rem, err := registry.Get("alice")
-	require.NoError(t, err)
-	assert.True(t, rem.TrustBundles, "Trust:true on add should mark the remote trusted")
 }
 
 func TestAddRemote_ForgeOnAdd(t *testing.T) {

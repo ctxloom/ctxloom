@@ -129,7 +129,7 @@ func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
 	assert.True(t, ok, "the profile's MCP server resolves when ungated")
 
 	// Deny exec gate: the same MCP server is withheld at the exec choke.
-	cfg.SetExecutableTrustGate(func(_, _, _ string) bool { return false })
+	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 	servers = cfg.ResolveBundleMCPServers([]string{kitProfileKey})
 	_, ok = servers["db"]
 	assert.False(t, ok, "the profile's MCP server still gates at the exec choke")

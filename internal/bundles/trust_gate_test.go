@@ -9,12 +9,13 @@ import (
 )
 
 // blockingGate withholds any item whose ref contains one of substrs, recording
-// every (ref, hash, form) it sees so a test can assert the gate is fed the
-// effective-content hash of the exact bytes about to be exposed.
+// the (hash, form) of every item it sees — hashing the PAYLOAD the gate is now
+// handed — so a test can still assert the gate is fed the exact bytes about to
+// be exposed.
 func blockingGate(seen map[string][2]string, substrs ...string) ContentGate {
-	return func(ref, hash, form string) bool {
+	return func(ref string, payload []byte, form, _signer string) bool {
 		if seen != nil {
-			seen[ref] = [2]string{hash, form}
+			seen[ref] = [2]string{HashPayload(payload), form}
 		}
 		for _, s := range substrs {
 			if strings.Contains(ref, s) {

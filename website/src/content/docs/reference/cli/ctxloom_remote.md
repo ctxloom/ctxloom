@@ -23,8 +23,9 @@ Registry:
   ctxloom remote add <name> <url>        Register a remote
   ctxloom remote rm <name>               Remove a remote
   ctxloom remote default <name>          Set the default remote
-  ctxloom remote trust <name>            Trust a source (its content is exposed unreviewed)
-  ctxloom remote untrust <name>          Require review for this remote again
+
+A remote is just an address; its content takes the review path. To auto-trust a
+publisher's content, trust their signing key (ctxloom signer add) — not the URL.
 
 Discovery:
   ctxloom search <query>                 Search local and remote content
@@ -59,8 +60,6 @@ Examples:
 * [ctxloom remote list](/reference/cli/ctxloom_remote_list/)	 - List configured remotes
 * [ctxloom remote pull](/reference/cli/ctxloom_remote_pull/)	 - Pull dependencies from profiles
 * [ctxloom remote remove](/reference/cli/ctxloom_remote_remove/)	 - Remove a remote source
-* [ctxloom remote trust](/reference/cli/ctxloom_remote_trust/)	 - Trust a remote as a source: everything it publishes reaches the agent unreviewed
-* [ctxloom remote untrust](/reference/cli/ctxloom_remote_untrust/)	 - Remove a remote from the trusted-sources set so its content is reviewed again
 * [ctxloom remote update](/reference/cli/ctxloom_remote_update/)	 - Check for and apply updates to remote items
 * [ctxloom remote upgrade](/reference/cli/ctxloom_remote_upgrade/)	 - Upgrade pinned dependencies to the latest available
 

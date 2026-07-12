@@ -1,0 +1,62 @@
+# Real-world interop fixture for the allowedsigners parser.
+#
+# Every key blob below was generated with the actual `ssh-keygen` binary
+# (OpenSSH, this host) and every line's ACCEPT/REJECT-by-real-ssh-keygen
+# behavior was independently verified with `ssh-keygen -Y verify` before
+# being committed here. See allowedsigners_test.go for the exact commands
+# and the assertions that mirror them.
+
+# A publish-only key: namespaces= restricts it to ONE namespace. This is
+# the security-critical role-enforcement fixture — a key here must never
+# be reported trusted for approve.v1.ctxloom.dev or reject.v1.ctxloom.dev.
+publish-only@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# A reviewer key restricted to approve+reject (two namespaces in one
+# quoted, comma-separated pattern-list) — trusted for review, not publish.
+reviewer@example.com namespaces="approve.v1.ctxloom.dev,reject.v1.ctxloom.dev" ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCuHOuc+h3KxwlNc6Xv1utYi1Z7MuSQTwbvlubgqn7Bl9RfFS34tYDtFkX+2dbLs/vzvjSmRrJGOKEhikmQSXtxAMDMsR7Z5WveH8TacfqYz5JmgDQIgiMU+/s7pcmGTZ8L+q3AyXNImSvpcqPacyEMdl/U6kGFkPSWVkkicuJgBTZIXJ6k1HSUI0vA7ha1U6eg8icocx2BjI/UVFlwgyahHEFAUHG71XyATMLHO0RvxVWWnGQg/ps0WIECxJzyXX2+3uM+sTyTruim03KAGaKr7gOMT5wlAeQ7gOS7+XlqXgl/Pa8iU7JMXuVP9Yndiz8ZHlgwPa6b8I/358XJapMF rsakey@example.com
+
+# No namespaces= option at all: unrestricted (all namespaces), confirmed
+# against real ssh-keygen. This is a broad grant and is documented as such.
+allrole@example.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJ1WE9ldxIve99p1uHmdTaMfocHVhtkQCZNl5odlNnUKJRa5TlZZwksn8U4zUpywax8tQzFCOFmW3L9xGHev1og= ecdsakey@example.com
+
+# Time-boxed key: quoted valid-after/valid-before, both required to be
+# quoted or real ssh-keygen rejects the whole line ("bad options: missing
+# start quote" — verified).
+timeboxed@example.com namespaces="publish.v1.ctxloom.dev",valid-after="20200101",valid-before="20991231" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# cert-authority key: real ssh-keygen refuses to verify a plain signature
+# directly against a cert-authority-flagged entry (no certificate is being
+# presented). Our parser recognizes the option but must likewise never
+# treat this entry as granting trust for a plain-key match.
+ca-only@example.com cert-authority,namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# Same key as ca-only above, but on its own plain (non-CA) line: this line
+# alone must still grant trust — cert-authority on one line does not
+# poison a separate plain line for the same key.
+ca-plain-sibling@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# Multiple comma-separated principals sharing one entry.
+alice@example.com,bob@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# Glob principal pattern.
+*@example.org namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# Case-insensitive option keyword (NAMESPACES vs namespaces) — verified
+# real ssh-keygen accepts this identically.
+caseinsensitive@example.com NAMESPACES="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# --- Deliberately malformed lines, mixed in on purpose: a real
+# allowed_signers file must tolerate garbage lines (verified: real
+# ssh-keygen skips them and keeps using the rest of the file) without
+# ever using them to grant trust.
+
+this is not a valid allowed signers line at all
+
+unquoted-namespace@example.com namespaces=publish.v1.ctxloom.dev ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+unknown-option@example.com totally-made-up-option,namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+duplicate-namespaces@example.com namespaces="approve.v1.ctxloom.dev",namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
+# One more good line after all the garbage, to prove the parser keeps going.
+after-garbage@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com

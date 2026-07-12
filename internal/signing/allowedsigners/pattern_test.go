@@ -1,0 +1,106 @@
+package allowedsigners
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// --- usage-demonstrating: this is how principals/namespaces patterns behave ---
+
+func TestMatchPatternList_LiteralMatch(t *testing.T) {
+	assert.True(t, matchPatternList([]string{"ben@abbitt.me"}, "ben@abbitt.me"))
+	assert.False(t, matchPatternList([]string{"ben@abbitt.me"}, "someone-else@abbitt.me"))
+}
+
+func TestMatchPatternList_MultipleEntriesAnyMatches(t *testing.T) {
+	list := []string{"alice@example.com", "bob@example.com"}
+	assert.True(t, matchPatternList(list, "alice@example.com"))
+	assert.True(t, matchPatternList(list, "bob@example.com"))
+	assert.False(t, matchPatternList(list, "carol@example.com"))
+}
+
+func TestMatchPatternList_GlobStar(t *testing.T) {
+	list := []string{"*@example.com"}
+	assert.True(t, matchPatternList(list, "anyone@example.com"))
+	assert.True(t, matchPatternList(list, "@example.com")) // star matches zero chars
+	assert.False(t, matchPatternList(list, "anyone@example.org"))
+}
+
+func TestMatchPatternList_GlobQuestionMark(t *testing.T) {
+	list := []string{"user?@example.com"}
+	assert.True(t, matchPatternList(list, "user1@example.com"))
+	assert.False(t, matchPatternList(list, "user12@example.com")) // ? is exactly one char
+	assert.False(t, matchPatternList(list, "user@example.com"))   // ? requires one char present
+}
+
+// --- edge cases ---
+
+func TestMatchPatternList_Negation_ExcludesEvenIfOtherPatternMatches(t *testing.T) {
+	// ssh_config(5) PATTERNS: a negated match disqualifies the whole list
+	// regardless of any positive match elsewhere in the list.
+	list := []string{"*@example.com", "!bob@example.com"}
+	assert.True(t, matchPatternList(list, "alice@example.com"))
+	assert.False(t, matchPatternList(list, "bob@example.com"))
+}
+
+func TestMatchPatternList_EmptyListMatchesNothing(t *testing.T) {
+	assert.False(t, matchPatternList(nil, "anything"))
+	assert.False(t, matchPatternList([]string{}, "anything"))
+}
+
+func TestMatchPatternList_CaseSensitive(t *testing.T) {
+	assert.False(t, matchPatternList([]string{"Ben@Abbitt.Me"}, "ben@abbitt.me"))
+}
+
+func TestGlobMatch_StarCollapsesConsecutive(t *testing.T) {
+	assert.True(t, globMatch("**", "anything"))
+	assert.True(t, globMatch("a**b", "aXXXb"))
+}
+
+func TestGlobMatch_NoWildcardsRequiresExactMatch(t *testing.T) {
+	assert.True(t, globMatch("publish.v1.ctxloom.dev", "publish.v1.ctxloom.dev"))
+	assert.False(t, globMatch("publish.v1.ctxloom.dev", "publish.v1.ctxloom.devX"))
+	assert.False(t, globMatch("publish.v1.ctxloom.dev", "Xpublish.v1.ctxloom.dev"))
+}
+
+// --- timestamp parsing (valid-after / valid-before values) ---
+
+func TestParseTimestamp_DateOnlyUTC(t *testing.T) {
+	got, err := parseTimestamp("20200101Z")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), got)
+}
+
+func TestParseTimestamp_DateTimeWithSecondsUTC(t *testing.T) {
+	got, err := parseTimestamp("20211231235959Z")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2021, 12, 31, 23, 59, 59, 0, time.UTC), got)
+}
+
+func TestParseTimestamp_DateTimeWithoutSecondsUTC(t *testing.T) {
+	got, err := parseTimestamp("202101011200Z")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2021, 1, 1, 12, 0, 0, 0, time.UTC), got)
+}
+
+func TestParseTimestamp_NoZUsesLocalTimeZone(t *testing.T) {
+	got, err := parseTimestamp("20200101")
+	require.NoError(t, err)
+	want := time.Date(2020, 1, 1, 0, 0, 0, 0, time.Local)
+	assert.True(t, got.Equal(want), "got %v want %v", got, want)
+	assert.Equal(t, time.Local, got.Location())
+}
+
+func TestParseTimestamp_Invalid(t *testing.T) {
+	_, err := parseTimestamp("not-a-timestamp")
+	assert.Error(t, err)
+
+	_, err = parseTimestamp("2020010") // 7 digits, not a valid length
+	assert.Error(t, err)
+
+	_, err = parseTimestamp("20201301Z") // month 13
+	assert.Error(t, err)
+}

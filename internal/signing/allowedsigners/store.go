@@ -1,0 +1,144 @@
+package allowedsigners
+
+import (
+	"bytes"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+)
+
+// Store is a parsed, queryable allowed_signers file — or the union of
+// several (embedded defaults, user store, project store; see the package
+// doc for the precedence/union model).
+type Store struct {
+	entries []Entry
+}
+
+// NewStore builds a Store directly from entries, without parsing text.
+// Useful for tests and for callers that construct entries programmatically
+// (e.g. the embedded-defaults store, which never touches disk).
+func NewStore(entries ...Entry) *Store {
+	cp := make([]Entry, len(entries))
+	copy(cp, entries)
+	return &Store{entries: cp}
+}
+
+// Union combines the entries of several stores into one, preserving the
+// order of the arguments and, within each, file order. Callers implement
+// the "all locations are unioned; a key in any of them counts for the
+// namespaces it lists there" precedence rule (allowed_signers §7 in the
+// signature-envelope spec) by passing embedded-defaults, user, and
+// project stores in that order — the order does not affect
+// TrustedForNamespace/TrustedAs (every matching entry is considered), but
+// it does affect which entry's Line is reported first in diagnostics. A
+// nil *Store argument is ignored.
+func Union(stores ...*Store) *Store {
+	var all []Entry
+	for _, st := range stores {
+		if st == nil {
+			continue
+		}
+		all = append(all, st.entries...)
+	}
+	return &Store{entries: all}
+}
+
+// Entries returns a copy of every successfully parsed entry, in file
+// order. Mutating the returned slice does not affect the Store.
+func (s *Store) Entries() []Entry {
+	if s == nil {
+		return nil
+	}
+	out := make([]Entry, len(s.entries))
+	copy(out, s.entries)
+	return out
+}
+
+// Decision is the result of a trust query against a Store.
+type Decision struct {
+	// Trusted is the answer to "is this key trusted for this namespace
+	// (as this identity, for TrustedAs)?"
+	Trusted bool
+	// Principal is the matched entry's first principal, suitable for use
+	// as ctxloom's "signer" identity (signature-envelope spec §4.3: the
+	// signer is resolved from allowed_signers, never trusted from the
+	// artifact's own advisory field). Empty when Trusted is false.
+	//
+	// An entry can list several principals (e.g. a shared team alias); by
+	// convention this reports the first one written in the file. If a
+	// deployment needs to know exactly which principal pattern matched an
+	// externally-claimed identity, use TrustedAs and inspect
+	// Decision.Entry.Principals directly with Entry.MatchesPrincipal.
+	Principal string
+	// Entry is the matched entry itself, or nil when Trusted is false.
+	Entry *Entry
+}
+
+// TrustedForNamespace reports whether key is authorized, by any entry in
+// the store, to make an assertion in namespace ns at time now — the
+// question this package exists to answer (signature-envelope spec §8,
+// steps 4/5: "signer's key is trusted for the <X> namespace"). It does
+// not consider any externally claimed identity; the returned
+// Decision.Principal is whichever entry's own principal matched the key.
+//
+// now is supplied by the caller and is never read from the system clock
+// by this package — see Entry.ValidAt's doc for why that matters here.
+func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) Decision {
+	return s.decide(nil, key, ns, now)
+}
+
+// TrustedAs additionally requires that identity match the matching
+// entry's principals pattern-list, mirroring `ssh-keygen -Y verify -I
+// identity`. Use this when an external, unverified identity claim (e.g. a
+// git committer email, or the advisory "signer" field of a companion
+// loadout envelope) needs to be corroborated against the trust root
+// rather than taken at face value.
+func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) Decision {
+	return s.decide(&identity, key, ns, now)
+}
+
+func (s *Store) decide(identity *string, key ssh.PublicKey, ns string, now time.Time) Decision {
+	if s == nil || key == nil {
+		return Decision{}
+	}
+	for i := range s.entries {
+		e := &s.entries[i]
+
+		// cert-authority entries are recognized but never grant trust
+		// through a direct key match: this package implements no SSH
+		// certificate verification, and no certificate is ever presented
+		// to it (see Entry.CertAuthority doc, and the package doc's
+		// fail-closed decisions). Verified against real ssh-keygen: a
+		// cert-authority-flagged entry refuses to verify a plain
+		// signature even when every other field matches.
+		if e.CertAuthority {
+			continue
+		}
+		if !keysEqual(e.PublicKey, key) {
+			continue
+		}
+		if identity != nil && !e.MatchesPrincipal(*identity) {
+			continue
+		}
+		if !e.MatchesNamespace(ns) {
+			continue
+		}
+		if !e.ValidAt(now) {
+			continue
+		}
+
+		principal := ""
+		if len(e.Principals) > 0 {
+			principal = e.Principals[0]
+		}
+		return Decision{Trusted: true, Principal: principal, Entry: e}
+	}
+	return Decision{}
+}
+
+func keysEqual(a, b ssh.PublicKey) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return bytes.Equal(a.Marshal(), b.Marshal())
+}

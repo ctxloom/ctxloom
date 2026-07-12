@@ -101,7 +101,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "compact_session",
-			Description: "Pre-bake a session's persisted log into a distilled summary on disk, for recovery in a LATER session. This reads the stored transcript and spawns its own LLM calls; it does NOT touch the live conversation and frees no context. It is not a substitute for the harness's native compaction — for live context pressure, use that. Call this before ending or clearing a session whose essence should survive it.",
+			Description: "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session.",
 		},
 		s.handleCompactSession)
 

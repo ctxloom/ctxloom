@@ -20,16 +20,23 @@ import (
 
 var memoryCmd = &cobra.Command{
 	Use:   "memory",
-	Short: "Manage session memory (external compaction)",
-	Long: `Manage session memory for external compaction.
+	Short: "Manage session memory (out-of-band compaction)",
+	Long: `Manage session memory: distil a session's transcript so a later session can pick it up.
 
-This feature logs conversations and allows compacting them for use in new sessions.
-It's a workaround for when native LLM compaction is insufficient.
+Compaction here happens OUT OF BAND, and that is the point. Native in-context
+compaction asks an agent to summarise itself at the moment it is running out of
+room to think — a context-starved agent writes a starved summary, and whatever it
+drops is gone. ctxloom instead reads the complete transcript from disk in a fresh
+process with a full budget, and distils it there.
+
+So it never competes with native compaction for live context pressure; use native
+compaction for that. This runs where the summary can be good: on shutdown, at
+startup for historical sessions, and on recovery after a /clear.
 
 Commands:
   ctxloom memory list                  List all sessions
   ctxloom memory show <session>        Show session details
-  ctxloom memory compact [--session]   Compact a session log`,
+  ctxloom memory compact [--session]   Distil a session log`,
 }
 
 var memoryListCmd = &cobra.Command{

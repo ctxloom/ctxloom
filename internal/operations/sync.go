@@ -16,6 +16,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
+// maxSyncPasses bounds the collect→pull fixed-point iteration in
+// SyncDependencies. Each pass can only reveal new references by installing a
+// dependency that unblocks a profile, so the pass count is bounded by the depth
+// of the profile→remote-parent chain — single digits in any real graph. The
+// bound exists purely so a pathological or cyclic graph cannot spin forever.
+const maxSyncPasses = 10
+
 // SyncDependenciesRequest contains parameters for syncing dependencies.
 type SyncDependenciesRequest struct {
 	// Profiles specifies which profiles to sync. Empty means all profiles.
@@ -88,18 +95,6 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		return nil, err
 	}
 
-	// Refresh each referenced clone to its live tip before pulling. A first
-	// install resolves an unpinned ref to the default-branch HEAD, and the
-	// cache serves an existing clone as-is (ensureClone never fetches — only an
-	// explicit UpdateRepo does). A stale clone — e.g. one predating an upstream
-	// layout migration (ctxloom/v1/<kind>/ → ctxloom/<kind>/) — would otherwise
-	// resolve to old content or 404 a moved path. CheckOutdated/Relock refresh
-	// for the same reason. Skipped when a Puller is injected (tests drive a mock
-	// fetcher with no real clone to advance); per-URL failures warn and continue.
-	if req.Puller == nil {
-		refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs))
-	}
-
 	// Installed-probe source (reference-only model: lockfile entry + content
 	// retrievable from the clone cache, never a disk check).
 	bundleReader := req.BundleReader
@@ -111,8 +106,62 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		Status: "completed",
 	}
 
-	if err := syncRefs(ctx, puller, bundleRefs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
-		return result, err
+	// Sync to a FIXED POINT, not in a single pass. collectRemoteReferences can
+	// only see the refs of profiles that currently resolve: a profile whose
+	// remote parent is not yet installed fails to load and contributes NOTHING
+	// — not even the bundles it references directly (collectProfileReferences
+	// swallows the loader error). Installing that parent makes the profile
+	// loadable, revealing refs the first pass could not have known about. So
+	// re-collect after each pass and pull whatever is newly visible, until the
+	// reference set stops growing. Collecting once leaves part of the graph
+	// unpinned while still exiting 0, which forces the user to re-run
+	// `remote pull` until it happens to converge.
+	synced := collections.NewSet[string]()
+	for pass := 0; pass < maxSyncPasses; pass++ {
+		var pending []string
+		for _, ref := range bundleRefs {
+			if !synced.Has(ref) {
+				pending = append(pending, ref)
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+
+		// Refresh each referenced clone to its live tip before pulling. A first
+		// install resolves an unpinned ref to the default-branch HEAD, and the
+		// cache serves an existing clone as-is (ensureClone never fetches — only
+		// an explicit UpdateRepo does). A stale clone — e.g. one predating an
+		// upstream layout migration — would otherwise resolve to old content or
+		// 404 a moved path. CheckOutdated/Relock refresh for the same reason.
+		// Skipped when a Puller is injected (tests drive a mock fetcher with no
+		// real clone to advance); per-URL failures warn and continue.
+		if req.Puller == nil {
+			refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(pending))
+		}
+
+		if err := syncRefs(ctx, puller, pending, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
+			return result, err
+		}
+		for _, ref := range pending {
+			synced.Add(ref)
+		}
+
+		// Re-collect: the pulls above may have made previously-unresolvable
+		// profiles loadable. A collect failure here is not fatal — keep the
+		// items already synced (CLAUDE.md fault tolerance).
+		next, err := collectRemoteReferences(cfg, req.Profiles, fs)
+		if err != nil {
+			clidiag.Warn("ctxloom", "failed to re-collect references after sync pass: %v", err)
+			break
+		}
+		bundleRefs = next
+
+		if pass == maxSyncPasses-1 {
+			clidiag.Warn("ctxloom",
+				"dependency graph still revealing new references after %d sync passes; "+
+					"run 'ctxloom remote pull' again to continue converging", maxSyncPasses)
+		}
 	}
 
 	runSyncPostSteps(ctx, cfg, req, result, fs)

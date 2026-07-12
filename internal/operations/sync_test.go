@@ -42,6 +42,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -1212,4 +1213,70 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 			assert.Equal(t, tt.wantHooks, hookCalls == 1, "hooks step fired=%v, want %v", hookCalls == 1, tt.wantHooks)
 		})
 	}
+}
+
+// revealingPuller simulates the real cascade that made `remote pull` need
+// repeated invocation: a profile that cannot load until one of its remote
+// dependencies is installed contributes NO references to the first collect
+// pass. Pulling that dependency makes the profile loadable, revealing bundle
+// refs the initial pass never saw. Here, pulling `reveals` writes the
+// previously-unloadable profile into the profiles dir.
+type revealingPuller struct {
+	cfg         *config.Config
+	reveals     string // pulling this ref makes the revealed profile resolvable
+	revealedRef string // the bundle that newly-resolvable profile references
+	pulled      []string
+}
+
+func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
+	p.pulled = append(p.pulled, refStr)
+	if refStr == p.reveals {
+		p.cfg.Profiles.Definitions["revealed"] = config.Profile{Bundles: []string{p.revealedRef}}
+	}
+	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/revealed.yaml"}, nil
+}
+
+// TestSyncDependencies_PullsRefsRevealedByEarlierPulls pins the fixed-point
+// contract: references that only become discoverable *because* of an earlier
+// pull in the same run must still be pulled. Without it, sync exits 0 having
+// silently left part of the dependency graph unpinned, and the user must run
+// `remote pull` again (and again) to converge.
+func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	const (
+		rootRef     = "https://github.com/test/ctxloom@bundles/alpha"
+		revealedRef = "https://github.com/test/ctxloom@bundles/beta"
+	)
+
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+`), 0644))
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"root": {Bundles: []string{rootRef}},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+	cfg.SetFS(fs)
+
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	puller := &revealingPuller{cfg: cfg, reveals: rootRef, revealedRef: revealedRef}
+
+	_, err = SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS: fs, Registry: registry, Puller: puller,
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, puller.pulled, rootRef, "the directly-referenced bundle must be pulled")
+	assert.Contains(t, puller.pulled, revealedRef,
+		"a bundle revealed by an earlier pull must also be pulled in the same run; "+
+			"sync must iterate collect->pull to a fixed point rather than collecting refs once")
 }

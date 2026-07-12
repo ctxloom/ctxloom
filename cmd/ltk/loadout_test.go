@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -65,6 +66,50 @@ func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
 	b, err := bundles.ParseBundle(decoded)
 	require.NoError(t, err)
 	assert.Contains(t, b.Skills, "task-runner")
+}
+
+// TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher is the end-to-end proof
+// (S8 loadoutSig seam, filled) that ltk's loadout is trusted-by-construction,
+// not review-pending: the envelope `ltk loadout --format json` actually
+// emits, verified through signing.VerifyPublisher against the REAL trust
+// root ctxloom ships (config.Config.TrustRoot(), which includes the compiled-
+// in ctxloom release key), resolves to that key's principal. It also
+// DOUBLES as the drift gate item 2 requires — if loadout.yaml is ever edited
+// without regenerating loadout.yaml.sig (`just sign-loadouts`), the
+// committed .sig no longer covers the new bytes and this test starts
+// failing loudly, pure-Go and offline, no private key required.
+func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NotEmpty(t, loadoutSig, "ltk's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
+
+	var buf bytes.Buffer
+	require.NoError(t, companionloadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
+
+	cfg := &config.Config{}
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, loadoutYAML, decoded)
+	assert.Equal(t, "ben+ctxloom@abbitt.me", signer, "ltk's loadout must verify as published by the ctxloom release key")
+}
+
+// TestLoadout_TamperedLoadoutBodyFailsVerification proves the drift gate
+// actually fires: the real committed loadoutSig, presented against loadout
+// bytes that differ from what it covers (simulating loadout.yaml having
+// changed without a re-sign), is withheld — never silently downgraded to
+// "unsigned, please review" (spec §10.2).
+func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NotEmpty(t, loadoutSig, "ltk's committed loadout.yaml.sig is missing or not embedded — run `just sign-loadouts` and commit it")
+
+	tampered := append(append([]byte{}, loadoutYAML...), []byte("\n# drift: this byte was never signed\n")...)
+	var buf bytes.Buffer
+	require.NoError(t, companionloadout.Emit(&buf, "json", tampered, loadoutSig))
+
+	cfg := &config.Config{}
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	require.Error(t, err, "a loadout body that drifted from its signature must be withheld, not degraded to unsigned")
+	assert.Nil(t, decoded)
+	assert.Empty(t, signer)
 }
 
 func TestLoadout_UnknownFormatErrors(t *testing.T) {

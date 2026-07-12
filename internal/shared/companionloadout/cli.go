@@ -7,11 +7,12 @@
 // Only the DISPATCH logic lives here. The loadout content itself stays
 // per-binary: go:embed can only embed a file that lives in the embedding
 // file's own package directory, so each companion embeds its own
-// loadout.yaml (and, once a release signing pipeline exists, its own
-// loadout.yaml.sig) and hands the resulting bytes to NewCommand.
+// loadout.yaml and loadout.yaml.sig (via the `loadout.yaml*` wildcard —
+// ReadEmbeddedSig below) and hands the resulting bytes to NewCommand.
 package companionloadout
 
 import (
+	"embed"
 	"fmt"
 	"io"
 
@@ -51,6 +52,22 @@ bytes (base64) plus an OPTIONAL detached publish signature.
 	}
 	cmd.Flags().StringVar(&format, "format", "yaml", "output format: yaml (raw bundle) or json (signed envelope)")
 	return cmd
+}
+
+// ReadEmbeddedSig reads the OPTIONAL loadout.yaml.sig sibling out of an
+// embedded FS built from a companion's own `//go:embed loadout.yaml*`
+// wildcard, degrading to nil (never an error) when it is absent — the
+// ordinary, pre-signing state (spec §10.1). The wildcard pattern, rather
+// than a literal `//go:embed loadout.yaml.sig`, is what keeps a companion's
+// build from hard-failing when no .sig has been committed yet: a literal
+// directive requires the named file to exist at compile time, but the .sig
+// is meant to stay optional forever.
+func ReadEmbeddedSig(fs embed.FS) []byte {
+	data, err := fs.ReadFile("loadout.yaml.sig")
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // Emit is the pure core NewCommand's RunE drives: deterministic, no network,

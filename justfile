@@ -87,6 +87,55 @@ build-ltk: dev-image
 build-taskloom: dev-image
     just _run taskloom::build
 
+# Regenerate the committed publish-signature siblings for the in-repo
+# companion loadouts (cmd/ltk/loadout.yaml, cmd/taskloom/loadout.yaml) using
+# the ctxloom release key, so `<bin> loadout --format json` verifies as a
+# trusted publisher (internal/config/embedded_signers.allowed_signers)
+# instead of landing in ctxloom's review-pending path. Runs on the HOST (not
+# delegated to the devcontainer): it needs the private key from ~/.ssh, which
+# the devcontainer never mounts. Unlike `just build` — which only ever reads
+# the committed .sig bytes via go:embed — this needs the PRIVATE key; run it
+# once, commit the resulting .sig files, and `just build` never touches the
+# key again. A signature that no longer matches its loadout.yaml (edited
+# without a re-sign) is caught by `just test`
+# (cmd/ltk/loadout_test.go, cmd/taskloom/loadout_test.go verify the committed
+# .sig against the committed .yaml through the real embedded trust root), not
+# by this recipe.
+#
+# Tries the on-disk private key directly first; if that key is passphrase-
+# protected and ssh-agent already holds the matching identity (`ssh-add
+# /path/to/key` in your own terminal, entered interactively — this recipe
+# never touches the passphrase), falls back to `-U` + the public key, which
+# routes the actual signing operation through the agent.
+sign-loadouts key="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    key="{{key}}"
+    if [ -z "$key" ]; then
+        key="$HOME/.ssh/ctxloom_ssh_key"
+    fi
+    if [ ! -f "$key" ]; then
+        echo "sign-loadouts: signing key not found: $key" >&2
+        echo "  pass one explicitly: just sign-loadouts /path/to/key" >&2
+        exit 1
+    fi
+    for f in cmd/ltk/loadout.yaml cmd/taskloom/loadout.yaml; do
+        rm -f "$f.sig"
+        if ! ssh-keygen -Y sign -f "$key" -n publish.v1.ctxloom.dev "$f" 2>/tmp/sign-loadouts-err; then
+            if [ -f "$key.pub" ]; then
+                echo "sign-loadouts: $key needs a passphrase this recipe doesn't have; trying ssh-agent via $key.pub" >&2
+                ssh-keygen -Y sign -U -f "$key.pub" -n publish.v1.ctxloom.dev "$f"
+            else
+                cat /tmp/sign-loadouts-err >&2
+                exit 1
+            fi
+        fi
+    done
+    echo "signed (namespace publish.v1.ctxloom.dev):"
+    echo "  cmd/ltk/loadout.yaml.sig"
+    echo "  cmd/taskloom/loadout.yaml.sig"
+    echo "commit both .sig files alongside the .yaml they cover."
+
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
     just _run validate

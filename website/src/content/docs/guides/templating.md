@@ -2,7 +2,9 @@
 title: "Templating"
 ---
 
-Fragments and skills support [Mustache](https://mustache.github.io/) templating for dynamic content.
+Without templating, a fragment that mentions your project name or language is stuck to one project — reuse it elsewhere and you're hand-editing a copy per repo, and the copies drift. Write the fragment once with placeholders, and each project's profile fills them in with its own values: one fragment, as many projects as you have profiles for.
+
+Fragments and skills support [Mustache](https://mustache.github.io/) templating to make this work.
 
 ## Basic Syntax
 

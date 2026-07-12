@@ -2,7 +2,9 @@
 title: "Authoring Bundles"
 ---
 
-Create and manage your own context bundles.
+Community bundles cover the common cases — a language's idioms, a framework's patterns. They don't know your team's own rules: the error-handling convention you settled on after last quarter's incident, or the review checklist specific to your codebase. A bundle is how you write those down once and get them injected into every session instead of repeating them in chat.
+
+This guide creates one from scratch, edits it, and publishes it so your team (or the wider community) can pull it too.
 
 ## Create Your First Bundle
 

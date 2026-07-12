@@ -2,7 +2,9 @@
 title: "Fragments"
 ---
 
-A **fragment** is a reusable context snippet within a bundle. Fragments contain the actual content that gets sent to AI assistants.
+You've typed "use table-driven tests, wrap errors with context, log at the right level" into enough prompts that you could recite it. Every new session, you type it again, or the AI guesses and gets it wrong.
+
+A **fragment** is where that content lives once: a reusable snippet of context (coding standards, error-handling rules, a review checklist) stored in a bundle. Reference it by name with `-f` or a tag with `-t`, or pull it in through a [profile](/concepts/profiles/), and it reaches the AI without you retyping a word.
 
 ## Fragment Structure
 

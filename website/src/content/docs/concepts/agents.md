@@ -2,7 +2,9 @@
 title: "Agents & Isolation"
 ---
 
-An **agent** is a named, local-only binding of an LLM engine to one or more composed profiles. Where a [profile](/concepts/profiles/) defines *what context* an AI receives, an agent adds *which engine runs it* and *where that engine executes*. Agents are the members that [map and weave](/concepts/weave/) fan work across.
+Your `developer` profile is right for a quick question on your laptop and wrong for a long unattended run, the kind you'd rather box up in a container so it can't touch anything outside the project. Editing the profile itself every time you want a different engine or runtime defeats the point of having a reusable profile at all.
+
+An **agent** solves this by separating *what context* an AI receives (the profile's job) from *which engine runs it* and *where it executes*. Define `dev` once as `claude-code` on `runtime: container` with the `developer` profile, and `ctxloom run --agent dev` gets you that combination without touching the profile itself. Agents are also the members that [map and weave](/concepts/weave/) fan work across.
 
 ## What an agent is
 

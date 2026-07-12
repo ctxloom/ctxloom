@@ -2,10 +2,13 @@
 title: "Weave (ensembles)"
 ---
 
-**Weave** is ctxloom's map-reduce for agents: fan a task out to several members
-in parallel — each a self-contained agent carrying its own context and LLM — then
-pipe their outputs into one high-power **synthesis** agent that combines them into
-a single result.
+One reviewer reads a diff for security and misses the N+1 query. Another reads for performance and misses the auth bypass. Running the same model twice with the same prompt doesn't fix this — it just misses the same things twice.
+
+**Weave** fans a task out to several specialized members in parallel, each a
+self-contained agent carrying its own context and LLM, then pipes their outputs
+into one high-power **synthesis** agent that merges them into a single verdict.
+A security pass, a performance pass, and an architecture pass run at once, and
+you read one report instead of three.
 
 It is a general primitive, not tied to any one workflow. Code review is its first
 consumer (an ensemble of `code-review/<domain>` profiles plus a synthesis

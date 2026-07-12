@@ -26,6 +26,15 @@ type SpawnPlan struct {
 	Runtime   string
 	Context   string
 	Perm      agent.PermissionMode
+	// Workspace is GAP 2's per-call workspace-axis override (none|worktree;
+	// empty = fall back to the project's cfg.Workspace default). Unlike
+	// every other SpawnPlan field, it is NOT set by Resolve (agent
+	// definitions carry no workspace opinion — see operations.memberAxes'
+	// identical split between the fan's session-level workspace and a
+	// member's agent-resolved runtime): AgentRun (children.go) stamps it
+	// onto the plan from the caller's agent_run invocation, after Resolve
+	// returns.
+	Workspace string
 	// Ladder is the resolved (preset-or-declared, validated) escalation
 	// ladder (Wave C2) this child's ApprovalRequests walk. Resolved once at
 	// spawn time from the agent's declared escalation: (or the Perm preset)
@@ -127,6 +136,40 @@ var viaStartRunBackends = map[string]bool{
 	"acp":                    true,
 }
 
+// loadConfig is config.Load's production entry point, indirected so tests
+// can inject a failing loader (config.Load itself is fault-tolerant per
+// CLAUDE.md — a malformed/unreadable config.yaml degrades to Warnings, not
+// an error — so resolveCfg's fallback branch below has no naturally
+// occurring trigger through the real loader; this seam is what makes it
+// independently testable, mirroring oneshot.go's prepareIsolation var swap).
+var loadConfig = config.Load
+
+// resolveCfg re-reads the project config from disk so a mid-session
+// `ctxloom agent set` (or a brand-new agent) is visible to the VERY NEXT
+// agent_run without a coordinator restart (GAP 1: the captured s.cfg is a
+// startup snapshot otherwise). Pinned to s.cfg.AppPaths[0] — the .ctxloom
+// dir this spawner's OWN config already resolved to at construction — so
+// the reload never depends on this process's current working directory
+// (mirrors loadConfigForDir's dir-pinning in internal/cli/acp_cmd.go).
+//
+// Scoped STRICTLY to agent-DEFINITION resolution: durable stores,
+// credentials, the broker, and the run loop all keep using the startup
+// s.cfg (childMCPServers, PrepareAgentChat's gate, etc.) — only the
+// agent-def lookup below re-reads. A transient read failure (permission
+// blip, a concurrent partial write) must not break spawning, so it falls
+// back to the captured snapshot rather than erroring.
+func (s *prodSpawner) resolveCfg() *config.Config {
+	if len(s.cfg.AppPaths) == 0 || s.cfg.AppPaths[0] == "" {
+		return s.cfg
+	}
+	cfg, err := loadConfig(config.WithAppDir(s.cfg.AppPaths[0]))
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent_run: reload config for agent resolution: %v (using the startup snapshot)", err)
+		return s.cfg
+	}
+	return cfg
+}
+
 func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
 	var (
 		rs       *operations.ResolvedAgent
@@ -138,7 +181,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		defer spawnGateMu.Unlock()
 		mark := strictness.Checkpoint()
 		var err error
-		rs, err = operations.ResolveAgent(ctx, s.cfg, agentName, "")
+		rs, err = operations.ResolveAgent(ctx, s.resolveCfg(), agentName, "")
 		if err != nil {
 			return err
 		}
@@ -190,6 +233,7 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Gate:        s.gate.Gate(),
 		Verbosity:   childVerbosity(),
 		Factory:     s.factory,
+		Workspace:   plan.Workspace,
 	})
 	spawnGateMu.Unlock()
 	if err != nil {
@@ -230,6 +274,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		Gate:        s.gate.Gate(),
 		Verbosity:   childVerbosity(),
 		Factory:     s.factory,
+		Workspace:   plan.Workspace,
 	})
 	spawnGateMu.Unlock()
 	if err != nil {

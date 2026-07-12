@@ -41,6 +41,60 @@ func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
 	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the project workspace default is the session trait")
 }
 
+// TestPrepareAgentChat_WorkspaceOverridesProjectDefault is GAP 2's final
+// hop: agent_run's per-call req.Workspace ("worktree") OVERRIDES the
+// project's cfg.Workspace default ("none" — shared checkout) on the SAME
+// axes Resolve/chainFor uses everywhere else (isolation_test.go's
+// TestResolve_DefaultsAndDegrades already pins that {worktree, host} always
+// selects the Worktree policy — a REAL, isolated git worktree distinct from
+// the shared project dir, never re-derived here).
+func TestPrepareAgentChat_WorkspaceOverridesProjectDefault(t *testing.T) {
+	resetStrictness(t)
+	var gotAxes isolation.Axes
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		gotAxes = axes
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := &config.Config{Workspace: "none"} // project default: the shared live checkout
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:   t.TempDir(),
+		Workspace: "worktree", // the agent_run caller's per-call override
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the caller's per-call workspace wins over cfg.Workspace")
+}
+
+// TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault pins the
+// other half: an agent_run call that never sets workspace changes nothing —
+// cfg.Workspace still drives the axes exactly like before GAP 2.
+func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) {
+	resetStrictness(t)
+	var gotAxes isolation.Axes
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		gotAxes = axes
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := &config.Config{Workspace: "worktree"}
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+		// Workspace left empty: no per-call override supplied.
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "an empty override changes nothing — cfg.Workspace still decides")
+}
+
 // TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the
 // fan's member gate: an explicitly-requested container that can't start
 // (ClassIsolation finding during Prepare) refuses the child in strict mode —

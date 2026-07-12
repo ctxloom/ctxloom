@@ -53,7 +53,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 |------|------|----------|-------------|
 | `budget` | object | No | carved from the parent's budget |
 | `constraints` | object | No | Optional model/tools/sandbox hints (unused today; the agent's own binding decides) |
-| `input` | object | Yes | Child task input. `prompt` carries the child's briefing, delivered as its first turn |
+| `input` | object | Yes | Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` ("none"\|"worktree"; empty = the project default) carves this child its own isolated git worktree instead of the shared checkout — use it for a code-editing child so it never stomps the live project directory |
 | `notify_on` | string | No | One of: `NOTIFY_ON_UNSPECIFIED`, `NOTIFY_ON_COMPLETION`, `NOTIFY_ON_NOTHING` |
 | `role` | string | Yes | Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`) |
 

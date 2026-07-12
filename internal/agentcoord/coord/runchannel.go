@@ -622,14 +622,22 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 	}
 }
 
-// serveSpawnAgent is agent_run: role = the configured agent name, input.prompt
-// = the briefing.
+// serveSpawnAgent is agent_run: role = the configured agent name,
+// input.prompt = the briefing, and input.workspace (GAP 2, optional) = a
+// per-call workspace-axis override — "none"|"worktree", riding the same
+// free-form input Struct as prompt (additionalProperties: true; see
+// mcpschema/schemas/agent_run.json), so no proto/schema regen is needed to
+// accept it. Empty/absent falls back to the project's cfg.Workspace default.
 func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAgentRequest) *agentcoordpb.CoordinatorResponse {
 	role := req.GetRole()
 	prompt := ""
+	workspace := ""
 	if in := req.GetInput(); in != nil {
 		if v, ok := in.GetFields()["prompt"]; ok {
 			prompt = v.GetStringValue()
+		}
+		if v, ok := in.GetFields()["workspace"]; ok {
+			workspace = v.GetStringValue()
 		}
 	}
 	if role == "" {
@@ -638,7 +646,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if prompt == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: input.prompt is required (the child's briefing/first turn)")}
 	}
-	out, err := c.AgentRun(c.baseCtx, caller, role, prompt)
+	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, workspace)
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}

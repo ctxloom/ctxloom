@@ -91,7 +91,7 @@ func TestPublishEvents_RejectsMalformed(t *testing.T) {
 func TestPublishEvents_GRPCOwnershipCheck(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, func() *fakeEngine { return &fakeEngine{oneshot: true} })
 	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "hello", "")
 	require.NoError(t, err)
 	h := childHome(t, c, out.RunID)
 
@@ -119,7 +119,7 @@ func TestOneshotChild_PublishesRunCompletedAndMailsParent(t *testing.T) {
 	}, func() *fakeEngine { return &fakeEngine{oneshot: true} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
 	require.NoError(t, err)
 
 	var msgs []Message

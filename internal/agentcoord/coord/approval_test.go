@@ -119,7 +119,7 @@ func TestApproval_RelayRoundTrip(t *testing.T) {
 			sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
 			c := newTestCoordinator(t, sp, nil)
 
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 			require.NoError(t, err)
 
 			// The relay lands in the parent's mailbox with a correlation id
@@ -193,7 +193,7 @@ func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
 			sp := planPresetSpawnerFor(backend, func() *scriptedChat { return &scriptedChat{permission: permReq} })
 			c := newTestCoordinator(t, sp, nil)
 
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 			require.NoError(t, err)
 
 			var msgs []Message
@@ -235,7 +235,7 @@ func TestApproval_TimeoutFallsThroughToDecline(t *testing.T) {
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 	require.NoError(t, err)
 
 	// The relay still lands as mail (it happened), but the parent never
@@ -270,7 +270,7 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 	require.NoError(t, err)
 
 	var msgs []Message
@@ -325,7 +325,7 @@ func TestApproval_BypassPresetAutoAcceptsAll(t *testing.T) {
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -363,7 +363,7 @@ func TestApproval_PlanPresetAutoDeclinesFileChange(t *testing.T) {
 	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
 	c := newTestCoordinator(t, sp, nil)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "edit a file")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "edit a file", "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -406,14 +406,14 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{permission: permReq} }
 	c := newTestCoordinator(t, sp, nil)
 
-	legacyOut, err := c.AgentRun(context.Background(), ownerIdentity(), "legacy", "hello")
+	legacyOut, err := c.AgentRun(context.Background(), ownerIdentity(), "legacy", "hello", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond, "the legacy child must take its first turn")
 
-	workerOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command")
+	workerOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
 	require.NoError(t, err)
 	var msgs []Message
 	require.Eventually(t, func() bool {

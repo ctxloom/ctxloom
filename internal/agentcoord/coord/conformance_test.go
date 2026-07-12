@@ -45,7 +45,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "researcher", "find the thing", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.Harp)
 	assert.Equal(t, "fast", out.Engine)
@@ -75,7 +75,7 @@ func TestAgentRun_HonorsAgentIntent(t *testing.T) {
 func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "ghost", "boo")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "ghost", "boo", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `agent "ghost" not found`)
 }
@@ -92,7 +92,7 @@ func TestAgentRun_D3RefusesNonHeadless(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
 			c := newTestCoordinator(t, sp, nil)
-			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go")
+			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.reason)
 			assert.Contains(t, err.Error(), `set permissions: plan|bypass on agent "loose"`)
@@ -108,7 +108,7 @@ func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"loose": {profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Degraded)
 	assert.Contains(t, out.Degraded[0], "plan")
@@ -127,7 +127,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	assert.False(t, first.Queued)
 	require.Eventually(t, func() bool {
@@ -135,7 +135,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	assert.True(t, second.Queued, "past the cap the spawn enqueues, never errors")
 	assert.NotEqual(t, first.Harp, second.Harp)
@@ -160,7 +160,7 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
-	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper")
+	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 
@@ -184,7 +184,7 @@ func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	grandchildCaller := Identity{Harp: "some-grandchild", RunID: "run-grandchild", Depth: 2}
-	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still")
+	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum delegation depth")
 	assert.Equal(t, 0, sp.spawnCount())
@@ -199,7 +199,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
@@ -245,7 +245,7 @@ func TestChildSend_ParentOnly(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "report back", "")
 	require.NoError(t, err)
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 
@@ -276,7 +276,7 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	// Drain the synthesized terminal notice so the resume assertion is clean.
@@ -319,7 +319,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	}
 	c := newTestCoordinator(t, sp, nil)
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
@@ -327,7 +327,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, StateExecuting, rosterState(c, first.Harp))
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	assert.Equal(t, StateQueued, rosterState(c, second.Harp))
 
@@ -375,14 +375,14 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	}
 	c := newTestCoordinator(t, sp, nil)
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "ask a question")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "ask a question", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "other work")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "other work", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 	assert.Equal(t, 1, sp.spawnCount())
@@ -424,13 +424,13 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
 		return e != nil && len(e.recordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
@@ -458,7 +458,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
@@ -499,7 +499,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
@@ -533,7 +533,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -565,7 +565,7 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{endAfterTurns: 1} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	// Drain the synthesized terminal notice (KindExited) so the mirror
@@ -628,7 +628,7 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)

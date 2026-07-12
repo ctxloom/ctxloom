@@ -16,6 +16,18 @@ import (
 // It mirrors the canonical grammar: LocalSource @ <type>/<path>[@version].
 const LocalSource = "ctxloom:local"
 
+// CompanionSource is the fixed source token for ctxloom:companion@<bin>
+// references — a bundle emitted live by a companion binary discovered on
+// PATH (`<bin> loadout --format json`, signature-envelope spec §4.3/§6
+// discovery). This is the FIRST-CLASS, RECOGNIZED source token companion
+// loadouts are seeded under: recognized here (so parseTrustItemRef's
+// unrecognized-source guard never fires for it) and mapped to a NON-local,
+// NON-builtin trust.Ref (Reference.IsLocal stays false), so companion content
+// flows through EffectiveTrust's trusted-signer/approved/pending steps
+// exactly like a remote bundle — never auto-allowed, never denied as
+// unrecognized.
+const CompanionSource = "ctxloom:companion"
+
 // ParseReference parses a remote reference string.
 //
 // Supported formats:
@@ -48,6 +60,11 @@ func ParseReference(ref string) (*Reference, error) {
 	// Local source: ctxloom:local@<type>/<path>[@version]
 	if strings.HasPrefix(ref, LocalSource+"@") {
 		return parseLocalReference(ref)
+	}
+
+	// Companion source: ctxloom:companion@<bin>
+	if strings.HasPrefix(ref, CompanionSource+"@") {
+		return parseCompanionReference(ref)
 	}
 
 	// Detect URL-based references
@@ -156,6 +173,34 @@ func parseLocalReference(ref string) (*Reference, error) {
 		Path:           itemPath,
 		ContentVersion: contentVersion,
 		IsLocal:        true,
+	}, nil
+}
+
+// parseCompanionReference parses a companion loadout reference:
+//   - ctxloom:companion@ltk
+//   - ctxloom:companion@ctxloom-companion-foo
+//
+// Format: ctxloom:companion@<bin>. Deliberately the FLATTEST grammar in this
+// file — there is no type/path/version tail, because a companion loadout is
+// always exactly one whole bundle (the entirety of what that binary
+// contributes), fetched live rather than versioned in a git tree. <bin> is
+// validated with the same traversal guard as every other item path
+// (validateItemPath) even though it always comes from a PATH lookup in
+// practice — defense in depth for anything that builds this ref from
+// untrusted input (e.g. a hand-typed `ctxloom trust` ref).
+func parseCompanionReference(ref string) (*Reference, error) {
+	bin := strings.TrimPrefix(ref, CompanionSource+"@")
+	if bin == "" {
+		return nil, fmt.Errorf("companion reference %q missing a binary name", ref)
+	}
+	if err := validateItemPath(bin); err != nil {
+		return nil, fmt.Errorf("invalid companion reference %s: %w", ref, err)
+	}
+	return &Reference{
+		URL:         CompanionSource,
+		ItemType:    ItemTypeBundle,
+		Path:        bin,
+		IsCompanion: true,
 	}, nil
 }
 
@@ -377,6 +422,13 @@ func (r *Reference) String() string {
 	return r.CanonicalString()
 }
 
+// companionRef formats a ctxloom:companion reference as
+// "ctxloom:companion@<bin>" — the flat grammar parseCompanionReference reads
+// back, with no type/path/version tail (see that function's doc).
+func (r *Reference) companionRef() string {
+	return fmt.Sprintf("%s@%s", CompanionSource, r.Path)
+}
+
 // localRef formats a ctxloom:local reference as
 // "ctxloom:local@<type>/<path>[@version]". The version is included when present
 // (unlike the canonical URL form, the local form is fully round-trippable).
@@ -396,6 +448,9 @@ func (r *Reference) localRef() string {
 func (r *Reference) CanonicalString() string {
 	if r.IsLocal {
 		return r.localRef()
+	}
+	if r.IsCompanion {
+		return r.companionRef()
 	}
 	typeName := r.ItemType.DirName()
 	if typeName == "" {
@@ -578,7 +633,7 @@ func sshRepoName(repoURL string) string {
 //
 // If ContentVersion is empty, the @<content_version> suffix is omitted.
 func (r *Reference) ToCanonicalWithVersion() string {
-	if r.URL == "" {
+	if r.URL == "" || r.IsCompanion {
 		return r.String()
 	}
 

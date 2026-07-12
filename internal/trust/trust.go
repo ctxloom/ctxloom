@@ -210,8 +210,8 @@ var knownCaseFoldForges = map[string]bool{
 // on remote.NormalizeURL (unifies scheme, rewrites git@ → https, strips a
 // trailing .git for http(s)) and then, for http(s) URLs, lowercases the host
 // (DNS is case-insensitive) and — for known case-insensitive forges — the
-// owner/repo path, and trims a trailing slash. Empty input and the
-// ctxloom:local token pass through unchanged.
+// owner/repo path, and trims a trailing slash. Empty input, the ctxloom:local
+// token, and the ctxloom:companion token pass through unchanged.
 func CanonicalRepoURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -219,6 +219,15 @@ func CanonicalRepoURL(raw string) string {
 	}
 	if raw == remote.LocalSource {
 		return remote.LocalSource
+	}
+	if raw == remote.CompanionSource {
+		// A companion loadout's RepoURL is the fixed CompanionSource token
+		// (differentiated by Bundle=<bin>, mirroring how every local bundle
+		// shares remote.LocalSource) — never a real URL. Without this early
+		// return, remote.NormalizeURL's "no scheme, no slash" fallback would
+		// mangle it into "https://ctxloom:companion", the same bug the
+		// ctxloom:local case above exists to avoid.
+		return remote.CompanionSource
 	}
 
 	normalized := remote.NormalizeURL(raw)

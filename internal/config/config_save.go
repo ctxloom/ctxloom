@@ -70,6 +70,11 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// The ambient memo now describes a superseded file. Load's stat check would
+	// catch this on its own; dropping the memo here makes the write→read
+	// ordering explicit rather than dependent on mtime granularity.
+	Invalidate()
+
 	return nil
 }
 

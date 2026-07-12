@@ -52,6 +52,22 @@ func GetConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+// GetConfigForUpdate returns a config a command may MUTATE before saving. It is
+// GetConfig's read/write twin: GetConfig hands back the shared ambient config
+// (memoized, so ~35 call sites share one parse), and mutating that instance
+// would let a change abandoned on an error path — validation failure, a Save
+// that errors — leak into every later reader in the same process (an MCP/ACP
+// server, the coordinator). Commands that write config (agent set/remove, llm
+// default, mcp add/remove) take their own instance instead.
+func GetConfigForUpdate() (*config.Config, error) {
+	cfg, err := config.LoadFresh()
+	if err != nil {
+		return nil, err
+	}
+	printConfigWarnings(os.Stderr, cfg.Warnings)
+	return cfg, nil
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "ctxloom",
 	Short: "Sophisticated Context Management",

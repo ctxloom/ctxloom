@@ -624,11 +624,98 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 	}
 }
 
-// Load finds and loads configuration from a single source.
-// Priority order (first found wins, no merging):
+// Load returns the AMBIENT project config: the one config a process reads.
+//
+// The no-arg call is memoized, so the ~35 call sites across the CLI share one
+// parse instead of each re-walking the directory tree, re-parsing the YAML and
+// re-running schema validation. The memo is validated against config.yaml's
+// stat (mtime+size) on every call rather than frozen at first read, because two
+// behaviours depend on seeing a rewritten file WITHIN one process:
+//
+//   - read-after-write: init scaffolds config.yaml between two Loads;
+//   - hot reload: agent_run re-loads on every spawn so edited agent definitions
+//     take effect mid-session.
+//
+// Validating by stat (rather than invalidating at each writer) is deliberate:
+// it self-corrects for ANY writer — Save, init's scaffold, another process, a
+// user's editor — so a missed invalidation cannot serve a stale config.
+//
+// Passing options (WithAppDir/WithFS) means a DIFFERENT config — an explicit
+// --app-dir, a worktree's .ctxloom, an injected fs — so those loads are never
+// served from, nor written into, the ambient memo.
+//
+// Callers that MUTATE a config before Save must use LoadFresh: mutating the
+// shared ambient instance would let a mutation abandoned on an error path leak
+// into every later reader.
+//
+// Source priority (first found wins, no merging):
 //  1. Project .ctxloom directory (walking up from cwd)
 //  2. User home ~/.ctxloom directory (fallback)
 func Load(opts ...LoadOption) (*Config, error) {
+	// An explicit target/fs is a different config: never cached.
+	if len(opts) > 0 {
+		return loadUncached(opts...)
+	}
+
+	ambientMu.Lock()
+	defer ambientMu.Unlock()
+
+	stamp := ambientStamp()
+	if ambientCfg != nil && ambientErr == nil && stamp == ambientAt {
+		return ambientCfg, nil
+	}
+
+	cfg, err := loadUncached()
+	ambientCfg, ambientErr, ambientAt = cfg, err, stamp
+	return cfg, err
+}
+
+// LoadFresh loads a config WITHOUT consulting or populating the ambient memo.
+// It is the mutator's entry point: Load hands back a shared instance, so a
+// caller that mutates before Save (agent/llm/mcp/tooling writes) must own its
+// own copy or an abandoned mutation would poison every later reader.
+func LoadFresh(opts ...LoadOption) (*Config, error) {
+	return loadUncached(opts...)
+}
+
+// Invalidate drops the memoized ambient config, so the next Load re-reads from
+// disk. Load's stat check already covers ordinary writes; this is the explicit
+// escape hatch (and what tests use to isolate from one another).
+func Invalidate() {
+	ambientMu.Lock()
+	defer ambientMu.Unlock()
+	ambientCfg, ambientErr, ambientAt = nil, nil, ""
+}
+
+// ambient* memoize the no-arg Load. ambientAt is the stat stamp of the
+// config.yaml the memo was built from; a mismatch (or an unfindable file) means
+// re-read. Errors are NOT memoized as successes: a failed load re-attempts.
+var (
+	ambientMu  sync.Mutex
+	ambientCfg *Config
+	ambientErr error
+	ambientAt  string
+)
+
+// ambientStamp returns a cheap identity for the config file the ambient memo
+// was built from: path + mtime + size. An empty stamp (no discoverable config)
+// never matches a populated one, so the no-config case simply doesn't cache.
+func ambientStamp() string {
+	fs := afero.NewOsFs()
+	appPath, _ := findAppDir(fs)
+	if appPath == "" {
+		return ""
+	}
+	path := paths.ConfigPath(appPath)
+	info, err := fs.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%d|%d", path, info.ModTime().UnixNano(), info.Size())
+}
+
+// loadUncached is the real loader: it always reads and parses from disk.
+func loadUncached(opts ...LoadOption) (*Config, error) {
 	// Apply options
 	options := &loadOptions{}
 	for _, opt := range opts {

@@ -183,7 +183,7 @@ Examples:
 			return fmt.Errorf("--command is required")
 		}
 
-		cfg, err := GetConfig()
+		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -218,7 +218,7 @@ var mcpRemoveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := GetConfig()
+		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}

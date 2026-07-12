@@ -225,7 +225,7 @@ Examples:
 		if name == "help" {
 			return cmd.Help()
 		}
-		cfg, err := GetConfig()
+		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -282,7 +282,7 @@ Examples:
   ctxloom agent default dev        # make 'dev' the default agent`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
+		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -328,7 +328,7 @@ var agentRemoveCmd = &cobra.Command{
 		if name == "help" {
 			return cmd.Help()
 		}
-		cfg, err := GetConfig()
+		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}

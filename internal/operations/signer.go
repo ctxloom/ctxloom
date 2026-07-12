@@ -1,0 +1,389 @@
+// Signer management (signature-envelope spec §7.2): reading and writing the
+// user's/project's allowed_signers trust root. CLI-only, never MCP (ADR
+// 0024) — internal/cli/signer.go is the only production caller of the
+// mutating functions here; nothing in the MCP surface reaches this file.
+package operations
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/spf13/afero"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+)
+
+// SignerNamespaceAliases maps the short vocabulary `ctxloom signer` accepts
+// on --namespace (mirroring ssh-keygen/git vocabulary, ADR 0027) to the
+// full spec namespace strings. "publish" is the default namespace when the
+// CLI is given none (spec §7.2).
+var SignerNamespaceAliases = map[string]string{
+	"publish": signing.NamespacePublish,
+	"approve": signing.NamespaceApprove,
+	"reject":  signing.NamespaceReject,
+}
+
+// ResolveSignerNamespaces expands a list of short aliases ("publish",
+// "approve", "reject") or already-full namespace strings into the full
+// spec namespace strings `allowed_signers` stores. An empty input defaults
+// to []string{NamespacePublish} — signer add's documented default.
+func ResolveSignerNamespaces(aliases []string) ([]string, error) {
+	if len(aliases) == 0 {
+		return []string{signing.NamespacePublish}, nil
+	}
+	out := make([]string, 0, len(aliases))
+	for _, a := range aliases {
+		if full, ok := SignerNamespaceAliases[a]; ok {
+			out = append(out, full)
+			continue
+		}
+		// Already a full namespace string (e.g. from a scripted caller) —
+		// accept it as-is rather than forcing every caller through the
+		// alias table.
+		if a == signing.NamespacePublish || a == signing.NamespaceApprove || a == signing.NamespaceReject {
+			out = append(out, a)
+			continue
+		}
+		return nil, fmt.Errorf("unknown namespace %q (want publish|approve|reject)", a)
+	}
+	return out, nil
+}
+
+// SignerKeyInfo is a public key resolved for signer management: enough to
+// render a confirmation prompt (fingerprint) and, once confirmed, write an
+// allowed_signers entry.
+type SignerKeyInfo struct {
+	PublicKey   ssh.PublicKey
+	Fingerprint string
+	Comment     string // from the key file/literal, if any — advisory only
+}
+
+// ResolveSignerKey reads and parses a public key for `signer add`. keyArg is
+// a literal "ssh-<type> AAAA..." authorized-keys line, "-" for stdin, or a
+// path to a file containing one. ctxloom only ever reads PUBLIC key
+// material here — there is no path in this function that can return a
+// private key (spec §9.1: key management never touches private material).
+func ResolveSignerKey(keyArg string, fs afero.Fs, stdin io.Reader) (SignerKeyInfo, error) {
+	if keyArg == "" {
+		return SignerKeyInfo{}, fmt.Errorf("a public key is required (--key <path|->)")
+	}
+
+	var data []byte
+	switch keyArg {
+	case "-":
+		b, err := io.ReadAll(bufio.NewReader(stdin))
+		if err != nil {
+			return SignerKeyInfo{}, fmt.Errorf("reading public key from stdin: %w", err)
+		}
+		data = b
+	default:
+		if pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(keyArg)); err == nil {
+			return keyInfoFromPublicKey(pub, comment), nil
+		}
+		b, err := afero.ReadFile(getFS(fs), keyArg)
+		if err != nil {
+			return SignerKeyInfo{}, fmt.Errorf("%q is not a recognized public key and could not be read as a file: %w", keyArg, err)
+		}
+		data = b
+	}
+
+	pub, comment, _, _, err := ssh.ParseAuthorizedKey(data)
+	if err != nil {
+		return SignerKeyInfo{}, fmt.Errorf("no parseable SSH public key found: %w", err)
+	}
+	return keyInfoFromPublicKey(pub, comment), nil
+}
+
+func keyInfoFromPublicKey(pub ssh.PublicKey, comment string) SignerKeyInfo {
+	return SignerKeyInfo{
+		PublicKey:   pub,
+		Fingerprint: ssh.FingerprintSHA256(pub),
+		Comment:     comment,
+	}
+}
+
+// signerStorePath resolves which allowed_signers file `signer add/remove`
+// writes to: the committable project store (.ctxloom/allowed_signers) when
+// project is true, else the user store (~/.ctxloom/allowed_signers) — spec
+// §7, locations 2 and 3. Locations are chosen explicitly, never inferred,
+// because writing to the wrong one is a trust-root mistake.
+func signerStorePath(cfg *config.Config, project bool) (string, error) {
+	if project {
+		if cfg == nil || len(cfg.AppPaths) == 0 {
+			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project allowed_signers path")
+		}
+		return paths.AllowedSignersPath(cfg.AppPaths[0]), nil
+	}
+	return paths.HomeAllowedSignersPath()
+}
+
+// AddSignerRequest is the input to AddSigner.
+type AddSignerRequest struct {
+	Principal  string
+	Key        SignerKeyInfo
+	Namespaces []string // full namespace strings; see ResolveSignerNamespaces
+	// Comment overrides Key.Comment when non-empty.
+	Comment string
+	// Project writes to the committable project store instead of the user
+	// store.
+	Project bool
+	FS      afero.Fs
+}
+
+// AddSignerResult reports what was written and where.
+type AddSignerResult struct {
+	Path        string
+	Line        string
+	Fingerprint string
+}
+
+// AddSigner appends one allowed_signers entry, creating the file (and its
+// parent directory) if needed. It performs no confirmation prompt — that is
+// the CLI's job (signer add is the single most dangerous command in this
+// feature and the confirmation must show the fingerprint BEFORE this
+// function is ever called, spec §7.2).
+func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, error) {
+	if req.Principal == "" {
+		return nil, fmt.Errorf("a principal is required")
+	}
+	if req.Key.PublicKey == nil {
+		return nil, fmt.Errorf("a resolved public key is required")
+	}
+	namespaces := req.Namespaces
+	if namespaces == nil {
+		var err error
+		namespaces, err = ResolveSignerNamespaces(nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	path, err := signerStorePath(cfg, req.Project)
+	if err != nil {
+		return nil, err
+	}
+
+	comment := req.Comment
+	if comment == "" {
+		comment = req.Key.Comment
+	}
+	line, err := allowedsigners.FormatEntry(allowedsigners.Entry{
+		Principals: []string{req.Principal},
+		Namespaces: namespaces,
+		KeyType:    req.Key.PublicKey.Type(),
+		PublicKey:  req.Key.PublicKey,
+		Comment:    comment,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fs := getFS(req.FS)
+	if err := appendAllowedSignersLine(fs, path, line); err != nil {
+		return nil, err
+	}
+
+	return &AddSignerResult{Path: path, Line: line, Fingerprint: req.Key.Fingerprint}, nil
+}
+
+// appendAllowedSignersLine creates dirs/file as needed and appends line,
+// preserving whatever already exists.
+func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
+	if err := fs.MkdirAll(parentDir(path), 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", parentDir(path), err)
+	}
+
+	existing, _ := afero.ReadFile(fs, path) // absent is fine: existing stays nil
+	var b strings.Builder
+	b.Write(existing)
+	if len(existing) > 0 && !strings.HasSuffix(string(existing), "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString(line)
+	b.WriteString("\n")
+
+	if err := afero.WriteFile(fs, path, []byte(b.String()), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func parentDir(path string) string {
+	i := strings.LastIndexAny(path, "/\\")
+	if i < 0 {
+		return "."
+	}
+	return path[:i]
+}
+
+// SignerListing is one allowed_signers entry plus the store it came from,
+// for `signer list`/`signer show` display.
+type SignerListing struct {
+	Entry allowedsigners.Entry
+	// Source is "embedded" | "user" | "project".
+	Source string
+	Path   string
+}
+
+// ListSigners returns every entry across all three trust-root locations
+// (embedded defaults, user store, project store — spec §7), each tagged
+// with the store it came from. Malformed lines are silently omitted (they
+// grant no trust and Parse already reports them via clidiag warnings at
+// config load time — cfg.TrustRoot() is the load-bearing union; this
+// function is display-only and re-parses the same files to retain
+// per-entry Source tagging that Union collapses).
+func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
+	fs = getFS(fs)
+	var out []SignerListing
+
+	// The embedded trust root (ctxloom's own compiled-in release/bundle
+	// keys — spec §7, location 1) is intentionally not surfaced here as
+	// individual entries: config.embeddedSigners() is unexported by design
+	// (a trust root nobody controls would be worse than none — see
+	// trustroot.go) and is empty today regardless (no release/bundle key
+	// exists yet). Every entry `signer list` can meaningfully show today
+	// lives in the on-disk user/project stores read below.
+
+	if home, err := paths.HomeAllowedSignersPath(); err == nil {
+		out = append(out, listFromPath(fs, home, "user")...)
+	}
+	if cfg != nil && len(cfg.AppPaths) > 0 {
+		project := paths.AllowedSignersPath(cfg.AppPaths[0])
+		out = append(out, listFromPath(fs, project, "project")...)
+	}
+	return out, nil
+}
+
+func listFromPath(fs afero.Fs, path, source string) []SignerListing {
+	f, err := fs.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	store, _, err := allowedsigners.Parse(f)
+	if err != nil {
+		return nil
+	}
+	var out []SignerListing
+	for _, e := range store.Entries() {
+		out = append(out, SignerListing{Entry: e, Source: source, Path: path})
+	}
+	return out
+}
+
+// ShowSigner returns every entry (across all stores) whose principals match
+// identity — the `signer show <principal>` surface.
+func ShowSigner(cfg *config.Config, identity string, fs afero.Fs) ([]SignerListing, error) {
+	all, err := ListSigners(cfg, fs)
+	if err != nil {
+		return nil, err
+	}
+	var out []SignerListing
+	for _, l := range all {
+		if l.Entry.MatchesPrincipal(identity) {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+// RemoveSignerRequest is the input to RemoveSigner.
+type RemoveSignerRequest struct {
+	Principal string
+	Project   bool
+	FS        afero.Fs
+}
+
+// RemoveSignerResult reports how many entries were removed and from where.
+type RemoveSignerResult struct {
+	Path    string
+	Removed int
+}
+
+// RemoveSigner deletes every line in the target store (user or project)
+// whose principals list contains exactly req.Principal (a literal match,
+// not a glob — removing "*@example.com" removes only that literal pattern
+// entry, never every entry it happens to match, so this can never silently
+// drop more trust than asked). Entries in OTHER stores (embedded, or the
+// other of user/project) are untouched: removing a signer only ever
+// narrows the store it was written to.
+func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerResult, error) {
+	if req.Principal == "" {
+		return nil, fmt.Errorf("a principal is required")
+	}
+	path, err := signerStorePath(cfg, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	fs := getFS(req.FS)
+
+	f, err := fs.Open(path)
+	if err != nil {
+		return &RemoveSignerResult{Path: path, Removed: 0}, nil // nothing to remove
+	}
+	lines, err := readLines(f)
+	_ = f.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	store, _, err := allowedsigners.Parse(strings.NewReader(strings.Join(lines, "\n")))
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	toDrop := map[int]bool{}
+	removed := 0
+	for _, e := range store.Entries() {
+		if principalsContain(e.Principals, req.Principal) {
+			toDrop[e.Line] = true
+			removed++
+		}
+	}
+	if removed == 0 {
+		return &RemoveSignerResult{Path: path, Removed: 0}, nil
+	}
+
+	var kept []string
+	for i, line := range lines {
+		if toDrop[i+1] { // Entry.Line is 1-based
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	out := strings.Join(kept, "\n")
+	if len(kept) > 0 {
+		out += "\n"
+	}
+	if err := afero.WriteFile(fs, path, []byte(out), 0o600); err != nil {
+		return nil, fmt.Errorf("write %s: %w", path, err)
+	}
+	return &RemoveSignerResult{Path: path, Removed: removed}, nil
+}
+
+func principalsContain(principals []string, want string) bool {
+	for _, p := range principals {
+		if p == want {
+			return true
+		}
+	}
+	return false
+}
+
+func readLines(r io.Reader) ([]string, error) {
+	var lines []string
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	return lines, sc.Err()
+}

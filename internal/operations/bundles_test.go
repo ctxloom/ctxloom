@@ -2,20 +2,26 @@ package operations
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	gogitConfig "github.com/go-git/go-git/v5/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
 // setupBundleTestDir creates a real-filesystem .ctxloom layout for bundle tests.
@@ -1081,4 +1087,58 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 	assert.Equal(t, "install y", got.Skills["p"].Installation)
 	assert.Equal(t, "m-notes", got.MCP["m"].Notes)
 	assert.Equal(t, "install m", got.MCP["m"].Installation)
+}
+
+// TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes wires
+// PushBundleRequest.Signer end to end through PushBundle -> PublishManager
+// -> the mock Publisher, and confirms (a) a .sig sibling is published in
+// the same call sequence and (b) it verifies, via the REAL production
+// signing.VerifyPublisher path, over the EXACT bytes the mock recorded for
+// the main file — never a pre-metadata draft (spec §3.1).
+func TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes(t *testing.T) {
+	mock := &mockPublisher{returnCommitSHA: "sig123"}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		Remote:         "personal",
+		PublishManager: mgr,
+		Signer:         signer,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Signed)
+
+	require.Len(t, mock.createOrUpdateCalls, 2, "main file + .sig sibling")
+	main := mock.createOrUpdateCalls[0]
+	sig := mock.createOrUpdateCalls[1]
+	assert.Equal(t, "ctxloom/bundles/for-push.yaml", main.Path)
+	assert.Equal(t, "ctxloom/bundles/for-push.yaml.sig", sig.Path)
+
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"me@example.com"},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+	principal, verr := signing.VerifyPublisher(main.Content, sig.Content, root, time.Now())
+	require.NoError(t, verr)
+	assert.Equal(t, "me@example.com", principal)
+}
+
+func TestPushBundle_NoSigner_NeverPublishesSig(t *testing.T) {
+	mock := &mockPublisher{returnCommitSHA: "nosig"}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		Remote:         "personal",
+		PublishManager: mgr,
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Signed)
+	require.Len(t, mock.createOrUpdateCalls, 1, "no signer means no .sig call at all")
 }

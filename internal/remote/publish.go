@@ -127,6 +127,22 @@ type PublishOptions struct {
 
 	// FS is the filesystem to use (defaults to OS filesystem if nil).
 	FS afero.Fs
+
+	// SignPayload, when non-nil, is called with the EXACT bytes about to be
+	// written to remotePath (after addPublishMetadata — the bytes that will
+	// actually sit in the remote tree, spec §3.1: a publisher signature
+	// covers the raw bundle FILE bytes, verbatim) and must return an armored
+	// PROTOCOL.sshsig blob over them. The result is written as a detached
+	// sibling "<remotePath>.sig" in the SAME commit/branch (spec §4.1).
+	//
+	// This is a callback rather than a concrete signer type so package
+	// remote stays decoupled from package signing/agentkey — key discovery
+	// and signing are the caller's (operations/CLI) responsibility; this
+	// package only knows "given bytes, produce a signature or fail". A
+	// non-nil SignPayload that returns an error aborts the ENTIRE publish
+	// before any network write — signing failure must never degrade to an
+	// unsigned publish (spec §7A.4, normative).
+	SignPayload func(payload []byte) ([]byte, error)
 }
 
 // PublishResult contains the result of a publish operation.
@@ -142,6 +158,10 @@ type PublishResult struct {
 
 	// Created indicates if a new file was created (vs updated).
 	Created bool
+
+	// Signed reports whether a detached "<Path>.sig" sibling was written
+	// alongside Path (PublishOptions.SignPayload was set and succeeded).
+	Signed bool
 }
 
 // publishPrep holds everything resolved before the push/PR strategy runs.
@@ -153,6 +173,9 @@ type publishPrep struct {
 	remotePath    string
 	branch        string
 	content       []byte // content with publish metadata added
+	// signature is the armored sshsig blob over content, computed by
+	// PublishOptions.SignPayload when set; nil means "not signing".
+	signature []byte
 	title, body   string
 	commitMessage string
 	created       bool
@@ -236,6 +259,21 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, fmt.Errorf("failed to add metadata: %w", err)
 	}
 
+	// Sign the EXACT bytes about to be written to remotePath (post-metadata
+	// — spec §3.1: the publisher signature covers the bytes as they exist in
+	// the tree at the pinned SHA, not any earlier draft of them). A signing
+	// failure aborts here, before any network write: no publish has
+	// happened yet, so there is no partial state to unwind, and the caller
+	// never sees the file land unsigned when signing was requested (spec
+	// §7A.4, normative — failing to sign is a hard error).
+	var signature []byte
+	if opts.SignPayload != nil {
+		signature, err = opts.SignPayload(contentWithMeta)
+		if err != nil {
+			return nil, fmt.Errorf("sign %s: %w", remotePath, err)
+		}
+	}
+
 	// Existing file (if any) decides created vs updated and the default title.
 	existingSHA, _ := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
 	created := existingSHA == ""
@@ -250,11 +288,28 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		remotePath:    remotePath,
 		branch:        branch,
 		content:       contentWithMeta,
+		signature:     signature,
 		title:         title,
 		body:          body,
 		commitMessage: buildCommitMessage(title, body),
 		created:       created,
 	}, nil
+}
+
+// publishSignatureSibling writes prep.signature (when non-nil) as
+// "<remotePath>.sig" on branch, in its own commit right after the content
+// commit — the detached sibling carrier (spec §4.1). Returns Signed=true
+// only when a signature was actually written.
+func publishSignatureSibling(ctx context.Context, publisher Publisher, prep *publishPrep, branch string) (bool, error) {
+	if prep.signature == nil {
+		return false, nil
+	}
+	sigPath := prep.remotePath + ".sig"
+	msg := "sign " + prep.itemName
+	if _, err := publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, sigPath, branch, msg, prep.signature); err != nil {
+		return false, fmt.Errorf("publish signature %s: %w", sigPath, err)
+	}
+	return true, nil
 }
 
 // buildCommitMessage assembles a git-convention commit message: subject, blank
@@ -266,13 +321,22 @@ func buildCommitMessage(title, body string) string {
 	return title + "\n\n" + body
 }
 
-// publishDirect pushes the content straight to the target branch.
+// publishDirect pushes the content straight to the target branch, then the
+// signature sibling (if any) — spec §4.1, same branch, same tree.
 func (pm *PublishManager) publishDirect(ctx context.Context, prep *publishPrep) (*PublishResult, error) {
 	sha, err := prep.publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, prep.remotePath, prep.branch, prep.commitMessage, prep.content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to publish: %w", err)
 	}
-	return &PublishResult{Path: prep.remotePath, SHA: sha, Created: prep.created}, nil
+	signed, err := publishSignatureSibling(ctx, prep.publisher, prep, prep.branch)
+	if err != nil {
+		// The content commit already landed UNSIGNED on the target branch;
+		// this is surfaced as an error (never silently swallowed) so the
+		// caller knows to retry `ctxloom sign` against the pushed bundle
+		// rather than believing the signed publish it asked for succeeded.
+		return nil, fmt.Errorf("bundle pushed as %s (commit %s) but its signature failed to publish: %w", prep.remotePath, sha, err)
+	}
+	return &PublishResult{Path: prep.remotePath, SHA: sha, Created: prep.created, Signed: signed}, nil
 }
 
 // publishViaPR creates a feature branch, commits the content there, and opens a
@@ -296,6 +360,12 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
+	// Signature sibling lands on the SAME feature branch, before the PR is
+	// opened, so the PR's diff already carries the signed pair together.
+	signed, err := publishSignatureSibling(ctx, prep.publisher, prep, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("branch %s created with %s but its signature failed to publish: %w", branchName, prep.remotePath, err)
+	}
 
 	// Cap the on-PR title for readability; preserve any overflow in the body
 	// so the full title text survives alongside the message body.
@@ -306,7 +376,7 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 		return nil, fmt.Errorf("failed to create pull request: %w", err)
 	}
 
-	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created}, nil
+	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created, Signed: signed}, nil
 }
 
 // buildPublishPath constructs the remote file path for an item.

@@ -75,6 +75,8 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
+* [ctxloom sign](/reference/cli/ctxloom_sign/)	 - Sign a local bundle for publication
+* [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage trusted signers (allowed_signers)
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage skills
 * [ctxloom tooling](/reference/cli/ctxloom_tooling/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply
 * [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, skill, MCP server, or hook)

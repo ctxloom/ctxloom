@@ -18,10 +18,18 @@ Push a bundle containing fragments to a remote repository.
 This publishes the entire bundle (which contains fragments, prompts, etc.)
 to the specified remote.
 
+--sign publishes a detached signature alongside the bundle (signature-
+envelope spec §3.1) so anyone who trusts your key can verify it came from
+you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+'sign.default: true' in config to make every push sign unless --no-sign is
+given for one invocation — the best signing ceremony is the one that
+already happened.
+
 Examples:
   ctxloom fragment push my-bundle
   ctxloom fragment push my-bundle ctxloom-default
   ctxloom fragment push my-bundle --pr
+  ctxloom fragment push my-bundle --sign
 
 ```
 ctxloom fragment push <bundle> [remote] [flags]
@@ -32,7 +40,9 @@ ctxloom fragment push <bundle> [remote] [flags]
 ```
   -h, --help             help for push
   -m, --message string   Commit message
+      --no-sign          don't sign, even if sign.default is true
       --pr               Create a pull request
+      --sign             sign the published bundle (spec §3.1)
 ```
 
 ### Options inherited from parent commands

@@ -24,6 +24,15 @@ Together, the agent gets the right context *and* runs the right commands.
 
 It is a **cooperative redirect, not a sandbox.** If you instruct the agent to work around a rule, it can. For hard "never, under any circumstances" isolation, run the agent in a container — `ltk` makes the *easy, accidental* path the right one.
 
+## Reference
+
+- **[CLI reference](/ltk/reference/cli/)** — every command, generated from the binary.
+
+<!-- PROSE PLACEHOLDER (hand-written, separate workstream):
+     The rule syntax and behaviour still live only in docs/RULES.md in the repo and
+     have never been published to this site. A "Writing rules" page under this
+     section is the missing piece — this overview points at GitHub for it today. -->
+
 ## Install
 
 ```sh

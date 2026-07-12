@@ -6,8 +6,9 @@ pre-commit:
   commands:
     reprise:
       # Duplicate-detection gate: findings involving units changed since HEAD
-      # fail unless baselined (reprise-baseline.json, checked in) and
-      # unworsened. On an inconsistent-update finding, apply the change to
+      # fail unless baselined (the baseline is a git ref reprise maintains
+      # itself, not a tracked file) and unworsened. On an inconsistent-update
+      # finding, apply the change to
       # every copy of the group (or extract the shared helper); on a new
       # duplicate, call the existing unit instead. Refresh the baseline only
       # for deliberate, reviewed adoptions — never to make a failing check

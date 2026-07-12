@@ -1,8 +1,9 @@
-package main
+package docsgen
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/ctxloom/ctxloom/internal/cli"
 )
 
 // mcpToolProperty is the subset of a JSON Schema property node we render into
@@ -34,53 +33,59 @@ type mcpToolSchema struct {
 	Required   []string                   `json:"required"`
 }
 
-// genMCPTools writes the MCP reference page (tools, resources, resource
-// templates) to <dir>/mcp-tools.md. It enumerates the live server surface via
-// an in-memory MCP client so the page can never drift from the registered
-// tools/resources. Output is sorted by name/URI for a byte-deterministic diff.
-func genMCPTools(dir string) error {
+// GenMCPTools writes the product's MCP reference page (tools, resources,
+// resource templates) to <dir>/mcp-tools.md. It enumerates the live server
+// surface via an in-memory MCP client so the page can never drift from the
+// registered tools/resources. Output is sorted by name/URI for a
+// byte-deterministic diff. Sections with nothing in them are omitted, so a
+// tools-only product doesn't advertise resources it has none of.
+func GenMCPTools(ctx context.Context, p *Product, dir string) error {
+	if p.MCPServer == nil {
+		return errors.New("docsgen: product " + p.Bin + " has no MCP server to document")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	ctx := context.Background()
-	tools, resources, templates, err := enumerateMCPSurface(ctx)
+	tools, resources, templates, err := enumerateMCPSurface(ctx, p.MCPServer)
 	if err != nil {
 		return err
 	}
 
 	var b strings.Builder
-	b.WriteString(mcpFrontmatter())
+	b.WriteString(p.mcpFrontmatter())
 
-	b.WriteString("Reference for the tools and resources exposed by ctxloom's MCP server (`ctxloom mcp serve`).\n\n")
-	b.WriteString("The MCP surface is for **retrieving context during a session**: assembling context, ")
-	b.WriteString("searching content, and working with session memory. Everything that *manages* ctxloom ")
-	b.WriteString("(creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing, ")
-	b.WriteString("approving, and trusting changes) is done with the ctxloom CLI, not MCP tools. Task tracking ")
-	b.WriteString("lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.\n\n")
+	if p.MCPIntro != "" {
+		b.WriteString(strings.TrimRight(p.MCPIntro, "\n"))
+		b.WriteString("\n\n")
+	}
 
 	b.WriteString("## Tools\n\n")
 	for _, t := range tools {
 		writeMCPTool(&b, t)
 	}
 
-	b.WriteString("## Resources\n\n")
-	b.WriteString("Read-only listings are exposed as MCP resources rather than tools.\n\n")
-	b.WriteString("| URI | Name | Description |\n")
-	b.WriteString("|-----|------|-------------|\n")
-	for _, r := range resources {
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", r.URI, mdCell(r.Name), mdCell(r.Description))
+	if len(resources) > 0 {
+		b.WriteString("## Resources\n\n")
+		b.WriteString("Read-only listings are exposed as MCP resources rather than tools.\n\n")
+		b.WriteString("| URI | Name | Description |\n")
+		b.WriteString("|-----|------|-------------|\n")
+		for _, r := range resources {
+			fmt.Fprintf(&b, "| `%s` | %s | %s |\n", r.URI, mdCell(r.Name), mdCell(r.Description))
+		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
-	b.WriteString("## Resource Templates\n\n")
-	b.WriteString("Parameterized resources for single-record lookup (RFC 6570 URI templates).\n\n")
-	b.WriteString("| URI Template | Name | Description |\n")
-	b.WriteString("|--------------|------|-------------|\n")
-	for _, t := range templates {
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", t.URITemplate, mdCell(t.Name), mdCell(t.Description))
+	if len(templates) > 0 {
+		b.WriteString("## Resource Templates\n\n")
+		b.WriteString("Parameterized resources for single-record lookup (RFC 6570 URI templates).\n\n")
+		b.WriteString("| URI Template | Name | Description |\n")
+		b.WriteString("|--------------|------|-------------|\n")
+		for _, t := range templates {
+			fmt.Fprintf(&b, "| `%s` | %s | %s |\n", t.URITemplate, mdCell(t.Name), mdCell(t.Description))
+		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
 	out := filepath.Join(dir, "mcp-tools.md")
 	return os.WriteFile(out, []byte(b.String()), 0o644)
@@ -89,9 +94,7 @@ func genMCPTools(dir string) error {
 // enumerateMCPSurface stands up the doc server and an in-memory client, then
 // lists the registered tools, resources, and templates. Each slice is sorted
 // (tools/resources by name, templates by URI template) for deterministic output.
-func enumerateMCPSurface(ctx context.Context) ([]*mcp.Tool, []*mcp.Resource, []*mcp.ResourceTemplate, error) {
-	server := cli.NewDocMCPServer()
-
+func enumerateMCPSurface(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, []*mcp.Resource, []*mcp.ResourceTemplate, error) {
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		return nil, nil, nil, fmt.Errorf("connect doc server: %w", err)
@@ -234,17 +237,17 @@ func propertyDescription(p mcpToolProperty) string {
 
 // mcpFrontmatter is the Starlight frontmatter + generated-file banner + note,
 // matching the CLI reference pages' convention.
-func mcpFrontmatter() string {
+func (p *Product) mcpFrontmatter() string {
 	return fmt.Sprintf(`---
 title: "MCP Tools Reference"
 ---
-<!-- GENERATED by %[1]sjust gen-docs%[1]s from the MCP tool/resource registrations in internal/cli.
+<!-- GENERATED by %[1]sjust gen-docs%[1]s from the MCP tool/resource registrations in %[2]s.
      Do not edit; edit the mcp.Tool/mcp.Resource definitions and their input structs instead. -->
 :::note
-This page is generated from ctxloom's registered MCP tools and resources (%[1]sctxloom mcp serve%[1]s).
+This page is generated from %[3]s's registered MCP tools and resources (%[1]s%[4]s%[1]s).
 :::
 
-`, "`")
+`, "`", p.MCPSource, p.Bin, p.MCPCommand)
 }
 
 // mdCell makes a string safe for a single Markdown table cell: escape pipes and

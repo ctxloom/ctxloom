@@ -1,4 +1,4 @@
-package main
+package docsgen
 
 import (
 	"encoding/json"
@@ -9,13 +9,13 @@ import (
 	"strings"
 )
 
-// genConfig renders the tracked JSON Schema at schemaPath into a Markdown
+// GenConfig renders the tracked JSON Schema at schemaPath into a Markdown
 // reference page at <dir>/config.md. It walks the schema rather than reflecting
 // config.Config directly: the Go struct's tags are yaml/mapstructure (not the
 // json the reflectors want) and it carries untagged runtime fields, whereas the
 // hand-annotated schema is the curated, user-facing surface. Output is
 // deterministic (object keys sorted; anyOf/oneOf array order preserved).
-func genConfig(schemaPath, dir string) error {
+func GenConfig(schemaPath, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

@@ -45,8 +45,8 @@ installs never need this — pass `--brew` to the script to delegate to brew.
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
 ```
 
-The script also installs the companions [taskloom](https://github.com/ctxloom/taskloom)
-and [ltk](/ecosystem/llm-tool-killer/). With Homebrew available, delegate the
+The script also installs the companions [taskloom](/taskloom/)
+and [ltk](/ltk/). With Homebrew available, delegate the
 whole install to brew (`--brew` is the script's only flag) — no unsigned-binary
 trust steps:
 

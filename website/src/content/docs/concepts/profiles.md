@@ -2,7 +2,9 @@
 title: "Profiles"
 ---
 
-A **profile** is a named configuration that references bundles, tags, and variables. Profiles enable quick context switching.
+Switching from backend work to a security audit shouldn't mean re-typing `-f security#fragments/owasp -f security#fragments/threat-model -t compliance` and hoping you remembered every fragment. Do that by hand a few times and you'll start skipping fragments, or reusing "close enough" context that doesn't match the task.
+
+A **profile** bundles that whole selection (bundles, tags, variables) under one name, so `ctxloom run -p security-audit` swaps your entire context in one flag instead of reassembling it by hand every time.
 
 ## Profile Structure
 

@@ -2,7 +2,9 @@
 title: "Skills"
 ---
 
-A **skill** is a saved prompt template within a bundle. Skills standardize common AI interactions and are automatically exposed as **slash commands** in both Claude Code and the Antigravity CLI. (Earlier ctxloom versions called this item kind "prompts"; bundles using the old `prompts:` key are migrated on load.)
+You've got a five-paragraph code-review request you paste into every PR, the one that reminds the AI to check error handling and watch for N+1 queries. Or you don't, because retyping it every time is tedious enough that you skip it on the small changes — the ones that turn out to matter anyway.
+
+A **skill** saves that request once in a bundle and exposes it as a slash command (`/code-review`) in both Claude Code and the Antigravity CLI, so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts"; bundles using the old `prompts:` key are migrated on load.)
 
 ## Skill Structure
 

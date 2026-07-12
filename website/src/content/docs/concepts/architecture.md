@@ -2,42 +2,13 @@
 title: "Architecture"
 ---
 
-Understanding how ctxloom is designed and how its components work together.
+Every AI coding tool wants its own copy of your standards, and every fresh session starts blank. You paste the same conventions into Claude Code, then into Cursor, then retype them again next week once the context window fills up and you clear it. Nothing ties those copies together, so they drift.
+
+ctxloom replaces the copies with one layered system: author context once, and bundles, profiles, hooks, and the MCP server all read from the same assembled source, so every tool and every session sees the same rules without you re-entering them.
 
 ## Overview
 
-ctxloom (Context Loom) manages AI coding context through a layered architecture:
-
-```mermaid
-flowchart TB
-    subgraph AI["AI Tools"]
-        direction LR
-        claude["Claude Code"]
-        cursor["Cursor"]
-        etc["etc."]
-    end
-
-    AI -->|"MCP Protocol / Hooks"| Core
-
-    subgraph Core["ctxloom Core"]
-        direction LR
-        bundles["Bundles"]
-        profiles["Profiles"]
-        assembly["Context Assembly"]
-        remotes["Remotes"]
-        hooks["Hooks"]
-        mcp["MCP Server"]
-    end
-
-    Core -->|"File System"| Storage
-
-    subgraph Storage["Storage Layer"]
-        direction LR
-        sbundles[".ctxloom/cache/bundles/"]
-        sprofiles[".ctxloom/profiles/"]
-        scontext[".ctxloom/cache/context/"]
-    end
-```
+ctxloom (Context Loom) manages that context through a small set of cooperating layers — bundles package content, profiles select it, context assembly renders it, and hooks/MCP deliver it to whichever AI tool is running. A full diagram of how these pieces connect is at the [end of this page](#system-diagram).
 
 ## Core Components
 
@@ -299,3 +270,36 @@ ctxloom aims to work with minimal external dependencies:
 - File-based storage
 - Standard Git hosting (no custom server)
 - Works offline with cached content
+
+## System Diagram
+
+```mermaid
+flowchart TB
+    subgraph AI["AI Tools"]
+        direction LR
+        claude["Claude Code"]
+        cursor["Cursor"]
+        etc["etc."]
+    end
+
+    AI -->|"MCP Protocol / Hooks"| Core
+
+    subgraph Core["ctxloom Core"]
+        direction LR
+        bundles["Bundles"]
+        profiles["Profiles"]
+        assembly["Context Assembly"]
+        remotes["Remotes"]
+        hooks["Hooks"]
+        mcp["MCP Server"]
+    end
+
+    Core -->|"File System"| Storage
+
+    subgraph Storage["Storage Layer"]
+        direction LR
+        sbundles[".ctxloom/cache/bundles/"]
+        sprofiles[".ctxloom/profiles/"]
+        scontext[".ctxloom/cache/context/"]
+    end
+```

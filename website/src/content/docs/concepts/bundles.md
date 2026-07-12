@@ -2,7 +2,9 @@
 title: "Bundles"
 ---
 
-A **bundle** is a versioned YAML file containing related fragments, skills, and MCP server configurations. A bundle can also ship profiles (addressed as `<bundle>#profiles/<name>`) and hook definitions.
+Your coding standards live in one project's `CLAUDE.md` and your MCP server config lives in another repo's `.claude/settings.json`. Each project reinvents its own copy, and they drift the moment one gets updated and the others don't.
+
+A **bundle** collects that content (fragments, skills, MCP server configs, profiles, hooks) into one versioned YAML file you can commit, share through a [remote](/concepts/remotes/), and pull into any project. Update the bundle once and every project that references it can pick up the change with `ctxloom remote pull`.
 
 ## Bundle Structure
 

@@ -2,7 +2,9 @@
 title: "Remotes"
 ---
 
-A **remote** is a Git repository for sharing bundles and profiles across teams and projects.
+A teammate pastes you their review checklist in Slack. You paste it into your bundle, tweak two lines for your project, and now there are two versions that will never agree again. Multiply that by every project on the team and "our standards" stops meaning anything specific.
+
+A **remote** is a Git repository ctxloom pulls [bundles](/concepts/bundles/) and profiles from, so a fragment or profile lives in exactly one place and every project references that source instead of a pasted copy. Update the bundle once, and `ctxloom remote pull` brings every project back in sync.
 
 ## Pre-configured Remote
 

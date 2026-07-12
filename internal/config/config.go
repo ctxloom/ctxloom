@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,16 @@ type Config struct {
 	// operations can't be imported here, so the gate is a plain bundles.ContentGate
 	// func. Never persisted.
 	execGate bundles.ContentGate
+
+	// companionSeedOnce/companionSeedCache memoize companionBundleSeed
+	// (ProbeCompanionLoadouts) for this Config's LIFETIME: probing execs a
+	// subprocess per discovered companion, and SeededBundleLoader is called
+	// repeatedly within one process (hooks, MCP, fragments, assembly) —
+	// without this, each call would re-pay that cost. Deliberately
+	// per-Config (not a package var): tests construct fresh Configs and must
+	// never observe another test's fake companion output.
+	companionSeedOnce  sync.Once
+	companionSeedCache map[string]*bundles.Bundle
 
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -947,22 +958,31 @@ func (c *Config) GetBundleDirs() []string {
 }
 
 // SeededBundleLoader returns a bundles.Loader that sees fs-installed local
-// bundles plus every remote bundle in the active lockfile, pre-loaded from
-// the local git clone cache and SHA-pinned. This is the read-path loader
-// every caller should use after PR 1: remote bundles no longer live on disk
-// as extracted YAML, so the seeding step is what makes them visible at all.
+// bundles, every remote bundle in the active lockfile (pre-loaded from the
+// local git clone cache and SHA-pinned), and every discovered companion's
+// loadout (S8 — ProbeCompanionLoadouts, seeded under its
+// ctxloom:companion@<bin> ref). This is the read-path loader every caller
+// should use after PR 1: remote bundles no longer live on disk as extracted
+// YAML, so the seeding step is what makes them (and companion loadouts,
+// which never touch disk at all) visible.
 //
 // Failures are degraded gracefully (CLAUDE.md fault tolerance): a missing
-// lockfile, unregistered remote, or single bad SHA produces a stderr
-// warning and the loader returns the rest.
+// lockfile, unregistered remote, single bad SHA, or unreachable/invalid
+// companion loadout produces a stderr warning and the loader returns the
+// rest.
 func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
 	if c.fs != nil {
 		// Thread the injected filesystem so fs-installed local bundle discovery
 		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithFS(c.fs))
 	}
-	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
-		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
+	remoteSeed := c.loadRemoteBundleSeed()
+	companionSeed := c.companionBundleSeed()
+	if len(remoteSeed) > 0 || len(companionSeed) > 0 {
+		merged := make(map[string]*bundles.Bundle, len(remoteSeed)+len(companionSeed))
+		maps.Copy(merged, remoteSeed)
+		maps.Copy(merged, companionSeed)
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(merged))
 	}
 	// Multi-version coexistence (trust rework, TR5): give every read-path loader
 	// the capability to materialize a specific historical commit-version of a
@@ -973,6 +993,31 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithVersionResolver(resolver))
 	}
 	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
+}
+
+// companionBundleSeed discovers and probes every companion's loadout
+// (ProbeCompanionLoadouts) exactly once per Config — see
+// companionSeedOnce/companionSeedCache — verifying any signature against
+// THIS config's full trust root (embedded + user + project allowed_signers,
+// same root verifyBundlePublisher uses for remote bundles below). The
+// result merges into SeededBundleLoader's seed map alongside
+// loadRemoteBundleSeed's remote bundles: same seam, same gate, same review
+// path (operations.EffectiveTrust, unchanged) — a companion loadout is not
+// a parallel trust mechanism.
+//
+// Skipped entirely when there is no project directory (mirrors
+// loadRemoteBundleSeed's own AppPaths guard): companion content only
+// matters for a real project session, and this keeps a bare/management
+// Config — the shape most unit tests construct — from spawning companion
+// subprocesses it has no use for.
+func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	c.companionSeedOnce.Do(func() {
+		c.companionSeedCache = ProbeCompanionLoadouts(c.TrustRoot())
+	})
+	return c.companionSeedCache
 }
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes

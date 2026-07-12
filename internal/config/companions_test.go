@@ -14,12 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The built-in bundles ship the taskloom MCP server and the ltk pre-tool
-// hook; the boot probe must discover both binaries from the embedded YAML
-// rather than a hardcoded list, so new built-ins are picked up automatically.
-func TestBuiltinCompanionBins_DerivedFromEmbeddedBundles(t *testing.T) {
+// BuiltinCompanionBins is now the UNION of DiscoverCompanions' first-party
+// list (ltk, taskloom, reprise — S8 companion loadout discovery) with
+// whatever an embedded built-in bundle's hooks/MCP still reference (none
+// today: S8 moved ltk/taskloom off the embedded-bundle mechanism onto their
+// own loadouts). reprise is included even though it doesn't implement
+// `loadout` yet — see firstPartyCompanions' doc comment.
+func TestBuiltinCompanionBins_UnionsDiscoveryWithEmbeddedBundles(t *testing.T) {
 	bins := BuiltinCompanionBins()
-	assert.Equal(t, []string{"ltk", "taskloom"}, bins, "sorted, deduped, ctxloom excluded")
+	assert.Equal(t, []string{"ltk", "reprise", "taskloom"}, bins, "sorted, deduped, ctxloom excluded")
 }
 
 func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
@@ -39,13 +42,13 @@ func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
 	defer restoreProbe()
 
 	statuses := ProbeCompanions()
-	require.Len(t, statuses, 2)
+	require.Len(t, statuses, 3)
 	for _, st := range statuses {
 		assert.Equal(t, "/usr/bin/"+st.Bin, st.Path)
 		assert.Equal(t, "v1.2.3", st.Version)
 		assert.NoError(t, st.Err)
 	}
-	assert.ElementsMatch(t, []string{"/usr/bin/ltk", "/usr/bin/taskloom"}, probed)
+	assert.ElementsMatch(t, []string{"/usr/bin/ltk", "/usr/bin/reprise", "/usr/bin/taskloom"}, probed)
 }
 
 func TestProbeCompanions_MissingBinaryYieldsEmptyPathAndNoProbe(t *testing.T) {

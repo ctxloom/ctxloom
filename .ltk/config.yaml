@@ -20,3 +20,10 @@ rules:
     match: { command: [go, install] }
     message: "Install through the task runner, not `go install` directly."
     suggest: "just install"
+  # The host has no upx and no cross toolchain, so a host-run goreleaser emits
+  # "-upx" artifacts that were never compressed — a snapshot that lies about
+  # what a release contains. goreleaser lives in the devcontainer only.
+  - id: goreleaser-via-just
+    match: { command: [goreleaser] }
+    message: "goreleaser must run in the devcontainer, never on the host: the host lacks upx, so a host snapshot produces uncompressed binaries masquerading as the `-upx` release artifacts."
+    suggest: "just release-snapshot   # or `just release-check` to validate .goreleaser.yml only"

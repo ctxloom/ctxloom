@@ -46,6 +46,17 @@ bump:
 release:
     versionator release push
 
+# Validate .goreleaser.yml (delegates to devcontainer)
+release-check: dev-image
+    just _run release-check
+
+# Snapshot-build release artifacts for this platform into dist/ (delegates to
+# devcontainer). goreleaser NEVER runs on the host: the host lacks upx, so a
+# host snapshot emits "-upx" artifacts that are byte-identical to the
+# uncompressed ones — a silent lie about what a release contains.
+release-snapshot: dev-image
+    just _run release-snapshot
+
 # Build the main binary with all features (delegates to devcontainer)
 build: dev-image
     just _run build

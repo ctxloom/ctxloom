@@ -88,6 +88,24 @@ build-all-bins: validate proto gen-schemas
     just ltk::build
     just taskloom::build
 
+# ===== Release validation (goreleaser, in-container only) =====
+
+# Validate .goreleaser.yml without building anything.
+release-check:
+    goreleaser check
+
+# Snapshot-build the release BINARIES for THIS platform only, into dist/.
+#
+# `build --single-target`, not `release`: the full matrix needs the
+# goreleaser-cross toolchains (o64-clang, llvm-mingw) that CI has and this
+# image does not, so a full local run would fail on the darwin/windows-arm64
+# legs. Archives/checksums are therefore NOT exercised here — `release-check`
+# plus CI cover those. What this DOES prove is the build IDs and real UPX
+# compression of the `-upx` twins (upx is installed here; it is NOT on the
+# host, which is exactly why goreleaser must never run there).
+release-snapshot: validate proto gen-schemas
+    goreleaser build --snapshot --clean --single-target
+
 # ===== Cross-compilation targets =====
 
 # Build for Linux amd64

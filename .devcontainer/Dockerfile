@@ -97,6 +97,13 @@ RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 # Install versionator for version management
 RUN go install github.com/benjaminabbitt/versionator@v0.2.1
 
+# GoReleaser: `just release-check` / `just release-snapshot` run here, never on
+# the host. The host has no upx and no cross toolchain, so a host snapshot
+# silently emits "-upx" artifacts that were never compressed. CI releases from
+# goreleaser-cross (see .github/workflows/release-completer.yml), which bundles
+# its own goreleaser — this pin only governs local validation.
+RUN go install github.com/goreleaser/goreleaser/v2@v2.16.0
+
 # Runtime module/build cache in workspace (writable by any user, persists across runs)
 ENV GOMODCACHE="/workspace/.cache/go/mod"
 ENV GOCACHE="/workspace/.cache/go/build"

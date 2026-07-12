@@ -1,6 +1,7 @@
 # Binaries
 /ctxloom
 bin/
+dist/
 scm-linux-amd64
 scm-darwin-amd64
 scm-darwin-arm64

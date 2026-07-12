@@ -74,6 +74,65 @@ builds:
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
+  # UPX-compressed twin of `ctxloom` (see the upx: block below). Linux/windows
+  # only — UPX doesn't support macOS binaries well (breaks code signing).
+  - id: ctxloom-upx
+    main: ./cmd/ctxloom
+    binary: ctxloom
+    tags:
+      - memory
+      - vectors
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+
+  # UPX-compressed twin of `ctxloom-full` (see the upx: block below).
+  # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
+  # signing).
+  - id: ctxloom-full-upx
+    main: ./cmd/ctxloom
+    binary: ctxloom
+    tags:
+      - memory
+      - vectors
+      - treesitter
+      - netgo
+      - osusergo
+    env:
+      - CGO_ENABLED=1
+      # Cross-compiler environment variables (provided by goreleaser-cross image)
+      - >-
+        {{- if eq .Os "linux" }}
+          {{- if eq .Arch "amd64" }}CC=x86_64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm64" }}CC=aarch64-linux-gnu-gcc{{- end }}
+        {{- end }}
+        {{- if eq .Os "darwin" }}
+          {{- if eq .Arch "amd64" }}CC=o64-clang{{- end }}
+          {{- if eq .Arch "arm64" }}CC=oa64-clang{{- end }}
+        {{- end }}
+        {{- if eq .Os "windows" }}
+          {{- if eq .Arch "amd64" }}CC=x86_64-w64-mingw32-gcc{{- end }}
+          {{- if eq .Arch "arm64" }}CC=/llvm-mingw/bin/aarch64-w64-mingw32-gcc{{- end }}
+        {{- end }}
+    goos:
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+      # Static linking for linux/windows; macOS cannot fully static-link system
+      # libraries, so leave darwin dynamic.
+      - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
+
   # ltk companion (llm-tool-killer): pre-tool command/edit guardrail hook.
   # Pure-Go (CGO off) → statically linked on every target. Folded into this
   # repo, so it now ships from the one ctxloom release/tag.
@@ -132,17 +191,19 @@ builds:
       - -s -w -extldflags=-static -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
-# UPX compression for smaller binaries
+# UPX compression for smaller binaries. Applied only to the dedicated
+# `-upx` build IDs (see builds: above) — `ctxloom`/`ctxloom-full` ship
+# uncompressed for fast startup (UPX LZMA decompression adds ~1.5s/exec).
 # NOTE: UPX is disabled for darwin - it breaks code signing and causes
 # "zsh: Killed" on macOS (especially Apple Silicon)
 upx:
-  - ids: [ctxloom]
+  - ids: [ctxloom-upx]
     enabled: true
     goos: [linux, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true
-  - ids: [ctxloom-full]
+  - ids: [ctxloom-full-upx]
     enabled: true
     goos: [linux, windows]
     goarch: [amd64, arm64]
@@ -181,6 +242,44 @@ archives:
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}_full
+    files:
+      - LICENSE*
+      - README.md
+      - man/man1/*.1
+
+  # UPX-compressed twin of `default`: smaller download, ~1.5s slower startup
+  # (UPX LZMA decompression). Linux/windows only.
+  - id: default-upx
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    ids:
+      - ctxloom-upx
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}_upx
+    files:
+      - LICENSE*
+      - README.md
+      - man/man1/*.1
+
+  # UPX-compressed twin of `full`: smaller download, ~1.5s slower startup
+  # (UPX LZMA decompression). Linux/windows only.
+  - id: full-upx
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    ids:
+      - ctxloom-full-upx
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}_full_upx
     files:
       - LICENSE*
       - README.md
@@ -376,6 +475,15 @@ release:
 
     Both builds include memory logging and semantic search.
     The full build adds AST-based code compression (requires CGO).
+
+    Each build ships in two forms:
+
+    - **Default** (no suffix, all platforms): uncompressed, fastest startup.
+    - **`_upx`** (linux/windows only): UPX-compressed, smaller download, but
+      ~1.5s slower per invocation due to LZMA decompression at startup.
+
+    Use the default unless the smaller download size matters more than
+    startup latency.
 
     ### Manual Installation
 

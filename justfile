@@ -59,6 +59,11 @@ compress: dev-image
 build-compressed: dev-image
     just _run build-compressed
 
+# Build all three binaries UNCOMPRESSED in the devcontainer (fast-starting
+# local install; UPX is release-only — see install/.goreleaser.yml).
+build-all-bins: dev-image
+    just _run build-all-bins
+
 # Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
 # module. ltk ships from the unified ctxloom release; main.Version matches
 # `ltk version`.
@@ -393,7 +398,7 @@ run *ARGS:
 # this same repo. Atomic rename instead of pkill+cp: replacing the directory
 # entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
 # never dumps a live ctxloom-managed session); new launches pick up the new one.
-install: build-compressed
+install: build-all-bins
     mkdir -p ~/go/bin
     cp ctxloom ~/go/bin/ctxloom.new
     mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom

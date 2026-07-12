@@ -79,6 +79,15 @@ build-compressed: validate proto gen-schemas
     just ltk::build-compressed
     just taskloom::build-compressed
 
+# Build all three binaries UNCOMPRESSED (ctxloom + ltk + taskloom). Codegen
+# prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
+# decompression adds ~1.5s/exec, so local installs stay uncompressed; UPX is
+# reserved for release artifacts (see .goreleaser.yml).
+build-all-bins: validate proto gen-schemas
+    just ctxloom::build
+    just ltk::build
+    just taskloom::build
+
 # ===== Cross-compilation targets =====
 
 # Build for Linux amd64

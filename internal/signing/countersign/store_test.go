@@ -3,6 +3,7 @@ package countersign
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,6 +15,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
+
+// denyFs wraps an afero.Fs and fails Open for any path in deny — a fake
+// (not a mock) that simulates "permission denied" / "I/O error" reads
+// without touching real OS file permissions (no chmod, no root-skip
+// flakiness), used to exercise Store.Readable's "exists but cannot be
+// read" branch deterministically.
+type denyFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f denyFs) Open(name string) (afero.File, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Open(name)
+}
 
 // testSigner returns an ephemeral in-memory ed25519 ssh.Signer and its
 // ssh.PublicKey, mirroring package signing's own newTestSigner (unexported,
@@ -265,4 +283,59 @@ func TestStore_UnsignedRefReject_RoundTrip(t *testing.T) {
 	assert.False(t, s.HasUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
 	require.NoError(t, s.WriteUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
 	assert.True(t, s.HasUnsignedRefReject(signing.KindFragments, "x#fragments/y"))
+}
+
+// --- Readable: absent vs unreadable (fail-closed preamble seam) --------------
+
+// A store directory that has never been written to (no decisions recorded
+// yet — the normal fresh-project/fresh-user shape) must read as FINE, never
+// an error: EffectiveTrust's preamble uses this to decide whether to deny
+// everything, and denying every fresh checkout would be its own outage.
+func TestStore_Readable_AbsentDirectory_IsNotAnError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+	assert.NoError(t, s.Readable())
+}
+
+// A nil *Store (e.g. "no project store configured") reads as absent too.
+func TestStore_Readable_NilStore_IsNotAnError(t *testing.T) {
+	var s *Store
+	assert.NoError(t, s.Readable())
+}
+
+// A store directory that EXISTS but cannot even be listed (permission
+// denied / I/O error opening it) must surface as an error — it might be
+// hiding a REJECTION, and silently reading it as "empty" would let step 1
+// (REJECTED is supreme) miss it.
+func TestStore_Readable_DirectoryExistsButUnlistable_IsAnError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/store", 0o755))
+	wrapped := denyFs{Fs: fs, deny: map[string]error{"/store": errors.New("permission denied")}}
+	s := NewStore("/store", wrapped)
+
+	err := s.Readable()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+}
+
+// A store directory that lists fine but contains a record file that cannot
+// be opened (corrupted / permission-denied at the file level) must ALSO
+// surface as an error — the same "might be hiding a rejection" reasoning
+// applies per-file, not just per-directory.
+func TestStore_Readable_FileWithinUnreadable_IsAnError(t *testing.T) {
+	signer, _ := testSigner(t)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+	require.NoError(t, s.WriteRefReject(signing.KindFragments, "acme/tooling#fragments/x", signer))
+
+	matches, err := afero.Glob(fs, "/store/*.sig")
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+
+	wrapped := denyFs{Fs: fs, deny: map[string]error{matches[0]: errors.New("permission denied")}}
+	s2 := NewStore("/store", wrapped)
+
+	err2 := s2.Readable()
+	require.Error(t, err2)
+	assert.Contains(t, err2.Error(), "permission denied")
 }

@@ -78,6 +78,21 @@ match wins; it is fail-closed:
    startup notice. This is where unsigned content lands, where signed-but-
    untrusted-key content lands, and where content whose bytes changed lands.
 
+Before step 1 even runs, the resolver checks that both physical approvals
+stores (the personal `~/.ctxloom/approvals` and the committable
+`.ctxloom/approvals`) can actually be read. A store directory that has never
+been created is **fine** — that is the ordinary "nothing reviewed yet" shape
+of a fresh project or a fresh user — but a store that *exists* and cannot be
+listed, or contains a record file that cannot be opened (permission denied, a
+filesystem-level I/O error), is treated as a fault, not as empty: it might be
+hiding a **rejection**, and silently reading it as "nothing rejected" would
+reopen a gate a human closed. On that fault the resolver **denies every item**
+— even one that would otherwise be allowed by the local or builtin exemption —
+and records a fatal `trust-store`-class finding in strict mode, exactly as the
+pre-signature hash-pair ledger did for an unreadable `trust.yaml`. The fix is
+the same shape either failure has always had: `fix or remove the corrupted
+approvals store, then re-review (ctxloom review)`.
+
 **A signature authenticates; it never authorizes.** A validly-signed malicious
 fragment is still malicious — signed does *not* mean safe. That is why review
 (steps 1 and 5) is a separate axis and why rejection outranks every signature,

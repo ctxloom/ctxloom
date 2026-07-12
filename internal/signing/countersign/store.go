@@ -19,6 +19,8 @@ package countersign
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -53,6 +55,55 @@ func (s *Store) Dir() string {
 		return ""
 	}
 	return s.dir
+}
+
+// Readable probes whether this store can actually be read, distinguishing
+// two situations a caller must NOT treat alike:
+//
+//   - The directory does not exist yet. This is the normal shape for a
+//     fresh project or a user who has never run `ctxloom review` —
+//     "nothing recorded" — and Readable returns nil.
+//   - The directory exists but cannot be listed (permission denied, an I/O
+//     error), or it lists fine but one of the record files inside it
+//     cannot be opened (permission denied, corrupted at the filesystem
+//     level). Either way Readable returns a non-nil error.
+//
+// The distinction matters because this store's silence is load-bearing: an
+// empty store means "nothing rejected", but a store this process simply
+// cannot SEE might be hiding a REJECTION — and rejection is supposed to be
+// supreme (spec §9.3). A caller that cannot tell "empty" from "blind" and
+// treats both as "nothing rejected" has silently reopened a gate a human
+// closed. This method exists so the caller (EffectiveTrust's
+// records-construction preamble) can fail closed instead.
+//
+// It deliberately does NOT attempt to parse or verify any file's contents —
+// a signature that reads fine but fails cryptographic verification is not
+// an error here (see Verified: that is the normal "not proven" outcome).
+// Readable only asks "can every byte on disk actually be read", nothing
+// more.
+func (s *Store) Readable() error {
+	if s == nil {
+		return nil
+	}
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("countersignature store %s: %w", s.dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(s.dir, entry.Name())
+		f, ferr := s.fs.Open(path)
+		if ferr != nil {
+			return fmt.Errorf("countersignature store %s: cannot read %s: %w", s.dir, entry.Name(), ferr)
+		}
+		_ = f.Close()
+	}
+	return nil
 }
 
 // indexHash is the filename's content-addressed key: sha256 of the FULL

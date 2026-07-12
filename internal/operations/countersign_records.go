@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/afero"
@@ -40,6 +41,24 @@ type countersignRecords struct {
 // deterministic when they assert which store's candidate matched.
 func (c countersignRecords) bothStores() []*countersign.Store {
 	return []*countersign.Store{c.user, c.project}
+}
+
+// readable probes both physical stores backing this records value,
+// distinguishing "neither has been written to yet" (nil — the normal
+// fresh-project/fresh-user shape) from "one of them exists but cannot be
+// read" (a non-nil error). See countersign.Store.Readable's doc for why
+// this distinction matters: an unreadable store might be hiding a
+// REJECTION, and step 1 of EffectiveTrust is supposed to be supreme. Used
+// only by EffectiveTrust's records-construction preamble — Rejected/Approved
+// themselves stay pure and never consult this.
+func (c countersignRecords) readable() error {
+	if err := c.user.Readable(); err != nil {
+		return fmt.Errorf("user approvals store: %w", err)
+	}
+	if err := c.project.Readable(); err != nil {
+		return fmt.Errorf("project approvals store: %w", err)
+	}
+	return nil
 }
 
 func (c countersignRecords) timeNow() time.Time {

@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -144,7 +145,19 @@ func (r EffectiveTrustResult) State() trust.State {
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
 	records := req.Records
 	if records == nil {
-		records = newCountersignRecords(cfg, req.FS)
+		built := buildCountersignRecords(cfg, req.FS, nil, nil, nil)
+		if err := built.readable(); err != nil {
+			// An approvals store we cannot read may hold REJECTIONS we would
+			// otherwise miss — deny everything rather than silently reopen the
+			// gate, ahead of every other step (including the local/builtin
+			// exemptions below). Fatal-class in strict mode (a deny-all
+			// session is not the session the user set up) — mirrors the
+			// deleted ledger's own store-open check (getTrustStore, pre-S6).
+			strictness.Fail(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
+				"approvals store unreadable, denying all items: %v", err)
+			return decide(trust.Deny, trust.SourcePending), nil
+		}
+		records = built
 	}
 
 	// 1. REJECTED. Checked FIRST, ahead of every allow — including the trusted

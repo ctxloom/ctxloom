@@ -630,7 +630,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	// Bundle name in target repo = filename without .yaml extension.
 	bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
-	targetPath := path.Join("ctxloom", "bundles", bundleName+".yaml")
+	targetPath := path.Join(paths.RepoContentPrefix, "bundles", bundleName+".yaml")
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).

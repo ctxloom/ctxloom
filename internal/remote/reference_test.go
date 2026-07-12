@@ -311,13 +311,13 @@ func TestReference_BuildFilePath(t *testing.T) {
 			name:     "non-canonical bundle uses passed item type",
 			ref:      Reference{Path: "go-tools"},
 			itemType: ItemTypeBundle,
-			want:     "ctxloom/bundles/go-tools.yaml",
+			want:     ".ctxloom/content/bundles/go-tools.yaml",
 		},
 		{
 			name:     "nested path",
 			ref:      Reference{Path: "golang/best-practices"},
 			itemType: ItemTypeBundle,
-			want:     "ctxloom/bundles/golang/best-practices.yaml",
+			want:     ".ctxloom/content/bundles/golang/best-practices.yaml",
 		},
 		{
 			name: "canonical uses embedded values",
@@ -327,7 +327,7 @@ func TestReference_BuildFilePath(t *testing.T) {
 				Path:     "core-practices",
 			},
 			itemType: ItemTypeBundle, // Passed item type is ignored for canonical
-			want:     "ctxloom/bundles/core-practices.yaml",
+			want:     ".ctxloom/content/bundles/core-practices.yaml",
 		},
 	}
 

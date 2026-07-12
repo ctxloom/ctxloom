@@ -39,7 +39,7 @@ func TestRemoteTransport_CloneFetchResolve(t *testing.T) {
 	fetcher, err := remote.NewGitCloneFetcher(localPath, repo.URL, remote.ForgeGitHub, nil)
 	require.NoError(t, err)
 
-	content, err := fetcher.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/demo.yaml", "main")
+	content, err := fetcher.FetchFile(ctx, "owner", "repo", ".ctxloom/content/bundles/demo.yaml", "main")
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "demo-server", "should read the seeded bundle from the clone")
 
@@ -48,13 +48,13 @@ func TestRemoteTransport_CloneFetchResolve(t *testing.T) {
 	assert.Equal(t, repo.SHA, sha, "ResolveRef(main) should return the seeded tip SHA")
 
 	// A missing path surfaces the not-found sentinel.
-	_, err = fetcher.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/missing.yaml", "main")
+	_, err = fetcher.FetchFile(ctx, "owner", "repo", ".ctxloom/content/bundles/missing.yaml", "main")
 	require.Error(t, err)
 
 	// Commit a new revision upstream, then UpdateRepo must fetch it.
 	// (CommitFile updates repo.SHA, so capture the old tip first.)
 	oldSHA := repo.SHA
-	newSHA := repo.CommitFile(t, "ctxloom/bundles/demo.yaml", "version: 2.0.0\nmcp:\n  demo-server:\n    command: demo-mcp-v2\n")
+	newSHA := repo.CommitFile(t, ".ctxloom/content/bundles/demo.yaml", "version: 2.0.0\nmcp:\n  demo-server:\n    command: demo-mcp-v2\n")
 	require.NotEqual(t, oldSHA, newSHA)
 
 	updatedPath, err := cache.UpdateRepo(ctx, repo.URL, remote.ForgeGitHub)
@@ -69,7 +69,7 @@ func TestRemoteTransport_CloneFetchResolve(t *testing.T) {
 	// Read by the resolved SHA — this is how production reads (the lockfile pins
 	// a SHA, not a branch name), and it proves the new commit's objects were
 	// fetched into the cache rather than just the remote-tracking ref moving.
-	updatedContent, err := updatedFetcher.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/demo.yaml", newSHA)
+	updatedContent, err := updatedFetcher.FetchFile(ctx, "owner", "repo", ".ctxloom/content/bundles/demo.yaml", newSHA)
 	require.NoError(t, err)
 	assert.Contains(t, string(updatedContent), "demo-mcp-v2", "fetch should see the updated content")
 }

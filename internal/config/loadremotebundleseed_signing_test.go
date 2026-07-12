@@ -41,17 +41,17 @@ func signedSeedRepo(t *testing.T, signFn func(bundleBytes []byte, signer ssh.Sig
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(repoDir, "ctxloom", "bundles")
+	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	bundleBytes := []byte("version: v1\ndescription: a signed bundle\n")
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "secure.yaml"), bundleBytes, 0o644))
 
-	files := []string{"ctxloom/bundles/secure.yaml"}
+	files := []string{".ctxloom/content/bundles/secure.yaml"}
 	if signFn != nil {
 		sig := signFn(bundleBytes, sshSigner)
 		if sig != nil {
 			require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "secure.yaml.sig"), sig, 0o644))
-			files = append(files, "ctxloom/bundles/secure.yaml.sig")
+			files = append(files, ".ctxloom/content/bundles/secure.yaml.sig")
 		}
 	}
 	for _, f := range files {

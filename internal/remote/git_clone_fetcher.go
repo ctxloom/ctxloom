@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // GitCloneFetcher implements Fetcher by reading from a local git clone.
@@ -102,13 +103,14 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 }
 
 // ListDeletedItems walks the repo's commit history and returns the item paths
-// under ctxloom/<kind>/ that existed at some past revision but are ABSENT at
-// HEAD — items removed upstream. Paths are relative to ctxloom/<kind>/ with the
-// .yaml suffix stripped, matching ListDir-derived current listings. This is the
-// history capability behind VCS Versioned.ListDeletedItems; it reads the local
-// clone only (zero network). Repos with no history of the kind list nothing.
+// under .ctxloom/content/<kind>/ that existed at some past revision but are
+// ABSENT at HEAD — items removed upstream. Paths are relative to
+// .ctxloom/content/<kind>/ with the .yaml suffix stripped, matching
+// ListDir-derived current listings. This is the history capability behind VCS
+// Versioned.ListDeletedItems; it reads the local clone only (zero network).
+// Repos with no history of the kind list nothing.
 func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
-	base := "ctxloom/" + kind.DirName()
+	base := paths.RepoContentPrefix + "/" + kind.DirName()
 
 	// Items present at HEAD — the baseline we subtract from history.
 	present := map[string]struct{}{}
@@ -251,7 +253,7 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 		return false, nil
 	}
 
-	_, err = tree.Tree("ctxloom")
+	_, err = tree.Tree(paths.RepoContentPrefix)
 	return err == nil, nil
 }
 

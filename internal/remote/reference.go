@@ -12,7 +12,7 @@ import (
 )
 
 // LocalSource is the fixed source token for ctxloom:local references —
-// project-authored content under the committed .ctxloom/local/ working copy.
+// project-authored content under the committed .ctxloom/content/ working copy.
 // It mirrors the canonical grammar: LocalSource @ <type>/<path>[@version].
 const LocalSource = "ctxloom:local"
 
@@ -49,7 +49,7 @@ const CompanionSource = "ctxloom:companion"
 //   - "file:///path/to/repo@bundles/name"
 //   - "file:///home/user/ctxloom-content@fragments/security"
 //
-// Local source (project-authored, committed .ctxloom/local/):
+// Local source (project-authored, committed .ctxloom/content/):
 //   - "ctxloom:local@bundles/name"
 //   - "ctxloom:local@bundles/name@<rev>" (pinned to a project revision)
 func ParseReference(ref string) (*Reference, error) {
@@ -474,15 +474,15 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 		// Use the embedded item type for canonical refs.
 		itemType = r.ItemType
 	} else if r.IsLocal {
-		// Read relative to the .ctxloom/local/ root, which is itself inside
+		// Read relative to the .ctxloom/content/ root, which is itself inside
 		// .ctxloom — so no redundant ctxloom/ segment:
-		// .ctxloom/local/bundles/go-tools.yaml.
+		// .ctxloom/content/bundles/go-tools.yaml.
 		return path.Join(r.ItemType.DirName(), r.Path+".yaml")
 	}
-	// Within a repo: ctxloom/<kind>/<path>.yaml. These are logical,
+	// Within a repo: .ctxloom/content/<kind>/<path>.yaml. These are logical,
 	// forward-slash repo paths (consumed by go-git / FromSlash on disk), so
 	// path.Join is correct here — not filepath.Join.
-	return path.Join("ctxloom", itemType.DirName(), r.Path+".yaml")
+	return path.Join(paths.RepoContentPrefix, itemType.DirName(), r.Path+".yaml")
 }
 
 // LocalPath returns the local path where the item would be installed.

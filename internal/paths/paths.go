@@ -64,12 +64,21 @@ const (
 	// directory has no remote/cache analog, unlike ProfilesDir.
 	AgentsDir = "agents"
 
-	// LocalDir is the subdirectory for project-authored, version-controlled
+	// ContentDir is the subdirectory for project-authored, version-controlled
 	// content referenced via the ctxloom:local source. Unlike CacheDir it is
 	// committed with the project (NOT gitignored, NOT regeneratable), and unlike
 	// remote content it is read from the working copy rather than a clone.
-	// Layout mirrors a repo's ctxloom tree: .ctxloom/local/<kind>/<name>.yaml.
-	LocalDir = "local"
+	// This is also the ONE on-disk home for authored/publishable content: a
+	// dedicated bundle repo lays it out identically under RepoContentPrefix
+	// (.ctxloom/content/<kind>/<name>.yaml) — one layout, not two.
+	ContentDir = "content"
+
+	// RepoContentPrefix is the repo-relative path prefix under which a remote
+	// repo's authored content lives: .ctxloom/content/<kind>/<name>.yaml. It is
+	// the canonical (non-local) counterpart to LocalPath — every fetcher/
+	// publisher that builds a repo-relative content path routes through this
+	// constant so there is exactly one on-disk layout, not a scattered literal.
+	RepoContentPrefix = ".ctxloom/content"
 
 	// MemoryDir is the subdirectory for memory/session files.
 	MemoryDir = "memory"
@@ -289,11 +298,11 @@ func BundlesPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), BundlesDir)
 }
 
-// LocalPath returns the path to the committed local-content directory (at
-// appPath root, NOT under cache/). It is the working-copy root for
+// LocalPath returns the path to the committed content directory (at
+// appPath/content, NOT under cache/). It is the working-copy root for
 // ctxloom:local references.
 func LocalPath(appPath string) string {
-	return filepath.Join(appPath, LocalDir)
+	return filepath.Join(appPath, ContentDir)
 }
 
 // VendorPath returns the path to the vendor directory (under cache/).

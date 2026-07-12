@@ -25,8 +25,8 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := NewMockFetcher().
-		WithFile("ctxloom/bundles/security.yaml", []byte("description: Security bundle\n")).
-		WithFile("ctxloom/bundles/nested/sub.yaml", []byte("description: Sub\n"))
+		WithFile(".ctxloom/content/bundles/security.yaml", []byte("description: Security bundle\n")).
+		WithFile(".ctxloom/content/bundles/nested/sub.yaml", []byte("description: Sub\n"))
 
 	factory := func(_ string, _ AuthConfig) (Fetcher, error) {
 		return fetcher, nil
@@ -67,7 +67,7 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 		call := fetcher.FetchFileCalls[0]
 		assert.Equal(t, "alice", call.Owner)
 		assert.Equal(t, "ctxloom", call.Repo)
-		assert.Equal(t, "ctxloom/bundles/security.yaml", call.Path)
+		assert.Equal(t, ".ctxloom/content/bundles/security.yaml", call.Path)
 		assert.Equal(t, "abc123def", call.Ref, "must fetch at locked SHA, not default branch")
 
 		// The reader must NOT re-resolve — the SHA from the lockfile is
@@ -83,7 +83,7 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 		assert.Equal(t, "description: Sub\n", string(data))
 
 		require.Len(t, fetcher.FetchFileCalls, 1)
-		assert.Equal(t, "ctxloom/bundles/nested/sub.yaml", fetcher.FetchFileCalls[0].Path)
+		assert.Equal(t, ".ctxloom/content/bundles/nested/sub.yaml", fetcher.FetchFileCalls[0].Path)
 	})
 
 	t.Run("missing bundle returns ErrBundleNotInLockfile", func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestLoadAllBytes(t *testing.T) {
 func TestBundleReader_ReadBundleSignature(t *testing.T) {
 	t.Run("fetches the sibling .sig at the locked SHA", func(t *testing.T) {
 		reader, fetcher, _ := readerFixture(t)
-		fetcher.WithFile("ctxloom/bundles/security.yaml.sig", []byte("-----BEGIN SSH SIGNATURE-----\nblob\n"))
+		fetcher.WithFile(".ctxloom/content/bundles/security.yaml.sig", []byte("-----BEGIN SSH SIGNATURE-----\nblob\n"))
 
 		data, err := reader.ReadBundleSignature(context.Background(), secKey)
 		require.NoError(t, err)
@@ -201,7 +201,7 @@ func TestBundleReader_ReadBundleSignature(t *testing.T) {
 
 		require.Len(t, fetcher.FetchFileCalls, 1)
 		call := fetcher.FetchFileCalls[0]
-		assert.Equal(t, "ctxloom/bundles/security.yaml.sig", call.Path,
+		assert.Equal(t, ".ctxloom/content/bundles/security.yaml.sig", call.Path,
 			"the signature is the bundle path + .sig, nothing else")
 		assert.Equal(t, "abc123def", call.Ref,
 			"the signature must be read at the SAME pinned SHA as the bytes it covers")

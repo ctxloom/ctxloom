@@ -140,12 +140,12 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, "ctxloom/bundles/mybundle.yaml", result.Path)
+		assert.Equal(t, ".ctxloom/content/bundles/mybundle.yaml", result.Path)
 		assert.Equal(t, "newsha123", result.SHA)
 		assert.True(t, result.Created)
 
 		// Verify file was created
-		assert.Contains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml")
+		assert.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/mybundle.yaml")
 	})
 
 	t.Run("creates PR when requested", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		mp := newMockPublisher()
-		mp.files["ctxloom/bundles/mybundle.yaml"] = "existingsha" // File already exists
+		mp.files[".ctxloom/content/bundles/mybundle.yaml"] = "existingsha" // File already exists
 		mf := newMockFetcher()
 
 		pm := NewPublishManager(registry, AuthConfig{},
@@ -243,9 +243,9 @@ func TestBuildPublishPath(t *testing.T) {
 		name     string
 		expected string
 	}{
-		{ItemTypeBundle, "security", "ctxloom/bundles/security.yaml"},
-		{ItemTypeBundle, "testing", "ctxloom/bundles/testing.yaml"},
-		{ItemType(""), "unknown", "ctxloom/bundles/unknown.yaml"}, // defaults to bundles
+		{ItemTypeBundle, "security", ".ctxloom/content/bundles/security.yaml"},
+		{ItemTypeBundle, "testing", ".ctxloom/content/bundles/testing.yaml"},
+		{ItemType(""), "unknown", ".ctxloom/content/bundles/unknown.yaml"}, // defaults to bundles
 	}
 
 	for _, tt := range tests {
@@ -390,12 +390,12 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, result.Signed)
-	require.Contains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml.sig")
-	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles["ctxloom/bundles/mybundle.yaml.sig"])
+	require.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/mybundle.yaml.sig")
+	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles[".ctxloom/content/bundles/mybundle.yaml.sig"])
 	// The signed payload must be EXACTLY the bytes that landed at the main
 	// path (post publish-metadata) — never the pre-metadata local bytes,
 	// and never a re-serialization (spec §3.1, §3.0).
-	assert.Equal(t, mp.createdFiles["ctxloom/bundles/mybundle.yaml"], signedPayload)
+	assert.Equal(t, mp.createdFiles[".ctxloom/content/bundles/mybundle.yaml"], signedPayload)
 }
 
 func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testing.T) {
@@ -452,5 +452,5 @@ func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, result.Signed)
-	assert.NotContains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml.sig")
+	assert.NotContains(t, mp.createdFiles, ".ctxloom/content/bundles/mybundle.yaml.sig")
 }

@@ -26,7 +26,7 @@ type GitRepo struct {
 
 // SeedGitRepo creates a bare git repo whose default branch (main) contains the
 // given files (path -> content), and returns it. Paths are repo-relative and may
-// contain slashes (e.g. "ctxloom/bundles/x.yaml"). The repo is created under
+// contain slashes (e.g. ".ctxloom/content/bundles/x.yaml"). The repo is created under
 // t.TempDir(), so it is cleaned up automatically.
 func SeedGitRepo(t *testing.T, files map[string]string) *GitRepo {
 	t.Helper()
@@ -118,7 +118,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 // resolution/apply can be asserted. (Top-level profile distribution was retired.)
 func CtxloomV1Layout() map[string]string {
 	return map[string]string{
-		"ctxloom/bundles/demo.yaml": strings.TrimSpace(`
+		".ctxloom/content/bundles/demo.yaml": strings.TrimSpace(`
 version: 1.0.0
 author: test
 description: Demo bundle with an MCP server and a hook

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // VCS abstracts reads from a single version-controlled source — one repository
@@ -34,9 +35,10 @@ type VCS interface {
 	// default-branch tip, or a local working copy. Always supported.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
 
-	// ListItems returns the repo-relative item paths under ctxloom/<kind>/ at the
-	// source's CURRENT state, with the ctxloom/<kind>/ prefix and the .yaml suffix
-	// stripped (so "lang/go/testing", not "ctxloom/bundles/lang/go/testing.yaml").
+	// ListItems returns the repo-relative item paths under
+	// .ctxloom/content/<kind>/ at the source's CURRENT state, with the
+	// .ctxloom/content/<kind>/ prefix and the .yaml suffix stripped (so
+	// "lang/go/testing", not ".ctxloom/content/bundles/lang/go/testing.yaml").
 	// A source with no such directory returns an empty list, not an error. Listing
 	// past revisions — and surfacing items DELETED since — is the optional
 	// Versioned capability (ListDeletedItems), not part of the minimal surface.
@@ -118,11 +120,12 @@ func (v *gitForgeVCS) ResolveRevision(ctx context.Context, rev string) (string, 
 	return v.fetcher.ResolveRef(ctx, v.owner, v.repo, rev)
 }
 
-// ListItems walks ctxloom/<kind>/ in the repo tree at the default branch,
-// recursing into subdirectories, and returns each .yaml item's path relative to
-// that base (suffix stripped). A repo with no such directory lists empty.
+// ListItems walks .ctxloom/content/<kind>/ in the repo tree at the default
+// branch, recursing into subdirectories, and returns each .yaml item's path
+// relative to that base (suffix stripped). A repo with no such directory
+// lists empty.
 func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, error) {
-	base := "ctxloom/" + kind.DirName()
+	base := paths.RepoContentPrefix + "/" + kind.DirName()
 	var items []string
 	var walk func(dir string) error
 	walk = func(dir string) error {
@@ -243,7 +246,7 @@ func FSVCSFactory(fs afero.Fs) VCSFactory {
 }
 
 // localGitVCS is a working-copy VCS over a directory that lives INSIDE a git
-// project (the committed .ctxloom/local/ tree). It reads the directory's CURRENT
+// project (the committed .ctxloom/content/ tree). It reads the directory's CURRENT
 // state from the filesystem exactly like fsVCS (embedded), but because the
 // enclosing project is itself under git it ALSO satisfies Versioned: a pinned
 // read returns the file's bytes as of a revision in the PROJECT'S OWN history —

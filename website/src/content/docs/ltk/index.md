@@ -3,18 +3,32 @@ title: "llm-tool-killer (ltk)"
 description: "A companion tool for ctxloom: redirect the commands your AI coding agent runs."
 ---
 
+An agent runs `go test ./...` directly instead of `just test`, bypassing whatever
+your task runner wraps around it — and nothing complains until CI catches what the
+direct command missed. `ltk` catches commands like this before they run and turns
+them into the right one:
+
+```
+go test ./...   ⟶   ✗ "Run tests through the task runner."   →   the agent retries with `just test`
+```
+
 **llm-tool-killer** (`ltk`) is a companion tool that ships from the ctxloom repo.
 Where ctxloom shapes the **context** an AI coding agent sees, `ltk` guides the
 **commands** it runs.
+
+`ltk` is a guardrail against reflexive mistakes, not a security boundary. It stops
+an agent from *accidentally* running the wrong command; it does not stop one that's
+trying to get around a rule. This is a **cooperative redirect** — an agent
+explicitly told to route around a rule can rename the binary or recompile it under
+another name. A command `ltk` can't parse is allowed by default, not blocked, and
+command matching is approximate enough that a determined-enough wrapper can still
+slip past a rule. Treat it as a seatbelt, not a vault: for real isolation, run the
+agent in a container.
 
 It's a small static binary the agent calls as a pre-tool hook. It parses the shell
 command the agent is about to run and, if one of your rules matches, turns it away
 and tells the model what to do instead, so the agent retries the right way rather
 than hitting a silent failure or an opaque block.
-
-```
-go test ./...   ⟶   ✗ "Run tests through the task runner."   →   the agent retries with `just test`
-```
 
 ## Why it pairs with ctxloom
 

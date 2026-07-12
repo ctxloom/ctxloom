@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -279,6 +280,10 @@ mcp:
   ltk-server:
     command: ltk
     args: ["serve"]
+skills:
+  task-runner:
+    description: "Detect and configure the project's task runner"
+    content: "ltk task-runner skill body"
 `
 
 func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte, error) {
@@ -336,6 +341,43 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 		result := cfg.ResolveBundleMCPServers(nil)
 		assert.NotContains(t, result, "ltk-server")
+	})
+}
+
+// TestResolveBundleSkills_IncludesCompanionLoadoutSkills_Gated proves skills
+// get the SAME unconditional-when-present, gated treatment ResolveBundleHooks
+// / ResolveBundleMCPServers already have (S8): with no profile at all
+// (profileNames nil, no default agent profiles configured), a companion's
+// skill still resolves through a trusted gate, and a denying gate withholds
+// it — proving it is NOT the builtin nil-gate exemption.
+func TestResolveBundleSkills_IncludesCompanionLoadoutSkills_Gated(t *testing.T) {
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
+	defer restoreProbe()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+
+	t.Run("trusted gate: companion skill is included with no profile selected", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return true })
+		result := cfg.ResolveBundleSkills(nil, gate)
+		require.Len(t, result, 1)
+		assert.Equal(t, "task-runner", result[0].Item)
+		assert.Equal(t, remote.CompanionSource+"@ltk", result[0].Bundle)
+
+		companionOnly := cfg.ResolveCompanionSkills(gate)
+		require.Len(t, companionOnly, 1)
+		assert.Equal(t, "task-runner", companionOnly[0].Item)
+	})
+
+	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{appDir}}
+		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return false })
+		result := cfg.ResolveBundleSkills(nil, gate)
+		assert.Empty(t, result, "a companion skill must be withheld by a denying gate — a true builtin would NOT be")
+		assert.Empty(t, cfg.ResolveCompanionSkills(gate))
 	})
 }
 

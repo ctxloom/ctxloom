@@ -12,16 +12,27 @@ import (
 )
 
 // LoadSkillExports loads every prompt that exports as a slash command:
-// ctxloom's embedded builtin commands plus the bundle prompts. This is the
-// SINGLE prompt-export assembly — both the `ctxloom run` setup payload
+// ctxloom's embedded builtin commands, the skills shipped by every DISCOVERED
+// COMPANION's loadout, plus the bundle prompts. This is the SINGLE
+// prompt-export assembly — both the `ctxloom run` setup payload
 // (AssembleManagedConfig, which passes the run's resolved profile set) and
 // operations.ApplyHooks (which passes nil → the configured defaults) route
 // through it. The settings/command writers reconcile by removing all
 // ctxloom-managed files and re-adding the assembled set, so two diverging
 // assemblies would silently delete whatever one produced and the other didn't.
 //
-// Bundle prompts come from one of two sources, chosen by the SELECTED (or
-// default) profiles:
+// Companion skills (S8 — config.ResolveCompanionSkills) are unconditional
+// whenever the companion binary is on PATH — e.g. ltk's task-runner skill
+// becomes the `/ltk-task-runner` slash command with no profile wiring needed —
+// gated through the SAME discovery+trust path as a companion's fragments/
+// hooks/MCP, never a builtin-style exemption. They are added on BOTH branches
+// below (curated and uncurated), since profile prompt curation otherwise
+// bypasses config.ResolveBundleSkills entirely and would silently drop them;
+// dedup keeps an explicit curation of the SAME skill (e.g. a profile that
+// lists "ctxloom:companion@ltk#skills/task-runner" itself) from doubling up.
+//
+// Bundle prompts (non-companion) come from one of two sources, chosen by the
+// SELECTED (or default) profiles:
 //   - When the profiles declare a NON-EMPTY prompts: list (profile prompt
 //     curation, opt-in), ONLY those are exported (each at its pinned version),
 //     force-enabled so a curated prompt surfaces even if its bundle didn't flag
@@ -33,6 +44,8 @@ import (
 //     the downstream per-backend enabled flag — the profile-scoped analog of
 //     the mcp/hooks resolvers (ResolveBundleMCPServers/ResolveBundleHooks), so
 //     `run -p X` carries only X's bundle skills, not every pulled bundle's.
+//     ResolveBundleSkills already folds in the companion skills itself, so
+//     this branch does not add them again.
 //
 // Builtins are always present in both modes (ctxloom's core commands aren't
 // part of the curatable bundle-prompt set).
@@ -56,18 +69,46 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 	}
 
 	// Profile prompt curation (opt-in): a non-empty curated set exports EXACTLY
-	// the listed prompts (force-enabled), scoped to the SELECTED profiles.
+	// the listed prompts (force-enabled), scoped to the SELECTED profiles. Even
+	// here, companion skills stay unconditional (see doc comment above).
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
 		loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
-		return append(prompts, loadCuratedPrompts(loader, curated)...)
+		prompts = append(prompts, loadCuratedPrompts(loader, curated)...)
+		if cfg != nil {
+			prompts = append(prompts, dedupSkillsByItem(prompts, cfg.ResolveCompanionSkills(opts...))...)
+		}
+		return prompts
 	}
 
 	// Uncurated (common case): export the SELECTED (or default) profiles' bundle
 	// skills via the profile-scoped resolver — the analog of ResolveBundleMCPServers
-	// / ResolveBundleHooks — so `run -p X` carries only X's bundle skills. Each is
+	// / ResolveBundleHooks — so `run -p X` carries only X's bundle skills, plus every
+	// discovered companion's skills (ResolveBundleSkills folds both in). Each is
 	// still gated downstream by its per-backend enabled flag; a trust-withheld skill
 	// never loads. opts thread the seed + trust gate into the resolver's loader.
 	return append(prompts, cfg.ResolveBundleSkills(profileNames, opts...)...)
+}
+
+// dedupSkillsByItem returns the entries of add whose Item does not already
+// appear in existing, preserving add's order. Used to fold companion skills
+// into the curated LoadSkillExports branch without doubling up a skill a
+// profile's prompts: list already names explicitly.
+func dedupSkillsByItem(existing, add []*bundles.LoadedContent) []*bundles.LoadedContent {
+	seen := make(map[string]bool, len(existing))
+	for _, p := range existing {
+		if p.Item != "" {
+			seen[p.Item] = true
+		}
+	}
+	var out []*bundles.LoadedContent
+	for _, p := range add {
+		if seen[p.Item] {
+			continue
+		}
+		seen[p.Item] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 // resolveProfilePromptRefs returns the union of prompt refs curated by the

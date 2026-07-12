@@ -32,5 +32,5 @@ ctxloom memory show <session-id> [flags]
 
 ### SEE ALSO
 
-* [ctxloom memory](/reference/cli/ctxloom_memory/)	 - Manage session memory (external compaction)
+* [ctxloom memory](/reference/cli/ctxloom_memory/)	 - Manage session memory (out-of-band compaction)
 

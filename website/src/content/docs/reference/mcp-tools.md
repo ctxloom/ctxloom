@@ -92,7 +92,7 @@ Assemble context from a profile, fragments, and/or tags. Returns the combined co
 
 ### compact_session
 
-Compact current or specified session log into a distilled summary. Use this to compress a session log when context is running low.
+Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|

@@ -68,7 +68,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom map](/reference/cli/ctxloom_map/)	 - Run multiple agents/profiles in parallel over one task (fan-out)
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
-* [ctxloom memory](/reference/cli/ctxloom_memory/)	 - Manage session memory (external compaction)
+* [ctxloom memory](/reference/cli/ctxloom_memory/)	 - Manage session memory (out-of-band compaction)
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
 * [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: accept or reject what the agent may see

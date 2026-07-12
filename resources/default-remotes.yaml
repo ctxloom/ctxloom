@@ -1,10 +1,13 @@
 # ctxloom Remote Sources
-# Pre-configured remotes for common ctxloom bundles and profiles
+# Pre-configured remotes for common ctxloom bundles and profiles.
+#
+# A remote is only an ADDRESS to fetch bundles from — it carries no trust.
+# ctxloom-default's content is trusted when its bundles are signed by ctxloom's
+# publishing key (in the binary's embedded allowed_signers); until those
+# signatures ship, its content takes the review path like any other remote.
+# Source trust (trusting a location, hash-blind) was deleted — trust is a
+# property of the publisher key now, never of the remote.
 
 remotes:
-  # The official curated repo ships trusted: its bundle changes apply on pull
-  # without a review prompt, so a fresh init runs out of the box. Revoke with:
-  # ctxloom remote untrust ctxloom-default
   ctxloom-default:
     url: https://github.com/ctxloom/ctxloom-default
-    trust_bundles: true

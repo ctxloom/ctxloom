@@ -165,7 +165,9 @@ func TestLoadSkillExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate granting exactly the pinned version's hash → exported as that version.
 	want := promptRawHash("V1-PINNED")
-	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == want })
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == want
+	})
 	prompts := LoadSkillExports(cfg, nil, bundles.WithVersionResolver(resolver))
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
@@ -176,7 +178,7 @@ func TestLoadSkillExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
-	cfg.SetExecutableTrustGate(func(_ref, _hash, _form string) bool { return false })
+	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 	denied := LoadSkillExports(cfg, nil, bundles.WithVersionResolver(resolver))
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -70,8 +71,10 @@ func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 
 	// Gate granting ONLY keep-srv's executable-surface hash → drop-srv withheld.
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	keepHash := mcpExecHash(wire.MCPServer{Command: "keep-cmd"})
-	cfg2.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == keepHash })
+	keepHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "keep-cmd"}))
+	cfg2.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == keepHash
+	})
 	gated := assembleManagedMCP(cfg2, nil)
 	assert.Contains(t, gated.Servers, "keep-srv", "a granted directory-profile MCP server is applied")
 	assert.NotContains(t, gated.Servers, "drop-srv", "an un-granted directory-profile MCP server is withheld by the exec gate")
@@ -88,8 +91,10 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	assert.Contains(t, cmds, "drop-hook")
 
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
-	keepHash := hookExecHash(wire.Hook{Command: "keep-hook", Type: "command"})
-	cfg2.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == keepHash })
+	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
+	cfg2.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == keepHash
+	})
 	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
@@ -106,8 +111,10 @@ func TestAssembleManagedMCP_DirProfileMergesWithInlineDefault(t *testing.T) {
 		map[string]config.Profile{
 			"inlineP": {MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{"inline-srv": {Command: "inline-cmd"}}}},
 		})
-	dirHash := mcpExecHash(wire.MCPServer{Command: "dir-cmd"})
-	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == dirHash })
+	dirHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "dir-cmd"}))
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == dirHash
+	})
 
 	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "inline-srv", "inline default profile's MCP server (trusted-local) is applied")
@@ -125,8 +132,10 @@ func TestAssembleManagedHooks_DirProfileMergesWithInlineDefault(t *testing.T) {
 				PreTool: []wire.Hook{{Command: "inline-hook", Type: "command"}},
 			}}},
 		})
-	dirHash := hookExecHash(wire.Hook{Command: "dir-hook", Type: "command"})
-	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == dirHash })
+	dirHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "dir-hook", Type: "command"}))
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == dirHash
+	})
 
 	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
 	assert.Contains(t, cmds, "inline-hook", "inline default profile's hook (trusted-local) is applied")

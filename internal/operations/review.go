@@ -89,12 +89,16 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	if err != nil {
 		return nil, fmt.Errorf("trust store unreadable: %w", err)
 	}
+	// The registry is DISPLAY ONLY here — it resolves a bundle's canonical URL to
+	// the remote name shown in the review header. It has no say in any trust
+	// decision: trust is keyed to the signing identity, never to the remote the
+	// bytes arrived from. An unreadable registry costs a label, nothing more.
 	registry := req.Registry
 	if registry == nil {
-		if reg, rerr := effectiveTrustRegistry(cfg, EffectiveTrustRequest{FS: req.FS}); rerr == nil {
+		if reg, rerr := getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS))); rerr == nil {
 			registry = reg
 		} else {
-			clidiag.Warn("ctxloom", "remote registry unreadable; trusted-source items may appear pending: %v", rerr)
+			clidiag.Warn("ctxloom", "remote registry unreadable; review will show canonical refs instead of remote names: %v", rerr)
 		}
 	}
 	loader := req.Loader
@@ -157,29 +161,39 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		preferDistilled = e.cfg.ShouldUseDistilled()
 	}
 
+	// The bundle's verified publisher identity, carried into every item's
+	// decision so review shows exactly what the exposure gate would decide: an
+	// item from a trusted publisher is NOT pending and must not be presented for
+	// review as though it were.
+	signer := bundle.Signer()
+
 	for _, name := range bundle.FragmentNames() {
 		frag := bundle.Fragments[name]
-		hash, form := frag.EffectiveContentHash(preferDistilled)
-		item, ok := e.classify(bundleRef, "fragments", name, hash, string(form), false)
+		payload, form := frag.ContentPayload(preferDistilled)
+		item, ok := e.classify(bundleRef, "fragments", name, payload, string(form), signer, false)
 		if !ok {
 			continue
 		}
-		item.CurrentContent = frag.EffectiveContent(preferDistilled)
+		item.CurrentContent = string(payload)
 		out = append(out, item)
 	}
 	for _, name := range bundle.PromptNames() {
 		skill := bundle.Skills[name]
-		hash, form := skill.EffectiveContentHash(preferDistilled)
-		item, ok := e.classify(bundleRef, "skills", name, hash, string(form), false)
+		payload, form := skill.ContentPayload(preferDistilled)
+		item, ok := e.classify(bundleRef, "skills", name, payload, string(form), signer, false)
 		if !ok {
 			continue
 		}
-		item.CurrentContent = skill.EffectiveContent(preferDistilled)
+		item.CurrentContent = string(payload)
 		out = append(out, item)
 	}
 	for _, name := range bundle.MCPNames() {
 		srv := bundle.MCP[name]
-		item, ok := e.classify(bundleRef, "mcp", name, srv.ComputeContentHash(), string(bundles.FormRaw), true)
+		payload, perr := srv.ContentPayload()
+		if perr != nil {
+			continue
+		}
+		item, ok := e.classify(bundleRef, "mcp", name, payload, string(bundles.FormRaw), signer, true)
 		if !ok {
 			continue
 		}
@@ -187,7 +201,11 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		out = append(out, item)
 	}
 	for _, entry := range bundle.Hooks.Entries() {
-		item, ok := e.classify(bundleRef, "hooks", entry.ID(), entry.Hook.ComputeContentHash(), string(bundles.FormRaw), true)
+		payload, perr := entry.Hook.ContentPayload()
+		if perr != nil {
+			continue
+		}
+		item, ok := e.classify(bundleRef, "hooks", entry.ID(), payload, string(bundles.FormRaw), signer, true)
 		if !ok {
 			continue
 		}
@@ -201,7 +219,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 // pending, returns its ReviewItem shell (status + diff base resolved; content
 // filled by the caller, which has the item in hand). ok=false means the item
 // needs no review (allowed, rejected, or unaddressable).
-func (e *reviewEnumerator) classify(bundleRef, kindDir, name, hash, form string, executable bool) (ReviewItem, bool) {
+func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []byte, form, signer string, executable bool) (ReviewItem, bool) {
 	ref := bundleRef + "#" + kindDir + "/" + name
 	tRef, _, _, err := parseTrustItemRef(ref)
 	if err != nil {
@@ -211,12 +229,12 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name, hash, form string,
 		return ReviewItem{}, false
 	}
 	res, err := EffectiveTrust(e.cfg, EffectiveTrustRequest{
-		Ref:         tRef,
-		ContentHash: hash,
-		Form:        form,
-		Store:       e.store,
-		Registry:    e.registry,
-		FS:          e.fs,
+		Ref:     tRef,
+		Payload: payload,
+		Form:    form,
+		Signer:  signer,
+		Store:   e.store,
+		FS:      e.fs,
 	})
 	if err != nil || res == nil || res.State() != trust.StatePending {
 		return ReviewItem{}, false
@@ -250,8 +268,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name, hash, form string,
 
 // remoteNameFor resolves a bundle ref's source repo to its registered remote
 // name for the review header ("" when unresolvable — the canonical ref is
-// still shown). Both sides canonicalize through trust.CanonicalRepoURL,
-// matching remoteTrusted.
+// still shown). Both sides canonicalize through trust.CanonicalRepoURL.
 func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	if reg == nil {
 		return ""

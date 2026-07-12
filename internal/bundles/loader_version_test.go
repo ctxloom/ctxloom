@@ -22,8 +22,8 @@ func effHash(body string) string {
 // allowed) and another withheld (its hash absent), which is exactly how two
 // commit-versions of one ref are gated independently.
 func hashGate(allowed map[string]bool) ContentGate {
-	return func(_ref, hash, _form string) bool {
-		return allowed[hash]
+	return func(_ref string, payload []byte, _form, _signer string) bool {
+		return allowed[HashPayload(payload)]
 	}
 }
 

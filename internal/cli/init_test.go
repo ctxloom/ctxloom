@@ -43,17 +43,18 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 
 // TestPersonalRemoteRequests covers the pure request builder behind
 // `ctxloom init`'s personal-repo registration: the first repo is named
-// "personal" and the rest "personal-N", every request is trusted, and the
-// --forge label (when set) binds every personal remote to that forge.
+// "personal" and the rest "personal-N", and the --forge label (when set) binds
+// every personal remote to that forge. A remote no longer carries trust on add
+// (spec §11) — its content takes the review path until its publisher key is
+// added — so there is no trust flag to assert.
 func TestPersonalRemoteRequests(t *testing.T) {
-	t.Run("names, trust, and empty forge", func(t *testing.T) {
+	t.Run("names and empty forge", func(t *testing.T) {
 		reqs := personalRemoteRequests([]string{"me/a", "me/b", "me/c"}, "")
 		require.Len(t, reqs, 3)
 		assert.Equal(t, "personal", reqs[0].Name)
 		assert.Equal(t, "personal-2", reqs[1].Name)
 		assert.Equal(t, "personal-3", reqs[2].Name)
 		for _, r := range reqs {
-			assert.True(t, r.Trust, "personal repos are trusted by default")
 			assert.Empty(t, r.Forge, "no --forge means resolution falls back to host-match")
 		}
 		assert.Equal(t, "me/a", reqs[0].URL)

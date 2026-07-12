@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // readerFixture builds a bare BundleReader wired to a MockFetcher so we
@@ -180,5 +182,46 @@ func TestLoadAllBytes(t *testing.T) {
 		loaded, failures := LoadAllBytes(context.Background(), nil)
 		assert.Empty(t, loaded)
 		assert.Empty(t, failures)
+	})
+}
+
+// --- detached publisher signatures (spec §4.1) --------------------------------
+
+// The signature is a plain sibling path in the SAME tree at the SAME pinned
+// SHA — reading it is the identical FetchFile call with ".sig" appended. No new
+// transport, no network, no second SHA.
+func TestBundleReader_ReadBundleSignature(t *testing.T) {
+	t.Run("fetches the sibling .sig at the locked SHA", func(t *testing.T) {
+		reader, fetcher, _ := readerFixture(t)
+		fetcher.WithFile("ctxloom/bundles/security.yaml.sig", []byte("-----BEGIN SSH SIGNATURE-----\nblob\n"))
+
+		data, err := reader.ReadBundleSignature(context.Background(), secKey)
+		require.NoError(t, err)
+		assert.Equal(t, "-----BEGIN SSH SIGNATURE-----\nblob\n", string(data))
+
+		require.Len(t, fetcher.FetchFileCalls, 1)
+		call := fetcher.FetchFileCalls[0]
+		assert.Equal(t, "ctxloom/bundles/security.yaml.sig", call.Path,
+			"the signature is the bundle path + .sig, nothing else")
+		assert.Equal(t, "abc123def", call.Ref,
+			"the signature must be read at the SAME pinned SHA as the bytes it covers")
+	})
+
+	// A missing .sig is the "unsigned" signal, and it must be cleanly
+	// distinguishable from a real failure — it is the common case today.
+	t.Run("absent .sig returns a typed not-found", func(t *testing.T) {
+		reader, _, _ := readerFixture(t)
+
+		_, err := reader.ReadBundleSignature(context.Background(), secKey)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound,
+			"an unsigned bundle is signalled by a typed not-found, never a crash or an opaque error")
+	})
+
+	t.Run("unknown bundle is not in the lockfile", func(t *testing.T) {
+		reader, _, _ := readerFixture(t)
+
+		_, err := reader.ReadBundleSignature(context.Background(), "https://github.com/alice/ctxloom@bundles/nope")
+		assert.ErrorIs(t, err, ErrBundleNotInLockfile)
 	})
 }

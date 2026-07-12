@@ -35,6 +35,14 @@ const (
 	// matching the rest of ctxloom's persistent items — see paths_test.go).
 	TrustFileName = "trust"
 
+	// AllowedSignersFileName is the name of the trust-root file: the set of
+	// public keys authorized to make signed assertions, in the OpenSSH
+	// `allowed_signers` format verbatim (ssh-keygen(1), ALLOWED SIGNERS).
+	// It carries no extension because it is not ctxloom's format — it is
+	// OpenSSH's, and it must stay hand-editable by anyone who already knows
+	// that format (signature-envelope spec §7).
+	AllowedSignersFileName = "allowed_signers"
+
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -215,6 +223,26 @@ func RemotesPath(appPath string) string {
 // root, next to remotes.yaml).
 func TrustPath(appPath string) string {
 	return filepath.Join(appPath, TrustFileName+".yaml")
+}
+
+// AllowedSignersPath returns the path to the trust-root file (at appPath root,
+// next to trust.yaml). Committable: a team distributes "trust our lead's
+// approve key / our org's publish key" by checking this file in, which is
+// trust-on-first-clone and strictly inside a boundary the clone already
+// crossed (spec §7.3, path A).
+func AllowedSignersPath(appPath string) string {
+	return filepath.Join(appPath, AllowedSignersFileName)
+}
+
+// HomeAllowedSignersPath returns ~/.ctxloom/allowed_signers — the user-scoped
+// trust root, which follows the developer across every project and is where an
+// enterprise MDM channel drops the org's keys (spec §7.3, path B).
+func HomeAllowedSignersPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, AllowedSignersFileName), nil
 }
 
 // LockPath returns the path to the lock file (at appPath root).

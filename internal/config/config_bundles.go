@@ -431,9 +431,14 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []Built
 				continue
 			}
 			if gate != nil {
-				hash, form := frag.EffectiveContentHash(preferDistilled)
+				payload, form := frag.ContentPayload(preferDistilled)
 				ref := "builtin:" + name + "#fragments/" + fragName
-				if !gate(ref, hash, string(form)) {
+				// A builtin carries NO signer: it is not signed and must not be
+				// (signing bytes embedded in the binary that verifies them is
+				// circular — spec §4.5). The "builtin:" ref prefix is what routes
+				// it to the decision function's builtin step, which sits BELOW
+				// rejection so a user can still reject a builtin.
+				if !gate(ref, payload, string(form), "") {
 					continue // withheld by the trust gate (e.g. rejected)
 				}
 			}
@@ -506,10 +511,14 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string, gate bundles.
 				// bundle, the local name for a project bundle) — NOT bundle.Name,
 				// whose short form is ambiguous across local and cloned bundles.
 				// This makes the cascade's IsLocal/RepoURL honest (local hooks
-				// auto-trust; cloned ones follow their remote's TrustBundles) and
-				// aligns the gate key with the baseline/grant key (both source).
+				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
+				// the gate key with the baseline/grant key (both source).
 				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
-				if !gate(ref, h.ComputeContentHash(), string(bundles.FormRaw)) {
+				payload, perr := h.ContentPayload()
+				if perr != nil {
+					continue // cannot build the preimage → cannot evaluate → withhold
+				}
+				if !gate(ref, payload, string(bundles.FormRaw), bundle.Signer()) {
 					continue // withheld by the trust gate
 				}
 			}
@@ -551,7 +560,11 @@ func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.Co
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.
 			ref := source + "#mcp/" + name
-			if !gate(ref, mcp.ComputeContentHash(), string(bundles.FormRaw)) {
+			payload, perr := mcp.ContentPayload()
+			if perr != nil {
+				continue // cannot build the preimage → cannot evaluate → withhold
+			}
+			if !gate(ref, payload, string(bundles.FormRaw), bundle.Signer()) {
 				continue // withheld by the trust gate
 			}
 		}

@@ -145,13 +145,15 @@ func TestLoadSkillExports_DirProfileCuratedGated(t *testing.T) {
 
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
-	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == want })
+	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
+		return bundles.HashPayload(payload) == want
+	})
 	prompts := LoadSkillExports(cfg, nil, seed)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
 		"a granted directory-curated prompt is exported")
 
 	// Gate denying → withheld (fail-closed); only builtins remain.
-	cfg.SetExecutableTrustGate(func(_ref, _hash, _form string) bool { return false })
+	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 	denied := LoadSkillExports(cfg, nil, seed)
 	assert.Empty(t, bundlePromptItems(denied),
 		"an un-granted directory-curated prompt must be withheld")

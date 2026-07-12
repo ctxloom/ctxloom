@@ -10,11 +10,16 @@ type Remote struct {
 	Name string `yaml:"name" json:"name"`
 	URL  string `yaml:"url" json:"url"`
 
-	// TrustBundles marks this remote as a trusted source: everything it
-	// publishes — updates included — is exempt from per-item review and reaches
-	// the agent unreviewed (operations.EffectiveTrust's trusted-source step).
-	// Off by default — opt-in per remote via `ctxloom remote trust`.
-	TrustBundles bool `yaml:"trust_bundles,omitempty" json:"trust_bundles,omitempty"`
+	// NOTE: there is deliberately no trust flag here, and there must never be
+	// one again. `trust_bundles` used to mark a remote as a trusted source —
+	// everything it published reached the agent unreviewed, forever, WITHOUT
+	// EVER LOOKING AT THE CONTENT. That trusts a LOCATION, and a location can be
+	// forked, typosquatted, or compromised; a URL you trusted once could serve
+	// changed bytes silently for the rest of time.
+	//
+	// Trust is now keyed to the signing IDENTITY (a publisher key in
+	// allowed_signers), verified over the bytes themselves at the exposure gate.
+	// A remote is just an address to fetch from, and carries no authority at all.
 
 	// Forge is the label of the forges entry this remote binds to. Empty
 	// means resolve by URL host (configured base_url match, else built-in

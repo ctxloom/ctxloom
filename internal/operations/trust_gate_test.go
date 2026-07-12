@@ -42,13 +42,12 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 }
 
 // gatedAcmeLoader builds a loader over acmeToolingSeed wired to a contentGate
-// resolving against store + an untrusted acme remote, so only review states
+// resolving against store for an UNSIGNED remote bundle, so only review states
 // (accepted/rejected) decide exposure — everything else is pending (withheld).
 func gatedAcmeLoader(t *testing.T, store *trust.Store) (*bundles.Loader, *config.Config) {
 	t.Helper()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
-	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
+	gate := (&contentGate{cfg: cfg, store: store}).allow
 	l := bundles.NewLoader(nil, true, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
 	return l, cfg
 }
@@ -123,7 +122,6 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 // pending and is withheld; accepting the new content re-exposes it.
 func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
 
 	v1 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
@@ -132,7 +130,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	store := newTrustStore(t)
 	// A human accepted the v1 content (records its hash).
 	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("v1 body"), ""))
-	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
+	gate := (&contentGate{cfg: cfg, store: store}).allow
 
 	// v1 stays exposed (accepted at this exact hash).
 	l1 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
@@ -165,7 +163,7 @@ func TestExposureGate_FailClosed(t *testing.T) {
 
 	// Unparseable ref → withhold (resolve error is fail-closed).
 	g := &contentGate{cfg: cfg, store: newTrustStore(t)}
-	assert.False(t, g.allow("garbage-without-selector", "sha256:abc", "raw"),
+	assert.False(t, g.allow("garbage-without-selector", pbytes("abc"), "raw", ""),
 		"a ref the gate cannot address must be withheld")
 
 	// denyAll (store unreadable) → every gated item withheld through the loader.
@@ -230,8 +228,7 @@ fragments:
 // scheme-qualified ref must fail closed instead.
 func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	reg := newRegistry(t) // no remotes registered/trusted
-	gate := &contentGate{cfg: cfg, store: newTrustStore(t), registry: reg}
+	gate := &contentGate{cfg: cfg, store: newTrustStore(t)}
 
 	// "https://github.com/acme/repo" is missing "@bundles/<name>" — it fails
 	// remote.ParseReference (parseHTTPSReference: "URL reference missing item
@@ -240,7 +237,7 @@ func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
 	const unrecognizedSourceRef = "https://github.com/acme/repo"
 	ref := unrecognizedSourceRef + "#fragments/evil"
 
-	allowed := gate.allow(ref, fragHash("evil body"), rawForm)
+	allowed := gate.allow(ref, []byte("evil body"), rawForm, "")
 	assert.False(t, allowed,
 		"content seeded under an unrecognized source ref must be withheld, never silently treated as local")
 }

@@ -228,15 +228,15 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 }
 
 // fragmentContent builds a LoadedContent for a fragment, or returns nil when the
-// trust gate withholds it (trust rework, TR5). The gate hashes the EXACT
-// effective-content bytes this returns (pre-mustache), so the decision keys on
-// what the agent would actually see.
+// trust gate withholds it. The gate receives the EXACT effective-content bytes
+// this returns (pre-mustache) plus the bundle's verified signer, so the decision
+// keys on what the agent would actually see and on who published it.
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
-	content := frag.EffectiveContent(l.preferDistilled)
-	hash, form := frag.EffectiveContentHash(l.preferDistilled)
-	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, hash, form) {
+	payload, form := frag.ContentPayload(l.preferDistilled)
+	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, payload, form, bundle.Signer()) {
 		return nil
 	}
+	content := string(payload)
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
@@ -349,11 +349,11 @@ func (l *Loader) GetSkill(name string) (*LoadedContent, error) {
 // The gate ref keeps the "prompts" kind segment (trust.KindPrompt.Dir()), so the
 // item-kind rename does not invalidate existing trust grants.
 func (l *Loader) skillContent(bundle *Bundle, promptName string, prompt BundleSkill) *LoadedContent {
-	content := prompt.EffectiveContent(l.preferDistilled)
-	hash, form := prompt.EffectiveContentHash(l.preferDistilled)
-	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, hash, form) {
+	payload, form := prompt.ContentPayload(l.preferDistilled)
+	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, payload, form, bundle.Signer()) {
 		return nil
 	}
+	content := string(payload)
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,

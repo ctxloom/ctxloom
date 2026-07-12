@@ -130,10 +130,12 @@ func TestGetDefaultRemotes(t *testing.T) {
 	if !strings.Contains(string(data), "ctxloom-default") {
 		t.Error("default-remotes.yaml should declare the ctxloom-default remote")
 	}
-	// The official curated repo ships trusted so a fresh init runs without a
-	// review gate — a deliberate, security-relevant default worth pinning.
-	if !strings.Contains(string(data), "trust_bundles: true") {
-		t.Error("default-remotes.yaml should mark ctxloom-default as trusted")
+	// A remote carries NO trust flag anymore (signature-envelope spec §11):
+	// trust is keyed to the publisher key, not the remote. The deleted
+	// `trust_bundles` flag must not reappear — its presence would silently
+	// restore the hash-blind source bypass this rework removed.
+	if strings.Contains(string(data), "trust_bundles") {
+		t.Error("default-remotes.yaml must NOT carry a trust_bundles flag — source trust is deleted")
 	}
 }
 

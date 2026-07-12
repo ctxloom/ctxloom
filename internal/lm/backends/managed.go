@@ -239,7 +239,7 @@ func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.Content
 	if len(mcp.Servers) > 0 {
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
-			if gateProfileExec(gate, profileName+"#mcp/"+name, mcpExecHash(srv)) {
+			if gateProfileExec(gate, profileName+"#mcp/"+name, mcpExecPayload(srv)) {
 				out.Servers[name] = srv
 			}
 		}
@@ -251,7 +251,7 @@ func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.Content
 		for backend, servers := range mcp.Plugins {
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
-				if gateProfileExec(gate, profileName+"#mcp/"+backend+"/"+name, mcpExecHash(srv)) {
+				if gateProfileExec(gate, profileName+"#mcp/"+backend+"/"+name, mcpExecPayload(srv)) {
 					gated[name] = srv
 				}
 			}
@@ -276,7 +276,7 @@ func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.Conte
 		var out []wire.Hook
 		for i, hook := range hooks {
 			ref := profileName + "#hooks/" + event + "/" + strconv.Itoa(i)
-			if gateProfileExec(gate, ref, hookExecHash(hook)) {
+			if gateProfileExec(gate, ref, hookExecPayload(hook)) {
 				out = append(out, hook)
 			}
 		}
@@ -314,22 +314,42 @@ func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.Conte
 // gateProfileExec consults the executable trust gate for one directly-declared
 // profile executable, binding the raw form (no distilled variant for executables,
 // matching config.extractMCPFromBundle / extractHooksFromBundle).
-func gateProfileExec(gate bundles.ContentGate, ref, hash string) bool {
-	return gate(ref, hash, string(bundles.FormRaw))
+//
+// The signer is always empty: these executables are declared by a PROFILE, not
+// by a signed bundle document, so there are no publisher-signed bytes to
+// attribute them to. They are therefore judged as local (step 2, when
+// project-authored) or by review (steps 1/5) — never as a trusted publisher.
+// A nil payload (the preimage could not be built) withholds: an executable we
+// cannot even describe is one we certainly cannot justify running.
+func gateProfileExec(gate bundles.ContentGate, ref string, payload []byte) bool {
+	if payload == nil {
+		return false
+	}
+	return gate(ref, payload, string(bundles.FormRaw), "")
 }
 
-// mcpExecHash hashes a profile MCP server's executable surface via the shared
-// bundle primitive (Command+Args+Env+Installation), so a profile-declared server
-// and an identical bundle-declared one bind to the SAME content hash.
-func mcpExecHash(s wire.MCPServer) string {
+// mcpExecPayload builds a profile MCP server's executable-surface preimage via
+// the shared bundle primitive (Command+Args+Env+Installation), so a
+// profile-declared server and an identical bundle-declared one bind to exactly
+// the SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
+func mcpExecPayload(s wire.MCPServer) []byte {
 	bm := bundles.BundleMCP{Command: s.Command, Args: s.Args, Env: s.Env, Installation: s.Installation}
-	return bm.ComputeContentHash()
+	payload, err := bm.ContentPayload()
+	if err != nil {
+		return nil
+	}
+	return payload
 }
 
-// hookExecHash hashes a profile hook's executable surface via the shared bundle
-// primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a profile-declared
-// hook and an identical bundle-declared one bind to the SAME content hash.
-func hookExecHash(h wire.Hook) string {
+// hookExecPayload builds a profile hook's executable-surface preimage via the
+// shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
+// profile-declared hook and an identical bundle-declared one bind to exactly the
+// SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
+func hookExecPayload(h wire.Hook) []byte {
 	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
-	return bh.ComputeContentHash()
+	payload, err := bh.ContentPayload()
+	if err != nil {
+		return nil
+	}
+	return payload
 }

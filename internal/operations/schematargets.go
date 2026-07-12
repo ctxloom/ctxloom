@@ -67,7 +67,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(SetItemContentResult{})},
 		{Type: reflect.TypeOf(SetMCPAutoRegisterResult{})},
 		{Type: reflect.TypeOf(SetProfileContentResult{})},
-		{Type: reflect.TypeOf(SetRemoteTrustResult{})},
 		{Type: reflect.TypeOf(SetStatuslineResult{})},
 		{Type: reflect.TypeOf(SyncDependenciesResult{})},
 		{Type: reflect.TypeOf(UpdateBundleResult{})},

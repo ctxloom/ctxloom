@@ -79,7 +79,7 @@ profiles:
 	b.Name = "kit"
 
 	var gated []string
-	denyGate := func(ref, _, _ string) bool {
+	denyGate := func(ref string, _ []byte, _, _ string) bool {
 		gated = append(gated, ref)
 		return false // withhold everything the choke is consulted about
 	}

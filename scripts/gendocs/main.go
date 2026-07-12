@@ -1,153 +1,56 @@
-// Command gendocs generates the ctxloom reference docs from their sources of
-// truth. It emits: the CLI reference (man pages via --man, Starlight markdown
-// via --markdown) from the cobra command tree; the MCP reference (--mcp) from
-// the live tool/resource registrations; and the configuration reference
-// (--config) from the tracked JSON Schema. Output is deterministic (cobra
-// auto-gen timestamps disabled, schema keys sorted) so CI can gate on drift via
-// `just gen-docs-check`.
+// Command gendocs generates ctxloom's reference docs from their sources of
+// truth: the CLI reference (man pages via --man, Starlight markdown via
+// --markdown) from the cobra command tree, the MCP reference (--mcp) from the
+// live tool/resource registrations, and the configuration reference (--config)
+// from the tracked JSON Schema.
+//
+// The generator itself is internal/docsgen, shared with taskloom and ltk (which
+// mount it as a hidden `gendocs` subcommand under `-tags docsgen`, their cobra
+// trees living in `package main`). This entrypoint only describes ctxloom.
 package main
 
 import (
-	"flag"
-	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/spf13/cobra"
-	"github.com/spf13/cobra/doc"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
+	"github.com/ctxloom/ctxloom/internal/docsgen"
 )
 
 func main() {
-	manDir := flag.String("man", "", "directory to write man pages into")
-	markdownDir := flag.String("markdown", "", "directory to write website markdown pages into")
-	mcpDir := flag.String("mcp", "", "directory to write the MCP tools reference (mcp-tools.md) into")
-	configDir := flag.String("config", "", "directory to write the config reference (config.md) into")
-	configSchema := flag.String("config-schema", "resources/schema/input/config-schema.json", "path to the config JSON Schema rendered by --config")
-	flag.Parse()
-
-	if *manDir == "" && *markdownDir == "" && *mcpDir == "" && *configDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: gendocs [--man <dir>] [--markdown <dir>] [--mcp <dir>] [--config <dir>] (at least one required)")
+	if err := docsgen.NewCommand(ctxloomProduct()).Execute(); err != nil {
 		os.Exit(1)
 	}
+}
 
-	root := cli.GetRootCmd()
-	prepareTree(root)
+// ctxloomProduct describes ctxloom to the generator: its cobra tree, its
+// documentation-time MCP server, and where each lives (cited in the generated
+// banners so a reader knows what to edit).
+func ctxloomProduct() *docsgen.Product {
+	return &docsgen.Product{
+		Bin:       "ctxloom",
+		Root:      cli.GetRootCmd(),
+		CLISource: "internal/cli",
+		LinkBase:  "/reference/cli/",
+		ManTitle:  "CTXLOOM",
+		ManManual: "User Commands",
+		// `bundle` is hidden from --help as advanced, but still documented.
+		Unhide:       []string{"bundle"},
+		ConfigSchema: "resources/schema/input/config-schema.json",
 
-	if *manDir != "" {
-		if err := genMan(root, *manDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating man pages: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Man pages generated in %s\n", *manDir)
-	}
-
-	if *markdownDir != "" {
-		if err := genMarkdown(root, *markdownDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating markdown pages: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Markdown pages generated in %s\n", *markdownDir)
-	}
-
-	if *mcpDir != "" {
-		if err := genMCPTools(*mcpDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating MCP tools reference: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("MCP tools reference generated in %s\n", *mcpDir)
-	}
-
-	if *configDir != "" {
-		if err := genConfig(*configSchema, *configDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating config reference: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Config reference generated in %s\n", *configDir)
+		MCPServer:  cli.NewDocMCPServer(),
+		MCPSource:  "internal/cli",
+		MCPCommand: "ctxloom mcp serve",
+		MCPIntro:   mcpIntro,
 	}
 }
 
-// prepareTree readies the command tree for documentation generation: every
-// command drops cobra's auto-gen timestamp (the CI drift check depends on
-// byte-identical output), and the `bundle` command — hidden from --help as
-// advanced — is unhidden so its pages still generate.
-func prepareTree(cmd *cobra.Command) {
-	cmd.DisableAutoGenTag = true
-	if cmd.Name() == "bundle" {
-		cmd.Hidden = false
-	}
-	for _, sub := range cmd.Commands() {
-		prepareTree(sub)
-	}
-}
-
-// removeGenerated deletes previously generated files matching pattern inside
-// dir, so pages for renamed or removed commands don't linger (cobra's tree
-// generators only ever add). The patterns never match the hand-written
-// index.md.
-func removeGenerated(dir, pattern string) error {
-	stale, err := filepath.Glob(filepath.Join(dir, pattern))
-	if err != nil {
-		return err
-	}
-	for _, f := range stale {
-		if err := os.Remove(f); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func genMan(root *cobra.Command, dir string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	if err := removeGenerated(dir, "ctxloom*.1"); err != nil {
-		return err
-	}
-	header := &doc.GenManHeader{
-		Title:   "CTXLOOM",
-		Section: "1",
-		Source:  "ctxloom",
-		Manual:  "User Commands",
-	}
-	return doc.GenManTree(root, header, dir)
-}
-
-func genMarkdown(root *cobra.Command, dir string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	if err := removeGenerated(dir, "ctxloom_*.md"); err != nil {
-		return err
-	}
-	return doc.GenMarkdownTreeCustom(root, dir, filePrepender, linkHandler)
-}
-
-// filePrepender emits Starlight frontmatter plus a generated-file banner for
-// each per-command page. The title is the command path, recovered from the
-// filename (ctxloom_profile_create.md -> "ctxloom profile create"). Only the
-// generated ctxloom_*.md files pass through here; the hand-written index.md
-// is never touched.
-func filePrepender(filename string) string {
-	base := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	command := strings.ReplaceAll(base, "_", " ")
-	return fmt.Sprintf(`---
-title: "%[1]s"
----
-<!-- GENERATED by %[2]sjust gen-docs%[2]s from the command definitions in internal/cli.
-     Do not edit; edit the cobra Short/Long/Example fields instead. -->
-:::note
-This page is generated from %[2]s%[1]s --help%[2]s.
-:::
-
-`, command, "`")
-}
-
-// linkHandler rewrites cobra's inter-page .md links to the site's routes:
-// ctxloom_profile_create.md -> /reference/cli/ctxloom_profile_create/.
-func linkHandler(name string) string {
-	return "/reference/cli/" + strings.TrimSuffix(name, filepath.Ext(name)) + "/"
-}
+// mcpIntro is the ctxloom MCP page's opening prose: what the surface is for and,
+// just as importantly, what it deliberately is not (management is CLI-only;
+// tasks live in taskloom).
+const mcpIntro = "Reference for the tools and resources exposed by ctxloom's MCP server (`ctxloom mcp serve`).\n" +
+	"\n" +
+	"The MCP surface is for **retrieving context during a session**: assembling context, " +
+	"searching content, and working with session memory. Everything that *manages* ctxloom " +
+	"(creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing, " +
+	"approving, and trusting changes) is done with the ctxloom CLI, not MCP tools. Task tracking " +
+	"lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools."

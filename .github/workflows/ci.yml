@@ -141,11 +141,13 @@ jobs:
       - name: Generate JSON Schemas (verify the generator runs clean)
         run: just -f justfile.container gen-schemas
 
-      # Drift gate for the generated CLI reference: regenerate from the cobra
-      # command tree and fail if the checked-in website pages are stale. The
-      # safe.directory mark is needed because the recipe runs `git diff` inside
-      # the devcontainer image.
-      - name: Check generated CLI docs are current
+      # Drift gate for every generated reference page — ctxloom, taskloom, and
+      # ltk: regenerate from each cobra command tree (plus the MCP registrations
+      # and the config schema) and fail if the checked-in website pages are
+      # stale or a newly generated page was never committed. The safe.directory
+      # mark is needed because the recipe runs `git diff` inside the devcontainer
+      # image.
+      - name: Check generated reference docs are current (ctxloom, taskloom, ltk)
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           just -f justfile.container gen-docs-check

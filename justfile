@@ -435,10 +435,14 @@ gen-mcp-schemas:
     buf build -o "$tmp"
     go run ./internal/agentcoord/mcpschema/gen -descriptor "$tmp" -out internal/agentcoord/mcpschema/schemas
 
-# Generate reference docs from their sources of truth: the CLI reference (man
-# pages + website markdown) from the cobra command tree, the MCP reference from
-# the live tool/resource registrations, and the config reference from the
-# tracked JSON Schema. CI fails on drift (gen-docs-check in justfile.container).
+# Generate the reference docs for all three binaries from their sources of
+# truth: the CLI reference (man pages + website markdown) from each cobra
+# command tree, the MCP reference from the live tool/resource registrations, and
+# ctxloom's config reference from the tracked JSON Schema. One generator
+# (internal/docsgen) serves all three; taskloom and ltk keep their trees in
+# `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
+# only under `-tags docsgen`. CI fails on drift (gen-docs-check in
+# justfile.container).
 gen-docs:
     go run ./scripts/gendocs \
         --man man/man1 \
@@ -446,16 +450,25 @@ gen-docs:
         --mcp website/src/content/docs/reference \
         --config website/src/content/docs/reference \
         --config-schema resources/schema/input/config-schema.json
+    go run -tags docsgen ./cmd/taskloom gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/taskloom/reference/cli \
+        --mcp website/src/content/docs/taskloom/reference
+    go run -tags docsgen ./cmd/ltk gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/ltk/reference/cli
 
-# Generate man pages only (the --man half of gen-docs)
+# Generate man pages only, for all three binaries (the --man half of gen-docs)
 man:
     go run ./scripts/gendocs --man man/man1
+    go run -tags docsgen ./cmd/taskloom gendocs --man man/man1
+    go run -tags docsgen ./cmd/ltk gendocs --man man/man1
 
 # Install man pages (Linux/macOS)
 man-install: man
     @mkdir -p ~/.local/share/man/man1
     cp man/man1/*.1 ~/.local/share/man/man1/
-    @echo "Man pages installed. Run 'man ctxloom' to view."
+    @echo "Man pages installed. Run 'man ctxloom' (or 'man taskloom' / 'man ltk') to view."
 
 # Show help
 help:

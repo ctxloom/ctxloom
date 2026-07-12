@@ -7,6 +7,8 @@ export default defineConfig({
 	site: 'https://ctxloom.dev',
 	redirects: {
 		'/concepts/prompts/': '/concepts/skills/',
+		// ltk graduated from an Ecosystem footnote to a top-level section.
+		'/ecosystem/llm-tool-killer/': '/ltk/',
 	},
 	integrations: [
 		mermaid(), // Must come BEFORE starlight for diagram rendering
@@ -76,9 +78,18 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Ecosystem',
+					label: 'taskloom',
 					items: [
-						{ label: 'llm-tool-killer (ltk)', link: '/ecosystem/llm-tool-killer/' },
+						{ label: 'Overview', link: '/taskloom/' },
+						{ label: 'CLI', autogenerate: { directory: 'taskloom/reference/cli' } },
+						{ label: 'MCP Tools', link: '/taskloom/reference/mcp-tools/' },
+					],
+				},
+				{
+					label: 'ltk',
+					items: [
+						{ label: 'Overview', link: '/ltk/' },
+						{ label: 'CLI', autogenerate: { directory: 'ltk/reference/cli' } },
 					],
 				},
 				{ label: 'Troubleshooting', link: '/troubleshooting/' },

@@ -255,10 +255,13 @@ lint: vet-integration
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
 
-# Generate reference docs from their sources of truth: the CLI reference (man
-# pages + website markdown) from the cobra command tree, the MCP reference from
-# the live tool/resource registrations, and the config reference from the
-# tracked JSON Schema. The website pages are checked in, the man pages are
+# Generate the reference docs for all three binaries from their sources of
+# truth: the CLI reference (man pages + website markdown) from each cobra
+# command tree, the MCP reference from the live tool/resource registrations, and
+# ctxloom's config reference from the tracked JSON Schema. One generator
+# (internal/docsgen) serves all three; taskloom and ltk keep their trees in
+# `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
+# only under `-tags docsgen`. The website pages are checked in, the man pages are
 # gitignored release artifacts.
 gen-docs:
     go run ./scripts/gendocs \
@@ -267,13 +270,33 @@ gen-docs:
         --mcp website/src/content/docs/reference \
         --config website/src/content/docs/reference \
         --config-schema resources/schema/input/config-schema.json
+    go run -tags docsgen ./cmd/taskloom gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/taskloom/reference/cli \
+        --mcp website/src/content/docs/taskloom/reference
+    go run -tags docsgen ./cmd/ltk gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/ltk/reference/cli
 
-# Drift gate: regenerate the reference docs and fail if the checked-in website
-# pages (CLI, MCP tools, config) no longer match their sources of truth. man/man1
-# is gitignored, so only the website reference directory is diffed. Run in the CI
-# lint job.
+# Drift gate: regenerate every product's reference docs and fail if the
+# checked-in website pages (ctxloom CLI/MCP/config, taskloom CLI/MCP, ltk CLI) no
+# longer match their sources of truth. man/man1 is gitignored, so only the
+# website tree is gated. Run in the CI lint job.
+#
+# Two checks, because they catch different failures: `git diff` catches a CHANGED
+# page (an edited Short/Long, a renamed flag), and the untracked-file check
+# catches an ADDED one — a brand-new command whose page was never committed would
+# otherwise leave the diff clean and sail through.
 gen-docs-check: gen-docs
-    git diff --exit-code -- website/src/content/docs/reference
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git diff --exit-code -- website/src/content/docs
+    untracked=$(git ls-files --others --exclude-standard -- website/src/content/docs)
+    if [ -n "$untracked" ]; then
+        echo "Generated reference pages are not checked in (run \`just gen-docs\` and commit):" >&2
+        echo "$untracked" >&2
+        exit 1
+    fi
 
 # Regenerate the proto-canonical MCP tool schemas from the buf-built
 # descriptor set (source info included by default).

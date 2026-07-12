@@ -6,6 +6,10 @@ package main
 import "os"
 
 func main() {
+	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
+	// the shared reference-doc generator on the tree. See docs_gen.go.
+	registerDocsCmd(rootCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

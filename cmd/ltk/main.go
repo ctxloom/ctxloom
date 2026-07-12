@@ -23,7 +23,10 @@ import (
 // It defaults to "dev"; the justfile stamps it from versionator.
 var Version = "dev"
 
-func main() {
+// newRootCmd assembles the ltk command tree. It is a factory rather than an
+// inline root so the documentation generator can walk exactly the tree the
+// binary runs (`just gen-docs`; see docs_gen.go).
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   progName,
 		Short: "Gate an LLM agent's shell commands and file edits via a pre-tool hook",
@@ -46,8 +49,12 @@ retry the right way. See docs/RULES.md for the full rule model.`,
 		SilenceErrors: true,
 	}
 	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd())
+	registerDocsCmd(root)
+	return root
+}
 
-	if err := root.Execute(); err != nil {
+func main() {
+	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, progName+":", err)
 		os.Exit(1)
 	}

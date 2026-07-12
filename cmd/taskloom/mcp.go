@@ -29,17 +29,25 @@ session it was launched for.`,
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		server := mcp.NewServer(&mcp.Implementation{
-			Name:    "taskloom",
-			Version: version,
-		}, &mcp.ServerOptions{Instructions: mcpServerInstructions})
-		registerTaskTools(server)
-
-		if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
+		if err := newMCPServer().Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
 		return nil
 	},
+}
+
+// newMCPServer builds the task-tool MCP server: the surface `taskloom mcp`
+// serves, and — because the documentation generator stands up this same
+// factory — the surface the MCP reference page is generated from. Registration
+// only records static tool literals and the reflected input schemas; no handler
+// runs and no task log is touched, so it is safe to build for docs.
+func newMCPServer() *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "taskloom",
+		Version: version,
+	}, &mcp.ServerOptions{Instructions: mcpServerInstructions})
+	registerTaskTools(server)
+	return server
 }
 
 func init() {

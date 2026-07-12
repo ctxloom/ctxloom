@@ -13,7 +13,7 @@ author: ctxloom
 
 description: |
   Command guidance via the standalone `ltk` binary
-  (github.com/ctxloom/llm-tool-killer): a pre-tool hook that inspects each
+  (built from github.com/ctxloom/ctxloom, cmd/ltk): a pre-tool hook that inspects each
   shell command or file edit before it executes and redirects it when a rule
   in the project's .ltk/config.yaml matches (e.g. `go test` → "use the task
   runner" → the agent retries `just test`). Where ctxloom shapes the context
@@ -39,8 +39,10 @@ installation: |
   binary (fallback: go install github.com/ctxloom/ctxloom/cmd/ltk@latest).
   A missing binary degrades to no hook, never a blocked startup. To activate
   rules for a project, scaffold .ltk/config.yaml with
-  `ltk manage install --config .ltk/config.yaml --print` or write
-  one by hand; without it the hook allows everything.
+  `ltk manage install --config .ltk/config.yaml` (it writes the starter rules;
+  an existing file is kept unless you pass --force) or write one by hand;
+  without it the hook allows everything. Do not add --print: that is a dry run
+  which prints the merged settings and writes nothing, scaffold included.
 
 hooks:
   pre_tool:

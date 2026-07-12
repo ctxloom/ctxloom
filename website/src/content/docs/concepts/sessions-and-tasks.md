@@ -9,9 +9,8 @@ attached to your project that outlive any single session.
 
 ## Tasks
 
-Tasks are tracked by the standalone [`taskloom` binary](https://github.com/ctxloom/taskloom),
-which ships an MCP server (`taskloom mcp`) registered for agents by ctxloom's
-built-in taskloom bundle:
+Tasks are tracked by the standalone `taskloom` binary, which ships an MCP server
+(`taskloom mcp`) registered for agents by ctxloom's built-in taskloom bundle:
 
 ```
 task_add          # add a task

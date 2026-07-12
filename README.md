@@ -1,6 +1,6 @@
 # ctxloom - Your context, always in the right thread.
 
-A CLI tool for managing context fragments and prompts for AI coding assistants.
+A CLI tool for managing context fragments and skills for AI coding assistants.
 
 **Documentation:** [ctxloom.dev](https://ctxloom.dev)
 
@@ -40,6 +40,7 @@ ctxloom remote pull           # Fetch referenced bundles and update the lockfile
 # Search for content
 ctxloom search -t golang      # Find fragments by tag
 ctxloom fragment list         # List all fragments
+ctxloom skill list            # List all skills
 
 # Run with your context
 ctxloom run -p developer "Help me with this code"
@@ -53,10 +54,11 @@ See the [Quick Start Guide](https://ctxloom.dev/getting-started/quickstart) for 
 
 | Concept | Description |
 |---------|-------------|
-| **Bundle** | A YAML file containing related fragments, prompts, and MCP server configs |
+| **Bundle** | A YAML file containing related fragments, skills, and MCP server configs |
 | **Fragment** | A reusable context snippet within a bundle (coding standards, patterns, etc.) |
-| **Prompt** | A saved prompt template within a bundle |
+| **Skill** | A saved prompt template within a bundle, exported to the engine as a slash command |
 | **Profile** | A named configuration that references bundles, tags, and variables |
+| **Agent** | A named binding of an LLM engine to the profiles it runs with (`ctxloom run --agent`) |
 | **Remote** | A Git repository for sharing bundles and profiles |
 
 Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
@@ -66,16 +68,33 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | Command | Description |
 |---------|-------------|
 | `ctxloom run` | Assemble context and run AI |
-| `ctxloom init` | Initialize .ctxloom directory |
-| `ctxloom search` | Search fragments and prompts |
-| `ctxloom fragment` | Manage fragments (list, show, create, edit) |
-| `ctxloom prompt` | Manage prompts |
-| `ctxloom profile` | Manage profiles |
-| `ctxloom remote` | Manage remotes (add, pull, search, browse) |
+| `ctxloom init` | Initialize a new .ctxloom directory |
+| `ctxloom search` | Search content across local and remote sources |
+| `ctxloom fragment` | Manage context fragments |
+| `ctxloom skill` | Manage skills |
+| `ctxloom profile` | Manage profiles (named fragment collections) |
+| `ctxloom agent` | Inspect local agents (engine↔profile bindings) |
+| `ctxloom map` | Run multiple agents/profiles in parallel over one task (fan-out) |
+| `ctxloom weave` | Fan a task across agents/profiles in parallel, then synthesize the results |
+| `ctxloom remote` | Manage remotes and discover content |
+| `ctxloom review` | Review pending items: accept or reject what the agent may see |
+| `ctxloom trust` | Accept an item's current content (fragment, skill, MCP server, or hook) |
+| `ctxloom blacklist` | Reject an item so it is withheld from the agent |
+| `ctxloom session` | Browse and manage harp-named sessions |
+| `ctxloom memory` | Manage session memory (external compaction) |
 | `ctxloom mcp` | Run ctxloom as an MCP server |
-| `ctxloom manage` | Install/manage the project harness (init, hooks, mcp, config, gitignore) |
+| `ctxloom acp` | Serve ctxloom as an Agent Client Protocol agent (stdio) |
+| `ctxloom manage` | Install and manage ctxloom's project harness |
+| `ctxloom container` | Manage agent container images |
+| `ctxloom tooling` | Emit trusted bundles' agent-image tooling declarations for the LLM to apply |
+| `ctxloom llm` | Manage LLM backends |
+| `ctxloom harp` | Generate harp IDs (human-appropriate random phraselets) |
+| `ctxloom version` | Print the version number |
 
-See [CLI Reference](docs/cli-reference.md) for complete documentation.
+Every command carries its own help (`ctxloom <command> --help`). The generated
+per-command reference — flags, arguments, examples — is at
+[ctxloom.dev/reference/cli](https://ctxloom.dev/reference/cli/), and release
+archives ship man pages (`man ctxloom`).
 
 ## Documentation
 
@@ -89,22 +108,21 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 
 ## Bundled companions
 
-ctxloom ships with two standalone companion tools, delivered by the install
-script and brew (each also installs on its own). ctxloom's built-in bundles
-wire them into your agent **when the binary is on PATH** — a missing companion
-degrades to a one-line warning, never a broken session:
+ctxloom ships with two standalone companion tools, built from this repo
+(`cmd/taskloom`, `cmd/ltk`) and delivered by the install script and brew (each
+also installs on its own). ctxloom's built-in bundles wire them into your agent
+**when the binary is on PATH** — a missing companion degrades to a one-line
+warning, never a broken session:
 
-- [**taskloom**](https://github.com/ctxloom/taskloom) — per-project task
-  tracking: an append-only task log with a CLI and an MCP server
-  (`task_list`/`task_add`/`task_set_status`/`task_edit`). Standalone use:
-  `taskloom manage install` registers it with Claude Code, Antigravity, or Codex
-  directly.
-- [**llm-tool-killer (`ltk`)**](https://github.com/ctxloom/llm-tool-killer) —
-  a pre-tool hook that redirects commands you'd rather the agent not run
-  (e.g. `go test` → "use the task runner" → the agent retries `just test`).
+- **taskloom** — per-project task tracking: an append-only task log with a CLI
+  and an MCP server (`task_list`/`task_add`/`task_set_status`/`task_edit`).
+  Standalone use: `taskloom manage install` registers it with Claude Code,
+  Antigravity, or Codex directly.
+- **ltk** — a pre-tool hook that redirects commands you'd rather the agent not
+  run (e.g. `go test` → "use the task runner" → the agent retries `just test`).
   ctxloom registers the hook; rules are opt-in per project via
   `.ltk/config.yaml` (without one, ltk allows everything). Standalone use:
-  `ltk manage install`.
+  `ltk manage install`. Rule model: [docs/ltk/RULES.md](docs/ltk/RULES.md).
 
 What works with what:
 

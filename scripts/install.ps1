@@ -103,10 +103,12 @@ $Repo = "ctxloom/ctxloom"
 $ReleasesUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $DownloadBase = "https://github.com/$Repo/releases/download"
 
-# Companion tools, installed best-effort after ctxloom itself.
+# Companion tools, installed best-effort after ctxloom itself. They ride the
+# same unified ctxloom release (same tag, same checksums.txt) — taskloom and
+# ltk are built from this repo, not from repos of their own.
 $Companions = @(
-    @{ Repo = "ctxloom/taskloom"; Binary = "taskloom"; Skip = ($NoCompanions -or $NoTaskloom) },
-    @{ Repo = "ctxloom/llm-tool-killer"; Binary = "ltk"; Skip = ($NoCompanions -or $NoLtk) }
+    @{ Binary = "taskloom"; Skip = ($NoCompanions -or $NoTaskloom) },
+    @{ Binary = "ltk"; Skip = ($NoCompanions -or $NoLtk) }
 )
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -353,33 +355,20 @@ function Install-Completion {
 # the archive against the release's checksums.txt when available.
 function Install-Companion {
     param(
-        [string]$CompanionRepo,
         [string]$Binary,
+        [string]$Version,
         [string]$Arch,
         [string]$Destination
     )
 
-    $version = $null
-    try {
-        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$CompanionRepo/releases/latest" -Headers @{
-            "User-Agent" = "ctxloom-installer"
-        }
-        $version = $release.tag_name -replace '^v', ''
-    }
-    catch {
-        Write-Warn "${Binary}: no release found for $CompanionRepo; skipping"
-        Write-Warn "  install later: go install github.com/$CompanionRepo/cmd/$Binary@latest"
-        return
-    }
-
-    $archiveName = "${Binary}_${version}_windows_${Arch}.zip"
-    $base = "https://github.com/$CompanionRepo/releases/download/v$version"
+    $archiveName = "${Binary}_${Version}_windows_${Arch}.zip"
+    $base = "$DownloadBase/v$Version"
     $tempDir = Join-Path $env:TEMP "$Binary-install-$(Get-Random)"
     $archivePath = Join-Path $tempDir $archiveName
 
     try {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        Write-Info "Installing companion $Binary v$version..."
+        Write-Info "Installing companion $Binary v$Version..."
         Invoke-WebRequest -Uri "$base/$archiveName" -OutFile $archivePath
 
         # Checksum verification (integrity, not a substitute for reading this script)
@@ -408,6 +397,7 @@ function Install-Companion {
     }
     catch {
         Write-Warn "${Binary}: install failed ($_); skipping"
+        Write-Warn "  install later: go install github.com/$Repo/cmd/$Binary@latest"
     }
     finally {
         if (Test-Path $tempDir) {
@@ -457,7 +447,7 @@ function Main {
             Write-Info "Skipping $($c.Binary) (opted out)"
             continue
         }
-        Install-Companion -CompanionRepo $c.Repo -Binary $c.Binary -Arch $arch -Destination $InstallDir
+        Install-Companion -Binary $c.Binary -Version $targetVersion -Arch $arch -Destination $InstallDir
     }
 
     # Set up tab completion (the cherry on top)

@@ -1,88 +1,152 @@
-# Agent capabilities & parity
+# Engine capabilities and parity
 
-ctxloom drives three coding-agent CLIs as first-class backends — **claude-code**
-(Anthropic), **gemini** (Google), **codex** (OpenAI) — plus a `mock` used in
-tests. All three are built on the shared `agent.LaunchBackend` core
-(`github.com/ctxloom/shared/agent`) and live in their own modules
-(`github.com/ctxloom/{claude,gemini,codex}`).
+What ctxloom actually wires per **engine**. Vocabulary is GLOSSARY.md's: an
+**engine** is the thing a runner drives (claude-code, codex, kiro, antigravity,
+or a generic ACP client); an **agent** is a ctxloom actor (a profile in action);
+a **surface** is one managed deliverable (context, MCP, hooks, skills,
+settings), and the composed set is a **loadout**.
 
-Claude Code has the largest CLI surface, so it's the **reference**: where a
-capability exists everywhere we implement it everywhere; where only Claude's CLI
-supports it, the others are **N/A by CLI limitation**, documented below. This is
-the companion to [hooks-comparison.md](./hooks-comparison.md) (which compares the
-raw hook-event sets) — this doc is about what ctxloom actually wires per agent.
+Engines are registered as descriptors in `internal/lm/backends/registry.go` —
+that file is the source of truth for this document. `mock` also registers there,
+for tests.
 
-> ⚠️ **Codex is implemented against docs and is untested.** Every codex-specific
-> format/flag here is derived from the published OpenAI Codex CLI documentation
-> and has not been run against a real codex binary (the maintainer's Linux dev
-> platform has no codex access). Treat codex rows as provisional. See
-> `codex/main/README.md`.
+Claude Code has the largest CLI surface, so it is the reference: where a
+capability exists everywhere, ctxloom implements it everywhere; where only one
+engine's CLI supports it, the rest are N/A by CLI limitation and are listed
+under "Documented divergences" below.
 
-## Capability matrix
+> Status (GLOSSARY.md): `codex` and `kiro` are implemented and hermetically
+> tested, but live operation is untested — no codex or kiro account exists on
+> any dev host. Treat their rows as derived from vendor docs plus hermetic
+> tests, not from a live run.
 
-| Capability | claude-code | gemini | codex |
-|---|---|---|---|
-| Context injection (context file + SessionStart hook) | ✓ | ✓ | ✓ |
-| Hooks: SessionStart, Pre/PostTool | ✓ | ✓ | ✓ |
-| Hooks: PreShell→Bash, PostFileEdit→Edit\|Write | ✓ | ✓ | ✓ |
-| Hooks: SessionEnd | ✓ | ✓ | **N/A** (no such event) |
-| MCP servers + ctxloom auto-register | ✓ `.mcp.json` | ✓ `.gemini/settings.json` | ✓ `.codex/config.toml` |
-| Fault-tolerant settings load + atomic write/backup | ✓ | ✓ | ✓ |
-| Slash commands / custom prompts | ✓ `.claude/commands` (project) | ✓ `.gemini/commands` (project) | ✓ `~/.codex/prompts` (**global**) |
-| Command metadata | description, argument-hint, allowed-tools, model | description only | description, argument-hint |
-| Model selection flag → CLI | ✓ `--model` | ✓ `-m` | ✓ `--model` |
-| Distill / minimal-mode isolation | full (no tools/MCP/system-prompt) | `--approval-mode plan` | `exec --sandbox read-only --ask-for-approval never` |
-| Session registration (TranscriptPathFromHook) | ✓ (computed) | ✓ (from hook) | ✓ (`transcript_path` from hook) |
-| Session-history parsing | ✓ JSONL | ✓ JSONL | ✓ rollout JSONL |
-| Resolved-model provenance (real model from output) | ✓ | **N/A** | **N/A** |
-| Statusline / HUD | ✓ | **N/A** | **N/A** |
+## Surfaces per engine
+
+Each engine's writer materializes the loadout into that engine's own native
+config. Paths are relative to the runner's working directory unless marked
+global.
+
+| Surface | claude-code | antigravity | codex | kiro | acp |
+|---|---|---|---|---|---|
+| Context | `CLAUDE.md` | `.agents/AGENTS.md` | context file + SessionStart hook | `.kiro/steering/ctxloom-context.md` (auto-loaded) | in-band (lead fragment) |
+| MCP | `.mcp.json` | `.agents/mcp_config.json` | `.codex/config.toml` | `.kiro/settings/mcp.json` | — |
+| Hooks | `.claude/settings.json` | `.agents/hooks.json` | `.codex/config.toml` | `.kiro/agents/<name>.json` | — |
+| Skills (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) | `.kiro/skills/<name>/SKILL.md` | — |
+| Settings writer | ✓ | ✓ | ✓ | ✓ | **none** |
+| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (skills: **no**) | **N/A** (no flag) | **N/A** (no flag) | **N/A** (no flag) | n/a (no surfaces) |
+| Command metadata accepted | description, argument-hint, allowed-tools, model | description | description, argument-hint | description | — |
+| Read-only plan mode enforced by the CLI | ✓ `--permission-mode plan` | — | ✓ `exec --sandbox read-only --ask-for-approval never` | — | — |
+| Statusline / HUD | ✓ (`ctxloom hook hud`) | **N/A** | **N/A** | **N/A** | **N/A** |
+| Resolved-model provenance | ✓ (real model from `--output-format json`) | **N/A** | **N/A** | **N/A** | **N/A** |
+
+Hooks and settings fold into one surface wherever the engine keeps its hooks
+inside its settings file: claude (`.claude/settings.json`), codex
+(`.codex/config.toml`), kiro (the agent JSON).
+
+Only claude accepts every surface at a path ctxloom chooses. Codex, kiro, and
+antigravity expose no out-of-cwd redirect, so each of their surfaces is a
+well-known write into the working directory. Concurrent per-agent isolation on
+those engines therefore needs a private cwd — a worktree or a container cell,
+which is what the isolation axes below provide.
+
+The generic `acp` engine deliberately registers no settings writer and no
+command exports (`registry.go`, the `acp` descriptor). A generic ACP client has
+no known native config format to materialize, so it opts out with an empty
+surface set, and its context rides in-band. It offers structured chat and
+headless oneshot, never a TUI.
+
+Structured chat is ACP everywhere it exists. claude-code, codex, and kiro each
+implement `agent.StructuredChat` by delegating to `acp.NewChatDriver` from their
+own backend (`internal/{claude,codex,kiro}/chat.go`), so materialization stays
+with the engine's own writer while the chat transport is shared. Antigravity has
+no structured-chat path.
+
+## Hook translation
+
+ctxloom emits six engine-agnostic hook events (`internal/shared/wire/hooks.go`,
+`UnifiedHooks`). Each engine's writer translates them into that engine's native
+events.
+
+| Unified event | claude-code | antigravity | codex | kiro |
+|---|---|---|---|---|
+| `session_start` | `SessionStart` | written through; agy loads no session-start event, so an idempotent hook can opt into `pre_tool_fallback` | `SessionStart` | `agentSpawn` |
+| `session_end` | `SessionEnd` | written through (silently skipped by agy) | **dropped** (no such event) | `stop` |
+| `pre_tool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` |
+| `post_tool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` |
+| `pre_shell` | `PreToolUse` matcher `Bash` | `PreToolUse` matcher `run_command\|execute_command` | `PreToolUse` matcher `Bash` | `preToolUse` matcher `execute_bash` |
+| `post_file_edit` | `PostToolUse` matcher `Edit\|Write` | `PostToolUse` matcher `write_to_file\|replace_file_content` | `PostToolUse` matcher `Edit\|Write` | `postToolUse` matcher `fs_write` |
+
+Antigravity's context is the exception to the hook route: registering the
+context-injection hook there would silently drop the assembled context, so the
+writer diverts it into `.agents/AGENTS.md`, which agy reads at session start
+(`internal/antigravity/antigravity.go`, `addUnifiedHooks`).
 
 ## Documented divergences (N/A by CLI limitation)
 
-These are deliberate non-features: the underlying CLI can't support them, so
-ctxloom doesn't pretend to. They are not bugs or TODOs.
+These are deliberate non-features. The underlying CLI cannot support them, so
+ctxloom does not pretend to. They are not bugs or TODOs.
 
-### 1. Statusline / HUD — Claude only
+### 1. Statusline / HUD — claude-code only
 Claude Code runs an external `statusLine` command and pipes session JSON to it;
-ctxloom wires `ctxloom hook hud` there. Gemini has no `statusLine` setting at all.
-Codex only has a built-in `[tui].status_line` with a fixed item list (no
-command-backed statusline) — that's an open feature request
-([openai/codex#20043](https://github.com/openai/codex/issues/20043),
-[#20140](https://github.com/openai/codex/issues/20140),
-[#16921](https://github.com/openai/codex/issues/16921)). The HUD command
-(`cmd/hook_hud.go`) is written agent-neutrally and is ready the moment another CLI
-ships a command statusline; only Claude's writer wires it today.
+ctxloom wires `ctxloom hook hud` there. No other engine exposes a
+command-backed statusline. The HUD command (`internal/cli/hook_hud.go`) is
+written engine-neutrally and is ready the moment another CLI ships one; only
+claude's writer wires it today.
 
-### 2. Resolved-model provenance — Claude only
-Claude's `--output-format json` reports per-model usage, so ctxloom records the
-model that actually produced a result (e.g. for distill provenance). Gemini's
-`--output-format json` `stats.model` is *turn counts*, not a model name; codex's
-`exec --json` omits the model entirely
-([openai/codex#14736](https://github.com/openai/codex/issues/14736)). Gemini and
-codex therefore report the requested/default model.
+### 2. Resolved-model provenance — claude-code only
+Claude's `--output-format json` reports the model that actually produced a
+result, so ctxloom records it (distill provenance uses this). Every other engine
+reports the *requested* model, falling back to the engine name rather than a
+fabricated id (`internal/claude/claudecode.go`, `internal/codex/backend.go`,
+`internal/antigravity/backend.go`, `internal/kiro/backend.go`).
 
-### 3. SessionEnd hook — not on codex
-Codex's hook set has no SessionEnd-equivalent event (SessionStart,
-UserPromptSubmit, Pre/PostToolUse, Stop). Unified `SessionEnd` hooks are emitted
-for claude/gemini and dropped for codex.
+### 3. SessionEnd — not on codex
+Codex's hook set has no SessionEnd-equivalent event, so unified `session_end`
+hooks are not emitted for it (`internal/codex/settings.go`). Antigravity accepts
+the entry but never fires it, which costs nothing and lights up if a future agy
+adds the event.
 
 ### 4. Command-metadata ceilings
-The host's `CommandExport` carries description, argument-hint, allowed-tools, and
-model. Each CLI accepts only a subset: claude (all four), codex (description +
-argument-hint), gemini (description only). Unsupported fields are simply not
-emitted for that agent.
+`CommandExport` carries description, argument-hint, allowed-tools, and model.
+Each CLI accepts only a subset (see the table above). Unsupported fields are not
+emitted for that engine (`internal/lm/backends/commandfiles.go`).
 
-### 5. Codex prompts are global, and the mechanism is deprecated
-Codex discovers custom prompts only in the **global** `~/.codex/prompts` (top
-level), so codex slash commands are inherently global/cross-project — unlike the
-project-scoped `.claude/commands` / `.gemini/commands`. ctxloom writes there with
-a manifest scoping its own cleanup. OpenAI also marks custom prompts deprecated in
-favor of "skills"; migrating codex command export to skills is a future task.
+### 5. Codex prompts are global
+Codex discovers custom prompts only in the global `~/.codex/prompts`, so codex
+slash commands are inherently cross-project — unlike the workspace-scoped
+`.claude/commands` or `.agents/skills`. ctxloom writes into a cell-scoped
+`CODEX_HOME` so an isolated run does not fight the host's prompts, and a
+manifest scopes its own cleanup.
+
+### 6. Out-of-cwd placement — claude-code only
+Claude takes each surface from a path ctxloom chooses
+(`--append-system-prompt-file`, `--mcp-config`, `--settings`), so concurrent
+runs can share one working directory without fighting over config files. Its
+skills are the exception even there: `.claude/commands/` has no redirect flag.
+Antigravity, codex, and kiro expose no such flag for any surface
+(`internal/{antigravity,codex,kiro}/surfaces.go`), so concurrent per-agent runs
+on those engines need a private cwd.
+
+## Isolation axes
+
+Engine choice is independent of *where* the engine runs. Two axes meet only at
+launch (`isolation.Axes`), and both are defined in `internal/config/config.go`.
+
+| Axis | Level | Values | Set by | Governs |
+|---|---|---|---|---|
+| `workspace` | session | `none` \| `worktree` | `run`/`map`/`weave --workspace`, or the `workspace` config key | where a session's working directory lives |
+| `runtime` | agent | `host` \| `container` | an agent binding's `runtime:`, or the `runtime` config key | where an agent's engine process executes |
+
+They are two axes rather than one "isolation" setting because they belong to
+different things. Needing a private working directory is a property of how a
+session is launched; needing a container is a property of the agent.
 
 ## Sources
+
 - Claude Code: <https://code.claude.com/docs>
-- Gemini CLI: <https://geminicli.com/docs> (custom-commands, headless)
-- OpenAI Codex: <https://developers.openai.com/codex> (config-reference, hooks,
-  mcp, custom-prompts, cli/reference)
-- In-repo: [hooks-comparison.md](./hooks-comparison.md),
+- OpenAI Codex: <https://developers.openai.com/codex>
+- In-repo: [GLOSSARY.md](../GLOSSARY.md) (vocabulary),
+  `internal/lm/backends/registry.go` (the engine set),
   [adr/0031-agent-equity-documented-divergences.md](./adr/0031-agent-equity-documented-divergences.md)
+</content>
+</invoke>

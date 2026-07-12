@@ -89,6 +89,7 @@ export default defineConfig({
 					label: 'ltk',
 					items: [
 						{ label: 'Overview', link: '/ltk/' },
+						{ label: 'Writing Rules', link: '/ltk/rules/' },
 						{ label: 'CLI', autogenerate: { directory: 'ltk/reference/cli' } },
 					],
 				},

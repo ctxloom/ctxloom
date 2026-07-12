@@ -1,0 +1,8 @@
+ctxloom-countersign/1
+assertion: approve
+kind: fragments
+ref: acme-tools#fragments/go-testing
+form: raw
+len: 30
+
+Use table-driven tests in Go.

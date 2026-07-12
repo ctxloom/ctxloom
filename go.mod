@@ -26,6 +26,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
+	github.com/hiddeco/sshsig v0.2.0
 	github.com/joshgarnett/agent-client-protocol-go v0.0.0-20250902121345-69cbaf95b89e
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pelletier/go-toml/v2 v2.3.1

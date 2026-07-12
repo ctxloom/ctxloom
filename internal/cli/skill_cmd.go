@@ -124,6 +124,8 @@ var skillDistillForce bool
 var (
 	skillPushPR      bool
 	skillPushMessage string
+	skillPushSign    bool
+	skillPushNoSign  bool
 )
 
 var skillPushCmd = &cobra.Command{
@@ -134,17 +136,24 @@ var skillPushCmd = &cobra.Command{
 This publishes the entire bundle (which contains skills, fragments, etc.)
 to the specified remote.
 
+--sign publishes a detached signature alongside the bundle (signature-
+envelope spec §3.1) so anyone who trusts your key can verify it came from
+you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+'sign.default: true' in config to make every push sign unless --no-sign is
+given for one invocation.
+
 Examples:
   ctxloom skill push my-bundle
   ctxloom skill push my-bundle ctxloom-default
-  ctxloom skill push my-bundle --pr`,
+  ctxloom skill push my-bundle --pr
+  ctxloom skill push my-bundle --sign`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""
 		if len(args) > 1 {
 			remoteName = args[1]
 		}
-		return pushBundle(cmd, args[0], remoteName, skillPushPR, skillPushMessage)
+		return pushBundle(cmd, args[0], remoteName, skillPushPR, skillPushMessage, skillPushSign, skillPushNoSign)
 	},
 }
 
@@ -166,4 +175,6 @@ func init() {
 
 	skillPushCmd.Flags().BoolVar(&skillPushPR, "pr", false, "Create a pull request")
 	skillPushCmd.Flags().StringVarP(&skillPushMessage, "message", "m", "", "Commit message")
+	skillPushCmd.Flags().BoolVar(&skillPushSign, "sign", false, "sign the published bundle (spec §3.1)")
+	skillPushCmd.Flags().BoolVar(&skillPushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
 }

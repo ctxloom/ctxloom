@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -355,4 +356,101 @@ func TestSplitTitleBody(t *testing.T) {
 			assert.Equal(t, tt.wantBody, gotBody, "body")
 		})
 	}
+}
+
+// --- SignPayload wiring (signature-envelope spec §7A) ----------------------
+
+func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/local", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.defaultBranch = "main"
+
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublishFS(fs),
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	var signedPayload []byte
+	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+		ItemType: ItemTypeBundle,
+		Branch:   "main",
+		SignPayload: func(payload []byte) ([]byte, error) {
+			signedPayload = payload
+			return []byte("FAKE-SIGNATURE"), nil
+		},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, result.Signed)
+	require.Contains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml.sig")
+	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles["ctxloom/bundles/mybundle.yaml.sig"])
+	// The signed payload must be EXACTLY the bytes that landed at the main
+	// path (post publish-metadata) — never the pre-metadata local bytes,
+	// and never a re-serialization (spec §3.1, §3.0).
+	assert.Equal(t, mp.createdFiles["ctxloom/bundles/mybundle.yaml"], signedPayload)
+}
+
+func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/local", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.defaultBranch = "main"
+
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublishFS(fs),
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+		ItemType: ItemTypeBundle,
+		Branch:   "main",
+		SignPayload: func(payload []byte) ([]byte, error) {
+			return nil, fmt.Errorf("no signing key found")
+		},
+	})
+
+	require.Error(t, err, "a signing failure must abort the publish, never degrade to unsigned")
+	assert.Empty(t, mp.createdFiles, "no file — signed or unsigned — may be written when signing was requested and failed")
+}
+
+func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/local", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.defaultBranch = "main"
+
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublishFS(fs),
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+		ItemType: ItemTypeBundle,
+		Branch:   "main",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Signed)
+	assert.NotContains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml.sig")
 }

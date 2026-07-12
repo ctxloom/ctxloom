@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -22,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // DistillKind tags whether a Distill call is for a fragment or a prompt.
@@ -557,6 +560,15 @@ type PushBundleRequest struct {
 	// a manager backed by a mock Publisher; production callers leave this
 	// nil so a real network-backed manager is constructed from cfg.
 	PublishManager *remote.PublishManager `json:"-"`
+
+	// Signer, when non-nil, makes this push a SIGNED publish: the exact
+	// bytes that land at the remote path (post publish-metadata) are signed
+	// under signing.NamespacePublish and a detached "<path>.sig" sibling is
+	// published alongside (spec §3.1, §4.1). PushBundle never resolves a
+	// signer itself — key discovery (internal/signing/agentkey) is the
+	// CLI's job, so this stays a pure DI seam and Signer==nil unambiguously
+	// means "not signing" (--no-sign, or sign.default is off).
+	Signer ssh.Signer `json:"-"`
 }
 
 // PushBundleResult reports what was (or would be) published.
@@ -577,6 +589,11 @@ type PushBundleResult struct {
 
 	// Set on dry-run only — human-readable summary of what would happen.
 	Preview string `json:"preview,omitempty"`
+
+	// Signed reports whether a detached "<TargetPath>.sig" sibling was
+	// published alongside the bundle (req.Signer was set and signing
+	// succeeded).
+	Signed bool `json:"signed,omitempty"`
 }
 
 // PushBundle publishes (or dry-runs) a local bundle file to req.Remote (a
@@ -681,18 +698,27 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.AppPaths[0]))
 	}
 
-	pubResult, err := pm.Publish(ctx, absPath, remoteName, remote.PublishOptions{
+	opts := remote.PublishOptions{
 		CreatePR: req.CreatePR,
 		Title:    result.Title,
 		Message:  result.Message,
 		ItemType: remote.ItemTypeBundle,
-	})
+	}
+	if req.Signer != nil {
+		signer := req.Signer
+		opts.SignPayload = func(payload []byte) ([]byte, error) {
+			return signing.Sign(payload, signer, signing.NamespacePublish)
+		}
+	}
+
+	pubResult, err := pm.Publish(ctx, absPath, remoteName, opts)
 	if err != nil {
 		return nil, fmt.Errorf("publish: %w", err)
 	}
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
+	result.Signed = pubResult.Signed
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"

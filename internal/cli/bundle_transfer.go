@@ -5,8 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -14,6 +12,8 @@ import (
 var (
 	bundlePushPR      bool
 	bundlePushMessage string
+	bundlePushSign    bool
+	bundlePushNoSign  bool
 )
 
 var bundlePushCmd = &cobra.Command{
@@ -40,43 +40,7 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		remoteOverride = args[1]
 	}
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	bundle, err := loadBundleForPush(cfg, args[0])
-	if err != nil {
-		return err
-	}
-
-	remoteName, err := operations.ResolveBundleRemote(cfg, bundle.Path, remoteOverride)
-	if err != nil {
-		return err
-	}
-
-	result, err := operations.PushBundle(cmd.Context(), cfg, operations.PushBundleRequest{
-		Path:     bundle.Path,
-		Remote:   remoteName,
-		Message:  bundlePushMessage,
-		CreatePR: bundlePushPR,
-	})
-	if err != nil {
-		return err
-	}
-
-	return emit(cmd, result, func() error { return printPushResult(cmd.OutOrStdout(), result) })
-}
-
-// loadBundleForPush loads the named bundle through the operations read-path,
-// returning it for the publish flow (which needs its on-disk Path).
-func loadBundleForPush(cfg *config.Config, bundleName string) (*bundles.Bundle, error) {
-	bundle, err := operations.GetBundle(cfg, bundleName)
-	if err != nil {
-		return nil, fmt.Errorf("load bundle %q: %w", bundleName, err)
-	}
-	return bundle, nil
+	return pushBundle(cmd, args[0], remoteOverride, bundlePushPR, bundlePushMessage, bundlePushSign, bundlePushNoSign)
 }
 
 var bundleExportOutput string

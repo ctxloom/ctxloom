@@ -18,10 +18,17 @@ Push a bundle containing skills to a remote repository.
 This publishes the entire bundle (which contains skills, fragments, etc.)
 to the specified remote.
 
+--sign publishes a detached signature alongside the bundle (signature-
+envelope spec §3.1) so anyone who trusts your key can verify it came from
+you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+'sign.default: true' in config to make every push sign unless --no-sign is
+given for one invocation.
+
 Examples:
   ctxloom skill push my-bundle
   ctxloom skill push my-bundle ctxloom-default
   ctxloom skill push my-bundle --pr
+  ctxloom skill push my-bundle --sign
 
 ```
 ctxloom skill push <bundle> [remote] [flags]
@@ -32,7 +39,9 @@ ctxloom skill push <bundle> [remote] [flags]
 ```
   -h, --help             help for push
   -m, --message string   Commit message
+      --no-sign          don't sign, even if sign.default is true
       --pr               Create a pull request
+      --sign             sign the published bundle (spec §3.1)
 ```
 
 ### Options inherited from parent commands

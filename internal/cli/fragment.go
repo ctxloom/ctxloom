@@ -146,6 +146,8 @@ Examples:
 var (
 	fragmentPushPR      bool
 	fragmentPushMessage string
+	fragmentPushSign    bool
+	fragmentPushNoSign  bool
 )
 
 var fragmentPushCmd = &cobra.Command{
@@ -156,17 +158,25 @@ var fragmentPushCmd = &cobra.Command{
 This publishes the entire bundle (which contains fragments, prompts, etc.)
 to the specified remote.
 
+--sign publishes a detached signature alongside the bundle (signature-
+envelope spec §3.1) so anyone who trusts your key can verify it came from
+you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+'sign.default: true' in config to make every push sign unless --no-sign is
+given for one invocation — the best signing ceremony is the one that
+already happened.
+
 Examples:
   ctxloom fragment push my-bundle
   ctxloom fragment push my-bundle ctxloom-default
-  ctxloom fragment push my-bundle --pr`,
+  ctxloom fragment push my-bundle --pr
+  ctxloom fragment push my-bundle --sign`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""
 		if len(args) > 1 {
 			remoteName = args[1]
 		}
-		return pushBundle(cmd, args[0], remoteName, fragmentPushPR, fragmentPushMessage)
+		return pushBundle(cmd, args[0], remoteName, fragmentPushPR, fragmentPushMessage, fragmentPushSign, fragmentPushNoSign)
 	},
 }
 
@@ -189,6 +199,8 @@ func init() {
 
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")
 	fragmentPushCmd.Flags().StringVarP(&fragmentPushMessage, "message", "m", "", "Commit message")
+	fragmentPushCmd.Flags().BoolVar(&fragmentPushSign, "sign", false, "sign the published bundle (spec §3.1)")
+	fragmentPushCmd.Flags().BoolVar(&fragmentPushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
 
 	fragmentSearchCmd.Flags().StringSliceVarP(&fragmentSearchTags, "tag", "t", nil, "Filter by tags (comma-separated)")
 }

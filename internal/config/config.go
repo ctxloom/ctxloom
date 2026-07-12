@@ -369,6 +369,21 @@ func (c *Config) ShouldUseDistilled() bool {
 	return c.Settings.ShouldUseDistilled()
 }
 
+// ShouldSignByDefault reports whether publish commands (fragment push,
+// skill push) should sign unless --no-sign is given (spec §7A.3,
+// sign.default). Defaults to false.
+func (c *Config) ShouldSignByDefault() bool {
+	return c.Settings.ShouldSignByDefault()
+}
+
+// SignKey returns the configured sign.key override (an explicit
+// --key-equivalent path or SHA256:... fingerprint), or "" when unset —
+// meaning the zero-config discovery chain (internal/signing/agentkey)
+// should be used instead.
+func (c *Config) SignKey() string {
+	return c.Settings.SignKey()
+}
+
 // GetProfileLoader returns a profiles.Loader for this config's ctxloom paths.
 // It wires a remote resolver from the remotes registry so the loader can qualify
 // legacy bare bundle refs with the remote each profile was installed from.

@@ -37,12 +37,17 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
-	return &config.Config{
+	cfg := &config.Config{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
 		Profiles:     config.ProfilesConfig{Definitions: inline},
 	}
+	// Setting AppPaths arms companion probing, which execs the companion
+	// binaries on the HOST's PATH — the fixture, not the machine, must decide
+	// what these tests observe.
+	cfg.DisableCompanionProbe()
+	return cfg
 }
 
 // preToolCommandSet returns the pre_tool hook commands in order.

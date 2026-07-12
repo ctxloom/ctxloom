@@ -655,13 +655,22 @@ func (l *Loader) Delete(name string) error {
 	return l.fs.Remove(profile.Path)
 }
 
-// GetProfileDirs returns profile directories from ctxloom paths.
-// Profiles are stored in .ctxloom/persistent/profiles/.
-func GetProfileDirs(scmPaths []string) []string {
+// GetProfileDirs returns the existing profile directories under the given
+// ctxloom paths, resolved against fs. A nil fs means the real OS filesystem
+// (the production default).
+//
+// fs is a parameter rather than an os.Stat because discovery must follow the
+// SAME filesystem the Loader reads: statting the real disk unconditionally made
+// every injected fs a lie — a profile written to a MemMapFs was never found —
+// which is why callers throughout the tree had to fall back to real tempdirs.
+func GetProfileDirs(fs afero.Fs, scmPaths []string) []string {
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
 	var dirs []string
 	for _, scmPath := range scmPaths {
 		profileDir := paths.ProfilesPath(scmPath)
-		if info, err := os.Stat(profileDir); err == nil && info.IsDir() {
+		if isDir, err := afero.DirExists(fs, profileDir); err == nil && isDir {
 			dirs = append(dirs, profileDir)
 		}
 	}

@@ -213,14 +213,19 @@ func (l *Loader) loadFile(path string) (*Agent, error) {
 	return sub, nil
 }
 
-// GetAgentDirs returns the existing agent directories for the given
-// ctxloom paths. Mirrors profiles.GetProfileDirs: it stats the real filesystem,
-// so only directories that exist on disk are returned.
-func GetAgentDirs(scmPaths []string) []string {
+// GetAgentDirs returns the existing agent directories for the given ctxloom
+// paths, resolved against fs. A nil fs means the real OS filesystem (the
+// production default). Mirrors profiles.GetProfileDirs, including its reason for
+// taking an fs: discovery must follow the same filesystem the loader reads, or
+// an injected fs is silently ignored.
+func GetAgentDirs(fs afero.Fs, scmPaths []string) []string {
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
 	var dirs []string
 	for _, scmPath := range scmPaths {
 		dir := paths.AgentsPath(scmPath)
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		if isDir, err := afero.DirExists(fs, dir); err == nil && isDir {
 			dirs = append(dirs, dir)
 		}
 	}

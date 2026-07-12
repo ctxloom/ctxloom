@@ -12,7 +12,7 @@ import (
 // reads honor c.fs (matching GetProfileLoader). Returns nil only when there is
 // no app path to anchor a directory.
 func (c *Config) agentDirLoader() *agents.Loader {
-	dirs := agents.GetAgentDirs(c.AppPaths)
+	dirs := agents.GetAgentDirs(c.fs, c.AppPaths)
 	var opts []agents.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, agents.WithFS(c.fs))

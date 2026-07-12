@@ -39,12 +39,18 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
-	return &config.Config{
+	cfg := &config.Config{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
 		Profiles:     config.ProfilesConfig{Definitions: inline},
 	}
+	// Setting AppPaths arms companion probing, which execs the companion
+	// binaries on the HOST's PATH — so these exact-set assertions would pick up
+	// e.g. ltk's skills on a machine that has ltk installed and pass on one that
+	// doesn't. The fixture, not the machine, decides what is exported here.
+	cfg.DisableCompanionProbe()
+	return cfg
 }
 
 // TestLoadSkillExports_DirProfileCuratedSetExportsExactlyThose proves a

@@ -144,6 +144,15 @@ type Config struct {
 	// probe is still memoized exactly once via the pointee's sync.Once.
 	companionSeed *companionSeedState
 
+	// companionProbe overrides companion-loadout discovery; nil means the real
+	// ProbeCompanionLoadouts. The real probe execs whatever companion binaries
+	// happen to be on the HOST's PATH, so any test that sets AppPaths (the only
+	// guard) silently inherits the developer's machine: the same test passes
+	// where ltk is not installed and fails where it is. Tests that assert on an
+	// exact skill/bundle set must pin this (see DisableCompanionProbe) so the
+	// result depends on the fixture, never the host.
+	companionProbe func(signing.TrustRoot) map[string]*bundles.Bundle
+
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
 	// still match it: the overlay is a runtime fallback, and persisting it
@@ -407,7 +416,7 @@ func (c *Config) SignKey() string {
 // It wires a remote resolver from the remotes registry so the loader can qualify
 // legacy bare bundle refs with the remote each profile was installed from.
 func (c *Config) GetProfileLoader() *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(c.AppPaths)
+	profileDirs := profiles.GetProfileDirs(c.fs, c.AppPaths)
 	var opts []profiles.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
@@ -1029,10 +1038,23 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 	state := c.companionSeed
 	companionSeedInitMu.Unlock()
 
+	probe := c.companionProbe
+	if probe == nil {
+		probe = ProbeCompanionLoadouts
+	}
 	state.once.Do(func() {
-		state.cache = ProbeCompanionLoadouts(c.TrustRoot())
+		state.cache = probe(c.TrustRoot())
 	})
 	return state.cache
+}
+
+// DisableCompanionProbe makes companion-loadout discovery a no-op for this
+// Config. Companion probing execs the companion binaries found on the host's
+// PATH, which makes any assertion over an exact skill set depend on what the
+// developer happens to have installed. Tests that pin such a set call this so
+// the fixture — not the machine — decides the result.
+func (c *Config) DisableCompanionProbe() {
+	c.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle { return nil }
 }
 
 // companionSeedState is the memoized result of one Config's companion-loadout

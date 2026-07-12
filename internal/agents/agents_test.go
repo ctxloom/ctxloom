@@ -71,10 +71,10 @@ func TestGetAgentDirs(t *testing.T) {
 	app := filepath.Join(root, ".ctxloom")
 	require.NoError(t, os.MkdirAll(filepath.Join(app, "agents"), 0755))
 
-	dirs := GetAgentDirs([]string{app})
+	dirs := GetAgentDirs(nil, []string{app})
 	require.Len(t, dirs, 1)
 	assert.Equal(t, filepath.Join(app, "agents"), dirs[0])
 
 	// No agents dir → no entry.
-	assert.Empty(t, GetAgentDirs([]string{filepath.Join(root, "absent")}))
+	assert.Empty(t, GetAgentDirs(nil, []string{filepath.Join(root, "absent")}))
 }

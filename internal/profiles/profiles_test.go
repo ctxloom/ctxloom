@@ -301,7 +301,7 @@ func TestGetProfileDirs(t *testing.T) {
 	profilesDir := paths.ProfilesPath(tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
-	dirs := GetProfileDirs([]string{tmpDir})
+	dirs := GetProfileDirs(nil, []string{tmpDir})
 
 	assert.Len(t, dirs, 1)
 	assert.Equal(t, profilesDir, dirs[0])
@@ -310,7 +310,7 @@ func TestGetProfileDirs(t *testing.T) {
 func TestGetProfileDirs_NoProfilesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	dirs := GetProfileDirs([]string{tmpDir})
+	dirs := GetProfileDirs(nil, []string{tmpDir})
 	assert.Empty(t, dirs)
 }
 
@@ -941,4 +941,37 @@ func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 	assert.Contains(t, r1.MCP.Servers, "s1")
 	assert.Contains(t, r1.MCP.Servers, "s2")
 	assert.Equal(t, "from-r2", r1.MCP.Servers["shared"].Command, "later (merged-in) server name wins")
+}
+
+// TestGetProfileDirs_UsesInjectedFS pins that directory discovery honours the
+// injected filesystem. It statted the real OS filesystem regardless of the fs
+// wired into the Config/Loader, so a profile written to a MemMapFs was invisible
+// and every dir-profile test had to fall back to real tempdirs — an injection
+// seam that silently did nothing.
+func TestGetProfileDirs_UsesInjectedFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const appDir = "/project/.ctxloom"
+	profilesDir := paths.ProfilesPath(appDir)
+	require.NoError(t, fs.MkdirAll(profilesDir, 0755))
+
+	dirs := GetProfileDirs(fs, []string{appDir})
+
+	assert.Equal(t, []string{profilesDir}, dirs,
+		"a profiles dir present in the injected fs must be discovered")
+}
+
+// TestGetProfileDirs_InjectedFS_Absent is the negative: a dir absent from the
+// injected fs is not reported, even if a same-named path exists on the real disk.
+func TestGetProfileDirs_InjectedFS_Absent(t *testing.T) {
+	assert.Empty(t, GetProfileDirs(afero.NewMemMapFs(), []string{"/project/.ctxloom"}))
+}
+
+// TestGetProfileDirs_NilFS_UsesRealFS keeps the production default: callers that
+// pass no filesystem still resolve against the OS.
+func TestGetProfileDirs_NilFS_UsesRealFS(t *testing.T) {
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	assert.Equal(t, []string{profilesDir}, GetProfileDirs(nil, []string{tmpDir}))
 }

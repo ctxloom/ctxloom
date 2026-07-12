@@ -3,13 +3,15 @@ title: "taskloom"
 description: "Per-project task tracking for you and your agents: one append-only log, a CLI, and an MCP server over the same store."
 ---
 
+An agent notices something worth doing later and mentions it once, in passing — then the
+session ends, or the context window turns over, and that follow-up is gone. taskloom's shared
+store is what fixes this: an agent that files a follow-up with `task_add` files it where you
+will see it with `taskloom list`; a task you defer on the command line disappears from the
+agent's active list too.
+
 **taskloom** is a per-project task store that ships from the ctxloom repo. It keeps one
 append-only log per project and puts two front doors on it: the `taskloom` CLI for you, and
 an MCP server (`taskloom mcp`) for your agents — both reading and writing the *same* tasks.
-
-That shared store is the point. An agent that files a follow-up with `task_add` files it
-where you will see it with `taskloom list`; a task you defer on the command line disappears
-from the agent's active list too.
 
 Tasks are keyed by **harp IDs** (`swift-amber-falcon`) rather than numbers, so an ID stays
 stable and unambiguous when a model echoes it back in a later call.

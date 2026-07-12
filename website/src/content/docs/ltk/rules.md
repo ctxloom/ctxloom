@@ -7,6 +7,11 @@ sidebar:
 
 Rules live in `.ltk/config.yaml`. `ltk manage install` writes a starter file; from
 then on it is yours to edit, and it belongs in git alongside the code it guards.
+The starter file catches generic footguns — the rules worth adding are specific to
+your project: the deploy script an agent shouldn't run directly, the migration
+that needs a human, the directory nobody should hand-edit. And as on
+[the ltk overview](/ltk/): a rule is a guardrail against reflexive mistakes, not a
+security boundary, so it stops the accidental path, not a determined one.
 
 ```yaml
 version: 1

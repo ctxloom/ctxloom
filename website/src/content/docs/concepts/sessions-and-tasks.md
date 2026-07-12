@@ -2,6 +2,11 @@
 title: "Sessions and Tasks"
 ---
 
+`/clear` the window, or come back after a break, and you can lose more than the
+conversation — you can lose track of what you'd agreed still needed doing. ctxloom
+keeps both: a session so the conversation itself survives, a task so a work item
+does too, even once the session it came from is gone.
+
 A **session** is one working conversation, recorded by ctxloom so it survives
 `/clear` and can be recovered or distilled later (see
 [Session Memory](/getting-started/memory/)). **Tasks** are durable work items

@@ -93,6 +93,62 @@ func TestEnsure_IsIdempotentAcrossRuns(t *testing.T) {
 	assert.Equal(t, first, second)
 }
 
+func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		".ctxloom/cache/",
+		".ctxloom/pieces/",
+		".ctxloom/sessions/",
+		".ctxloom/ephemeral/",
+		".ctxloom/project-id",
+	}, PrivateStatePatterns)
+}
+
+// TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState mirrors the call
+// init.go makes (gitignore.Ensure(projectDir, gitignore.Comment,
+// gitignore.PrivateStatePatterns...)) and asserts the resulting .gitignore
+// ignores the rebuildable/local-state paths while leaving the
+// content/config/trust paths committed-by-omission (never mentioned, so git
+// tracks them by default).
+func TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+
+	got := readGitignore(t, dir)
+
+	for _, ignored := range []string{
+		".ctxloom/cache/",
+		".ctxloom/pieces/",
+		".ctxloom/sessions/",
+		".ctxloom/ephemeral/",
+		".ctxloom/project-id",
+	} {
+		assert.Contains(t, got, ignored, "expected %q to be ignored", ignored)
+	}
+
+	for _, committed := range []string{
+		".ctxloom/content/",
+		".ctxloom/config.yaml",
+		".ctxloom/remotes.yaml",
+		".ctxloom/lock.yaml",
+		".ctxloom/allowed_signers",
+		".ctxloom/approvals/",
+	} {
+		assert.NotContains(t, got, committed, "expected %q to stay committed (not ignored)", committed)
+	}
+}
+
+func TestEnsure_InitBehavior_IsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+	first := readGitignore(t, dir)
+	require.NoError(t, Ensure(dir, Comment, PrivateStatePatterns...))
+	second := readGitignore(t, dir)
+
+	assert.Equal(t, first, second)
+}
+
 // countOccurrences counts non-overlapping occurrences of sub in s.
 func countOccurrences(s, sub string) int {
 	count := 0

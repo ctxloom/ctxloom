@@ -10,12 +10,23 @@ import (
 )
 
 // Comment is the header under which ctxloom's ignore patterns are grouped.
-const Comment = "# ctxloom private working state (synced bundles, session/context, project id)"
+const Comment = "# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)"
 
-// PrivateStatePatterns are the .ctxloom paths that must never ride a
-// distributable tree: the ephemeral cache (synced bundles, session/context
-// data) and the project-id marker (ADR 0025 — private identity).
-var PrivateStatePatterns = []string{".ctxloom/ephemeral/", ".ctxloom/project-id"}
+// PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
+// local and so must never ride a distributable tree: the resolved-artifact
+// cache, fetched remote-bundle pieces, per-project session state, ephemeral
+// scratch (synced bundles, transient context data), and the project-id
+// marker (ADR 0025 — private identity). Everything else under .ctxloom/
+// (config.yaml, remotes.yaml, lock.yaml, allowed_signers, approvals/,
+// content/) is committed by omission — it's content, config, or trust state
+// the project depends on.
+var PrivateStatePatterns = []string{
+	".ctxloom/cache/",
+	".ctxloom/pieces/",
+	".ctxloom/sessions/",
+	".ctxloom/ephemeral/",
+	".ctxloom/project-id",
+}
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
 // during hook application: the per-file settings backups, the Antigravity

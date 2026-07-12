@@ -105,7 +105,11 @@ func TestExecGate_TrustedSourceExemptsExecutables(t *testing.T) {
 // TestExecGate_ResolveBundleMCPServers_RealCascade drives the FULL profile→
 // bundle→settings path with the REAL executable gate over a LOCAL on-disk bundle:
 // a first-party local MCP server is written while a rejected sibling is
-// withheld, and the in-binary builtin servers are exempt.
+// withheld, and the in-binary builtin servers — routed through the same REAL
+// decision function, allowed by default at their own step — still come
+// through with no review state recorded (see
+// TestExecGate_ResolveBundleMCPServers_BuiltinRejectable for the companion
+// proof that a REJECTED builtin item is withheld).
 func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
@@ -140,7 +144,39 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 			builtin = true
 		}
 	}
-	assert.True(t, builtin, "in-binary builtin MCP servers are exempt from the gate")
+	assert.True(t, builtin, "in-binary builtin MCP servers are allowed by default (not rejected) through the same gate")
+}
+
+// TestExecGate_ResolveBundleMCPServers_BuiltinRejectable proves builtin bundles
+// are reachable by the rejection step — docs/trust-model.md states "a user can
+// reject an item even from a trusted source or a builtin" (rejection beats
+// everything), but until this fix builtin resolvers passed gate=nil and could
+// never be rejected. A REJECTED builtin MCP server (the taskloom companion's
+// "taskloom" server) must be withheld exactly like a rejected remote/local one.
+func TestExecGate_ResolveBundleMCPServers_BuiltinRejectable(t *testing.T) {
+	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
+	defer restore()
+
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	cfg := &config.Config{AppPaths: []string{appDir}}
+
+	store, err := getTrustStore(cfg, nil, nil)
+	require.NoError(t, err)
+	// Matches resources/builtin_bundles/taskloom.yaml's mcp.taskloom entry
+	// exactly (Command/Args/Installation are the ComputeContentHash preimage —
+	// Notes is excluded).
+	taskloomHash := mcpHashOf(bundles.BundleMCP{
+		Command:      "taskloom",
+		Args:         []string{"mcp"},
+		Installation: "brew install ctxloom/tap/taskloom",
+	})
+	require.NoError(t, store.SetRejected("builtin:ctxloom", "taskloom#mcp/taskloom", taskloomHash))
+
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
+	result := cfg.ResolveBundleMCPServers(nil)
+
+	assert.NotContains(t, result, "taskloom",
+		"a REJECTED builtin MCP server must be withheld — rejection beats the builtin exemption")
 }
 
 // TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: a first-party

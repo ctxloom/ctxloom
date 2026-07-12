@@ -356,7 +356,9 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file
 	// matches AssembleContext. Skipped when the companion binary is absent.
-	for _, bf := range cfg.ResolveBuiltinBundleFragments() {
+	// Gated through the SAME content gate as loader-resolved fragments
+	// (loader.Gate()) so a rejected builtin fragment is withheld here too.
+	for _, bf := range cfg.ResolveBuiltinBundleFragments(loader.Gate()) {
 		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:         bf.Name,
 			Content:      bf.Content,

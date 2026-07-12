@@ -104,8 +104,11 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality and aren't gated on profile membership. Run them
-	// first so profile-sourced servers can intentionally override.
-	maps.Copy(result, resolveBuiltinBundleMCPServers())
+	// first so profile-sourced servers can intentionally override. They ARE
+	// routed through c.execGate (nil on management/listing paths, matching the
+	// no-gating convention there) so a builtin item can still be REJECTED —
+	// see resolveBuiltinBundleMCPServers.
+	maps.Copy(result, resolveBuiltinBundleMCPServers(c.execGate))
 
 	// Scope to the caller's selected profiles (e.g. `run -p`); when none are
 	// passed, fall back to the configured defaults so the `manage`/apply-hooks
@@ -166,7 +169,15 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 // is tagged with SCM="bundle:builtin:<name>" so apply-* reconciliation can
 // identify built-in entries. Failures on individual bundles are logged
 // to stderr and skipped — built-in bundles must never block startup.
-func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
+//
+// gate is run through extractMCPFromBundle exactly like a remote/local bundle's
+// servers (the "builtin:<name>" source ref parses as trust.Ref{IsBuiltin: true}
+// — see operations.parseTrustItemRef): the decision function still ALLOWS a
+// builtin server by default (no new review friction — trust-model.md's builtin
+// exemption), but a REJECTED builtin item is now withheld, because rejection is
+// evaluated before the builtin exemption. A nil gate (management/listing paths,
+// matching every other resolver here) is fully ungated, unchanged from before.
+func resolveBuiltinBundleMCPServers(gate bundles.ContentGate) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
@@ -184,10 +195,7 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		// Builtin bundles are in-binary and never pass the trust resolver — gate
-		// nil (they ship with ctxloom; trusting the binary trusts them). This
-		// mirrors the baseline, which also excludes builtins.
-		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name, nil) {
+		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name, gate) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -225,8 +233,10 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
-	// gating, no remote pull.
-	result.Append(resolveBuiltinBundleHooks())
+	// gating, no remote pull. Routed through c.execGate (see
+	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
+	// reachable by a rejection).
+	result.Append(resolveBuiltinBundleHooks(c.execGate))
 
 	profiles := c.resolveProfileScope(profileNames)
 	if len(profiles) == 0 || len(c.AppPaths) == 0 {
@@ -307,7 +317,11 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.Load
 // apply-hooks reconciliation can identify built-in entries. Failures on
 // individual bundles are logged to stderr and skipped — built-in bundles
 // must never block startup.
-func resolveBuiltinBundleHooks() wire.UnifiedHooks {
+// gate is threaded through exactly like resolveBuiltinBundleMCPServers: still
+// allowed by default (no new review friction), but now reachable by a
+// rejection (rejection is evaluated before the builtin exemption). A nil gate
+// (management/listing paths) stays fully ungated.
+func resolveBuiltinBundleHooks(gate bundles.ContentGate) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
@@ -325,9 +339,7 @@ func resolveBuiltinBundleHooks() wire.UnifiedHooks {
 			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		// Builtin bundles are in-binary and exempt from the trust gate (nil) —
-		// they ship with ctxloom and the baseline excludes them.
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name, nil)))
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name, gate)))
 	}
 	return out
 }
@@ -376,7 +388,16 @@ type BuiltinFragment struct {
 // bundles have no companion and always inject. Order is deterministic (bundle
 // name, then fragment name) for a stable context hash. The missing-companion
 // install hint is emitted by the hooks/MCP path; this resolver stays silent.
-func (c *Config) ResolveBuiltinBundleFragments() []BuiltinFragment {
+//
+// gate mirrors ResolveBundleHooks/ResolveBundleMCPServers's builtin routing: a
+// builtin fragment is still exposed by default (no new review friction), but a
+// REJECTED builtin fragment is now withheld — rejection is evaluated before the
+// builtin exemption. Callers on an exposure surface pass the SAME gate their
+// content loader is using (Loader.Gate()) so builtin fragments gate through the
+// identical decision as the loader-resolved ones, sharing its trust-store
+// open and its withheld-ref tally. nil (management/listing callers) is fully
+// ungated, matching every other resolver here.
+func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []BuiltinFragment {
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
 		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
@@ -404,9 +425,17 @@ func (c *Config) ResolveBuiltinBundleFragments() []BuiltinFragment {
 		sort.Strings(fragNames)
 		for _, fragName := range fragNames {
 			frag := b.Fragments[fragName]
-			content := frag.EffectiveContent(c.ShouldUseDistilled())
+			preferDistilled := c.ShouldUseDistilled()
+			content := frag.EffectiveContent(preferDistilled)
 			if strings.TrimSpace(content) == "" {
 				continue
+			}
+			if gate != nil {
+				hash, form := frag.EffectiveContentHash(preferDistilled)
+				ref := "builtin:" + name + "#fragments/" + fragName
+				if !gate(ref, hash, string(form)) {
+					continue // withheld by the trust gate (e.g. rejected)
+				}
 			}
 			out = append(out, BuiltinFragment{
 				Name:         "builtin:" + name + "#fragments/" + fragName,

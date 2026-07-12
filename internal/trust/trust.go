@@ -46,6 +46,12 @@ const (
 	SourceRejected Source = "rejected"
 	// SourceLocal: project-authored local content auto-allowed (all kinds).
 	SourceLocal Source = "local"
+	// SourceBuiltin: compiled into this binary (resources/builtin_bundles).
+	// Authenticated by the binary itself — trusting ctxloom trusts what it
+	// ships — and allowed by default with no review friction, but (unlike the
+	// old gate=nil bypass) reachable by SourceRejected: a user can reject a
+	// builtin item and have that rejection enforced.
+	SourceBuiltin Source = "builtin"
 	// SourceTrustedSource: the item's repo is in the trusted-sources set
 	// (a registry remote carrying TrustBundles).
 	SourceTrustedSource Source = "trusted-source"
@@ -138,7 +144,22 @@ type Ref struct {
 	// IsLocal marks a ctxloom:local (project-authored) item. Local content
 	// (fragment/prompt) is auto-allowed; local executables (mcp) are not.
 	IsLocal bool
+
+	// IsBuiltin marks an item shipped inside the ctxloom binary itself
+	// (resources/builtin_bundles). Mutually exclusive with IsLocal. Builtin
+	// items key under BuiltinSigner (never remote.LocalSource) so they cannot
+	// collide with a project-local bundle of the same name, and so a rejection
+	// recorded against a builtin item is addressed unambiguously.
+	IsBuiltin bool
 }
+
+// BuiltinSigner is the synthetic identity builtin items key under —
+// distinct from remote.LocalSource, so a builtin bundle can never collide
+// with a project-local bundle sharing its name. It names WHO vouches for the
+// content (the ctxloom binary itself), matching the identity a future signed
+// builtin loadout would carry — it is a plain identity string here, not a
+// cryptographic signer; no signature is verified.
+const BuiltinSigner = "builtin:ctxloom"
 
 // Key returns the repo-relative item key used in the store, e.g.
 // "code-quality#fragments/solid" or "tooling#mcp/postgres". It deliberately
@@ -152,6 +173,9 @@ func (r Ref) Key() string {
 // under the fixed ctxloom:local source token so they never collide with a
 // remote and are distinguishable from an unresolved (empty-URL) remote ref.
 func (r Ref) CanonicalURL() string {
+	if r.IsBuiltin {
+		return BuiltinSigner
+	}
 	if r.IsLocal {
 		return remote.LocalSource
 	}

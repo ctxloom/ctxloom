@@ -167,6 +167,15 @@ func (l *Loader) gateContent(source, kindDir, itemName, contentHash string, form
 	return false
 }
 
+// Gate returns the loader's attached trust gate (nil when none is set — a
+// management/listing loader). Lets a caller that must gate OTHER items through
+// the IDENTICAL decision (e.g. builtin bundle fragments, which bypass the
+// loader's own content choke since they never resolve through Load) share this
+// loader's gate rather than building and opening a redundant one.
+func (l *Loader) Gate() ContentGate {
+	return l.gate
+}
+
 // Withheld returns the item refs the trust gate withheld over this loader's
 // lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
 // withheld. Callers surface the count so the user knows content was hidden;

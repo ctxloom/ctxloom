@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -32,71 +32,78 @@ func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.Bundl
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundle+".yaml"), []byte(yaml), 0o644))
 }
 
+// hookRefFor addresses a local hook exactly as parseTrustItemRef would.
+func hookRefFor(bundle, id string) trust.Ref {
+	return trust.Ref{Bundle: bundle, Kind: trust.KindHook, Name: id, IsLocal: true}
+}
+
 // TestRunItemTrust_AcceptsHook drives `ctxloom trust <bundle>#hooks/<event>/<index>`:
-// the acceptance is bound to the bundle hook's computed executable-surface hash
-// (BundleHook.ComputeContentHash) under the canonical (ctxloom:local) repo key.
+// the approval is countersigned (here: UNSIGNED, no agent in the test env)
+// over the bundle hook's computed executable surface, under the canonical
+// (ctxloom:local) repo key.
 func TestRunItemTrust_AcceptsHook(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
+	hookPayload, err := hook.ContentPayload()
+	require.NoError(t, err)
 
 	c, out := testCmd()
 	require.NoError(t, runItemTrust(c, cfg, "hookb#hooks/pre_tool/0"))
-	assert.Contains(t, out.String(), "Accepted hookb#hooks/pre_tool/0")
+	assert.Contains(t, out.String(), "Approved hookb#hooks/pre_tool/0")
 
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "hookb#hooks/pre_tool/0")
-	require.True(t, ok, "trust must record an accepted state for the hook")
-	assert.Equal(t, trust.StateAccepted, item.State)
-	// The acceptance is content-pinned to the hook's computed hash (raw form —
-	// executables have no distilled variant).
-	assert.Equal(t, hook.ComputeContentHash(), item.RawHash)
-	assert.Empty(t, item.DistilledHash)
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedApprove(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.FormRaw, hookPayload),
+		"trust must record an approval for the hook's executable surface")
 }
 
 // TestRunBlacklist_Hook drives `ctxloom blacklist <bundle>#hooks/<event>/<index>`:
-// it writes the ref-level rejected state AND the hook's content hash on the
-// denylist, exactly like the content kinds.
+// it writes the ref-level rejected state AND a content-reject over the hook's
+// executable surface, exactly like the content kinds.
 func TestRunBlacklist_Hook(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "rm -rf danger", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
+	hookPayload, err := hook.ContentPayload()
+	require.NoError(t, err)
 
 	c, out := testCmd()
 	require.NoError(t, runBlacklist(c, cfg, "hookb#hooks/pre_tool/0"))
 	assert.Contains(t, out.String(), "Rejected hookb#hooks/pre_tool/0")
 
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "hookb#hooks/pre_tool/0")
-	require.True(t, ok, "blacklist must record a rejected state for the hook")
-	assert.Equal(t, trust.StateRejected, item.State)
-	assert.True(t, store.DeniedHash(hook.ComputeContentHash()),
-		"blacklist must record the hook's content hash on the denylist")
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedRefReject(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
+		"blacklist must record a ref-level rejected state for the hook")
+	assert.True(t, store.HasUnsignedContentReject(signing.KindHooks, signing.FormRaw, hookPayload),
+		"blacklist must record a content-reject over the hook's executable surface")
 }
 
 // TestApplyItemTrustChoice_HookGrant proves the interactive `bundle show` [t]
 // action routes a hook ref through the same mutation as `ctxloom trust`: it
-// records an acceptance bound to the hook's content hash.
+// records an approval over the hook's content bytes.
 func TestApplyItemTrustChoice_HookGrant(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
+	hookPayload, err := hook.ContentPayload()
+	require.NoError(t, err)
 
 	c, out := testCmd()
 	require.NoError(t, applyItemTrustChoice(c, cfg, "hookb#hooks/pre_tool/0", itemTrustGrant))
-	assert.Contains(t, out.String(), "Accepted hookb#hooks/pre_tool/0")
+	assert.Contains(t, out.String(), "Approved hookb#hooks/pre_tool/0")
 
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "hookb#hooks/pre_tool/0")
-	require.True(t, ok, "[t] on a hook must record an acceptance")
-	assert.Equal(t, trust.StateAccepted, item.State)
-	assert.Equal(t, hook.ComputeContentHash(), item.RawHash)
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedApprove(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0")), signing.FormRaw, hookPayload),
+		"[t] on a hook must record an approval")
 }
 
 // TestApplyItemTrustChoice_HookBlacklist proves the interactive `bundle show` [b]
@@ -104,20 +111,31 @@ func TestApplyItemTrustChoice_HookGrant(t *testing.T) {
 func TestApplyItemTrustChoice_HookBlacklist(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "rm -rf danger", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
+	hookPayload, err := hook.ContentPayload()
+	require.NoError(t, err)
 
 	c, _ := testCmd()
 	require.NoError(t, applyItemTrustChoice(c, cfg, "hookb#hooks/pre_tool/0", itemTrustBlacklist))
 
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "hookb#hooks/pre_tool/0")
-	require.True(t, ok, "[b] on a hook must record a rejected state")
-	assert.Equal(t, trust.StateRejected, item.State)
-	assert.True(t, store.DeniedHash(hook.ComputeContentHash()),
-		"[b] on a hook must record its content hash on the denylist")
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedRefReject(signing.KindHooks, countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),
+		"[b] on a hook must record a ref-level rejected state")
+	assert.True(t, store.HasUnsignedContentReject(signing.KindHooks, signing.FormRaw, hookPayload),
+		"[b] on a hook must record a content-reject over its executable surface")
 }
+
+// toggleRejectRecords is a minimal operations.ReviewRecords fake (duck-typed
+// against the exported interface — the concrete countersignRecords is
+// unexported to package operations and unreachable from here) whose Rejected
+// answer flips on command. Nothing is ever Approved.
+type toggleRejectRecords struct{ rejected bool }
+
+func (r *toggleRejectRecords) Rejected(trust.Ref, []byte) bool         { return r.rejected }
+func (r *toggleRejectRecords) Approved(trust.Ref, []byte, string) bool { return false }
 
 // TestPrintBundleHookTrust_ReflectsTrust proves the `bundle show -i` hook listing
 // renders the hook's effective trust + source: a project-authored local hook is
@@ -129,15 +147,15 @@ func TestPrintBundleHookTrust_ReflectsTrust(t *testing.T) {
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	entry := bundles.HookEntry{Event: bundles.HookEventPreTool, Index: 0, Hook: hook}
 
-	store := loadTrustStore(t, appDir)
-	stamper := operations.NewTrustStamper(cfg, operations.WithStampStore(store))
+	records := &toggleRejectRecords{}
+	stamper := operations.NewTrustStamper(cfg, operations.WithStampRecords(records))
 
 	var before bytes.Buffer
 	printBundleHookTrust(&before, stamper, "hookb", entry)
 	assert.Contains(t, before.String(), "hooks/pre_tool/0: trusted (source: local)",
 		"a project-authored local bundle hook is first-party via the local exemption")
 
-	require.NoError(t, store.SetRejected(remote.LocalSource, "hookb#hooks/pre_tool/0", hook.ComputeContentHash()))
+	records.rejected = true
 
 	var after bytes.Buffer
 	printBundleHookTrust(&after, stamper, "hookb", entry)

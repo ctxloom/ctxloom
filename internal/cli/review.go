@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,22 +10,27 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
-// `ctxloom review` — the single review porcelain of the three-state model
-// (trust-simplify slice 2). It walks everything pending, grouped by bundle,
-// shows each item's content (full for NEW, a unified diff against the
-// previously-accepted snapshot for an UPDATE, the executable surface for
-// mcp/hooks), and records the human's accept/reject decision through the same
-// operations the `ctxloom trust`/`blacklist` plumbing uses — one mutation path,
-// identical on-disk results. Off a TTY (or with --list) it degrades to the
-// pending table so scripts and agents can see what a human still owes a look.
+// `ctxloom review` — the single review porcelain of the signature-envelope
+// model (S6). It walks everything pending, grouped by bundle, shows each
+// item's content (full for NEW, a unified diff against the previously
+// approved snapshot for an UPDATE, the executable surface for mcp/hooks),
+// and records the human's accept/reject decision by COUNTERSIGNING the exact
+// reviewed bytes with their own SSH key — the signature IS the approval
+// record. Off a TTY (or with --list) it degrades to the pending table so
+// scripts and agents can see what a human still owes a look.
 
-var reviewListFlag bool
+var (
+	reviewListFlag    bool
+	reviewProjectFlag bool
+)
 
 var reviewCmd = &cobra.Command{
 	Use:   "review",
@@ -33,13 +39,18 @@ var reviewCmd = &cobra.Command{
 allowed to see yet — grouped by bundle, and decide each one.
 
 An item is pending when it was never reviewed, or when its content changed
-since a human accepted it (an UPDATE — shown as a diff against what was
-accepted). First-party content (project-local, trusted sources) is exempt and
+since a human approved it (an UPDATE — shown as a diff against what was
+approved). First-party content (project-local, trusted sources) is exempt and
 never appears here.
 
 Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
-or [q]uit. Accepting binds the item to its current content-hash pair (a later
-change re-gates it); rejecting withholds it permanently, content hash included.
+or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
+SSH key (a later change stops the signature verifying, re-gating it);
+rejecting countersigns a permanent refusal, both by ref and by content.
+
+--project writes to the COMMITTABLE project store (.ctxloom/approvals) instead
+of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
+decision via the project's allowed_signers. It REQUIRES a signing key.
 
 Non-interactive (piped, or --list): print the pending table and exit.
 
@@ -58,6 +69,7 @@ The scriptable plumbing under this porcelain:
 
 func init() {
 	reviewCmd.Flags().BoolVar(&reviewListFlag, "list", false, "List pending items without reviewing (non-interactive)")
+	reviewCmd.Flags().BoolVar(&reviewProjectFlag, "project", false, "Write to the committable project store (.ctxloom/approvals); requires a signing key")
 	rootCmd.AddCommand(reviewCmd)
 }
 
@@ -79,7 +91,28 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 		fmt.Fprintln(out, "Nothing is pending review.")
 		return nil
 	}
-	sum := runReviewWalk(out, promptLine, res, reviewApplier(cfg))
+
+	// Resolve the countersigning key ONCE, up front — before the human has
+	// spent any attention reading items (spec §9.5: "A review session that
+	// cannot record its result is a waste of a human's attention and an
+	// insult besides"). --project hard-requires a key; the personal store
+	// degrades to the unsigned path with an explicit confirmation.
+	signer, unsigned, err := resolveReviewSigner(reviewProjectFlag)
+	if err != nil {
+		return err
+	}
+	if unsigned && !confirmUnsignedReview(out) {
+		fmt.Fprintln(out, "Run 'ctxloom review' again once a signing key is available (see 'ssh-add').")
+		return nil
+	}
+	if !unsigned {
+		if !warnIfSoftwareKey(out, signer) {
+			fmt.Fprintln(out, "Review cancelled.")
+			return nil
+		}
+	}
+
+	sum := runReviewWalk(out, promptLine, res, reviewApplier(cfg, reviewProjectFlag, signer))
 	printReviewSummary(out, sum)
 	if sum.accepted+sum.rejected > 0 {
 		// One refresh for the whole session (not per item): reflect the new
@@ -88,6 +121,95 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 		refreshManagedArtifacts(cmd.Context(), cfg)
 	}
 	return nil
+}
+
+// resolveReviewSigner resolves the key `ctxloom review` will countersign
+// with (see internal/signing/agentkey's doc for why this is a deliberately
+// minimal stand-in pending S7's unified key-discovery chain). project=true
+// hard-errors when no key is available — spec §9.5: "ctxloom review --project
+// therefore requires a key and refuses to run without one" — because an
+// unsigned record in the COMMITTABLE store would be a forgery primitive with
+// a friendly name. Otherwise a missing key degrades to (nil, true, nil): the
+// caller offers the unsigned path.
+func resolveReviewSigner(project bool) (signer ssh.Signer, unsigned bool, err error) {
+	signer, agentErr := agentkey.ResolveFromEnv("")
+	if agentErr == nil {
+		return signer, false, nil
+	}
+	if project {
+		return nil, false, fmt.Errorf(
+			"no signing key available (%w) — 'ctxloom review --project' requires one; "+
+				"run 'ssh-add ~/.ssh/id_ed25519' and try again, or review without --project", agentErr)
+	}
+	var ambiguous *agentkey.AmbiguousError
+	if errors.As(agentErr, &ambiguous) {
+		fmt.Fprintln(os.Stderr, "ctxloom: multiple keys in ssh-agent — which should sign?")
+		for _, id := range ambiguous.Identities {
+			fmt.Fprintf(os.Stderr, "  %s  %s\n", id.Fingerprint(), id.Comment)
+		}
+		fmt.Fprintln(os.Stderr, "Pick one and re-run with SSH_AUTH_SOCK pointed at a single-identity agent, or continue unsigned below.")
+	}
+	return nil, true, nil
+}
+
+// confirmUnsignedReview is the spec §9.5 degraded-path confirmation: it names
+// the consequence — every process able to write .ctxloom/ (including an agent
+// ctxloom launches) could forge such a record — and requires an explicit yes.
+func confirmUnsignedReview(out io.Writer) bool {
+	fmt.Fprintln(out, "No signing key found (looked in ssh-agent via SSH_AUTH_SOCK).")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "  ssh-add ~/.ssh/id_ed25519      load a key you already have, then re-run")
+	fmt.Fprintln(out, "  ssh-keygen -t ed25519-sk       or generate a hardware key (recommended)")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Or proceed WITHOUT a key: decisions are recorded UNSIGNED, locally only —")
+	fmt.Fprintln(out, "exactly as safe as ctxloom before signing existed. Any process that can write")
+	fmt.Fprintln(out, ".ctxloom/ (including an agent ctxloom launches) could forge such a record, and")
+	fmt.Fprintln(out, "it is never shared or committed.")
+	answer, err := promptLine("\nProceed unsigned? [y/N] ")
+	if err != nil {
+		return false
+	}
+	a := strings.ToLower(strings.TrimSpace(answer))
+	return a == "y" || a == "yes"
+}
+
+// warnIfSoftwareKey is the spec §9.1.2 one-time-per-session posture warning:
+// it fires when the key about to countersign with is NOT self-identifying as
+// hardware-backed. Confirm-before-use (`ssh-add -c`) has no detectable
+// signal (spec §9.1.2 — "I looked for another honest signal and there is
+// none"), so only the hardware case is auto-detected; this always warns for
+// a plain software key rather than guess at confirm-guarding.
+//
+// It is a WARNING, never a block — returns false only when the human
+// explicitly chooses to quit; anything else proceeds. There is no persisted
+// "don't ask again" yet (see the S6 report's deferred-work list): it fires
+// once per `ctxloom review` invocation, not once ever.
+func warnIfSoftwareKey(out io.Writer, signer ssh.Signer) bool {
+	if signer == nil || agentkey.IsHardwareBacked(signer.PublicKey()) {
+		return true
+	}
+	fmt.Fprintln(out, "Your approval key is a software key held in ssh-agent.")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "  %s   %s\n", ssh.FingerprintSHA256(signer.PublicKey()), signer.PublicKey().Type())
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Any process holding SSH_AUTH_SOCK — including the coding agents ctxloom")
+	fmt.Fprintln(out, "launches — can ask your agent to sign with this key. It cannot read the key,")
+	fmt.Fprintln(out, "and it does not need to: it can simply request a signature. That means an")
+	fmt.Fprintln(out, "agent can approve content for itself, which is the thing approvals exist to")
+	fmt.Fprintln(out, "prevent.")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Two fixes, either one closes it:")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "  ssh-add -c ~/.ssh/id_ed25519      confirm each use — you get a prompt, the")
+	fmt.Fprintln(out, "                                    agent gets nothing without your click")
+	fmt.Fprintln(out, "  ssh-keygen -t ed25519-sk          hardware key — signing needs a physical touch")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Or run your agents in containers, where SSH_AUTH_SOCK is never forwarded.")
+	answer, err := promptLine("\n[p] Proceed anyway / [q] Quit and fix this first: ")
+	if err != nil {
+		return true // EOF/read error: never block on a warning
+	}
+	return strings.ToLower(strings.TrimSpace(answer)) != "q"
 }
 
 // renderReviewList prints the non-interactive pending table: bundle, ref,
@@ -155,18 +277,19 @@ type reviewApplyFuncs struct {
 
 // reviewApplier routes accept/reject through the SAME operations the
 // standalone trust/blacklist commands use, so the porcelain and the plumbing
-// write identical states (hash pair + snapshots on accept; ref block +
-// content-hash denylist on reject).
-func reviewApplier(cfg *config.Config) reviewApplyFuncs {
+// write identical countersignatures. signer/project are resolved once for the
+// whole session (see runReview) and threaded through every mutation so a
+// session countersigns consistently with one key, to one store.
+func reviewApplier(cfg *config.Config, project bool, signer ssh.Signer) reviewApplyFuncs {
 	return reviewApplyFuncs{
 		accept: func(ref string) error {
-			_, err := operations.SetItemTrust(cfg, operations.SetItemTrustRequest{Ref: ref})
+			_, err := operations.SetItemTrust(cfg, operations.SetItemTrustRequest{Ref: ref, Project: project, Signer: signer})
 			return err
 		},
 		reject: func(ref string) error {
-			res, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: ref})
-			if err == nil && len(res.ContentHashes) == 0 {
-				clidiag.Warn("ctxloom", "could not hash %q; the ref-level rejection applies, but no content-denylist entry was recorded", ref)
+			res, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: ref, Project: project, Signer: signer})
+			if err == nil && len(res.ContentForms) == 0 {
+				clidiag.Warn("ctxloom", "could not countersign %q's content; the ref-level rejection applies, but no content-reject countersignature was recorded", ref)
 			}
 			return err
 		},
@@ -364,7 +487,20 @@ func offerInitReview(cmd *cobra.Command, interactive bool) {
 		fmt.Println("Run 'ctxloom review' any time to review them.")
 		return
 	}
-	sum := runReviewWalk(os.Stdout, prompt, res, reviewApplier(cfg))
+	signer, unsigned, serr := resolveReviewSigner(false)
+	if serr != nil {
+		clidiag.Warn("ctxloom", "skipping inline review (%v) — run 'ctxloom review' later", serr)
+		return
+	}
+	if unsigned && !confirmUnsignedReview(os.Stdout) {
+		fmt.Println("Run 'ctxloom review' any time to review them.")
+		return
+	}
+	if !unsigned && !warnIfSoftwareKey(os.Stdout, signer) {
+		fmt.Println("Run 'ctxloom review' any time to review them.")
+		return
+	}
+	sum := runReviewWalk(os.Stdout, prompt, res, reviewApplier(cfg, false, signer))
 	printReviewSummary(os.Stdout, sum)
 	if sum.accepted+sum.rejected > 0 {
 		refreshManagedArtifacts(cmd.Context(), cfg)

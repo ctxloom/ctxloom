@@ -5,22 +5,24 @@ import (
 	"context"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // neutralizeRefresh points the project root at an empty dir with no applied
 // harness, so the post-mutation refreshManagedArtifacts is a no-op. These store-
-// focused cases assert the trust store, not the on-disk managed artifacts.
+// focused cases assert the countersignature store, not the on-disk managed
+// artifacts.
 func neutralizeRefresh(t *testing.T) {
 	t.Helper()
 	t.Setenv(projectroot.EnvVar, t.TempDir())
@@ -38,12 +40,30 @@ func testCmd() (*cobra.Command, *bytes.Buffer) {
 	return c, &buf
 }
 
-// loadTrustStore reads the on-disk trust store written by the commands.
-func loadTrustStore(t *testing.T, appDir string) *trust.Store {
+// noAgentEnv isolates HOME (so the default user countersignature store lands
+// in a controlled temp dir) and clears SSH_AUTH_SOCK (so `ctxloom
+// trust`/`blacklist` deterministically take the UNSIGNED degraded path —
+// spec §9.5 — rather than depending on whatever the host happens to have).
+func noAgentEnv(t *testing.T) {
 	t.Helper()
-	s, err := trust.New(paths.TrustPath(appDir))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
+}
+
+// userApprovalsStore opens the REAL user countersignature store the CLI
+// plumbing writes to by default (~/.ctxloom/approvals under the HOME noAgentEnv
+// pointed at a temp dir).
+func userApprovalsStore(t *testing.T) *countersign.Store {
+	t.Helper()
+	home, err := paths.HomeApprovalsPath()
 	require.NoError(t, err)
-	return s
+	return countersign.NewStore(home, afero.NewOsFs())
+}
+
+// countersignRefFor mirrors operations.countersignRef (unexported, cross-
+// package): the canonical item-ref string a countersignature binds to.
+func countersignRefFor(ref trust.Ref) string {
+	return ref.CanonicalURL() + "|" + ref.Key()
 }
 
 // seedLocalFragment writes a local bundle with one fragment to the temp project
@@ -73,65 +93,36 @@ func seedLocalSkill(t *testing.T, cfg *config.Config, bundle, name, body string)
 	require.NoError(t, err)
 }
 
-// effectiveFragmentHash recomputes the bytes-exact effective-content hash the
-// grant must bind to, independently of the command path.
-func effectiveFragmentHash(t *testing.T, appDir, bundle, name string) string {
-	t.Helper()
-	loader := bundles.NewLoader([]string{paths.BundlesPath(appDir)}, true)
-	b, err := loader.Load(bundle)
-	require.NoError(t, err)
-	frag, ok := b.Fragments[name]
-	require.True(t, ok, "seeded fragment %q missing", name)
-	hash, _ := frag.EffectiveContentHash(true)
-	return hash
-}
-
-// effectiveSkillHash recomputes the bytes-exact effective-content hash a skill
-// grant must bind to, independently of the command path.
-func effectiveSkillHash(t *testing.T, appDir, bundle, name string) string {
-	t.Helper()
-	loader := bundles.NewLoader([]string{paths.BundlesPath(appDir)}, true)
-	b, err := loader.Load(bundle)
-	require.NoError(t, err)
-	skill, ok := b.Skills[name]
-	require.True(t, ok, "seeded skill %q missing", name)
-	hash, _ := skill.EffectiveContentHash(true)
-	return hash
-}
-
 // TestRunItemTrust_AcceptsLocalFragment drives `ctxloom trust <ref>`: the
-// acceptance is written under the canonical (ctxloom:local) repo key, bound to
-// the item's recomputed content hash — never an author-supplied value.
+// approval is countersigned (here: UNSIGNED, no agent in the test env) over
+// the item's recomputed content bytes — never an author-supplied value — and
+// lands in the real user store under the canonical (ctxloom:local) key.
 func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "x", "always-trusted body")
 
 	c, out := testCmd()
 	require.NoError(t, runItemTrust(c, cfg, "demo#fragments/x"))
-	assert.Contains(t, out.String(), "Accepted demo#fragments/x")
+	assert.Contains(t, out.String(), "Approved demo#fragments/x")
+	assert.Contains(t, out.String(), "UNSIGNED")
 
-	wantHash := effectiveFragmentHash(t, appDir, "demo", "x")
-
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/x")
-	require.True(t, ok, "acceptance must be keyed by the canonical repo + ref")
-	assert.Equal(t, remote.LocalSource, item.RepoURL)
-	assert.Equal(t, trust.StateAccepted, item.State)
-	// Content-pinned: the recorded raw hash is exactly the recomputed one (the
-	// seeded fragment is NoDistill, so there is no distilled slot).
-	assert.Equal(t, wantHash, item.RawHash)
-	assert.Empty(t, item.DistilledHash)
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedApprove(signing.KindFragments, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted body")),
+		"approval must be recorded for the canonical ctxloom:local key, over the exact fragment bytes")
 }
 
 // TestRunItemTrust_AcceptsLocalSkill drives `ctxloom trust <bundle>#skills/<name>`:
 // the exact ref the list emits after the prompt->skill rename. It must not
-// error "unknown item kind" and must record an acceptance keyed by the
-// canonical (#prompts/) key bound to the skill's recomputed content hash.
+// error "unknown item kind" and must record an approval keyed by the
+// canonical (#prompts/) key bound to the skill's recomputed content bytes.
 func TestRunItemTrust_AcceptsLocalSkill(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalSkill(t, cfg, "demo", "review", "always-trusted skill body")
 
@@ -140,26 +131,23 @@ func TestRunItemTrust_AcceptsLocalSkill(t *testing.T) {
 	// (res.Ref == tRef.Key(), Kind.Dir()=="prompts") — the store address, not the
 	// input spelling.
 	require.NoError(t, runItemTrust(c, cfg, "demo#skills/review"))
-	assert.Contains(t, out.String(), "Accepted demo#prompts/review")
-
-	wantHash := effectiveSkillHash(t, appDir, "demo", "review")
+	assert.Contains(t, out.String(), "Approved demo#prompts/review")
 
 	// Stored under the canonical #prompts/ key (trust.KindPrompt.Dir()), so the
-	// assembly gate and existing acceptances resolve identically regardless of
+	// assembly gate and existing approvals resolve identically regardless of
 	// spelling.
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "demo#prompts/review")
-	require.True(t, ok, "acceptance must be keyed by the canonical repo + ref")
-	assert.Equal(t, trust.StateAccepted, item.State)
-	assert.Equal(t, wantHash, item.RawHash)
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedApprove(signing.KindSkills, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted skill body")))
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it
-// writes the ref-level rejected state AND the content-hash denylist entry, so
-// the content is blocked both by ref and (if renamed/moved) by hash.
+// writes the ref-level rejected state AND a content-reject countersignature,
+// so the content is blocked both by ref and (if renamed/moved) by content.
 func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
@@ -167,16 +155,14 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	require.NoError(t, runBlacklist(c, cfg, "demo#fragments/curl-pipe-sh"))
 	assert.Contains(t, out.String(), "Rejected demo#fragments/curl-pipe-sh")
 
-	wantHash := effectiveFragmentHash(t, appDir, "demo", "curl-pipe-sh")
-
-	store := loadTrustStore(t, appDir)
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
+	store := userApprovalsStore(t)
 	// Ref-level (sticky) component.
-	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/curl-pipe-sh")
-	require.True(t, ok, "ref-level rejected state must be recorded")
-	assert.Equal(t, trust.StateRejected, item.State)
-	// Content-hash (denylist) companion.
-	assert.True(t, store.DeniedHash(wantHash),
-		"the item's content hash must be recorded on the denylist")
+	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)),
+		"ref-level rejected state must be recorded")
+	// Content-reject companion.
+	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")),
+		"the item's content must be recorded as a content-reject")
 }
 
 // TestRunBlacklist_CanonicalizedKeying drives `ctxloom blacklist` against a
@@ -188,6 +174,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	c, _ := testCmd()
@@ -195,9 +182,9 @@ func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	require.NoError(t, runBlacklist(c, cfg,
 		"https://github.com/Acme/Repo.git@bundles/tooling#fragments/solid"))
 
-	store := loadTrustStore(t, appDir)
 	// Query with an entirely different spelling of the same repo (git@ form).
-	item, ok := store.Lookup("git@github.com:acme/repo", "tooling#fragments/solid")
-	require.True(t, ok, "a URL variant of the same remote must resolve to the same rejection key")
-	assert.Equal(t, trust.StateRejected, item.State)
+	variantRef := trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
+	store := userApprovalsStore(t)
+	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(variantRef)),
+		"a URL variant of the same remote must resolve to the same rejection key")
 }

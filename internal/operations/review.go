@@ -6,11 +6,14 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -59,10 +62,18 @@ type ReviewBundle struct {
 
 // PendingReviewRequest carries the optional injection points (for testing).
 type PendingReviewRequest struct {
-	Store    *trust.Store     `json:"-"`
-	Registry *remote.Registry `json:"-"`
-	Loader   *bundles.Loader  `json:"-"`
-	FS       afero.Fs         `json:"-"`
+	// UserStore / ProjectStore override the physical countersignature stores
+	// (test injection); production builds them from cfg. See
+	// buildCountersignRecords.
+	UserStore    *countersign.Store `json:"-"`
+	ProjectStore *countersign.Store `json:"-"`
+	// Root overrides the allowed_signers trust root (test injection);
+	// production uses cfg.TrustRoot(). Every candidate countersignature must
+	// clear this namespace/role check before it counts.
+	Root     signing.TrustRoot `json:"-"`
+	Registry *remote.Registry  `json:"-"`
+	Loader   *bundles.Loader   `json:"-"`
+	FS       afero.Fs          `json:"-"`
 }
 
 // PendingReviewResult is the pending-review enumeration, grouped by bundle in
@@ -73,22 +84,19 @@ type PendingReviewResult struct {
 	Updates int            `json:"updates"`
 }
 
-// PendingReview enumerates every item awaiting review. It builds the trust
-// store, remote registry, and bundle loader ONCE (like TrustStamper) and
+// PendingReview enumerates every item awaiting review. It builds the
+// review-records store (the union of the user and project countersignature
+// stores), remote registry, and bundle loader ONCE (like TrustStamper) and
 // resolves each item through EffectiveTrust with them injected, so the walk
 // costs one store read + one registry read + one materialization per bundle.
 //
-// An unreadable trust store is a hard error here — unlike the exposure gates
-// (which fail closed and keep running), review exists to MUTATE that store, so
-// pretending everything is pending would invite decisions that cannot be
-// recorded. An unreadable registry only warns: the walk then treats trusted
-// sources as pending, and reviewing a first-party item merely records a
-// harmless acceptance.
+// Unlike the deleted hash-pair trust.yaml, there is no single file whose
+// corruption can deny the whole walk — the countersignature stores degrade to
+// "no candidates" per item, never to a load error. An unreadable registry only
+// warns: the walk then treats trusted sources as pending, and reviewing a
+// first-party item merely records a harmless approval.
 func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReviewResult, error) {
-	store, err := getTrustStore(cfg, req.Store, req.FS)
-	if err != nil {
-		return nil, fmt.Errorf("trust store unreadable: %w", err)
-	}
+	records := buildCountersignRecords(cfg, req.FS, req.UserStore, req.ProjectStore, req.Root)
 	// The registry is DISPLAY ONLY here — it resolves a bundle's canonical URL to
 	// the remote name shown in the review header. It has no say in any trust
 	// decision: trust is keyed to the signing identity, never to the remote the
@@ -111,7 +119,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		return nil, fmt.Errorf("list bundles: %w", err)
 	}
 
-	e := &reviewEnumerator{cfg: cfg, store: store, registry: registry, fs: req.FS}
+	e := &reviewEnumerator{cfg: cfg, records: records, registry: registry, fs: req.FS}
 	result := &PendingReviewResult{}
 	for _, info := range infos {
 		if info.Deleted {
@@ -143,10 +151,10 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	return result, nil
 }
 
-// reviewEnumerator resolves items against the shared store/registry.
+// reviewEnumerator resolves items against the shared records/registry.
 type reviewEnumerator struct {
 	cfg      *config.Config
-	store    *trust.Store
+	records  countersignRecords
 	registry *remote.Registry
 	fs       afero.Fs
 }
@@ -233,7 +241,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		Payload: payload,
 		Form:    form,
 		Signer:  signer,
-		Store:   e.store,
+		Records: e.records,
 		FS:      e.fs,
 	})
 	if err != nil || res == nil || res.State() != trust.StatePending {
@@ -248,22 +256,41 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		Status:     ReviewStatusNew,
 		Executable: executable,
 	}
-	// UPDATE detection + diff base: a recorded acceptance whose hash no longer
-	// matches means a human saw an earlier version — load its snapshot (by the
-	// recorded hash of the CURRENT effective form) as the diff base.
-	if prev, found := e.store.Lookup(tRef.CanonicalURL(), tRef.Key()); found && prev.State == trust.StateAccepted {
+	// UPDATE detection + diff base: consult the (display-only, untrusted)
+	// sidecar index for a PRIOR approve attempt at this ref+kind+form — a
+	// human saw an earlier version if one exists, even though it no longer
+	// verifies (that is exactly why the item is pending again). This is never
+	// a trust decision, only a label + a diff base; EffectiveTrust above has
+	// already, independently, decided this item is pending.
+	signingKind := signingKindOf(tRef.Kind)
+	refStr := countersignRef(tRef)
+	entry, found := latestApproveEntry(e.records, signingKind, refStr, signing.Form(form))
+	if found {
 		item.Status = ReviewStatusUpdate
 		if !executable {
-			recorded := prev.RawHash
-			if form == string(bundles.FormDistilled) {
-				recorded = prev.DistilledHash
-			}
-			if snap, ok := readTrustSnapshot(getFS(e.fs), getBaseDir(e.cfg), recorded); ok {
+			if snap, ok := readTrustSnapshot(getFS(e.fs), getBaseDir(e.cfg), entry.PayloadHash); ok {
 				item.PreviousContent = snap
 			}
 		}
 	}
 	return item, true
+}
+
+// latestApproveEntry looks up the most recent prior approve attempt across
+// BOTH the user and project stores' sidecar indexes (display-only; see
+// countersign.Store.LatestApprove).
+func latestApproveEntry(records countersignRecords, kind signing.ItemKind, ref string, form signing.Form) (countersign.IndexEntry, bool) {
+	var latest countersign.IndexEntry
+	found := false
+	for _, st := range records.bothStores() {
+		if e, ok := st.LatestApprove(kind, ref, form); ok {
+			if !found || e.ReviewedAt > latest.ReviewedAt {
+				latest = e
+				found = true
+			}
+		}
+	}
+	return latest, found
 }
 
 // remoteNameFor resolves a bundle ref's source repo to its registered remote
@@ -340,9 +367,13 @@ func renderHookSurface(entry bundles.HookEntry) string {
 type AcceptReviewItemsRequest struct {
 	Refs []string
 
-	Store  *trust.Store    `json:"-"`
-	Loader *bundles.Loader `json:"-"`
-	FS     afero.Fs        `json:"-"`
+	Project bool
+	Signer  ssh.Signer `json:"-"`
+
+	UserStore    *countersign.Store `json:"-"`
+	ProjectStore *countersign.Store `json:"-"`
+	Loader       *bundles.Loader    `json:"-"`
+	FS           afero.Fs           `json:"-"`
 }
 
 // AcceptReviewItemsResult reports what was recorded. Failures are per-ref and
@@ -352,14 +383,18 @@ type AcceptReviewItemsResult struct {
 	Failed   map[string]string `json:"failed,omitempty"` // ref -> error
 }
 
-// AcceptReviewItems records an acceptance for each ref through the single
-// mutation path (SetItemTrust: hash pair + snapshots), continuing past
+// AcceptReviewItems records an approval for each ref through the single
+// mutation path (SetItemTrust: countersignature + snapshots), continuing past
 // per-item failures. It backs the porcelain's "accept all remaining in
 // bundle" action.
 func AcceptReviewItems(cfg *config.Config, req AcceptReviewItemsRequest) *AcceptReviewItemsResult {
 	res := &AcceptReviewItemsResult{}
 	for _, ref := range req.Refs {
-		_, err := SetItemTrust(cfg, SetItemTrustRequest{Ref: ref, Store: req.Store, Loader: req.Loader, FS: req.FS})
+		_, err := SetItemTrust(cfg, SetItemTrustRequest{
+			Ref: ref, Project: req.Project, Signer: req.Signer,
+			UserStore: req.UserStore, ProjectStore: req.ProjectStore,
+			Loader: req.Loader, FS: req.FS,
+		})
 		if err != nil {
 			if res.Failed == nil {
 				res.Failed = make(map[string]string)

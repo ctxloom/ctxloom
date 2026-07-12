@@ -329,7 +329,7 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	}
 
 	bundle.Path = path
-	bundle.Name = extractBundleName(path)
+	bundle.Name = ExtractBundleName(path)
 
 	// Cache for future loads (write lock)
 	l.mu.Lock()

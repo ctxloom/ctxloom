@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // acmeToolingSeed seeds one REMOTE bundle (acme tooling) with fragments and
@@ -42,12 +41,13 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 }
 
 // gatedAcmeLoader builds a loader over acmeToolingSeed wired to a contentGate
-// resolving against store for an UNSIGNED remote bundle, so only review states
-// (accepted/rejected) decide exposure — everything else is pending (withheld).
-func gatedAcmeLoader(t *testing.T, store *trust.Store) (*bundles.Loader, *config.Config) {
+// resolving against records for an UNSIGNED remote bundle, so only review
+// states (approved/rejected) decide exposure — everything else is pending
+// (withheld).
+func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Loader, *config.Config) {
 	t.Helper()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	gate := (&contentGate{cfg: cfg, records: records}).allow
 	l := bundles.NewLoader(nil, true, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
 	return l, cfg
 }
@@ -64,14 +64,10 @@ const (
 // loader.Withheld().
 func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	store := newTrustStore(t)
-	if err := store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("solid body"), ""); err != nil {
-		t.Fatalf("SetAccepted: %v", err)
-	}
-	if err := store.SetRejected(trustRepo, "tooling#fragments/evil", fragHash("evil body")); err != nil {
-		t.Fatalf("SetRejected: %v", err)
-	}
-	loader, cfg := gatedAcmeLoader(t, store)
+	fx := newTrustFixture(t)
+	fx.approveFragment("tooling", "solid", "solid body")
+	fx.rejectFragment("tooling", "evil", "evil body")
+	loader, cfg := gatedAcmeLoader(t, fx.records())
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{solidRef, evilRef, swapRef},
@@ -94,12 +90,12 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 // denied item — surfacing the distinct withheld sentinel — while an accepted one
 // still resolves.
 func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("solid body"), ""))
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#fragments/evil", fragHash("evil body")))
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#prompts/review", promptHash("review body"), ""))
-	require.NoError(t, store.SetRejected(trustRepo, "tooling#prompts/evilprompt", promptHash("evil prompt body")))
-	loader, cfg := gatedAcmeLoader(t, store)
+	fx := newTrustFixture(t)
+	fx.approveFragment("tooling", "solid", "solid body")
+	fx.rejectFragment("tooling", "evil", "evil body")
+	fx.approvePrompt("tooling", "review", "review body")
+	fx.rejectPrompt("tooling", "evilprompt", "evil prompt body")
+	loader, cfg := gatedAcmeLoader(t, fx.records())
 
 	// Fragment resource.
 	_, err := GetFragment(context.Background(), cfg, GetFragmentRequest{Name: evilRef, Loader: loader})
@@ -127,10 +123,10 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v1 body"}}},
 	}
-	store := newTrustStore(t)
-	// A human accepted the v1 content (records its hash).
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("v1 body"), ""))
-	gate := (&contentGate{cfg: cfg, store: store}).allow
+	fx := newTrustFixture(t)
+	// A human approved the v1 content (countersigned its bytes).
+	fx.approveFragment("tooling", "solid", "v1 body")
+	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 
 	// v1 stays exposed (accepted at this exact hash).
 	l1 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
@@ -149,30 +145,36 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
 	// An explicit `ctxloom trust` of the new version re-exposes it.
-	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("v2 body"), ""))
+	fx.approveFragment("tooling", "solid", "v2 body")
 	got2, err := l2.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v2 body", got2.Content)
 }
 
 // TestExposureGate_FailClosed proves the gate withholds on any failure to
-// positively justify exposure: an unparseable ref and a denyAll (unreadable
-// store) both withhold, never default-allow.
+// positively justify exposure: an unparseable ref, and a fresh/empty
+// review-records store (nothing ever approved), both withhold, never
+// default-allow. Unlike the deleted hash-pair trust.yaml, there is no
+// "corrupt store" failure mode any more — the countersignature stores degrade
+// to "no candidates found", which the decision function already denies by
+// construction (step 6, the terminal pending default).
 func TestExposureGate_FailClosed(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	fx := newTrustFixture(t)
 
 	// Unparseable ref → withhold (resolve error is fail-closed).
-	g := &contentGate{cfg: cfg, store: newTrustStore(t)}
+	g := &contentGate{cfg: cfg, records: fx.records()}
 	assert.False(t, g.allow("garbage-without-selector", pbytes("abc"), "raw", ""),
 		"a ref the gate cannot address must be withheld")
 
-	// denyAll (store unreadable) → every gated item withheld through the loader.
-	deny := &contentGate{denyAll: true}
+	// A fresh, empty records store → every gated item withheld through the
+	// loader (nothing has ever been approved).
+	empty := &contentGate{records: newTrustFixture(t).records()}
 	l := bundles.NewLoader(nil, true,
 		bundles.WithSeededBundles(acmeToolingSeed()),
-		bundles.WithTrustGate(deny.allow))
+		bundles.WithTrustGate(empty.allow))
 	_, err := l.GetFragment(solidRef)
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "denyAll must withhold even a would-be-trusted item, got %v", err)
+	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }
 
 // TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds drives the REAL
@@ -184,6 +186,9 @@ func TestExposureGate_FailClosed(t *testing.T) {
 // cfg.FS() threading.
 func TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// No ssh-agent in this test — SetBlacklist below must degrade to the
+	// UNSIGNED path (spec §9.5), never fail the mutation.
+	t.Setenv("SSH_AUTH_SOCK", "")
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	bundlesDir := paths.BundlesPath(appDir)
@@ -228,7 +233,7 @@ fragments:
 // scheme-qualified ref must fail closed instead.
 func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-	gate := &contentGate{cfg: cfg, store: newTrustStore(t)}
+	gate := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	// "https://github.com/acme/repo" is missing "@bundles/<name>" — it fails
 	// remote.ParseReference (parseHTTPSReference: "URL reference missing item
@@ -247,6 +252,8 @@ func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
 // withholds a rejected fragment from the injected context file while keeping
 // its sibling.
 func TestExposureGate_SessionStartRegen_Withholds(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := filepath.Join(appDir, "cache", "bundles")

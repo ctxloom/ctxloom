@@ -43,6 +43,15 @@ const (
 	// that format (signature-envelope spec §7).
 	AllowedSignersFileName = "allowed_signers"
 
+	// ApprovalsDirName is the name of the countersignature store directory
+	// (signature-envelope spec §9.2): one armored .sig file per approve/reject
+	// countersignature. It replaces trust.yaml as the review-decision record —
+	// the signature IS the approval, not a row a plain-file write can forge.
+	// Two physical stores share this name, at different roots: the user store
+	// (~/.ctxloom/approvals, personal) and the project store (.ctxloom/approvals,
+	// committable) — see HomeApprovalsPath / ApprovalsPath.
+	ApprovalsDirName = "approvals"
+
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -219,17 +228,31 @@ func RemotesPath(appPath string) string {
 	return filepath.Join(appPath, RemotesFileName+".yaml")
 }
 
-// TrustPath returns the path to the per-item trust store file (at appPath
-// root, next to remotes.yaml).
-func TrustPath(appPath string) string {
-	return filepath.Join(appPath, TrustFileName+".yaml")
+// ApprovalsPath returns the path to the PROJECT (committable) countersignature
+// store directory, at appPath root next to allowed_signers.yaml. "Our team's
+// approvals": a lead reviews, commits the signatures here, and every developer
+// / CI run who trusts the lead's key (via the project allowed_signers)
+// inherits the approval without re-reviewing (spec §9.2).
+func ApprovalsPath(appPath string) string {
+	return filepath.Join(appPath, ApprovalsDirName)
+}
+
+// HomeApprovalsPath returns ~/.ctxloom/approvals — the user-scoped
+// countersignature store. "My approvals follow me": the default write target
+// of `ctxloom review`, never committed, never shared (spec §9.2).
+func HomeApprovalsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
 }
 
 // AllowedSignersPath returns the path to the trust-root file (at appPath root,
-// next to trust.yaml). Committable: a team distributes "trust our lead's
-// approve key / our org's publish key" by checking this file in, which is
-// trust-on-first-clone and strictly inside a boundary the clone already
-// crossed (spec §7.3, path A).
+// next to the approvals/ directory). Committable: a team distributes "trust
+// our lead's approve key / our org's publish key" by checking this file in,
+// which is trust-on-first-clone and strictly inside a boundary the clone
+// already crossed (spec §7.3, path A).
 func AllowedSignersPath(appPath string) string {
 	return filepath.Join(appPath, AllowedSignersFileName)
 }
@@ -293,11 +316,11 @@ func ReposCachePath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), ReposCacheDir)
 }
 
-// TrustObjectsPath returns the accepted-content snapshot directory (under
-// cache/): content-addressed copies of the bytes a human accepted at review,
-// keyed by their recorded content hash. The review porcelain diffs an UPDATE
-// against them. Pure cache: deleting it only degrades update review from a
-// diff to a full-content display (the hashes in trust.yaml stay authoritative).
+// TrustObjectsPath returns the approved-content snapshot directory (under
+// cache/): content-addressed copies of the bytes a human approved at review,
+// keyed by a payload hash. The review porcelain diffs an UPDATE against them.
+// Pure cache: deleting it only degrades update review from a diff to a
+// full-content display (the countersignature stores stay authoritative).
 func TrustObjectsPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), TrustFileName, "objects")
 }
@@ -310,11 +333,6 @@ func DefaultAppDir() string {
 // DefaultRemotesPath returns the default remotes path relative to current directory.
 func DefaultRemotesPath() string {
 	return RemotesPath(AppDirName)
-}
-
-// DefaultTrustPath returns the default trust-store path relative to current directory.
-func DefaultTrustPath() string {
-	return TrustPath(AppDirName)
 }
 
 // DefaultLockPath returns the default lock path relative to current directory.

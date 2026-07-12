@@ -2,39 +2,40 @@
 title: "Session Memory"
 ---
 
-Session memory preserves context across conversations by compacting session history and storing it for future retrieval. This helps maintain continuity when you hit context limits or need to clear your session.
+You hit a context limit, or you just want a clean slate mid-task. Normally that means `/clear` and then rebuilding your bearings by hand: scrolling back through the old conversation, copy-pasting chunks of it into the fresh one, guessing which decisions and code and half-finished threads still matter, fighting the token limit as you paste. You grab too much or miss the one detail that mattered, and the formatting doesn't survive the trip. It's salvage work, not the work you meant to be doing.
 
-## Why Not Just Use `/compact`?
+With ctxloom, that ritual is two commands:
 
-Claude Code's `/compact` has a fundamental design flaw: **it needs context space to run, but you only think to use it when context is almost full**.
+```
+/clear
+/recover
+```
 
-The timing problem:
-- `/compact` runs *inside* the current context window
-- When your context is nearly exhausted, there's no room left to run the compaction
-- You try `/compact`, it fails, and now you're stuck with a full window and no recovery
+The previous session comes back on its own — no scrolling through the old transcript, no guessing what to save.
 
-This isn't a bug - it's an inherent limitation of in-context compaction. You have to remember to run it *before* you need it, which defeats the purpose.
+## Why this runs out of band
 
-The alternative is worse: `/clear` then manually copy-paste chunks of your chat history back in, hoping you grabbed the right parts, fighting token limits, losing formatting. It works, but it's tedious and error-prone.
+Your harness's own compaction (`/compact` or its auto-compact equivalent) is the right tool for live context pressure, and ctxloom doesn't compete with it — use it when your current session is getting full.
 
-**ctxloom automates this properly:**
+Session memory solves a different problem: a summary that outlives the session. In-context compaction asks the agent to summarize itself at the exact moment it has the least room to think. A context-starved agent writes a starved summary, and whatever it drops on the way out is gone for good — there's no going back for it after `/clear`.
 
-1. **Works after exhaustion** - `/clear` then `/recover` operates outside the full window
-2. **External processing** - ctxloom reads the raw session transcript from disk (JSONL files)
-3. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
-4. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
-5. **Persistent storage** - Distilled summaries are saved to `.ctxloom/sessions/`
-6. **Reliable recovery** - Sessions are read from disk at request time, so the previous session is always findable
+ctxloom distills out of band instead. It reads the complete transcript from disk, in a fresh process, with a full budget, using a separate fast model (default: Haiku). The summary gets written where it actually has room to be good, and it's saved to disk, so it's still there after `/clear` — or after the process restarts, or a day later.
 
-The workflow is simple: when you hit context limits, `/clear` and `/recover`. No timing anxiety.
+You rarely need to trigger this yourself. It runs automatically:
+
+- On exit: when an interactive `ctxloom run` session ends, the transcript that just closed is distilled before control returns to your shell.
+- On resume: starting a new `ctxloom run` and choosing to resume distills the previous session first, so its essence is ready to inject.
+- On recovery: `/recover` (or asking "what were we working on?") distills on demand, which is what makes the `/clear` → `/recover` sequence above work even for a session that hasn't exited yet.
+
+Calling distillation by hand is for two narrower cases: forcing an essence before ending a session, or picking up a session that ended before the exit-time distill ran (a crash, a killed process).
 
 ## Overview
 
-When working on long sessions, you'll eventually approach context window limits. Session memory lets you:
+Session memory lets you:
 
-1. **Clear** the context window when you hit limits
-2. **Recover** context from the previous session after `/clear`
-3. **Browse** session history to find and load specific sessions
+1. Clear the context window when you hit limits
+2. Recover context from the previous session after `/clear`
+3. Browse session history to find and load specific sessions
 
 For durable, cross-session work items (distinct from the agent's ephemeral
 to-dos), see [Sessions and Tasks](/concepts/sessions-and-tasks/).
@@ -98,27 +99,27 @@ live process or PID tracking is involved, so recovery works even after the AI
 process has fully restarted across `/clear` — and without manually specifying
 session IDs.
 
-### Compaction
+### Distillation
 
-Session compaction happens **outside your session** using a separate LLM call. This is critical - the compaction LLM has access to the full raw transcript, not a degraded context window.
+Distillation happens **outside your session**, in a separate process, using a
+separate LLM call. The distilling model reads the full raw transcript from disk,
+not whatever fits in your live context window, so it never has to work from a
+degraded view of the conversation.
 
-The compaction process:
+The process:
 
-1. **Read transcript** - ctxloom reads the raw JSONL session log from disk
-2. **Chunk** - Large sessions are split (default: 8000 tokens per chunk)
-3. **Distill** - A fast model (default: Haiku) extracts key information:
-   - Decisions made and why
-   - Context established
-   - Progress achieved
-   - Next steps planned
-4. **Store** - Result saved to `.ctxloom/sessions/` in the project
+1. Read transcript: ctxloom reads the raw JSONL session log from disk
+2. Chunk: large sessions are split (default: 8000 tokens per chunk)
+3. Distill: a fast model (default: Haiku) extracts key information — decisions made and why, context established, progress achieved, next steps planned
+4. Store: the result is saved as that session's essence
 
-The distilled output is typically 10-20% of the original size while preserving actionable information.
+Distillation compresses aggressively while keeping what a later session needs
+to pick up the work.
 
 ### Storage
 
-Distilled session summaries live in the project under `.ctxloom/sessions/`.
-Sessions themselves are tracked in a harp-keyed index in your home directory:
+The canonical distilled essence for a session lives under your home directory,
+keyed by its harp name:
 
 ```
 ~/.ctxloom/sessions/
@@ -127,14 +128,18 @@ Sessions themselves are tracked in a harp-keyed index in your home directory:
     └── essence.md           # Distilled essence for that session
 ```
 
+`ctxloom session show <harp>` prints this file. A project-rooted
+`.ctxloom/sessions/<session-id>.md` layout also exists as a fallback for older
+session records that predate the harp-keyed store.
+
 ### Cross-Agent Workflows
 
-**Distilled memory** is portable across agents - it's stored as plain markdown. **Raw session history** is currently backend-specific (Claude and Antigravity use different transcript formats).
+Distilled memory is portable across agents — it's stored as plain markdown. Raw session history is currently backend-specific: Claude and Antigravity use different transcript formats.
 
 ```bash
 # Morning: Write code with Claude
 ctxloom run --llm claude-code "implement the auth module"
-# When done, compact the session (or let it auto-compact on context limit)
+# When done, just exit - ctxloom distills the session automatically
 
 # Afternoon: Review with Antigravity
 ctxloom run --llm antigravity
@@ -143,9 +148,9 @@ ctxloom run --llm antigravity
 ```
 
 Use cases:
-- **Development → Review** - Write with one model, review with another
-- **Fast → Thorough** - Draft with Haiku, refine with Opus
-- **Specialist models** - Use different models for different task types
+- Development then review: write with one model, review with another
+- Fast then thorough: draft with Haiku, refine with Opus
+- Specialist models: use different models for different task types
 
 The distilled markdown captures decisions, progress, and next steps - everything the next agent needs to continue the work.
 
@@ -159,7 +164,7 @@ Session memory provides these MCP tools:
 
 | Tool | Description |
 |------|-------------|
-| `compact_session` | Compact current or specified session |
+| `compact_session` | Force-distil a session's transcript on disk; frees no context in the live conversation and rarely needs to be called directly since distillation already runs on exit, resume, and recovery |
 | `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
 | `recover_session` | Recover the most-recent session's context after `/clear` |
 | `get_previous_session` | Get the previous session for this project (read-time) |
@@ -167,10 +172,13 @@ Session memory provides these MCP tools:
 Browsing recent sessions is a **resource**, not a tool — read
 `ctxloom://sessions/recent`.
 
-### Example: Manual Compaction
+### Example: Forcing a Distill Before Ending
+
+Most sessions never need this — exit, resume, and recovery already trigger it.
+Use it when you want the essence ready before you close a session:
 
 ```
-Session's getting long, compact it
+Distill this session now, I'm about to end it
 ```
 
 ### Example: Load Specific Session
@@ -242,15 +250,15 @@ ctxloom session forget <harp>           # Drop an entry (files stay on disk)
 ctxloom session distill <harp>          # Force-distill a session
 ```
 
-`session distill` is useful for sessions that ended before auto-compact ran —
-distill first, then load with `load_session` or `ctxloom run --session <harp>`.
+`session distill` is useful for sessions that ended before the exit-time distill
+ran — distill first, then load with `load_session` or `ctxloom run --session <harp>`.
 
 ## Best Practices
 
-1. **Just `/clear` when needed** - Don't overthink it; ctxloom tracks your session automatically
-2. **Use `/recover` after clearing** - Distillation happens on-demand, no pre-saving required
-3. **Browse older sessions** - Read `ctxloom://sessions/recent` (or ask "show me recent sessions") when you need context from days ago
-4. **Review recovered content** - Check that important details were captured
+1. Just `/clear` when needed. Don't overthink it — ctxloom tracks your session automatically.
+2. Use `/recover` after clearing. Distillation happens on-demand; there's nothing to pre-save.
+3. Browse older sessions by reading `ctxloom://sessions/recent` (or asking "show me recent sessions") when you need context from days ago.
+4. Review recovered content and check that the important details were captured.
 
 ## Troubleshooting
 
@@ -270,6 +278,6 @@ If compaction fails:
 ### Distilled Session Missing
 
 If a session you expect to load has no distilled content:
-- Check `.ctxloom/sessions/` in the project for distilled summaries
+- Check `~/.ctxloom/sessions/<harp>/essence.md` for that session's distilled essence
 - Run `ctxloom session list` to confirm the session is in the index
-- Force-distill it with `ctxloom session distill <harp>` (for sessions that ended before auto-compact ran)
+- Force-distill it with `ctxloom session distill <harp>` (for sessions that ended before the exit-time distill ran)

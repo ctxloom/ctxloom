@@ -1,0 +1,9 @@
+# ctxloom's compiled-in trust root (spec §7, location 1): the public key(s) of
+# the ctxloom release / bundle-publishing pipeline. Consumers trust these by
+# construction — trusting the ctxloom binary trusts what it ships.
+#
+# Trusted for the PUBLISH namespace ONLY. The release key signs bundles; it
+# cannot approve content on a user's behalf (approval is the user's own key in
+# the approve namespace). Keeping publish and approve separate is why a stolen
+# publish key cannot forge approvals.
+ben+ctxloom@abbitt.me namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGEOgyPlwr63FRcLm0AfbN+Cmn1JwEPjrbYmTv+ddF+P

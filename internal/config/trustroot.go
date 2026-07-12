@@ -1,6 +1,9 @@
 package config
 
 import (
+	_ "embed"
+	"strings"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -8,22 +11,26 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
-// embeddedSigners returns ctxloom's own compiled-in trust root: the public keys
-// of the ctxloom release and bundle-publishing pipelines (spec §7, location 1).
+// embeddedAllowedSigners is ctxloom's compiled-in trust root in the real
+// allowed_signers format, parsed by the same parser every other location uses
+// so the format has a single source of truth. See the file for what it grants.
 //
-// It is EMPTY today, and that is a deliberate, load-bearing statement rather
-// than a stub: those keys do not exist yet — no release pipeline signs anything
-// (spec §6 surfaces 1 and 2 are unbuilt). Shipping a placeholder key here would
-// be worse than shipping none, because a trust root nobody controls is a trust
-// root an attacker might.
+//go:embed embedded_signers.allowed_signers
+var embeddedAllowedSigners string
+
+// embeddedSigners returns ctxloom's own compiled-in trust root: the public
+// key(s) of the ctxloom release / bundle-publishing pipeline (spec §7, location
+// 1). Trusting the ctxloom binary trusts what it ships.
 //
-// The consequence is honest and intended: until ctxloom-default's bundles are
-// actually signed by a key named here, its content is UNSIGNED and takes the
-// review path like any other third-party content. That is a real, visible
-// behavior change from the deleted trust_bundles flag, which trusted that
-// remote's LOCATION hash-blind and forever.
+// The embedded content is a fixed constant, so a parse failure here is a build
+// bug caught by TestEmbeddedSigners, not a runtime condition; any unparsable
+// line is dropped (toward LESS trust — an unrecognized key trusts nothing).
 func embeddedSigners() *allowedsigners.Store {
-	return allowedsigners.NewStore()
+	store, _, err := allowedsigners.Parse(strings.NewReader(embeddedAllowedSigners))
+	if err != nil || store == nil {
+		return allowedsigners.NewStore()
+	}
+	return store
 }
 
 // TrustRoot returns the union of every allowed_signers location: ctxloom's

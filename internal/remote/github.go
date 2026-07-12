@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-github/v60/github"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
@@ -401,11 +402,11 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid ctxloom structure.
 func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	// Check for the ctxloom/ directory
-	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
+	// Check for the .ctxloom/content/ directory
+	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, paths.RepoContentPrefix, nil)
 	if err != nil {
 		if f.shouldRetry401(resp, err) {
-			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
+			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, paths.RepoContentPrefix, nil)
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {

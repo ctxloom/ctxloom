@@ -1,7 +1,7 @@
 // Tests for ctxloom:local version pinning at the resolver seam: the
 // bundleVersionResolver wired by SeededBundleLoader must dispatch a local
-// "@<rev>" ref to the PROJECT's own git history (read the .ctxloom/local/ bundle
-// bytes as of that revision), while an unversioned local ref keeps resolving to
+// "@<rev>" ref to the PROJECT's own git history (read the .ctxloom/content/
+// bundle bytes as of that revision), while an unversioned local ref keeps resolving to
 // the working-tree default and a fail-closed case (unknown rev, non-git project)
 // withholds just that item. These exercise the exact loader methods profile
 // assembly calls (GetFragmentAtVersion / GetPromptAtVersion), so they cover a
@@ -26,9 +26,9 @@ import (
 
 const localGoTools = "ctxloom:local@bundles/go-tools"
 
-// localContentRepo creates a git repo whose committed .ctxloom/local/ tree holds
-// bundles/go-tools.yaml. It commits a v1 (fmt=V1-BODY, review=PV1-BODY), then a
-// v2, and returns the appDir (<repo>/.ctxloom) plus the two commit SHAs.
+// localContentRepo creates a git repo whose committed .ctxloom/content/ tree
+// holds bundles/go-tools.yaml. It commits a v1 (fmt=V1-BODY, review=PV1-BODY),
+// then a v2, and returns the appDir (<repo>/.ctxloom) plus the two commit SHAs.
 func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	t.Helper()
 	repoDir := filepath.Join(t.TempDir(), "project")
@@ -37,7 +37,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	rel := filepath.Join(".ctxloom", "local", "bundles", "go-tools.yaml")
+	rel := filepath.Join(".ctxloom", "content", "bundles", "go-tools.yaml")
 	commit := func(body, msg string) string {
 		full := filepath.Join(repoDir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
@@ -143,7 +143,7 @@ func TestLocalRev_NonGitProjectFailsClosed(t *testing.T) {
 	testsupport.Isolate(t)
 	// An app dir NOT under any git repository.
 	appDir := filepath.Join(t.TempDir(), "loose", ".ctxloom")
-	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "local", "bundles"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "content", "bundles"), 0o755))
 	loader := localResolverLoader(t, appDir)
 
 	_, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "abc123")

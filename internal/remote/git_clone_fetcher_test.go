@@ -28,10 +28,10 @@ func createTestRepoWithFiles(t *testing.T, dir string) (string, string) {
 
 	// Create directory structure
 	files := map[string]string{
-		"ctxloom/bundles/core.yaml":     "version: v1\ndescription: core bundle\n",
-		"ctxloom/bundles/dev.yaml":      "version: v1\ndescription: dev bundle\n",
-		"ctxloom/profiles/default.yaml": "bundles:\n  - core\n  - dev\n",
-		"ctxloom/manifest.yaml":         "version: 1\nbundles:\n  - name: core\n  - name: dev\n",
+		".ctxloom/content/bundles/core.yaml":     "version: v1\ndescription: core bundle\n",
+		".ctxloom/content/bundles/dev.yaml":      "version: v1\ndescription: dev bundle\n",
+		".ctxloom/content/profiles/default.yaml": "bundles:\n  - core\n  - dev\n",
+		".ctxloom/content/manifest.yaml":         "version: 1\nbundles:\n  - name: core\n  - name: dev\n",
 	}
 
 	for path, content := range files {
@@ -62,13 +62,13 @@ func TestGitCloneFetcher_FetchFile(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("fetch existing file", func(t *testing.T) {
-		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/bundles/core.yaml", sha)
+		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", sha)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "core bundle")
 	})
 
 	t.Run("fetch with empty ref uses HEAD", func(t *testing.T) {
-		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/bundles/core.yaml", "")
+		content, err := fetcher.FetchFile(context.Background(), "owner", "repo", ".ctxloom/content/bundles/core.yaml", "")
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "core bundle")
 	})
@@ -88,7 +88,7 @@ func TestGitCloneFetcher_ListDir(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("list bundles directory", func(t *testing.T) {
-		entries, err := fetcher.ListDir(context.Background(), "owner", "repo", "ctxloom/bundles", sha)
+		entries, err := fetcher.ListDir(context.Background(), "owner", "repo", ".ctxloom/content/bundles", sha)
 		require.NoError(t, err)
 		assert.Len(t, entries, 2)
 

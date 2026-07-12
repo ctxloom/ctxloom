@@ -158,7 +158,7 @@ func TestPuller_Pull(t *testing.T) {
 
 	// Create mock fetcher with content
 	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files[".ctxloom/content/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -217,8 +217,8 @@ func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
-	mf.files["ctxloom/manifest.yaml"] = []byte(`retracted:
+	mf.files[".ctxloom/content/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files[".ctxloom/content/manifest.yaml"] = []byte(`retracted:
   - type: bundle
     name: security
     reason: compromised release
@@ -252,7 +252,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files[".ctxloom/content/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{},

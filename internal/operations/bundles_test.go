@@ -839,7 +839,7 @@ func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
 	require.Len(t, mock.createOrUpdateCalls, 1, "publisher should be invoked exactly once")
 	assert.Equal(t, 0, len(mock.createPRCalls))
 	assert.Equal(t, "Add for-push", mock.createOrUpdateCalls[0].Message)
-	assert.Equal(t, "ctxloom/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
+	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
 }
 
 func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {
@@ -1116,8 +1116,8 @@ func TestPushBundle_Signer_PublishesSignedSiblingOverExactPublishedBytes(t *test
 	require.Len(t, mock.createOrUpdateCalls, 2, "main file + .sig sibling")
 	main := mock.createOrUpdateCalls[0]
 	sig := mock.createOrUpdateCalls[1]
-	assert.Equal(t, "ctxloom/bundles/for-push.yaml", main.Path)
-	assert.Equal(t, "ctxloom/bundles/for-push.yaml.sig", sig.Path)
+	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml", main.Path)
+	assert.Equal(t, ".ctxloom/content/bundles/for-push.yaml.sig", sig.Path)
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},

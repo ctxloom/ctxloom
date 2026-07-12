@@ -50,13 +50,13 @@ func newTestRepo(t *testing.T) string {
 func TestGitCloneFetcher_ListDeletedItems(t *testing.T) {
 	dir := newTestRepo(t)
 	writeCommit(t, dir, "add foo+bar+nested", map[string]string{
-		"ctxloom/bundles/foo.yaml":         "x",
-		"ctxloom/bundles/bar.yaml":         "x",
-		"ctxloom/bundles/nested/keep.yaml": "x",
+		".ctxloom/content/bundles/foo.yaml":         "x",
+		".ctxloom/content/bundles/bar.yaml":         "x",
+		".ctxloom/content/bundles/nested/keep.yaml": "x",
 	}, nil)
 	writeCommit(t, dir, "remove bar + nested/keep", nil, []string{
-		"ctxloom/bundles/bar.yaml",
-		"ctxloom/bundles/nested/keep.yaml",
+		".ctxloom/content/bundles/bar.yaml",
+		".ctxloom/content/bundles/nested/keep.yaml",
 	})
 
 	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)
@@ -74,9 +74,9 @@ func TestGitCloneFetcher_ListDeletedItems(t *testing.T) {
 
 func TestGitCloneFetcher_ListDeletedItems_ReAddedIsPresent(t *testing.T) {
 	dir := newTestRepo(t)
-	writeCommit(t, dir, "add", map[string]string{"ctxloom/bundles/foo.yaml": "x"}, nil)
-	writeCommit(t, dir, "remove", nil, []string{"ctxloom/bundles/foo.yaml"})
-	writeCommit(t, dir, "re-add", map[string]string{"ctxloom/bundles/foo.yaml": "y"}, nil)
+	writeCommit(t, dir, "add", map[string]string{".ctxloom/content/bundles/foo.yaml": "x"}, nil)
+	writeCommit(t, dir, "remove", nil, []string{".ctxloom/content/bundles/foo.yaml"})
+	writeCommit(t, dir, "re-add", map[string]string{".ctxloom/content/bundles/foo.yaml": "y"}, nil)
 
 	f, err := NewGitCloneFetcher(dir, "https://github.com/o/r", ForgeGitHub, nil)
 	require.NoError(t, err)

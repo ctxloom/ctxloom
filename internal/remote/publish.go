@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // Publisher handles publishing items to remote repositories.
@@ -459,7 +461,7 @@ func buildPublishPath(itemType ItemType, name string) string {
 	default:
 		dir = "bundles"
 	}
-	return path.Join("ctxloom", dir, name+".yaml")
+	return path.Join(paths.RepoContentPrefix, dir, name+".yaml")
 }
 
 // addPublishMetadata appends a `_published` provenance block to content. It

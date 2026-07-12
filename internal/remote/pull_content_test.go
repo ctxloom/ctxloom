@@ -53,7 +53,7 @@ func TestConfirmRetraction(t *testing.T) {
 			Retracted: []RetractEntry{{Type: ItemTypeBundle, Name: "mybundle", Reason: "security hole"}},
 		})
 		require.NoError(t, err)
-		m.files["ctxloom/manifest.yaml"] = data
+		m.files[".ctxloom/content/manifest.yaml"] = data
 		return m
 	}
 

@@ -87,9 +87,9 @@ func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID str
 	bundleID = "file://" + src + "@bundles/demo"
 	parentBundleID = "file://" + src + "@bundles/kit"
 
-	initLocalRepoWithFile(t, src, "ctxloom/bundles/demo.yaml", "name: demo\n")
+	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/demo.yaml", "name: demo\n")
 	// The parent bundle ships a bundle profile `parent` that composes demo.
-	addFileToLocalRepo(t, src, "ctxloom/bundles/kit.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
+	addFileToLocalRepo(t, src, ".ctxloom/content/bundles/kit.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
 
 	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
 	return baseDir, src, parentBundleID, bundleID
@@ -149,7 +149,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 
 	// A second repo whose advance drives the wholesale rewrite.
 	srcA := filepath.Join(tmp, "srcA")
-	a1 := initLocalRepoWithFile(t, srcA, "ctxloom/bundles/demoA.yaml", "name: demoA\n")
+	a1 := initLocalRepoWithFile(t, srcA, ".ctxloom/content/bundles/demoA.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "otherprof", "bundles:\n  - "+refA+"\n")
 
@@ -161,7 +161,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	require.True(t, okB, "bundle under the remote parent locked")
 
 	// Advance repo A, then make the parent's repo unreachable.
-	a2 := addFileToLocalRepo(t, srcA, "ctxloom/bundles/demoA2.yaml", "name: demoA2\n")
+	a2 := addFileToLocalRepo(t, srcA, ".ctxloom/content/bundles/demoA2.yaml", "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 	require.NoError(t, os.RemoveAll(paths.ReposCachePath(baseDir)))
 	require.NoError(t, os.RemoveAll(src))

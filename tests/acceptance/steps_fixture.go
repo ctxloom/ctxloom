@@ -121,7 +121,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a git remote "([^"]*)" serving a ctxloom bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(map[string]string{
-			"ctxloom/bundles/demo.yaml": "version: 1.0.0\n" +
+			".ctxloom/content/bundles/demo.yaml": "version: 1.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
@@ -150,7 +150,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("remote %q was not seeded", name)
 		}
 		return w.env.AdvanceRemote(bare, map[string]string{
-			"ctxloom/bundles/demo.yaml": "version: 2.0.0\n" +
+			".ctxloom/content/bundles/demo.yaml": "version: 2.0.0\n" +
 				"author: test\n" +
 				"description: Demo bundle v2\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // CheckRetracted checks if a version is retracted in the manifest.
@@ -14,7 +16,7 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 		return false, "", nil // No manifest, not retracted
 	}
 
-	manifestPath := "ctxloom/manifest.yaml"
+	manifestPath := paths.RepoContentPrefix + "/manifest.yaml"
 	content, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err != nil {
 		return false, "", nil // No manifest, not retracted

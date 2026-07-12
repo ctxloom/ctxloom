@@ -83,9 +83,9 @@ func TestPushBundleCfg_SignFlagPublishesVerifiableSig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "Signed: yes")
 
-	main, ok := pub.files["ctxloom/bundles/for-push.yaml"]
+	main, ok := pub.files[".ctxloom/content/bundles/for-push.yaml"]
 	require.True(t, ok)
-	sig, ok := pub.files["ctxloom/bundles/for-push.yaml.sig"]
+	sig, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
 	require.True(t, ok, "--sign must publish a .sig sibling")
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
@@ -106,7 +106,7 @@ func TestPushBundleCfg_NoFlagsMeansUnsignedByDefault(t *testing.T) {
 	err := pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false)
 	require.NoError(t, err)
 
-	_, ok := pub.files["ctxloom/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
 	assert.False(t, ok, "no --sign and sign.default unset must never sign")
 }
 
@@ -117,7 +117,7 @@ func TestPushBundleCfg_SignDefaultConfigSignsUnlessNoSign(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
-	_, ok := pub.files["ctxloom/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
 	assert.True(t, ok, "sign.default: true must sign by default")
 }
 
@@ -128,7 +128,7 @@ func TestPushBundleCfg_NoSignOverridesSignDefault(t *testing.T) {
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, true))
-	_, ok := pub.files["ctxloom/bundles/for-push.yaml.sig"]
+	_, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
 	assert.False(t, ok, "--no-sign must suppress sign.default")
 }
 

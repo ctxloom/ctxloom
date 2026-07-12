@@ -34,10 +34,10 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "ctxloom", "bundles"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "ctxloom", "bundles", "tools.yaml"),
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, ".ctxloom", "content", "bundles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, ".ctxloom", "content", "bundles", "tools.yaml"),
 		[]byte("version: 1.0.0\ndescription: remote tools bundle\nprofiles:\n  dev:\n    description: remote dev profile\n    tags: [go]\n"), 0o644))
-	_, err = wt.Add("ctxloom/bundles/tools.yaml")
+	_, err = wt.Add(".ctxloom/content/bundles/tools.yaml")
 	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
 		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},

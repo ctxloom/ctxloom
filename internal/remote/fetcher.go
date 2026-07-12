@@ -8,7 +8,7 @@ import (
 // Each forge implementation handles authentication, rate limiting, and API specifics.
 type Fetcher interface {
 	// FetchFile retrieves raw file content from a repository.
-	// path is relative to repository root (e.g., "ctxloom/fragments/security.yaml")
+	// path is relative to repository root (e.g., ".ctxloom/content/fragments/security.yaml")
 	// ref is a git reference (tag, branch, or commit SHA); empty means default branch
 	FetchFile(ctx context.Context, owner, repo, path, ref string) ([]byte, error)
 

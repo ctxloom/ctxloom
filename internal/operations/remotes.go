@@ -580,7 +580,7 @@ func browseTypeList(itemType string) []remote.ItemType {
 // type's directory doesn't exist) yields no items and no warning; any other
 // error yields a warning string (also echoed to stderr).
 func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
-	basePath := path.Join("ctxloom", itemType.DirName())
+	basePath := path.Join(paths.RepoContentPrefix, itemType.DirName())
 	if req.Path != "" {
 		basePath = path.Join(basePath, req.Path)
 	}
@@ -905,7 +905,7 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 	}
 
 	// Try to fetch manifest first (faster)
-	manifestPath := "ctxloom/manifest.yaml"
+	manifestPath := paths.RepoContentPrefix + "/manifest.yaml"
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
 		return searchManifestContent(rem, manifestContent, itemType, query)
@@ -945,7 +945,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := path.Join("ctxloom", itemType.DirName())
+	dirPath := path.Join(paths.RepoContentPrefix, itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {

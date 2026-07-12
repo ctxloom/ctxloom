@@ -25,20 +25,20 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 	require.NoError(t, os.MkdirAll(baseDir, 0755))
 
 	// One source repo (no manifest.yaml) holding a tagged bundle and profile
-	// under the flat ctxloom/<type>/ layout.
+	// under the flat .ctxloom/content/<type>/ layout.
 	src := filepath.Join(tmpDir, "source")
 	bundleYAML := "version: 1.0.0\n" +
 		"tags:\n  - golang\n  - testing\n" +
 		"description: Go development guidance\n" +
 		"fragments:\n  intro:\n    content: hi\n"
-	initLocalRepoWithFile(t, src, "ctxloom/bundles/go-development.yaml", bundleYAML)
+	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/go-development.yaml", bundleYAML)
 
 	// Add a profile to the same repo in a second commit.
 	profileYAML := "version: \"1.0.0\"\n" +
 		"description: Go developer profile\n" +
 		"tags:\n  - golang\n  - backend\n" +
 		"bundles:\n  - go-development\n"
-	addFileToLocalRepo(t, src, "ctxloom/profiles/go-developer.yaml", profileYAML)
+	addFileToLocalRepo(t, src, ".ctxloom/content/profiles/go-developer.yaml", profileYAML)
 
 	url := "file://" + src
 	remotesContent := "remotes:\n  acme:\n    url: " + url + "\n"

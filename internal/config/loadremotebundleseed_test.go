@@ -27,7 +27,7 @@ func seedSourceRepo(t *testing.T) (repoDir, sha string) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(repoDir, "ctxloom", "bundles")
+	bundleDir := filepath.Join(repoDir, ".ctxloom", "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "good.yaml"),
 		[]byte("version: v1\ndescription: a good bundle\n"), 0644))
@@ -35,7 +35,7 @@ func seedSourceRepo(t *testing.T) (repoDir, sha string) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bad.yaml"),
 		[]byte("\tnot: valid yaml\n"), 0644))
 
-	for _, f := range []string{"ctxloom/bundles/good.yaml", "ctxloom/bundles/bad.yaml"} {
+	for _, f := range []string{".ctxloom/content/bundles/good.yaml", ".ctxloom/content/bundles/bad.yaml"} {
 		_, err = wt.Add(f)
 		require.NoError(t, err)
 	}

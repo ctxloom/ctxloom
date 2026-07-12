@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -214,30 +214,28 @@ func TestRenderReviewList(t *testing.T) {
 }
 
 // TestReviewApplier_WritesStoreStates proves the porcelain's apply hooks write
-// the SAME on-disk states as the trust/blacklist plumbing (they are the same
-// operations): accept records a hash-bound acceptance, reject records the ref
-// block + content denylist.
+// the SAME on-disk countersignatures as the trust/blacklist plumbing (they are
+// the same operations): accept countersigns an approval over the item's
+// bytes, reject writes the ref block + a content-reject.
 func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "keep", "acceptable body")
 	seedLocalFragment(t, cfg, "demo2", "drop", "rm -rf danger")
 
-	apply := reviewApplier(cfg)
+	apply := reviewApplier(cfg, false, nil)
 	require.NoError(t, apply.accept("demo#fragments/keep"))
 	require.NoError(t, apply.reject("demo2#fragments/drop"))
 
-	store := loadTrustStore(t, appDir)
-	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/keep")
-	require.True(t, ok)
-	assert.Equal(t, trust.StateAccepted, item.State)
-	assert.Equal(t, effectiveFragmentHash(t, appDir, "demo", "keep"), item.RawHash)
+	store := userApprovalsStore(t)
+	keepRef := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keep", IsLocal: true}
+	assert.True(t, store.HasUnsignedApprove(signing.KindFragments, countersignRefFor(keepRef), signing.FormRaw, []byte("acceptable body")))
 
-	rej, ok := store.Lookup(remote.LocalSource, "demo2#fragments/drop")
-	require.True(t, ok)
-	assert.Equal(t, trust.StateRejected, rej.State)
-	assert.True(t, store.DeniedHash(effectiveFragmentHash(t, appDir, "demo2", "drop")))
+	dropRef := trust.Ref{Bundle: "demo2", Kind: trust.KindFragment, Name: "drop", IsLocal: true}
+	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(dropRef)))
+	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")))
 }
 
 // TestWantsInitReview: empty answer defaults to yes; only an explicit n/no

@@ -6,6 +6,9 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // DistillBundleFileRequest is the input for DistillBundleFile.
@@ -19,6 +22,11 @@ type DistillBundleFileRequest struct {
 	// Store, when non-nil, is the bundle storage adapter the result is saved
 	// through (ADR 0026); nil defaults to the filesystem.
 	Store bundles.Store `json:"-"`
+
+	// Cfg locates the countersignature stores consulted for the re-distill
+	// invalidation report (spec §10.4, DistillBundleFileResult.Invalidated).
+	// Optional: nil still checks the default (real OS / HOME) stores.
+	Cfg *config.Config `json:"-"`
 }
 
 // DistillBundleItemStatus is an item's per-file distill outcome.
@@ -45,6 +53,14 @@ type DistillBundleFileResult struct {
 	Path  string              `json:"path"`
 	Items []DistillBundleItem `json:"items"`
 	Saved bool                `json:"saved"`
+
+	// Invalidated lists the "<kind>/<name>" of every item in this file whose
+	// DISTILLED bytes just changed AND had a prior approve countersignature
+	// recorded over the distilled form — that approval no longer verifies
+	// (the bytes it covered no longer exist), so the item is back to pending
+	// (spec §10.4). This is the re-distill LOUD PATH: report it at the moment
+	// it is caused, not silently at the next `ctxloom review`.
+	Invalidated []string `json:"invalidated,omitempty"`
 }
 
 // DistillBundleFile distills every distillable item in a bundle file and saves
@@ -64,6 +80,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		return nil, fmt.Errorf("parse %s: %w", req.Path, err)
 	}
 	bundle.Path = req.Path
+	bundle.Name = bundles.ExtractBundleName(req.Path)
 
 	res := &DistillBundleFileResult{Path: req.Path}
 	var fragTargets, promptTargets []string
@@ -114,8 +131,48 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 			return nil, fmt.Errorf("save %s: %w", req.Path, err)
 		}
 		res.Saved = true
+		res.Invalidated = invalidatedByDistill(req.Cfg, bundle.Name, res.Items)
 	}
 	return res, nil
+}
+
+// invalidatedByDistill checks each successfully-DISTILLED item against the
+// countersignature stores' sidecar index (display-only) for a prior approve
+// record over the DISTILLED form: presence proves invalidation (see
+// countersignRecords.hadPriorApprove). bundleName addresses this as a LOCAL
+// bundle (ctxloom:local) — the addressing `bundle distill <path>` operates
+// under; best-effort and never errors.
+func invalidatedByDistill(cfg *config.Config, bundleName string, items []DistillBundleItem) []string {
+	records := buildCountersignRecords(cfg, nil, nil, nil, nil)
+	var out []string
+	for _, it := range items {
+		if it.Status != DistillStatusDistilled {
+			continue
+		}
+		tKind, ok := distillItemKindToTrust(it.Kind)
+		if !ok {
+			continue
+		}
+		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
+		kind := signingKindOf(tKind)
+		if records.hadPriorApprove(kind, countersignRef(ref), signing.FormDistilled) {
+			out = append(out, string(it.Kind)+"/"+it.Name)
+		}
+	}
+	return out
+}
+
+// distillItemKindToTrust maps operations.ItemKind onto trust.ItemKind (the
+// two kinds distill touches: fragment, skill/prompt).
+func distillItemKindToTrust(k ItemKind) (trust.ItemKind, bool) {
+	switch k {
+	case ItemKindFragment:
+		return trust.KindFragment, true
+	case ItemKindSkill:
+		return trust.KindPrompt, true
+	default:
+		return "", false
+	}
 }
 
 // planBundleItemDistill returns a skip item (and ok=true) when an item should be

@@ -10,7 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // findRow returns the listed row with the given ref.
@@ -52,11 +53,12 @@ func TestStampItemTrust_LocalFragmentJSON(t *testing.T) {
 // state=rejected).
 func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	appDir := t.TempDir()
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
-	store := loadTrustStore(t, appDir)
-	require.NoError(t, store.SetRejected(remote.LocalSource, "demo#fragments/curl-pipe-sh"))
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(signing.KindFragments, countersignRefFor(ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
 	require.NoError(t, err)
@@ -100,11 +102,12 @@ func TestStampItemTrust_LocalSkillJSON(t *testing.T) {
 // user's `blacklist demo#skills/review` to.
 func TestStampItemTrust_RejectedSkillJSON(t *testing.T) {
 	appDir := t.TempDir()
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalSkill(t, cfg, "demo", "review", "rm -rf danger")
 
-	store := loadTrustStore(t, appDir)
-	require.NoError(t, store.SetRejected(remote.LocalSource, "demo#prompts/review"))
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(signing.KindSkills, countersignRefFor(ref)))
 
 	rows, err := listItemRows(cfg, ItemTypeSkill)
 	require.NoError(t, err)
@@ -146,15 +149,18 @@ func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 // rejected step — beating the local exemption.
 func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
 	appDir := t.TempDir()
+	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	srv := operations.MCPServerEntry{Name: "local-srv", Command: "node", Args: []string{"-x"}, Backend: "unified"}
 	mcp := bundles.BundleMCP{Command: srv.Command, Args: srv.Args}
+	mcpPayload, perr := mcp.ContentPayload()
+	require.NoError(t, perr)
 
-	store := loadTrustStore(t, appDir)
-	// The rejection is recorded under a DIFFERENT ref; the content denylist
-	// still catches the identical executable surface by hash.
-	require.NoError(t, store.SetRejected(remote.LocalSource, "#mcp/other-name", mcp.ComputeContentHash()))
+	// The rejection is recorded content-only (ref omitted, spec §5.3); the
+	// content-reject still catches the identical executable surface by bytes,
+	// regardless of which ref/name it is later exposed under.
+	require.NoError(t, userApprovalsStore(t).WriteUnsignedContentReject(signing.KindMCP, signing.FormRaw, mcpPayload))
 
 	rows := []mcpListRow{{Name: srv.Name, Command: srv.Command, Args: srv.Args, Backend: srv.Backend}}
 	stampMCPTrust(cfg, []operations.MCPServerEntry{srv}, rows)

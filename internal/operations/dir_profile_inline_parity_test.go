@@ -45,12 +45,12 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "solid", "V1-BODY")
 	ref := cqVersionRef + "@c1#fragments/solid"
 
 	// Inline profile path (the proven baseline).
-	loaderInline, cfgInline := versionPinnedLoader(t, store, def, versions)
+	loaderInline, cfgInline := versionPinnedLoader(t, fx.records(), def, versions)
 	cfgInline = profileCfg(cfgInline, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: ref}},
 	})
@@ -59,7 +59,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	require.Contains(t, inlineRes.Context, "V1-BODY")
 
 	// Directory profile equivalent: the SAME ref, declared in a .yaml on disk.
-	loaderDir, cfgDir := versionPinnedLoader(t, store, def, versions)
+	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
 	cfgDir.AppPaths = []string{writeDirProfile(t, "fragpin", "fragments:\n  - \""+ref+"\"\n")}
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "fragpin", Loader: loaderDir})
 	require.NoError(t, err)
@@ -80,17 +80,17 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	versions := map[string]*bundles.Bundle{
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
-	store := newTrustStore(t)
-	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
+	fx := newTrustFixture(t)
+	fx.approveFragment("cq", "solid", "V1-BODY")
 	ref := cqVersionRef + "@c1:fragments/solid"
 
-	loaderInline, cfgInline := versionPinnedLoader(t, store, def, versions)
+	loaderInline, cfgInline := versionPinnedLoader(t, fx.records(), def, versions)
 	cfgInline = profileCfg(cfgInline, "pinned", config.Profile{BundleItems: []string{ref}})
 	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "pinned", Loader: loaderInline})
 	require.NoError(t, err)
 	require.Contains(t, inlineRes.Context, "V1-BODY")
 
-	loaderDir, cfgDir := versionPinnedLoader(t, store, def, versions)
+	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
 	cfgDir.AppPaths = []string{writeDirProfile(t, "pinned", "bundle_items:\n  - \""+ref+"\"\n")}
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "pinned", Loader: loaderDir})
 	require.NoError(t, err)

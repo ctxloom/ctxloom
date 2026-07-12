@@ -17,13 +17,18 @@ Walk every item awaiting review — remote content the agent has not been
 allowed to see yet — grouped by bundle, and decide each one.
 
 An item is pending when it was never reviewed, or when its content changed
-since a human accepted it (an UPDATE — shown as a diff against what was
-accepted). First-party content (project-local, trusted sources) is exempt and
+since a human approved it (an UPDATE — shown as a diff against what was
+approved). First-party content (project-local, trusted sources) is exempt and
 never appears here.
 
 Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
-or [q]uit. Accepting binds the item to its current content-hash pair (a later
-change re-gates it); rejecting withholds it permanently, content hash included.
+or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
+SSH key (a later change stops the signature verifying, re-gating it);
+rejecting countersigns a permanent refusal, both by ref and by content.
+
+--project writes to the COMMITTABLE project store (.ctxloom/approvals) instead
+of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
+decision via the project's allowed_signers. It REQUIRES a signing key.
 
 Non-interactive (piped, or --list): print the pending table and exit.
 
@@ -38,8 +43,9 @@ ctxloom review [flags]
 ### Options
 
 ```
-  -h, --help   help for review
-      --list   List pending items without reviewing (non-interactive)
+  -h, --help      help for review
+      --list      List pending items without reviewing (non-interactive)
+      --project   Write to the committable project store (.ctxloom/approvals); requires a signing key
 ```
 
 ### Options inherited from parent commands

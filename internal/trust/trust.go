@@ -1,19 +1,23 @@
-// Package trust implements the per-item review-state store and the data model
-// the trust decision function resolves over (trust-simplify). Every remote
-// item (fragment, skill, MCP server, hook) is in exactly one of three states:
-// pending (never reviewed, or changed since acceptance — withheld), accepted
-// (a human reviewed this exact content, bound to its raw/distilled hash pair),
-// or rejected (withheld permanently, with a content-hash denylist companion so
-// a renamed identical copy stays rejected). First-party sources — local
-// content, builtin bundles, and content from a trusted PUBLISHER (a signing key
-// in allowed_signers, verified over the bytes) — are exempt from review;
+// Package trust implements the addressing/canonicalization primitives and the
+// data model the trust decision function resolves over: every remote item
+// (fragment, skill, MCP server, hook) is in exactly one of three states —
+// pending (never reviewed, or changed since approval — withheld), accepted (a
+// human COUNTERSIGNED this exact content with their own SSH key — see
+// internal/signing/countersign), or rejected (withheld permanently; the
+// rejection is itself a countersignature, and a content-scoped rejection
+// deliberately omits the ref so a renamed identical copy stays rejected —
+// signature-envelope spec §5.3). First-party sources — local content, builtin
+// bundles, and content from a trusted PUBLISHER (a signing key in
+// allowed_signers, verified over the bytes) — are exempt from review;
 // rejection beats even the first-party exemption.
 //
-// This package owns only the persistent store (afero-backed trust.yaml) plus
-// the addressing/canonicalization primitives. The decision function itself
-// lives in operations.EffectiveTrust, which resolves this store together with
-// the verified publisher signer. The store never fetches or hashes content —
-// callers pass in the exact bytes (see bundles.ContentPayload).
+// This package owns ONLY the addressing (Ref) and canonicalization
+// (CanonicalRepoURL) primitives — it holds no persisted state of its own. The
+// decision function lives in operations.EffectiveTrust, which resolves the
+// countersignature stores (operations.ReviewRecords, backed by
+// internal/signing/countersign) together with the verified publisher signer.
+// Nothing here fetches, hashes, or signs content — callers pass in the exact
+// bytes (see bundles.ContentPayload) and this package never touches them.
 package trust
 
 import (

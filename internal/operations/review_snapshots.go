@@ -13,20 +13,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// Accepted-content snapshots (trust-simplify slice 2).
+// Approved-content snapshots.
 //
-// Every acceptance binds an item to its (raw, distilled) content-hash pair;
-// this store keeps the BYTES those hashes cover, content-addressed under
-// .ctxloom/cache/trust/objects/<hash>, so that when an upstream edit returns
-// the item to pending, `ctxloom review` can show a unified diff against what
-// the human previously accepted instead of a full re-read.
+// Every approval countersigns an item's raw bytes, and its distilled bytes too
+// when a distilled form exists; this store keeps the BYTES those signatures
+// cover, content-addressed under .ctxloom/cache/trust/objects/<hash>, so that
+// when an upstream edit returns the item to pending, `ctxloom review` can show
+// a unified diff against what the human previously approved instead of a full
+// re-read.
 //
 // The store is pure cache with cache semantics end to end: writes are
-// best-effort (a failure warns and never fails the acceptance — trust.yaml is
-// the authority), a missing snapshot degrades review to a full-content
-// display, and there is no pruning this slice — objects are tiny (fragment/
-// skill text) and superseded entries are simply never read again; a pruning
-// pass can walk trust.yaml's live hashes later if it ever matters.
+// best-effort (a failure warns and never fails the approval — the
+// countersignature is the authority), a missing snapshot degrades review to a
+// full-content display, and there is no pruning this slice — objects are tiny
+// (fragment/skill text) and superseded entries are simply never read again; a
+// pruning pass can walk the countersignature stores' live approvals later if
+// it ever matters.
 
 // snapshotFilename maps a recorded content hash ("sha256:<hex>") to its
 // object filename. The algorithm prefix is folded into the name rather than
@@ -133,9 +135,9 @@ func itemContentPair(bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled str
 }
 
 // formPair extracts (raw, distilled) text from the shared EffectiveContent
-// primitive, mirroring computeItemHashPair's hashPair: preferDistilled=false
-// always yields the raw form; preferDistilled=true yields the distilled form
-// exactly when one exists (identical output means there is none).
+// primitive: preferDistilled=false always yields the raw form;
+// preferDistilled=true yields the distilled form exactly when one exists
+// (identical output means there is none).
 func formPair(effective func(bool) string) (raw, distilled string) {
 	raw = effective(false)
 	if d := effective(true); d != raw {

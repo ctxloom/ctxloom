@@ -32,17 +32,21 @@ rejected bundle succeeds; its content is withheld when it would be exposed.
 Every remote item — fragment, skill, MCP server, hook — is in exactly one of
 three states:
 
-- **pending** — never reviewed, or its content changed since a human accepted
-  it. Withheld from the agent. Pending is the implicit state of any item with no
-  entry in the store; it is never written to disk.
-- **accepted** — a human reviewed this exact content. The acceptance binds to
-  the item's `(raw, distilled)` content-hash pair as it stood at review; a
-  change to either exposed form drops the acceptance and returns the item to
-  pending.
-- **rejected** — a human declined it. Withheld permanently, recorded as both a
-  ref-level block and a content-hash denylist entry so a renamed or moved
-  identical copy stays rejected. Rejection beats every allow, including the
-  first-party exemption.
+- **pending** — never reviewed, or its content changed since a human approved
+  it. Withheld from the agent. Pending is the implicit state of any item with
+  no countersignature covering its current bytes.
+- **approved** — a human **countersigned this exact content with their own SSH
+  key**. The signature IS the approval record — there is no separate ledger row
+  to forge. It binds to the item's raw and (when one exists) distilled bytes as
+  independent signatures, each over the exact materialization; a change to
+  either exposed form means that signature no longer verifies, and the item
+  returns to pending.
+- **rejected** — a human declined it, also by countersigning: a **ref-level**
+  signature (sticky — survives the content changing under the ref) and a
+  **content-reject** signature over the current bytes, deliberately signed with
+  the ref *omitted* so a renamed or moved identical copy stays rejected
+  wherever it appears. Rejection beats every allow, including the first-party
+  exemption.
 
 ## The decision function
 
@@ -67,7 +71,8 @@ match wins; it is fail-closed:
    source bypass. The synthetic `builtin:ctxloom` identity is explicitly
    excluded here — a builtin is allowed *as a builtin* (step 3), never laundered
    into a "trusted publisher".
-5. **approved** — a human reviewed exactly these bytes, at this ref, in this form
+5. **approved** — a valid approve countersignature covers exactly these bytes,
+   at this ref, in this form, from a key trusted for the approve namespace
    → **ALLOW**. Any change to the exposed bytes drops the approval to pending.
 6. **otherwise** — pending: **DENY**, withheld until reviewed, counted toward the
    startup notice. This is where unsigned content lands, where signed-but-
@@ -88,14 +93,16 @@ documented — builtin bundles are routed through the SAME decision function as
 everything else (`trust.Ref{IsBuiltin: true}`, keyed under the synthetic
 identity `builtin:ctxloom` so a builtin item can never collide with a
 project-local bundle of the same name), and step 1's rejection check runs
-before step 3's builtin exemption. An empty hash slot (a lazily-migrated v1
-acceptance recorded only one form) or a form mismatch does not satisfy step 5 —
-the exact materialization being exposed was never reviewed, so it stays
-pending. An unreadable trust store **denies everything** (fail closed) and, in
-strict mode (the fail-loudly workstream), is a fatal startup finding rather than
-a silent degrade to deny-all. A malformed `allowed_signers` file degrades toward
-*fewer* trusted keys — more content unsigned, more review — never toward more
-exposure.
+before step 3's builtin exemption. A missing countersignature for the exact
+form being exposed does not satisfy step 5 — the exact materialization being
+exposed was never reviewed, so it stays pending. Finding a candidate
+countersignature FILE at the right index is never enough on its own: it must
+still cryptographically verify against the reconstructed payload and its
+signer must be trusted for the relevant namespace, or it resolves pending —
+never allow. A malformed `allowed_signers` file, a corrupted countersignature,
+or a deleted countersignature store all degrade toward *fewer* trusted
+decisions — more content unsigned or unreviewed, more review — never toward
+more exposure.
 
 `builtin:ctxloom` is a plain identity string, not a cryptographic signature —
 nothing about a builtin bundle is verified beyond "it shipped inside this
@@ -157,60 +164,94 @@ defeat the property this design exists to provide.
 ## The review ceremony
 
 `ctxloom review` is the single porcelain. It walks every pending item, grouped by
-bundle, and records a decision each:
+bundle, and records a decision each by **countersigning the exact reviewed
+bytes** with the reviewer's own SSH key:
 
 - **New** items show their full content. **Updated** items (a ref you previously
-  accepted whose content has since changed) show a unified diff against the
-  snapshot of the accepted version — falling back to full content when no
-  snapshot exists (e.g. a migrated v1 acceptance).
+  approved whose content has since changed) show a unified diff against the
+  snapshot of the approved version — falling back to full content when no
+  snapshot exists.
 - MCP servers and hooks display as **what they run** — command, args, env,
-  matcher, install — the exact executable surface the acceptance hash covers.
+  matcher, install — the exact executable surface the approval countersignature
+  covers.
 - Per item: **[a]ccept**, **[r]eject**, **[s]kip**; per bundle: **[A]** accept
-  all remaining. Accepting records the `(raw, distilled)` hash pair and snapshots
-  the accepted bytes; rejecting records the ref block plus the content-hash
-  denylist entry. Viewing never mutates — only an explicit letter acts.
+  all remaining. Accepting countersigns the raw bytes always, and the distilled
+  bytes too when a distilled form exists, then snapshots the approved bytes;
+  rejecting countersigns the ref block plus a content-reject over the current
+  bytes. Viewing never mutates — only an explicit letter acts.
+- The countersigning key is resolved once per session, before the first item is
+  shown, from `ssh-agent` (`SSH_AUTH_SOCK`). If the key is a plain software key
+  (not `sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com`), the
+  session warns **once**: any process holding `SSH_AUTH_SOCK` — including an
+  agent ctxloom just launched — can ask that agent to sign approvals as you,
+  unless the key is confirm-guarded (`ssh-add -c`) or hardware-backed. It is a
+  warning, never a block.
+- **No key available** degrades to an explicit, confirmed **UNSIGNED** path:
+  decisions are recorded as bare markers in the personal store only — exactly
+  as forgeable as the deleted `trust.yaml` design, and never written to the
+  committable project store.
+- `--project` writes to the committable project store instead of the personal
+  one, for a team lead or CI to countersign once and have every developer
+  inherit it (via the project's `allowed_signers`). It **requires** a signing
+  key — there is no unsigned fallback for a shared store.
 - Off a TTY, or with `--list`, it prints the pending table (bundle, ref, kind,
   new|update) and exits, so scripts and agents can see what a human still owes a
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
 `ctxloom trust <ref>` and `ctxloom blacklist <ref>` are the scriptable plumbing
-beneath the porcelain — they write the same accepted / rejected states through
-the same mutation path, so the porcelain and the plumbing produce identical
-on-disk results.
+beneath the porcelain — they write the same countersignatures through the same
+mutation path, so the porcelain and the plumbing produce identical on-disk
+results.
 
-## Content-hash gating
+## Countersignature gating
 
-An acceptance binds to the item's `(raw, distilled)` content-hash pair, always
-recomputed from resolved content at acceptance — the author-supplied
-`content_hash` field is never trusted. At every exposure the gate re-hashes the
-exact pre-substitution bytes it is about to expose and compares against the
-recorded hash for the current effective form (distilled vs raw, per
-`config.use_distilled`). Any edit to the exposed form drops the match and
-re-gates the item to pending. Profile-variable templating cannot smuggle content
-past the gate, because the hash covers the bytes before substitution.
+An approval is a **countersignature over the exact bytes** the gate is about to
+expose — the raw form always, and the distilled form too when one exists, as
+two independent signatures. There is no author-supplied field to trust: the
+signed payload is built directly from the resolved content
+(`bundles.ContentPayload`), never from anything a bundle author wrote. At every
+exposure the gate reconstructs the exact same payload it is about to expose,
+under the current effective form (distilled vs raw, per `config.use_distilled`),
+and asks whether ANY countersignature verifies over exactly those bytes, from a
+key trusted for the approve namespace. Any edit to the exposed form produces
+different signed bytes, so no prior signature verifies and the item re-gates to
+pending. Profile-variable templating cannot smuggle content past the gate,
+because the signed payload is the pre-substitution bytes.
+
+A content hash still exists, but only as an **index** — the filename prefix
+under which a candidate countersignature file is found, so a lookup is a
+directory glob rather than a scan of every stored signature. Finding a
+candidate proves nothing on its own; only a successful cryptographic verify
+counts (spec §9.3). A hand-crafted file at the right index, or a corrupted
+signature body, resolves pending — never allow.
 
 ## Storage
 
-| File | Contents |
+| Location | Contents |
 |------|----------|
-| `.ctxloom/trust.yaml` | The **approval ledger**: `version: 2`; `items[]` `{repo_url, ref, state: accepted\|rejected, raw_hash?, distilled_hash?, reviewed_at}`; `denylist[]` (bare content hashes of rejected items). Pending items have no entry. Backs decision steps 1 and 5 today (see the S6 note below). |
+| `~/.ctxloom/approvals/` | The **personal countersignature store**. One armored `.sig` file per approve/reject countersignature (filename `<index-hash>.<assertion>.<key-tag>.sig`, an INDEX only — never trusted as authority) plus a display-only `index.yaml` sidecar (untrusted, never a decision input). Never committed. The default write target of `ctxloom review`. |
+| `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
 | `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
-| `cache/trust/objects/` | content-addressed snapshots of accepted bytes, keyed by hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
+| `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
 
-The decision function's approval/rejection steps read the ledger through a
-`ReviewRecords` seam that already takes the exposed **bytes**, not a hash — so
-the countersignature store can replace the hash-pair ledger without reshaping the
-decision function or any call site.
+The decision function's approval/rejection steps (`operations.EffectiveTrust`
+steps 1 and 5) read through the `ReviewRecords` seam, which takes the exposed
+**bytes**, not a hash — exactly the shape a signature verification needs. The
+countersignature stores are its only implementation; the hash-pair `trust.yaml`
+ledger this seam was built to replace has been deleted outright — pre1 never
+shipped, so there is no migration and no compatibility shim.
 
-`trust.yaml` is committable: a team or CI inherits review decisions a human
-already made. A version-1 store (grants / blacklist / bundle postures / baseline
-marker) migrates in memory on load — grants become accepted items, blacklist
-entries become rejected, and postures and the baseline are dropped (the content
-they covered lands pending) — and persists in v2 form on the first mutation.
+**Composition — reads are the UNION of both stores, with no precedence between
+them.** A signature is a signature no matter which store holds it; precedence
+lives entirely in the decision function's step order (rejection is step 1,
+approval is step 5), so a personal rejection in the user store beats an
+inherited approval sitting in the project store, and a personal approval
+likewise cannot override an inherited project-level rejection — rejection wins
+from EITHER store, always.
 
 ## Enforcement points
 
@@ -273,9 +314,10 @@ collide with a real remote repo URL, or with each other. Repo URLs are
 canonicalized (scheme, `.git`,
 `git@`, host case; path case only on case-folding forges) on both sides of every
 comparison, so a URL-spelling variant cannot escape a rejection or manufacture a
-match. A moved or renamed item keeps neither its accepted state (new ref →
-re-gates to pending, safe) nor its ref-level rejection — the content-hash
-denylist compensates when the content form matches. Hook identity is positional
+match. A moved or renamed item keeps neither its approved state (new ref →
+re-gates to pending, safe) nor its ref-level rejection — the content-reject
+countersignature compensates when the content form matches, because it is
+deliberately signed with the ref omitted. Hook identity is positional
 (`{event}/{index}`), so reordering a bundle's hooks shifts later hooks'
 identities (acceptances re-gate: safe, but see Known gaps).
 
@@ -283,20 +325,23 @@ identities (acceptances re-gate: safe, but see Known gaps).
 
 Addressed:
 
-- **Malicious bundle update** — changed remote content re-hashes to pending and
-  is withheld; review shows the diff against what was accepted before it is
-  exposed.
+- **Malicious bundle update** — changed remote content no longer verifies
+  against any prior approval and re-gates to pending; review shows the diff
+  against what was approved before it is exposed.
 - **Prompt injection via shared text** — cloned fragments and skills gate exactly
-  like executables (a fragment is instructions to an LLM); pre-substitution
-  hashing.
+  like executables (a fragment is instructions to an LLM); the countersignature
+  covers the pre-substitution bytes.
 - **Arbitrary execution via MCP/hooks** — per-item gating at the exec chokes,
-  hashed over the full executable surface (command, args, env, matcher, type).
+  countersigned over the full executable surface (command, args, env, matcher,
+  type).
 - **URL-variant / typosquat escape of a rejection** — canonical repo URLs on both
-  comparison sides; the content-hash denylist is repo- and ref-agnostic.
+  comparison sides; the content-reject countersignature is repo- and
+  ref-agnostic (signed with the ref omitted).
 - **curl-pipe-sh via tooling declarations** — tooling collection is trust-gated;
-  nothing is applied without per-item human acceptance.
-- **Content-form-flip escape** — closed by binding acceptance to the full
-  `(raw, distilled)` hash pair.
+  nothing is applied without per-item human countersignature.
+- **Content-form-flip escape** — closed by requiring an independent
+  countersignature over EACH exposed form; a raw approval never validates a
+  distilled exposure or vice versa.
 - **Publisher impersonation / supply-chain substitution** — content claiming to
   come from a trusted publisher but not signed by its key is unsigned content
   (review path); a fork, typosquat, MITM'd fetch, or tampered clone object cannot
@@ -304,6 +349,12 @@ Addressed:
   does not cover the bytes it sits beside is treated as **tamper** and the bundle
   is withheld, so corrupting a `.sig` cannot downgrade a signed bundle to an
   unsigned one.
+- **Forged approvals via a writable `.ctxloom/`** — an agent (or anything else)
+  that can write files can no longer manufacture an approval by editing a
+  ledger row: a countersignature it cannot produce (no key, no `SSH_AUTH_SOCK`
+  in a containerized run) is not an approval, full stop. This holds under the
+  preconditions in the signature-envelope spec §9.4 — it does **not** hold
+  against a host-run agent with a bare `ssh-agent` (see below).
 
 Explicitly **not** addressed by signing: **signed ≠ safe** (a signature says
 *who*, never *whether it is good for you* — the release key can sign a malicious
@@ -311,25 +362,41 @@ fragment, which is why review and rejection are separate axes); a **writable
 trust root** (an attacker who can append to `allowed_signers` can name their own
 key); and a **host agent holding `SSH_AUTH_SOCK`** (approvals are off-by-default
 against your own agent unless you use `ssh-add -c`, a hardware key, or a
-container — see the signature-envelope spec §9).
+container — see the signature-envelope spec §9). The **unsigned degraded path**
+(no key available) is exactly as forgeable as the deleted `trust.yaml` — it is a
+labelled, confirmed opt-in for users who have no key, never the default, and
+never permitted in the committable project store.
 
 ## Known gaps and accepted risks
 
-1. **Content-form-specific denylist.** A rejection denylists the raw and
-   distilled hashes present at rejection. If a moved copy is later exposed in a
-   *different* form than was denylisted (and its ref differs, so the sticky block
-   does not apply), the copy can escape the content denylist in that form. The
-   ref-level rejection still catches the same ref.
+1. **Content-form-specific content-reject.** A rejection content-rejects the
+   raw and distilled forms present at rejection time. If a moved copy is later
+   exposed in a *different* form than was signed against (and its ref differs,
+   so the sticky ref block does not apply), the copy can escape the content
+   component in that form. The ref-level rejection still catches the same ref.
+   Unchanged by countersigning — inherited unmodified from the deleted hash
+   denylist (spec §5.3).
 2. **Positional hook identity.** `{event}/{index}` keying means inserting or
    reordering hooks shifts identities; a sticky ref block can land on a different
-   hook than the one rejected. The content denylist still catches identical
-   content. Content-derived hook IDs would be more robust.
+   hook than the one rejected. The content-reject countersignature still catches
+   identical content. Content-derived hook IDs would be more robust.
 3. **Inherited trust is broad.** Trusting a publisher key exposes everything that
    key ever signs — text *and* executables, all future updates — without per-item
    review. This is narrower than the deleted `trust_bundles` (an identity cannot
    be forked or typosquatted the way a URL could) but it is not *narrow*: a
    careless or compromised key auto-exposes into your agent. Mitigations: scope
    keys with `namespaces="…"`, keep reviewer keys hardware-backed, and remember
-   rejection is supreme (a developer can always reject unilaterally).
+   rejection is supreme (a developer can always reject unilaterally). The same
+   applies to an inherited approve key: trusting `lead@team.example` for approve
+   inherits every approval they ever countersign.
 4. **`$PAGER` during review** is user-controlled code execution at review time;
    acknowledged in code as an accepted, OS-conventional risk.
+5. **Countersignature posture warning is per-session, not persisted.** Spec
+   §9.1.2 describes a persisted `approvals.posture` acknowledgment so the
+   software-key warning fires once ever; the current implementation fires once
+   per `ctxloom review` invocation instead (never blocking). Tracked as deferred
+   work.
+6. **The zero-config signing-key discovery chain is minimal.** `ctxloom review`
+   resolves a key from `ssh-agent` only; the full chain the spec describes (git
+   `user.signingkey` → agent → `sign.key` config → `--key`) is owned by a
+   parallel slice and not yet unified in.

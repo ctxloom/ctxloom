@@ -2,11 +2,15 @@ package operations
 
 import (
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -15,17 +19,6 @@ const trustRepo = "https://github.com/acme/repo"
 // acmeBundle is the canonical bundle-ref prefix for the (remote) acme repo, so
 // seed keys parse back to RepoURL == trustRepo with bundle paths after it.
 const acmeBundle = "https://github.com/acme/repo@bundles/"
-
-// promptHash recomputes the effective-content hash for a no-distill prompt body
-// (preferDistilled true ⇒ raw bytes when there is no distilled form).
-func promptHash(body string) string {
-	p := bundles.BundleSkill{Content: body}
-	h, _ := p.EffectiveContentHash(true)
-	return h
-}
-
-// mcpHashOf is the executable-surface hash an MCP acceptance binds to.
-func mcpHashOf(m bundles.BundleMCP) string { return m.ComputeContentHash() }
 
 // mcpPayloadOf is the executable-surface PAYLOAD the decision function keys on
 // (the same bytes mcpHashOf hashes). Panics only on an unreachable encode error.
@@ -37,22 +30,42 @@ func mcpPayloadOf(m bundles.BundleMCP) []byte {
 	return p
 }
 
-// pbytes/phash are the paired test primitive: pbytes(tag) is a distinct payload,
-// phash(tag) is the hash the ledger records for it. Feeding pbytes(tag) to the
-// decision function and recording phash(tag) in the store is how a test says
-// "these exact bytes were reviewed" — the decision now keys on bytes, so a bare
-// hash literal can no longer stand in for content (that was the forgeable-file
-// shape this rework removes).
+// pbytes is a distinct test payload for a given tag — the decision function
+// keys on bytes, so a bare hash literal can no longer stand in for content
+// (that was the forgeable-file shape this rework removes).
 func pbytes(tag string) []byte { return []byte("payload:" + tag) }
-func phash(tag string) string  { return bundles.HashPayload(pbytes(tag)) }
 
-func newTrustStore(t *testing.T) *trust.Store {
-	t.Helper()
-	s, err := trust.New("", trust.WithFS(afero.NewMemMapFs()))
-	if err != nil {
-		t.Fatalf("trust.New: %v", err)
+// fakeRecords is a minimal, closure-driven ReviewRecords for testing the
+// DECISION FUNCTION itself (steps 1-6): it never touches a real
+// countersignature store, so TestEffectiveTrust_Cascade exercises exactly the
+// precedence/cascade logic and nothing about signature verification (which
+// has its own dedicated tests — see TestCountersignRecords_* and the
+// countersign/signing packages).
+type fakeRecords struct {
+	rejected func(trust.Ref, []byte) bool
+	approved func(trust.Ref, []byte, string) bool
+}
+
+func (f fakeRecords) Rejected(ref trust.Ref, payload []byte) bool {
+	return f.rejected != nil && f.rejected(ref, payload)
+}
+
+func (f fakeRecords) Approved(ref trust.Ref, payload []byte, form string) bool {
+	return f.approved != nil && f.approved(ref, payload, form)
+}
+
+// byBytes builds a fakeRecords whose Rejected/Approved match by exact byte
+// equality against the given "recorded" payload(s) — the decision function's
+// new shape (bytes, not hashes) made real.
+func rejectedByBytes(recorded ...[]byte) func(trust.Ref, []byte) bool {
+	return func(_ trust.Ref, payload []byte) bool {
+		for _, r := range recorded {
+			if len(payload) > 0 && string(payload) == string(r) {
+				return true
+			}
+		}
+		return false
 	}
-	return s
 }
 
 type remoteSpec struct {
@@ -87,14 +100,16 @@ var (
 )
 
 // TestEffectiveTrust_Cascade table-drives the decision function's full
-// precedence and every step: rejected (ref state + denylist, beating local and
-// trusted signer), local, builtin, trusted signer (step 4, replacing the
-// deleted trusted-source), approved (current-form binding, lazy single slots),
-// and the pending default.
+// precedence and every step: rejected (ref state + content match, beating
+// local and trusted signer), local, builtin, trusted signer (step 4,
+// replacing the deleted trusted-source), approved (current-form binding), and
+// the pending default. It drives EffectiveTrust directly over a fakeRecords
+// so it tests exactly the cascade — untouched by this slice — never signature
+// verification.
 func TestEffectiveTrust_Cascade(t *testing.T) {
 	tests := []struct {
 		name    string
-		setup   func(*trust.Store)
+		records fakeRecords
 		ref     trust.Ref
 		payload []byte
 		form    string
@@ -102,10 +117,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		want    trust.Decision
 		source  trust.Source
 	}{
-		// --- rejected: ref state and content denylist ---
+		// --- rejected: ref state and content match ---
 		{
 			name:    "rejected ref state denies",
-			setup:   func(s *trust.Store) { _ = s.SetRejected(trustRepo, "tooling#mcp/postgres", phash("H1")) },
+			records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.Bundle == "tooling" && r.Name == "postgres" }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
 			payload: pbytes("H1"),
 			form:    rawForm,
@@ -114,7 +129,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		},
 		{
 			name:    "rejection survives a content change (new bytes still denied)",
-			setup:   func(s *trust.Store) { _ = s.SetRejected(trustRepo, "tooling#mcp/postgres", phash("H1")) },
+			records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.Bundle == "tooling" && r.Name == "postgres" }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
 			payload: pbytes("H3-brand-new"), // never seen; the sticky ref rejection still wins
 			form:    rawForm,
@@ -122,8 +137,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceRejected,
 		},
 		{
-			name:  "renamed identical content stays rejected via denylist, even from a trusted publisher",
-			setup: func(s *trust.Store) { _ = s.SetRejected(trustRepo, "old#fragments/foo", phash("DEAD")) },
+			name:    "renamed identical content stays rejected via content match, even from a trusted publisher",
+			records: fakeRecords{rejected: rejectedByBytes(pbytes("DEAD"))},
 			// A different (renamed) ref with the SAME content, from a TRUSTED
 			// publisher: the content rejection still denies (rejection beats the
 			// signer exemption — it is step 1).
@@ -136,7 +151,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		},
 		{
 			name:    "rejection beats the local exemption",
-			setup:   func(s *trust.Store) { _ = s.SetRejected(remote.LocalSource, "dev#fragments/x", phash("X")) },
+			records: fakeRecords{rejected: rejectedByBytes(pbytes("X"))},
 			ref:     trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
 			payload: pbytes("X"),
 			form:    rawForm,
@@ -145,7 +160,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		},
 		{
 			name:    "rejection beats a trusted publisher (ref state)",
-			setup:   func(s *trust.Store) { _ = s.SetRejected(trustRepo, "tooling#fragments/bad") },
+			records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.Bundle == "tooling" && r.Name == "bad" }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "bad"},
 			payload: pbytes("whatever"),
 			form:    rawForm,
@@ -155,22 +170,11 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		},
 		{
 			name:    "rejection beats a builtin (a user can reject the ctxloom release key's content)",
-			setup:   func(s *trust.Store) { _ = s.SetRejected("builtin:ctxloom", "kit#fragments/x") },
+			records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.IsBuiltin && r.Bundle == "kit" && r.Name == "x" }},
 			ref:     trust.Ref{IsBuiltin: true, Bundle: "kit", Kind: trust.KindFragment, Name: "x"},
 			payload: pbytes("whatever"),
 			form:    rawForm,
 			signer:  trust.BuiltinSigner,
-			want:    trust.Deny,
-			source:  trust.SourceRejected,
-		},
-
-		// --- URL-variant rejection match ---
-		{
-			name:    "URL-variant rejection match (git@ vs https, case, .git)",
-			setup:   func(s *trust.Store) { _ = s.SetRejected("https://github.com/Acme/Repo.git", "tooling#fragments/x") },
-			ref:     trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "x"},
-			payload: pbytes("whatever"),
-			form:    rawForm,
 			want:    trust.Deny,
 			source:  trust.SourceRejected,
 		},
@@ -252,10 +256,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 
 		// --- approved: current-form binding ---
 		{
-			name: "approved allows the exact raw bytes",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", phash("R"), phash("D"))
-			},
+			name:    "approved allows the exact raw bytes",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"),
 			form:    rawForm,
@@ -263,10 +265,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceAccepted,
 		},
 		{
-			name: "approved allows the exact distilled bytes",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", phash("R"), phash("D"))
-			},
+			name:    "approved allows the exact distilled bytes",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("D")) && f == distilledForm }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("D"),
 			form:    distilledForm,
@@ -274,10 +274,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceAccepted,
 		},
 		{
-			name: "approval invalidated when content changes (back to pending)",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", phash("R"), phash("D"))
-			},
+			name:    "approval invalidated when content changes (back to pending)",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("CHANGED"),
 			form:    rawForm,
@@ -285,10 +283,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourcePending,
 		},
 		{
-			name: "form-flip closed: a raw approval cannot validate a distilled exposure",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", phash("R"), phash("D"))
-			},
+			name:    "form-flip closed: a raw approval cannot validate a distilled exposure",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"), // the RAW bytes presented as the distilled form
 			form:    distilledForm,
@@ -296,31 +292,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourcePending,
 		},
 		{
-			name: "lazy single-slot approval allows only its own form (raw slot)",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/lazy", phash("RAWONLY"), "")
-			},
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "lazy"},
-			payload: pbytes("RAWONLY"),
-			form:    rawForm,
-			want:    trust.Allow,
-			source:  trust.SourceAccepted,
-		},
-		{
-			name: "lazy empty slot for the current form is pending (fail closed)",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/lazy", phash("RAWONLY"), "")
-			},
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "lazy"},
-			payload: pbytes("DISTNOW"), // current exposure is the distilled form; its slot is empty
-			form:    distilledForm,
-			want:    trust.Deny, source: trust.SourcePending,
-		},
-		{
-			name: "unknown form matches no slot (fail closed)",
-			setup: func(s *trust.Store) {
-				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", phash("R"), "")
-			},
+			name:    "unknown form matches no slot (fail closed)",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"),
 			form:    "", // caller failed to say which form — never allow on a guess
@@ -349,16 +322,12 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := newTrustStore(t)
-			if tt.setup != nil {
-				tt.setup(store)
-			}
 			res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 				Ref:     tt.ref,
 				Payload: tt.payload,
 				Form:    tt.form,
 				Signer:  tt.signer,
-				Store:   store,
+				Records: tt.records,
 			})
 			if err != nil {
 				t.Fatalf("EffectiveTrust: %v", err)
@@ -370,77 +339,23 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 	}
 }
 
-// TestEffectiveTrust_CorruptStoreFailsClosed pins the security-critical rule:
-// a corrupt/unreadable trust.yaml must DENY everything (fail closed), never
-// degrade to allow-by-default like the registry does at startup.
-func TestEffectiveTrust_CorruptStoreFailsClosed(t *testing.T) {
+// TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected proves the S6
+// seam: when Records is nil, EffectiveTrust builds the default (the real
+// countersignature stores) rather than crashing or panicking, and — with no
+// stores populated (a fresh project, HOME pointed at an empty temp dir) —
+// everything remote resolves pending, exactly as an empty store always did.
+func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
-	if err := afero.WriteFile(fs, ".ctxloom/trust.yaml", []byte("not: : valid: ["), 0o644); err != nil {
-		t.Fatalf("seed corrupt trust.yaml: %v", err)
-	}
-	// No injected Store: getTrustStore loads from fs and must error.
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-		Ref:     trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"}, // would normally ALLOW
+		Ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 		Payload: pbytes("x"),
 		Form:    rawForm,
 		FS:      fs,
 	})
-	if err != nil {
-		t.Fatalf("EffectiveTrust should swallow the load error and deny, got err: %v", err)
-	}
-	if res.Decision != trust.Deny {
-		t.Errorf("corrupt store resolve = %s, want deny (fail closed)", res.Decision)
-	}
-}
-
-// TestEffectiveTrust_V1MigratedGrantResolves drives the v1→v2 migration through
-// the resolver end to end: a REAL v1 trust.yaml (grant + blacklist) is loaded
-// from disk and the migrated states decide exposure — the grant allows exactly
-// its recorded form-hash and gates a changed hash; the blacklist rejects.
-func TestEffectiveTrust_V1MigratedGrantResolves(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	v1 := `version: 1
-grants:
-  - repo_url: https://github.com/acme/repo
-    ref: tooling#fragments/solid
-    content_hash: ` + phash("V1") + `
-    form: raw
-blacklist:
-  - repo_url: https://github.com/acme/repo
-    ref: tooling#fragments/evil
-`
-	if err := afero.WriteFile(fs, ".ctxloom/trust.yaml", []byte(v1), 0o644); err != nil {
-		t.Fatalf("seed v1 trust.yaml: %v", err)
-	}
-
-	resolve := func(ref trust.Ref, payload []byte, form string) *EffectiveTrustResult {
-		t.Helper()
-		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-			Ref: ref, Payload: payload, Form: form, FS: fs,
-		})
-		if err != nil {
-			t.Fatalf("EffectiveTrust: %v", err)
-		}
-		return res
-	}
-
-	solid := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
-	if res := resolve(solid, pbytes("V1"), rawForm); res.Decision != trust.Allow || res.Source != trust.SourceAccepted {
-		t.Errorf("migrated grant at its bytes = {%s,%s}, want {allow, accepted}", res.Decision, res.Source)
-	}
-	if res := resolve(solid, pbytes("UPSTREAM-EDIT"), rawForm); res.Decision != trust.Deny || res.Source != trust.SourcePending {
-		t.Errorf("migrated grant at changed bytes = {%s,%s}, want {deny, pending}", res.Decision, res.Source)
-	}
-	// The lazily-migrated grant filled only the raw slot: a distilled exposure
-	// of this ref gates until re-accepted.
-	if res := resolve(solid, pbytes("SOMEDISTILL"), distilledForm); res.Decision != trust.Deny || res.Source != trust.SourcePending {
-		t.Errorf("migrated grant, other form = {%s,%s}, want {deny, pending}", res.Decision, res.Source)
-	}
-
-	evil := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "evil"}
-	if res := resolve(evil, pbytes("anything"), rawForm); res.Decision != trust.Deny || res.Source != trust.SourceRejected {
-		t.Errorf("migrated blacklist = {%s,%s}, want {deny, rejected}", res.Decision, res.Source)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, res.Decision)
+	assert.Equal(t, trust.SourcePending, res.Source)
 }
 
 // --- mutation ops, end-to-end through the resolver ---------------------------
@@ -464,73 +379,57 @@ func seededLoader() (*bundles.Loader, string) {
 }
 
 // mcpPayload is the postgres server's canonical preimage — the bytes the
-// decision function is fed for that item (its hash is seededLoader's return).
+// decision function is fed for that item.
 func seededMCPPayload() []byte {
 	return mcpPayloadOf(bundles.BundleMCP{Command: "pg-mcp", Args: []string{"--port", "5432"}})
 }
 
-func TestSetItemTrust_AcceptsCurrentVersion(t *testing.T) {
-	loader, mcpHash := seededLoader()
-	store := newTrustStore(t)
+func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
+	loader, _ := seededLoader()
+	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#mcp/postgres"
 
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Store: store, Loader: loader})
-	if err != nil {
-		t.Fatalf("SetItemTrust: %v", err)
-	}
-	if res.Status != "accepted" {
-		t.Errorf("status = %q, want accepted", res.Status)
-	}
-	if res.RawHash != mcpHash || res.DistilledHash != "" {
-		t.Errorf("accepted hashes = {raw:%q distilled:%q}, want {%q, empty}", res.RawHash, res.DistilledHash, mcpHash)
-	}
-	if res.Ref != "tooling#mcp/postgres" || res.RepoURL != trustRepo {
-		t.Errorf("accepted key = {%q,%q}, want {tooling#mcp/postgres, %q}", res.Ref, res.RepoURL, trustRepo)
-	}
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	require.NoError(t, err)
+	assert.Equal(t, "approved", res.Status)
+	assert.False(t, res.Unsigned)
+	assert.Equal(t, "user", res.Store)
+	assert.NotEmpty(t, res.KeyFingerprint)
+	assert.Equal(t, "tooling#mcp/postgres", res.Ref)
+	assert.Equal(t, trustRepo, res.RepoURL)
 
-	// The acceptance must make the unsigned remote executable resolve ALLOW for
-	// the exact accepted bytes, and only those bytes.
+	// The approval must make the unsigned remote executable resolve ALLOW for
+	// the exact approved bytes, and only those bytes.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
-	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: seededMCPPayload(), Form: rawForm, Store: store})
-	if err != nil {
-		t.Fatalf("EffectiveTrust(accepted): %v", err)
-	}
-	if got.Decision != trust.Allow || got.Source != trust.SourceAccepted {
-		t.Errorf("accepted resolve = {%s,%s}, want {allow, accepted}", got.Decision, got.Source)
-	}
-	_ = mcpHash
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("other"), Form: rawForm, Store: store})
-	if got.Decision != trust.Deny {
-		t.Errorf("non-accepted bytes resolve = %s, want deny", got.Decision)
-	}
+	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: seededMCPPayload(), Form: rawForm, Records: fx.records()})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Allow, got.Decision)
+	assert.Equal(t, trust.SourceAccepted, got.Source)
+
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("other"), Form: rawForm, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
 }
 
-// TestSetItemTrust_RecordsBothFormHashes pins the hash-pair contract: accepting
-// an item with a distilled form records BOTH hashes, so both materializations
-// are reviewed-once and a change to either re-gates.
-func TestSetItemTrust_RecordsBothFormHashes(t *testing.T) {
+// TestSetItemTrust_ApprovesBothForms pins the "approve of a dual-form item
+// covers BOTH forms" contract: approving records a countersignature over the
+// raw bytes AND the distilled bytes, so both materializations are
+// reviewed-once and a change to either re-gates.
+func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	loader, _ := seededLoader()
-	store := newTrustStore(t)
+	fx := newTrustFixture(t)
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Store: store, Loader: loader,
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, UserStore: fx.user, Loader: loader,
 	})
-	if err != nil {
-		t.Fatalf("SetItemTrust: %v", err)
-	}
-	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
-	wantRaw, _ := frag.EffectiveContentHash(false)
-	wantDistilled, _ := frag.EffectiveContentHash(true)
-	if res.RawHash != wantRaw || res.DistilledHash != wantDistilled {
-		t.Errorf("hash pair = {%q,%q}, want {%q,%q}", res.RawHash, res.DistilledHash, wantRaw, wantDistilled)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "approved", res.Status)
 
-	// Both forms resolve accepted at their own bytes.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}
+	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
 	rawPayload, _ := frag.ContentPayload(false)
 	distilledPayload, _ := frag.ContentPayload(true)
 	for form, payload := range map[string][]byte{rawForm: rawPayload, distilledForm: distilledPayload} {
-		got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: payload, Form: form, Store: store})
+		got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: payload, Form: form, Records: fx.records()})
 		if got.Decision != trust.Allow || got.Source != trust.SourceAccepted {
 			t.Errorf("form %s resolve = {%s,%s}, want {allow, accepted}", form, got.Decision, got.Source)
 		}
@@ -539,66 +438,54 @@ func TestSetItemTrust_RecordsBothFormHashes(t *testing.T) {
 
 func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	loader, _ := seededLoader()
-	store := newTrustStore(t)
+	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#fragments/solid"
 
-	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Store: store, Loader: loader})
-	if err != nil {
-		t.Fatalf("SetBlacklist: %v", err)
-	}
-	if res.Status != "rejected" {
-		t.Errorf("status = %q, want rejected", res.Status)
-	}
-	if len(res.ContentHashes) == 0 {
-		t.Fatal("rejection should have recorded the item's current content hash(es)")
-	}
+	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	require.NoError(t, err)
+	assert.Equal(t, "rejected", res.Status)
+	require.NotEmpty(t, res.ContentForms, "rejection should have recorded a content countersignature for the item's current form(s)")
 
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
 	// The exact rejected bytes (the "solid" fragment body from seededLoader).
 	rejectedPayload := []byte("always raw fragment body")
 
 	// Same bytes → denied via the rejected step, even from a TRUSTED publisher.
-	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Store: store})
-	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
-		t.Errorf("rejected-bytes resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
-	}
+	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
+	assert.Equal(t, trust.SourceRejected, got.Source)
+
 	// Changed bytes → still denied via the sticky ref-level rejection.
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("changed"), Form: rawForm, Signer: trustedPublisher, Store: store})
-	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
-		t.Errorf("changed-bytes resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
-	}
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("changed"), Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
+	assert.Equal(t, trust.SourceRejected, got.Source)
+
 	// A renamed identical copy (different ref, same content) stays rejected.
 	renamed := trust.Ref{RepoURL: trustRepo, Bundle: "other", Kind: trust.KindFragment, Name: "clone"}
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: renamed, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Store: store})
-	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
-		t.Errorf("renamed-copy resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
-	}
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: renamed, Payload: rejectedPayload, Form: rawForm, Signer: trustedPublisher, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
+	assert.Equal(t, trust.SourceRejected, got.Source)
 }
 
-// TestSetBlacklist_DenylistsBothForms proves rejecting a distillable item
-// denylists BOTH form hashes, so neither materialization can sneak back in
+// TestSetBlacklist_RejectsBothForms proves rejecting a distillable item
+// content-rejects BOTH forms, so neither materialization can sneak back in
 // under another ref.
-func TestSetBlacklist_DenylistsBothForms(t *testing.T) {
+func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 	loader, _ := seededLoader()
-	store := newTrustStore(t)
+	fx := newTrustFixture(t)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Store: store, Loader: loader,
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, UserStore: fx.user, Loader: loader,
 	})
-	if err != nil {
-		t.Fatalf("SetBlacklist: %v", err)
-	}
-	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
-	wantRaw, _ := frag.EffectiveContentHash(false)
-	wantDistilled, _ := frag.EffectiveContentHash(true)
-	if len(res.ContentHashes) != 2 {
-		t.Fatalf("ContentHashes = %v, want both form hashes", res.ContentHashes)
-	}
-	for _, h := range []string{wantRaw, wantDistilled} {
-		if !store.DeniedHash(h) {
-			t.Errorf("form hash %q missing from the denylist", h)
-		}
-	}
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{rawForm, distilledForm}, res.ContentForms)
+
+	// Both forms verify as content-rejected — content-reject is deliberately
+	// ref-omitted, so it is never queried under a ref at all.
+	_, ok := fx.user.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormRaw, []byte("raw body"), fx.root, time.Now())
+	assert.True(t, ok)
+	_, ok = fx.user.VerifiedContentReject(signingKindOf(trust.KindFragment), signing.FormDistilled, []byte("distilled body"), fx.root, time.Now())
+	assert.True(t, ok)
 }
 
 func TestParseTrustItemRef(t *testing.T) {

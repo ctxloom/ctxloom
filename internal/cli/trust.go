@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -60,11 +61,13 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Accepted %s\n", res.Ref)
-		fmt.Fprintf(out, "  repo:      %s\n", res.RepoURL)
-		fmt.Fprintf(out, "  raw:       %s\n", res.RawHash)
-		if res.DistilledHash != "" {
-			fmt.Fprintf(out, "  distilled: %s\n", res.DistilledHash)
+		fmt.Fprintf(out, "Approved %s\n", res.Ref)
+		fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+		fmt.Fprintf(out, "  store: %s\n", res.Store)
+		if res.Unsigned {
+			fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
+		} else {
+			fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
 		}
 		return nil
 	})
@@ -105,13 +108,13 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	if err != nil {
 		return err
 	}
-	// The content denylist component is best-effort: rejecting must succeed
+	// The content-reject component is best-effort: rejecting must succeed
 	// even when the item is gone, so surface when only the ref-level state was
 	// written (the durable guarantee), per the family warning convention.
-	if len(res.ContentHashes) == 0 {
+	if len(res.ContentForms) == 0 {
 		clidiag.Warn("ctxloom",
-			"could not resolve %q to hash its content; the ref-level rejection applies, "+
-				"but no content-denylist entry was recorded", ref)
+			"could not resolve %q to countersign its content; the ref-level rejection applies, "+
+				"but no content-reject countersignature was recorded", ref)
 	}
 	// Scrub the now-withheld item from the managed artifacts immediately so an
 	// already-written bundle MCP server / hook stops being exposed.
@@ -119,14 +122,18 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Rejected %s\n", res.Ref)
-		fmt.Fprintf(out, "  repo:      %s\n", res.RepoURL)
-		fmt.Fprintln(out, "  ref block: recorded (sticky — survives content changes)")
-		if len(res.ContentHashes) > 0 {
-			for _, h := range res.ContentHashes {
-				fmt.Fprintf(out, "  denylist:  %s (blocks this content even if renamed/moved)\n", h)
-			}
+		fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+		fmt.Fprintf(out, "  store: %s\n", res.Store)
+		if res.Unsigned {
+			fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
 		} else {
-			fmt.Fprintln(out, "  denylist:  not recorded (content could not be resolved)")
+			fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
+		}
+		fmt.Fprintln(out, "  ref block: recorded (sticky — survives content changes)")
+		if len(res.ContentForms) > 0 {
+			fmt.Fprintf(out, "  content:   rejected in form(s) %s (blocks this content even if renamed/moved)\n", strings.Join(res.ContentForms, ", "))
+		} else {
+			fmt.Fprintln(out, "  content:   not recorded (content could not be resolved)")
 		}
 		return nil
 	})

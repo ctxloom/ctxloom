@@ -19,11 +19,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -153,26 +150,14 @@ func addSourceAsRemote(w *World, name, profile string) error {
 }
 
 // buildJ1Config renders a hermetic config.yaml carrying one LLM entry labeled
-// label (type engineType, with optional env vars — e.g. the mock backend's
-// CTXLOOM_MOCK_RECORD_FILE), a "default" agent bound to it, and default_agent
+// label (type engineType), a "default" agent bound to it, and default_agent
 // set — the same shape `ctxloom init` would produce, minus the network-
 // touching ctxloom-default remote/parent-profile scaffolding (see file doc).
-func buildJ1Config(label, engineType string, env map[string]string) string {
+func buildJ1Config(label, engineType string) string {
 	var b strings.Builder
 	b.WriteString("version: 4\n")
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
-	if len(env) > 0 {
-		b.WriteString("      env:\n")
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			fmt.Fprintf(&b, "        %s: %q\n", k, env[k])
-		}
-	}
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)
 	fmt.Fprintf(&b, "agents:\n  default:\n    engine: %s\n    profiles:\n      - default\n", label)
 	b.WriteString("default_agent: default\n")
@@ -202,8 +187,8 @@ func scaffoldProjectWithConfig(w *World, configYAML string) error {
 
 // ensureProjectWithEngine is scaffoldProjectWithConfig for the common case: a
 // single declared engine, rendered via buildJ1Config.
-func ensureProjectWithEngine(w *World, label, engineType string, env map[string]string) error {
-	return scaffoldProjectWithConfig(w, buildJ1Config(label, engineType, env))
+func ensureProjectWithEngine(w *World, label, engineType string) error {
+	return scaffoldProjectWithConfig(w, buildJ1Config(label, engineType))
 }
 
 // materializeDefault materializes the "default" profile into target and
@@ -219,44 +204,32 @@ func materializeDefault(w *World, target string) (string, error) {
 	return body, nil
 }
 
-// addMockAlongside merges an additional "mock" LLM entry into the project's
-// EXISTING config.yaml (preserving every other top-level key — agents,
-// profiles, the real engine's own llm entry, etc.) and returns the file the
-// mock backend will record its received input to. Used by scenarios that need
-// to observe delivery via the mock while the rest of the project stays
-// configured for a real (declared) engine.
+// addMockAlongside appends an additional "mock" LLM entry to the project's
+// EXISTING config.yaml (preserving every other line — agents, profiles, the
+// real engine's own llm entry, etc.: a plain text append rather than a
+// parse/marshal round-trip, so nothing about the file the real engine's
+// config lives in is disturbed) and points CTXLOOM_MOCK_RECORD_FILE at a
+// fresh path via env (see TestEnvironment.SetEnv — every ctxloom subprocess
+// this environment spawns, and anything IT self-invokes with no explicit
+// spawn env, inherits it; the mock backend's Execute falls back to
+// os.Getenv for any CTXLOOM_MOCK_* key its config's own env map doesn't
+// carry, internal/lm/backends/mock.go's getEnvFromMap). Used by scenarios
+// that need to observe delivery via the mock while the rest of the project
+// stays configured for a real (declared) engine.
 func addMockAlongside(w *World) (recordFile string, err error) {
 	recordFile = filepath.Join(w.env.Root, "mock-record.txt")
 	body, err := w.env.ReadFile(".ctxloom/config.yaml")
 	if err != nil {
 		return "", fmt.Errorf("read config.yaml: %w", err)
 	}
-	var m map[string]any
-	if err := yaml.Unmarshal([]byte(body), &m); err != nil {
-		return "", fmt.Errorf("parse config.yaml: %w", err)
+	if !strings.Contains(body, "\nllm:\n") && !strings.HasPrefix(body, "llm:\n") {
+		return "", fmt.Errorf("config.yaml has no top-level llm: block to append alongside")
 	}
-	llm, _ := m["llm"].(map[string]any)
-	if llm == nil {
-		llm = map[string]any{}
-	}
-	configs, _ := llm["configs"].(map[string]any)
-	if configs == nil {
-		configs = map[string]any{}
-	}
-	configs["mock"] = map[string]any{
-		"type": "mock",
-		"env":  map[string]any{"CTXLOOM_MOCK_RECORD_FILE": recordFile},
-	}
-	llm["configs"] = configs
-	m["llm"] = llm
-
-	out, err := yaml.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("marshal config.yaml: %w", err)
-	}
-	if err := w.env.WriteFile(".ctxloom/config.yaml", string(out)); err != nil {
+	body = strings.Replace(body, "llm:\n  configs:\n", "llm:\n  configs:\n    mock:\n      type: mock\n", 1)
+	if err := w.env.WriteFile(".ctxloom/config.yaml", body); err != nil {
 		return "", fmt.Errorf("write config.yaml: %w", err)
 	}
+	w.env.SetEnv("CTXLOOM_MOCK_RECORD_FILE", recordFile)
 	return recordFile, nil
 }
 
@@ -275,7 +248,12 @@ func runFreshMockSession(w *World) (string, error) {
 	if err := runOK(w, "agent", "set", "default", "--engine", "mock", "--profiles", "default"); err != nil {
 		return "", err
 	}
-	_ = w.env.Run("run", "--print", "--profile", "default", "continue")
+	// --agent (not --profile) is required to actually resolve THIS binding's
+	// engine (mock, just repointed above): --profile bypasses agent
+	// resolution entirely and runs against the project's own default LLM
+	// (internal/cli/run.go marks --agent/--profile mutually exclusive
+	// precisely because they are two different resolution paths).
+	_ = w.env.Run("run", "--print", "--agent", "default", "continue")
 	data, err := os.ReadFile(recordFile)
 	if err != nil {
 		return "", fmt.Errorf("mock recorded no input (run output:\n%s): %w", w.env.LastOutput(), err)
@@ -289,22 +267,41 @@ func runFreshMockSession(w *World) (string, error) {
 // ptyRunTimeout — can take over a second under CI load.
 const ptyWaitTimeout = 20 * time.Second
 
+// reviewPromptProbe is how long driveDiscoverySessionViaMock waits to see
+// whether offerInitReview's "Review now?" prompt appears at all. A companion
+// or bundle loadout that is NOT signed-and-trusted lands pending review, and
+// init.go's offerInitReview asks about it BEFORE offerSessionRelaunch's own
+// prompt — a scenario whose sources are all trusted never sees this prompt,
+// so the wait must be short (not the full ptyWaitTimeout) to avoid taxing
+// every OTHER scenario's run with a needless timeout-length pause.
+const reviewPromptProbe = 2 * time.Second
+
 // driveDiscoverySessionViaMock drives a REAL `ctxloom init` (on an
 // ALREADY-initialized .ctxloom dir, so init.go's alreadyExists branch runs —
 // no network clone) over a real pty: the project's LLM default must already
 // be the mock backend (see addMockAlongside / buildJ1Config) with
-// CTXLOOM_MOCK_RECORD_FILE set, so init.go's launchDiscovery actually spawns
-// the mock and hands it discoverySessionPrompt(cfg) — the composed built-in +
-// every installed agent-setup skill (repo bundle or companion loadout) this
-// harness is proving delivery of. Declines the post-discovery relaunch offer
-// (this call proves the INTERVIEW prompt, not the restart — see
-// runFreshMockSession for that). Returns the mock's full recorded-input file.
+// CTXLOOM_MOCK_RECORD_FILE set (via TestEnvironment.SetEnv), so init.go's
+// launchDiscovery actually spawns the mock and hands it
+// discoverySessionPrompt(cfg) — the composed built-in + every installed
+// agent-setup skill (repo bundle or companion loadout) this harness is
+// proving delivery of. Declines both the (possible) inline review offer and
+// the post-discovery relaunch offer (this call proves the INTERVIEW prompt,
+// not the restart — see runFreshMockSession for that). Returns the mock's
+// full recorded-input file.
 func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
 	sess, err := w.env.RunPTY(100, 30, "init")
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}
 	defer sess.Close()
+
+	if sess.WaitForOutput(reviewPromptProbe, func(out string) bool {
+		return strings.Contains(out, "Review now?")
+	}) {
+		if _, err := sess.Write([]byte("n\n")); err != nil {
+			return "", fmt.Errorf("decline inline review: %w", err)
+		}
+	}
 
 	reachedRelaunchPrompt := sess.WaitForOutput(ptyWaitTimeout, func(out string) bool {
 		return strings.Contains(out, "Start your session now")

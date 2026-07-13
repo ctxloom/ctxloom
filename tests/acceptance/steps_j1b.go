@@ -43,10 +43,11 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^both repositories are trusted, each signed with its owner's key$`, func(c context.Context) error {
 		w := worldFrom(c)
-		recordFile := filepath.Join(w.env.Root, "mock-record.txt")
-		if err := ensureProjectWithEngine(w, "mock", "mock", map[string]string{"CTXLOOM_MOCK_RECORD_FILE": recordFile}); err != nil {
+		if err := ensureProjectWithEngine(w, "mock", "mock"); err != nil {
 			return err
 		}
+		recordFile := filepath.Join(w.env.Root, "mock-record.txt")
+		w.env.SetEnv("CTXLOOM_MOCK_RECORD_FILE", recordFile)
 		w.j1bRecordFile = recordFile
 		for _, name := range []string{"company", "personal"} {
 			src := w.j1Sources[name]
@@ -114,10 +115,11 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the "reprise" companion is installed$`, func(c context.Context) error {
 		w := worldFrom(c)
-		recordFile := filepath.Join(w.env.Root, "mock-record.txt")
-		if err := ensureProjectWithEngine(w, "mock", "mock", map[string]string{"CTXLOOM_MOCK_RECORD_FILE": recordFile}); err != nil {
+		if err := ensureProjectWithEngine(w, "mock", "mock"); err != nil {
 			return err
 		}
+		recordFile := filepath.Join(w.env.Root, "mock-record.txt")
+		w.env.SetEnv("CTXLOOM_MOCK_RECORD_FILE", recordFile)
 		w.j1bRecordFile = recordFile
 		return nil
 	})

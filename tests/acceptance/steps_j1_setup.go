@@ -32,11 +32,12 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^her personal ctxloom repository is signed with her own key$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// "Signed with her OWN key" carries the same self-evident trust a real
-		// `ctxloom sign` + `ctxloom signer add` pair would establish for content
-		// you publish yourself (docs/trust-model.md: "sign your bundles and
-		// trust your own signing key") — this fixture step performs both halves,
-		// exactly as the Then step's "because it is signed with her own key"
-		// requires for the content to actually reach the assembled context.
+		// publish-then-trust-your-own-key pair of commands would establish for
+		// content you author yourself (docs/trust-model.md: "sign your bundles
+		// and trust your own signing key") — this fixture step performs both
+		// halves (seedSource signs; TrustSigner trusts), exactly as the Then
+		// step's "because it is signed with her own key" requires for the
+		// content to actually reach the assembled context.
 		_, err := seedSource(w, "personal", "fragments", "marker", j1PersonalMarker, fragmentSourceYAML(j1PersonalMarker), true, true)
 		return err
 	})
@@ -48,7 +49,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^Alice runs the ctxloom setup for (\S+)$`, func(c context.Context, engine string) error {
-		return ensureProjectWithEngine(worldFrom(c), engine, engine, nil)
+		return ensureProjectWithEngine(worldFrom(c), engine, engine)
 	})
 
 	ctx.Step(`^she adds her personal repository as a source$`, func(c context.Context) error {
@@ -104,7 +105,12 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		out := w.env.LastOutput()
-		for _, ref := range []string{"personal/src", "company/src"} {
+		// A pulled remote bundle canonicalizes to its full seeded URL
+		// (file:///.../remote.git@bundles/src), not the short "<remote>/<bundle>"
+		// form used to ADD it — check for each source's canonical ref rather
+		// than the short form.
+		for _, name := range []string{"personal", "company"} {
+			ref := w.remoteBare[name] + "@bundles/src"
 			if !strings.Contains(out, ref) {
 				return fmt.Errorf("profile default does not yet compose %q; profile show output:\n%s", ref, out)
 			}
@@ -228,7 +234,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^a third-party ctxloom repository whose content is (.+)$`, func(c context.Context, trustState string) error {
 		w := worldFrom(c)
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code", nil); err != nil {
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
 		}
 		switch trustState {
@@ -277,7 +283,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^two sources are held for Alice's review$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code", nil); err != nil {
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
 		}
 		if _, err := seedSource(w, "first", "fragments", "marker", j1HeldFirstMarker, fragmentSourceYAML(j1HeldFirstMarker), false, false); err != nil {

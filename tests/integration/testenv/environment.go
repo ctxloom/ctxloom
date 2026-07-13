@@ -191,6 +191,18 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 	_ = os.Setenv(key, value)
 }
 
+// SetEnv sets an environment variable on THIS PROCESS (restored by Cleanup,
+// same bookkeeping Setup uses for HOME/XDG). Every subprocess this
+// environment spawns (Run/RunWithStdin/RunPTY/Command) builds its env from
+// os.Environ() at call time, so this is the general seam for handing a
+// spawned `ctxloom` process — and anything IT in turn spawns with a nil/empty
+// explicit env (e.g. the self-invoked `ctxloom llm serve <backend>` plugin
+// subprocess, which inherits its parent's environment when dialLLMConnection
+// is given no per-spawn env) — a variable it will see.
+func (e *TestEnvironment) SetEnv(key, value string) {
+	e.storeAndSetEnv(key, value)
+}
+
 // Cleanup removes the test environment and restores original env vars.
 func (e *TestEnvironment) Cleanup() error {
 	// Restore original environment

@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -37,12 +38,19 @@ func TestAcceptance(t *testing.T) {
 		// out (real init clones the default remote). Both are opt-in.
 		tags = "~@live && ~@network"
 	}
+	paths := []string{"features"}
+	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local
+	// iteration (comma-separated, e.g. "features/j1_setup.feature"); unset runs
+	// the whole suite, exactly as before this existed.
+	if p := os.Getenv("ACCEPTANCE_PATHS"); p != "" {
+		paths = strings.Split(p, ",")
+	}
 	suite := godog.TestSuite{
 		Name:                "ctxloom-acceptance",
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features"},
+			Paths:    paths,
 			Tags:     tags,
 			Strict:   true,
 			Output:   colors.Colored(os.Stdout),

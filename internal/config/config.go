@@ -104,17 +104,21 @@ type Config struct {
 	// entirely regardless of this section.
 	UI UIConfig `mapstructure:"ui" yaml:"ui,omitempty"`
 
-	AppPaths []string     // Resolved .ctxloom directory (at most one)
-	AppRoot  string       // Project root (parent of .ctxloom directory)
-	AppDir   string       // Full path to the .ctxloom directory
-	Source   ConfigSource // Where the configuration was loaded from
-	Warnings []Warning    // Kind-tagged warnings collected during load
+	// Runtime-only fields: populated during Load, never part of the persisted
+	// config. yaml:"-" keeps them out of every marshal — notably `config show`,
+	// which would otherwise dump resolved paths, load warnings, and (worst) the
+	// PendingUpgrade's raw []byte config as an integer array.
+	AppPaths []string     `yaml:"-"` // Resolved .ctxloom directory (at most one)
+	AppRoot  string       `yaml:"-"` // Project root (parent of .ctxloom directory)
+	AppDir   string       `yaml:"-"` // Full path to the .ctxloom directory
+	Source   ConfigSource `yaml:"-"` // Where the configuration was loaded from
+	Warnings []Warning    `yaml:"-"` // Kind-tagged warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
 	// an interactive caller may prompt the user and call CommitUpgrade. Nil when
 	// the file was already current.
-	PendingUpgrade *upgrade.Pending
+	PendingUpgrade *upgrade.Pending `yaml:"-"`
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 

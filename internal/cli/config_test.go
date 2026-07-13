@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -100,5 +101,26 @@ func TestRenderConfigYAML_RoundTripsTopLevelKeys(t *testing.T) {
 	for _, key := range []string{"llm:", "config:", "mcp:", "profiles:"} {
 		assert.True(t, strings.Contains(out, key),
 			"full-config YAML should contain top-level %q (got: %q)", key, out)
+	}
+}
+
+func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
+	// Runtime-only Config fields (resolved paths, load warnings, and the
+	// in-memory PendingUpgrade) must never appear in `config show`. Before the
+	// yaml:"-" tags, a config that upgraded on load dumped PendingUpgrade,
+	// whose []byte payload rendered as a raw integer array. Set the pending
+	// upgrade explicitly and assert none of the runtime keys leak.
+	cfg := fixtureConfig()
+	cfg.AppRoot = "/tmp/should-not-appear"
+	cfg.Warnings = []config.Warning{{Kind: config.WarnKindValidate, Text: "leaky"}}
+	cfg.PendingUpgrade = &upgrade.Pending{Path: "/x", Data: []byte("version: 6\n")}
+
+	var buf bytes.Buffer
+	require.NoError(t, renderConfigYAML(cfg, &buf))
+
+	out := buf.String()
+	for _, leak := range []string{"pendingupgrade", "warnings", "approot", "apppaths", "appdir", "source", "should-not-appear"} {
+		assert.NotContains(t, out, leak,
+			"config show leaked runtime-only field %q:\n%s", leak, out)
 	}
 }

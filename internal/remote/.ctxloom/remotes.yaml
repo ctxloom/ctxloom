@@ -1,5 +1,0 @@
-remotes:
-    alice:
-        name: ""
-        url: https://github.com/alice/ctxloom
-        version: v1

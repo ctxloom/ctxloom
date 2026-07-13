@@ -183,8 +183,23 @@ test:
     #!/usr/bin/env bash
     set -e
     go test -race -coverprofile=coverage.raw.out ./...
+    just -f justfile.container _check-no-ctxloom-leak
     just -f justfile.container _filter_coverage coverage.raw.out coverage.out
     rm -f coverage.raw.out
+
+# Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
+# source tree instead of isolating through t.TempDir() — see the host
+# justfile's _check-no-ctxloom-leak for the full explanation.
+_check-no-ctxloom-leak:
+    #!/usr/bin/env bash
+    set -e
+    leaked="$(find internal -mindepth 2 -type d -name .ctxloom 2>/dev/null)"
+    if [ -n "$leaked" ]; then
+        echo "$leaked" | xargs -I{} rm -rf {}
+        echo "TEST ISOLATION FAILURE: a test wrote a nested .ctxloom into the source tree (should use t.TempDir()):" >&2
+        echo "$leaked" >&2
+        exit 1
+    fi
 
 # Filter coverage output using patterns from .coverignore (mirrors the host
 # justfile so local and CI coverage are computed identically).

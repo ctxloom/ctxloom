@@ -68,6 +68,19 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 			return w.env.WriteFile(rel, body)
 		})
 
+	// A fragment with exact, caller-chosen content — the payload-delivery
+	// counterpart to the fixed-topic fragment above. Used to prove a specific
+	// string ctxloom injects into the assembled context is the SAME string a
+	// real agent reports back, end to end.
+	ctx.Step(`^a bundle "([^"]*)" with a fragment "([^"]*)" containing "([^"]*)"$`,
+		func(c context.Context, bundle, fragment, content string) error {
+			w := worldFrom(c)
+			body := fmt.Sprintf("version: 1.0.0\ndescription: live payload fixture\nfragments:\n  %s:\n    tags: [live]\n    content: |\n      %s\n",
+				fragment, content)
+			rel := filepath.Join(".ctxloom", "cache", "bundles", bundle+".yaml")
+			return w.env.WriteFile(rel, body)
+		})
+
 	ctx.Step(`^the distilled fragment "([^"]*)" in bundle "([^"]*)" is a real compression$`,
 		func(c context.Context, fragment, bundle string) error {
 			content, distilled, err := readBundleFragment(worldFrom(c), bundle, fragment)

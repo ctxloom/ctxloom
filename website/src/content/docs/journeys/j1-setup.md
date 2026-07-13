@@ -43,17 +43,8 @@ before anything crosses that line.
 
 ## After setup, trusted sources are part of the configuration
 
-This scenario is deliberately narrow: it proves the **posture**, not
-**delivery**. After Alice runs setup and adds both repositories as sources,
-`ctxloom manage config show` and a materialized profile already reflect that
-her personal repository is signed with her own key and her company's is
-signed with a key she trusts. That is enough for both to be exposed — the
-[three-state gate](/security/trust-states/) allows content the moment a
-trusted signature covers its exact bytes, with no separate "turn it on" step.
-
-What this scenario does *not* claim is that a live, running assistant has
-already seen this content — a session's context is fixed at the moment it
-launches. That is the next scenario's job.
+<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
 
 ```gherkin
   Scenario Outline: After setup, trusted sources are part of the configuration
@@ -72,7 +63,10 @@ launches. That is the next scenario's job.
       | claude-code |
 ```
 
-**Captured run** — every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
+</div>
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
+
+Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ Alice has a fresh project directory
 - ✓ her personal ctxloom repository is signed with her own key
@@ -85,12 +79,14 @@ launches. That is the next scenario's job.
 - ✓ her company repository's context is part of her configuration, because she trusts the company key
 
 CLI output — `Alice runs the ctxloom setup for claude-code`:
+
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-583908308/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-1147116789/project/.ctxloom/profiles/default.yaml
 ```
 
 CLI output — `she adds her personal repository as a source`:
+
 ```text
 Pulling dependencies...
 
@@ -99,6 +95,7 @@ Pulled 1 items:
 ```
 
 CLI output — `she adds her company's repository as a source`:
+
 ```text
 Pulling dependencies...
 
@@ -108,6 +105,7 @@ Pulled 2 items:
 ```
 
 CLI output — `her project is configured for claude-code`:
+
 ```text
 version: 6
 llm:
@@ -123,244 +121,10 @@ agents:
         profiles:
             - default
 default_agent: default
-apppaths:
-    - /tmp/ctxloom-integration-583908308/project/.ctxloom
-approot: /tmp/ctxloom-integration-583908308/project
-appdir: /tmp/ctxloom-integration-583908308/project/.ctxloom
-source: 0
-warnings: []
-pendingupgrade:
-    path: /tmp/ctxloom-integration-583908308/project/.ctxloom/config.yaml
-    data:
-        - 118
-        - 101
-        - 114
-        - 115
-        - 105
-        - 111
-        - 110
-        - 58
-        - 32
-        - 54
-        - 10
-        - 108
-        - 108
-        - 109
-        - 58
-        - 10
-        - 32
-        - 32
-        - 99
-        - 111
-        - 110
-        - 102
-        - 105
-        - 103
-        - 115
-        - 58
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 99
-        - 108
-        - 97
-        - 117
-        - 100
-        - 101
-        - 45
-        - 99
-        - 111
-        - 100
-        - 101
-        - 58
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 32
-        - 32
-        - 116
-        - 121
-        - 112
-        - 101
-        - 58
-        - 32
-        - 99
-        - 108
-        - 97
-        - 117
-        - 100
-        - 101
-        - 45
-        - 99
-        - 111
-        - 100
-        - 101
-        - 10
-        - 32
-        - 32
-        - 100
-        - 101
-        - 102
-        - 97
-        - 117
-        - 108
-        - 116
-        - 115
-        - 58
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 112
-        - 114
-        - 105
-        - 109
-        - 97
-        - 114
-        - 121
-        - 58
-        - 32
-        - 99
-        - 108
-        - 97
-        - 117
-        - 100
-        - 101
-        - 45
-        - 99
-        - 111
-        - 100
-        - 101
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 102
-        - 97
-        - 115
-        - 116
-        - 58
-        - 32
-        - 99
-        - 108
-        - 97
-        - 117
-        - 100
-        - 101
-        - 45
-        - 99
-        - 111
-        - 100
-        - 101
-        - 10
-        - 97
-        - 103
-        - 101
-        - 110
-        - 116
-        - 115
-        - 58
-        - 10
-        - 32
-        - 32
-        - 100
-        - 101
-        - 102
-        - 97
-        - 117
-        - 108
-        - 116
-        - 58
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 101
-        - 110
-        - 103
-        - 105
-        - 110
-        - 101
-        - 58
-        - 32
-        - 99
-        - 108
-        - 97
-        - 117
-        - 100
-        - 101
-        - 45
-        - 99
-        - 111
-        - 100
-        - 101
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 112
-        - 114
-        - 111
-        - 102
-        - 105
-        - 108
-        - 101
-        - 115
-        - 58
-        - 10
-        - 32
-        - 32
-        - 32
-        - 32
-        - 32
-        - 32
-        - 45
-        - 32
-        - 100
-        - 101
-        - 102
-        - 97
-        - 117
-        - 108
-        - 116
-        - 10
-        - 100
-        - 101
-        - 102
-        - 97
-        - 117
-        - 108
-        - 116
-        - 95
-        - 97
-        - 103
-        - 101
-        - 110
-        - 116
-        - 58
-        - 32
-        - 100
-        - 101
-        - 102
-        - 97
-        - 117
-        - 108
-        - 116
-        - 10
-    applied:
-        - rename profile prompt selectors to skills (v4→v5)
-        - profiles.defaults → default agent (v5→v6)
 ```
 
 CLI output — `her personal repository's context is part of her configuration, because it is signed with her own key`:
+
 ```text
 Materialized default → out (claude-code)
   wrote context
@@ -369,24 +133,25 @@ Materialized default → out (claude-code)
   wrote skills
 ```
 
+</div>
+</div>
+
+This scenario is deliberately narrow: it proves the **posture**, not
+**delivery**. After Alice runs setup and adds both repositories as sources,
+`ctxloom manage config show` and a materialized profile already reflect that
+her personal repository is signed with her own key and her company's is
+signed with a key she trusts. That is enough for both to be exposed — the
+[three-state gate](/security/trust-states/) allows content the moment a
+trusted signature covers its exact bytes, with no separate "turn it on" step.
+
+What this scenario does *not* claim is that a live, running assistant has
+already seen this content — a session's context is fixed at the moment it
+launches. That is the next scenario's job.
 
 ## Setup configures the agents, then a restart delivers their context
 
-The discovery session that walks Alice through setup is, itself, a running
-assistant — and it cannot see what it is in the middle of installing. It
-composes her agents' profiles from both sources' fragments as configuration
-*to be written*, but a session's assembled context is fixed at launch; you
-cannot hand a running assistant a fragment file it will only start
-respecting after this conversation ends. So setup's last act (`ctxloom
-init`'s `offerSessionRelaunch`) is to offer a **restart**: exit this session,
-launch a fresh one against the configuration that was just written.
-
-That two-phase shape — *configure, then restart to deliver* — is the whole
-point of this scenario. The captured evidence below is the mock engine's own
-record of what it received on that fresh launch: both the personal and
-company markers, present because the restarted process resolved the same
-composed profile from scratch, not because anything was injected after the
-fact.
+<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
 
 ```gherkin
   Scenario Outline: Setup configures the agents, then a restart delivers their context
@@ -405,7 +170,10 @@ fact.
       | claude-code |
 ```
 
-**Captured run** — every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
+</div>
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
+
+Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ her personal ctxloom repository is signed with her own key
 - ✓ her company's ctxloom repository is signed with the company key, which Alice trusts
@@ -418,12 +186,14 @@ fact.
 - ✓ the restarted mock engine receives her company repository's fragments
 
 CLI output — `Alice runs the ctxloom setup for claude-code`:
+
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-1942883979/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-329197080/project/.ctxloom/profiles/default.yaml
 ```
 
 CLI output — `she adds her personal and company repositories as sources`:
+
 ```text
 Pulling dependencies...
 
@@ -433,18 +203,20 @@ Pulled 2 items:
 ```
 
 CLI output — `the setup interview composes her agents' profiles from the sources' fragments`:
+
 ```text
 Profile: default
-Path: /tmp/ctxloom-integration-1942883979/project/.ctxloom/profiles/default.yaml
+Path: /tmp/ctxloom-integration-329197080/project/.ctxloom/profiles/default.yaml
 Default: yes
 Description: J1 default profile
 Bundles:
   - seed
-  - file:///tmp/ctxloom-integration-1942883979/remote-3904271118/remote.git@bundles/src
-  - file:///tmp/ctxloom-integration-1942883979/remote-3983576692/remote.git@bundles/src
+  - file:///tmp/ctxloom-integration-329197080/remote-266736921/remote.git@bundles/src
+  - file:///tmp/ctxloom-integration-329197080/remote-1688341036/remote.git@bundles/src
 ```
 
 CLI output — `Alice accepts the restart`:
+
 ```text
 [mock] mode=1
 [mock] fragments=1
@@ -453,15 +225,16 @@ CLI output — `Alice accepts the restart`:
 ctxloom: companion ltk v0.7.0-7676b91-20260713T155949-dirty
 ctxloom: warning: companion reprise (/home/babbitt/.cargo/bin/reprise): run version --format json: exit status 2
 ctxloom: companion taskloom v0.7.0-7676b91-20260713T155952-dirty
-ctxloom: starting session sweet-huge-ramp
+ctxloom: starting session regal-local-scale
 ```
 
 What the mock engine received — `Alice accepts the restart`:
+
 ```text
 === Arguments ===
 mode=1
 fragments=1
-cwd=/tmp/ctxloom-integration-1942883979/project
+cwd=/tmp/ctxloom-integration-329197080/project
 === Env ===
 === Context ===
 # Example Fragment
@@ -545,10 +318,31 @@ sessions cross-reference without a separate database.
 continue
 ```
 
+</div>
+</div>
+
+The discovery session that walks Alice through setup is, itself, a running
+assistant — and it cannot see what it is in the middle of installing. It
+composes her agents' profiles from both sources' fragments as configuration
+*to be written*, but a session's assembled context is fixed at launch; you
+cannot hand a running assistant a fragment file it will only start
+respecting after this conversation ends. So setup's last act (`ctxloom
+init`'s `offerSessionRelaunch`) is to offer a **restart**: exit this session,
+launch a fresh one against the configuration that was just written.
+
+That two-phase shape — *configure, then restart to deliver* — is the whole
+point of this scenario. The captured evidence below is the mock engine's own
+record of what it received on that fresh launch: both the personal and
+company markers, present because the restarted process resolved the same
+composed profile from scratch, not because anything was injected after the
+fact.
 
 ## The restarted assistant can see every source
 
 *Tags: @live*
+
+<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
 
 ```gherkin
   Scenario: The restarted assistant can see every source
@@ -560,22 +354,18 @@ continue
     And its reply contains her company repository's marker
 ```
 
-:::note[Not captured in this build]
-This scenario was not exercised in the run that generated this page (for example, a `@live` scenario without credentials in this environment). The Gherkin above is still the live spec — just without a proof-of-passing run attached yet.
-:::
+</div>
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
+
+> **Not captured in this build.** This scenario was not exercised in the run that generated this page (for example, a `@live` scenario without credentials in this environment). The Gherkin at left is still the live spec — just without a proof-of-passing run attached yet.
+
+</div>
+</div>
 
 ## Content ctxloom cannot verify is held, not delivered
 
-Unsigned content and content signed by a key Alice hasn't chosen to trust are
-not two different problems — to the gate, they are the identical case. Both
-resolve to an empty verified signer, and an empty verified signer is
-withheld. There is no fourth, in-between state for "signed, but by someone I
-don't yet trust": either a trusted key's signature verifies over these exact
-bytes, or the content is pending, full stop.
-
-Nothing about this fails loudly. Alice's assistant simply never receives the
-held marker; the only signal is one aggregate, content-free line telling her
-something is waiting on her review.
+<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
 
 ```gherkin
   Scenario Outline: Content ctxloom cannot verify is held, not delivered
@@ -591,9 +381,12 @@ something is waiting on her review.
       | signed with a key Alice does not trust |
 ```
 
-### Captured run 1
+</div>
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
 
-**Captured run** — every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
+**Captured run 1**
+
+Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ a third-party ctxloom repository whose content is unsigned
 - ✓ Alice adds it as a source
@@ -602,12 +395,14 @@ something is waiting on her review.
 - ✓ Alice is told the content is held for her review
 
 CLI output — `a third-party ctxloom repository whose content is unsigned`:
+
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-3020743686/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-3448338260/project/.ctxloom/profiles/default.yaml
 ```
 
 CLI output — `Alice adds it as a source`:
+
 ```text
 Pulling dependencies...
 
@@ -618,6 +413,7 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
 CLI output — `Alice starts a session`:
+
 ```text
 Materialized default → out (claude-code)
   wrote context
@@ -627,10 +423,9 @@ Materialized default → out (claude-code)
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
+**Captured run 2**
 
-### Captured run 2
-
-**Captured run** — every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
+Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ a third-party ctxloom repository whose content is signed with a key Alice does not trust
 - ✓ Alice adds it as a source
@@ -639,12 +434,14 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 - ✓ Alice is told the content is held for her review
 
 CLI output — `a third-party ctxloom repository whose content is signed with a key Alice does not trust`:
+
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-2324997199/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-238127705/project/.ctxloom/profiles/default.yaml
 ```
 
 CLI output — `Alice adds it as a source`:
+
 ```text
 Pulling dependencies...
 
@@ -655,6 +452,7 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
 CLI output — `Alice starts a session`:
+
 ```text
 Materialized default → out (claude-code)
   wrote context
@@ -664,8 +462,102 @@ Materialized default → out (claude-code)
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
+</div>
+</div>
+
+Unsigned content and content signed by a key Alice hasn't chosen to trust are
+not two different problems — to the gate, they are the identical case. Both
+resolve to an empty verified signer, and an empty verified signer is
+withheld. There is no fourth, in-between state for "signed, but by someone I
+don't yet trust": either a trusted key's signature verifies over these exact
+bytes, or the content is pending, full stop.
+
+Nothing about this fails loudly. Alice's assistant simply never receives the
+held marker; the only signal is one aggregate, content-free line telling her
+something is waiting on her review.
 
 ## Alice reviews held content and decides item by item
+
+<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
+
+```gherkin
+  Scenario: Alice reviews held content and decides item by item
+    Given two sources are held for Alice's review
+    When Alice reviews the held content
+    Then she is shown each held item and where it came from
+    When she approves the first and rejects the second
+    And Alice starts a new session
+    Then her assistant receives the item she approved
+    And her assistant never receives the item she rejected
+```
+
+</div>
+<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
+
+Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
+
+- ✓ two sources are held for Alice's review
+- ✓ Alice reviews the held content
+- ✓ she is shown each held item and where it came from
+- ✓ she approves the first and rejects the second
+- ✓ Alice starts a new session
+- ✓ her assistant receives the item she approved
+- ✓ her assistant never receives the item she rejected
+
+CLI output — `two sources are held for Alice's review`:
+
+```text
+Pulling dependencies...
+
+Pulled 2 items:
+  Installed: 1
+  Skipped (already installed): 1
+ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
+```
+
+CLI output — `Alice reviews the held content`:
+
+```text
+2 item(s) pending review (0 update(s)):
+
+file:///tmp/ctxloom-integration-1414300136/remote-1844452430/remote.git@bundles/src (remote: first)
+  new      fragments/marker
+
+file:///tmp/ctxloom-integration-1414300136/remote-3996048272/remote.git@bundles/src (remote: second)
+  new      fragments/marker
+
+Run 'ctxloom review' in a terminal to review interactively, or use the
+plumbing per item: ctxloom trust <bundle-ref>#<kind>/<name> / ctxloom blacklist <ref>.
+```
+
+CLI output — `she approves the first and rejects the second`:
+
+```text
+Rejected src#fragments/marker
+  repo:  file:///tmp/ctxloom-integration-1414300136/remote-3996048272/remote.git
+  store: user
+  UNSIGNED — recorded locally, not shareable (no signing key was available)
+  ref block: recorded (sticky — survives content changes)
+  content:   rejected in form(s) raw (blocks this content even if renamed/moved)
+ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+```
+
+CLI output — `Alice starts a new session`:
+
+```text
+Materialized default → out2 (claude-code)
+  wrote context
+  wrote mcp
+  wrote settings
+  wrote skills
+ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+```
+
+</div>
+</div>
 
 Held is not stuck — it is a queue with a name and a command. `ctxloom review
 --list` shows Alice exactly what is pending and which remote each item came
@@ -682,75 +574,6 @@ item falls back to pending. A rejection is stickier by design: it is recorded
 against the ref (so it survives the content changing under it) *and* against
 the content with the ref stripped out (so the same bytes stay rejected even
 if they resurface renamed, or from a different remote entirely).
-
-```gherkin
-  Scenario: Alice reviews held content and decides item by item
-    Given two sources are held for Alice's review
-    When Alice reviews the held content
-    Then she is shown each held item and where it came from
-    When she approves the first and rejects the second
-    And Alice starts a new session
-    Then her assistant receives the item she approved
-    And her assistant never receives the item she rejected
-```
-
-**Captured run** — every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
-
-- ✓ two sources are held for Alice's review
-- ✓ Alice reviews the held content
-- ✓ she is shown each held item and where it came from
-- ✓ she approves the first and rejects the second
-- ✓ Alice starts a new session
-- ✓ her assistant receives the item she approved
-- ✓ her assistant never receives the item she rejected
-
-CLI output — `two sources are held for Alice's review`:
-```text
-Pulling dependencies...
-
-Pulled 2 items:
-  Installed: 1
-  Skipped (already installed): 1
-ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
-```
-
-CLI output — `Alice reviews the held content`:
-```text
-2 item(s) pending review (0 update(s)):
-
-file:///tmp/ctxloom-integration-201736809/remote-579676050/remote.git@bundles/src (remote: second)
-  new      fragments/marker
-
-file:///tmp/ctxloom-integration-201736809/remote-792459895/remote.git@bundles/src (remote: first)
-  new      fragments/marker
-
-Run 'ctxloom review' in a terminal to review interactively, or use the
-plumbing per item: ctxloom trust <bundle-ref>#<kind>/<name> / ctxloom blacklist <ref>.
-```
-
-CLI output — `she approves the first and rejects the second`:
-```text
-Rejected src#fragments/marker
-  repo:  file:///tmp/ctxloom-integration-201736809/remote-579676050/remote.git
-  store: user
-  UNSIGNED — recorded locally, not shareable (no signing key was available)
-  ref block: recorded (sticky — survives content changes)
-  content:   rejected in form(s) raw (blocks this content even if renamed/moved)
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-```
-
-CLI output — `Alice starts a new session`:
-```text
-Materialized default → out2 (claude-code)
-  wrote context
-  wrote mcp
-  wrote settings
-  wrote skills
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-```
-
 
 J1 stops at the trust boundary: what reaches a real assistant, and why. What
 a company's or a developer's source can additionally *contribute* to the

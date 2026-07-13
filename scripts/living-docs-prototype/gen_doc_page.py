@@ -193,54 +193,102 @@ def fenced(text, lang=""):
     return f"{fence}{lang}\n{text.rstrip(chr(10))}\n{fence}"
 
 
-def render_capture_block(cap):
-    lines = ["**Captured run** — every step below actually ran against a "
-             "real `ctxloom` binary; nothing here is hand-written.", ""]
-    for step in cap["steps"]:
-        mark = "✓" if step["status"] == "passed" else f"✗ ({step['status']})"
-        lines.append(f"- {mark} {step['text']}")
-    lines.append("")
-    for step in cap["steps"]:
-        if step.get("cli_output"):
-            lines.append(f"CLI output — `{step['text']}`:")
-            lines.append(fenced(step["cli_output"], "text"))
+# Two-column row wrappers. The grid uses auto-fit + minmax(min(100%, …)) so it
+# is responsive WITHOUT a media query: two columns when the container is wide
+# enough, one stacked column on narrow screens (and never wider than 100% on a
+# very narrow phone). min-width:0 on the columns lets a wide <pre> scroll inside
+# its column instead of blowing the grid track out. Styles are inline so they
+# survive Starlight's markdown pass-through regardless of whether a <style>
+# block would be hoisted; the class names are there for a future shared
+# stylesheet to hook if desired.
+ROW_OPEN = (
+    '<div class="living-doc-row" '
+    'style="display:grid;'
+    'grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));'
+    'gap:1.25rem;margin:1.5rem 0;align-items:start;">'
+)
+COL_OPEN = '<div class="living-doc-col" style="min-width:0;overflow-x:auto;">'
+DIV_CLOSE = '</div>'
+
+
+def render_two_col(left_md, right_md):
+    """Wraps two already-rendered markdown blocks into a responsive two-column
+    grid. The blank lines around each column's content are load-bearing: an
+    HTML block (the <div>) only yields back to the markdown parser after a
+    blank line, so without them the fenced code inside would render as literal
+    text rather than a code block."""
+    return "\n".join([
+        ROW_OPEN,
+        COL_OPEN,
+        "",
+        left_md,
+        "",
+        DIV_CLOSE,
+        COL_OPEN,
+        "",
+        right_md,
+        "",
+        DIV_CLOSE,
+        DIV_CLOSE,
+    ])
+
+
+def render_captured_output(captures):
+    """Right-column content: the per-step pass checklist plus the real captured
+    CLI output / mock-engine-received payload, for one or more Examples-row
+    captures."""
+    lines = []
+    for idx, cap in enumerate(captures):
+        if len(captures) > 1:
+            lines.append(f"**Captured run {idx + 1}**")
             lines.append("")
-        if step.get("mock_recorded"):
-            lines.append(f"What the mock engine received — `{step['text']}`:")
-            lines.append(fenced(step["mock_recorded"], "text"))
-            lines.append("")
-    return "\n".join(lines)
+        lines.append("Every step below actually ran against a real `ctxloom` "
+                     "binary; nothing here is hand-written.")
+        lines.append("")
+        for step in cap["steps"]:
+            mark = "✓" if step["status"] == "passed" else f"✗ ({step['status']})"
+            lines.append(f"- {mark} {step['text']}")
+        lines.append("")
+        for step in cap["steps"]:
+            if step.get("cli_output"):
+                lines.append(f"CLI output — `{step['text']}`:")
+                lines.append("")
+                lines.append(fenced(step["cli_output"], "text"))
+                lines.append("")
+            if step.get("mock_recorded"):
+                lines.append(f"What the mock engine received — `{step['text']}`:")
+                lines.append("")
+                lines.append(fenced(step["mock_recorded"], "text"))
+                lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+NOT_CAPTURED_MD = (
+    "> **Not captured in this build.** This scenario was not exercised in the "
+    "run that generated this page (for example, a `@live` scenario without "
+    "credentials in this environment). The Gherkin at left is still the live "
+    "spec — just without a proof-of-passing run attached yet."
+)
 
 
 def render_scenario(sc, narration, captures):
     out = []
     out.append(f"## {sc['name']}")
     out.append("")
-    if sc["name"] in narration["scenarios"]:
-        out.append(narration["scenarios"][sc["name"]])
-        out.append("")
     tag_str = " ".join(sc["tags"]) if sc["tags"] else ""
     if tag_str:
         out.append(f"*Tags: {tag_str}*")
         out.append("")
-    out.append(fenced(sc["body"], "gherkin"))
+
+    # The two-column row: Gherkin (left) beside its captured evidence (right).
+    left = fenced(sc["body"], "gherkin")
+    right = render_captured_output(captures) if captures else NOT_CAPTURED_MD
+    out.append(render_two_col(left, right))
     out.append("")
-    if captures:
-        for idx, cap in enumerate(captures):
-            if len(captures) > 1:
-                out.append(f"### Captured run {idx + 1}")
-                out.append("")
-            out.append(render_capture_block(cap))
-            out.append("")
-    else:
-        out.append(
-            ":::note[Not captured in this build]\n"
-            "This scenario was not exercised in the run that generated this "
-            "page (for example, a `@live` scenario without credentials in "
-            "this environment). The Gherkin above is still the live spec — "
-            "just without a proof-of-passing run attached yet.\n"
-            ":::"
-        )
+
+    # The narration prose sits full-width BELOW the row.
+    if sc["name"] in narration["scenarios"]:
+        out.append(narration["scenarios"][sc["name"]])
         out.append("")
     return "\n".join(out)
 

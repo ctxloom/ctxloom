@@ -116,9 +116,21 @@ func headlessAgent(profiles ...string) agents.Agent {
 type fakeChatEngine struct {
 	mu    sync.Mutex
 	texts []string
+	// req is the ChatRequest this engine's Chat call was given — captured so
+	// a test can assert on what the spawn actually plumbed through
+	// (permissions, workdir, MCP servers) instead of only observing that a
+	// harp came back non-empty. Before this, the request was thrown away
+	// entirely: only the turn TEXT (below) was ever inspectable.
+	req     agent.ChatRequest
+	gotChat bool
 }
 
 func (f *fakeChatEngine) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	f.mu.Lock()
+	f.req = req
+	f.gotChat = true
+	f.mu.Unlock()
+
 	in := make(chan agent.ChatMessage)
 	events := make(chan agent.ChatEvent)
 	errs := make(chan error, 1)
@@ -147,6 +159,24 @@ func (f *fakeChatEngine) Chat(ctx context.Context, req agent.ChatRequest) (chan<
 	return in, events, errs, nil
 }
 
+// Request returns the ChatRequest captured by this engine's Chat call, and
+// whether Chat was ever invoked (false means nothing spawned onto this
+// engine, so the zero-value ChatRequest below would otherwise look
+// indistinguishable from a genuinely empty one).
+func (f *fakeChatEngine) Request() (agent.ChatRequest, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.req, f.gotChat
+}
+
+// Texts returns the message texts this engine has received so far (a copy,
+// safe to read concurrently with the Chat goroutine still appending).
+func (f *fakeChatEngine) Texts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.texts...)
+}
+
 func (f *fakeChatEngine) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
 func (f *fakeChatEngine) Run(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (int32, error) {
 	return 0, nil
@@ -166,8 +196,37 @@ func (f *fakeChatEngine) GetPlans(context.Context, string) ([]agent.PlanFile, er
 }
 func (f *fakeChatEngine) Kill() {}
 
-// fakeChatFactory returns a pb.ClientFactory minting fakeChatEngines (the
-// coord.Options.Factory seam: a non-nil factory skips isolation entirely).
-func fakeChatFactory() pb.ClientFactory {
-	return func(string, string, int) (pb.Client, error) { return &fakeChatEngine{}, nil }
+// fakeChatEngineSpawns mints fakeChatEngines (the coord.Options.Factory seam:
+// a non-nil factory skips isolation entirely), keeping every one it creates,
+// in spawn order, so a test can reach into a specific child's captured
+// ChatRequest after agent_run has spawned it. The factory signature
+// (backendName, label string, verbosity int) never carries the agent name or
+// harp, so callers correlate by call order: prodSpawner.Launch calls the
+// factory synchronously within agent_run's handler, so the Nth factory call
+// is the child of the Nth agent_run this test issues.
+type fakeChatEngineSpawns struct {
+	mu      sync.Mutex
+	engines []*fakeChatEngine
+}
+
+// factory returns the pb.ClientFactory to pass as coord.Options.Factory.
+func (s *fakeChatEngineSpawns) factory() pb.ClientFactory {
+	return func(string, string, int) (pb.Client, error) {
+		e := &fakeChatEngine{}
+		s.mu.Lock()
+		s.engines = append(s.engines, e)
+		s.mu.Unlock()
+		return e, nil
+	}
+}
+
+// nth returns the (0-indexed) nth engine spawned, or nil if fewer than n+1
+// spawns have happened yet.
+func (s *fakeChatEngineSpawns) nth(n int) *fakeChatEngine {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n < 0 || n >= len(s.engines) {
+		return nil
+	}
+	return s.engines[n]
 }

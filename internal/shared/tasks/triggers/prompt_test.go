@@ -1,6 +1,7 @@
 package triggers
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +128,130 @@ func TestBuildPrompt_ExplainsTheQueryWhitelist(t *testing.T) {
 	}
 	assert.Contains(t, p, "no \"..\"")
 	assert.Contains(t, p, "queries")
+}
+
+// Every optional section of the prompt is gated on actually having something to
+// say. The tests above prove those gates OPEN; these prove they CLOSE, which is
+// the half that was missing.
+//
+// This is not cosmetic. An empty section is not neutral — a "Directories present
+// in the repository:" header with nothing beneath it reads to the model as
+// positive evidence that the repository contains no directories, and positive
+// evidence of absence is exactly what licenses a confident not-fired. The gates
+// are a safety property, so their closed state is asserted.
+func TestBuildPrompt_OmitsOptionalSectionsWhenThereIsNothingToSay(t *testing.T) {
+	b := Batch{
+		Now:   time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC),
+		Tasks: []TaskInput{{HarpID: "a", Text: "t", Trigger: "x"}},
+	}
+	p := BuildPrompt(b)
+
+	assert.NotContains(t, p, "=== Other tasks", "no other tasks were supplied to cross-reference")
+	assert.NotContains(t, p, "=== Repository state right now ===", "no repo state was gathered")
+	assert.NotContains(t, p, "Changed files:", "the task has no changed files")
+}
+
+func TestWriteRepoState_RendersOnlyTheHalvesThatHaveContent(t *testing.T) {
+	cases := []struct {
+		name        string
+		repo        RepoState
+		wantSection bool
+		wantDirs    bool
+		wantChanges bool
+	}{
+		{name: "nothing gathered", repo: RepoState{}},
+		{
+			name:        "directories only",
+			repo:        RepoState{Dirs: []string{"internal/signing"}},
+			wantSection: true, wantDirs: true,
+		},
+		{
+			name:        "working changes only",
+			repo:        RepoState{WorkingChanges: []string{"?? internal/new.go"}},
+			wantSection: true, wantChanges: true,
+		},
+		{
+			name:        "both",
+			repo:        RepoState{Dirs: []string{"internal/signing"}, WorkingChanges: []string{"?? internal/new.go"}},
+			wantSection: true, wantDirs: true, wantChanges: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sb strings.Builder
+			writeRepoState(&sb, tc.repo)
+			got := sb.String()
+
+			if !tc.wantSection {
+				assert.Empty(t, got, "an empty repo state must write NOTHING, not a bare header")
+				return
+			}
+			assert.Contains(t, got, "=== Repository state right now ===")
+
+			dirs := "Directories present in the repository:"
+			changes := "Uncommitted working-tree changes"
+			if tc.wantDirs {
+				assert.Contains(t, got, dirs)
+			} else {
+				assert.NotContains(t, got, dirs)
+			}
+			if tc.wantChanges {
+				assert.Contains(t, got, changes)
+			} else {
+				assert.NotContains(t, got, changes)
+			}
+		})
+	}
+}
+
+// describeQuery is how the model sees its own round-1 request echoed back in
+// round 2. A label that misnames the query it answers silently attributes
+// evidence to the wrong question.
+func TestDescribeQuery(t *testing.T) {
+	cases := []struct {
+		name string
+		q    Query
+		want string
+	}{
+		{"path_exists", Query{Type: QueryPathExists, Path: "internal/foo.go"}, "path_exists(internal/foo.go)"},
+		{"grep without a glob", Query{Type: QueryGrep, Pattern: "func Sign"}, `grep("func Sign")`},
+		{"grep with a glob", Query{Type: QueryGrep, Pattern: "func Sign", PathGlob: "internal"}, `grep("func Sign", internal)`},
+		{"git_log_path", Query{Type: QueryGitLogPath, Path: "internal/signing"}, "git_log_path(internal/signing)"},
+		{"task_status", Query{Type: QueryTaskStatus, HarpID: "bold-gray-wren"}, "task_status(bold-gray-wren)"},
+		{"unknown type falls back to the raw type", Query{Type: "shell_exec"}, "shell_exec"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, describeQuery(tc.q))
+		})
+	}
+}
+
+// Round 2's whole purpose is to show the model what its round-1 requests
+// produced. A query that errored must not swallow the results after it, and a
+// query that found nothing must SAY it found nothing — a line that renders blank
+// is indistinguishable from a query that was never run.
+func TestWriteQueryResults_EveryRequestIsAccountedFor(t *testing.T) {
+	var sb strings.Builder
+	writeQueryResults(&sb, []QueryResult{
+		{Query: Query{Type: QueryGrep, Pattern: "func Sign"}, Err: "pattern did not compile"},
+		{Query: Query{Type: QueryPathExists, Path: "internal/foo.go"}, Output: "exists"},
+		{Query: Query{Type: QueryPathExists, Path: "internal/bar.go"}},
+	})
+	got := sb.String()
+
+	assert.Contains(t, got, `grep("func Sign"): ERROR: pattern did not compile`)
+	assert.Contains(t, got, "path_exists(internal/foo.go): exists",
+		"a result AFTER an errored one must still be rendered")
+	assert.Contains(t, got, "path_exists(internal/bar.go): (no matches)",
+		"an empty result must say so — a blank line reads as a query that never ran")
+}
+
+func TestShortSHA(t *testing.T) {
+	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234567890"), "a full hash is trimmed to a recognizable prefix")
+	assert.Equal(t, "abcdef1234", shortSHA("abcdef1234"), "a hash already at the limit is returned whole")
+	assert.Equal(t, "abc", shortSHA("abc"), "a short hash is returned as-is, never sliced past its end")
+	assert.Equal(t, "", shortSHA(""))
 }
 
 func sampleFollowupBatch() FollowupBatch {

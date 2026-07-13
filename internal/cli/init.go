@@ -391,9 +391,9 @@ var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 // content selection and agent binding happen in a single continuous
 // conversation (profiles are chosen, then the agents that use them are bound —
 // no mid-session prompt fetch). The agent-setup half resolves through
-// ResolveSetupPrompt so a bundle-shipped `agent-setup` skill override is
-// honored at init exactly as it is for `ctxloom agent setup`; a nil config
-// degrades to the built-in text (CLAUDE.md fault tolerance).
+// ResolveSetupPrompt so every bundle- or companion-shipped `agent-setup`
+// skill is composed in at init exactly as it is for `ctxloom agent setup`; a
+// nil config degrades to the built-in text alone (CLAUDE.md fault tolerance).
 func discoverySessionPrompt(cfg *config.Config) string {
 	setup := agentSetupPrompt
 	if cfg != nil {

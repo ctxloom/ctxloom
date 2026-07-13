@@ -79,8 +79,8 @@ func TestPersonalRemoteRequests(t *testing.T) {
 // profile selection and agent binding happen in a single continuous
 // conversation. A nil config (load failure at launch) must still compose both
 // halves from the built-in texts — fault tolerance, never a truncated prompt.
-// (Bundle-shipped `agent-setup` overrides substitute the setup half via
-// operations.ResolveSetupPrompt, whose matching contract is covered in
+// (Bundle- or companion-shipped `agent-setup` skills AUGMENT the setup half
+// via operations.ResolveSetupPrompt, whose composition contract is covered in
 // internal/operations/setup_prompt_test.go.)
 func TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup(t *testing.T) {
 	got := discoverySessionPrompt(nil)

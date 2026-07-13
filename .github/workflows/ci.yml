@@ -188,6 +188,16 @@ jobs:
       - name: Run integration tests
         run: just -f justfile.container test-integration
 
+      # Docker-gated container transport proof (internal/lm/isolation): builds
+      # a minimal image, spawns the mock plugin INSIDE a container, and proves
+      # the gRPC transport + force-removal-on-Kill boundary end to end.
+      # GitHub-hosted runners bind-mount /var/run/docker.sock into job
+      # containers, so the devcontainer image's docker-ce-cli can reach it;
+      # each test self-skips (not fails) if it can't, so this step is safe to
+      # run even if that assumption ever stops holding.
+      - name: Run docker-gated container integration tests
+        run: just -f justfile.container test-docker-integration
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

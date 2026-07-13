@@ -219,6 +219,14 @@ test-integration: build
 test-acceptance: build
     go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Run the docker-gated container transport integration tests (see the host
+# justfile's test-docker-integration for the full explanation). Requires the
+# devcontainer image to be run with the host's container runtime reachable
+# (docker CLI + a shared/mounted daemon socket); each test self-skips when it
+# is not.
+test-docker-integration:
+    go test -v -tags docker_integration ./internal/lm/isolation/...
+
 # ===== Validation =====
 
 # Validate fragment YAML files

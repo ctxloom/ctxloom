@@ -292,6 +292,18 @@ test-integration-run PATTERN: build
 test-acceptance: build
     go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Run the docker-gated container transport integration tests
+# (internal/lm/isolation/*_integration_test.go): builds a minimal image,
+# spawns the mock plugin INSIDE a real container, and proves the gRPC
+# transport + force-removal-on-Kill boundary end to end, including a real
+# git worktree mounted into a container. Requires a local container runtime;
+# each test self-skips (not fails) when docker is unreachable or non-rootless,
+# so this is safe to run anywhere — it just proves nothing when it skips.
+# Previously gated behind a build tag that appeared in neither the justfile
+# nor any CI workflow, so it had never actually run.
+test-docker-integration:
+    go test -v -tags docker_integration ./internal/lm/isolation/...
+
 # Build the acceptance image (devcontainer toolchain + Node + the Claude Code
 # agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;
 # it is built at runtime from the mounted workspace by test-acceptance-live-container.

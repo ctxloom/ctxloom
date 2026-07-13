@@ -5,7 +5,14 @@ FROM crazymax/osxcross:latest-ubuntu AS osxcross
 # Use Ubuntu 24.04 for glibc compatibility with osxcross
 FROM ubuntu:24.04
 
-# Install build dependencies
+# Install build dependencies. docker-ce-cli (client only, no daemon) lets
+# `just test-docker-integration` reach the host/CI runner's Docker daemon —
+# GitHub-hosted runners bind-mount /var/run/docker.sock into job containers,
+# so the CLI is the only thing missing to actually exercise
+# internal/lm/isolation's docker-gated container_integration_test.go /
+# container_worktree_integration_test.go (see justfile test-docker-integration).
+# Those tests self-skip when docker is unreachable, so this is a "make it
+# possible to pass" addition, not a hard requirement.
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
@@ -23,6 +30,12 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     python3 \
     python3-pip \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # TARGETARCH is auto-populated by Docker BuildKit (amd64, arm64, etc.) so the

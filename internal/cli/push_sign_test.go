@@ -44,7 +44,7 @@ func (p *stubPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string
 func pushSignTestSetup(t *testing.T) (cfg *config.Config, pub *stubPublisher, mgr *remote.PublishManager) {
 	t.Helper()
 	appDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(paths.BundlesPath(appDir), 0o755))
+	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
 	cfg = &config.Config{AppPaths: []string{appDir}}
 
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(`default: personal

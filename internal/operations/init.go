@@ -48,7 +48,10 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		return nil, fmt.Errorf("app dir is required")
 	}
 	fs := getFS(req.FS)
-	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.BundlesPath(req.AppDir)} {
+	// The authored-bundles home is the COMMITTED content tree; the cache is
+	// created lazily by whatever fetches into it, and init has no business
+	// scaffolding a gitignored directory.
+	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPath(req.AppDir)} {
 		if err := fs.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}

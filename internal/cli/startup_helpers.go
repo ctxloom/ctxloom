@@ -77,6 +77,10 @@ func configWarningFixIt(kind config.WarningKind) string {
 		return "make the config file readable, or remove it"
 	case config.WarnKindMigrationLossy:
 		return "re-add the dropped setting in its new home (ctxloom manage config edit)"
+	case config.WarnKindUnknownKey:
+		// The message already names the key and (when known) its replacement, so
+		// the fix-it only has to say where to make the edit.
+		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
 	default: // parse / validate
 		return "fix the config file (ctxloom manage config edit)"
 	}

@@ -1,24 +1,25 @@
 # Content signing: design and rationale
 
-> ## PARTIALLY IMPLEMENTED — read trust-model.md for what actually ships
+> ## SUPERSEDED — historical design record (2026-07-13)
 >
-> The publisher-trust decision function, live publisher verification, and the
-> countersignature approval/rejection store described below **have shipped**
-> (`internal/signing`, `internal/signing/allowedsigners`,
-> `internal/signing/countersign`, `operations.EffectiveTrust`). `ctxloom sign`
-> and `ctxloom signer` (the key-management CLI this document also describes)
-> have **not** — key discovery for `ctxloom review` is a deliberately minimal
-> stand-in (`internal/signing/agentkey`) pending that slice.
+> **Superseded by [signature-envelope.spec.md](signature-envelope.spec.md)** (the
+> normative wire contracts and payload framing) and
+> **[trust-model.md](trust-model.md)** (the normative account of shipped behavior).
+> This document is kept only as a record of *why* the design took the shape it did.
 >
-> **ctxloom's actual, current, shipped trust model is
-> [trust-model.md](trust-model.md).** That is the normative doc, kept
-> synchronized with the code. Read this one for the RATIONALE — why the design
-> looks the way it does — not as a line-by-line description of what ships;
-> some details below (exact CLI surface, some file layouts) were superseded
-> during implementation.
+> **Do not cite this document as a description of current behavior.** Specific
+> things in it that are now FALSE:
 >
-> The technical authority is the signature-envelope spec. Where this document and
-> the spec disagree, the spec wins.
+> - It describes `trust_bundles` / `remoteTrusted` / `Remote.TrustBundles` as live.
+>   **They are deleted.** Source trust — "everything this repo publishes, forever,
+>   hash-blind" — no longer exists; trust is keyed to a **signing identity** in
+>   `allowed_signers` (spec §11).
+> - It describes `ctxloom sign` and `ctxloom signer` as unimplemented. **Both ship.**
+> - Its CLI surface and file layouts were superseded during implementation
+>   (authored content now lives under `.ctxloom/content/`, not `.ctxloom/bundles/`).
+>
+> Where this document and the spec disagree, **the spec wins**; where the spec and
+> trust-model.md disagree, **trust-model.md wins**.
 
 ## The problem
 

@@ -40,6 +40,31 @@ const (
 // trust: that is ordinary third-party content (see VerifyPublisher).
 var ErrSignatureTampered = errors.New("signature does not cover these bytes")
 
+// CoversBytes answers one narrow, trust-free question: does armoredSig actually
+// cover exactly these payload bytes, under this namespace, by whatever key made
+// it? It verifies the signature against the public key EMBEDDED IN THE SIGNATURE
+// ITSELF, so it asserts nothing at all about whether that key should be trusted
+// — VerifyPublisher owns that question, and only it may resolve a signer.
+//
+// This is the integrity half of the spec §3.0 invariant: "the signed artifact is
+// the pair (content bytes, detached signature)". A publisher needs it before
+// VerifyPublisher can help them, because on their own machine there is no trust
+// root that answers for their own key. It is what lets ctxloom notice that a
+// bundle has been edited out from under its `.sig` — and refuse to ship the
+// broken pair, rather than exporting a tamper alarm to every consumer.
+//
+// A nil error means the pair holds. Any error means it does not (a corrupt or
+// unparseable blob included — spec §10.2: an unreadable signature is a tamper
+// signal, never a silent downgrade to unsigned). An empty armoredSig is not a
+// pair at all: callers must treat "no signature" as its own case before calling.
+func CoversBytes(payload, armoredSig []byte, namespace string) error {
+	sig, err := sshsig.Unarmor(armoredSig)
+	if err != nil {
+		return fmt.Errorf("unarmor: %w", err)
+	}
+	return Verify(payload, armoredSig, sig.PublicKey, namespace)
+}
+
 // TrustRoot answers the only policy question publisher verification asks: is
 // this key trusted to make an assertion in this namespace, right now?
 // *allowedsigners.Store is the production implementation; tests inject a fake.

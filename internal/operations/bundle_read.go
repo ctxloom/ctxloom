@@ -33,9 +33,12 @@ func ReadBundle(_ context.Context, cfg *config.Config, req ReadBundleRequest) (*
 		return nil, fmt.Errorf("no bundles directory found")
 	}
 	fs := getFS(req.FS)
+	// The authored (committed content) bundle dirs, resolved directly rather
+	// than via GetBundleDirs so an injected filesystem works — GetBundleDirs
+	// os.Stat-gates on the real FS. The loader filters non-existent dirs itself.
 	var dirs []string
 	for _, p := range cfg.AppPaths {
-		dirs = append(dirs, paths.BundlesPath(p))
+		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
 	// of the same spelling still wins); bare/canonical names pass through.

@@ -488,6 +488,8 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 // LocalPath returns the local path where the item would be installed.
 // baseDir is the .ctxloom directory path. Only bundles are installed at the top
 // level (top-level profile distribution was retired): .ctxloom/cache/bundles/.
+// This is the CACHE install root for REMOTE-pulled artifacts — project-authored
+// bundles live in the committed content tree (paths.LocalBundlesPath).
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	// remoteName ("github.com/owner/repo") and r.Path ("lang/go/testing") are
 	// logical, forward-slash segments. baseDir is an on-disk OS path, so build

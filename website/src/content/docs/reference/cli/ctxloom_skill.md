@@ -15,7 +15,7 @@ Manage skills
 
 Manage skills - reusable prompt/skill templates for AI coding assistants.
 
-Skills live inside bundles — local bundle YAML files in .ctxloom/cache/bundles/
+Skills live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#skills/name
 
@@ -36,6 +36,7 @@ Examples:
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

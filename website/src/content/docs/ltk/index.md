@@ -56,8 +56,8 @@ damage actually comes from.
 This is the one behavior to internalize before you write a rule. If `ltk` cannot
 load its config (an unreadable file, a YAML syntax error, an unknown key, a
 duplicate rule id, or a typo in the installed hook's `--engine` or `--shell`) it
-**denies every tool call it guards**: Bash, Edit, Write, MultiEdit, NotebookEdit.
-The agent stops working and relays the parse error to you.
+**denies every tool call it guards**: Bash, PowerShell, Edit, Write, MultiEdit,
+NotebookEdit. The agent stops working and relays the parse error to you.
 
 That is deliberate. Both hook hosts treat a hook that exits non-zero as
 non-blocking, so an `ltk` that failed loudly on the hook path would silently
@@ -74,14 +74,26 @@ without configuring it changes nothing. And when a command is found but cannot b
 ## Where the config lives
 
 Rules live in `.ltk/config.yaml`. `ltk` searches the working directory and then
-each ancestor, stopping at the repository root, and loads the first file it finds.
-There is no layering — exactly one config is ever in effect, so a subdirectory can
-override a repo's rules wholesale but can never add to them.
+each ancestor, probing five names per directory in order — `.ltk/config.yaml`,
+the legacy flat `.ltk.yaml`, `llm-tool-killer.yaml`, `.llm-tool-killer.yaml`, and
+`.config/llm-tool-killer.yaml` — and loads the first one it finds. There is no
+layering — exactly one config is ever in effect, so a subdirectory can override a
+repo's rules wholesale but can never add to them.
 
 The ancestor walk exists because hook hosts disagree about the working directory
 they hand a hook. Claude Code runs them at the project root; Antigravity runs them
 inside `<workspace>/.agents`. A search of the working directory alone would miss
 your rules under Antigravity and quietly fall back to allowing everything.
+
+The walk stops at the first ancestor containing a `.git` *directory*. A `.git`
+*file* — the gitfile pointer a submodule or a linked worktree gets instead of a
+real `.git` directory — is deliberately **not** a boundary: stopping there would
+make a superproject's rules silently vanish inside its submodules, and "silently
+allow everything" is the wrong failure direction for a guard. So in a worktree or
+a submodule, the search keeps climbing past it. This still finds your rules
+first if the worktree or submodule carries its own `.ltk/config.yaml` — the walk
+takes the nearest config — but if it doesn't, an ancestor config *will* apply
+even though it lives outside what looks like the repository root.
 
 ## Install
 

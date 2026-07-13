@@ -436,7 +436,7 @@ var runCmd = &cobra.Command{
 	Long: `Assemble context from fragments and execute the configured LLM.
 
 Fragments are loaded from installed bundles: local bundles in
-.ctxloom/cache/bundles/ plus remote bundles pinned in the lockfile.
+.ctxloom/content/bundles/ plus remote bundles pinned in the lockfile.
 
 Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.

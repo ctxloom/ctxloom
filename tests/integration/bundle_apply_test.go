@@ -43,7 +43,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	bundlesDir := filepath.Join(appDir, "content", "bundles") // paths.LocalBundlesPath layout
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "demo.yaml"), []byte(applyDemoBundleYAML), 0o644))

@@ -71,6 +71,37 @@ func TestRunSign_WritesVerifiableSigForBareLocalBundle(t *testing.T) {
 	assert.Equal(t, "me@example.com", principal)
 }
 
+// TestRunSign_KeyFlagMatchesAgentKeyByCommentName exercises the --key name
+// form end to end through runSign: a ctxloom-specific value (a
+// ssh-agent comment) resolves to the right identity even though the agent
+// holds a second, unrelated key.
+func TestRunSign_KeyFlagMatchesAgentKeyByCommentName(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
+	require.NoError(t, err)
+
+	_, wantedPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, otherPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	kr := agent.NewKeyring()
+	require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: otherPriv, Comment: "other@example.com"}))
+	require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: wantedPriv, Comment: "ben@abbitt.me"}))
+
+	discoverer := &agentkey.Discoverer{
+		GitConfig: func(ctx context.Context, dir, key string) (string, bool, error) { return "", false, nil },
+		DialAgent: func() (agent.Agent, error) { return kr, nil },
+		ReadFile:  func(path string) ([]byte, error) { return nil, assert.AnError },
+	}
+
+	cmd, out := testCmd()
+	require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, "ben@abbitt"))
+
+	wantedSigner, err := ssh.NewSignerFromSigner(wantedPriv)
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), ssh.FingerprintSHA256(wantedSigner.PublicKey()))
+}
+
 func TestRunSign_ItemRefReportsContainingBundle(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
 	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
@@ -148,7 +179,7 @@ func TestRunSign_NeitherRefNorAllIsUsageError(t *testing.T) {
 func setupSignTestDir(t *testing.T) (string, *config.Config) {
 	t.Helper()
 	appDir := t.TempDir() + "/.ctxloom"
-	require.NoError(t, afero.NewOsFs().MkdirAll(paths.BundlesPath(appDir), 0o755))
+	require.NoError(t, afero.NewOsFs().MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	return appDir, cfg
 }

@@ -16,7 +16,7 @@ var bundleCreateDesc string
 var bundleCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new bundle",
-	Long: `Create a new bundle file in .ctxloom/cache/bundles.
+	Long: `Create a new bundle file in .ctxloom/content/bundles.
 
 Creates a skeleton bundle YAML file that you can edit to add content.`,
 	Args: cobra.ExactArgs(1),
@@ -182,7 +182,7 @@ var bundleDeleteForce bool
 var bundleDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a bundle",
-	Long: `Delete a bundle from the local .ctxloom/cache/bundles directory.
+	Long: `Delete a bundle from the local .ctxloom/content/bundles directory.
 
 This permanently removes the bundle file. Use --force to skip confirmation.
 

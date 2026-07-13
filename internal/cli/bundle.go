@@ -18,7 +18,8 @@ Examples:
   ctxloom bundle show go-tools         # Show bundle contents
   ctxloom bundle create my-bundle      # Create a new bundle
   ctxloom bundle export go-tools ./out # Export bundle to directory
-  ctxloom bundle import ./my-bundle.yaml # Import bundle from file`,
+  ctxloom bundle import ./my-bundle.yaml # Import bundle from file
+  ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle (signature and all)`,
 }
 
 func init() {
@@ -32,6 +33,7 @@ func init() {
 	bundleCmd.AddCommand(bundlePushCmd)
 	bundleCmd.AddCommand(bundleExportCmd)
 	bundleCmd.AddCommand(bundleImportCmd)
+	bundleCmd.AddCommand(bundleMoveCmd)
 	bundleCmd.AddCommand(bundleDistillCmd)
 
 	// Fragment/prompt management lives under the top-level `fragment` and
@@ -54,6 +56,10 @@ func init() {
 	bundlePushCmd.Flags().BoolVar(&bundlePushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
 	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
+	bundleMoveCmd.Flags().StringVar(&bundleMoveTo, "to", "", "Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)")
+	bundleMoveCmd.Flags().BoolVarP(&bundleMoveForce, "force", "f", false, "Overwrite an existing bundle at a local destination")
+	bundleMoveCmd.Flags().StringVarP(&bundleMoveMessage, "message", "m", "", "Commit message (remote destination only)")
+	_ = bundleMoveCmd.MarkFlagRequired("to")
 	bundleViewCmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
 	bundleShowCmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)")
 

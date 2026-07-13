@@ -36,10 +36,14 @@ ctxloom uses a single source (no merging):
 
 ## config.yaml Reference
 
-The current schema is version 4. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom manage config init` scaffolds one.
+The current schema is version 6. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom manage config init` scaffolds one.
+
+:::note[Unknown keys are rejected]
+`config.yaml` is validated against its schema on load. A key the current schema doesn't recognize — including a retired one, like the old top-level `profiles: defaults:` list below — fails startup with a diagnostic naming the key and, where one exists, its replacement. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.
+:::
 
 ```yaml
-version: 4
+version: 6
 
 # Language model configuration.
 # `llm.configs` is a registry of arbitrarily-labeled backend configs — the
@@ -61,23 +65,20 @@ config:
   use_distilled: true         # prefer distilled fragment versions (default true)
   compaction_chunks: 8000     # target tokens per compaction chunk
   statusline: true            # let ctxloom manage the HUD statusline
+  sign:                       # publisher-signing defaults for `fragment push`/`skill push`
+    default: false             # sign every push unless --no-sign (default false)
+    key: ""                    # explicit key path or SHA256:... fingerprint (default: auto-discover)
 
 # Editor (fallback: VISUAL env → EDITOR env → nano)
 editor:
   command: "vim"
   args: []
 
-# Profiles: the default list to load, plus inline definitions
-profiles:
-  defaults:                   # a LIST — multiple defaults compose
-    - developer
-  definitions:                # inline profiles (alternative to .ctxloom/profiles/)
-    my-profile:
-      description: "Inline profile"
-      parents: []
-      bundles: []
-      variables:
-        VARIABLE: "value"
+# The default agent: what a bare `ctxloom run` (no --agent/-p/-f/-t) binds.
+# Its composed profiles become the context, its engine/runtime/permissions
+# the transport — this is the key that makes plain `ctxloom run` resolve any
+# context at all. Names an entry under agents: below.
+default_agent: dev
 
 # Agents: local engine↔profile bindings (see the Agents concept page)
 agents:
@@ -85,6 +86,20 @@ agents:
     engine: claude-code
     profiles: [developer]
     runtime: container        # optional; host|container
+    permissions: acceptEdits  # optional; default|acceptEdits|plan|bypass (config-only, no CLI flag equivalent)
+    escalation: []            # optional; ordered approval-request ladder, overrides the permissions-derived default
+
+# Profiles: inline definitions (alternative to .ctxloom/profiles/)
+profiles:
+  definitions:
+    my-profile:
+      description: "Inline profile"
+      parents: []
+      bundles: []
+      select_tags: []          # fragment tags to pull in (the profile's own `tags:` is descriptive-only)
+      prompts: []               # curate skill/slash-command exports; empty list keeps today's auto-export
+      variables:
+        VARIABLE: "value"
 
 # Project-wide isolation defaults
 workspace: none               # session workspace axis: none|worktree

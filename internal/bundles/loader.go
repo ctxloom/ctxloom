@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -64,6 +65,11 @@ type Loader struct {
 	versionResolver BundleVersionResolver
 	versionMu       sync.Mutex         // Protects versionCache
 	versionCache    map[string]*Bundle // canonical-ref+"@"+commit → parsed historical bundle
+
+	// warnOut is where user-facing diagnostics go (os.Stderr by default; see
+	// WithWarnWriter). fsStore, which embeds this Loader, writes its
+	// signature-invalidation notice here.
+	warnOut io.Writer
 }
 
 // BundleVersionResolver materializes a specific historical commit-version of a
@@ -139,6 +145,17 @@ func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
 	}
 }
 
+// WithWarnWriter redirects this loader/store's user-facing diagnostics (the
+// clidiag "ctxloom: warning:" lines — e.g. the signature a Save invalidated)
+// away from stderr, so tests can read what the user would have been told. The
+// default is os.Stderr: a warning nobody sees is the bug these diagnostics
+// exist to prevent.
+func WithWarnWriter(w io.Writer) LoaderOption {
+	return func(l *Loader) {
+		l.warnOut = w
+	}
+}
+
 // NewLoader creates a bundle loader.
 // The loader caches loaded bundles in memory to avoid redundant disk reads.
 func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
@@ -147,6 +164,7 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 		preferDistilled: preferDistilled,
 		fs:              afero.NewOsFs(),
 		cache:           make(map[string]*Bundle),
+		warnOut:         os.Stderr,
 	}
 	for _, opt := range opts {
 		opt(l)

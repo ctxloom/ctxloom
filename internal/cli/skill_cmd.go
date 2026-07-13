@@ -9,7 +9,7 @@ var skillCmd = &cobra.Command{
 	Short: "Manage skills",
 	Long: `Manage skills - reusable prompt/skill templates for AI coding assistants.
 
-Skills live inside bundles — local bundle YAML files in .ctxloom/cache/bundles/
+Skills live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#skills/name
 

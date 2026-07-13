@@ -29,6 +29,32 @@ import (
 // rejection — a deliberate, announced act (spec §12), never a silent drift.
 const CountersignContract = "ctxloom-countersign/1"
 
+// ExecPreimageContract is the contract-version string carried as the FIRST
+// field of the canonical JSON preimage of an EXEC item — an MCP server or a
+// hook (bundles.BundleMCP/BundleHook.ContentPayload, which are the single
+// preimage builders for those kinds).
+//
+// It exists because the exec preimage is the one place the spec's "we never
+// canonicalize" rule cannot be honored (spec §3.3.2): an MCP server has no raw
+// bytes, only structured fields, so its preimage IS a canonicalization — an
+// existing, already-shipped one. The hazard that creates is specific and
+// stated: adding a single field to BundleMCP changes the preimage, which
+// silently invalidates every approval of every MCP server in every user's
+// store, sending them all back to pending with no version signal and no
+// announcement. That is fail-closed and therefore safe, but it is a nasty
+// surprise.
+//
+// Carrying the version INSIDE the signed bytes is what converts that surprise
+// into an announcement: any change to the exec field set REQUIRES bumping this
+// string, which makes the mass re-review a deliberate act (spec §3.3.2, §12).
+// Third parties depend on this string; it is a public contract, not an
+// implementation detail.
+//
+// Note the version is not defensive against an attacker — a forged preimage
+// gains nothing by naming a version. It is defensive against US: it makes an
+// accidental, unannounced field addition impossible to ship quietly.
+const ExecPreimageContract = "ctxloom-exec/1"
+
 // Assertion is what a countersignature claims about the bytes it covers.
 type Assertion string
 

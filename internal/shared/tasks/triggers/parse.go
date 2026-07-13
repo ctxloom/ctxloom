@@ -36,7 +36,6 @@ func ParseVerdicts(raw string) ([]Verdict, error) {
 		if !v.Outcome.Valid() {
 			return nil, fmt.Errorf("triggers: verdict %d (%s) has an unrecognized outcome %q", i, v.HarpID, v.Outcome)
 		}
-		out[i].Confidence = clampConfidence(v.Confidence)
 		// Cached is caller-stamped only, never model-supplied (see Verdict's
 		// doc comment) — reset it regardless of what the response carried.
 		out[i].Cached = false

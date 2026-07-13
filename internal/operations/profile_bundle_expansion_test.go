@@ -26,8 +26,8 @@ import (
 // writeBundleFixture writes a minimal .ctxloom layout:
 //
 //	<root>/.ctxloom/profiles/test.yaml         — directory profile listing two bundles
-//	<root>/.ctxloom/cache/bundles/test/alpha.yaml — bundle with two fragments
-//	<root>/.ctxloom/cache/bundles/test/beta.yaml  — bundle with two fragments
+//	<root>/.ctxloom/content/bundles/test/alpha.yaml — bundle with two fragments
+//	<root>/.ctxloom/content/bundles/test/beta.yaml  — bundle with two fragments
 //
 // The profile references "test/alpha" as a whole bundle (both fragments
 // expanded) and "test/beta:fragments/two" as a cherry-picked fragment so
@@ -45,7 +45,7 @@ bundles:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profileYAML), 0644))
 
-	bundleDir := filepath.Join(root, ".ctxloom", "cache", "bundles", "test")
+	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles", "test")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	alphaYAML := `version: "1.0.0"

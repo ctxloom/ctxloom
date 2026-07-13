@@ -109,7 +109,7 @@ func BuildFollowupPrompt(b FollowupBatch) string {
 
 	sb.WriteString("=== Response format ===\n\n")
 	sb.WriteString("Respond with ONLY a JSON array, one object per task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|cannot-determine", "confidence": 0.0-1.0, "evidence": ["..."], "reasoning": "one or two sentences"}` + "\n")
+	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences"}` + "\n")
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
 
 	return sb.String()
@@ -210,7 +210,7 @@ func writeTaskEvidence(sb *strings.Builder, t TaskInput) {
 func writeResponseContract(sb *strings.Builder) {
 	sb.WriteString("=== Response format ===\n\n")
 	sb.WriteString("Respond with ONLY a JSON array, one object per Deferred task listed above, no prose before or after, no markdown code fence. Each object:\n")
-	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|needs-investigation|cannot-determine", "confidence": 0.0-1.0, "evidence": ["..."], "reasoning": "one or two sentences", "queries": [optional, needs-investigation only, see above]}` + "\n")
+	sb.WriteString(`{"harp_id": "...", "outcome": "fired|not-fired|needs-investigation|cannot-determine", "evidence": ["..."], "reasoning": "one or two sentences", "queries": [optional, needs-investigation only, see above]}` + "\n")
 	sb.WriteString("Include every task listed above, using its exact harp_id. Do not invent tasks or harp ids.\n")
 }
 

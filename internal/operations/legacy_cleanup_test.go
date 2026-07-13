@@ -33,7 +33,7 @@ func TestPurgeExtractedBundles(t *testing.T) {
 
 	t.Run("removes only files with _source.sha", func(t *testing.T) {
 		dir := t.TempDir()
-		bundlesDir := paths.BundlesPath(dir)
+		bundlesDir := paths.CacheBundlesPath(dir)
 		remoteDir := filepath.Join(bundlesDir, "remote-a")
 		require.NoError(t, os.MkdirAll(remoteDir, 0o755))
 
@@ -71,7 +71,7 @@ fragments:
 
 	t.Run("preserves bundles dir even when emptied", func(t *testing.T) {
 		dir := t.TempDir()
-		bundlesDir := paths.BundlesPath(dir)
+		bundlesDir := paths.CacheBundlesPath(dir)
 		require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 
 		cfg := &config.Config{AppPaths: []string{dir}}

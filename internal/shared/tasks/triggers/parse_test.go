@@ -17,19 +17,18 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 	}{
 		{
 			name: "plain JSON array",
-			raw:  `[{"harp_id":"swift-amber-falcon","outcome":"fired","confidence":0.9,"evidence":["commit abc123"],"reasoning":"the CLI shipped"}]`,
+			raw:  `[{"harp_id":"swift-amber-falcon","outcome":"fired","evidence":["commit abc123"],"reasoning":"the CLI shipped"}]`,
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.Equal(t, "swift-amber-falcon", got[0].HarpID)
 				assert.Equal(t, Fired, got[0].Outcome)
-				assert.Equal(t, 0.9, got[0].Confidence)
 				assert.Equal(t, []string{"commit abc123"}, got[0].Evidence)
 				assert.Equal(t, "the CLI shipped", got[0].Reasoning)
 			},
 		},
 		{
 			name: "fenced with json language tag",
-			raw:  "```json\n[{\"harp_id\":\"a\",\"outcome\":\"not-fired\",\"confidence\":0.2,\"evidence\":[],\"reasoning\":\"nothing yet\"}]\n```",
+			raw:  "```json\n[{\"harp_id\":\"a\",\"outcome\":\"not-fired\",\"evidence\":[],\"reasoning\":\"nothing yet\"}]\n```",
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.Equal(t, NotFired, got[0].Outcome)
@@ -37,7 +36,7 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name: "fenced with plain backticks",
-			raw:  "```\n[{\"harp_id\":\"a\",\"outcome\":\"cannot-determine\",\"confidence\":0,\"evidence\":[],\"reasoning\":\"depends on a person\"}]\n```",
+			raw:  "```\n[{\"harp_id\":\"a\",\"outcome\":\"cannot-determine\",\"evidence\":[],\"reasoning\":\"depends on a person\"}]\n```",
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.Equal(t, CannotDetermine, got[0].Outcome)
@@ -45,24 +44,30 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name: "leading prose before the array",
-			raw:  "Here is my triage:\n\n[{\"harp_id\":\"a\",\"outcome\":\"needs-investigation\",\"confidence\":0.5,\"evidence\":[],\"reasoning\":\"unclear\"}]",
+			raw:  "Here is my triage:\n\n[{\"harp_id\":\"a\",\"outcome\":\"needs-investigation\",\"evidence\":[],\"reasoning\":\"unclear\"}]",
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.Equal(t, NeedsInvestigation, got[0].Outcome)
 			},
 		},
 		{
-			name: "confidence out of range is clamped, not rejected",
-			raw:  `[{"harp_id":"a","outcome":"fired","confidence":1.7,"evidence":[],"reasoning":"x"},{"harp_id":"b","outcome":"fired","confidence":-3,"evidence":[],"reasoning":"y"}]`,
+			// There is no confidence field on a Verdict (see verdict.go for
+			// why). But a model prompted before that decision, or a verdict
+			// already sitting in the on-disk cache, still carries one — it must
+			// be IGNORED, never rejected. Dropping an otherwise-good verdict
+			// over a field we deliberately stopped asking for would turn a
+			// design change into a parse failure.
+			name: "a stray confidence field is ignored, not rejected",
+			raw:  `[{"harp_id":"a","outcome":"fired","confidence":1.7,"evidence":["commit abc"],"reasoning":"x"}]`,
 			check: func(t *testing.T, got []Verdict) {
-				require.Len(t, got, 2)
-				assert.Equal(t, 1.0, got[0].Confidence)
-				assert.Equal(t, 0.0, got[1].Confidence)
+				require.Len(t, got, 1)
+				assert.Equal(t, Fired, got[0].Outcome)
+				assert.Equal(t, []string{"commit abc"}, got[0].Evidence)
 			},
 		},
 		{
 			name: "evidence strings containing brackets don't confuse the scan",
-			raw:  `[{"harp_id":"a","outcome":"fired","confidence":0.8,"evidence":["see PR #12 [merged]"],"reasoning":"x"}]`,
+			raw:  `[{"harp_id":"a","outcome":"fired","evidence":["see PR #12 [merged]"],"reasoning":"x"}]`,
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.Equal(t, []string{"see PR #12 [merged]"}, got[0].Evidence)
@@ -93,22 +98,22 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name:    "missing harp_id",
-			raw:     `[{"outcome":"fired","confidence":0.5,"evidence":[],"reasoning":"x"}]`,
+			raw:     `[{"outcome":"fired","evidence":[],"reasoning":"x"}]`,
 			wantErr: true,
 		},
 		{
 			name:    "blank harp_id",
-			raw:     `[{"harp_id":"   ","outcome":"fired","confidence":0.5,"evidence":[],"reasoning":"x"}]`,
+			raw:     `[{"harp_id":"   ","outcome":"fired","evidence":[],"reasoning":"x"}]`,
 			wantErr: true,
 		},
 		{
 			name:    "unrecognized outcome value",
-			raw:     `[{"harp_id":"a","outcome":"probably","confidence":0.5,"evidence":[],"reasoning":"x"}]`,
+			raw:     `[{"harp_id":"a","outcome":"probably","evidence":[],"reasoning":"x"}]`,
 			wantErr: true,
 		},
 		{
 			name:    "outcome wrong case",
-			raw:     `[{"harp_id":"a","outcome":"Fired","confidence":0.5,"evidence":[],"reasoning":"x"}]`,
+			raw:     `[{"harp_id":"a","outcome":"Fired","evidence":[],"reasoning":"x"}]`,
 			wantErr: true,
 		},
 		{
@@ -128,7 +133,7 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name: "needs-investigation with a query request",
-			raw:  `[{"harp_id":"a","outcome":"needs-investigation","confidence":0.4,"evidence":[],"reasoning":"unclear","queries":[{"type":"path_exists","path":"internal/foo"},{"type":"grep","pattern":"func Foo"}]}]`,
+			raw:  `[{"harp_id":"a","outcome":"needs-investigation","evidence":[],"reasoning":"unclear","queries":[{"type":"path_exists","path":"internal/foo"},{"type":"grep","pattern":"func Foo"}]}]`,
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				require.Len(t, got[0].Queries, 2)
@@ -140,7 +145,7 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 		},
 		{
 			name: "a model-supplied cached field is always reset to false",
-			raw:  `[{"harp_id":"a","outcome":"fired","confidence":0.9,"evidence":[],"reasoning":"x","cached":true}]`,
+			raw:  `[{"harp_id":"a","outcome":"fired","evidence":[],"reasoning":"x","cached":true}]`,
 			check: func(t *testing.T, got []Verdict) {
 				require.Len(t, got, 1)
 				assert.False(t, got[0].Cached, "Cached must never be model-controlled")
@@ -236,11 +241,14 @@ func TestExtractJSONArray(t *testing.T) {
 // the space between them.
 func FuzzParseVerdicts(f *testing.F) {
 	seeds := []string{
-		`[{"harp_id":"a","outcome":"fired","confidence":0.9,"evidence":["abc123"],"reasoning":"shipped"}]`,
-		"```json\n[{\"harp_id\":\"a\",\"outcome\":\"not-fired\",\"confidence\":0.2,\"evidence\":[],\"reasoning\":\"no\"}]\n```",
-		"Here is my triage:\n\n[{\"harp_id\":\"a\",\"outcome\":\"needs-investigation\",\"confidence\":0.5,\"evidence\":[],\"reasoning\":\"unclear\"}]",
-		`[{"harp_id":"a","outcome":"needs-investigation","confidence":0.4,"reasoning":"x","queries":[{"type":"grep","pattern":"func Foo"}]}]`,
-		`[{"harp_id":"a","outcome":"fired","confidence":1.7,"evidence":[],"reasoning":"x"}]`,
+		`[{"harp_id":"a","outcome":"fired","evidence":["abc123"],"reasoning":"shipped"}]`,
+		"```json\n[{\"harp_id\":\"a\",\"outcome\":\"not-fired\",\"evidence\":[],\"reasoning\":\"no\"}]\n```",
+		"Here is my triage:\n\n[{\"harp_id\":\"a\",\"outcome\":\"needs-investigation\",\"evidence\":[],\"reasoning\":\"unclear\"}]",
+		`[{"harp_id":"a","outcome":"needs-investigation","reasoning":"x","queries":[{"type":"grep","pattern":"func Foo"}]}]`,
+		// A verdict carrying the retired confidence field: still emitted by a
+		// model prompted before it was dropped, and still sitting in the on-disk
+		// cache. It must parse, not fail.
+		`[{"harp_id":"a","outcome":"fired","confidence":0.9,"evidence":[],"reasoning":"x"}]`,
 		`[]`,
 		`[{"harp_id":"a","outcom`, // truncated mid-key
 		"```",
@@ -260,8 +268,6 @@ func FuzzParseVerdicts(f *testing.F) {
 		for i, v := range got {
 			assert.NotEmpty(t, strings.TrimSpace(v.HarpID), "verdict %d was accepted with a blank harp_id", i)
 			assert.True(t, v.Outcome.Valid(), "verdict %d was accepted with outcome %q", i, v.Outcome)
-			assert.GreaterOrEqual(t, v.Confidence, 0.0, "verdict %d escaped the confidence clamp", i)
-			assert.LessOrEqual(t, v.Confidence, 1.0, "verdict %d escaped the confidence clamp", i)
 			assert.False(t, v.Cached, "verdict %d: Cached is caller-stamped and must never come from the model", i)
 		}
 	})

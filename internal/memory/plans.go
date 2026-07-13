@@ -13,9 +13,7 @@ import (
 type PlanKind string
 
 const (
-	PlanKindExitPlanMode PlanKind = "exit_plan_mode"
-	PlanKindTodoWrite    PlanKind = "todo_write"
-	PlanKindPlanFile     PlanKind = "plan_file"
+	PlanKindPlanFile PlanKind = "plan_file"
 )
 
 // PlanBlock is a plan document preserved verbatim in the distilled output. The

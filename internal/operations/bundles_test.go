@@ -31,7 +31,7 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 	t.Helper()
 	tmp := t.TempDir()
 	appDir = filepath.Join(tmp, ".ctxloom")
-	require.NoError(t, os.MkdirAll(paths.BundlesPath(appDir), 0755))
+	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0755))
 	cfg = &config.Config{AppPaths: []string{appDir}}
 	return appDir, cfg
 }
@@ -39,7 +39,7 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 // TestListBundles_IncludesLocallyCreatedBundle is the unit-level guard for the
 // "Create a bundle and list it" acceptance scenario, pulled down into `just test`
 // (the acceptance suite is //go:build acceptance and was never run here). A
-// bundle authored locally — written to cache/bundles by CreateBundle — MUST
+// bundle authored locally — written to content/bundles by CreateBundle — MUST
 // appear in ListBundles. A refactor that listed only via the remote Resolver
 // dropped local bundles; this fails fast if that regresses again.
 func TestListBundles_IncludesLocallyCreatedBundle(t *testing.T) {
@@ -59,7 +59,7 @@ func TestListBundles_IncludesLocallyCreatedBundle(t *testing.T) {
 }
 
 // TestCreateBundle_SkeletonOnly drives the minimum-viable shape: name only,
-// expect a bundle YAML written to cache/bundles/<name>.yaml with Version 1.0.0
+// expect a bundle YAML written to content/bundles/<name>.yaml with Version 1.0.0
 // and no fragments/prompts/mcp.
 func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
@@ -71,7 +71,7 @@ func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	assert.Equal(t, "created", result.Status)
 	assert.Equal(t, "test-bundle", result.Name)
 
-	expectedPath := filepath.Join(paths.BundlesPath(appDir), "test-bundle.yaml")
+	expectedPath := filepath.Join(paths.LocalBundlesPath(appDir), "test-bundle.yaml")
 	assert.Equal(t, expectedPath, result.Path)
 
 	data, err := os.ReadFile(expectedPath)
@@ -555,8 +555,8 @@ func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
     version: v1
 `)
 
-	// A bundle under cache/bundles/<remote>/<name>.yaml resolves to <remote>.
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "personal", "rust-tdd.yaml")
+	// A bundle under content/bundles/<remote>/<name>.yaml resolves to <remote>.
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "personal", "rust-tdd.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
 	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
 
@@ -577,9 +577,9 @@ remotes:
     version: v1
 `)
 
-	createSeedBundle(t, cfg, "local-only") // lands at cache/bundles/local-only.yaml
+	createSeedBundle(t, cfg, "local-only") // lands at content/bundles/local-only.yaml
 
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "local-only.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "local-only.yaml")
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "personal", remoteName, "default remote used when path lacks remote prefix")
@@ -594,7 +594,7 @@ func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "only", remoteName,
@@ -613,7 +613,7 @@ func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
 	_, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ambiguous", "error must surface that we can't pick")
@@ -633,7 +633,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "x")
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "x.yaml")
 
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "other")
 	require.NoError(t, err)
@@ -664,7 +664,7 @@ remotes:
     version: v1
 `)
 
-	bogus := filepath.Join(paths.BundlesPath(appDir), "bogus.yaml")
+	bogus := filepath.Join(paths.LocalBundlesPath(appDir), "bogus.yaml")
 	require.NoError(t, os.WriteFile(bogus, []byte(":\n  -not yaml:\n"), 0644))
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
@@ -722,7 +722,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "shape-test")
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "shape-test.yaml")
+	bundlePath := filepath.Join(paths.LocalBundlesPath(appDir), "shape-test.yaml")
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:     bundlePath,
@@ -803,7 +803,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "for-push")
-	bundlePath = filepath.Join(paths.BundlesPath(appDir), "for-push.yaml")
+	bundlePath = filepath.Join(paths.LocalBundlesPath(appDir), "for-push.yaml")
 
 	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
 	require.NoError(t, err)
@@ -929,15 +929,15 @@ func TestCreateBundle_RejectsPathTraversal(t *testing.T) {
 }
 
 // TestCreateBundle_RejectsSymlinkInParent — if an attacker has planted a
-// symlink at cache/bundles/personal -> /tmp/evil-dir, CreateBundle must
+// symlink at content/bundles/personal -> /tmp/evil-dir, CreateBundle must
 // refuse rather than follow the link and write outside the bundles root.
 // ValidateBundleName accepts "personal/foo" (the name is clean), so this
 // vector is closed by requireSafeBundlePath, not the name check.
 func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 
-	// Plant: cache/bundles/personal -> evil/ (outside the bundles root).
-	bundlesRoot := paths.BundlesPath(appDir)
+	// Plant: content/bundles/personal -> evil/ (outside the bundles root).
+	bundlesRoot := paths.LocalBundlesPath(appDir)
 	evilDir := filepath.Join(t.TempDir(), "evil")
 	require.NoError(t, os.MkdirAll(evilDir, 0755))
 	require.NoError(t, os.Symlink(evilDir, filepath.Join(bundlesRoot, "personal")))
@@ -955,7 +955,7 @@ func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
 // is a symlink to some other YAML, Save would clobber the target. Refuse.
 func TestUpdateBundle_RejectsSymlinkedBundleFile(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	bundlesRoot := paths.BundlesPath(appDir)
+	bundlesRoot := paths.LocalBundlesPath(appDir)
 
 	// Plant a victim YAML elsewhere, then symlink a "bundle" at it.
 	victimDir := t.TempDir()
@@ -984,7 +984,7 @@ func TestCreateBundle_NestedName_CreatesParentDir(t *testing.T) {
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
 	require.NoError(t, err)
 
-	_, err = os.Stat(filepath.Join(paths.BundlesPath(appDir), "personal", "foo.yaml"))
+	_, err = os.Stat(filepath.Join(paths.LocalBundlesPath(appDir), "personal", "foo.yaml"))
 	require.NoError(t, err, "nested bundle file should exist on disk")
 }
 

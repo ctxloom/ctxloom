@@ -2,7 +2,7 @@
 title: "Agents & Isolation"
 ---
 
-Your `developer` profile is right for a quick question on your laptop and wrong for a long unattended run, the kind you'd rather box up in a container so it can't touch anything outside the project. Editing the profile itself every time you want a different engine or runtime defeats the point of having a reusable profile at all.
+Your `developer` profile is right for a quick question on your laptop and wrong for a long unattended run, the kind whose file writes you'd rather confine to the project instead of letting a stray `rm -rf` loose on your home directory. Editing the profile itself every time you want a different engine or runtime defeats the point of having a reusable profile at all.
 
 An **agent** solves this by separating *what context* an AI receives (the profile's job) from *which engine runs it* and *where it executes*. Define `dev` once as `claude-code` on `runtime: container` with the `developer` profile, and `ctxloom run --agent dev` gets you that combination without touching the profile itself. Agents are also the members that [map and weave](/concepts/weave/) fan work across.
 
@@ -18,6 +18,13 @@ agents:
     engine: claude-code
     profiles: [default, go-developer]
     runtime: container
+    permissions: acceptEdits
+    escalation:
+      - kinds: [FILE_CHANGE]
+        action: auto_accept
+      - action: relay_to_role   # everything else goes up
+        role: parent
+        timeout: 5m
 ```
 
 An agent names:
@@ -25,6 +32,8 @@ An agent names:
 - **`engine`** — the LLM config label or backend to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.
 - **`profiles`** — one or more profiles that compose into a single assembled context.
 - **`runtime`** (optional) — where the engine process executes: `host` or `container`. Omit to inherit the project's `runtime:` default.
+- **`permissions`** (optional) — the launch-time permission posture the engine starts in: `default`, `acceptEdits`, `plan`, or `bypass`. Omit to inherit the engine label's configured posture, then the built-in default. `run --permissions` overrides it for one session.
+- **`escalation`** (optional, config-file only) — an ordered ladder of rungs deciding what happens when the agent raises an approval request. Each rung names the request `kinds` it matches (`COMMAND_EXECUTION`, `FILE_CHANGE`, `TOOL_USE`, `PERMISSION_ESCALATION`, `ARTIFACT_REVIEW`, `CUSTOM`; empty matches all), an `action` (`auto_accept`, `auto_decline`, `relay_to_role`, `surface_to_human`), a `role` for the relaying actions (only `parent` today), and a `timeout` after which a relayed request falls through to the next matching rung. The ladder bottoms out at *decline* when no rung resolves a request. Omit it and the ladder is derived from `permissions`.
 
 Agents live solely in your `.ctxloom` — under the `agents:` key of `config.yaml` or as `.ctxloom/agents/<name>.yaml` files. They are **never shipped in bundles or remotes**: bundles distribute portable context, but the engine choice (which costs money and holds your credentials) always stays yours.
 
@@ -32,14 +41,14 @@ Agents live solely in your `.ctxloom` — under the `agents:` key of `config.yam
 
 ```bash
 ctxloom agent set finder --engine claude-fast --profiles finder
-ctxloom agent set dev --engine claude-code --profiles default,go-developer --runtime container
-ctxloom agent set reviewer --profiles cr-correctness-go   # default engine
+ctxloom agent set dev --engine claude-code --profiles default,go-developer --runtime container --permissions acceptEdits
+ctxloom agent set reviewer --profiles cr-correctness-go --permissions plan   # default engine
 ctxloom agent list
 ctxloom agent show dev
 ctxloom agent remove reviewer
 ```
 
-Re-running `agent set` with the same name updates the binding.
+Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into `config.yaml` or the agent's own `.ctxloom/agents/<name>.yaml`.
 
 `ctxloom agent setup` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent set`. `ctxloom init` runs this as part of its setup interview; `agent setup` re-enters it any time.
 
@@ -72,7 +81,15 @@ ctxloom map --agents dev-a,dev-b --workspace worktree "each fix one module"
 
 ## Containerized runtime
 
-Agents with `runtime: container` run their engine inside a per-backend **agent image**:
+Agents with `runtime: container` run their engine inside a per-backend **agent image**. What that buys you is a **blast-radius boundary for filesystem writes**: the engine gets a fresh `$HOME`, so its global state stays out of yours, and the only part of your disk it can write is what ctxloom mounts — the project, the session's own transcript and artifact dirs, and the shared task log. A destructive command outside those paths hits the container's throwaway filesystem instead of your machine.
+
+It is **not a security sandbox**, and you should not run untrusted content in it on that assumption. Specifically:
+
+- **The network is not restricted.** ctxloom passes no network isolation flag; a containerized agent has the same egress your host does and can reach anything on it.
+- **Your engine credentials cross the boundary.** The container gets either the engine's scoped env passthrough (`ANTHROPIC_*` for claude when `ANTHROPIC_API_KEY` is set, `KIRO_API_KEY` for kiro) or the engine's credential files bind-mounted **read-only** into the fresh `$HOME`. Read-only stops the agent rewriting them; it does not stop it reading them, and it does not stop it spending them.
+- **Some host state outside the project is mounted read-write.** The session's transcript store and persist dir under `~/.ctxloom/sessions/<harp>/`, and the per-project task log under `~/.ctxloom/tasks/` — writable so in-container hooks, transcripts, and `taskloom` reach the one host store the session shares.
+
+Use it to keep a long unattended run from wrecking your home directory. Do not use it as the thing standing between a prompt-injected agent and your API key or the internet.
 
 ```bash
 ctxloom container check          # can containerized agents launch here?

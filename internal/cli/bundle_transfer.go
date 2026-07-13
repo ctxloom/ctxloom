@@ -48,7 +48,7 @@ var bundleExportOutput string
 var bundleExportCmd = &cobra.Command{
 	Use:   "export <name> [dest-dir]",
 	Short: "Export a bundle to a file or directory",
-	Long: `Export a local bundle from .ctxloom/cache/bundles to a file or directory.
+	Long: `Export a local bundle from .ctxloom/content/bundles to a file or directory.
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
@@ -94,9 +94,9 @@ var bundleImportForce bool
 var bundleImportCmd = &cobra.Command{
 	Use:   "import <path>",
 	Short: "Import a bundle from a local file",
-	Long: `Import a bundle from a local YAML file into .ctxloom/cache/bundles.
+	Long: `Import a bundle from a local YAML file into .ctxloom/content/bundles.
 
-The bundle is copied into the local .ctxloom/cache/bundles directory.
+The bundle is copied into the local .ctxloom/content/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:

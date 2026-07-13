@@ -123,7 +123,7 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	testsupport.ProjectDir(t)
 
 	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
-	require.NoError(t, os.MkdirAll(paths.BundlesPath(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `
 version: 3

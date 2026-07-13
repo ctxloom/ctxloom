@@ -12,9 +12,9 @@ For Claude Code, this rides a **SessionStart hook**: ctxloom assembles your conf
 
 1. You run `ctxloom run` or start Claude Code in a project with ctxloom configured
 2. ctxloom assembles context from your default profile, bundles, and tags
-3. Context is written to a temporary file in `.ctxloom/cache/context/`
+3. Context is written to a content-addressed file in `.ctxloom/cache/context/`
 4. The SessionStart hook injects this context into the AI session
-5. The context file is deleted after injection (one-time use)
+5. The context file is left in place — it's a cache, reused across sessions with unchanged context and, when context is too large for one hook, across the multiple ordered chunk hooks that read it
 
 ## Automatic Hook Setup
 
@@ -22,20 +22,22 @@ When you run `ctxloom init` or `ctxloom mcp serve`, ctxloom automatically config
 
 ### Claude Code
 
-ctxloom adds a hook to `.claude/settings.json`:
+ctxloom adds a hook to `.claude/settings.json`. Each event maps to an **array** of matcher entries, not a single object — Claude Code's settings schema rejects the object shape:
 
 ```json
 {
   "hooks": {
-    "SessionStart": {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "ctxloom hook inject-context <hash>",
-          "timeout": 60
-        }
-      ]
-    }
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/home/user/.local/bin/ctxloom' hook inject-context --project '/home/user/project' <hash>",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -79,7 +81,7 @@ Context is assembled from:
 1. **Default Profile** - Your configured default profile
 2. **Profile Parents** - Any parent profiles inherited
 3. **Bundles** - All bundles referenced by the profile
-4. **Tagged Fragments** - Fragments matching profile tags
+4. **Tagged Fragments** - Fragments matching the profile's `select_tags` (its `tags:` field is descriptive-only and doesn't select content)
 
 ### Assembly Order
 
@@ -107,7 +109,7 @@ ctxloom warns when assembled context exceeds 16KB:
 
 ```
 ctxloom: warning: assembled context is 24KB (recommended max: 16KB)
-ctxloom: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments
+ctxloom: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments
 ```
 
 [Research shows](https://arxiv.org/abs/2307.03172) that LLM performance degrades with larger context, particularly for middle-positioned content. See the [Distillation Guide](/guides/distillation#context-size-research) for details.
@@ -128,22 +130,23 @@ If you see size warnings:
 The primary hook command that injects context:
 
 ```bash
-ctxloom hook inject-context <hash>
+'<path-to-ctxloom>' hook inject-context --project '<project-dir>' <hash>
 ```
 
 - `<hash>` - Content hash identifying the context file
+- `--project` - Absolute project directory, so the hook can find the file regardless of the shell's cwd
 - Reads from `.ctxloom/cache/context/<hash>.md`
 - Outputs context to stdout for the AI to consume
-- Deletes the context file after reading
+- Does not delete the context file — it's a cache, and oversized context is split into multiple ordered hooks (`--part k --of N`) that all read it
 
 ### Environment Variables
 
-The hook system uses:
+The SessionStart hook itself takes the hash and project directory as command-line arguments, not environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `CTXLOOM_CONTEXT_FILE` | Path to the context file to inject |
 | `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
+| `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched process for backends with no hook mechanism (codex, antigravity, kiro) — not read by the SessionStart hook |
 
 ## Debugging Hooks
 
@@ -160,12 +163,11 @@ ls -la .ctxloom/cache/context/
 ### Test Context Assembly
 
 ```bash
-# Preview what would be injected
-ctxloom run --dry-run --print
-
-# Assemble and show context
-ctxloom run --print
+# Assemble context and show it, without launching the model
+ctxloom run --dry-run
 ```
+
+`--print` is a separate flag that launches the model in non-interactive mode and prints its response — it doesn't preview context, and combining it with `--dry-run` has no additional effect since `--dry-run` never launches the model.
 
 ### Verbose Mode
 
@@ -182,23 +184,25 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 ```json
 {
   "hooks": {
-    "SessionStart": {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "ctxloom hook inject-context abc123"
-        },
-        {
-          "type": "command",
-          "command": "my-custom-hook.sh"
-        }
-      ]
-    }
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/home/user/.local/bin/ctxloom' hook inject-context --project '/home/user/project' abc123"
+          },
+          {
+            "type": "command",
+            "command": "my-custom-hook.sh"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
-**Note:** ctxloom identifies its hooks by an internal marker (`_ctxloom` field) and only updates its own hooks, leaving your custom hooks intact.
+**Note:** Claude Code's settings schema rejects unrecognized fields on hook entries, so ctxloom can't tag its own hooks with a marker field the way it does for MCP servers (`_ctxloom`). Instead it recognizes its own hook entries by the ctxloom executable in the command line, and only touches those, leaving your custom hooks intact.
 
 ## Troubleshooting
 
@@ -230,7 +234,7 @@ description: My default development context
 bundles:
   - go-development
   - testing-patterns
-tags:
+select_tags:
   - best-practices
 ```
 

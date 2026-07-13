@@ -124,7 +124,7 @@ type Reference struct {
 	ItemType ItemType
 
 	// IsLocal indicates a ctxloom:local reference — project-authored content
-	// read from the committed .ctxloom/local/ working copy rather than a remote
+	// read from the committed .ctxloom/content/ working copy rather than a remote
 	// clone. Local refs share the canonical grammar tail (@kind/name[@version])
 	// but their source is the fixed "ctxloom:local" token, so they carry no URL.
 	// ContentVersion is usually empty (the version is the surrounding project's

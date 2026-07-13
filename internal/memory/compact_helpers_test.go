@@ -80,5 +80,6 @@ func TestResolveHarpName(t *testing.T) {
 // updateSessionIndex is a no-op without a harp name; verify it doesn't panic or
 // touch the index in that case (the common non-harp path).
 func TestSessionIndexNoHarpIsNoop(t *testing.T) {
-	updateSessionIndex("", "sess-id", "summary", nil, 0) // must not panic / open index
+	c := &Compactor{config: CompactionConfig{}}
+	c.updateSessionIndex("", "sess-id", "summary", nil, 0) // must not panic / open index
 }

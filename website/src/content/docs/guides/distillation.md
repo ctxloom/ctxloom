@@ -20,7 +20,7 @@ AI context windows have limits, and verbose documentation can quickly consume yo
 
 Distillation uses AI to compress content while preserving meaning:
 
-- A verbose document can often be compressed 70-90% (e.g., 5,000 → 500-1,500 tokens)
+- The distiller targets 30-50% of the original size (e.g., 5,000 → 1,500-2,500 tokens)
 - Essential rules and patterns preserved, verbose explanations removed
 - More room for actual code and conversation
 
@@ -36,13 +36,19 @@ For structured content, ctxloom uses tree-sitter AST parsing for fast, determini
 
 | Content Type | Strategy |
 |--------------|----------|
-| **Go, Python, JS, TS, Rust** | Preserve signatures, elide function bodies |
+| **Go, Python, JS, TS, Rust, Java** | Preserve signatures, elide function bodies |
 | **JSON** | Preserve structure, truncate low-entropy values |
 
 This approach is:
 - **Fast**: No API calls, instant compression
 - **Deterministic**: Same input always produces same output
 - **Structure-preserving**: Maintains navigational breadcrumbs
+
+Tree-sitter parsing is built behind a build tag (`treesitter`) and only ships in
+the `ctxloom-full` release artifact. The default `ctxloom` binary — the one
+"recommended for most users" — compiles a stub instead: it never claims a code
+file, so code content falls through to LLM compression the same as prose. JSON
+compression has no such gate and works in every build.
 
 ### LLM-Based Compression (Prose)
 
@@ -58,7 +64,8 @@ For prose and documentation, ctxloom falls back to LLM compression:
 When you distill content, ctxloom automatically routes to the best strategy:
 
 ```
-Code file (.go, .py, .js, etc.) → AST compression
+Code file (.go, .py, .js, etc.) → AST compression (ctxloom-full only; falls
+                                    back to LLM compression in the default build)
 JSON file → JSON structure compression
 Markdown/prose → LLM compression
 ```
@@ -77,21 +84,29 @@ ctxloom fragment distill --force my-bundle#fragments/coding-standards
 
 ### Multiple Fragments
 
-Distill fragments one at a time:
+Distill one fragment at a time with `ctxloom fragment distill`, or distill a whole bundle (or a glob of bundles) in one pass with `ctxloom bundle distill`, which skips items that are already distilled and unchanged:
 
 ```bash
-# Distill each fragment that needs it
-ctxloom fragment distill my-bundle#fragments/coding-standards
-ctxloom fragment distill my-bundle#fragments/testing-patterns
+# Distill everything in a bundle that needs it
+ctxloom bundle distill ./my-bundle.yaml
+
+# Preview what would be distilled without doing it
+ctxloom bundle distill ./my-bundle.yaml --dry-run
+
+# Force re-distillation of every item
+ctxloom bundle distill ./my-bundle.yaml --force
+
+# Multiple files / globs
+ctxloom bundle distill .ctxloom/content/bundles/*.yaml
 ```
 
-### Checking Distillation Status
+### Comparing Original and Distilled Content
 
 ```bash
-# Show fragment with distillation info
+# Show the original content
 ctxloom fragment show my-bundle#fragments/coding-standards
 
-# Show distilled version
+# Show the distilled version
 ctxloom fragment show --distilled my-bundle#fragments/coding-standards
 ```
 
@@ -140,7 +155,7 @@ fragments:
     distilled: |
       # Coding Standards (Distilled)
 
-      [800 tokens of condensed key points...]
+      [2000 tokens of condensed key points...]
 
     content_hash: "sha256:abc123..."
     distilled_by: "claude-3-opus"
@@ -263,12 +278,12 @@ it makes the error handling path explicit and visible in the code...
 
 ### Automatic Detection
 
-ctxloom tracks content hashes. When content changes, distillation is flagged as stale:
+ctxloom tracks content hashes, so it knows when a fragment's content has moved on from what its `distilled` version was built from. `fragment show` doesn't surface that status itself — the signal comes from `fragment distill`: running it again tells you whether it actually re-distilled or found nothing to do:
 
 ```bash
-# Check if distillation is current
-ctxloom fragment show my-bundle#fragments/standards
-# Shows: "Distillation: stale (content changed)"
+ctxloom fragment distill my-bundle#fragments/standards
+# If unchanged: Fragment "standards" is already distilled and unchanged
+# Otherwise: re-distills and reports the model used
 ```
 
 ### Triggering Re-distillation
@@ -334,7 +349,7 @@ This threshold is conservative - degradation varies by model and task. The warni
 
 | Strategy | Description |
 |----------|-------------|
-| Distill verbose content | Compress 5,000 tokens → 800 tokens |
+| Distill verbose content | Compress 5,000 tokens → ~1,500-2,500 tokens |
 | Front-load key info | Put critical instructions at the start |
 | Summarize at end | Reiterate key points at context end |
 | Use tags selectively | Include only relevant fragments |

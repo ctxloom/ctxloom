@@ -25,10 +25,10 @@ func TestGetCacheDir(t *testing.T) {
 	assert.Equal(t, "/project/.ctxloom/cache", GetCacheDir("/project/.ctxloom"))
 }
 
-func TestBundlesPath_InCache(t *testing.T) {
+func TestCacheBundlesPath_InCache(t *testing.T) {
 	// Bundles should be under cache/bundles/
-	assert.Equal(t, ".ctxloom/cache/bundles", BundlesPath(".ctxloom"))
-	assert.Equal(t, "/project/.ctxloom/cache/bundles", BundlesPath("/project/.ctxloom"))
+	assert.Equal(t, ".ctxloom/cache/bundles", CacheBundlesPath(".ctxloom"))
+	assert.Equal(t, "/project/.ctxloom/cache/bundles", CacheBundlesPath("/project/.ctxloom"))
 }
 
 func TestVendorPath_InCache(t *testing.T) {
@@ -87,6 +87,17 @@ func TestHarpPlanPath_InSessionDir(t *testing.T) {
 	// so a session can hold multiple distinctly named plans.
 	assert.Equal(t, filepath.Join(harpDir, "v1-removal.plan.md"), planPath)
 	assert.True(t, strings.HasSuffix(planPath, filepath.Join("sessions", "swift-amber-falcon", "v1-removal.plan.md")))
+}
+
+// TestTriggerCacheDir_HomeRootedUnderCache pins the trigger verdict cache to
+// ~/.ctxloom/cache/triggers — home-rooted (never inside a project tree) and
+// under the general CacheDir convention (safe to delete), distinct from
+// taskloom's own ~/.ctxloom/tasks store.
+func TestTriggerCacheDir_HomeRootedUnderCache(t *testing.T) {
+	testsupport.Isolate(t)
+	got, err := TriggerCacheDir()
+	assert.NoError(t, err)
+	assert.True(t, strings.HasSuffix(got, filepath.Join(AppDirName, CacheDir, "triggers")))
 }
 
 func TestSessionIndexPath_InSessionsRoot(t *testing.T) {

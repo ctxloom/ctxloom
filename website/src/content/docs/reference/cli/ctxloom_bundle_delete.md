@@ -13,7 +13,7 @@ Delete a bundle
 
 ### Synopsis
 
-Delete a bundle from the local .ctxloom/cache/bundles directory.
+Delete a bundle from the local .ctxloom/content/bundles directory.
 
 This permanently removes the bundle file. Use --force to skip confirmation.
 
@@ -37,6 +37,7 @@ ctxloom bundle delete <name> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

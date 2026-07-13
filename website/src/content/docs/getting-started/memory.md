@@ -11,7 +11,7 @@ With ctxloom, that ritual is two commands:
 /recover
 ```
 
-The previous session comes back on its own — no scrolling through the old transcript, no guessing what to save.
+`/clear` empties the window but doesn't end the session — the same session keeps growing underneath it. `/recover` re-reads that session's still-growing transcript from disk and hands back a fresh distillation of it. Your bearings come back on their own — no scrolling through the old transcript, no guessing what to save.
 
 ## Why this runs out of band
 
@@ -23,18 +23,18 @@ ctxloom distills out of band instead. It reads the complete transcript from disk
 
 You rarely need to trigger this yourself. It runs automatically:
 
-- On exit: when an interactive `ctxloom run` session ends, the transcript that just closed is distilled before control returns to your shell.
+- On exit: when an interactive `ctxloom run` session ends, the transcript that just closed is distilled before control returns to your shell — unless an essence already exists for it, in which case the distill is skipped (idempotent). A resumed session, or one where `/recover` already ran, already has an essence, so it doesn't get a fresh one at exit. Non-interactive runs (`--print`, oneshot, `--structured`) never distill on exit at all.
 - On resume: starting a new `ctxloom run` and choosing to resume distills the previous session first, so its essence is ready to inject.
 - On recovery: `/recover` (or asking "what were we working on?") distills on demand, which is what makes the `/clear` → `/recover` sequence above work even for a session that hasn't exited yet.
 
-Calling distillation by hand is for two narrower cases: forcing an essence before ending a session, or picking up a session that ended before the exit-time distill ran (a crash, a killed process).
+Calling distillation by hand is for two narrower cases: forcing a fresh essence when the exit-time skip left a stale one (`ctxloom session distill <harp>`), or picking up a session that ended before any exit-time distill ran (a crash, a killed process, a non-interactive run).
 
 ## Overview
 
 Session memory lets you:
 
 1. Clear the context window when you hit limits
-2. Recover context from the previous session after `/clear`
+2. Recover context wiped from the current session by `/clear`
 3. Browse session history to find and load specific sessions
 
 For durable, cross-session work items (distinct from the agent's ephemeral
@@ -55,13 +55,16 @@ When you hit context limits and need to clear:
 
 The `/recover` skill:
 
-1. Reads the previous session for this project from disk (read-time — no process tracking)
+1. Reads the *current* session for this project from disk — the one `/clear` just wiped, which is still live and still growing (read-time — no process tracking)
 2. Distills the raw JSONL transcript using a separate LLM (default: Haiku)
 3. Returns the essence so you can continue working
 
-Behind the skill, two tools do the work: `recover_session` recovers the
-most-recent session, and `get_previous_session` returns the previous session for
-the current project.
+Behind the skill, `recover_session` does the work. It resolves the active
+session by identity — the harp bound to this session at start — and falls
+back to the most-recently-touched transcript only if that binding is missing
+or its transcript is gone. `get_previous_session` is a different tool, for a
+different job: it looks up the session *before* this one, for inspecting
+older work, not for undoing a `/clear`.
 
 ### Alternative Recovery
 
@@ -71,7 +74,11 @@ You can also recover naturally:
 What were we working on before the clear?
 ```
 
-The AI will use `get_previous_session` to find and distill your previous session.
+The AI will use `recover_session` to find and distill the current session.
+Don't reach for `get_previous_session` here — after `/clear`, "previous
+session" language is misleading: the session `/clear` wiped is still the
+current one, and `get_previous_session` would return the session before it
+instead.
 
 ### Browsing Session History
 
@@ -94,10 +101,12 @@ Load the distilled session from this morning
 
 ctxloom records each session on disk under the project, in a harp-named session
 directory. Recovery is **read-time**: when you ask to recover, ctxloom reads the
-previous (or most-recent) session for the current project straight from disk. No
-live process or PID tracking is involved, so recovery works even after the AI
-process has fully restarted across `/clear` — and without manually specifying
-session IDs.
+current session — the one bound to this session's harp — straight from disk.
+That binding is identity, not a timestamp guess; a most-recently-touched
+transcript is used only when the harp has no binding or its transcript is
+missing. No live process or PID tracking is involved, so recovery works even
+after the AI process has fully restarted across `/clear` — and without
+manually specifying session IDs.
 
 ### Distillation
 
@@ -128,9 +137,11 @@ keyed by its harp name:
     └── essence.md           # Distilled essence for that session
 ```
 
-`ctxloom session show <harp>` prints this file. A project-rooted
-`.ctxloom/sessions/<session-id>.md` layout also exists as a fallback for older
-session records that predate the harp-keyed store.
+`ctxloom session show <harp>` prints this file. Every distill also mirrors
+the identical bytes to a project-rooted `.ctxloom/sessions/<session-id>.md`
+layout, keyed by backend session ID rather than harp name — that mirror is
+the read path `load_session` and `get_previous_session` use when looking a
+session up by ID instead of harp name, not a legacy fallback.
 
 ### Cross-Agent Workflows
 
@@ -166,8 +177,8 @@ Session memory provides these MCP tools:
 |------|-------------|
 | `compact_session` | Force-distil a session's transcript on disk; frees no context in the live conversation and rarely needs to be called directly since distillation already runs on exit, resume, and recovery |
 | `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
-| `recover_session` | Recover the most-recent session's context after `/clear` |
-| `get_previous_session` | Get the previous session for this project (read-time) |
+| `recover_session` | Recover the current session's context after `/clear` (identity-first: the active harp's bound session, falling back to the most-recently-touched transcript only if that binding is missing) |
+| `get_previous_session` | Get the session *before* this one for this project, for inspecting earlier work — not the post-`/clear` path, since `/clear` doesn't change which session is current |
 
 Browsing recent sessions is a **resource**, not a tool — read
 `ctxloom://sessions/recent`.
@@ -190,11 +201,15 @@ Load session swift-amber-falcon
 `load_session` accepts either a backend session ID (UUID) or a harp name; harp
 names are listed in the `ctxloom://sessions/recent` resource.
 
-### Example: Recover Previous Session
+### Example: Inspect an Earlier Session
 
 ```
-Use get_previous_session to recover what we were working on
+Use get_previous_session to see what we worked on before this session
 ```
+
+This is for looking back at a session that already ended — not for recovering
+from a `/clear`, which `recover_session` (or just `/recover`) already handles
+automatically.
 
 ### Example: Browse History
 
@@ -225,7 +240,9 @@ config:
 ctxloom memory compact
 ```
 
-Compacts the current session directly from the command line.
+There's no notion of a "current session" from a bare CLI invocation — with no
+`--session`, this compacts the most-recently-touched transcript. Pass
+`--session <id>` to target a specific one.
 
 ### List Sessions
 
@@ -262,9 +279,9 @@ ran — distill first, then load with `load_session` or `ctxloom run --session <
 
 ## Troubleshooting
 
-### Recovery Shows "No Previous Session"
+### Recovery Shows "No Sessions Found"
 
-If recovery can't find the previous session:
+If recovery can't find a session to distill:
 - Ensure you started the session with `ctxloom run` (not raw `claude`), so the session was recorded
 - Browse `ctxloom://sessions/recent` (or ask "show me recent sessions") to find and load a specific one
 

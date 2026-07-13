@@ -200,6 +200,134 @@ func TestDiscover_ExplicitFingerprintMatchesAgentIdentity(t *testing.T) {
 	assert.Equal(t, fp, got.Fingerprint)
 }
 
+// TestDiscover_ExplicitKeyName_ExactCommentMatch exercises the new fallback:
+// --key given a name that exactly equals an agent identity's comment.
+func TestDiscover_ExplicitKeyName_ExactCommentMatch(t *testing.T) {
+	signer, _ := newTestIdentity(t, "ben@abbitt.me")
+	other, _ := newTestIdentity(t, "other@example.com")
+	ag := &fakeAgent{signers: []ssh.Signer{other, signer}, comments: []string{"other@example.com", "ben@abbitt.me"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	got, err := d.Discover(context.Background(), "ben@abbitt.me")
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(signer.PublicKey()), got.Fingerprint)
+	assert.Equal(t, "--key", got.Source)
+}
+
+// TestDiscover_ExplicitKeyName_SubstringMatch: a partial name ("ben@abbitt")
+// matches the fuller comment ("ben@abbitt.me").
+func TestDiscover_ExplicitKeyName_SubstringMatch(t *testing.T) {
+	signer, _ := newTestIdentity(t, "ben@abbitt.me")
+	ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{"ben@abbitt.me"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	got, err := d.Discover(context.Background(), "ben@abbitt")
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(signer.PublicKey()), got.Fingerprint)
+}
+
+// TestDiscover_ExplicitKeyName_CaseInsensitive: the match is
+// case-insensitive both on the query and the stored comment.
+func TestDiscover_ExplicitKeyName_CaseInsensitive(t *testing.T) {
+	signer, _ := newTestIdentity(t, "Ben@Abbitt.ME")
+	ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{"Ben@Abbitt.ME"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	got, err := d.Discover(context.Background(), "ben@abbitt")
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(signer.PublicKey()), got.Fingerprint)
+}
+
+// TestDiscover_ExplicitKeyName_AmbiguousSubstring_ErrorListsBoth: a name
+// substring matching 2+ agent identities is a hard error, never a guess, and
+// lists every match with its fingerprint and type so the user can
+// disambiguate.
+func TestDiscover_ExplicitKeyName_AmbiguousSubstring_ErrorListsBoth(t *testing.T) {
+	s1, _ := newTestIdentity(t, "ben@abbitt.me")
+	s2, _ := newTestIdentity(t, "ben+ctxloom@abbitt.me")
+	ag := &fakeAgent{signers: []ssh.Signer{s1, s2}, comments: []string{"ben@abbitt.me", "ben+ctxloom@abbitt.me"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	_, err := d.Discover(context.Background(), "ben")
+	require.Error(t, err)
+	var ambigErr *AmbiguousKeyNameError
+	require.ErrorAs(t, err, &ambigErr)
+	assert.Len(t, ambigErr.Candidates, 2)
+	assert.Contains(t, err.Error(), `"ben"`)
+	assert.Contains(t, err.Error(), ssh.FingerprintSHA256(s1.PublicKey()))
+	assert.Contains(t, err.Error(), ssh.FingerprintSHA256(s2.PublicKey()))
+	assert.Contains(t, err.Error(), "ben@abbitt.me")
+	assert.Contains(t, err.Error(), "ben+ctxloom@abbitt.me")
+	assert.Contains(t, err.Error(), "fingerprint")
+}
+
+// TestDiscover_ExplicitKeyName_NoMatch_ClearError: a name that matches no
+// agent identity comment (and isn't a fingerprint or file) is a clear,
+// distinguishable error rather than a silent fallback.
+func TestDiscover_ExplicitKeyName_NoMatch_ClearError(t *testing.T) {
+	signer, _ := newTestIdentity(t, "ben@abbitt.me")
+	ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{"ben@abbitt.me"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	_, err := d.Discover(context.Background(), "nobody-here")
+	require.Error(t, err)
+	var ambigErr *AmbiguousKeyNameError
+	assert.False(t, errors.As(err, &ambigErr), "a zero-match name must not be reported as ambiguous")
+	assert.Contains(t, err.Error(), "nobody-here")
+}
+
+// TestDiscover_ExplicitKeyName_EmptyCommentNeverMatched: a key with no
+// comment must never match, even against an empty-ish query, since an
+// unconditional substring match against "" would otherwise match everything.
+func TestDiscover_ExplicitKeyName_EmptyCommentNeverMatched(t *testing.T) {
+	signer, _ := newTestIdentity(t, "")
+	ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{""}}
+	d := discovererWithAgent(ag, "", nil)
+
+	_, err := d.Discover(context.Background(), "anything")
+	require.Error(t, err)
+	var ambigErr *AmbiguousKeyNameError
+	assert.False(t, errors.As(err, &ambigErr))
+}
+
+// TestDiscover_ExplicitFingerprint_StillWinsOverNameFallback is a regression
+// test for the fallback ordering: a SHA256: fingerprint must resolve via
+// findByFingerprint, never fall through to comment matching, even though
+// nothing here changed that path — it pins step (a) of the resolveExplicit
+// chain against being reordered behind the new step (c).
+func TestDiscover_ExplicitFingerprint_StillWinsOverNameFallback(t *testing.T) {
+	signer, _ := newTestIdentity(t, "SHA256-lookalike-comment")
+	ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{"SHA256-lookalike-comment"}}
+	d := discovererWithAgent(ag, "", nil)
+
+	fp := ssh.FingerprintSHA256(signer.PublicKey())
+	got, err := d.Discover(context.Background(), fp)
+	require.NoError(t, err)
+	assert.Equal(t, fp, got.Fingerprint)
+	assert.Equal(t, "--key", got.Source)
+}
+
+// TestDiscover_ExplicitFilePath_StillWinsOverNameFallback is a regression
+// test pinning step (b): a --key value that resolves as a real public-key
+// file must resolve via findByPublicKey, never fall through to comment
+// matching, even when its text would also match some agent comment.
+func TestDiscover_ExplicitFilePath_StillWinsOverNameFallback(t *testing.T) {
+	wanted, wantedLine := newTestIdentity(t, "wanted")
+	decoy, _ := newTestIdentity(t, "/keys/wanted.pub") // comment literally contains the path text
+	ag := &fakeAgent{signers: []ssh.Signer{decoy, wanted}, comments: []string{"/keys/wanted.pub", "wanted"}}
+	d := discovererWithAgent(ag, "", nil)
+	d.ReadFile = func(path string) ([]byte, error) {
+		if path == "/keys/wanted.pub" {
+			return []byte(wantedLine), nil
+		}
+		return nil, fmt.Errorf("no such file: %s", path)
+	}
+
+	got, err := d.Discover(context.Background(), "/keys/wanted.pub")
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(wanted.PublicKey()), got.Fingerprint, "the file must resolve, not the decoy whose comment matches the path text")
+}
+
 func TestIsHardwareBacked(t *testing.T) {
 	signer, _ := newTestIdentity(t, "plain")
 

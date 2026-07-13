@@ -595,8 +595,8 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
-	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo). Its content is trusted")
-	fmt.Println("once signed by ctxloom's publishing key; until then it takes the review path.")
+	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo). Its bundles are signed")
+	fmt.Println("by ctxloom's publishing key, which this binary trusts, so they need no review.")
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
@@ -694,9 +694,9 @@ func writeInitialConfig(appDir, engine string) error {
 //
 // A remote is no longer trusted on add (spec §11): trusting content is now
 // keyed to a publisher KEY, not to the repo it came from. To auto-trust your own
-// personal repo's content, sign its bundles and add your key — `ctxloom sign`
-// and `ctxloom signer add` (later slices). Until then its content takes the
-// review path, which is exactly right for content nobody has vouched for.
+// personal repo's content, sign its bundles with `ctxloom sign` and trust your
+// key with `ctxloom signer add`. Until you do, its content takes the review
+// path, which is exactly right for content nobody has vouched for.
 func personalRemoteRequests(repos []string, forge string) []operations.AddRemoteRequest {
 	reqs := make([]operations.AddRemoteRequest, 0, len(repos))
 	for i, repo := range repos {

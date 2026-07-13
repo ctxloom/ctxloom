@@ -6,6 +6,7 @@ package operations
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -172,6 +173,22 @@ func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 		return nil, fmt.Errorf("edit task: %w", err)
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// DeferredSince resolves the project's task store and returns, for every
+// currently Deferred task, the timestamp it most recently entered that
+// status. Trigger evaluation uses this to scope its evidence per task; it is
+// otherwise the same TaskContext-resolution wrapper as ListTasks/AddTask.
+func DeferredSince(tc TaskContext) (map[string]time.Time, error) {
+	store, _, _, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	since, err := store.DeferredSince()
+	if err != nil {
+		return nil, fmt.Errorf("deferred since: %w", err)
+	}
+	return since, nil
 }
 
 // projectIdentity names the project a task operation resolved to, so

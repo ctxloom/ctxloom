@@ -32,7 +32,7 @@ func TestInitializeProject(t *testing.T) {
 	// `role` is registry-only metadata stripped on write — it must never persist.
 	assert.NotContains(t, body, "role:")
 
-	bundlesDir, err := afero.DirExists(fs, paths.BundlesPath(appDir))
+	bundlesDir, err := afero.DirExists(fs, paths.LocalBundlesPath(appDir))
 	require.NoError(t, err)
 	assert.True(t, bundlesDir, "bundles dir should be created")
 

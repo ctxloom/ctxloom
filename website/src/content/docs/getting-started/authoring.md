@@ -16,8 +16,10 @@ ctxloom bundle create my-standards
 ctxloom bundle create my-standards -d "My coding standards"
 ```
 
-This creates `.ctxloom/cache/bundles/my-standards.yaml` with an example
-fragment and skill:
+This creates `.ctxloom/content/bundles/my-standards.yaml` with an example
+fragment and skill. That directory is committed — it's your project's own
+authored content, the tree `ctxloom sign --all` signs, and what a publishing
+repo ships:
 
 ```yaml
 version: 1.0.0
@@ -42,10 +44,15 @@ skills:
 
 ## Edit Your Bundle
 
-```bash
-# Open in your editor
-ctxloom bundle edit my-standards
-```
+`ctxloom bundle edit` doesn't open an editor — it's a flag-driven command for
+adding or removing items (`--add-fragment`, `--remove-prompt`, `--add-tag`,
+`--add-mcp`, and so on). Run it with no flags and it just prints "No changes
+made" and the help text.
+
+To fill in real content, open `.ctxloom/content/bundles/my-standards.yaml`
+directly in your own editor. (For touching a single existing item in place,
+`ctxloom fragment edit my-standards#fragments/<name>` and
+`ctxloom skill edit my-standards#skills/<name>` do use `$EDITOR`.)
 
 Add content to make it useful:
 
@@ -172,9 +179,9 @@ Status: `codex` and `kiro` exports are implemented and hermetically tested; live
 ctxloom fragment create my-standards testing
 ```
 
-Then edit to add content:
+Then edit its content (opens `$EDITOR`):
 ```bash
-ctxloom bundle edit my-standards
+ctxloom fragment edit my-standards#fragments/testing
 ```
 
 ### Add a Skill
@@ -200,11 +207,17 @@ ctxloom fragment list --bundle my-standards
 ctxloom fragment show my-standards#fragments/coding-style
 
 # Preview how it would be assembled
-ctxloom run -f my-standards --dry-run --print
+ctxloom run -f coding-style --dry-run
 
-# Run with your bundle
-ctxloom run -f my-standards "Help me with this code"
+# Run with a fragment from your bundle
+ctxloom run -f coding-style "Help me with this code"
 ```
+
+`-f/--fragment` takes a fragment name (or `bundle#fragments/name` if the name
+isn't unique across your installed bundles), not a bundle name — a bundle
+name won't match anything and `run` will error. To pull in every fragment a
+bundle provides at once, reference the bundle from a profile's `bundles:`
+list and run with `-p <profile>` instead (see [Profiles](/concepts/profiles)).
 
 ## Repository Structure for Sharing
 
@@ -236,7 +249,7 @@ Name your repository `ctxloom` or `ctxloom-*` to be discoverable:
 mkdir -p ctxloom/bundles
 
 # Copy your bundles
-cp .ctxloom/cache/bundles/my-standards.yaml ctxloom/bundles/
+cp .ctxloom/content/bundles/my-standards.yaml ctxloom/bundles/
 
 # Push to GitHub
 git init
@@ -250,7 +263,7 @@ Others can then use your bundles:
 
 ```bash
 ctxloom remote add standards you/ctxloom-standards
-ctxloom run -f standards/my-standards "help me"
+ctxloom run -f coding-style "help me"
 ```
 
 ## Distillation

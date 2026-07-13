@@ -134,7 +134,7 @@ func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	// Create test bundle with fragments
 	bundleContent := `version: "1.0"
@@ -164,9 +164,9 @@ fragments:
       Project: {{project_name}}
       Version: {{version}}
 `
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
 
-	loader := bundles.NewLoader([]string{paths.BundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 
@@ -356,6 +356,159 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	// Variables should be substituted
 	assert.Contains(t, result.Context, "MyProject")
 	assert.Contains(t, result.Context, "1.0.0")
+}
+
+// TestAssembleContext_UndefinedVariableWarns pins the substitution-warning
+// WIRING bug: substituteVariables has always computed the "undefined
+// variable" message, but AssembleContext (via loadAssembledContext) used to
+// pass a no-op warnFunc, so the message was computed and thrown away. This
+// proves the warning now reaches the user through the standard clidiag line,
+// matching the promise in docs/concepts/fragments.md ("An undefined variable
+// renders empty and produces a warning").
+func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"project-partial": {
+				Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
+				// project_name is bound; version is deliberately left undefined.
+				Variables: map[string]string{"project_name": "MyProject"},
+			},
+		}},
+	}
+
+	var result *AssembleContextResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = AssembleContext(context.Background(), cfg, AssembleContextRequest{
+			Profile: "project-partial",
+			Loader:  loader,
+		})
+		require.NoError(t, err)
+	})
+
+	assert.Contains(t, result.Context, "MyProject")
+	assert.Contains(t, stderr, "ctxloom: warning: undefined variable: {{version}}")
+}
+
+// TestAssembleContext_DefinedVariablesDoNotWarn is the negative case: when
+// every referenced variable is bound, no warning fires at all.
+func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"project-full": {
+				Fragments: []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
+				Variables: map[string]string{"project_name": "MyProject", "version": "9.9.9"},
+			},
+		}},
+	}
+
+	stderr := captureStderr(t, func() {
+		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+			Profile: "project-full",
+			Loader:  loader,
+		})
+		require.NoError(t, err)
+	})
+
+	assert.Empty(t, stderr, "no warning when every referenced variable is bound")
+}
+
+// TestAssembleContext_TemplateParseFailureWarnsAndReturnsContentUnchanged
+// covers the other warnFunc path substituteVariables exercises: a fragment
+// whose mustache markup itself fails to parse (here, a close tag with no
+// matching open). The broken content is returned VERBATIM (fault tolerance:
+// never silently dropped) and the parse failure warns exactly like the
+// undefined-variable case.
+func TestAssembleContext_TemplateParseFailureWarnsAndReturnsContentUnchanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle with a broken template
+fragments:
+  broken-template:
+    content: |
+      {{/unopened}}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"broken": {Fragments: []config.FragmentRef{{Name: "dev#fragments/broken-template"}}},
+		}},
+	}
+
+	var result *AssembleContextResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = AssembleContext(context.Background(), cfg, AssembleContextRequest{
+			Profile: "broken",
+			Loader:  loader,
+		})
+		require.NoError(t, err)
+	})
+
+	assert.Contains(t, result.Context, "{{/unopened}}", "a template that fails to parse is returned unchanged, not swallowed")
+	assert.Contains(t, stderr, "ctxloom: warning: failed to parse template:")
+}
+
+// TestAssembleContext_UndefinedVariableWarningDedupesAcrossRepeatedCalls
+// guards against spam: AssembleContext is called repeatedly in a live
+// session (once per conversation turn — internal/cli/run.go, acp_cmd.go), so
+// a fragment with one undefined variable must not print a fresh warning line
+// on every single call. The dedup is process-wide (clidiag.WarnOnce, the
+// same mechanism strictness.FailOnce already uses for exactly this
+// "re-fires per subsystem" shape), so the SECOND assembly in a process
+// produces no additional output for an identical message.
+//
+// Uses a dedicated fragment/variable name (not the shared "variable-content"
+// fixture other tests in this file also render) so this test's dedup-key
+// occupancy in clidiag's process-global onceSeen set can never race another
+// test's expectation depending on test execution order.
+func TestAssembleContext_UndefinedVariableWarningDedupesAcrossRepeatedCalls(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle for the dedup case
+fragments:
+  dedup-fragment:
+    content: |
+      Repeat check: {{dedup_check_variable}}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"project-dedup": {Fragments: []config.FragmentRef{{Name: "dev#fragments/dedup-fragment"}}},
+		}},
+	}
+
+	assemble := func() string {
+		return captureStderr(t, func() {
+			_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+				Profile: "project-dedup",
+				Loader:  loader,
+			})
+			require.NoError(t, err)
+		})
+	}
+
+	first := assemble()
+	second := assemble()
+
+	assert.Contains(t, first, "ctxloom: warning: undefined variable: {{dedup_check_variable}}")
+	assert.Empty(t, second, "identical warning must not repeat on a second assembly of the same content")
 }
 
 func TestAssembleContext_EmptyRequest(t *testing.T) {

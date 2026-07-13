@@ -13,11 +13,14 @@ my-ctxloom-repo/
 ├── ctxloom/
 │   └── bundles/
 │       ├── my-bundle.yaml
+│       ├── my-bundle.yaml.sig
 │       └── another-bundle.yaml
 └── README.md
 ```
 
 The `ctxloom/` directory is required for ctxloom to recognize the repository as a valid remote. Remote repositories distribute bundles only; profiles ship inside a bundle's `profiles:` map (see below).
+
+`my-bundle.yaml.sig` is a detached publisher signature, a sibling ctxloom writes next to a signed bundle (see Sign Your Bundles below). It's the only thing that spares your consumers ctxloom's review step — everything else pulled from this repo is born pending and withheld from the agent until a human reviews it.
 
 ## Creating a Bundle
 
@@ -69,7 +72,7 @@ skills:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `version` | Yes | Semantic version (e.g., `1.0`, `2.1.3`) |
+| `version` | No | Free-form label (e.g., `1.0`, `2.1.3`); ctxloom does not validate or enforce it, and it does not drive version pinning — pinning is by git tag/SHA/semver range in the reference (see Versioning below) |
 | `description` | No | Human-readable description |
 | `author` | No | Author name or organization |
 | `tags` | No | Bundle-level tags (inherited by all items) |
@@ -83,7 +86,7 @@ skills:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `content` | Yes | The fragment content (markdown) |
+| `content` | No | The fragment content (markdown); ctxloom does not require it, but a fragment with no content has nothing to give the agent |
 | `tags` | No | Additional tags (merged with bundle tags) |
 | `notes` | No | Human-readable notes (not sent to AI) |
 | `no_distill` | No | Prevent automatic distillation |
@@ -145,7 +148,13 @@ Context bundles for [description].
 ctxloom remote add mybundles username/my-ctxloom-bundles
 ctxloom profile create dev -b mybundles/go-development
 ctxloom remote pull
+ctxloom review
 ```
+
+`ctxloom remote pull` only fetches this bundle; `ctxloom review` is what
+actually lets its fragments and skills reach the agent — pulled content is
+born pending and withheld until a human reviews it, unless you already trust
+this bundle's publisher key.
 
 ## Available Bundles
 
@@ -153,7 +162,34 @@ ctxloom remote pull
 - **testing-patterns** - Testing strategies and examples
 ```
 
-### 4. Push to GitHub
+### 4. Sign Your Bundles
+
+Signing is what spares your consumers that review step: content signed by a
+key they trust is exempt from it, so it reaches their agent as soon as they
+pull it. Everything else is born pending regardless of how it was published.
+Signing only authenticates the bundle as genuinely yours — it never vouches
+for whether it's safe — so trusting your key is a separate decision each
+consumer makes for themselves (`ctxloom signer add`).
+
+The easiest way to sign is at publish time: `ctxloom bundle push my-bundle
+mybundles --sign` (see Validation below) signs the exact bytes it publishes
+and writes the `.sig` sibling for you — use this if you aren't committing to
+this repository by hand.
+
+If you're pushing this repository with plain git instead (the next step),
+sign first, inside a real ctxloom project (see Validation), then commit both
+files yourself:
+
+```bash
+ctxloom sign my-bundle
+```
+
+This writes a detached `my-bundle.yaml.sig` next to the bundle in your
+project. Copy both `my-bundle.yaml` and `my-bundle.yaml.sig` into this repo's
+`ctxloom/bundles/` before the commit below — `ctxloom bundle export` copies
+only the bundle YAML, not its `.sig`, so copy the signature yourself.
+
+### 5. Push to GitHub
 
 ```bash
 git add .
@@ -198,6 +234,10 @@ Use semantic versioning for bundles:
 - **Minor** (1.0 → 1.1): New fragments/features
 - **Patch** (1.0.0 → 1.0.1): Bug fixes, typo corrections
 
+ctxloom does not parse, validate, or enforce the bundle's `version:` field —
+it's a label for your own bookkeeping and changelog. What a consumer actually
+pins to is a git tag, SHA, or semver range in their reference, below.
+
 ### Git Tags
 
 Tag releases for version pinning:
@@ -212,6 +252,7 @@ Users can then pin to specific versions by referencing the tagged ref:
 ```bash
 ctxloom profile create dev -b mybundles/go-development@v1.0.0
 ctxloom remote pull
+ctxloom review
 ```
 
 ## Best Practices
@@ -280,11 +321,21 @@ Team profiles (frontend-dev, backend-dev, fullstack-dev) go in the `profiles:` m
 
 ## Validation
 
-Before publishing, validate your bundles:
+`ctxloom fragment show` and `ctxloom run --dry-run` resolve against your
+project's configured bundles (`.ctxloom/content/bundles/`, plus pinned
+remotes) — not an arbitrary `ctxloom/bundles/` tree in the current directory.
+That tree is the distribution layout a consumer's remote fetch reads;
+ctxloom never reads it locally. Author and validate inside a real ctxloom
+project (`ctxloom init`, if the directory you're publishing from doesn't
+already have one) rather than the bare repository from Publishing to GitHub
+above. Write the bundle at `.ctxloom/content/bundles/my-bundle.yaml` — that
+directory is committed, which is what makes the rest of this flow work: it's
+what `ctxloom sign` signs, and it's the tree `ctxloom bundle push` reads from
+— then:
 
 ```bash
 # Check YAML syntax
-yamllint ctxloom/bundles/my-bundle.yaml
+yamllint .ctxloom/content/bundles/my-bundle.yaml
 
 # Test loading
 ctxloom fragment show my-bundle#fragments/testing
@@ -292,6 +343,11 @@ ctxloom fragment show my-bundle#fragments/testing
 # Test in a profile
 ctxloom run --dry-run -f my-bundle#fragments/testing
 ```
+
+Publish with `ctxloom bundle push my-bundle mybundles` (add `--sign` to sign
+it as part of the same push, or `--pr` to open a pull request instead of
+pushing directly) — the supported publish path, writing straight to
+`ctxloom/bundles/` in the target repo.
 
 ## Example Repositories
 

@@ -55,6 +55,16 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Trust & Security',
+					items: [
+						{ label: 'A prompt is executable code', link: '/security/prompts-are-code/' },
+						{ label: 'What a bundle can do to you', link: '/security/bundle-anatomy/' },
+						{ label: 'Threat model', link: '/security/threat-model/' },
+						{ label: 'Trust states and the gate', link: '/security/trust-states/' },
+						{ label: 'Key management', link: '/security/key-management/' },
+					],
+				},
+				{
 					label: 'Guides',
 					items: [
 						{ label: 'Configuration', link: '/guides/configuration/' },

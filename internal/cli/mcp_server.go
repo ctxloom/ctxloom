@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -38,6 +39,11 @@ type ctxServer struct {
 	// delegation()), pre-bound on identity servers.
 	agents   *agentDelegation
 	agentsMu sync.Mutex
+	// distill collapses concurrent distillations of the SAME session into one
+	// run. It is SHARED across ctxServer instances (the coordinator builds a
+	// fresh one per relayed call), so it is injected, never owned here. Nil
+	// disables the dedupe — the work still happens, just undeduped.
+	distill *singleflight.Group
 }
 
 // mcpServerInstructions tells the client what this reduced MCP surface is for.
@@ -261,4 +267,5 @@ func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
 	s.registerMemoryTools(server)
 	s.registerAgentTools(server)
+	s.registerTriggerTools(server)
 }

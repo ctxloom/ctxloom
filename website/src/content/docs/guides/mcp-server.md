@@ -14,7 +14,13 @@ This starts ctxloom as an MCP server over stdio.
 
 ## Claude Code Configuration
 
-Add ctxloom to `~/.claude/settings.json`:
+Claude Code doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
+
+```bash
+ctxloom manage mcp install
+```
+
+If you need to add it by hand, put the block in `.mcp.json` (project) or `~/.claude.json` (user), not `settings.json`:
 
 ```json
 {
@@ -47,7 +53,7 @@ mcp:
 
 ## What the Server Exposes
 
-The MCP surface is deliberately small: it retrieves context and works with session memory. Everything that *manages* ctxloom — bundles, profiles, remotes, review/approval, trust, hooks — is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
+The MCP surface is deliberately small: it retrieves context, works with session memory, and delegates to other ctxloom agents. Everything that *manages* ctxloom — bundles, profiles, remotes, review/approval, trust, hooks — is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
 
 ### Tools
 
@@ -60,6 +66,10 @@ The MCP surface is deliberately small: it retrieves context and works with sessi
 | `load_session` | Distill and load a session by ID or harp name |
 | `recover_session` | Recover the most-recent session's context after `/clear` |
 | `get_previous_session` | Get the previous session's distilled content |
+| `agent_run` | Launch a configured ctxloom agent as a delegated child session |
+| `agent_send` | Send a message to another agent session (coordinator → child by harp, or child → "parent") |
+| `agent_recv` | Receive pending mailbox messages for this session, waiting up to a bounded timeout |
+| `agent_stop` | Stop a delegated child session; it stays resumable via a later `agent_send` |
 
 ### Resources
 
@@ -178,4 +188,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom trust <ref>` for a single item) — or trust the source with `ctxloom remote trust <name>`.
+Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer add <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.

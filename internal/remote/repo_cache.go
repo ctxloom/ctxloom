@@ -204,14 +204,32 @@ func (c *RepoCache) cloneToken(cloneURL string) string {
 // would otherwise be reported as the subcommand (and could leak a token). extraEnv,
 // when non-empty, is appended to the inherited environment (see authEnv) so the
 // auth header is passed out of band.
+//
+// Every invocation is forced non-interactive: no human is necessarily present to
+// answer a credential prompt (this runs headless in an agent process as often as
+// at a terminal), so a private/renamed/deleted/typo'd URL must fail fast rather
+// than block forever or pop a GUI dialog. GIT_TERMINAL_PROMPT=0 stops git itself
+// from prompting at a terminal; GIT_ASKPASS/SSH_ASKPASS are cleared so no
+// configured askpass helper runs either (an askpass is what escalates a failed
+// auth into a blocking GUI dialog with nothing to answer it). This is set
+// unconditionally — cmd.Env is never left nil — so the child can never silently
+// inherit an interactive setup from the parent environment.
+//
+// This does NOT weaken legitimate auth: credential helpers (credential.helper,
+// gh, git-credential-*) and SSH keys/ssh-agent authenticate without ever
+// prompting a human, so GIT_TERMINAL_PROMPT and askpass — both purely about
+// asking a HUMAN at a terminal/GUI — never touch that path.
 func runGit(ctx context.Context, dir, label string, extraEnv []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	// os.Environ() first, then the non-interactive overrides, then extraEnv:
+	// exec.Cmd keeps only the LAST value for a duplicate key, so listing the
+	// overrides after the inherited environment guarantees they win even if the
+	// parent process (or its shell profile) already set GIT_ASKPASS/SSH_ASKPASS.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
+	cmd.Env = append(cmd.Env, extraEnv...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

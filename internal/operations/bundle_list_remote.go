@@ -17,7 +17,7 @@ import (
 // markers:
 //
 //   - PRESENT bundles come from the SeededBundleLoader — the codebase's standard
-//     local+remote bundle reader. It fs-walks cache/bundles (locally-authored
+//     local+remote bundle reader. It fs-walks content/bundles (locally-authored
 //     bundles from `bundle create`) AND seeds every lockfile bundle, read
 //     canonically from its git clone (remote bundles are not extracted to disk —
 //     see remote.writePulledContent). Local bundles list by name, remote bundles

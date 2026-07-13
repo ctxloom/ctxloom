@@ -49,6 +49,68 @@ func createTestRepo(t *testing.T, dir string) string {
 	return repoDir
 }
 
+// fakeGitBinary drops an executable named "git" in a fresh temp dir that,
+// instead of touching any repository, dumps its own environment (one VAR=value
+// per line, matching `env`(1)) to envFile and exits 0. Returns the directory to
+// prepend to PATH so exec.CommandContext's "git" resolves to it.
+func fakeGitBinary(t *testing.T, envFile string) string {
+	t.Helper()
+	binDir := t.TempDir()
+	script := "#!/bin/sh\nenv > \"" + envFile + "\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0755))
+	return binDir
+}
+
+// TestRunGit_NonInteractiveEnv pins the fix for the credential-prompt hang: a
+// git subprocess must never be able to block on interactive auth. It proves
+// runGit's child process env always carries GIT_TERMINAL_PROMPT=0 and empty
+// GIT_ASKPASS/SSH_ASKPASS — even when the parent environment already set an
+// askpass (the exact shape of the live hang: an ambient GUI askpass answering a
+// failed clone with a blocking password dialog) and even when extraEnv (the
+// github auth-header injection) is empty, which is the path that previously
+// left cmd.Env nil and let the child inherit the parent verbatim.
+func TestRunGit_NonInteractiveEnv(t *testing.T) {
+	assertNonInteractive := func(t *testing.T, envFile string) {
+		t.Helper()
+		data, err := os.ReadFile(envFile)
+		require.NoError(t, err)
+		env := string(data)
+		assert.Regexp(t, `(?m)^GIT_TERMINAL_PROMPT=0$`, env,
+			"git must be told not to prompt a human at a terminal")
+		assert.Regexp(t, `(?m)^GIT_ASKPASS=$`, env,
+			"a configured askpass must be neutralized, not inherited")
+		assert.Regexp(t, `(?m)^SSH_ASKPASS=$`, env,
+			"a configured SSH askpass must be neutralized, not inherited")
+	}
+
+	t.Run("extraEnv empty (cmd.Env previously left nil)", func(t *testing.T) {
+		envFile := filepath.Join(t.TempDir(), "env.txt")
+		binDir := fakeGitBinary(t, envFile)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		// Simulate the live hang's ambient setup: a GUI askpash already configured
+		// in the parent environment.
+		t.Setenv("GIT_ASKPASS", "/usr/bin/some-gui-credential-dialog")
+		t.Setenv("SSH_ASKPASS", "/usr/bin/ssh-askpass")
+
+		err := runGit(context.Background(), "", "clone", nil,
+			"clone", "--", "https://example.invalid/owner/repo", filepath.Join(t.TempDir(), "dir"))
+		require.NoError(t, err)
+		assertNonInteractive(t, envFile)
+	})
+
+	t.Run("extraEnv non-empty (github auth-header injection)", func(t *testing.T) {
+		envFile := filepath.Join(t.TempDir(), "env.txt")
+		binDir := fakeGitBinary(t, envFile)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("GIT_ASKPASS", "/usr/bin/some-gui-credential-dialog")
+
+		err := runGit(context.Background(), "", "fetch", []string{"GIT_CONFIG_COUNT=1"},
+			"fetch", "--all")
+		require.NoError(t, err)
+		assertNonInteractive(t, envFile)
+	})
+}
+
 func TestRepoCache_repoDirForURL_RejectsTraversal(t *testing.T) {
 	base := t.TempDir()
 	cache := NewRepoCache(base, AuthConfig{})

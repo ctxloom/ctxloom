@@ -5,6 +5,12 @@ Everything here is derived from the enforcement code; where behavior and older
 doc-comments disagree, this document describes the behavior (open discrepancies
 are listed under Known gaps).
 
+> **Wire contracts and payload framing:**
+> [signature-envelope.spec.md](signature-envelope.spec.md) — what bytes are signed,
+> how the countersignature payload is framed, and the exact strings third parties
+> bind to. That document explains *why these bytes*; this one is the normative
+> account of what the system *does*. **Where the two disagree, this document wins.**
+
 ## The invariant
 
 **A human sees third-party content — including every update to it — before the
@@ -164,9 +170,10 @@ A signature that is present but does **not** verify over the bytes it sits besid
 bundle is withheld entirely, never degraded to unsigned.
 
 Third-party unsigned remotes default to pending; their content is reviewed like
-anything else. Managing signer keys (`ctxloom signer add|list|remove`) and
-producing signatures (`ctxloom sign`) are later slices; a hand-edited
-`allowed_signers` file works today. Signing/verification is CLI-only and is
+anything else. Signer keys are managed with `ctxloom signer add|list|show|remove`
+and signatures are produced with `ctxloom sign`; a hand-edited `allowed_signers`
+file is still read verbatim, so editing it by hand remains equivalent.
+Signing/verification is CLI-only and is
 **never** exposed over MCP — handing the agent a `signer add` capability would
 defeat the property this design exists to provide.
 
@@ -195,7 +202,12 @@ bytes** with the reviewer's own SSH key:
   rejecting countersigns the ref block plus a content-reject over the current
   bytes. Viewing never mutates — only an explicit letter acts.
 - The countersigning key is resolved once per session, before the first item is
-  shown, from `ssh-agent` (`SSH_AUTH_SOCK`). If the key is a plain software key
+  shown, via the same zero-config discovery chain `ctxloom sign` uses
+  (`internal/signing/agentkey`): `git config user.signingkey` first, then the
+  sole identity held by `ssh-agent` (`SSH_AUTH_SOCK`) when there is exactly
+  one. (`--key` and the `sign.key` config default, which `ctxloom sign` also
+  honors, are not yet exposed on `ctxloom review` itself.) If the key is a
+  plain software key
   (not `sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com`), the
   session warns **once**: any process holding `SSH_AUTH_SOCK` — including an
   agent ctxloom just launched — can ask that agent to sign approvals as you,
@@ -411,7 +423,35 @@ never permitted in the committable project store.
    software-key warning fires once ever; the current implementation fires once
    per `ctxloom review` invocation instead (never blocking). Tracked as deferred
    work.
-6. **The zero-config signing-key discovery chain is minimal.** `ctxloom review`
-   resolves a key from `ssh-agent` only; the full chain the spec describes (git
-   `user.signingkey` → agent → `sign.key` config → `--key`) is owned by a
-   parallel slice and not yet unified in.
+6. **`ctxloom review` does not expose `--key` / `sign.key` config.** The
+   discovery chain itself is unified: `ctxloom review` and `ctxloom sign` both
+   resolve through the same `internal/signing/agentkey.Discoverer` (git
+   `user.signingkey` → sole `ssh-agent` identity). What `ctxloom review` does
+   not do is pass an explicit key into that chain, so — unlike `ctxloom sign`
+   — an operator cannot override discovery with `--key` or the `sign.key`
+   config default on `review` itself; only git config and ssh-agent are
+   consulted. Narrowing this remaining gap means threading an explicit-key
+   override through `resolveReviewSigner`.
+7. **No filesystem load path verifies a publisher signature.** Publisher
+   verification is wired into exactly two load paths — the remote-git seed
+   (`config.loadRemoteBundleSeed`) and the companion loadout — the two places
+   `Bundle.StampSigner` is called. A signed `(x.yaml, x.yaml.sig)` pair placed in
+   a directory ctxloom reads is therefore *not* verified: it is either first-party
+   local content (allowed unverified) or carries no signer. The consequence is
+   that the **organization drop-in / MDM flow of spec §4.4 and §7A.6 does not
+   work** — an org cannot yet ship signed context through a channel other than a
+   git remote. This fails safe (an unverified bundle is unsigned, and unsigned
+   content is reviewed), so it is a missing feature, not a hole.
+8. **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root
+   is unconditionally unioned into every lookup (`config.TrustRoot`), and
+   `operations.RemoveSigner` only rewrites the user/project *file*. There is no
+   negative-entry mechanism, so `ctxloom signer remove ben+ctxloom@abbitt.me` does
+   not stop ctxloom-published bundles being auto-trusted. Spec §7 says the embedded
+   defaults are removable; they are not. A user who wants to review ctxloom's own
+   content by hand currently has no supported way to ask for that.
+9. **One key signs every surface.** Spec §6 calls for three keys with three
+   compromise radii (release binaries / bundle content / per-companion loadouts).
+   In fact a **single** embedded publish key signs both the ctxloom-default bundles
+   and both companion loadouts, and `.goreleaser.yml` carries no `signs:` block at
+   all — **release artifacts are unsigned**. The compromise radius of that one key
+   is therefore every signed surface at once.

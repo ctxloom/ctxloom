@@ -15,7 +15,7 @@ Manage context fragments
 
 Manage context fragments - reusable context snippets for AI coding assistants.
 
-Fragments live inside bundles — local bundle YAML files in .ctxloom/cache/bundles/
+Fragments live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#fragments/name
 
@@ -36,6 +36,7 @@ Examples:
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

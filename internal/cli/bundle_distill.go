@@ -39,8 +39,8 @@ Supports glob patterns to process multiple files at once.
 
 Examples:
   ctxloom bundle distill ./my-bundle.yaml                    # Single file
-  ctxloom bundle distill .ctxloom/cache/bundles/*.yaml           # All bundles in directory
-  ctxloom bundle distill .ctxloom/cache/bundles/**/*.yaml        # Recursive
+  ctxloom bundle distill .ctxloom/content/bundles/*.yaml           # All bundles in directory
+  ctxloom bundle distill .ctxloom/content/bundles/**/*.yaml        # Recursive
   ctxloom bundle distill bundle1.yaml bundle2.yaml           # Multiple files
   ctxloom bundle distill ./my-bundle.yaml --force            # Re-distill all items
   ctxloom bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled`,

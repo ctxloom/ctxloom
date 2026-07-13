@@ -41,20 +41,3 @@ func TestOutcomesListsAllFour(t *testing.T) {
 	got := Outcomes()
 	assert.ElementsMatch(t, []Outcome{Fired, NotFired, NeedsInvestigation, CannotDetermine}, got)
 }
-
-func TestClampConfidence(t *testing.T) {
-	cases := []struct {
-		in   float64
-		want float64
-	}{
-		{-1, 0},
-		{0, 0},
-		{0.5, 0.5},
-		{1, 1},
-		{1.5, 1},
-		{100, 1},
-	}
-	for _, tc := range cases {
-		assert.Equal(t, tc.want, clampConfidence(tc.in))
-	}
-}

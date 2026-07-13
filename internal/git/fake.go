@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Fake is an in-memory Git double for unit-testing the highest-risk paths — the
@@ -31,6 +32,17 @@ type Fake struct {
 	// TrackedFiles is what ListTracked returns (the repo-tracked config files a
 	// worktree carries); nil → none, so the skip-worktree pass is a no-op.
 	TrackedFiles []string
+	// LogEntries is what LogSince returns, keyed by the dir passed in ("" is
+	// the fallback for any dir with no explicit entry) — mirrors Dirty's
+	// per-path map shape.
+	LogEntries map[string][]LogEntry
+	// LogErr, when set, is returned by LogSince instead of LogEntries.
+	LogErr error
+	// Dirs is what RepoDirs returns; Changes is what WorkingChanges returns.
+	Dirs    []string
+	Changes []string
+	// RepoStateErr, when set, fails both RepoDirs and WorkingChanges.
+	RepoStateErr error
 
 	// Error injectors: when set, the matching method fails (fault-tolerance tests).
 	AddErr    error
@@ -149,6 +161,55 @@ func (f *Fake) IsDirty(_ context.Context, dir string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.Dirty[dir], nil
+}
+
+// LogSince returns the configured LogEntries for dir (falling back to the ""
+// entry), truncated to maxEntries when positive. A read, like ListTracked and
+// IsDirty — not recorded to Calls.
+func (f *Fake) LogSince(_ context.Context, dir string, _ time.Time, maxEntries int) ([]LogEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.LogErr != nil {
+		return nil, f.LogErr
+	}
+	entries := f.LogEntries[dir]
+	if entries == nil {
+		entries = f.LogEntries[""]
+	}
+	if maxEntries > 0 && len(entries) > maxEntries {
+		entries = entries[:maxEntries]
+	}
+	return append([]LogEntry(nil), entries...), nil
+}
+
+// RepoDirs returns the configured directory inventory (a copy), truncated to
+// maxDirs when positive. A read — not recorded to Calls.
+func (f *Fake) RepoDirs(_ context.Context, _ string, maxDirs int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.RepoStateErr != nil {
+		return nil, f.RepoStateErr
+	}
+	dirs := f.Dirs
+	if maxDirs > 0 && len(dirs) > maxDirs {
+		dirs = dirs[:maxDirs]
+	}
+	return append([]string(nil), dirs...), nil
+}
+
+// WorkingChanges returns the configured porcelain changes (a copy), truncated
+// to maxEntries when positive. A read — not recorded to Calls.
+func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.RepoStateErr != nil {
+		return nil, f.RepoStateErr
+	}
+	changes := f.Changes
+	if maxEntries > 0 && len(changes) > maxEntries {
+		changes = changes[:maxEntries]
+	}
+	return append([]string(nil), changes...), nil
 }
 
 // drop removes the worktree with the given path from the list (caller holds mu).

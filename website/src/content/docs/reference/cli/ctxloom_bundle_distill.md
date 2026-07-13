@@ -23,8 +23,8 @@ Supports glob patterns to process multiple files at once.
 
 Examples:
   ctxloom bundle distill ./my-bundle.yaml                    # Single file
-  ctxloom bundle distill .ctxloom/cache/bundles/*.yaml           # All bundles in directory
-  ctxloom bundle distill .ctxloom/cache/bundles/**/*.yaml        # Recursive
+  ctxloom bundle distill .ctxloom/content/bundles/*.yaml           # All bundles in directory
+  ctxloom bundle distill .ctxloom/content/bundles/**/*.yaml        # Recursive
   ctxloom bundle distill bundle1.yaml bundle2.yaml           # Multiple files
   ctxloom bundle distill ./my-bundle.yaml --force            # Re-distill all items
   ctxloom bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled
@@ -47,6 +47,7 @@ ctxloom bundle distill <file-pattern>... [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

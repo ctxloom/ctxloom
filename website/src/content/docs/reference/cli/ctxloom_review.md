@@ -18,8 +18,11 @@ allowed to see yet — grouped by bundle, and decide each one.
 
 An item is pending when it was never reviewed, or when its content changed
 since a human approved it (an UPDATE — shown as a diff against what was
-approved). First-party content (project-local, trusted sources) is exempt and
-never appears here.
+approved). First-party content is exempt and never appears here: items you
+authored in this project, builtin bundles shipped inside the binary, and
+bundles signed by a publisher key you trust (allowed_signers). Trust is keyed
+to a signing KEY, never to the remote the bytes arrived from. A rejection
+still beats every one of those exemptions.
 
 Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
 or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
@@ -53,6 +56,7 @@ ctxloom review [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

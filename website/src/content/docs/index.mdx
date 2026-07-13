@@ -38,20 +38,20 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 </CardGrid>
 
 :::note[Why not just CLAUDE.md?]
-Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Plus, ctxloom distills fragments and skills using AST-aware compression, reducing token usage by 70-90%.
+Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and skills can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
 
-**You can still use CLAUDE.md** - ctxloom complements rather than replaces native context files.
+**ctxloom replaces the native context file, it does not merge with it.** `ctxloom run` assembles context itself and launches the engine in isolation, ignoring `CLAUDE.md` entirely. And if you install ctxloom's hooks into an externally-launched Claude Code, the assembled context is written to `CLAUDE.md` as the whole file - a hand-written `CLAUDE.md` is overwritten. Keep your standards in fragments, not in `CLAUDE.md`.
 :::
 
 ## What ctxloom Does
 
 | Capability | Description |
 |------------|-------------|
-| **Context Assembly** | Combine fragments into profiles, inject into Claude/Antigravity via MCP |
+| **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
 | **Slash Commands** | Skills become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
-| **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
+| **Token Optimization** | Distill fragments and skills with a cheap, fast LLM |
 
 ## Quick Example
 
@@ -59,10 +59,16 @@ Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **proje
 # Initialize
 ctxloom init
 
-# Run with context fragments
-ctxloom run -f go-development -f security "implement auth"
+# Review what the remotes shipped - pulled content is withheld until you accept it
+ctxloom review
 
-# Use a profile (pre-configured fragment set)
+# Run with context fragments (-f takes FRAGMENT names, not bundle names)
+ctxloom run -f go-rules -f tdd "implement auth"
+
+# Pull in a whole bundle's worth of context by tag
+ctxloom run -t security "implement auth"
+
+# Use a profile (pre-configured bundle/fragment set)
 ctxloom run -p backend-developer "review this PR"
 
 # Reference a remote bundle in a local profile, then pull
@@ -75,7 +81,7 @@ ctxloom remote pull
 Skills in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
-# .ctxloom/cache/bundles/my-tools.yaml
+# .ctxloom/content/bundles/my-tools.yaml
 skills:
   code-review:
     description: "Review code for issues"
@@ -98,8 +104,8 @@ Claude Code's `/compact` has a fundamental flaw: it needs context space to run, 
 **ctxloom works after exhaustion:**
 
 1. **Clear** - Run `/clear` when you hit context limits
-2. **Recover** - `/recover` distills the previous session from disk
-3. **Continue** - The summary is injected, you keep working
+2. **Recover** - `/recover` distills this session's transcript from disk
+3. **Continue** - The summary is loaded back in, you keep working
 
 ```bash
 # When you hit context limits
@@ -110,7 +116,7 @@ Claude Code's `/compact` has a fundamental flaw: it needs context space to run, 
 ctxloom reads the raw JSONL transcript from disk and uses a separate LLM (default: Haiku) to distill it - operating outside your exhausted context window.
 
 ctxloom includes a built-in command:
-- `/recover` - Recover context from a previous session after `/clear`
+- `/recover` - Recover context from the **current** session after `/clear`. `/clear` keeps the same session alive, so this is the post-`/clear` path. To pull in an **earlier** session instead, use the `get_previous_session` MCP tool.
 
 ## How It Works
 
@@ -119,13 +125,13 @@ flowchart LR
     Bundles["Bundles<br/>(fragments)"] --> Profiles["Profiles<br/>(combos)"]
     Profiles --> Context["Context<br/>(assembled)"]
     Bundles --> Remotes["Remotes<br/>(GitHub/GL)"]
-    Context --> AI["Claude/Antigravity<br/>(via MCP)"]
+    Context --> AI["Claude/Antigravity<br/>(native context channel)"]
 ```
 
 1. **Bundles** contain fragments (context), skills (slash commands), and MCP servers
 2. **Profiles** combine bundles with inheritance and exclusions
-3. **Context** is assembled and injected via MCP protocol
-4. **Remotes** provide team sharing and community bundles
+3. **Context** is assembled and handed to the engine on its own context channel - Claude Code is launched with `--append-system-prompt-file`, Antigravity reads `.agents/AGENTS.md`. No MCP is involved in delivery; `ctxloom mcp serve` is a separate, opt-in surface your agent can *retrieve* from mid-session.
+4. **Remotes** provide team sharing and community bundles. Pulled content is withheld from the agent until you accept it with `ctxloom review`
 
 ## Core Concepts
 
@@ -173,9 +179,10 @@ ctxloom mcp serve
 llm:
   defaults:
     primary: claude-code
-profiles:
-  defaults:
-    - go-developer
+
+# The always-bound default agent. Its composed profiles are the context
+# you get when you run with no -p/-f/-t.
+default_agent: go-developer
 ```
 
 ## Next Steps

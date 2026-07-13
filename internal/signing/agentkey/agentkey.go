@@ -83,9 +83,47 @@ func (e *AmbiguousKeyError) Error() string {
 	}
 	b.WriteString("\nPick one, and make it stick:\n")
 	if len(e.Candidates) > 0 {
-		fmt.Fprintf(&b, "  ctxloom config set sign.key %s\n", e.Candidates[0].Fingerprint)
+		first := e.Candidates[0]
+		// Prefer the name (the agent comment, e.g. "ben@abbitt.me") when
+		// there is one — it's what a human actually recognizes, and it's
+		// right there in the listing above. A comment can be empty (not
+		// every ssh-add sets one), so the fingerprint stays the fallback.
+		pick := first.Comment
+		if pick == "" {
+			pick = first.Fingerprint
+		}
+		fmt.Fprintf(&b, "  ctxloom config set sign.key %s\n", pick)
 	}
 	b.WriteString("  git config gpg.format ssh && git config user.signingkey ~/.ssh/id_ed25519.pub\n")
+	return b.String()
+}
+
+// AmbiguousKeyNameError reports that an explicit --key/sign.key NAME (a
+// case-insensitive substring match against ssh-agent key comments — the
+// last resort of resolveExplicit's fallback chain) matched more than one
+// agent identity. Like AmbiguousKeyError, this is a hard error by design:
+// Discover never guesses between candidates.
+type AmbiguousKeyNameError struct {
+	// Name is the --key/sign.key value that was matched against comments.
+	Name string
+	// Candidates are every agent identity whose comment matched Name.
+	Candidates []Candidate
+}
+
+func (e *AmbiguousKeyNameError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "ctxloom: --key %q matches %d keys in ssh-agent.\n\n", e.Name, len(e.Candidates))
+	for _, c := range e.Candidates {
+		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
+		if c.Comment != "" {
+			fmt.Fprintf(&b, "  (%s)", c.Comment)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\nNarrow the name, or disambiguate with the fingerprint:\n")
+	if len(e.Candidates) > 0 {
+		fmt.Fprintf(&b, "  ctxloom sign <bundle> --key %s\n", e.Candidates[0].Fingerprint)
+	}
 	return b.String()
 }
 
@@ -207,8 +245,14 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 	return d.resolveSoleAgentIdentity(ctx, []string{"git config user.signingkey", "ssh-agent identities"})
 }
 
-// resolveExplicit resolves --key/sign.key: a SHA256 fingerprint or a path to
-// a public key, matched against a live ssh-agent identity.
+// resolveExplicit resolves --key/sign.key in fallback order: (a) a SHA256
+// fingerprint, (b) a key line/literal/path to a public key, (c) — only when
+// (b) fails to produce a key at all — a case-insensitive substring match
+// against a live ssh-agent identity's COMMENT (the name ctxloom itself
+// prints in the ambiguous-key listing, e.g. "ben@abbitt.me"). (a) and (b)
+// must keep priority over (c): a value that legitimately parses as a
+// fingerprint or resolves as a file must never be reinterpreted as a name
+// just because it happens to also resemble one.
 func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*Discovered, error) {
 	ag, err := d.DialAgent()
 	if err != nil {
@@ -222,11 +266,69 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 		return findByFingerprint(ag, explicitKey, "--key")
 	}
 
-	pub, err := d.resolvePublicKey(explicitKey)
-	if err != nil {
-		return nil, fmt.Errorf("--key %q: %w", explicitKey, err)
+	pub, pubErr := d.resolvePublicKey(explicitKey)
+	if pubErr == nil {
+		return findByPublicKey(ag, pub, "--key")
 	}
-	return findByPublicKey(ag, pub, "--key")
+
+	discovered, nameErr := d.resolveByComment(ag, explicitKey)
+	if nameErr == nil {
+		return discovered, nil
+	}
+	var ambigName *AmbiguousKeyNameError
+	if errors.As(nameErr, &ambigName) {
+		// Ambiguity is a hard error — never guess, and never mask it behind
+		// the earlier "not a recognized public key" message.
+		return nil, nameErr
+	}
+
+	return nil, fmt.Errorf("--key %q: not a recognized fingerprint, public key, or ssh-agent key name: %w", explicitKey, pubErr)
+}
+
+// resolveByComment is the last resort of resolveExplicit's fallback chain:
+// match explicitKey as a case-insensitive substring against each ssh-agent
+// identity's comment. A key with an empty comment is never matched — an
+// unconditional substring check against "" would otherwise match every key,
+// which defeats the whole point of naming one.
+func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Discovered, error) {
+	needle := strings.ToLower(strings.TrimSpace(explicitKey))
+	if needle == "" {
+		return nil, fmt.Errorf("no key name given")
+	}
+
+	signers, err := ag.Signers()
+	if err != nil {
+		return nil, fmt.Errorf("listing ssh-agent identities: %w", err)
+	}
+	candidates := candidatesFromSigners(ag, signers)
+
+	var matched []int
+	for i, c := range candidates {
+		if c.Comment == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(c.Comment), needle) {
+			matched = append(matched, i)
+		}
+	}
+
+	switch len(matched) {
+	case 0:
+		return nil, fmt.Errorf("no ssh-agent identity comment matches %q", explicitKey)
+	case 1:
+		s := signers[matched[0]]
+		return &Discovered{
+			Signer:      s,
+			Fingerprint: candidates[matched[0]].Fingerprint,
+			Source:      "--key",
+		}, nil
+	default:
+		matches := make([]Candidate, 0, len(matched))
+		for _, i := range matched {
+			matches = append(matches, candidates[i])
+		}
+		return nil, &AmbiguousKeyNameError{Name: explicitKey, Candidates: matches}
+	}
 }
 
 // resolveGitSigningKey resolves `git config user.signingkey`'s value (a

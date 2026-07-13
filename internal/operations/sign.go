@@ -161,10 +161,13 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 }
 
 // ListLocalBundleNames returns every bundle name found in the project's
-// local bundle directories (cfg.GetBundleDirs()) — the set `ctxloom sign
-// --all` signs. Remote (seeded) and builtin bundles are never included:
-// this project only has write access to its own locally authored bundle
-// files. Sorted for deterministic --all output.
+// authored bundle directories (cfg.GetBundleDirs() — the committed
+// .ctxloom/content/bundles tree) — the set `ctxloom sign --all` signs. In a
+// publishing repo that set IS the repo's shipped content, which is the whole
+// point: the thing you publish must be the thing you can sign. Remote (seeded)
+// and builtin bundles are never included, nor is anything in the gitignored
+// cache: this project only has write access to its own authored bundle files.
+// Sorted for deterministic --all output.
 func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) []string {
 	fs = getFS(fs)
 	var names []string

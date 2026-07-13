@@ -25,15 +25,18 @@ that; ctxloom sign says so.
 Key discovery is zero-config: it tries 'git config user.signingkey' first
 (anyone who already signs commits with SSH needs no ctxloom setup at all),
 then the sole identity in ssh-agent when there is exactly one. --key (or
-'ctxloom manage config set sign.key') overrides both. ctxloom never reads,
-generates, or stores private key material — every signature is produced by
-your existing ssh-agent.
+'ctxloom manage config set sign.key') overrides both, and accepts a
+SHA256:... fingerprint, a path to a public key, or a ssh-agent key's
+comment/name (matched case-insensitively, substring OK — e.g. "ben@abbitt"
+for "ben@abbitt.me"). ctxloom never reads, generates, or stores private key
+material — every signature is produced by your existing ssh-agent.
 
 Examples:
   ctxloom sign my-tools                          # bare = local bundle (the common case)
   ctxloom sign my-tools#fragments/go-testing      # resolves to bundle my-tools
   ctxloom sign --all                              # every local bundle this project publishes
   ctxloom sign my-tools --key ~/.ssh/id_ed25519.pub
+  ctxloom sign my-tools --key ben@abbitt.me       # match by ssh-agent key comment
 
 ```
 ctxloom sign [ref] [flags]
@@ -44,7 +47,7 @@ ctxloom sign [ref] [flags]
 ```
       --all          sign every local bundle this project publishes
   -h, --help         help for sign
-      --key string   explicit signing key: a path to a public key, or a SHA256:... ssh-agent fingerprint
+      --key string   explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)
 ```
 
 ### Options inherited from parent commands
@@ -52,6 +55,7 @@ ctxloom sign [ref] [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

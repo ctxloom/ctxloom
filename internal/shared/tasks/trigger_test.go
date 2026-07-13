@@ -3,6 +3,7 @@ package tasks
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,6 +115,78 @@ func TestSetTextErrors(t *testing.T) {
 
 	_, err = s.SetText("no-such-harp", "whatever")
 	assert.Error(t, err, "editing an unknown harp errors")
+}
+
+// TestDeferredSince pins the accessor trigger evaluation relies on to scope
+// git evidence to "what happened after this task was parked": only currently
+// Deferred tasks appear, keyed by the timestamp of the event that most
+// recently moved them into Deferred (an add, or a later status change).
+func TestDeferredSince(t *testing.T) {
+	s := logStore(t)
+
+	// Deferred directly via add.
+	viaAdd, err := s.AddWithTrigger("park at birth", StatusDeferred, "when x happens")
+	require.NoError(t, err)
+
+	// Starts elsewhere, deferred later — DeferredSince must use the LATER
+	// event's timestamp, not the add's.
+	viaStatus, err := s.Add("do later", StatusToDo)
+	require.NoError(t, err)
+	time.Sleep(2 * time.Millisecond) // guarantee a distinct, later timestamp
+	_, err = s.SetStatusWithTrigger(viaStatus.HarpID, StatusDeferred, "when y happens")
+	require.NoError(t, err)
+
+	// Never deferred at all — must not appear.
+	neverDeferred, err := s.Add("just doing it", StatusToDo)
+	require.NoError(t, err)
+
+	// Deferred, then revived — no longer Deferred, so must not appear even
+	// though it carries a preserved trigger.
+	revived, err := s.AddWithTrigger("came back", StatusDeferred, "when z happens")
+	require.NoError(t, err)
+	_, err = s.SetStatus(revived.HarpID, StatusToDo)
+	require.NoError(t, err)
+
+	since, err := s.DeferredSince()
+	require.NoError(t, err)
+
+	require.Contains(t, since, viaAdd.HarpID)
+	require.Contains(t, since, viaStatus.HarpID)
+	assert.NotContains(t, since, neverDeferred.HarpID)
+	assert.NotContains(t, since, revived.HarpID)
+	assert.True(t, since[viaStatus.HarpID].After(since[viaAdd.HarpID]),
+		"the status-change deferral timestamp must be later than the add-time deferral")
+}
+
+// TestDeferredSinceReDeferralUsesLatestTransition covers cycling
+// Deferred -> To Do -> Deferred: the timestamp must track the MOST RECENT
+// entry into Deferred, not the first.
+func TestDeferredSinceReDeferralUsesLatestTransition(t *testing.T) {
+	s := logStore(t)
+	task, err := s.AddWithTrigger("cycle me", StatusDeferred, "first condition")
+	require.NoError(t, err)
+
+	_, err = s.SetStatus(task.HarpID, StatusToDo)
+	require.NoError(t, err)
+
+	firstSince, err := s.DeferredSince()
+	require.NoError(t, err)
+	assert.NotContains(t, firstSince, task.HarpID, "not currently Deferred")
+
+	time.Sleep(2 * time.Millisecond)
+	_, err = s.SetStatus(task.HarpID, StatusDeferred)
+	require.NoError(t, err)
+
+	secondSince, err := s.DeferredSince()
+	require.NoError(t, err)
+	require.Contains(t, secondSince, task.HarpID)
+}
+
+func TestDeferredSinceEmptyStoreReturnsEmptyMap(t *testing.T) {
+	s := logStore(t)
+	since, err := s.DeferredSince()
+	require.NoError(t, err)
+	assert.Empty(t, since)
 }
 
 func TestListFiltersByStatusAndTerm(t *testing.T) {

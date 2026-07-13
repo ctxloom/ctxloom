@@ -156,7 +156,7 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 			assert.Equal(t, testBaseDir, opts.LocalDir)
 			assert.False(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   paths.BundlesPath(testBaseDir) + "/test/my-bundle.yaml",
+				LocalPath:   paths.CacheBundlesPath(testBaseDir) + "/test/my-bundle.yaml",
 				SHA:         "abc123d",
 				Overwritten: false,
 			}, nil
@@ -170,7 +170,7 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml", result.LocalPath)
+	assert.Equal(t, paths.CacheBundlesPath(testBaseDir)+"/test/my-bundle.yaml", result.LocalPath)
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
 }
@@ -182,7 +182,7 @@ func TestPullItem_WithForce(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.True(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   paths.BundlesPath(testBaseDir) + "/test/bundle.yaml",
+				LocalPath:   paths.CacheBundlesPath(testBaseDir) + "/test/bundle.yaml",
 				SHA:         "abc123",
 				Overwritten: true,
 			}, nil
@@ -226,7 +226,7 @@ func TestPullItem_UsesConfigBaseDir(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedLocalDir = opts.LocalDir
 			return &remote.PullResult{
-				LocalPath: "/custom/project/.ctxloom/cache/bundles/test/bundle.yaml",
+				LocalPath: "/custom/project/.ctxloom/content/bundles/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},
@@ -259,7 +259,7 @@ func TestPullItem_WithFS(t *testing.T) {
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			return &remote.PullResult{
-				LocalPath: paths.BundlesPath(testBaseDir) + "/test/bundle.yaml",
+				LocalPath: paths.CacheBundlesPath(testBaseDir) + "/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},
@@ -273,7 +273,7 @@ func TestPullItem_WithFS(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, paths.BundlesPath(testBaseDir)+"/test/bundle.yaml", result.LocalPath)
+	assert.Equal(t, paths.CacheBundlesPath(testBaseDir)+"/test/bundle.yaml", result.LocalPath)
 }
 
 func TestPullItem_WithFSCreatesRegistry(t *testing.T) {

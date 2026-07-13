@@ -337,9 +337,35 @@ func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, 
 	// Joined with the same separator LoadMultiple uses so the output is
 	// indistinguishable regardless of which load path produced each fragment.
 	content := strings.Join(parts, "\n\n---\n\n")
-	// Suppress substitution warnings in the operations context.
-	content = substituteVariables(content, profileVars, func(string) {})
+	content = substituteVariables(content, profileVars, warnSubstitution)
 	return content, loadedNames, nil
+}
+
+// warnSubstitution surfaces a substituteVariables finding — an undefined
+// variable, a template parse failure, or a template render failure — to the
+// user via the standard clidiag warning line ("ctxloom: warning: ..."),
+// exactly as docs/concepts/fragments.md and docs/guides/templating.md
+// promise for an undefined variable. Both substituteVariables call sites
+// (this file's loadAssembledContext and hooks.go's regenerateContext) share
+// this one warnFunc so the wording and dedup behavior can't drift between
+// the two.
+//
+// Deliberately NOT a strictness.Fail/FailOnce finding: an undefined variable
+// renders empty and is recoverable (making it fatal-by-default would break
+// existing profiles that never bothered to bind every optional variable),
+// and no existing strictness.Class cleanly fits "a fragment's mustache
+// template is malformed" without extending the strictness model. This stays
+// a plain, non-fatal warning in both strict and degraded mode, the same
+// posture as warnWithheld's content-free trust-gate summary.
+//
+// Deduped per process via clidiag.WarnOnce: AssembleContext/regenerateContext
+// can run repeatedly in one process (once per conversation turn, once per
+// SessionStart), so an unchanged fragment's undefined variable would
+// otherwise re-warn on every call. WarnOnce is the same dedup
+// strictness.FailOnce already layers over for chokes that "re-fire per
+// subsystem" — this is that shape without a recorded finding.
+func warnSubstitution(msg string) {
+	clidiag.WarnOnce("ctxloom", "%s", msg)
 }
 
 // loadFragmentRef resolves one fragment ref, honoring a pinned content version.

@@ -8,7 +8,7 @@ Choose the installation method that works best for you.
 While the author says these scripts are safe, **thou shalt be paranoid**. We encourage you to:
 
 1. **Read the installation scripts** before running them
-2. **Check the VirusTotal scans** linked below
+2. **Check the release notes** for script checksums and VirusTotal lookup links
 3. **Verify checksums** if you're extra cautious
 4. **Build from source** if you trust no one (we respect that)
 
@@ -46,9 +46,12 @@ curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/instal
 ```
 
 The script also installs the companions [taskloom](/taskloom/)
-and [ltk](/ltk/). With Homebrew available, delegate the
-whole install to brew (`--brew` is the script's only flag) — no unsigned-binary
-trust steps:
+and [ltk](/ltk/), and always fetches the **light build** (no tree-sitter —
+see the Homebrew section above for the `_full` archives and the
+`ctxloom-full` cask). With Homebrew available, delegate the whole install to
+brew (`--brew`; the script also takes `-h`/`--help` for usage) — no
+unsigned-binary trust steps. Note `--brew` installs the same light
+`ctxloom/tap/ctxloom` cask, not `ctxloom-full`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash -s -- --brew
@@ -67,7 +70,7 @@ less install.sh
 bash install.sh
 ```
 
-**[View install.sh source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.sh)** | **[VirusTotal scan](https://github.com/ctxloom/ctxloom/releases/latest)** (see release notes for SHA256)
+**[View install.sh source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.sh)** | **[Release notes](https://github.com/ctxloom/ctxloom/releases/latest)** — SHA256 checksums and VirusTotal lookup links for the install scripts (the scripts are scanned, not the ctxloom binary itself)
 
 ### Windows (PowerShell)
 
@@ -92,11 +95,14 @@ Get-Content install.ps1 | more
 .\install.ps1
 ```
 
-**[View install.ps1 source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1)** | **[VirusTotal scan](https://github.com/ctxloom/ctxloom/releases/latest)** (see release notes for SHA256)
+**[View install.ps1 source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1)** | **[Release notes](https://github.com/ctxloom/ctxloom/releases/latest)** — SHA256 checksums and VirusTotal lookup links for the install scripts (the scripts are scanned, not the ctxloom binary itself)
 
 ## Manual Download
 
-If you prefer to download binaries directly without running scripts.
+If you prefer to download binaries directly without running scripts. These
+archives (no `_full` suffix) are the **light build** — no tree-sitter AST
+compression. For that, use the Homebrew `ctxloom-full` cask above, or the
+`_full` archives / build-from-source instructions below.
 
 ### macOS
 
@@ -171,7 +177,11 @@ For development or to get the latest unreleased features. Also the most secure o
 - Go 1.25+
 - [buf](https://buf.build/docs/installation) for protobuf code generation
 - [just](https://github.com/casey/just) command runner (optional)
-- C compiler (required for CGO/tree-sitter support)
+- C compiler — only needed for the tree-sitter build below (`-tags treesitter`
+  with `CGO_ENABLED=1`); the plain build is CGO-free and doesn't need one
+
+The module root has no Go files — the main package is `./cmd/ctxloom`, so
+every build/install command below points there, not at `.`.
 
 ### Clone and Build
 
@@ -183,11 +193,18 @@ cd ctxloom
 # Generate protobuf files
 buf generate
 
-# Build
-go build -ldflags "-s -w" -o ctxloom .
+# Build (light build: memory + vector search, no tree-sitter)
+go build -tags memory,vectors -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
 
 # Install
 sudo mv ctxloom /usr/local/bin/
+```
+
+Omitting `-tags treesitter` (and `CGO_ENABLED=1`) means no AST-based code
+compression — the build above matches the light release. For the full build:
+
+```bash
+CGO_ENABLED=1 go build -tags memory,vectors,treesitter -ldflags "-s -w" -o ctxloom ./cmd/ctxloom
 ```
 
 `just build` produces the full build (tree-sitter and friends) inside the
@@ -202,8 +219,17 @@ If you have Go 1.25+ and buf installed:
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install .
+go install -tags memory,vectors ./cmd/ctxloom
 ```
+
+Or, from inside the repo, skip the manual buf/tags dance entirely:
+
+```bash
+just install
+```
+
+`just install` builds the full build (via the devcontainer) and installs
+ctxloom, ltk, and taskloom to `~/go/bin`.
 
 Make sure `~/go/bin` is in your PATH:
 
@@ -244,7 +270,7 @@ source <(ctxloom completion bash)
 ctxloom completion bash > /etc/bash_completion.d/ctxloom
 
 # Permanent (macOS)
-ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom
+ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/ctxloom
 ```
 
 ### Zsh
@@ -288,7 +314,8 @@ irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 |
 cd ctxloom
 git pull
 buf generate
-go install .
+go install -tags memory,vectors ./cmd/ctxloom
+# or, from inside the repo: just install
 ```
 
 ### Binary
@@ -358,7 +385,7 @@ Building from source avoids Gatekeeper entirely since the binary is created loca
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 buf generate
-go install .
+go install -tags memory,vectors ./cmd/ctxloom
 ```
 
 **Why this happens:** ctxloom binaries are not code-signed or notarized with Apple. This is common for open-source CLI tools distributed via GitHub releases.

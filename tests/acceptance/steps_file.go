@@ -121,9 +121,9 @@ func fileContains(c context.Context, home bool, rel, want string) error {
 
 // readBundleFragment returns the original and distilled content of a fragment
 // from a created bundle file, used by @live distill assertions. Bundles live at
-// .ctxloom/cache/bundles/<bundle>.yaml.
+// .ctxloom/content/bundles/<bundle>.yaml.
 func readBundleFragment(w *World, bundle, fragment string) (content, distilled string, err error) {
-	rel := filepath.Join(".ctxloom", "cache", "bundles", bundle+".yaml")
+	rel := filepath.Join(".ctxloom", "content", "bundles", bundle+".yaml")
 	body, err := os.ReadFile(filepath.Join(w.env.ProjectDir, rel))
 	if err != nil {
 		return "", "", fmt.Errorf("read bundle %q: %w", bundle, err)

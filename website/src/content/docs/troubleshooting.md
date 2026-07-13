@@ -21,9 +21,12 @@ export PATH=$PATH:$(go env GOPATH)/bin
 ```bash
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
-go generate ./...
-go install .
+buf generate
+go install -tags memory,vectors ./cmd/ctxloom
 ```
+The module root has no Go files — the main package is `./cmd/ctxloom`. See
+[Build from Source](/getting-started/installation/#build-from-source) for
+the full build (tree-sitter) command and prerequisites.
 
 3. Verify installation:
 ```bash
@@ -39,8 +42,8 @@ ctxloom --version
 ```bash
 go clean -modcache
 go mod download
-go generate ./...
-go install .
+buf generate
+go install -tags memory,vectors ./cmd/ctxloom
 ```
 
 ## macOS Issues
@@ -68,8 +71,8 @@ xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 ```bash
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
-go generate ./...
-go install .
+buf generate
+go install -tags memory,vectors ./cmd/ctxloom
 ```
 
 ### Shell completion not loading on macOS
@@ -83,12 +86,12 @@ brew install bash-completion
 
 Add to `~/.bash_profile`:
 ```bash
-[[ -r "/usr/local/etc/profile.d/bash_completion.sh" ]] && . "/usr/local/etc/profile.d/bash_completion.sh"
+[[ -r "$(brew --prefix)/etc/profile.d/bash_completion.sh" ]] && . "$(brew --prefix)/etc/profile.d/bash_completion.sh"
 ```
 
 Then install the completion:
 ```bash
-ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom
+ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/ctxloom
 ```
 
 ## Context Not Injected
@@ -102,7 +105,9 @@ ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom
 cat .claude/settings.json | jq '.hooks'
 ```
 
-**Expected output:**
+**Expected output:** the command is the shell-quoted absolute path to the
+`ctxloom` binary (not the bare word), carries a 60s timeout, and is
+accompanied by a sibling `ctxloom hook session-bind` entry:
 ```json
 {
   "SessionStart": [
@@ -110,13 +115,25 @@ cat .claude/settings.json | jq '.hooks'
       "hooks": [
         {
           "type": "command",
-          "command": "ctxloom hook inject-context --project /path/to/project <hash>"
+          "command": "'/path/to/ctxloom' hook inject-context --project '/path/to/project' <hash>",
+          "timeout": 60
+        },
+        {
+          "type": "command",
+          "command": "ctxloom hook session-bind"
         }
       ]
     }
   ]
 }
 ```
+If the assembled context is large, `inject-context` is split into several
+ordered hooks instead of one, each with `--part k --of N`:
+```json
+"command": "'/path/to/ctxloom' hook inject-context --project '/path/to/project' --part 1 --of 3 <hash>"
+```
+Don't diff a real settings.json against a single-hook example — a chunked or
+multi-entry `SessionStart` array is normal, not a sign of a broken install.
 
 **Fix:**
 ```bash
@@ -209,9 +226,11 @@ ctxloom remote add myremote owner/repo
 
 **Debug:**
 ```bash
-# Pull with verbose output
-CTXLOOM_VERBOSE=1 ctxloom remote pull
+# Log every GitHub API call ctxloom makes (method + URL) to stderr
+CTXLOOM_DEBUG_HTTP=1 ctxloom remote pull
 ```
+(`CTXLOOM_VERBOSE=1` doesn't affect this command — it only changes logging
+for config/sync diagnostics and delegated-child launches.)
 
 ## Profile Issues
 
@@ -283,7 +302,7 @@ ctxloom fragment show fragname  # searches all bundles
 **Validate YAML syntax:**
 ```bash
 # Use a YAML linter
-yamllint .ctxloom/cache/bundles/mybundle.yaml
+yamllint .ctxloom/content/bundles/mybundle.yaml
 
 # Or try loading the bundle
 ctxloom fragment list --bundle mybundle
@@ -303,13 +322,17 @@ ctxloom fragment list --bundle mybundle
 1. **Distill verbose fragments:**
 ```bash
 ctxloom fragment distill mybundle#fragments/verbose-fragment   # one fragment
-ctxloom bundle distill .ctxloom/cache/bundles/mybundle.yaml    # whole bundle
+ctxloom bundle distill .ctxloom/content/bundles/mybundle.yaml  # whole bundle
 ```
 
 2. **Use fewer fragments:**
 ```bash
-# Check what's included
-ctxloom run --dry-run --print | wc -c
+# Check what's included (--print is ignored under --dry-run; --dry-run
+# already prints the token estimate and the assembled context)
+ctxloom run --dry-run
+
+# Or get just the context and measure it directly:
+ctxloom run --dry-run --format json | jq -r .context | wc -c
 ```
 
 3. **Create focused profiles:**
@@ -331,10 +354,8 @@ ctxloom run --dry-run --print | wc -c
 ctxloom mcp serve 2>&1 | head -20
 ```
 
-**Verbose mode:**
-```bash
-CTXLOOM_VERBOSE=1 ctxloom mcp serve
-```
+`CTXLOOM_VERBOSE=1` does not add logging to `mcp serve` — it only affects
+config/sync diagnostics and delegated-child launches, so it won't help here.
 
 ### Tools Not Appearing
 
@@ -357,11 +378,9 @@ ctxloom manage hooks install
 
 **Problem:** MCP tool returns error
 
-**Check ctxloom logs:**
-```bash
-# Run MCP server with verbose logging
-CTXLOOM_VERBOSE=1 ctxloom mcp serve
-```
+`CTXLOOM_VERBOSE=1 ctxloom mcp serve` produces the same output as without it —
+it doesn't instrument the MCP server. Isolate the failure by testing the
+underlying CLI command instead:
 
 **Test tool directly:**
 ```bash
@@ -422,32 +441,55 @@ yamllint .ctxloom/config.yaml
 ctxloom manage config show
 ```
 
-### Environment Variables Not Working
+### Startup Aborts with "authored bundle(s)" Fatal Finding
 
-**Problem:** Environment variables aren't being used
+**Problem:** `ctxloom` refuses to start, printing something like:
 
-**Check variable is set:**
-```bash
-echo $MY_VARIABLE
+```
+ctxloom: aborting startup: 1 fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:
+  - [migration] .ctxloom/cache/bundles holds 1 authored bundle(s) (my-standards.yaml) but authored bundles now live in .ctxloom/content/bundles — the cache is gitignored and is no longer read, so these are invisible to `bundle list`, `run`, and `sign --all`
+    fix: move them into the committed content tree: mkdir -p .ctxloom/content/bundles && git mv .ctxloom/cache/bundles/* .ctxloom/content/bundles/ (or plain mv outside git)
 ```
 
-**Check variable syntax in templates:**
-```yaml
-# Correct
-content: "API key: {{API_KEY}}"
+**What it means:** authored bundles used to live under `.ctxloom/cache/bundles/`. That directory is now cache — gitignored and read only for remote-pull artifacts — so a bundle you wrote by hand and left there is invisible to `bundle list`, `run`, and `sign --all`, and it never gets committed. ctxloom detects this instead of silently losing the file, and refuses to start until you move it.
 
-# Wrong
-content: "API key: $API_KEY"
+**Fix:** move the stranded bundle(s) into the committed content tree:
+```bash
+mkdir -p .ctxloom/content/bundles
+git mv .ctxloom/cache/bundles/* .ctxloom/content/bundles/
+```
+(drop `git` from the `mv` if the old files were never tracked). Rerun `ctxloom` once they're moved; the finding disappears because `.ctxloom/cache/bundles/` no longer holds anything ctxloom can't account for.
+
+To launch once without fixing it — e.g. to inspect the directory first — pass `--degraded` or set `CTXLOOM_DEGRADED=1`, but the stranded bundles stay invisible to `bundle list`, `run`, and `sign --all` until you move them.
+
+### `{{VAR}}` Not Substituting
+
+**Problem:** A fragment's `{{SOMEVAR}}` renders empty or literally.
+
+Fragment templates never read the process environment — there is no
+`$SOMEVAR` fallback. Mustache data comes entirely from the resolved
+profile's `variables:` map (see [Templating](/guides/templating)). If
+`SOMEVAR` isn't a key there, it renders empty (with a warning), regardless
+of whether it's exported in your shell.
+
+**Fix:** set the variable in the profile:
+```yaml
+variables:
+  SOMEVAR: some-value
 ```
 
 ## Getting Help
 
 ### Debug Mode
 
-Enable verbose output for any command:
+`CTXLOOM_VERBOSE=1` is not a universal debug switch — it only affects
+config/sync diagnostics and delegated-child (agent) launch stderr:
 ```bash
 CTXLOOM_VERBOSE=1 ctxloom <command>
 ```
+For most other commands it changes nothing. For GitHub API calls (`remote
+pull`, `remote browse`, etc.), use `CTXLOOM_DEBUG_HTTP=1` instead — it logs
+every request method and URL to stderr.
 
 ### Check Version
 
@@ -458,8 +500,8 @@ ctxloom --version
 # Update from source
 cd ctxloom
 git pull
-go generate ./...
-go install .
+buf generate
+go install -tags memory,vectors ./cmd/ctxloom
 ```
 
 ### Report Issues

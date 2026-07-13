@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -35,14 +36,20 @@ type Home struct {
 
 	conn *grpc.ClientConn
 
-	mu      sync.Mutex
-	stream  grpc.BidiStreamingClient[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]
-	sendMu  sync.Mutex // serializes stream.Send (single-writer discipline)
-	seq     uint64
-	unacked []*agentcoordpb.AgentEvent
-	acked   uint64
-	ackCh   chan struct{} // closed + replaced on every ack advance
-	pending map[string]*homeReq
+	mu     sync.Mutex
+	stream grpc.BidiStreamingClient[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]
+	sendMu sync.Mutex // serializes stream.Send (single-writer discipline)
+	// everAttached records that the run channel's Hello was ACCEPTED at least
+	// once. It is sticky by design: it separates "we never got through"
+	// (unreachable) from "we got through, and the request is simply taking a
+	// while" — a distinction the caller's error must preserve, and which a
+	// momentarily-nil stream mid-reconnect must not erase.
+	everAttached bool
+	seq          uint64
+	unacked      []*agentcoordpb.AgentEvent
+	acked        uint64
+	ackCh        chan struct{} // closed + replaced on every ack advance
+	pending      map[string]*homeReq
 
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
@@ -99,9 +106,33 @@ const homeRedialBackoff = 2 * time.Second
 // carries no deadline.
 const defaultRequestTimeout = 60 * time.Second
 
-// ErrCoordinatorUnreachable answers a tool verb whose plane-2 request could
-// not complete within its budget.
+// ErrCoordinatorUnreachable answers a plane-2 request that never got through:
+// the run channel has not once attached, so nothing was delivered and a retry
+// is free. A request the coordinator ACCEPTED does not fail with this — see
+// requestFailure, which keeps the two apart.
 var ErrCoordinatorUnreachable = errors.New("coordinator unreachable (the runner keeps reconnecting; retry, or finish standalone)")
+
+// Attached reports whether the run channel's Hello has ever been accepted.
+func (h *Home) Attached() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.everAttached
+}
+
+// requestFailure names why a plane-2 request ended without a response, and the
+// distinction is the whole point: an unattached channel means the request was
+// never delivered, while an attached one means the coordinator TOOK it and is
+// still working — its handler runs on the coordinator's base context, so the
+// caller giving up neither stops it nor undoes it. Collapsing the second case
+// into "unreachable" reads as an outage and invites exactly the wrong reflex:
+// an immediate retry that duplicates work already in flight.
+func (h *Home) requestFailure(ctx context.Context, waited time.Duration) error {
+	if !h.Attached() {
+		return ErrCoordinatorUnreachable
+	}
+	return fmt.Errorf("%w after %s: the coordinator accepted this request and may still be running it — "+
+		"it is not cancelled, and retrying starts a second run alongside it", ctx.Err(), waited.Round(time.Second))
+}
 
 // NewHome dials the coordinator and starts both channel loops. It never
 // fails hard: an unreachable coordinator leaves the loops reconnecting and
@@ -216,6 +247,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	// with the old stream).
 	h.mu.Lock()
 	h.stream = stream
+	h.everAttached = true
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
 	reqs := make([]*agentcoordpb.AgentRequest, 0, len(h.pending))
 	for _, hr := range h.pending {
@@ -459,6 +491,7 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
 		defer cancel()
 	}
+	started := time.Now()
 	select {
 	case resp := <-hr.ch:
 		return resp, nil
@@ -466,7 +499,7 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 		h.mu.Lock()
 		delete(h.pending, req.GetRequestId())
 		h.mu.Unlock()
-		return nil, ErrCoordinatorUnreachable
+		return nil, h.requestFailure(ctx, time.Since(started))
 	case <-h.ctx.Done():
 		return nil, ErrCoordinatorUnreachable
 	}
@@ -628,6 +661,7 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
 		defer cancel()
 	}
+	started := time.Now()
 	for {
 		h.mu.Lock()
 		acked := h.acked
@@ -639,7 +673,7 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 		select {
 		case <-ch:
 		case <-ctx.Done():
-			return ErrCoordinatorUnreachable
+			return h.requestFailure(ctx, time.Since(started))
 		case <-h.ctx.Done():
 			return ErrCoordinatorUnreachable
 		}

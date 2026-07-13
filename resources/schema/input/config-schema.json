@@ -74,6 +74,21 @@
         "statusline": {
           "type": "boolean",
           "description": "Whether ctxloom manages its HUD statusline (default: true); set false to keep your own"
+        },
+        "sign": {
+          "type": "object",
+          "description": "Publisher-signing defaults for `fragment push`/`skill push`.",
+          "properties": {
+            "default": {
+              "type": "boolean",
+              "description": "When true, publish commands sign unless --no-sign is given. Defaults to false — signing is opt-in, like `git commit -S` until gpg.commit.sign flips it."
+            },
+            "key": {
+              "type": "string",
+              "description": "Explicit --key-equivalent: a path to a public key or a SHA256:... fingerprint. Empty uses the zero-config discovery chain (git config user.signingkey, then the sole ssh-agent identity)."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -94,32 +109,8 @@
       "description": "Hooks configuration applied globally"
     },
     "mcp": {
-      "type": "object",
-      "description": "MCP (Model Context Protocol) server configuration",
-      "properties": {
-        "auto_register_ctxloom": {
-          "type": "boolean",
-          "description": "Whether to automatically register ctxloom's own MCP server (default: true)"
-        },
-        "servers": {
-          "type": "object",
-          "description": "Unified MCP server configurations (applied to all backends)",
-          "additionalProperties": {
-            "$ref": "#/$defs/mcpServer"
-          }
-        },
-        "plugins": {
-          "type": "object",
-          "description": "Backend-specific MCP server configurations (keyed by backend name)",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/mcpServer"
-            }
-          }
-        }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/mcpConfig",
+      "description": "MCP (Model Context Protocol) server configuration"
     },
     "profiles": {
       "type": "object",
@@ -150,7 +141,16 @@
           },
           "tags": {
             "type": "array",
-            "description": "Fragment tags to include (fragments with matching tags are added)",
+            "description": "Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "select_tags": {
+            "type": "array",
+            "description": "Fragment tags to select content by: fragments carrying any of these tags are included.",
             "items": {
               "type": "string",
               "minLength": 1
@@ -196,8 +196,13 @@
             "items": { "type": "string", "minLength": 1 }
           },
           "mcp": {
-            "type": "object",
+            "$ref": "#/$defs/mcpConfig",
             "description": "MCP servers for this profile (inherited)"
+          },
+          "prompts": {
+            "type": "array",
+            "description": "Slash-command prompt exports curated for this profile (each a \"<bundle>#prompts/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these prompts are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
+            "items": { "type": "string", "minLength": 1 }
           },
           "variables": {
             "type": "object",
@@ -279,6 +284,38 @@
             "type": "string",
             "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
             "enum": ["default", "acceptEdits", "plan", "bypass"]
+          },
+          "escalation": {
+            "type": "array",
+            "description": "The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kinds": {
+                  "type": "array",
+                  "description": "ApprovalRequest kinds this rung matches. Empty matches every kind (a catch-all rung).",
+                  "items": {
+                    "type": "string",
+                    "enum": ["COMMAND_EXECUTION", "FILE_CHANGE", "TOOL_USE", "PERMISSION_ESCALATION", "ARTIFACT_REVIEW", "CUSTOM"]
+                  }
+                },
+                "action": {
+                  "type": "string",
+                  "description": "The rung's disposition.",
+                  "enum": ["auto_accept", "auto_decline", "relay_to_role", "surface_to_human"]
+                },
+                "role": {
+                  "type": "string",
+                  "description": "The relay_to_role/surface_to_human target. Only \"parent\" is addressable in this window (flat-hub topology); empty defaults to \"parent\". Not meaningful for auto_accept/auto_decline."
+                },
+                "timeout": {
+                  "type": "string",
+                  "description": "Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. \"5m\"). Empty uses the resolver's default. Ignored by auto_accept/auto_decline."
+                }
+              },
+              "required": ["action"],
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
@@ -315,6 +352,7 @@
           "title": "claude-code",
           "properties": {
             "type": { "const": "claude-code" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
             "binary_path": { "type": "string" },
@@ -327,6 +365,7 @@
           "title": "antigravity",
           "properties": {
             "type": { "const": "antigravity" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["gemini-3-pro"] },
             "binary_path": { "type": "string" },
@@ -339,6 +378,7 @@
           "title": "codex",
           "properties": {
             "type": { "const": "codex" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "binary_path": { "type": "string" },
@@ -351,6 +391,7 @@
           "title": "kiro",
           "properties": {
             "type": { "const": "kiro" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "binary_path": { "type": "string" },
@@ -366,13 +407,62 @@
           "title": "mock",
           "properties": {
             "type": { "const": "mock" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
             "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },
           "additionalProperties": false
+        },
+        {
+          "title": "acp",
+          "description": "Generic Agent Client Protocol client: drives any ACP-capable agent chosen by config (e.g. \"kiro-cli acp\", \"claude-code-acp\"). Structured chat + headless oneshot only (no TUI); materializes no native settings of its own.",
+          "properties": {
+            "type": { "const": "acp" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
+            "command": { "type": "string", "description": "The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. \"kiro-cli acp\")." },
+            "agent": { "type": "string", "description": "Selects a named agent on the target CLI via `--agent`." },
+            "agent_engine": { "type": "string", "description": "Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`." },
+            "model": { "type": "string", "description": "Passed to the spawned agent via `--model` when set." },
+            "model_env_var": { "type": "string", "description": "When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL)." },
+            "model_config_key": { "type": "string", "description": "When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it)." },
+            "strip_env": { "type": "array", "description": "Inherited environment variables removed from the spawned agent's env.", "items": { "type": "string" } },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
         }
       ]
+    },
+    "mcpConfig": {
+      "type": "object",
+      "description": "MCP (Model Context Protocol) server configuration",
+      "properties": {
+        "auto_register_ctxloom": {
+          "type": "boolean",
+          "description": "Whether to automatically register ctxloom's own MCP server (default: true)"
+        },
+        "servers": {
+          "type": "object",
+          "description": "Unified MCP server configurations (applied to all backends)",
+          "additionalProperties": {
+            "$ref": "#/$defs/mcpServer"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Backend-specific MCP server configurations (keyed by backend name)",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/mcpServer"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "mcpServer": {
       "type": "object",
@@ -434,13 +524,17 @@
         },
         "timeout": {
           "type": "integer",
-          "description": "Execution timeout in seconds",
-          "minimum": 1,
-          "default": 30
+          "description": "Execution timeout in seconds. Unset means no timeout is applied (omitted from the emitted backend settings entirely) — there is no implicit default.",
+          "minimum": 1
         },
         "async": {
           "type": "boolean",
           "description": "Run hook in background (command hooks only)",
+          "default": false
+        },
+        "pre_tool_fallback": {
+          "type": "boolean",
+          "description": "Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event (e.g. Antigravity). Only meaningful for idempotent hooks — the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it.",
           "default": false
         }
       },

@@ -13,7 +13,7 @@ Export a bundle to a file or directory
 
 ### Synopsis
 
-Export a local bundle from .ctxloom/cache/bundles to a file or directory.
+Export a local bundle from .ctxloom/content/bundles to a file or directory.
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
@@ -41,6 +41,7 @@ ctxloom bundle export <name> [dest-dir] [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

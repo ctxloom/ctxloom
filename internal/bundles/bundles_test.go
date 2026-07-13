@@ -423,7 +423,15 @@ func TestBundleMCP_ContentPayload_IsHashPreimage(t *testing.T) {
 
 	payload, err := mcp.ContentPayload()
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"installation":"npm i -g postgres-mcp"}`, string(payload))
+	// The `preimage` field is the exec-preimage contract version (spec §3.3.2).
+	// It was ADDED to this fixture when the version carrier landed, which
+	// changed the preimage bytes and therefore invalidated every pre-existing
+	// MCP approval — the one-time, deliberate mass re-review the version exists
+	// to make announced rather than accidental. It cost nothing here only
+	// because v0.7.0-pre1 has never shipped. See exec_preimage_test.go, which
+	// pins the exact byte layout and its field ORDER (JSONEq below is
+	// order-insensitive and would not catch a misplaced version carrier).
+	assert.JSONEq(t, `{"preimage":"ctxloom-exec/1","command":"postgres-mcp","args":["--host","db"],"env":{"PGUSER":"admin"},"installation":"npm i -g postgres-mcp"}`, string(payload))
 
 	// ComputeContentHash must hash exactly these bytes.
 	assert.Equal(t, hashContent(payload), mcp.ComputeContentHash())

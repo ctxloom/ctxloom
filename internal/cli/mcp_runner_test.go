@@ -128,6 +128,45 @@ func TestRunnerServer_HostRelayDescriptionsMatchStdio(t *testing.T) {
 	}
 }
 
+// TestStdioServer_AdvertisesEveryLocallyServedTool closes the gap that let a
+// tool ship "green" while absent from the wire: the checks below only ever
+// asserted stdio tools ⊆ routes (nothing UNCLASSIFIED), never routes ⊆ stdio
+// tools (nothing MISSING). A tool whose registration was dropped — or whose
+// schema inference failed such that the SDK never advertised it — would have
+// passed every existing test.
+//
+// Coordination + artifact-fetch tools are runner-only (generated, proto-
+// canonical), so the stdio surface is asserted against exactly the routes it
+// is responsible for: cell-local and host-relay.
+func TestStdioServer_AdvertisesEveryLocallyServedTool(t *testing.T) {
+	s := &ctxServer{cfg: testConfig()}
+	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
+	s.registerTools(server)
+	tools := listServerTools(t, server)
+
+	for name, route := range mcpschema.Routes() {
+		if route != mcpschema.RouteCellLocal && route != mcpschema.RouteHostRelay {
+			continue
+		}
+		_, ok := tools[name]
+		assert.True(t, ok, "classified tool %q is NOT advertised by the stdio server's tools/list — it was registered but never served", name)
+	}
+
+	// Named explicitly: this is the tool whose advertisement regressed.
+	_, ok := tools["evaluate_triggers"]
+	assert.True(t, ok, "evaluate_triggers must appear in the stdio server's advertised tools")
+}
+
+// TestRunnerServer_AdvertisesEvaluateTriggers pins the same advertisement on
+// the runner surface (where a real harness actually reaches it).
+func TestRunnerServer_AdvertisesEvaluateTriggers(t *testing.T) {
+	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t))
+	require.NoError(t, err)
+	tools := listServerTools(t, server)
+	_, ok := tools["evaluate_triggers"]
+	assert.True(t, ok, "evaluate_triggers must appear in the runner server's advertised tools")
+}
+
 // TestStdioServer_EveryToolClassified: the legacy stdio surface (bare-mcp
 // fallback, retained unchanged) exposes no tool the routing table does not
 // classify.

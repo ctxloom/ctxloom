@@ -100,10 +100,19 @@ func TestBuildPrompt_DemandsStrictJSONResponseShape(t *testing.T) {
 	p := BuildPrompt(sampleBatch())
 	assert.Contains(t, p, "harp_id")
 	assert.Contains(t, p, "outcome")
-	assert.Contains(t, p, "confidence")
 	assert.Contains(t, p, "evidence")
 	assert.Contains(t, p, "reasoning")
 	assert.Contains(t, p, "JSON array")
+}
+
+// The prompt must not ask for a self-reported confidence (see verdict.go). A
+// number the model invents about its own certainty is not evidence, and asking
+// for one puts it in the report beside Evidence and Reasoning — which cite real
+// commits and files — where it competes with them for a human's attention. The
+// question is what the repository shows, not how sure the model feels.
+func TestPrompts_NeverAskForConfidence(t *testing.T) {
+	assert.NotContains(t, BuildPrompt(sampleBatch()), "confidence")
+	assert.NotContains(t, BuildFollowupPrompt(sampleFollowupBatch()), "confidence")
 }
 
 func TestBuildPrompt_EmptyBatchDoesNotPanic(t *testing.T) {

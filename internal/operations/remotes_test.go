@@ -3,6 +3,8 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -885,24 +887,39 @@ func TestSearchRemotes_ManifestBased(t *testing.T) {
 	// This function is tested via integration tests
 }
 
+// TestSearchRemotes_WithValidRegistry drives SearchRemotes end-to-end against a
+// real git repo served over a file:// URL — same technique as
+// TestSearchRemotes_TagAwareDirectorySearch. It used to register a remote at
+// the fictitious "https://github.com/alice/ctxloom" and rely on the request
+// failing fast with a network error; prewarmRemoteClones has no fetcher/cache
+// injection point, so that real (unreachable) URL made this test perform a
+// genuine `git clone` against the network on every run — the exact shape of
+// the live credential-prompt hang this suite guards against. A local file://
+// clone exercises the identical RepoCache → runGit code path with zero network.
 func TestSearchRemotes_WithValidRegistry(t *testing.T) {
-	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(baseDir, 0755))
 
-	// SearchRemotes will attempt to create fetchers and query remotes
-	// Without mocking at the fetcher level, it will make network calls
-	// For unit testing, we verify the request validation logic only
+	src := filepath.Join(tmpDir, "source")
+	initLocalRepoWithFile(t, src, ".ctxloom/content/bundles/widget.yaml",
+		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
-	result, err := SearchRemotes(context.Background(), nil, SearchRemotesRequest{
-		Query:    "test",
+	url := "file://" + src
+	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
+	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
+
+	cfg := &config.Config{AppPaths: []string{baseDir}}
+
+	result, err := SearchRemotes(context.Background(), cfg, SearchRemotesRequest{
+		Query:    "widget",
 		ItemType: "bundle",
-		Registry: registry,
 	})
 
-	// May fail with network error, but shouldn't crash
-	if err == nil {
-		assert.NotNil(t, result)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Results, "the real (file://) clone path must find the bundle; warnings=%v", result.Warnings)
+	assert.Equal(t, "widget", result.Results[0].Name)
+	assert.Equal(t, "alice", result.Results[0].Remote)
 }
 
 func TestSearchManifestContent_FindsMatches(t *testing.T) {

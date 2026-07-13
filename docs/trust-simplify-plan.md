@@ -1,5 +1,26 @@
 # Trust-Simplify Implementation Plan
 
+> ## SUPERSEDED — completed plan record (2026-07-13)
+>
+> This plan **landed**, and was then **superseded in part**. It is retained as a
+> historical record (and because code comments cite it); it is **not** a description
+> of current behavior.
+>
+> - Normative behavior: **[trust-model.md](trust-model.md)**.
+> - Wire contracts and payload framing:
+>   **[signature-envelope.spec.md](signature-envelope.spec.md)**.
+>
+> **What in here is now FALSE:** the trusted-sources mechanism — `trust_bundles: true`
+> in `remotes.yaml`, `ctxloom remote trust|untrust`, `remoteTrusted()`,
+> `Remote.TrustBundles` — is **deleted**, not deprecated. A trusted *location* has
+> been replaced by a trusted *signing identity* in `allowed_signers`
+> (signature-envelope spec §11). The `trust.yaml` acceptance ledger and hash denylist
+> are likewise gone, replaced by the countersignature stores under
+> `~/.ctxloom/approvals/` and `.ctxloom/approvals/`.
+>
+> The open item this plan left at its end — "non-interactive / CI story beyond
+> committed `trust.yaml`" — is answered by signature-envelope spec §9.2.1.
+
 Replace the seven-mechanism, two-layer trust model with a three-state review
 model plus a first-party source exemption. Taskloom: `fair-slum`.
 

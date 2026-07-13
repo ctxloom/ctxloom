@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // Bundle represents a versioned collection of related content.
@@ -251,7 +252,7 @@ type BundleMCP struct {
 	Args         []string          `yaml:"args,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
 	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	ContentHash  string            `yaml:"content_hash,omitempty"` // Hash of the executable surface (Command+Args+Env+Installation)
 }
 
@@ -259,7 +260,7 @@ type BundleMCP struct {
 type BundleFragment struct {
 	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	Content      string   `yaml:"content"`
 	ContentHash  string   `yaml:"content_hash,omitempty"`
 	Distilled    string   `yaml:"distilled,omitempty"`
@@ -432,7 +433,17 @@ func (p *BundleSkill) EffectiveContentHash(preferDistilled bool) (string, Conten
 // mcpContentPayload is the canonical encoding shared by ContentPayload; it
 // is factored out so the "unreachable JSON error" fallback below can still
 // report a stable digest through hashContent without duplicating the struct.
+//
+// Preimage MUST stay the first field. Go's encoding/json emits struct fields
+// in declaration order, so field order here IS the byte order of the preimage,
+// and the leading version carrier is part of the public contract (spec §3.3.2
+// — "the canonical struct gains a `"preimage":"ctxloom-exec/1"` first field").
+// ANY change to the field set below — adding one, removing one, renaming a tag,
+// reordering — changes the preimage and therefore invalidates every existing
+// MCP approval. That is the moment to bump signing.ExecPreimageContract, which
+// is what turns a silent mass re-review into an announced one.
 type mcpContentPayload struct {
+	Preimage     string            `json:"preimage"`
 	Command      string            `json:"command"`
 	Args         []string          `json:"args"`
 	Env          map[string]string `json:"env"`
@@ -440,19 +451,22 @@ type mcpContentPayload struct {
 }
 
 // ContentPayload returns the canonical JSON encoding of the MCP server's
-// executable surface — Command, Args (order significant), Env (key-sorted),
-// and Installation. Notes are excluded (human-only, never executed).
-// encoding/json provides the determinism: it sorts map keys, so reordering
-// Env yields identical bytes while reordering Args (a slice) does not.
+// executable surface — the ctxloom-exec contract version, then Command, Args
+// (order significant), Env (key-sorted), and Installation. Notes are excluded
+// (human-only, never executed). encoding/json provides the determinism: struct
+// fields emit in declaration order and map keys are sorted, so reordering Env
+// yields identical bytes while reordering Args (a slice) does not.
 //
 // This is the SINGLE preimage builder for an MCP server: ComputeContentHash
-// below hashes exactly this function's output, and a future countersignature
-// (signature envelope spec §3.2/§3.3) must too. Unlike the fragment/skill
-// preimage, this one IS a canonicalization — an existing, already-shipped one
-// (spec §3.3.2) — because an MCP server has no "raw bytes"; it is structured
-// fields with no other faithful serialization.
+// below hashes exactly this function's output, and a countersignature
+// (signature envelope spec §3.2/§3.3) covers exactly it too. Unlike the
+// fragment/skill preimage, this one IS a canonicalization — an existing,
+// already-shipped one (spec §3.3.2) — because an MCP server has no "raw bytes";
+// it is structured fields with no other faithful serialization. That is
+// precisely why it carries a version: see signing.ExecPreimageContract.
 func (m *BundleMCP) ContentPayload() ([]byte, error) {
 	canonical := mcpContentPayload{
+		Preimage:     signing.ExecPreimageContract,
 		Command:      m.Command,
 		Args:         m.Args,
 		Env:          m.Env,
@@ -479,7 +493,14 @@ func (m *BundleMCP) ComputeContentHash() string {
 }
 
 // hookContentPayload is the canonical encoding shared by ContentPayload.
+//
+// Preimage MUST stay the first field, for the same reason and under the same
+// rule as mcpContentPayload above: declaration order is byte order, the leading
+// version carrier is the public contract (spec §3.3.2), and any change to this
+// field set invalidates every existing hook approval and therefore requires
+// bumping signing.ExecPreimageContract.
 type hookContentPayload struct {
+	Preimage        string `json:"preimage"`
 	Matcher         string `json:"matcher"`
 	Type            string `json:"type"`
 	Command         string `json:"command"`
@@ -488,19 +509,22 @@ type hookContentPayload struct {
 }
 
 // ContentPayload returns the canonical JSON encoding of the hook's executable
-// surface — Matcher, Type, Command, Prompt, and the PreToolFallback flag: the
-// fields that determine what runs and how it fires. Timeout/Async (operational
-// knobs) and the firing event are excluded — the event is carried by the hook's
-// id, and excluding it keeps the content-hash denylist event-agnostic so the
-// same malicious command is blocked wherever it is wired. encoding/json
-// provides the determinism (stable field order).
+// surface — the ctxloom-exec contract version, then Matcher, Type, Command,
+// Prompt, and the PreToolFallback flag: the fields that determine what runs and
+// how it fires. Timeout/Async (operational knobs) and the firing event are
+// excluded — the event is carried by the hook's id, and excluding it keeps the
+// content-hash denylist event-agnostic so the same malicious command is blocked
+// wherever it is wired. encoding/json provides the determinism (stable field
+// order).
 //
 // This is the SINGLE preimage builder for a hook: ComputeContentHash below
-// hashes exactly this function's output, and a future countersignature must
-// too. Mirrors BundleMCP.ContentPayload — same "already-shipped
-// canonicalization, not a new one" contract (spec §3.3.2).
+// hashes exactly this function's output, and a countersignature covers exactly
+// it too. Mirrors BundleMCP.ContentPayload — same "already-shipped
+// canonicalization, not a new one" contract, and the same versioned first field
+// (signing.ExecPreimageContract, spec §3.3.2).
 func (h *BundleHook) ContentPayload() ([]byte, error) {
 	canonical := hookContentPayload{
+		Preimage:        signing.ExecPreimageContract,
 		Matcher:         h.Matcher,
 		Type:            h.Type,
 		Command:         h.Command,

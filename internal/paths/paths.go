@@ -221,6 +221,22 @@ func HarpPlanPath(harp, name string) (string, error) {
 	return filepath.Join(dir, name+PlanFileExt), nil
 }
 
+// TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted
+// directory holding ctxloom's cached revive-trigger verdicts, one file per
+// project (see internal/operations' verdict cache). It deliberately lives
+// OUTSIDE any project tree and outside taskloom's own store
+// (~/.ctxloom/tasks/<project-id>.jsonl, internal/shared/tasks/paths): a
+// verdict cache is pure derived scratch, safe to delete at any time, and
+// keeping it off both the repo and the task log means neither a git clone nor
+// a `taskloom` operation can ever touch it.
+func TriggerCacheDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, CacheDir, "triggers"), nil
+}
+
 // GetCacheDir returns the cache subdirectory path for the given app path.
 // Cache contains regeneratable content: bundles, vendor, context, memory.
 func GetCacheDir(appPath string) string {
@@ -293,8 +309,16 @@ func AgentsPath(appPath string) string {
 	return filepath.Join(appPath, AgentsDir)
 }
 
-// BundlesPath returns the path to the bundles directory (under cache/).
-func BundlesPath(appPath string) string {
+// CacheBundlesPath returns the CACHE bundles directory (.ctxloom/cache/bundles)
+// — the install root for remote-pulled bundle artifacts (Reference.LocalPath).
+// It is GITIGNORED and regenerable: nothing under it is ever committed, and
+// anything ctxloom writes there can be deleted and re-derived.
+//
+// It is NOT where project-authored bundles live: authored content belongs in
+// the COMMITTED content tree, LocalBundlesPath. Callers that mean "the
+// project's own bundles" (create/import/export/list/sign) must use that one —
+// wiring them here is the bug this split exists to prevent.
+func CacheBundlesPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), BundlesDir)
 }
 
@@ -303,6 +327,15 @@ func BundlesPath(appPath string) string {
 // ctxloom:local references.
 func LocalPath(appPath string) string {
 	return filepath.Join(appPath, ContentDir)
+}
+
+// LocalBundlesPath returns the COMMITTED authored-bundles directory
+// (.ctxloom/content/bundles) — the one on-disk home for a project's own
+// bundles, and the tree a publishing repo ships. It is the local half of the
+// same layout a remote repo exposes under RepoContentPrefix, so a bundle repo
+// and a consuming project lay their bundles out identically.
+func LocalBundlesPath(appPath string) string {
+	return filepath.Join(LocalPath(appPath), BundlesDir)
 }
 
 // VendorPath returns the path to the vendor directory (under cache/).

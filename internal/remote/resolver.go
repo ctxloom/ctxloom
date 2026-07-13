@@ -28,7 +28,7 @@ import (
 // This sits one layer ABOVE the VCS backend (revision-addressable reads). The
 // remote RefFetcher opens a VCS bound to a cloned remote repo; the future local
 // RefFetcher (ctxloom:local) opens a VCS bound to the project working copy
-// under .ctxloom/local/. Resolver is blind to that difference — that is the
+// under .ctxloom/content/. Resolver is blind to that difference — that is the
 // whole point of the seam.
 type RefFetcher interface {
 	// Handles reports whether this fetcher serves ref's source (scheme).
@@ -268,7 +268,7 @@ var (
 )
 
 // LocalRefFetcher is the RefFetcher for ctxloom:local references — project
-// authored content under the committed .ctxloom/local/ working copy. It opens a
+// authored content under the committed .ctxloom/content/ working copy. It opens a
 // VCS bound to that directory and reads the referenced item.
 //
 // The VCSFactory chooses the backend: a plain filesystem (current-only, via

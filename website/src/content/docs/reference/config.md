@@ -25,7 +25,7 @@ Schema for ctxloom config.yaml files
 | `isolation_base_containerfile` | string | USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of using the embedded default base. Relative paths resolve against the project root. |
 | `isolation_images` | map → string | Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity. |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
-| `mcp` | object | MCP (Model Context Protocol) server configuration |
+| `mcp` | mcpConfig | MCP (Model Context Protocol) server configuration |
 | `profiles` | object | Named profile definitions |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container`. |
 | `sync` | object | Remote dependency sync behavior |
@@ -38,9 +38,19 @@ Schema for ctxloom config.yaml files
 | Field | Type | Description |
 |-------|------|-------------|
 | `engine` | string | LLM config label/backend hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend) |
+| `escalation` | object[] | The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge. |
 | `permissions` | string | Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `profiles` | string[] | Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>). |
 | `runtime` | string | Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent. Allowed values: `host`, `container`. |
+
+#### agents (map values).escalation (items)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `action` | string | **Required.** The rung's disposition. Allowed values: `auto_accept`, `auto_decline`, `relay_to_role`, `surface_to_human`. |
+| `kinds` | string[] | ApprovalRequest kinds this rung matches. Empty matches every kind (a catch-all rung). |
+| `role` | string | The relay_to_role/surface_to_human target. Only "parent" is addressable in this window (flat-hub topology); empty defaults to "parent". Not meaningful for auto_accept/auto_decline. |
+| `timeout` | string | Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. "5m"). Empty uses the resolver's default. Ignored by auto_accept/auto_decline. |
 
 ### config
 
@@ -49,8 +59,18 @@ Behavioral settings
 | Field | Type | Description |
 |-------|------|-------------|
 | `compaction_chunks` | integer | Target tokens per compaction chunk (default: 8000) |
+| `sign` | object | Publisher-signing defaults for `fragment push`/`skill push`. |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |
+
+#### config.sign
+
+Publisher-signing defaults for `fragment push`/`skill push`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default` | boolean | When true, publish commands sign unless --no-sign is given. Defaults to false — signing is opt-in, like `git commit -S` until gpg.commit.sign flips it. |
+| `key` | string | Explicit --key-equivalent: a path to a public key or a SHA256:... fingerprint. Empty uses the zero-config discovery chain (git config user.signingkey, then the sole ssh-agent identity). |
 
 ### editor
 
@@ -79,16 +99,6 @@ Role → config-label map. Roles select which labeled config plays which part.
 | `fast` | string | Label of the config for the compression role (distill, compaction) |
 | `primary` | string | Label of the config for the coding/interactive role |
 
-### mcp
-
-MCP (Model Context Protocol) server configuration
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `auto_register_ctxloom` | boolean | Whether to automatically register ctxloom's own MCP server (default: true) |
-| `plugins` | map → map → mcpServer | Backend-specific MCP server configurations (keyed by backend name) |
-| `servers` | map → mcpServer | Unified MCP server configurations (applied to all backends) |
-
 ### profiles
 
 Named profile definitions
@@ -109,9 +119,11 @@ Named profile definitions
 | `fragments` | (mixed)[] | Explicit fragment references to include: a plain path string, or an object with a name and optional priority (FragmentRef.UnmarshalYAML accepts both) |
 | `hooks` | hooksConfig | Hooks configuration for this profile (inherited from parents) |
 | `llm` | string | Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`) |
-| `mcp` | object | MCP servers for this profile (inherited) |
+| `mcp` | mcpConfig | MCP servers for this profile (inherited) |
 | `parents` | string[] | Parent profiles to inherit from (processed depth-first) |
-| `tags` | string[] | Fragment tags to include (fragments with matching tags are added) |
+| `prompts` | string[] | Slash-command prompt exports curated for this profile (each a "<bundle>#prompts/<name>" ref, optionally version-pinned with a trailing "@<commit>"). When a resolved active profile declares a NON-EMPTY list, ONLY these prompts are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in). |
+| `select_tags` | string[] | Fragment tags to select content by: fragments carrying any of these tags are included. |
+| `tags` | string[] | Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag. |
 | `variables` | map → string | Variable values for template substitution in fragments |
 
 ##### profiles.definitions (map values).fragments (items)
@@ -153,8 +165,9 @@ A hook definition
 | `async` | boolean | Run hook in background (command hooks only) Default: `false`. |
 | `command` | string | Shell command to execute |
 | `matcher` | string | Regex pattern to filter when hook fires (by tool name, event source, etc.) |
+| `pre_tool_fallback` | boolean | Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event (e.g. Antigravity). Only meaningful for idempotent hooks — the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it. Default: `false`. |
 | `prompt` | string | Prompt text for prompt/agent hook types |
-| `timeout` | integer | Execution timeout in seconds Default: `30`. |
+| `timeout` | integer | Execution timeout in seconds. Unset means no timeout is applied (omitted from the emitted backend settings entirely) — there is no implicit default. |
 | `type` | string | Hook handler type Allowed values: `command`, `prompt`, `agent`. Default: `command`. |
 
 ### hookArray
@@ -183,6 +196,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `env` | map → string |  |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `claude-code`. |
 
 #### antigravity
@@ -194,6 +208,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `env` | map → string |  |
 | `model` | string | Examples: `gemini-3-pro`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `antigravity`. |
 
 #### codex
@@ -205,6 +220,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `env` | map → string |  |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `codex`. |
 
 #### kiro
@@ -219,6 +235,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `env` | map → string |  |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `kiro`. |
 
 #### mock
@@ -228,7 +245,38 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `env` | map → string |  |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock`. |
+
+#### acp
+
+Generic Agent Client Protocol client: drives any ACP-capable agent chosen by config (e.g. "kiro-cli acp", "claude-code-acp"). Structured chat + headless oneshot only (no TUI); materializes no native settings of its own.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent` | string | Selects a named agent on the target CLI via `--agent`. |
+| `agent_engine` | string | Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`. |
+| `args` | string[] |  |
+| `binary_path` | string |  |
+| `command` | string | The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. "kiro-cli acp"). |
+| `env` | map → string |  |
+| `model` | string | Passed to the spawned agent via `--model` when set. |
+| `model_config_key` | string | When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it). |
+| `model_env_var` | string | When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL). |
+| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `strip_env` | string[] | Inherited environment variables removed from the spawned agent's env. |
+| `type` | string | Must be `acp`. |
+
+### mcpConfig
+
+MCP (Model Context Protocol) server configuration
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `auto_register_ctxloom` | boolean | Whether to automatically register ctxloom's own MCP server (default: true) |
+| `plugins` | map → map → mcpServer | Backend-specific MCP server configurations (keyed by backend name) |
+| `servers` | map → mcpServer | Unified MCP server configurations (applied to all backends) |
 
 ### mcpServer
 

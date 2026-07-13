@@ -17,13 +17,13 @@ import (
 // compound `profiles:` bundle item kind end to end. Real tempdirs (not
 // afero.MemMapFs) because GetBundleDirs/GetProfileDirs stat the real fs.
 //
-//	<root>/.ctxloom/cache/bundles/kit.yaml
+//	<root>/.ctxloom/content/bundles/kit.yaml
 //
 // The bundle profile "p1" is addressable as
 // "ctxloom:local@bundles/kit#profiles/p1".
 func writeBundleProfileFixture(t *testing.T, root string) {
 	t.Helper()
-	bundleDir := filepath.Join(root, ".ctxloom", "cache", "bundles")
+	bundleDir := filepath.Join(root, ".ctxloom", "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	kitYAML := `version: "1.0.0"

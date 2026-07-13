@@ -23,14 +23,14 @@ ctxloom remote add <name> <url>         # Register a remote source
 ctxloom remote remove <name>            # Remove a remote
 ctxloom remote browse <name>            # Browse remote contents
 ctxloom remote discover                 # Find public ctxloom repositories
-ctxloom remote trust <name>             # Apply this remote's upgrades without review
-ctxloom remote untrust <name>           # Gate this remote's upgrades behind review
+ctxloom remote default <name>           # Set the default remote
 ```
 
-Content from a trusted remote reaches the agent automatically; content from an
-untrusted remote lands as **pending** and is withheld per item until you accept
-it with `ctxloom review` — see
-[Review and trust](/concepts/review-and-trust/).
+A remote is an **address**, and nothing more: registering one grants its content
+no access to the agent. Content published under a signing key you trust reaches
+the agent automatically; everything else from a remote lands as **pending** and is
+withheld per item until you approve it with `ctxloom review`. Trust follows the
+key, not the repository — see [Review and trust](/concepts/review-and-trust/).
 
 ### Add a Remote
 

@@ -16,7 +16,7 @@ import (
 var bundleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List installed bundles",
-	Long: `List all installed bundles: local bundles in .ctxloom/cache/bundles
+	Long: `List all installed bundles: local bundles in .ctxloom/content/bundles
 plus remote bundles pinned in the lockfile.
 
 Shows bundle name, version, description, and content summary.`,
@@ -45,7 +45,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		if len(bundleDirs) == 0 {
 			w := iox.NewErrWriter(out)
-			w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/cache/bundles")
+			w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/content/bundles")
 			return w.Err()
 		}
 		return renderBundleList(out, bundleInfos)

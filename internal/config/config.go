@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -404,9 +405,9 @@ func (c *Config) ShouldSignByDefault() bool {
 	return c.Settings.ShouldSignByDefault()
 }
 
-// SignKey returns the configured sign.key override (an explicit
-// --key-equivalent path or SHA256:... fingerprint), or "" when unset —
-// meaning the zero-config discovery chain (internal/signing/agentkey)
+// SignKey returns the configured sign.key override (a --key-equivalent
+// fingerprint, public key path, or ssh-agent key name/comment), or "" when
+// unset — meaning the zero-config discovery chain (internal/signing/agentkey)
 // should be used instead.
 func (c *Config) SignKey() string {
 	return c.Settings.SignKey()
@@ -910,10 +911,17 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		zap.L().Warn("config_migration_lossy", zap.String("path", configPath), zap.String("warning", lost))
 	}
 
-	// Validate against schema before parsing - warn but continue on failure
+	// Validate against schema before parsing — warn but continue on failure.
+	// This runs AFTER the upgrade pipeline above, deliberately: a key an older
+	// config legitimately carries is migrated forward first, so only a key the
+	// CURRENT schema truly does not know can be reported. The schema is authored
+	// additionalProperties:false throughout, so an unknown key is a violation;
+	// classifyValidationError splits those out into named, actionable unknown-key
+	// warnings (kind unknown-key → a fatal finding in strict mode) and leaves any
+	// other schema breakage as the plain validate warning it has always been.
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
+			cfg.Warnings = append(cfg.Warnings, classifyValidationError(configPath, err)...)
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}
@@ -1048,17 +1056,92 @@ func worktreeSignpost(fs afero.Fs, dir string) {
 		"this is a linked git worktree of the project at %s (no .ctxloom of its own)", info.MainRoot)
 }
 
-// GetBundleDirs returns bundles directories (in cache/).
+// GetBundleDirs returns the project's AUTHORED bundle directories — the
+// committed content tree (.ctxloom/content/bundles), NOT the gitignored cache.
+// This is the set every authored-bundle path resolves against: `bundle create`
+// writes here, `bundle list` lists it, and `sign --all` signs exactly it (a
+// publishing repo's bundles ARE this directory). The cache
+// (paths.CacheBundlesPath) holds remote-pull artifacts the project has no authority
+// to author or sign, so it is deliberately absent.
+//
+// A cache/bundles left holding AUTHORED work from the pre-content layout is
+// not silently skipped — that would delete a user's bundles from view. See
+// legacyCacheBundlesSignpost.
 func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string
 	for _, appPath := range c.AppPaths {
-		bundleDir := paths.BundlesPath(appPath)
+		legacyCacheBundlesSignpost(fs, appPath)
+		bundleDir := paths.LocalBundlesPath(appPath)
 		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
 		}
 	}
 	return dirs
+}
+
+// legacyCacheBundlesSignpost records a fatal ClassMigration finding when
+// .ctxloom/cache/bundles still holds AUTHORED bundles — bundles written there
+// by the pre-content-tree `bundle create`, which the authored read/write path
+// no longer looks at. Ignoring them silently would make a user's own work
+// vanish from `bundle list` and `sign --all` with no explanation, so the move
+// is demanded, not performed: ctxloom does not rewrite content it did not
+// author in this run (no-backward-compat-shims — re-place, don't shim).
+//
+// Remote-pull artifacts in the same tree (identified by a `_source.sha`, the
+// same marker operations.PurgeExtractedBundles keys on) are genuine cache and
+// never fire this: they are regenerable from the lockfile + clone cache.
+//
+// FailOnce, because GetBundleDirs is called many times per process (every
+// loader build) and the finding must not stack up inside one startup window.
+func legacyCacheBundlesSignpost(fs afero.Fs, appPath string) {
+	cacheBundles := paths.CacheBundlesPath(appPath)
+	stranded := strandedAuthoredBundles(fs, cacheBundles)
+	if len(stranded) == 0 {
+		return
+	}
+	strictness.FailOnce(strictness.ClassMigration,
+		fmt.Sprintf("move them into the committed content tree: mkdir -p %s && git mv %s/* %s/ (or plain mv outside git)",
+			paths.LocalBundlesPath(appPath), cacheBundles, paths.LocalBundlesPath(appPath)),
+		"%s holds %d authored bundle(s) (%s) but authored bundles now live in %s — the cache is gitignored and is no longer read, so these are invisible to `bundle list`, `run`, and `sign --all`",
+		cacheBundles, len(stranded), strings.Join(stranded, ", "), paths.LocalBundlesPath(appPath))
+}
+
+// strandedAuthoredBundles walks a legacy cache/bundles tree and returns the
+// base names of every YAML that is NOT a remote-pull artifact — i.e. every file
+// that can only have been authored locally. Unreadable/unparseable files are
+// treated as authored: a file we cannot prove is regenerable cache is work we
+// must not tell the user to ignore.
+func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
+	if info, err := fs.Stat(cacheBundles); err != nil || !info.IsDir() {
+		return nil
+	}
+	var stranded []string
+	_ = afero.Walk(fs, cacheBundles, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
+			return nil //nolint:nilerr // an unreadable entry is skipped, not fatal
+		}
+		if data, rerr := afero.ReadFile(fs, path); rerr == nil {
+			// Legacy remote-pull artifacts embed a `_source` block; a non-empty
+			// SHA there unambiguously marks one (mirrors PurgeExtractedBundles).
+			var meta struct {
+				Source struct {
+					SHA string `yaml:"sha"`
+				} `yaml:"_source"`
+			}
+			if yaml.Unmarshal(data, &meta) == nil && meta.Source.SHA != "" {
+				return nil
+			}
+		}
+		rel, rerr := filepath.Rel(cacheBundles, path)
+		if rerr != nil {
+			rel = info.Name()
+		}
+		stranded = append(stranded, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(stranded)
+	return stranded
 }
 
 // SeededBundleLoader returns a bundles.Loader that sees fs-installed local
@@ -1180,7 +1263,7 @@ var companionSeedInitMu sync.Mutex
 //   - remote/canonical ref → the FetchItem primitive over the local git clone
 //     cache (remote.FetchRefBytes), exactly as before;
 //   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
-//     git history (the committed .ctxloom/local/ tree), via the local working-copy
+//     git history (the committed .ctxloom/content/ tree), via the local working-copy
 //     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
 //     untouched: the loader only invokes the resolver for an explicit "@<commit>".
 //
@@ -1213,7 +1296,7 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 		}
 
 		// Local (project-authored) refs version against the PROJECT'S own git
-		// history, not the remote clone cache. The committed .ctxloom/local/ tree
+		// history, not the remote clone cache. The committed .ctxloom/content/ tree
 		// is read at <commit> through the working-copy VCS; a non-git project,
 		// unknown rev, or path-absent-at-rev errors here and the caller withholds.
 		if ref.IsLocal {

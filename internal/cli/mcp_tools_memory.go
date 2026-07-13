@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
@@ -479,15 +480,55 @@ func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResu
 	}, distilled.SourceSize
 }
 
+// singleflightDistill runs fn unless an identical distillation is already in
+// flight, in which case it waits for that one and shares its result. Two things
+// make the dedupe load-bearing rather than an optimization: the host's handler
+// runs on the coordinator's base context, so a caller whose budget expires does
+// NOT stop the distillation it started; and the natural reflex to a failed
+// recover is an immediate retry. Without this, that retry re-distills every
+// chunk through the LLM a second time, concurrently with the first.
+//
+// A nil group (bare stdio server) runs fn directly — undeduped, but correct.
+func (s *ctxServer) singleflightDistill(key string, fn func() (*loadSessionResult, error)) (*loadSessionResult, error) {
+	if s.distill == nil {
+		return fn()
+	}
+	v, err, _ := s.distill.Do(key, func() (any, error) { return fn() })
+	if err != nil {
+		return nil, err
+	}
+	res, _ := v.(*loadSessionResult)
+	return res, nil
+}
+
 // distillSession compacts a session and returns the freshly-distilled result.
 // harp keys the session's plan files; pass "" to fall back to the active harp.
+//
+// Progress is deliberately NOT written to stderr here: on the host-relay path
+// this runs inside the session-owning process, whose stderr is the terminal the
+// harness is drawing its TUI on.
 func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
-	fmt.Fprintf(os.Stderr, "ctxloom: distilling session %s (this may take a moment)...\n", sessionID)
-
 	if model == "" {
 		model = s.cfg.GetCompactionModel()
 	}
+	// On the host-relay path this runs on the COORDINATOR's base context, which
+	// has no deadline — the caller's budget bounds only how long it waits, never
+	// the work. Left unbounded, one wedged LLM subprocess would hold the
+	// singleflight entry open forever and every later recover of this session
+	// would queue behind the wedge instead of failing. Bound the work to the
+	// same budget the relay grants the caller.
+	if _, has := ctx.Deadline(); !has {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
+		defer cancel()
+	}
+	return s.singleflightDistill(sessionID+"\x00"+backendName+"\x00"+model, func() (*loadSessionResult, error) {
+		return s.distillSessionOnce(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
+	})
+}
 
+// distillSessionOnce is the distillation proper, behind singleflightDistill.
+func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
 	// Recovery must never block the agent (CLAUDE.md): a compactor/distill failure
 	// degrades to a usable "couldn't distill" message rather than a tool error.
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{

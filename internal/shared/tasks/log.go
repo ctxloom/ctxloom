@@ -51,13 +51,24 @@ type folded struct {
 	issued    map[string]struct{} // every harp ever used — never reused
 	repaired  map[string]struct{} // anomaly keys already resolved by a re-add
 	anomalies []Event             // displaced duplicate adds (same harp, different task)
+
+	// deferredSince tracks, per harp, the Ts of the event that most recently
+	// moved it into Deferred status — updated on every add/status event that
+	// sets Deferred, so a re-deferral after a revive overwrites the earlier
+	// value. Trigger evaluation reads this (via Store.DeferredSince) to scope
+	// evidence to what happened AFTER a task was parked, not the whole
+	// project history. Left stale (not deleted) on a move OUT of Deferred; the
+	// public accessor filters to only currently-Deferred tasks, so a stale
+	// entry for a non-Deferred task is simply never surfaced.
+	deferredSince map[string]time.Time
 }
 
 func newFolded() *folded {
 	return &folded{
-		byID:     map[string]*Task{},
-		issued:   map[string]struct{}{},
-		repaired: map[string]struct{}{},
+		byID:          map[string]*Task{},
+		issued:        map[string]struct{}{},
+		repaired:      map[string]struct{}{},
+		deferredSince: map[string]time.Time{},
 	}
 }
 
@@ -126,6 +137,9 @@ func (f *folded) apply(ev Event) error {
 		t.TextHash = hashText(t.Text)
 		f.byID[ev.Task] = t
 		f.order = append(f.order, ev.Task)
+		if t.Status == StatusDeferred {
+			f.deferredSince[ev.Task] = ev.Ts
+		}
 	case opStatus:
 		if t := f.byID[ev.Task]; t != nil {
 			t.Status = ev.Status
@@ -134,6 +148,9 @@ func (f *folded) apply(ev Event) error {
 			// empty trigger never clears an existing condition.
 			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
 				t.Trigger = tr
+			}
+			if ev.Status == StatusDeferred {
+				f.deferredSince[ev.Task] = ev.Ts
 			}
 		}
 	case opText:
@@ -349,6 +366,29 @@ func (l *eventLog) snapshot() ([]Task, error) {
 		return nil, err
 	}
 	return f.taskList(), nil
+}
+
+// deferredSince returns, for every currently Deferred task, the timestamp of
+// the event that most recently moved it into Deferred status. Locking mirrors
+// snapshot(): a shared cross-process lock for the read, best-effort (a lock
+// failure falls back to unlocked rather than blocking a read).
+func (l *eventLog) deferredSince() (map[string]time.Time, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+		defer unlock()
+	}
+	f, err := l.fold()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]time.Time, len(f.deferredSince))
+	for id, ts := range f.deferredSince {
+		if t := f.byID[id]; t != nil && t.Status == StatusDeferred {
+			out[id] = ts
+		}
+	}
+	return out, nil
 }
 
 func (l *eventLog) list(statuses []string, term string) ([]Task, error) {

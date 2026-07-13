@@ -93,6 +93,34 @@ func TestSetTaskStatusThroughOperations(t *testing.T) {
 	}
 }
 
+// TestDeferredSinceThroughOperations pins the operations-layer wrapper: it
+// resolves the same project store as the other TaskContext-driven calls and
+// surfaces only currently Deferred tasks.
+func TestDeferredSinceThroughOperations(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	deferred, err := AddTask(tc, "park me", "Deferred", "when x happens")
+	if err != nil {
+		t.Fatalf("add deferred: %v", err)
+	}
+	active, err := AddTask(tc, "keep going", "", "")
+	if err != nil {
+		t.Fatalf("add active: %v", err)
+	}
+
+	since, err := DeferredSince(tc)
+	if err != nil {
+		t.Fatalf("deferred since: %v", err)
+	}
+	if _, ok := since[deferred.Task.HarpID]; !ok {
+		t.Fatalf("deferred task missing from DeferredSince: %+v", since)
+	}
+	if _, ok := since[active.Task.HarpID]; ok {
+		t.Fatalf("non-deferred task must not appear in DeferredSince: %+v", since)
+	}
+}
+
 // TestPinnedProjectMismatchWarns covers the cross-project warning: acting on a
 // pinned project-id while the cwd's marker names a different project must
 // surface a notice rather than silently filing the task elsewhere.

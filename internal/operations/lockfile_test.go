@@ -231,7 +231,7 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 
 	// Create directory structure
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
@@ -278,7 +278,7 @@ func (m *mockPuller) Pull(ctx context.Context, refStr string, opts remote.PullOp
 	if m.pullFunc != nil {
 		return m.pullFunc(ctx, refStr, opts)
 	}
-	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
+	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 }
 
 func TestInstallDependencies_EmptyLockfile(t *testing.T) {
@@ -387,7 +387,7 @@ profiles: {}
 			if callCount == 1 {
 				return nil, fmt.Errorf("network error")
 			}
-			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 		},
 	}
 
@@ -436,7 +436,7 @@ profiles: {}
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedForce = opts.Force
-			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 		},
 	}
 

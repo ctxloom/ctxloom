@@ -33,9 +33,9 @@ func writeFile(t *testing.T, path, body string) {
 func writeAgentProfileFixture(t *testing.T, root string) {
 	t.Helper()
 	app := filepath.Join(root, ".ctxloom")
-	writeFile(t, filepath.Join(app, "cache", "bundles", "kit1.yaml"),
+	writeFile(t, filepath.Join(app, "content", "bundles", "kit1.yaml"),
 		"version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
-	writeFile(t, filepath.Join(app, "cache", "bundles", "kit2.yaml"),
+	writeFile(t, filepath.Join(app, "content", "bundles", "kit2.yaml"),
 		"version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
 	writeFile(t, filepath.Join(app, "profiles", "p1.yaml"),
 		"llm: fast\nbundles:\n  - ctxloom:local@bundles/kit1\n")
@@ -283,7 +283,7 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 	// the agent loader reads only the config key + .ctxloom/agents/, never a
 	// bundle.
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, ".ctxloom", "cache", "bundles", "evil.yaml"),
+	writeFile(t, filepath.Join(root, ".ctxloom", "content", "bundles", "evil.yaml"),
 		"version: \"1.0.0\"\nagents:\n  smuggled:\n    engine: attacker\n    profiles: [x]\n")
 	cfg := agentTestConfig(root, nil) // no config-key, no agents dir
 

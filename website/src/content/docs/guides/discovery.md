@@ -76,13 +76,13 @@ Searching repositories... found 5
   4 │ GitHub │ bob/ctxloom-python      │    28 │ Python tooling fragments
   5 │ GitHub │ dev/ctxloom-testing     │    15 │ Testing patterns and practices
 
-Add remote? Enter number (or 'q' to quit):
+Add remote? Enter number ('q' or Enter to quit): 
 ```
 
 Enter a number to add that repository as a remote:
 
 ```
-Add remote? Enter number (or 'q' to quit): 1
+Add remote? Enter number ('q' or Enter to quit): 1
 Name for remote [alice]: golang-bundles
 Added remote 'golang-bundles' → https://github.com/alice/ctxloom-golang
 ```
@@ -116,7 +116,22 @@ ctxloom profile create go-dev \
 
 # Fetch everything your profiles reference and update the lockfile
 ctxloom remote pull
+
+# Let a human see what came in before the agent can
+ctxloom review
 ```
+
+`ctxloom remote pull` only fetches — it never exposes anything. Everything
+from a remote is born pending and withheld from the agent until a human
+reviews it, unless you already trust the publisher's signing key. `ctxloom
+review` walks the pending items and shows each one's content: `[a]ccept`,
+`[r]eject`, `[s]kip`, or `[A]` to accept everything left in a bundle.
+Accepting countersigns the exact bytes you saw with your own SSH key, so any
+later change to that content — including a version upgrade — drops it back to
+pending until you review it again. `ctxloom trust <ref>` and `ctxloom
+blacklist <ref>` are the same accept/reject as scriptable one-liners, for
+scripts or CI. Trusting a publisher's key instead (`ctxloom signer add`)
+skips this per-item review for everything they sign.
 
 ### Use Content Directly
 
@@ -126,6 +141,12 @@ Reference remote content for a single run without authoring a profile:
 # Use a remote fragment
 ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
 ```
+
+This only works once the fragment is already pulled and reviewed: `-f` never
+fetches on demand, and unreviewed content isn't silently added to context —
+since it's the only fragment requested here, ctxloom refuses to run with
+nothing to assemble rather than send an empty prompt. Pull and review it
+first (as in Reference Remote Content above) if you haven't already.
 
 Remote profiles ship inside bundles. To run one, create a local profile that
 inherits it (as above), then `ctxloom run -p go-dev`.
@@ -191,15 +212,29 @@ Choose descriptive names that indicate the content type:
 
 ### Staying Updated
 
-After adding remotes, keep them in sync:
+`ctxloom remote pull` only installs what's already pinned in the lockfile —
+it never advances anything. To move a dependency's pin forward to the newest
+commit its version constraint allows, use `ctxloom remote upgrade`:
 
 ```bash
-# Pull all remote content your profiles reference
+# Pull exactly what's already pinned
 ctxloom remote pull
 
-# Update specific remote
-ctxloom remote update golang-bundles
+# Advance pins to the newest commit each constraint allows
+ctxloom remote upgrade
 ```
+
+Content that changes under an upgraded pin re-gates to pending, even if
+you'd already reviewed the old bytes — run `ctxloom review` again afterward
+to see what changed and decide.
+
+`ctxloom remote update [ref]` is a different, narrower command: it refreshes
+the local clone and checks for available updates without applying them
+(`--apply` applies; `--force` skips confirmation). Its optional argument is a
+full item/bundle reference, not a remote name — a bare `golang-bundles` is
+rejected; use a canonical URL, e.g. `ctxloom remote update
+'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven'`,
+or omit the argument to check everything in the lockfile.
 
 ## Creating Discoverable Repositories
 

@@ -26,16 +26,23 @@ var remoteUpdateCmd = &cobra.Command{
 	Short: "Check for and apply updates to remote items",
 	Long: `Check for updates to installed remote items.
 
-Without arguments, checks all items in the lockfile for updates.
-With a reference, checks only that specific item.
+Without arguments, checks all items in the lockfile for updates. With a
+reference, checks only that item. The reference is a canonical bundle
+reference — a full repository URL plus its bundle path, e.g.
+https://github.com/alice/ctxloom@bundles/security — not a remote name (see
+"ctxloom remote add --help" for the repository URL formats a remote itself
+may take).
+
+By default this only reports what is out of date. Pass --apply to actually
+update the lockfile and installed files.
 
 Examples:
-  ctxloom remote update                       # Check all for updates
-  ctxloom remote update alice/security        # Check specific item
-  ctxloom remote update --apply               # Apply all available updates
-  ctxloom remote update alice/security --apply # Update specific item
-  ctxloom remote update --apply --force       # Apply all updates without prompts
-  ctxloom remote update --apply --cleanup     # Also remove items deleted from remote`,
+  ctxloom remote update                                                             # Check all for updates
+  ctxloom remote update https://github.com/alice/ctxloom@bundles/security           # Check one item
+  ctxloom remote update --apply                                                     # Apply all available updates
+  ctxloom remote update https://github.com/alice/ctxloom@bundles/security --apply   # Update one item
+  ctxloom remote update --apply --force                                             # Apply all updates without prompts
+  ctxloom remote update --apply --cleanup                                           # Also remove items deleted from remote`,
 	RunE: runRemoteUpdate,
 }
 

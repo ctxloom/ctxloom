@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -29,24 +31,73 @@ import (
 // GUARD the source dir afterward so a future regression fails loudly instead of
 // silently re-appearing and getting committed. (`just test-dirty` junks HOME but
 // not CWD — this closes that half.)
+//
+// realHOME is the ambient HOME this process started with, captured before
+// TestMain ever overwrites it. Tests that shell out to `go` (e.g. to spawn
+// this package's own test binary as a subprocess) need it: inheriting the
+// sandboxed HOME instead would point the child's build phase at a throwaway
+// GOPATH/GOCACHE, filling the sandbox with a full module-cache tree that
+// os.RemoveAll then can't clean up, because the Go module cache marks its
+// directories read-only.
+var realHOME = os.Getenv("HOME")
+
+// HOME and CWD each get their own subdirectory under a single per-process
+// sandbox (see acquireSandbox), rather than two independent MkdirTemp calls,
+// because a panic anywhere in m.Run() crashes the process via tRunner's
+// re-panic before any defer here — including this one — ever runs. A single
+// sandbox directory means the NEXT process's startup reaper only has one
+// thing to find and remove per dead pid instead of two independent ones, and
+// a signal (SIGINT/SIGTERM, unlike a panic, IS catchable) can tear down both
+// halves with one RemoveAll instead of coordinating two.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
-		home, err := os.MkdirTemp("", "ctxloom-test-home-*")
-		if err == nil {
+		sandbox, cleanupSandbox := acquireSandbox()
+		defer cleanupSandbox()
+
+		// A panic crashes the process before this defer (or any other) runs,
+		// so it cannot reap its own sandbox — only a LATER process's startup
+		// reaper (acquireSandbox -> reapSandboxes) can, once this pid is dead.
+		// SIGINT/SIGTERM, by contrast, are ordinary signals this process can
+		// catch, so honor them by cleaning up before dying instead of leaving
+		// that to the next reaper.
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+		go func() {
+			sig, ok := <-sigCh
+			if !ok {
+				return
+			}
+			cleanupSandbox()
+			os.Exit(128 + int(sig.(syscall.Signal))) //nolint:forbidigo // no *testing.T in TestMain
+		}()
+
+		home := filepath.Join(sandbox, "home")
+		if err := os.MkdirAll(home, 0o700); err == nil {
 			// TestMain has no *testing.T, so t.Setenv / testsupport.Isolate are
 			// unavailable here; set the process env directly for the whole package run.
 			os.Setenv("HOME", home) //nolint:forbidigo // no *testing.T in TestMain
-			defer os.RemoveAll(home)
 		}
 
+		// Belt and braces: internal/remote's runGit already forces every git
+		// subprocess non-interactive (GIT_TERMINAL_PROMPT=0, cleared askpass), so
+		// nothing in THIS package should ever reach a real credential prompt. Set
+		// it here too, package-wide, so a future test that talks to a real (even
+		// unreachable) repo URL fails fast on a network/auth error instead of
+		// blocking forever or popping a GUI dialog — a hanging test is worse than
+		// a failing one.
+		os.Setenv("GIT_TERMINAL_PROMPT", "0") //nolint:forbidigo // no *testing.T in TestMain
+		os.Setenv("GIT_ASKPASS", "")           //nolint:forbidigo // no *testing.T in TestMain
+		os.Setenv("SSH_ASKPASS", "")           //nolint:forbidigo // no *testing.T in TestMain
+
 		origWD, wdErr := os.Getwd()
-		if work, werr := os.MkdirTemp("", "ctxloom-test-cwd-*"); werr == nil {
+		work := filepath.Join(sandbox, "cwd")
+		if err := os.MkdirAll(work, 0o700); err == nil {
 			if cerr := os.Chdir(work); cerr == nil { //nolint:forbidigo // no *testing.T in TestMain
 				defer func() {
 					if wdErr == nil {
 						_ = os.Chdir(origWD) //nolint:forbidigo // no *testing.T in TestMain
 					}
-					_ = os.RemoveAll(work)
 				}()
 			}
 		}

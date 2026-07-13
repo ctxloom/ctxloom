@@ -41,8 +41,11 @@ allowed to see yet — grouped by bundle, and decide each one.
 
 An item is pending when it was never reviewed, or when its content changed
 since a human approved it (an UPDATE — shown as a diff against what was
-approved). First-party content (project-local, trusted sources) is exempt and
-never appears here.
+approved). First-party content is exempt and never appears here: items you
+authored in this project, builtin bundles shipped inside the binary, and
+bundles signed by a publisher key you trust (allowed_signers). Trust is keyed
+to a signing KEY, never to the remote the bytes arrived from. A rejection
+still beats every one of those exemptions.
 
 Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
 or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
@@ -161,7 +164,7 @@ func resolveReviewSigner(ctx context.Context, project bool) (signer ssh.Signer, 
 // the consequence — every process able to write .ctxloom/ (including an agent
 // ctxloom launches) could forge such a record — and requires an explicit yes.
 func confirmUnsignedReview(out io.Writer) bool {
-	fmt.Fprintln(out, "No signing key found (looked in ssh-agent via SSH_AUTH_SOCK).")
+	fmt.Fprintln(out, "No signing key found (checked git config user.signingkey, then ssh-agent via SSH_AUTH_SOCK).")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "  ssh-add ~/.ssh/id_ed25519      load a key you already have, then re-run")
 	fmt.Fprintln(out, "  ssh-keygen -t ed25519-sk       or generate a hardware key (recommended)")

@@ -1,6 +1,9 @@
 package tasks
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Store is the public face of a per-project task log. The append-only JSONL
 // log is the only backend: the pre-ADR-0025 markdown store and its one-time
@@ -93,4 +96,15 @@ func (s *Store) Repair() error {
 // Summarize counts tasks per status. Deterministic; no LLM call.
 func (s *Store) Summarize() (Summary, error) {
 	return s.log.summarize()
+}
+
+// DeferredSince returns, for every currently Deferred task, the timestamp of
+// the event that most recently moved it into Deferred status (an add with
+// status Deferred, or a later status change to Deferred). Tasks that are not
+// currently Deferred are omitted, even if they were deferred in the past.
+// Trigger evaluation uses this to scope its evidence gathering (e.g. git
+// history) to what happened since a task was parked, without walking the
+// whole project history.
+func (s *Store) DeferredSince() (map[string]time.Time, error) {
+	return s.log.deferredSince()
 }

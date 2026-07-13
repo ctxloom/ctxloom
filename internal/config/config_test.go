@@ -758,29 +758,6 @@ func TestConfig_SourceName(t *testing.T) {
 	}
 }
 
-func TestConfig_GetBundleDirs(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create bundles directory in cache/
-	bundlesDir := filepath.Join(tmpDir, "cache", "bundles")
-	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
-
-	cfg := &Config{AppPaths: []string{tmpDir}}
-	dirs := cfg.GetBundleDirs()
-
-	assert.Len(t, dirs, 1)
-	assert.Equal(t, bundlesDir, dirs[0])
-}
-
-func TestConfig_GetBundleDirs_NoBundlesDir(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cfg := &Config{AppPaths: []string{tmpDir}}
-	dirs := cfg.GetBundleDirs()
-
-	assert.Empty(t, dirs)
-}
-
 func TestConfig_GetConfigFilePath(t *testing.T) {
 	t.Run("returns path when AppPaths set", func(t *testing.T) {
 		cfg := &Config{AppPaths: []string{"/path/to/.ctxloom"}}
@@ -1434,7 +1411,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1462,7 +1439,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1491,7 +1468,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	bundlesDir := paths.LocalBundlesPath(appDir) // committed content tree
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
@@ -1569,7 +1546,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		t.Helper()
 		appDir = filepath.Join(t.TempDir(), ".ctxloom")
 		profilesDir = filepath.Join(appDir, "profiles")
-		bundlesDir = filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+		bundlesDir = paths.LocalBundlesPath(appDir) // committed content tree
 		require.NoError(t, os.MkdirAll(profilesDir, 0755))
 		require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 		return appDir, profilesDir, bundlesDir

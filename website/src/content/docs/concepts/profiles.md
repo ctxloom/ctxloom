@@ -19,15 +19,17 @@ parents:                            # Inherit from other profiles
   - base-profile
   - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
 
-tags:                              # Include fragments with these tags
+tags:                              # Descriptive only (listing/discovery) — does NOT select content
   - golang
   - testing
+
+select_tags:                       # Include fragments with these tags
+  - security
 
 bundles:                           # Bundle references
   - go-development                 # Local bundle
   - ctxloom-default/security             # Remote bundle
   - my-bundle#fragments/specific  # Specific fragment
-  - my-bundle#skills/review       # Specific skill
 
 variables:                         # Template variables (Mustache)
   DATABASE_URL: "postgresql://..."
@@ -43,7 +45,10 @@ flag are no longer supported.
 
 When `ctxloom run` is invoked with no `--agent` and no `-p`/`-f`/`-t`, it binds
 the default agent. If no `default_agent` is configured (or it names an undefined
-agent), ctxloom warns and continues with empty context — never blocking startup.
+agent), ctxloom aborts before launch with a fatal finding telling you to run
+`ctxloom agent default <name>`. Pass `--degraded` to get the old
+warn-and-continue behavior: it launches anyway with empty context instead of
+blocking.
 
 ### Preferred LLM (`llm:`)
 
@@ -63,6 +68,10 @@ a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
 
 ## Content Reference Syntax
 
+These `bundle#kind/name` forms address one item and work everywhere ctxloom
+takes an item reference on the command line — `ctxloom skill show`,
+`ctxloom fragment edit`, `ctxloom trust`, and so on:
+
 | Format | Description |
 |--------|-------------|
 | `bundle-name` | Entire bundle (all content) |
@@ -74,12 +83,37 @@ a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
 | `remote/bundle` | Bundle from remote |
 | `remote/bundle#fragments/x` | Fragment from remote |
 
+### Inside a profile's `bundles:` list
+
+A profile's `bundles:` list is narrower: only a whole-bundle ref or a
+`#fragments/name` cherry-pick belong there.
+
+| Format | Description |
+|--------|-------------|
+| `bundle-name` | Entire bundle (all content) |
+| `remote/bundle` | Entire bundle from a remote |
+| `bundle#fragments/name` | One fragment, cherry-picked |
+| `remote/bundle#fragments/name` | One fragment from a remote bundle |
+
+`bundle#skills/name` and `bundle#mcp/name` are valid for CLI addressing but
+**not** here: a profile's bundle-expansion logic only recognizes the
+`fragments/` selector, so anything else either silently pulls in the entire
+bundle (every skill and every MCP server, not just the one named) or silently
+loads nothing, depending on whether the ref is local or a canonical URL — with
+no error either way. To curate which skills a profile exports, use the
+profile's `prompts:` list instead (see the skill/prompt docs), not a `#skills/`
+ref inside `bundles:`.
+
 ### Extended Formats
 
 | Format | Description |
 |--------|-------------|
 | `https://github.com/user/repo@bundles/name@v1.2.3` | Full URL with pinned content version |
-| `git@github.com:user/repo#fragments/name` | Git SSH format |
+| `git@github.com:user/repo@bundles/name#fragments/name` | Git SSH format |
+
+The SSH form always needs the `@bundles/name` item path — `#fragments/name` is
+an addition to it, not a replacement. `git@github.com:user/repo#fragments/name`
+(with no `@bundles/...`) fails to parse.
 
 ## Using Profiles
 
@@ -133,10 +167,13 @@ ctxloom profile create backend \
   -d "Backend developer profile"
 ```
 
-Refs passed to `--parent`/`-b` may be bare convenience refs (e.g.
-`--parent developer` or `-b code-review-base#fragments/conduct`), which expand
-against the configured default remote into canonical URLs. Full URLs and
-`ctxloom:local@...` refs pass through unchanged.
+Refs passed to `--parent`/`-b` follow one rule: a bare, unprefixed name (e.g.
+`--parent developer` or `-b code-review-base#fragments/conduct`) is always a
+**local** profile/bundle name — it is never expanded against a remote. Only an
+alias-prefixed ref (`<remote-alias>/<bundle>[#selector]`, e.g.
+`-b ctxloom-default/security`) expands into its canonical URL, using the
+configured remote's alias. Full URLs and `ctxloom:local@...` refs pass through
+unchanged.
 
 ## Profile Inheritance
 

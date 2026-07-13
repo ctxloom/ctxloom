@@ -429,6 +429,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		PreloadedSession: preloaded,
 		WorkDir:          entry.ProjectDir,
 		HarpName:         harpName,
+		Progress:         progress, // a CLI owns its terminal; chunk progress is wanted here
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

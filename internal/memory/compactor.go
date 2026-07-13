@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,14 @@ type CompactionConfig struct {
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
+	// Progress receives human-readable distillation progress. It belongs to
+	// the CALLER because only the caller knows whether it has anywhere safe to
+	// put it: a CLI owns its terminal, while the coordinator's host-relay
+	// handlers run inside the session-owning process whose stderr is the live
+	// TUI the harness is drawing on. Writing progress there corrupts the
+	// display, so a caller with no safe sink leaves this nil and the progress
+	// is discarded.
+	Progress io.Writer
 	// PreloadedSession, when set, is returned directly by loadSessionToCompact
 	// instead of resolving a session id through source/CurrentSession. Used by
 	// container-harp distill: the SessionStart bind hook runs inside the
@@ -167,7 +176,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// verbatim. Best-effort: a retrieval failure warns and omits them.
 	planFiles, err := c.plans(ctx, harpName)
 	if err != nil {
-		clidiag.Warn("ctxloom", "plan retrieval failed, omitting plan blocks: %v", err)
+		c.warnf("plan retrieval failed, omitting plan blocks: %v", err)
 	}
 	plans := planFilesToBlocks(planFiles)
 
@@ -186,11 +195,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// loss, not graceful degradation. Abort the save and keep the old essence.
 	// Partial success still saves, per the fault-tolerance philosophy.
 	if len(chunks) > 0 && failedChunks == len(chunks) {
-		clidiag.Warn("ctxloom", "distillation failed for all %d chunks; keeping previous essence", len(chunks))
+		c.warnf("distillation failed for all %d chunks; keeping previous essence", len(chunks))
 		return nil, fmt.Errorf("distillation failed for all %d chunks", len(chunks))
 	}
 	if failedChunks > 0 {
-		clidiag.Warn("ctxloom", "distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
+		c.warnf("distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
 	}
 
 	combined := strings.Join(distilled, "\n\n---\n\n")
@@ -212,7 +221,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// shows "(no summary)" and the user can re-run distill on demand.
 	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
 	if !hadFM {
-		clidiag.Warn("ctxloom", "distillation lacks YAML frontmatter; deriving summary from body")
+		c.warnf("distillation lacks YAML frontmatter; deriving summary from body")
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
@@ -242,7 +251,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 	result.DistilledPath = distilledPath
 
-	updateSessionIndex(harpName, session.ID, summary, detail, sourceSize)
+	c.updateSessionIndex(harpName, session.ID, summary, detail, sourceSize)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -314,6 +323,31 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	return session, nil
 }
 
+// progressf reports distillation progress to the caller's sink, or nowhere
+// when the caller supplied none. Best-effort: progress never blocks or fails
+// the distillation. The line is formatted into ONE buffer and emitted as a
+// single Write, so concurrent chunk progress doesn't interleave mid-line.
+func (c *Compactor) progressf(format string, args ...any) {
+	if c.config.Progress == nil {
+		return
+	}
+	_, _ = io.WriteString(c.config.Progress, fmt.Sprintf(format, args...))
+}
+
+// warnf reports a non-fatal degradation to the SAME caller-owned sink as
+// progress, and for the same reason: clidiag.Warn writes to the process's
+// stderr, which on the host-relay path is the terminal the harness is drawing
+// its TUI on. Every degradation the compactor reports here is also carried in
+// the result the caller gets back — failed chunks as inline markers, a failed
+// final pass as the unreduced body — so a caller with no sink loses a
+// convenience, not information.
+func (c *Compactor) warnf(format string, args ...any) {
+	if c.config.Progress == nil {
+		return
+	}
+	clidiag.Fwarn(c.config.Progress, "ctxloom", format, args...)
+}
+
 // distillChunks distills the chunks concurrently (bounded by distillConcurrency)
 // and returns the outputs in chunk order plus how many chunks failed. Chunks are
 // independent — the overlap between them is context padding, not a data
@@ -335,12 +369,10 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 		go func(i int, chunk string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			// Fprintf formats into one buffer and emits a single Write, so
-			// concurrent chunk progress lines don't interleave mid-line.
-			fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, total)
+			c.progressf("ctxloom: compacting chunk %d/%d...\n", i+1, total)
 			out, err := c.distillChunk(ctx, chunk, i+1, total)
 			if err != nil {
-				clidiag.Warn("ctxloom", "chunk %d failed: %v", i+1, err)
+				c.warnf("chunk %d failed: %v", i+1, err)
 				distilled[i] = fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err)
 				failed.Add(1)
 				return
@@ -359,10 +391,10 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 // failure it warns and returns the input unchanged — a too-large summary beats
 // no summary.
 func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) string {
-	fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
+	c.progressf("ctxloom: final compression pass...\n")
 	final, err := c.runDistill(ctx, sessionDistillReducePrompt, combined)
 	if err != nil {
-		clidiag.Warn("ctxloom", "final pass failed, using combined: %v", err)
+		c.warnf("final pass failed, using combined: %v", err)
 		return combined
 	}
 	return final
@@ -423,7 +455,7 @@ func (c *Compactor) identityBoundSessionID() string {
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
 // picker summary, detail lines, and source-size staleness fingerprint. No-op
 // without a harp name; all failures warn, never fatal.
-func updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceSize int64) {
+func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceSize int64) {
 	if harpName == "" {
 		return
 	}
@@ -433,7 +465,7 @@ func updateSessionIndex(harpName, sessionID, summary string, detail []string, so
 	}
 	if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
 		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
-			clidiag.Warn("ctxloom", "index bind failed: %v", err)
+			c.warnf("index bind failed: %v", err)
 		}
 	}
 	// Guarded on a non-empty summary so a failed distill (no frontmatter) never
@@ -442,7 +474,7 @@ func updateSessionIndex(harpName, sessionID, summary string, detail []string, so
 	// authoritative staleness check (loadOrDistillSession) works even here.
 	if summary != "" {
 		if err := mgr.SetSummary(harpName, summary, detail, sourceSize); err != nil {
-			clidiag.Warn("ctxloom", "index summary update failed: %v", err)
+			c.warnf("index summary update failed: %v", err)
 		}
 	}
 }
@@ -842,16 +874,16 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (string, bool) {
 	harpDir, err := harpSessionDir(harpName)
 	if err != nil {
-		clidiag.Warn("ctxloom", "resolve harp dir for %s: %v; writing legacy layout only", harpName, err)
+		c.warnf("resolve harp dir for %s: %v; writing legacy layout only", harpName, err)
 		return "", false
 	}
 	if err := os.MkdirAll(harpDir, 0o755); err != nil {
-		clidiag.Warn("ctxloom", "create harp dir %s: %v; writing legacy layout only", harpDir, err)
+		c.warnf("create harp dir %s: %v; writing legacy layout only", harpDir, err)
 		return "", false
 	}
 	essencePath := filepath.Join(harpDir, paths.EssenceFileName)
 	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
-		clidiag.Warn("ctxloom", "write essence %s: %v; writing legacy layout only", essencePath, err)
+		c.warnf("write essence %s: %v; writing legacy layout only", essencePath, err)
 		return "", false
 	}
 	// NB: the active task store already lives at <harpDir>/tasks.md (see
@@ -862,7 +894,7 @@ func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (s
 	//
 	// Mirror essence to legacy path so sessionID lookups still work.
 	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
-		clidiag.Warn("ctxloom", "mirror essence to %s: %v", legacyPath, err)
+		c.warnf("mirror essence to %s: %v", legacyPath, err)
 	}
 	return essencePath, true
 }

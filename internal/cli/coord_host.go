@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -49,8 +51,13 @@ func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 // to the CALLER's credential-derived identity, exactly like the stdio
 // handlers — never the host process's env.
 func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]coord.CustomHandler {
+	// One dedupe group ACROSS the per-call ctxServers: a distillation already
+	// in flight for a session is joined, not duplicated. Owned here because
+	// serverFor mints a fresh ctxServer per relayed call — a group hung off
+	// that would dedupe nothing.
+	distill := &singleflight.Group{}
 	serverFor := func(id coord.Identity) *ctxServer {
-		return &ctxServer{cfg: cfg, self: id, agents: &agentDelegation{self: id, c: c}}
+		return &ctxServer{cfg: cfg, self: id, agents: &agentDelegation{self: id, c: c}, distill: distill}
 	}
 	return map[string]coord.CustomHandler{
 		coord.CustomToolPrefix + "compact_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in compactSessionInput) (any, error) {
@@ -67,6 +74,10 @@ func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]co
 		}),
 		coord.CustomToolPrefix + "get_previous_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in getPreviousSessionInput) (any, error) {
 			_, out, err := s.handleGetPreviousSession(ctx, nil, in)
+			return out, err
+		}),
+		coord.CustomToolPrefix + "evaluate_triggers": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in evaluateTriggersInput) (any, error) {
+			_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
 			return out, err
 		}),
 	}

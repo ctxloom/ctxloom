@@ -42,7 +42,21 @@ ctxloom profile create go-dev \
 ctxloom remote pull
 ```
 
-### 4. Start Coding
+### 4. Review the Pulled Content
+
+```bash
+# Decide on each item the remote just delivered
+ctxloom review
+```
+
+Content from a third-party remote is withheld from the engine until a human has
+looked at it. Skip this and the run still launches — the fragments are simply
+missing from the assembled context, with an "N item(s) awaiting review" notice
+on stderr. (Content signed by a key you trust is exempt: `ctxloom-default` ships
+with a trusted signer, so it needs no review. A `community` or `team` remote
+does.)
+
+### 5. Start Coding
 
 ```bash
 # Run with your profile
@@ -63,17 +77,20 @@ ctxloom profile show default
 
 ### During Development
 
-Your context is automatically available. For specific tasks:
+Your context reaches the engine on its own, provided ctxloom's hooks are applied
+to it, the engine supports hooks, and the content has passed the trust gate. When
+it does not, the troubleshooting section below is where to look. For specific
+tasks:
 
 ```bash
-# Add security context for a security review
-ctxloom run -f security#fragments/owasp "review this authentication code"
+# Add security context for a security review (-f takes FRAGMENT names)
+ctxloom run -f owasp-top-10 "review this authentication code"
 
 # Use a specific profile for frontend work
 ctxloom run -p frontend-dev "help with React component"
 
-# Preview what context will be used
-ctxloom run --dry-run --print
+# Preview what context will be used, without launching the engine
+ctxloom run --dry-run
 ```
 
 ### End of Day
@@ -143,9 +160,17 @@ ctxloom profile create my-dev \
 # Pull the referenced team content
 ctxloom remote pull
 
+# Review it — until you do, the team's fragments are withheld from the engine
+ctxloom review
+
 # Use the profile
 ctxloom run -p my-dev "help with code"
 ```
+
+If your team signs its bundles and everyone trusts the team's signing key
+(`ctxloom signer add context@myorg.example --key team-publish.pub`), the review
+step is unnecessary: content from a trusted signer is exempt from the gate. Trust
+is anchored to the key, not to the remote's URL.
 
 ## Project-Specific Workflow
 
@@ -165,12 +190,18 @@ ctxloom profile create project \
 ctxloom run -p project "help with code"
 ```
 
+A bare `-b` name means a bundle you authored locally, and it is what you want
+here: `project-specific` is the bundle file created below. Bundles that came from
+a remote must be named as `<remote-alias>/<bundle>` or as a full URL — a bare name
+is stored as a local reference, is not checked at create time, and silently
+contributes nothing.
+
 ### Project Bundle
 
 Create a bundle specific to your project:
 
 ```yaml
-# .ctxloom/cache/bundles/project-specific.yaml
+# .ctxloom/content/bundles/project-specific.yaml
 version: "1.0"
 description: Project-specific context
 
@@ -199,10 +230,10 @@ fragments:
 ### Switching Contexts
 
 ```bash
-# Create language-specific profiles
-ctxloom profile create go-work -b go-development -b go-testing
-ctxloom profile create python-work -b python-development -b python-testing
-ctxloom profile create frontend-work -b typescript -b react
+# Create language-specific profiles (remote bundles by <remote-alias>/<bundle>)
+ctxloom profile create go-work -b community/go-development -b community/go-testing
+ctxloom profile create python-work -b community/python-development -b community/python-testing
+ctxloom profile create frontend-work -b community/typescript -b community/react
 
 # Use based on current task
 ctxloom run -p go-work "help with Go code"
@@ -242,27 +273,38 @@ ctxloom remote pull
 
 ### Conducting Reviews
 
+The profile is how you pull in whole bundles; `-f` and `-t` narrow within what is
+installed.
+
 ```bash
-# General security review
+# Everything in the security profile
+ctxloom run -p security "review this code for security issues"
+
+# General security review, by tag
 ctxloom run -t security "review this code for security issues"
 
-# OWASP-focused review
-ctxloom run -f security#fragments/owasp-top-10 "check for OWASP top 10 vulnerabilities"
+# OWASP-focused review, by fragment name
+ctxloom run -f owasp-top-10 "check for OWASP top 10 vulnerabilities"
 
 # Authentication-specific
-ctxloom run -f security#fragments/auth-patterns "review authentication implementation"
+ctxloom run -f auth-patterns "review authentication implementation"
 ```
+
+Do not reach for `-f security#fragments/owasp-top-10` here. A bare bundle token
+in a qualified reference means a *local* bundle, and these bundles came from a
+remote — they are keyed by their canonical URL. Use the bare fragment name, or
+the full `https://github.com/ctxloom/ctxloom-default@bundles/security#fragments/owasp-top-10`.
 
 ## Code Review Workflow
 
 ### Preparing Context
 
 ```bash
-# Create a code review profile
+# Create a code review profile (remote bundles by <remote-alias>/<bundle>)
 ctxloom profile create reviewer \
-  -b code-quality \
-  -b testing-patterns \
-  -b security-basics \
+  -b community/code-quality \
+  -b community/testing-patterns \
+  -b ctxloom-default/security \
   -d "Code review context"
 ```
 
@@ -272,8 +314,8 @@ ctxloom profile create reviewer \
 # Use review profile
 ctxloom run -p reviewer "review this PR for code quality"
 
-# Add specific concerns
-ctxloom run -p reviewer -f performance#fragments/optimization \
+# Add specific concerns (fragment name)
+ctxloom run -p reviewer -f query-optimization \
   "review for performance issues"
 ```
 
@@ -304,10 +346,15 @@ git diff | ctxloom weave -p code-review/security -p code-review/perf \
 
 ### In CI Pipeline
 
+What CI can check on its own is that your context still *assembles*: that every
+profile resolves, every bundle it names is reachable, and the fragments are
+trusted enough to be exposed. `--dry-run` does exactly that and never launches an
+engine, so the job needs no engine binary and no model credentials.
+
 ```yaml
 # .github/workflows/ci.yml
 jobs:
-  lint:
+  context:
     steps:
       - uses: actions/checkout@v4
       - name: Setup ctxloom
@@ -315,11 +362,22 @@ jobs:
           go install github.com/ctxloom/ctxloom/cmd/ctxloom@latest
           ctxloom remote pull
 
-      - name: AI Code Review
+      - name: Verify context assembles
         run: |
-          ctxloom run -p code-reviewer --print \
-            "review changes in this PR" > review.md
+          ctxloom run -p code-reviewer --dry-run "review changes in this PR"
 ```
+
+Two things make this work in a fresh checkout. The lockfile (committed, below)
+gives `remote pull` the exact revisions to fetch. And the project approvals store
+is what lets CI see the pulled content at all — a fresh machine has trusted
+nothing, so run `ctxloom review --project` locally and commit `.ctxloom/approvals`
+alongside the lockfile. Without it the profile still resolves but its remote
+fragments are withheld, and the assembled context comes out empty.
+
+Actually running the engine in CI (`ctxloom run -p code-reviewer --print
+"..." > review.md`) is possible, but it is a bigger lift than it looks: `run`
+launches the configured engine as a child process, so the job must also install
+that engine's binary and supply its credentials as secrets.
 
 ### Lockfile for Reproducibility
 
@@ -348,7 +406,10 @@ ctxloom remote pull
 ctxloom profile show default
 
 # Preview assembled context
-ctxloom run --dry-run --print
+ctxloom run --dry-run
+
+# Check nothing is being withheld pending review
+ctxloom review --list
 
 # Check hooks are applied
 cat .claude/settings.json | jq '.hooks'
@@ -379,9 +440,9 @@ ctxloom remote pull
 ctxloom profile create everything -b bundle1 -b bundle2 -b bundle3...
 
 # Create task-specific profiles
-ctxloom profile create api-dev -b go-development -b api-patterns
-ctxloom profile create testing -b testing-patterns -b mocking
-ctxloom profile create security -b security -b owasp
+ctxloom profile create api-dev -b community/go-development -b community/api-patterns
+ctxloom profile create testing -b community/testing-patterns -b community/mocking
+ctxloom profile create security -b ctxloom-default/security -b ctxloom-default/owasp
 ```
 
 ### Use Tags Effectively

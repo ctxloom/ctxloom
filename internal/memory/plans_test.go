@@ -46,7 +46,7 @@ func TestRenderPlans_RoundTripPreservesContent(t *testing.T) {
 	blocks := []PlanBlock{
 		{
 			Index:     1,
-			Kind:      PlanKindExitPlanMode,
+			Kind:      PlanKindPlanFile,
 			Label:     "ExitPlanMode",
 			Timestamp: time.Date(2026, 5, 25, 14, 30, 0, 0, time.UTC),
 			Content:   "1. step one\n2. step two with a `code` snippet",

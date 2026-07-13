@@ -2,9 +2,11 @@ package remote
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -256,48 +258,98 @@ func TestBuildPublishPath(t *testing.T) {
 	}
 }
 
-func TestAddPublishMetadata(t *testing.T) {
-	t.Run("adds metadata to valid YAML", func(t *testing.T) {
-		content := []byte("description: Test bundle\n")
-		result, err := addPublishMetadata(content)
+// --- Exact-bytes publishing (signature-envelope spec §3.0, §3.1) -----------
 
-		require.NoError(t, err)
-		assert.Contains(t, string(result), "_published")
-		assert.Contains(t, string(result), "published_at")
+// publishOnce runs a single publish of content through a fresh mock publisher
+// and returns the bytes that landed at the remote bundle path.
+func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []byte {
+	t.Helper()
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/local", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte(content), 0644))
+
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.defaultBranch = "main"
+
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublishFS(fs),
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+
+	po := PublishOptions{ItemType: ItemTypeBundle, Branch: "main"}
+	for _, o := range opts {
+		o(&po)
+	}
+	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", po)
+	require.NoError(t, err)
+	return mp.createdFiles[".ctxloom/content/bundles/mybundle.yaml"]
+}
+
+func TestPublishManager_Publish_WritesLocalBytesVerbatim(t *testing.T) {
+	// Comments, key order, blank lines, trailing whitespace: every byte of the
+	// author's file must reach the remote untouched. Nothing prepended,
+	// appended, or normalized (spec §3.0, §3.1).
+	content := "# leading comment\nzebra: 1 # inline\n\nalpha: 2\n"
+
+	published := publishOnce(t, content)
+
+	assert.Equal(t, content, string(published),
+		"publish must write the local file's bytes verbatim — no metadata injection, no re-serialization")
+}
+
+func TestPublishManager_Publish_IsReproducible(t *testing.T) {
+	// Publishing the same unchanged bundle twice must produce IDENTICAL bytes.
+	// A wall-clock stamp in the body (the old `_published` block) broke this,
+	// and with it any consumer's ability to check the remote against the
+	// author's file.
+	content := "description: Test bundle\n"
+
+	first := publishOnce(t, content)
+	// Cross a wall-clock second boundary between the two publishes. The old
+	// stamp was RFC3339 (second granularity), so back-to-back publishes inside
+	// one second produced identical bytes by luck — which is how a
+	// non-reproducible publish went unnoticed. Straddling the boundary makes
+	// any clock-derived content fail deterministically rather than flakily.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(1100 * time.Millisecond)))
+	second := publishOnce(t, content)
+
+	assert.Equal(t, string(first), string(second),
+		"two publishes of an unchanged bundle must produce byte-identical remote content")
+}
+
+func TestPublishManager_Publish_LocalFileSignatureVerifiesAgainstPublishedBytes(t *testing.T) {
+	// The invariant this whole change exists to restore: a signature produced
+	// over the LOCAL file's bytes (what `ctxloom sign` does — operations.
+	// SignBundleFile signs the file on disk verbatim) must verify against the
+	// bytes that land in the remote. It only can if they are the same bytes.
+	content := "description: Test bundle\nfragments:\n  test:\n    content: hello\n"
+
+	// Stand-in for a real sshsig: a signature is any deterministic function of
+	// the payload, and verification is recomputing it over the candidate bytes.
+	sign := func(payload []byte) []byte {
+		sum := sha256.Sum256(payload)
+		return []byte("sig:" + hex.EncodeToString(sum[:]))
+	}
+	// Detached signature computed offline against the local file, before push.
+	localSig := sign([]byte(content))
+
+	var signedPayload []byte
+	published := publishOnce(t, content, func(po *PublishOptions) {
+		po.SignPayload = func(payload []byte) ([]byte, error) {
+			signedPayload = payload
+			return sign(payload), nil
+		}
 	})
 
-	t.Run("does not embed the author's local path", func(t *testing.T) {
-		content := []byte("description: Test bundle\n")
-		result, err := addPublishMetadata(content)
-
-		require.NoError(t, err)
-		// The local filesystem path leaks the author's username/layout into
-		// shared content and nothing consumes it; it must not be published.
-		assert.NotContains(t, string(result), "from:")
-	})
-
-	t.Run("preserves author key order and comments", func(t *testing.T) {
-		content := []byte("# leading comment\nzebra: 1 # inline\nalpha: 2\n")
-		result, err := addPublishMetadata(content)
-
-		require.NoError(t, err)
-		out := string(result)
-		// A map round-trip would sort alpha before zebra and drop comments; the
-		// node-level edit must keep the author's order and comments intact.
-		assert.Less(t, strings.Index(out, "zebra"), strings.Index(out, "alpha"),
-			"author key order must be preserved")
-		assert.Contains(t, out, "# leading comment")
-		assert.Contains(t, out, "# inline")
-		assert.Contains(t, out, "_published")
-	})
-
-	t.Run("returns invalid YAML as-is", func(t *testing.T) {
-		content := []byte("invalid: yaml: [[")
-		result, err := addPublishMetadata(content)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
+	assert.Equal(t, string(localSig), string(sign(published)),
+		"a signature over the local file must verify against the published bytes")
+	assert.Equal(t, string(content), string(signedPayload),
+		"SignPayload must be handed the local file's exact bytes")
 }
 
 func TestNewPublisher(t *testing.T) {
@@ -393,9 +445,10 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 	require.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/mybundle.yaml.sig")
 	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles[".ctxloom/content/bundles/mybundle.yaml.sig"])
 	// The signed payload must be EXACTLY the bytes that landed at the main
-	// path (post publish-metadata) — never the pre-metadata local bytes,
-	// and never a re-serialization (spec §3.1, §3.0).
+	// path, and those must be the local file's bytes — no injection, no
+	// re-serialization anywhere in the path (spec §3.0, §3.1).
 	assert.Equal(t, mp.createdFiles[".ctxloom/content/bundles/mybundle.yaml"], signedPayload)
+	assert.Equal(t, "description: Test\n", string(signedPayload))
 }
 
 func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testing.T) {

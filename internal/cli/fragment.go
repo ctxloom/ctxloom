@@ -9,7 +9,7 @@ var fragmentCmd = &cobra.Command{
 	Short: "Manage context fragments",
 	Long: `Manage context fragments - reusable context snippets for AI coding assistants.
 
-Fragments live inside bundles — local bundle YAML files in .ctxloom/cache/bundles/
+Fragments live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
 or lockfile-pinned remote bundles — and are referenced using the syntax:
 bundle#fragments/name
 

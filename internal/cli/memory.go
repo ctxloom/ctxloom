@@ -259,6 +259,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		SessionID: compactSession,
 		WorkDir:   workDir,
 		OutputDir: paths.ProjectSessionsDir(cfg.AppDir),
+		Progress:  os.Stderr, // a CLI owns its terminal; chunk progress is wanted here
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

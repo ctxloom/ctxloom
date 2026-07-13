@@ -32,8 +32,7 @@ ctxloom weave -p code-review/security -p code-review/performance \
               -s code-review/synthesis  "review this diff"
 
    ├─ code-review/security      agent · own llm · parallel ┐
-   ├─ code-review/performance   agent · own llm · parallel ┤─ labeled parts
-   └─ code-review/architecture  agent · own llm · parallel ┘
+   └─ code-review/performance   agent · own llm · parallel ┤─ labeled parts
                                                             │
    synthesize → code-review/synthesis (high-power llm) ─────┴─→ one report
 ```
@@ -54,19 +53,26 @@ non-ctxloom data:
 
 | Command | Role |
 |---------|------|
-| [`ctxloom run -p P --print`](/reference/cli/#ctxloom-run) | the atom — one agent. With no prompt it reads the task from **stdin**, so it doubles as a reducer. |
-| [`ctxloom map -p A -p B`](/reference/cli/#ctxloom-map) | the **fan-out** — run profiles in parallel, emit a labeled part stream. |
-| [`ctxloom weave`](/reference/cli/#ctxloom-weave) | the **composite** — map + synthesis in one portable invocation. |
+| [`ctxloom run -p P --print`](/reference/cli/ctxloom_run/) | the atom — one agent. With no prompt it reads the task from **stdin**, so it doubles as a reducer. |
+| [`ctxloom map -p A -p B`](/reference/cli/ctxloom_map/) | the **fan-out** — run profiles in parallel, emit a labeled part stream. |
+| [`ctxloom weave`](/reference/cli/ctxloom_weave/) | the **composite** — map + synthesis in one portable invocation. |
 
-So `weave` is equivalent to the hand-built pipeline:
+So `weave` is approximately the hand-built pipeline:
 
 ```bash
 ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print
 ```
 
+The difference: `weave` frames the parts for the synthesizer with a generated
+preamble (the original task, followed by a "specialist outputs to synthesize"
+section and combine instructions) ahead of the labeled part stream. Piping
+`map`'s stdout straight into `run` skips that framing — the synthesis profile
+sees only the raw parts.
+
 Use the components directly when you want to inspect the intermediate parts
-(`map --save-parts`, `map --no-synthesize`), swap the synthesizer, or pipe member
-output through other tools.
+(`map --save-parts`), swap the synthesizer, or pipe member output through other
+tools. `map` itself never synthesizes; to fan out with `weave` but skip
+synthesis and get the labeled parts only, pass `weave --no-synthesize`.
 
 ## Injecting non-ctxloom outputs
 

@@ -41,7 +41,7 @@ var hookInjectContextCmd = &cobra.Command{
 	Use:    "inject-context <hash>",
 	Hidden: true, // Machine callback (SessionStart hook) - not for direct use
 	Short:  "Inject session context for AI tool hooks",
-	Long: `Reads the context file (.ctxloom/context/<hash>.md) and outputs JSON suitable for
+	Long: `Reads the context file (.ctxloom/cache/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
 This command is invoked automatically by AI tools (Claude Code, Codex) during

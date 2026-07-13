@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // ExportBundleRequest is the input for ExportBundle. Exactly one of OutputFile
@@ -30,22 +32,34 @@ type ExportBundleResult struct {
 	Name   string `json:"name"`
 	Source string `json:"source"`
 	Dest   string `json:"dest"`
+	// SigDest is where the bundle's detached publisher signature landed, or ""
+	// when the source bundle carried none.
+	SigDest string `json:"sig_dest,omitempty"`
 }
 
 // ExportBundle copies a named bundle out to an arbitrary file or directory (an
 // author workflow — e.g. staging for publish). The destination is user-chosen
 // and outside the bundles tree, so no symlink guard applies.
+//
+// A bundle's publisher signature lives in a detached `<file>.yaml.sig` sibling
+// (spec §4.2), so copying the YAML alone would silently strip the bundle's
+// trust — the copy would arrive unverifiable. Export therefore carries the .sig
+// alongside whenever the source has one — but only after proving it covers the
+// bytes being copied. A signature over a bundle's PREVIOUS contents is refused
+// outright (staleSignatureError): exporting that pair would plant a tamper alarm
+// at the destination.
 func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest) (*ExportBundleResult, error) {
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
 	}
 	fs := getFS(req.FS)
-	// Resolve bundle dirs directly (not via GetBundleDirs, which os.Stat-gates
-	// on the real FS) so an injected filesystem works; the loader filters
-	// non-existent dirs itself via afero.DirExists.
+	// Resolve the authored (committed content) bundle dirs directly rather than
+	// via GetBundleDirs, which os.Stat-gates on the real FS, so an injected
+	// filesystem works; the loader filters non-existent dirs itself via
+	// afero.DirExists.
 	var dirs []string
 	for _, p := range cfg.AppPaths {
-		dirs = append(dirs, paths.BundlesPath(p))
+		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
 	// of the same spelling still wins); bare/canonical names pass through.
@@ -57,6 +71,20 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	srcData, err := afero.ReadFile(fs, bundle.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
+	}
+
+	// Verify the pair BEFORE writing anything. A refusal must leave no trace at
+	// the destination: half-exporting a signed bundle as a bare YAML would be the
+	// silent trust downgrade this function exists to prevent, only with the export
+	// reported as failed.
+	sig, err := readSignature(fs, bundle.Path)
+	if err != nil {
+		return nil, fmt.Errorf("export %s: %w", req.Name, err)
+	}
+	if sig != nil {
+		if verr := signing.CoversBytes(srcData, sig, signing.NamespacePublish); verr != nil {
+			return nil, fmt.Errorf("export %s: %w", req.Name, staleSignatureError(bundle.Path, verr))
+		}
 	}
 
 	var dest string
@@ -80,7 +108,64 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
-	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest}, nil
+
+	sigDest, err := writeSignature(fs, dest, sig)
+	if err != nil {
+		return nil, fmt.Errorf("export %s: %w", req.Name, err)
+	}
+	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest, SigDest: sigDest}, nil
+}
+
+// sigSuffix is the detached-signature sibling suffix (spec §4.2): the armored
+// publisher signature for `foo.yaml` is `foo.yaml.sig`. One spelling, owned by
+// the bundle store that writes the pair.
+const sigSuffix = bundles.SigSuffix
+
+// staleSignatureError is the one message every publishing boundary gives when it
+// is handed a signature that does not cover the bytes it would ship with. It
+// names the remedy, because there is exactly one: re-sign, or drop the signature
+// and publish unsigned. Shipping the pair is not on the menu — that is what
+// makes every consumer see tampering.
+func staleSignatureError(bundlePath string, err error) error {
+	base := filepath.Base(bundlePath)
+	name := strings.TrimSuffix(base, ".yaml")
+	return fmt.Errorf("%s no longer covers %s — the bundle changed after it was signed; "+
+		"re-sign with `ctxloom sign %s`, or delete %s to publish it unsigned "+
+		"(publishing this pair would make every consumer see tampering): %w",
+		base+sigSuffix, base, name, base+sigSuffix, err)
+}
+
+// readSignature returns srcBundle's detached `.sig` sibling, or nil when the
+// bundle is unsigned — which is normal, and never an error. A signature that
+// exists but cannot be READ is an error: treating it as absent would silently
+// downgrade a signed bundle to an unsigned one, which is exactly the move an
+// attacker would make (spec §10.2).
+func readSignature(fs afero.Fs, srcBundle string) ([]byte, error) {
+	srcSig := srcBundle + sigSuffix
+	exists, err := afero.Exists(fs, srcSig)
+	if err != nil || !exists {
+		return nil, nil
+	}
+	data, err := afero.ReadFile(fs, srcSig)
+	if err != nil {
+		return nil, fmt.Errorf("read signature %s: %w", srcSig, err)
+	}
+	return data, nil
+}
+
+// writeSignature places sig next to destBundle (a no-op returning "" when sig is
+// nil), byte-for-byte — a signature is only ever copied, never regenerated. A
+// signature that cannot be written IS an error: the destination would otherwise
+// hold content whose trust was quietly stripped en route.
+func writeSignature(fs afero.Fs, destBundle string, sig []byte) (string, error) {
+	if sig == nil {
+		return "", nil
+	}
+	destSig := destBundle + sigSuffix
+	if err := afero.WriteFile(fs, destSig, sig, 0644); err != nil {
+		return "", fmt.Errorf("write signature %s: %w", destSig, err)
+	}
+	return destSig, nil
 }
 
 // ImportBundleRequest is the input for ImportBundle.
@@ -101,11 +186,17 @@ type ImportBundleResult struct {
 	Fragments int    `json:"fragments"`
 	Skills    int    `json:"skills"`
 	MCP       int    `json:"mcp"`
+	// SigDest is where the imported bundle's detached publisher signature
+	// landed, or "" when the source carried none. Import PLACES the signature
+	// but never verifies it: verification belongs to the trust gate at exposure
+	// (EffectiveTrust), not to the copy step.
+	SigDest string `json:"sig_dest,omitempty"`
 }
 
-// ImportBundle validates a bundle file and copies it into the project's bundles
-// directory (symlink-guarded, like CreateBundle). Refuses to overwrite without
-// Force.
+// ImportBundle validates a bundle file and copies it into the project's
+// committed content bundles directory (symlink-guarded, like CreateBundle),
+// carrying its detached `.sig` sibling when one exists. Refuses to overwrite
+// without Force.
 func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest) (*ImportBundleResult, error) {
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -120,7 +211,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
+	bundleDir := paths.LocalBundlesPath(cfg.AppPaths[0])
 	destPath := filepath.Join(bundleDir, filepath.Base(req.SourcePath))
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return nil, err
@@ -135,6 +226,21 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 
+	// Import carries the signature but does NOT judge the pair (unlike export/push
+	// below it, which refuse a stale one). It is the CONSUMER side: a broken pair
+	// arriving from elsewhere is evidence, and the trust gate must see it at
+	// exposure and report it as the tamper finding it is. Refusing or discarding it
+	// here would destroy that evidence — and the publisher-side guards mean a
+	// broken pair should never have been publishable in the first place.
+	sig, err := readSignature(fs, req.SourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("import %s: %w", req.SourcePath, err)
+	}
+	sigDest, err := writeSignature(fs, destPath, sig)
+	if err != nil {
+		return nil, fmt.Errorf("import %s: %w", req.SourcePath, err)
+	}
+
 	return &ImportBundleResult{
 		Status:    "imported",
 		Source:    req.SourcePath,
@@ -143,5 +249,6 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		Fragments: len(bundle.Fragments),
 		Skills:    len(bundle.Skills),
 		MCP:       len(bundle.MCP),
+		SigDest:   sigDest,
 	}, nil
 }

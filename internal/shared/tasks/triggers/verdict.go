@@ -44,12 +44,22 @@ func (o Outcome) String() string { return string(o) }
 // Verdict is the model's structured judgment for one Deferred task's
 // trigger. It is a PROPOSAL for a human to confirm — nothing in this package
 // or its ctxloom-side caller ever applies a Verdict to task status.
+//
+// There is deliberately NO confidence field. A model's self-reported confidence
+// is not evidence: it is a number with no grounding in anything gathered here,
+// and it arrives in the report wearing the costume of a measurement. A human
+// deciding whether to revive a task should be reading Evidence and Reasoning —
+// which cite the commits, files and task states this package actually
+// collected — and a "0.95" sitting beside them competes with exactly that.
+// What the model is sure about is not the question; what the repository shows
+// is. If a verdict cannot be justified from Evidence, the honest outcomes are
+// NeedsInvestigation and CannotDetermine, not a confident guess with a number
+// attached.
 type Verdict struct {
-	HarpID     string   `json:"harp_id"`
-	Outcome    Outcome  `json:"outcome"`
-	Confidence float64  `json:"confidence"`
-	Evidence   []string `json:"evidence"`
-	Reasoning  string   `json:"reasoning"`
+	HarpID    string   `json:"harp_id"`
+	Outcome   Outcome  `json:"outcome"`
+	Evidence  []string `json:"evidence"`
+	Reasoning string   `json:"reasoning"`
 
 	// Queries is populated only on a round-1 NeedsInvestigation verdict: the
 	// model's request for bounded, whitelisted follow-up evidence (see
@@ -66,19 +76,4 @@ type Verdict struct {
 	// masquerade as a real cache hit; only the caller, after an actual cache
 	// lookup, sets it true.
 	Cached bool `json:"cached,omitempty"`
-}
-
-// clampConfidence pins a self-reported confidence into [0,1]. A model
-// occasionally emits something outside that range (e.g. a 0-100 scale); that
-// is a cosmetic slip in a field nothing branches on, so parsing tolerates it
-// rather than rejecting an otherwise-usable verdict over it.
-func clampConfidence(f float64) float64 {
-	switch {
-	case f < 0:
-		return 0
-	case f > 1:
-		return 1
-	default:
-		return f
-	}
 }

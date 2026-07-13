@@ -14,6 +14,7 @@ package git
 
 import (
 	"context"
+	"time"
 )
 
 // Worktree is one entry from `git worktree list` (repo-global). Path is the
@@ -85,4 +86,33 @@ type Git interface {
 	// (git -C dir status --porcelain is non-empty). This is the WIP check the
 	// teardown runs before removing anything.
 	IsDirty(ctx context.Context, dir string) (bool, error)
+
+	// LogSince returns commits reachable from HEAD at or after since (the zero
+	// time = no lower bound), newest first, each carrying its changed files.
+	// Bounded by maxEntries (<=0 defaults to a small cap) so a caller scoping
+	// evidence to "since some point in the past" can never walk unbounded
+	// project history. Used by trigger evaluation (internal/operations) to
+	// gather git evidence for a Deferred task's revive trigger.
+	LogSince(ctx context.Context, dir string, since time.Time, maxEntries int) ([]LogEntry, error)
+
+	// RepoDirs returns a sorted, bounded inventory of directories that exist in
+	// the repo — from TRACKED content and from UNTRACKED working-tree paths
+	// alike. Trigger evaluation needs it to answer existence-style conditions
+	// ("once package X exists"), which commit history cannot: the thing may
+	// predate the history window, or live uncommitted in no commit at all.
+	// maxDirs <=0 defaults to a bounded cap.
+	RepoDirs(ctx context.Context, dir string, maxDirs int) ([]string, error)
+
+	// WorkingChanges returns the bounded porcelain status of the working tree
+	// (e.g. "?? internal/foo/bar.go"): work that exists but is in no commit.
+	// maxEntries <=0 defaults to a bounded cap.
+	WorkingChanges(ctx context.Context, dir string, maxEntries int) ([]string, error)
+}
+
+// LogEntry is one commit returned by LogSince.
+type LogEntry struct {
+	SHA     string
+	Date    time.Time
+	Subject string
+	Files   []string // paths this commit changed
 }

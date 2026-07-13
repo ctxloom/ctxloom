@@ -13,7 +13,7 @@ Create a new bundle
 
 ### Synopsis
 
-Create a new bundle file in .ctxloom/cache/bundles.
+Create a new bundle file in .ctxloom/content/bundles.
 
 Creates a skeleton bundle YAML file that you can edit to add content.
 
@@ -33,6 +33,7 @@ ctxloom bundle create <name> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

@@ -149,6 +149,28 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"terminal-ui section (viewer prefix key + surround toggle)",
 			"ui:\n  prefix_key: ctrl-t\n  surround: false\n",
 		},
+		// These four are REAL regressions found by the unknown-key work: each key
+		// is honored by the parser but was absent from the schema, so
+		// additionalProperties:false rejected it — and a validation warning is a
+		// FATAL finding in strict mode. A user of a shipped feature (publisher
+		// signing, tag-selected fragments, curated prompts, permission escalation)
+		// was aborted at startup and told their own valid key was unknown.
+		{
+			"publisher-signing defaults (config.sign)",
+			"config:\n  sign:\n    default: true\n    key: SHA256:abc\n",
+		},
+		{
+			"profile select_tags (content-selecting tags)",
+			"profiles:\n  definitions:\n    dev:\n      select_tags: [go, testing]\n",
+		},
+		{
+			"profile curated prompt exports",
+			"profiles:\n  definitions:\n    dev:\n      prompts: [\"bundle#prompts/review\"]\n",
+		},
+		{
+			"agent escalation rungs",
+			"agents:\n  reviewer:\n    engine: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

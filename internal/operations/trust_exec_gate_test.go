@@ -119,7 +119,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
@@ -193,7 +193,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))
@@ -282,7 +282,7 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookb.yaml"),
 		[]byte("name: hookb\nversion: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))

@@ -78,7 +78,12 @@
 //     ssh.PublicKey).
 //   - It does not read allowed_signers from any well-known path, does not
 //     merge the embedded/user/project precedence policy beyond providing
-//     Union as a building block, and is not wired into any trust gate or
-//     decision function. Those are later slices.
+//     Union as a building block, and does not itself decide trust for a
+//     signing/review/publish flow. That is deliberate: this package stays a
+//     pure, dependency-free parser/matcher. The well-known-path reading and
+//     embedded/user/project precedence merge (via Union) live in
+//     internal/config.Config.TrustRoot; the resulting Store is the load-
+//     bearing trust gate consumed by internal/operations (countersign_records.go,
+//     review.go, signer.go) and internal/signing/publisher.go.
 //   - It exposes no CLI.
 package allowedsigners

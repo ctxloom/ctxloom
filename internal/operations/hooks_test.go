@@ -572,7 +572,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 func TestApplyHooks_RegenerateContextWithTags(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with tagged fragments
@@ -708,7 +708,7 @@ func TestApplyHooks_RegenerateContext_AntigravityAgentsMD(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -792,7 +792,7 @@ fragments:
 func TestApplyHooks_RegenerateContextSubstitutesVariables(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	bundleContent := `version: "1.0"
@@ -837,11 +837,71 @@ fragments:
 	assert.NotContains(t, string(data), "{{project_name}}", "no literal mustache tags in the injected context")
 }
 
+// TestApplyHooks_RegenerateContextUndefinedVariableWarns pins the second
+// substitution-warning wiring bug: regenerateContext's per-fragment
+// substituteVariables call also used to pass a no-op warnFunc (the
+// "// Suppress substitution warnings" call site), so a fragment referencing
+// a variable no active profile binds silently rendered empty with no signal
+// to the user. This proves the SessionStart-injected context path now warns
+// through the same clidiag line as AssembleContext.
+//
+// Uses a variable name unique to this test ("missing_hook_var") — this file
+// shares a test binary/process with context_test.go, and clidiag.WarnOnce's
+// dedup is process-global, so reusing another test's exact message would
+// make this test's outcome depend on run order.
+func TestApplyHooks_RegenerateContextUndefinedVariableWarns(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle
+fragments:
+  greeting:
+    content: |
+      Hello {{missing_hook_var}}.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return &config.Config{
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+			Profiles: config.ProfilesConfig{
+				Definitions: map[string]config.Profile{
+					"default": {
+						Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
+						// No variables bound — missing_hook_var is undefined.
+					},
+				},
+			},
+		}, nil
+	}
+
+	var result *ApplyHooksResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:           "claude-code",
+			RegenerateContext: true,
+			ExecPath:          "/usr/bin/ctxloom",
+			ConfigLoader:      mockConfigLoader,
+			WorkDir:           tmpDir,
+		})
+		require.NoError(t, err)
+	})
+
+	require.NotEmpty(t, result.ContextHash)
+	assert.Contains(t, stderr, "ctxloom: warning: undefined variable: {{missing_hook_var}}")
+}
+
 // TestApplyHooks_RegenerateContextWithFragments tests regenerateContext with direct fragments.
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with fragments
@@ -893,7 +953,7 @@ fragments:
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with a fragment
@@ -952,7 +1012,7 @@ fragments:
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle but fragment doesn't exist

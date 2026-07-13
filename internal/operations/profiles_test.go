@@ -856,7 +856,7 @@ func TestLocalProfileNameFromPath(t *testing.T) {
 		},
 		{
 			name:   "outside profiles dir",
-			path:   "/tmp/.ctxloom/cache/bundles/something.yaml",
+			path:   "/tmp/.ctxloom/content/bundles/something.yaml",
 			want:   "",
 			wantOk: false,
 		},

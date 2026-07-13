@@ -264,6 +264,57 @@ func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
 	assert.Contains(t, findings[0].Message, "config.yaml is malformed", "the finding echoes the warning text")
 }
 
+// An unknown config key is the silent-no-op trap: ctxloom drops the key and
+// launches with a context the user never asked for. In strict mode it must abort
+// startup with a config-class finding that NAMES the key and carries a fix-it —
+// a crash names itself, a no-op does not.
+func TestPrintConfigWarnings_UnknownKeyIsFatalAndNamesTheKey(t *testing.T) {
+	resetStrictness(t)
+	var buf bytes.Buffer
+
+	printConfigWarnings(&buf, []config.Warning{{
+		Kind: config.WarnKindUnknownKey,
+		Text: "unknown key `profiles.defaults` in /p/.ctxloom/config.yaml: ctxloom does not know it, so it is IGNORED — `profiles.defaults` was RETIRED",
+	}})
+
+	assert.Contains(t, buf.String(), "profiles.defaults", "the warning line names the offending key")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "an unknown key is a fatal startup finding, not a silent drop")
+	assert.Equal(t, strictness.ClassConfig, findings[0].Class, "an unknown key is config-class")
+	assert.Contains(t, findings[0].Message, "profiles.defaults")
+	assert.Contains(t, findings[0].FixIt, "config.yaml", "the finding tells the user where to make the edit")
+
+	// The gate must actually refuse to launch.
+	var gate bytes.Buffer
+	err := failOnFindings(&gate, 0)
+	require.Error(t, err, "strict startup aborts on the unknown-key finding")
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
+	assert.Contains(t, gate.String(), "profiles.defaults")
+	assert.Contains(t, gate.String(), "--degraded", "the abort names the escape hatch")
+}
+
+// --degraded / CTXLOOM_DEGRADED=1 is the established escape hatch: the same
+// unknown key still WARNS (no diagnostic is ever lost) but records no finding, so
+// startup proceeds. An unknown key must not be able to wedge a user out of their
+// own tool.
+func TestPrintConfigWarnings_UnknownKeyDegradesToWarning(t *testing.T) {
+	resetStrictness(t)
+	strictness.SetDegraded(true)
+	var buf bytes.Buffer
+
+	printConfigWarnings(&buf, []config.Warning{{
+		Kind: config.WarnKindUnknownKey,
+		Text: "unknown key `profilez` in /p/.ctxloom/config.yaml: ctxloom does not know it, so it is IGNORED",
+	}})
+
+	assert.Contains(t, buf.String(), "profilez", "degraded mode still prints the warning")
+	assert.Empty(t, strictness.All(), "degraded mode records no fatal finding")
+	assert.NoError(t, failOnFindings(&bytes.Buffer{}, 0), "degraded mode launches anyway")
+}
+
 func TestPrintConfigWarnings_NoWarningsIsSilent(t *testing.T) {
 	var buf bytes.Buffer
 	printConfigWarnings(&buf, nil)

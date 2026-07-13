@@ -10,11 +10,11 @@ Here's what that buys you, then how to get it running in a few minutes.
 
 | Capability | Description |
 |------------|-------------|
-| **Context Assembly** | Combine fragments into profiles, inject into Claude/Antigravity via MCP |
+| **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
 | **Slash Commands** | Skills become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
-| **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
+| **Token Optimization** | Distill fragments and skills with a cheap, fast LLM |
 
 ## Initialize Your Project
 
@@ -35,6 +35,24 @@ agent-assisted setup. Useful flags: `--engine` to pre-select the engine,
 bind those remotes to a specific forge, `--non-interactive` to skip all prompts,
 and `--skip-launch` to skip the auto-launch.
 
+## Review What the Remote Shipped
+
+Content pulled from a remote is **withheld from the agent until you accept it**.
+Until then `ctxloom run` will refuse to start with `no fragments loaded:
+requested fragments not found`, so do this before anything else:
+
+```bash
+# See what is waiting, without reviewing (non-interactive)
+ctxloom review --list
+
+# Walk each pending item: [a]ccept, [r]eject, [s]kip, [A] accept all in bundle
+ctxloom review
+```
+
+Accepting countersigns the item's exact bytes with your SSH key; if that content
+later changes, it goes back to pending and you review the diff. Content you
+authored in this project is exempt and never appears here.
+
 ## Browse Available Content
 
 After initialization, explore what's available:
@@ -46,30 +64,42 @@ After initialization, explore what's available:
 ctxloom fragment list
 
 # Filter by bundle
-ctxloom fragment list --bundle go-development
+ctxloom fragment list --bundle https://github.com/ctxloom/ctxloom-default@bundles/testing
 ```
 
-Example output:
-```
-Fragments (4):
+Fragments are grouped by their **canonical bundle ref**, which for a remote
+bundle is its repo URL plus its path in that repo:
 
-  go-development:
-    - error-handling [golang, patterns]
-    - testing [golang, testing]
-    - project-structure [golang, organization]
-
-  security:
-    - owasp-top-10 [security, web]
 ```
+Fragments (7):
+
+  https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices:
+    - go-rules [golang, go, ai, best-practices, coding]
+
+  https://github.com/ctxloom/ctxloom-default@bundles/testing:
+    - gherkin [testing, bdd, gherkin, acceptance]
+    - mutation-testing [testing, mutation, quality]
+    - tdd [testing, tdd, workflow]
+    - test-coverage [testing, coverage, quality]
+    - test-organization [testing, organization, patterns]
+
+  ctxloom:local@bundles/my-tools:
+    - house-style [prose, conventions]
+```
+
+A **bare** bundle name in `--bundle` only matches a **local** bundle - one you
+authored under `.ctxloom/content/bundles/`. Remote bundles must be named by their
+canonical ref, as above; `--bundle testing` would match nothing and print
+`Fragments (0):`.
 
 ### View Fragment Content
 
 ```bash
 # Show a specific fragment
-ctxloom fragment show go-development#fragments/testing
+ctxloom fragment show 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragments/tdd'
 
 # Show the distilled (compressed) version
-ctxloom fragment show go-development#fragments/testing --distilled
+ctxloom fragment show 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragments/tdd' --distilled
 ```
 
 ### List Skills (Slash Commands)
@@ -78,18 +108,16 @@ ctxloom fragment show go-development#fragments/testing --distilled
 # List all skills
 ctxloom skill list
 
-# Filter by bundle
+# Filter by bundle (bare name = a local bundle you authored)
 ctxloom skill list --bundle my-tools
 ```
 
-Example output:
+Skills group by canonical bundle ref too:
+
 ```
-Skills (3):
+Skills (2):
 
-  core:
-    - commit [git]
-
-  my-tools:
+  ctxloom:local@bundles/my-tools:
     - code-review [review]
     - refactor [refactoring]
 ```
@@ -98,32 +126,48 @@ Skills (3):
 
 ```bash
 # Show a specific skill
-ctxloom skill show my-tools#skills/code-review
+ctxloom skill show 'my-tools#skills/code-review'
 ```
 
 ## Run with Context
 
+`-f` takes **fragment** names, not bundle names. A bundle name matches no
+fragment, and the run fails with `no fragments loaded`. To pull in a whole
+bundle's worth of context, use a tag (`-t`) or a profile (`-p`).
+
 ```bash
-# Include fragments when running AI
-ctxloom run -f go-development "Help me with this code"
+# Include a fragment by bare name (searched across every installed bundle)
+ctxloom run -f go-rules "Help me with this code"
 
 # Combine multiple fragments
-ctxloom run -f go-development -f testing-patterns -f security \
+ctxloom run -f go-rules -f tdd -f code-quality \
   "implement user authentication with tests"
 
-# Use a profile (pre-configured fragment set)
+# Name a fragment exactly, when the same bare name lives in several bundles
+ctxloom run -f 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragments/tdd' \
+  "add tests"
+
+# Pull in every fragment carrying a tag - this is how you get a whole bundle
+ctxloom run -t testing "implement user authentication with tests"
+
+# Use a profile (pre-configured bundle/fragment set)
 ctxloom run -p backend-developer "review this PR"
 
-# Preview what context would be sent
-ctxloom run -f go-development --dry-run --print
+# Preview what context would be sent, without launching the AI
+ctxloom run -f go-rules --dry-run
 ```
+
+`--dry-run` prints the assembled context, the fragments loaded and the token
+estimate, then stops. (It is not combined with `--print`; `--print` is the
+separate "run non-interactively and print the response" flag, and `--dry-run`
+returns before it is ever consulted.)
 
 ## Use Slash Commands
 
 Skills in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
-# .ctxloom/cache/bundles/my-tools.yaml
+# .ctxloom/content/bundles/my-tools.yaml
 skills:
   code-review:
     description: "Review code for issues"
@@ -142,7 +186,8 @@ Then in your AI CLI:
 ## Discover Community Bundles
 
 ```bash
-# Find ctxloom repositories on GitHub/GitLab
+# Find ctxloom repositories. Only GitHub is searchable; GitLab repos can be
+# added and pulled by URL, just not discovered.
 ctxloom remote discover golang
 
 # Add a remote
@@ -151,13 +196,19 @@ ctxloom remote add community alice/ctxloom-golang
 # Browse remote content
 ctxloom remote browse community
 
-# Use remote content directly
-ctxloom run -f community/go-testing "help with tests"
-
-# Or author a local profile that references the remote bundle, then pull
+# Author a local profile referencing the remote bundle, then pull it.
+# A profile's -b accepts the short <remote>/<bundle> form.
 ctxloom profile create go-testing -b community/go-testing
 ctxloom remote pull
+
+# Accept the newly pulled content, then run with it
+ctxloom review
+ctxloom run -p go-testing "help with tests"
 ```
+
+A profile is the way to bring a whole remote bundle in. `<remote>/<bundle>` is a
+**bundle** ref, so it works with `profile create -b`, but not with `run -f`,
+which resolves fragments.
 
 ## Next Steps
 

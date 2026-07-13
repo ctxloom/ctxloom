@@ -55,11 +55,15 @@ from a previous deferral. The store enforces this once, so the CLI and the MCP t
 same rule.
 
 Triggers are declarative free text, and nothing evaluates them mechanically. Revival is a
-review step: the `check-triggers` skill lists the deferred tasks, reasons about which
-conditions have actually fired, and asks before moving anything back to `To Do`. There is no
-automatic transition — an LLM judges, a human confirms. This mirrors the revive-trigger
-convention the project's ADRs already use, so deferring a task and deferring a decision work
-the same way.
+review step, not a mechanism: list the deferred tasks (`taskloom list --status Deferred`),
+reason about which triggers have actually fired, and move the ones that have back with
+`taskloom status <harp-id> "To Do"`. There is no automatic transition — an LLM judges, a
+human confirms. (A `check-triggers` skill that automates this review ships as one of
+`ctxloom`'s own built-in slash commands, embedded in the `ctxloom` binary and available in
+any session `ctxloom run` launches — it is not part of taskloom's loadout, so a bare
+`taskloom` install with no `ctxloom` binary in the picture won't have it.) This mirrors the
+revive-trigger convention the project's ADRs already use, so deferring a task and deferring
+a decision work the same way.
 
 Deferring with a trigger is therefore a real alternative to closing something. Reach for it
 when the work is still worth doing but blocked on a condition you can name. Reach for `Done`

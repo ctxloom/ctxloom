@@ -20,15 +20,6 @@ Feature: Remote registry
     Then the command succeeds
     And the file ".ctxloom/remotes.yaml" contains "default: origin"
 
-  Scenario: Trust and untrust a remote
-    Given an initialized ctxloom project
-    And I run "ctxloom remote add origin file:///tmp/acceptance-remote.git --forge git"
-    When I run "ctxloom remote trust origin"
-    Then the command succeeds
-    And the file ".ctxloom/remotes.yaml" contains "trust_bundles: true"
-    When I run "ctxloom remote untrust origin"
-    Then the command succeeds
-
   Scenario: Remove a remote
     Given an initialized ctxloom project
     And I run "ctxloom remote add origin file:///tmp/acceptance-remote.git --forge git"

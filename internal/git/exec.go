@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -125,6 +126,165 @@ func (execGit) IsDirty(ctx context.Context, dir string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(out) != "", nil
+}
+
+// Bounds for the repo-state evidence, so a large monorepo can never blow the
+// evaluation prompt's budget.
+const (
+	defaultRepoDirsMax       = 400
+	defaultWorkingChangesMax = 100
+)
+
+// RepoDirs inventories the directories that exist in the repo. It unions
+// TRACKED paths (git ls-files) with UNTRACKED ones (git ls-files --others,
+// honoring .gitignore): a directory holding only uncommitted work is still a
+// directory that EXISTS, and it is precisely the case commit history cannot
+// reveal — the bug that made an "does package X exist" trigger evaluate as
+// not-fired while the package sat in the working tree.
+func (execGit) RepoDirs(ctx context.Context, dir string, maxDirs int) ([]string, error) {
+	if maxDirs <= 0 {
+		maxDirs = defaultRepoDirsMax
+	}
+	tracked, err := output(ctx, dir, "ls-files", "-z")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := output(ctx, dir, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]struct{}{}
+	for _, f := range strings.Split(tracked+"\x00"+untracked, "\x00") {
+		if f == "" {
+			continue
+		}
+		d := filepath.ToSlash(filepath.Dir(f))
+		if d == "." {
+			continue // repo-root files carry no directory to inventory
+		}
+		seen[d] = struct{}{}
+	}
+	dirs := make([]string, 0, len(seen))
+	for d := range seen {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	if len(dirs) > maxDirs {
+		dirs = dirs[:maxDirs]
+	}
+	return dirs, nil
+}
+
+// WorkingChanges returns the porcelain working-tree status, bounded.
+//
+// -uall (untracked-files=all) is load-bearing, not cosmetic: plain
+// --porcelain COLLAPSES a wholly-untracked directory to a single "?? path/"
+// entry and never names the files inside it. A brand-new package — precisely
+// the "does X exist yet" case this evidence exists to answer — would then
+// reach the model as a bare directory marker with its contents invisible.
+func (execGit) WorkingChanges(ctx context.Context, dir string, maxEntries int) ([]string, error) {
+	if maxEntries <= 0 {
+		maxEntries = defaultWorkingChangesMax
+	}
+	out, err := output(ctx, dir, "status", "--porcelain", "-uall")
+	if err != nil {
+		return nil, err
+	}
+	var changes []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		changes = append(changes, line)
+		if len(changes) >= maxEntries {
+			break
+		}
+	}
+	return changes, nil
+}
+
+// defaultLogSinceMax bounds LogSince when the caller passes maxEntries<=0, so
+// a caller that forgets to bound its own query still can't walk unbounded
+// history.
+const defaultLogSinceMax = 50
+
+// logFieldSep separates the SHA/date/subject fields in LogSince's commit
+// query. Chosen because it cannot appear in a commit subject typed at a
+// terminal (it's a non-printable ASCII unit separator), unlike "|" or ",".
+const logFieldSep = "\x1f"
+
+// LogSince queries the commit list first (git log --pretty), then the
+// changed-file list per commit (git diff-tree), rather than combining both
+// into one --pretty + --name-only invocation: git interleaves file lists
+// between commit records in that combined form with no field separator of
+// its own, which is fragile to parse reliably. One extra process per commit
+// is an acceptable cost given maxEntries bounds the total.
+func (execGit) LogSince(ctx context.Context, dir string, since time.Time, maxEntries int) ([]LogEntry, error) {
+	if maxEntries <= 0 {
+		maxEntries = defaultLogSinceMax
+	}
+	args := []string{"log", fmt.Sprintf("--max-count=%d", maxEntries), "--date=iso-strict",
+		"--pretty=format:%H" + logFieldSep + "%cI" + logFieldSep + "%s"}
+	if !since.IsZero() {
+		args = append(args, "--since="+since.UTC().Format(time.RFC3339))
+	}
+	out, err := output(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	entries := parseLogEntries(out)
+
+	for i := range entries {
+		filesOut, ferr := output(ctx, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", entries[i].SHA)
+		if ferr != nil {
+			// Best-effort per commit: a file-list miss (e.g. an unreachable
+			// SHA under concurrent history rewrite) shouldn't fail the whole
+			// query — the commit summary is still useful evidence without it.
+			continue
+		}
+		entries[i].Files = splitNonEmptyLines(filesOut)
+	}
+	return entries, nil
+}
+
+// parseLogEntries parses LogSince's --pretty=format output: one commit per
+// line, fields separated by logFieldSep. A line that doesn't split into
+// exactly three fields (never expected from git, but the input is still
+// external process output) is skipped rather than producing a malformed
+// entry.
+func parseLogEntries(out string) []LogEntry {
+	var entries []LogEntry
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, logFieldSep, 3)
+		if len(parts) != 3 {
+			continue
+		}
+		date, derr := time.Parse(time.RFC3339, parts[1])
+		if derr != nil {
+			date = time.Time{}
+		}
+		entries = append(entries, LogEntry{SHA: parts[0], Date: date, Subject: parts[2]})
+	}
+	return entries
+}
+
+// splitNonEmptyLines splits s on newlines, trimming and dropping blanks —
+// the shape of `git diff-tree --name-only` output.
+func splitNonEmptyLines(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // parseWorktreeList parses `git worktree list --porcelain`. Records are separated

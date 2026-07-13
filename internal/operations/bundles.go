@@ -123,15 +123,20 @@ type CreateBundleResult struct {
 	Path   string `json:"path"`
 }
 
-// CreateBundle writes a new bundle YAML to .ctxloom/cache/bundles/<name>.yaml.
+// CreateBundle writes a new bundle YAML to .ctxloom/content/bundles/<name>.yaml
+// — the COMMITTED content tree, always. Creation is repo-local by definition: a
+// new bundle is this project's own authored content, git-tracked from the
+// moment it exists, and it takes no remote/destination (choosing where a bundle
+// goes happens later, at push time). Writing it to the gitignored cache instead
+// is how authored work ends up untracked and unsignable.
 //
 // Path safety: req.Name is validated via bundles.ValidateBundleName before
 // any filesystem call, so names containing "..", absolute paths, or null
 // bytes are rejected. Slash-separated names like "personal/foo" are
-// supported and land at .ctxloom/cache/bundles/personal/foo.yaml (parent
+// supported and land at .ctxloom/content/bundles/personal/foo.yaml (parent
 // dirs are MkdirAll'd). In addition, requireSafeBundlePath rejects any
 // directory component already on disk that is a symlink — without this an
-// attacker who had planted .ctxloom/cache/bundles/personal -> /etc could
+// attacker who had planted .ctxloom/content/bundles/personal -> /etc could
 // induce Save to write outside the bundles root.
 func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleRequest) (*CreateBundleResult, error) {
 	if req.Name == "" {
@@ -144,7 +149,7 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	dir := paths.BundlesPath(cfg.AppPaths[0])
+	dir := paths.LocalBundlesPath(cfg.AppPaths[0])
 	path := filepath.Join(dir, req.Name+".yaml")
 	if err := requireSafeBundlePath([]string{dir}, path); err != nil {
 		return nil, err
@@ -562,13 +567,28 @@ type PushBundleRequest struct {
 	PublishManager *remote.PublishManager `json:"-"`
 
 	// Signer, when non-nil, makes this push a SIGNED publish: the exact
-	// bytes that land at the remote path (post publish-metadata) are signed
-	// under signing.NamespacePublish and a detached "<path>.sig" sibling is
+	// bytes of the local bundle file — which are also, verbatim, the bytes
+	// that land at the remote path — are signed under
+	// signing.NamespacePublish and a detached "<path>.sig" sibling is
 	// published alongside (spec §3.1, §4.1). PushBundle never resolves a
 	// signer itself — key discovery (internal/signing/agentkey) is the
 	// CLI's job, so this stays a pure DI seam and Signer==nil unambiguously
 	// means "not signing" (--no-sign, or sign.default is off).
 	Signer ssh.Signer `json:"-"`
+
+	// Signature, when non-empty, is a PRE-EXISTING detached signature over
+	// this bundle file's exact bytes (its "<path>.sig" sibling), carried
+	// verbatim to the remote instead of being recomputed. `ctxloom bundle
+	// move` uses this: publish writes the local file's bytes unchanged (spec
+	// §3.0 — no re-serialization anywhere between publisher and verifier), so
+	// a signature over those bytes stays valid at the destination, and
+	// re-signing would be pointless churn needing a key the mover may not
+	// hold. Mutually exclusive with Signer; Signer wins if both are set.
+	//
+	// PushBundle VERIFIES it covers the bytes being published before carrying
+	// it, and refuses the push otherwise (a bundle edited after signing). The
+	// pair is the artifact (spec §3.0); half of it is a tamper alarm.
+	Signature []byte `json:"-"`
 }
 
 // PushBundleResult reports what was (or would be) published.
@@ -616,6 +636,18 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 	if _, err := bundles.ParseBundle(data); err != nil {
 		return nil, fmt.Errorf("invalid bundle: %w", err)
+	}
+
+	// The last gate before bytes leave the machine. A carried signature is
+	// published verbatim beside these exact bytes (runPush), so if it does not
+	// cover them, publishing the pair hands every consumer a hard tamper alarm
+	// over content that was never attacked — just edited after it was signed.
+	// Refuse. Fail-closed: a signature that does not match is an error state, not
+	// a warning to publish through, and never a quiet downgrade to unsigned.
+	if len(req.Signature) > 0 && req.Signer == nil {
+		if verr := signing.CoversBytes(data, req.Signature, signing.NamespacePublish); verr != nil {
+			return nil, staleSignatureError(absPath, verr)
+		}
 	}
 
 	registry, err := getRegistry(cfg)
@@ -704,11 +736,21 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		Message:  result.Message,
 		ItemType: remote.ItemTypeBundle,
 	}
-	if req.Signer != nil {
+	switch {
+	case req.Signer != nil:
 		signer := req.Signer
 		opts.SignPayload = func(payload []byte) ([]byte, error) {
 			return signing.Sign(payload, signer, signing.NamespacePublish)
 		}
+	case len(req.Signature) > 0:
+		// Carry an existing detached signature (see PushBundleRequest.Signature).
+		// The payload handed to SignPayload IS the local file's bytes, verbatim,
+		// which PushBundle has already PROVEN this signature covers — so returning
+		// it unchanged is a signature over the published bytes, not a rubber stamp.
+		// It rides publish's normal sibling-write path, so a failure to land it
+		// is the same hard error a signing failure is (spec §7A.4).
+		sig := req.Signature
+		opts.SignPayload = func([]byte) ([]byte, error) { return sig, nil }
 	}
 
 	pubResult, err := pm.Publish(ctx, absPath, remoteName, opts)
@@ -756,7 +798,9 @@ func ResolveBundleRemote(cfg *config.Config, bundlePath, override string) (strin
 // resolveRemoteForPath implements the location-based inference used by
 // ResolveBundleRemote. Returns the remote name to publish to.
 func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
-	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
+	// (1) Path under cache/bundles/<remote>/<rest>.yaml. Authored bundles no
+	// longer live here (they're under content/bundles, which encodes no
+	// remote), so this only still fires for legacy cache artifacts.
 	if name, ok := remoteFromCachePath(cfg, registry, absPath); ok {
 		return name, nil
 	}
@@ -789,7 +833,7 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 // cache/bundles/<remote>/<rest>.yaml, requiring the first segment to be a known
 // remote.
 func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
-	cacheRoot := paths.BundlesPath(cfg.AppPaths[0])
+	cacheRoot := paths.CacheBundlesPath(cfg.AppPaths[0])
 	rel, err := filepath.Rel(cacheRoot, absPath)
 	if err != nil || isOutsideRel(rel) {
 		return "", false
@@ -820,14 +864,17 @@ func remoteFromGitOrigin(cfg *config.Config, registry *remote.Registry, absPath 
 }
 
 // ambiguousRemoteError reports the candidate remotes (sorted) when no single
-// remote can be inferred.
+// remote can be inferred. Authored bundles live under content/bundles, which
+// carries no remote in its path (unlike the legacy cache/bundles/<remote>/
+// layout), so the fix is to say which remote explicitly rather than move the
+// bundle anywhere.
 func ambiguousRemoteError(all []*remote.Remote) error {
 	names := make([]string, 0, len(all))
 	for _, r := range all {
 		names = append(names, r.Name)
 	}
 	sort.Strings(names)
-	return fmt.Errorf("ambiguous remote: configure a default or move the bundle under cache/bundles/<remote>/. Candidates: %s",
+	return fmt.Errorf("ambiguous remote: run `ctxloom bundle push <name> <remote>` to name one, `ctxloom remote default <remote>` to set a default, or `ctxloom bundle move <name> --to <remote>` to relocate the bundle. Candidates: %s",
 		strings.Join(names, ", "))
 }
 

@@ -37,20 +37,39 @@ func ctxloomProduct() *docsgen.Product {
 		Unhide:       []string{"bundle"},
 		ConfigSchema: "resources/schema/input/config-schema.json",
 
-		MCPServer:  cli.NewDocMCPServer(),
-		MCPSource:  "internal/cli",
-		MCPCommand: "ctxloom mcp serve",
+		MCPServer: cli.NewDocMCPServer(),
+		MCPSource: "internal/cli",
+		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
+		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
+		// / `ctxloom acp`, through its stdio `ctxloom mcp` shim. Naming
+		// `ctxloom mcp serve` here would be a lie — that standalone server
+		// registers a REDUCED agent surface with different schemas (see mcpIntro).
+		MCPCommand: "ctxloom run",
 		MCPIntro:   mcpIntro,
 	}
 }
 
-// mcpIntro is the ctxloom MCP page's opening prose: what the surface is for and,
+// mcpIntro is the ctxloom MCP page's opening prose: which surface this is (the
+// runner-terminated mainline, not standalone `mcp serve`), what it is for, and,
 // just as importantly, what it deliberately is not (management is CLI-only;
 // tasks live in taskloom).
-const mcpIntro = "Reference for the tools and resources exposed by ctxloom's MCP server (`ctxloom mcp serve`).\n" +
+const mcpIntro = "Reference for the tools and resources ctxloom exposes to the agent it launches — the " +
+	"**runner-terminated** MCP surface a harness sees inside `ctxloom run` (and `ctxloom acp`), " +
+	"reached through the stdio `ctxloom mcp` shim ctxloom wires into the harness's settings. " +
+	"This is the surface you get in a normal ctxloom session, and it is the one generated here.\n" +
 	"\n" +
-	"The MCP surface is for **retrieving context during a session**: assembling context, " +
-	"searching content, and working with session memory. Everything that *manages* ctxloom " +
-	"(creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing, " +
-	"approving, and trusting changes) is done with the ctxloom CLI, not MCP tools. Task tracking " +
-	"lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools."
+	":::caution[A standalone `ctxloom mcp serve` is not this surface]\n" +
+	"Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's " +
+	"config, gets you the retrieval and session-memory tools below **unchanged** — but a " +
+	"**reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, " +
+	"`agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no " +
+	"`agent_fetch_artifact`), and those four take different parameters than documented here. " +
+	"Agent delegation is coordinated by the runner, so drive it from `ctxloom run` / `ctxloom acp`.\n" +
+	":::\n" +
+	"\n" +
+	"The MCP surface is for **working inside a session**: assembling context, searching content, " +
+	"session memory, and delegating to child agents. Everything that *manages* ctxloom " +
+	"(creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing " +
+	"and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, " +
+	"not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server " +
+	"(`taskloom mcp`) serves the `task_*` tools."

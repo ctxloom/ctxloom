@@ -8,10 +8,13 @@ A **bundle** collects that content (fragments, skills, MCP server configs, profi
 
 ## Bundle Structure
 
-Local bundles are stored in `.ctxloom/cache/bundles/` as YAML files:
+Local bundles are stored in `.ctxloom/content/bundles/` as YAML files. That
+directory is committed — it's the content your project publishes, and it's
+what `ctxloom sign --all` signs — unlike `.ctxloom/cache/`, which is
+gitignored and holds only regenerable, remote-pulled artifacts.
 
 ```yaml
-version: "1.0.0"                    # Bundle version (required)
+version: "1.0.0"                    # Bundle version (not enforced by the parser; `ctxloom bundle create` defaults it to 1.0.0)
 tags: [golang, development]         # Bundle-level tags
 author: "ctxloom"                       # Author name
 description: "Bundle description"   # Description
@@ -28,7 +31,7 @@ fragments:
   fragment-name:
     tags: [language, patterns]      # Additional tags (merged with bundle)
     notes: "Human notes"            # NOT sent to AI
-    installation: "Setup guide"     # Returned to AI on install
+    installation: "Setup guide"     # Shown in `bundle show`/`bundle list`, not surfaced on install
     content: |
       # Fragment Content
       Your markdown content here...
@@ -45,7 +48,7 @@ skills:
     description: "Skill description"
     tags: [tool, generation]
     notes: "Human notes"            # NOT sent to AI
-    installation: "Setup"           # Returned to AI on install
+    installation: "Setup"           # Shown in `bundle show`/`bundle list`, not surfaced on install
     content: |
       # Skill Content
       Your skill template here...
@@ -66,7 +69,7 @@ mcp:
     env:                            # Environment variables
       API_KEY: "${API_KEY}"
     notes: "Human notes"            # NOT sent to AI
-    installation: "Install guide"   # Returned to AI on install
+    installation: "Install guide"   # Shown in `bundle show`/`bundle list`, not surfaced on install
 
 profiles:
   profile-name:                     # Shipped profile, addressed as
@@ -88,7 +91,7 @@ hooks:
 | `content` | string | Required. The actual content sent to AI |
 | `tags` | array | Additional tags (merged with bundle tags) |
 | `notes` | string | Human-readable notes (NOT sent to AI) |
-| `installation` | string | Setup instructions (returned to AI on install) |
+| `installation` | string | Setup instructions, shown in `bundle show`/`bundle list` (not surfaced on install — only the bundle-level `installation` is) |
 | `no_distill` | bool | If true, skip distillation |
 | `content_hash` | string | SHA256 hash of content |
 | `distilled` | string | Token-efficient version |
@@ -111,7 +114,7 @@ hooks:
 | `args` | array | Command arguments |
 | `env` | map | Environment variables |
 | `notes` | string | Human-readable notes (NOT sent to AI) |
-| `installation` | string | Setup instructions (returned to AI on install) |
+| `installation` | string | Setup instructions, shown in `bundle show`/`bundle list` (not surfaced on install — only the bundle-level `installation` is) |
 
 ## Managing Bundles
 
@@ -157,7 +160,9 @@ fragments:
 
 ## Content References
 
-Reference bundle content using hash syntax:
+Reference bundle content using hash syntax. These forms work on the command
+line — `ctxloom fragment show`, `ctxloom skill show`, `ctxloom trust`, and
+similar item-addressing commands:
 
 | Syntax | Description |
 |--------|-------------|
@@ -169,6 +174,13 @@ Reference bundle content using hash syntax:
 | `bundle#mcp/name` | Specific MCP server |
 | `remote/bundle` | Bundle from remote |
 | `remote/bundle#fragments/x` | Fragment from remote bundle |
+
+They are **not** all valid inside a profile's `bundles:` list. A profile only
+recognizes a whole-bundle ref or a `#fragments/name` cherry-pick there — see
+[Content Reference Syntax](/concepts/profiles/#content-reference-syntax) in
+the profiles doc for why `#skills/name` and `#mcp/name` silently do the wrong
+thing in that position, and use a profile's `prompts:` list to curate skills
+instead.
 
 ## Notes vs Installation
 

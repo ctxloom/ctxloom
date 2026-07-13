@@ -24,6 +24,7 @@ Examples:
   ctxloom bundle create my-bundle      # Create a new bundle
   ctxloom bundle export go-tools ./out # Export bundle to directory
   ctxloom bundle import ./my-bundle.yaml # Import bundle from file
+  ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle (signature and all)
 
 ### Options
 
@@ -36,6 +37,7 @@ Examples:
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
@@ -50,6 +52,7 @@ Examples:
 * [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local file
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle mcp](/reference/cli/ctxloom_bundle_mcp/)	 - Manage MCP servers within a bundle
+* [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
 * [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,30 @@ func initRepo(t *testing.T) string {
 	runInit("add", "README.md")
 	runInit("commit", "-m", "seed")
 	return dir
+}
+
+// commit writes content to path (relative to dir) and creates a commit with
+// subject, returning the commit SHA. Used by LogSince tests that need more
+// than the single seed commit initRepo leaves behind.
+func commit(t *testing.T, dir, path, content, subject string) string {
+	t.Helper()
+	full := filepath.Join(dir, path)
+	require.NoError(t, writeFile(full, content))
+	run := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
+			"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("add", path)
+	run("commit", "-m", subject)
+	return run("rev-parse", "HEAD")
 }
 
 func writeFile(path, content string) error {

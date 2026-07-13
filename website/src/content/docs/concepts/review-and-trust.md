@@ -3,58 +3,92 @@ title: "Review and trust"
 ---
 
 ctxloom holds one line: **a human sees third-party content before the agent
-does.** Content from a remote you haven't trusted is withheld from the agent
-until you review it, and every later change to it is withheld again. Reviewing is
-one command — `ctxloom review`.
+does.** Content from a remote is withheld from the agent until you review it, and
+every later change to it is withheld again. Reviewing is one command —
+`ctxloom review`.
 
 ## What is exempt
 
-First-party content is trusted without review:
+First-party content reaches the agent without review:
 
 - **Local** — fragments, skills, MCP servers, and hooks you authored in this
   project. A *copy* of a remote item is not local: items are keyed by their true
   source, so cloning a bundle into the cache doesn't manufacture local trust.
 - **Builtin** — bundles shipped inside the binary. Trusting ctxloom trusts them.
-- **Trusted sources** — remotes you've marked trusted (see
-  [Trusting a source](#trusting-a-source)). `ctxloom-default` and the personal
-  remotes `init` adds are trusted by default.
+- **Trusted publisher** — a bundle whose bytes were signed by a key you trust for
+  the `publish` namespace (see [Trusting a publisher](#trusting-a-publisher)).
+  Trust is keyed to the **signing key**, not to the repository the bytes came
+  from: a fork, a typosquatted host, or a tampered clone cannot produce content
+  that verifies under the key you actually trusted.
 
-Everything else — any item from an untrusted remote — is **pending** until you
-review it.
+Nothing is trusted for being *added*. Adding a remote registers an address, and
+that is all it does — `ctxloom-default` and the personal repos `init` adds take
+the review path like anything else until their bundles are signed by a key you
+trust.
+
+Everything else — any unsigned remote item, and any item signed by a key you
+don't trust — is **pending** until you review it.
 
 ## The three states
 
 Every remote item — fragment, skill, MCP server, or hook — is in exactly one
 state:
 
-- **pending** — never reviewed, or its content changed since you accepted it.
+- **pending** — never reviewed, or its content changed since you approved it.
   Withheld from the agent.
-- **accepted** — you reviewed this exact content. Bound to the content's hash: a
-  later change returns the item to pending and asks for re-review.
-- **rejected** — you declined it. Withheld permanently. Recorded by content hash
-  too, so a renamed identical copy stays rejected.
+- **approved** — you **countersigned this exact content with your own SSH key**.
+  The signature *is* the approval record: at every exposure ctxloom rebuilds the
+  bytes it is about to hand the agent and checks that a countersignature verifies
+  over exactly those bytes. Change a byte and no signature covers it any more, so
+  the item drops back to pending. The raw and distilled forms of an item are
+  signed independently — approving one does not approve the other.
+- **rejected** — you declined it, also by countersigning: once against the ref
+  (sticky — it survives the content changing underneath), and once against the
+  content with the ref deliberately omitted, so a renamed or moved identical copy
+  stays rejected wherever it turns up.
 
 Rejection wins over everything, including the first-party exemption — you can
-reject an item even from a trusted source or a builtin.
+reject an item even from a trusted publisher or a builtin.
+
+A signature says *who*, never *whether it is good for you*. A validly signed
+malicious fragment is still malicious, which is why rejection outranks every
+signature, including ctxloom's own.
 
 ## Reviewing
 
 ```bash
-ctxloom review          # Walk pending items and decide each
-ctxloom review --list   # Print the pending table without reviewing
+ctxloom review             # Walk pending items and decide each
+ctxloom review --list      # Print the pending table without reviewing
+ctxloom review --project   # Record decisions in the committable project store
 ```
 
 `ctxloom review` walks every pending item, grouped by bundle:
 
 - **New** items show their full content.
-- **Updated** items — content you accepted before that has since changed — show a
-  diff against the version you accepted.
+- **Updated** items — content you approved before that has since changed — show a
+  diff against the version you approved.
 - MCP servers and hooks display as **what they run**: command, args, env,
-  matcher.
+  matcher — the exact executable surface your countersignature covers.
 
 Per item, choose **[a]ccept**, **[r]eject**, or **[s]kip**; **[A]** accepts every
-remaining item in the bundle. Accepting binds the item to its current content;
-rejecting withholds it for good. Just looking never changes anything.
+remaining item in the bundle, **[q]** quits. Just looking never changes anything.
+
+Your signing key is resolved once, from `ssh-agent`, before the first item is
+shown — a review session that can't record its result shouldn't spend your
+attention first. If that key is a plain software key rather than a hardware one,
+the session warns once: any process holding `SSH_AUTH_SOCK` — including an agent
+ctxloom just launched — can ask the agent to sign approvals as you, unless the
+key is confirm-guarded (`ssh-add -c`) or hardware-backed. It is a warning, not a
+block.
+
+Decisions land in your personal store, `~/.ctxloom/approvals`, one signature file
+per decision. With **no key available at all**, review offers an explicit,
+confirmed **unsigned** path: decisions are recorded as bare markers, exactly as
+forgeable as any file on disk. Those go to the personal store only and are never
+written to the committable one. `--project` writes the committable project store
+(`.ctxloom/approvals`), so a team lead or CI can countersign once and every
+developer who trusts that key inherits the decision — it **requires** a real
+signing key, with no unsigned fallback.
 
 Off a terminal (piped, or with `--list`), review prints the pending table and
 exits, so scripts and agents can see what a human still owes a look. `ctxloom
@@ -71,8 +105,9 @@ review them. If a bundle's content isn't appearing, run `ctxloom review`.
 `ctxloom remote upgrade` re-resolves your dependencies within their version
 constraints (see [Versioning, locking, and holds](/concepts/remotes/#versioning-locking-and-holds))
 and moves the lockfile to the newest commit each constraint allows. It does not
-gate at the lockfile: any changed content simply re-hashes to **pending** and is
-withheld until you review it.
+gate at the lockfile: changed content no longer verifies against the approval you
+gave the old content, so it re-gates to **pending** and is withheld until you
+review it.
 
 Passive `ctxloom remote pull` fetches exactly what the lock already pins and
 never advances a SHA.
@@ -85,20 +120,42 @@ ctxloom bundle hold <name>     # freeze at the locked SHA (alias: pin)
 ctxloom bundle unhold <name>   # release the hold (alias: unpin)
 ```
 
-## Trusting a source
+## Trusting a publisher
 
-Trust a remote to exempt everything it publishes — text, executables, and all
-future updates — from review:
+Trust a **key**, and everything that key signs — text, executables, and all
+future updates — skips review:
 
 ```bash
-ctxloom remote trust <name>     # exempt this remote's content from review
-ctxloom remote untrust <name>   # gate its content behind review again
+ctxloom signer add context@acme.com --key ~/.ssh/acme-publish.pub
+ctxloom signer list
+ctxloom signer remove context@acme.com
 ```
 
-This sets `trust_bundles: true` for the remote in `.ctxloom/remotes.yaml`. Trust
-is per-remote: your own `ctxloom-default` or team remote can be trusted while a
-third-party remote stays gated. Trust a source only when you would run anything
-it publishes. Trusting a source does not un-reject anything you've rejected.
+The principal (`context@acme.com`) is just a label; the key is the trust. Keys
+land in your `allowed_signers` store — `~/.ctxloom/allowed_signers` for you,
+`.ctxloom/allowed_signers` (with `--project`) for everyone who clones the repo,
+plus the defaults embedded in the binary. All three are unioned. The
+`--namespace` flag is the role system: `publish` (the default) lets a key exempt
+the content it signs from review, while `approve` lets a key's countersignatures
+approve items for you — so a lead can review on the team's behalf.
+
+Publish your own bundles the same way — sign them, trust your key:
+
+```bash
+ctxloom sign my-tools    # writes a detached my-tools.yaml.sig sibling
+ctxloom sign --all
+```
+
+A signature that verifies under a key you trust is checked over the bundle's raw
+file bytes, before the YAML is even parsed. A signature from a key you *don't*
+trust, or one scoped to the wrong namespace, is simply unsigned content to you:
+no error, it takes the review path. A signature that is present but does not
+verify over the bytes it sits beside is treated as tampering, and the bundle is
+withheld entirely rather than degraded to unsigned.
+
+Trust a publisher only when you would run anything it publishes: the exemption
+covers every future update from that key, unreviewed. It does not un-reject
+anything you've rejected.
 
 ## Accepting or rejecting one item
 
@@ -106,32 +163,62 @@ it publishes. Trusting a source does not un-reject anything you've rejected.
 per item:
 
 ```bash
-ctxloom trust <ref>       # accept one item (e.g. code-quality#fragments/solid)
+ctxloom trust <ref>       # approve one item (e.g. code-quality#fragments/solid)
 ctxloom blacklist <ref>   # reject one item everywhere
 ```
 
-Both write the same states `ctxloom review` writes. Refs use the selector
-syntax — `<bundle>#fragments/<name>`, `<bundle>#skills/<name>`,
+Both write the same countersignatures `ctxloom review` writes, through the same
+path, so porcelain and plumbing produce identical results on disk. Refs use the
+selector syntax — `<bundle>#fragments/<name>`, `<bundle>#skills/<name>`,
 `<bundle>#mcp/<name>`, or `<bundle>#hooks/<event>/<index>`.
 
 ## How a trust decision is made
 
-One resolver decides every item's exposure. First match wins, and the default is
-withhold:
+One resolver decides every item's exposure. It is fed the exact **bytes** about
+to be exposed — never a precomputed hash, because a hash can only be compared
+against a file that anything can write, while bytes can be *verified*. First
+match wins, and the default is withhold:
 
-1. **rejected** — ref rejected, or its content hash on the denylist → withhold
-2. **local** — authored in this project (all kinds) → allow
-3. **trusted source** — the item's remote is trusted → allow
-4. **accepted** — accepted, and the content hash still matches → allow
-5. otherwise → **pending**, withhold
+0. **the approvals stores must be readable.** A store that has never been created
+   is fine — that's a fresh project. A store that exists but can't be read is a
+   fault, not an empty set: it might be hiding a *rejection*. Every item is
+   denied, including local and builtin ones, and a fatal trust-store finding is
+   raised. Fix or remove the store, then re-review.
+1. **rejected** — a rejection covers this ref, or covers exactly these bytes →
+   withhold
+2. **local** — authored in this project, every kind → allow
+3. **builtin** — shipped inside the binary → allow
+4. **trusted signer** — a key you trust to publish signed exactly these bytes →
+   allow
+5. **approved** — a countersignature from a key you trust to approve verifies
+   over exactly these bytes, at this ref, in this form → allow
+6. otherwise → **pending**, withhold
+
+Builtins get their own step *below* rejection precisely so you can reject one;
+they are routed through the same resolver as everything else rather than skipping
+it. A content hash still exists, but only as an index — the filename under which a
+candidate countersignature is looked up. Finding a candidate proves nothing:
+only a successful cryptographic verify allows, so a hand-crafted file at the
+right index resolves pending.
 
 A withheld item is silently absent from the agent's view; you get one aggregate
-stderr notice — `N item(s) awaiting review — run 'ctxloom review'`. The gate
-hashes the exact bytes before profile-variable substitution, so templating can't
-smuggle content past it. Builtin bundles and profile *definitions* are not gated;
-a profile's constituent items still gate at their own chokes.
+stderr notice — `N item(s) awaiting review — run 'ctxloom review'`. The signed
+payload is the exact bytes *before* profile-variable substitution, so templating
+can't smuggle content past the gate. Profile *definitions* are not gated — a
+profile is orchestration — but every item a profile pulls in gates at its own
+choke.
 
 The full model — storage formats, enforcement points, lifecycle, and known edge
 cases — is documented in
 [docs/trust-model.md](https://github.com/ctxloom/ctxloom/blob/main/docs/trust-model.md).
-</content>
+
+## Why any of this exists
+
+If it is not obvious why a *prompt library* needs signatures at all, start with
+[A prompt is executable code](/security/prompts-are-code/): a bundle can put a shell
+command in your harness's settings file, and the ecosystem ships these unsigned, over
+git, from strangers. The rest of the case is laid out in
+[What a bundle can do to you](/security/bundle-anatomy/),
+the [threat model](/security/threat-model/) — including, explicitly, what ctxloom does
+**not** defend — and [key management](/security/key-management/).
+

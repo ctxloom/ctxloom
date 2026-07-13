@@ -168,9 +168,12 @@ type SignConfig struct {
 	// is given. Defaults to false — signing must be opted into, exactly like
 	// git commit -S is opt-in until gpg.commit.sign flips it.
 	Default bool `mapstructure:"default" yaml:"default,omitempty"`
-	// Key is an explicit --key-equivalent: a path to a public key or a
-	// SHA256:... fingerprint. Empty means "use the zero-config discovery
-	// chain" (git config user.signingkey, then the sole ssh-agent identity).
+	// Key is an explicit --key-equivalent: a SHA256:... fingerprint, a path
+	// to a public key, or a ssh-agent key's comment/name (matched
+	// case-insensitively, substring OK — the name printed in the
+	// "multiple keys in ssh-agent" error). Empty means "use the zero-config
+	// discovery chain" (git config user.signingkey, then the sole ssh-agent
+	// identity).
 	Key string `mapstructure:"key" yaml:"key,omitempty"`
 }
 

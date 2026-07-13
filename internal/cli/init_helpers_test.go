@@ -96,7 +96,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 
 	// Directory tree exists.
-	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.BundlesPath(appDir)} {
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPath(appDir)} {
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
 			t.Errorf("expected directory %s to exist (err=%v)", dir, err)

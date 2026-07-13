@@ -90,7 +90,7 @@ func setupPromptTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	// Create a test bundle with prompts
 	bundleContent := `version: "1.0"
@@ -114,7 +114,7 @@ skills:
     content: |
       Generate a commit message for the staged changes
 `
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
 
 	// Create another bundle with more prompts
 	anotherBundle := `version: "1.0"
@@ -124,9 +124,9 @@ skills:
     content: |
       Explain what this code does
 `
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/learning.yaml", []byte(anotherBundle), 0644)
+	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/learning.yaml", []byte(anotherBundle), 0644)
 
-	loader := bundles.NewLoader([]string{paths.BundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 

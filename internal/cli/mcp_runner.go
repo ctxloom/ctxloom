@@ -174,7 +174,9 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home) (*mcp
 		relayTyped[recoverSessionInput](home, "recover_session"))
 	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: relayGetPreviousSessionDesc},
 		relayTyped[getPreviousSessionInput](home, "get_previous_session"))
-	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session"} {
+	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: relayEvaluateTriggersDesc},
+		relayTyped[evaluateTriggersInput](home, "evaluate_triggers"))
+	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "evaluate_triggers"} {
 		if routes[name] != mcpschema.RouteHostRelay {
 			return nil, fmt.Errorf("runner MCP: tool %q registered as host-relay but classified otherwise — fix mcpschema.Routes", name)
 		}
@@ -230,6 +232,7 @@ const (
 	relayLoadSessionDesc        = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
 	relayRecoverSessionDesc     = "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session)."
 	relayGetPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
+	relayEvaluateTriggersDesc   = evaluateTriggersDesc
 )
 
 // relayTyped forwards one host-resident tool over the RunChannel as
@@ -245,6 +248,17 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 		args := &structpb.Struct{}
 		if err := protojson.Unmarshal(raw, args); err != nil {
 			return nil, nil, fmt.Errorf("%s: encode arguments: %w", name, err)
+		}
+		// A distillation is minutes of honest work; the harness hands us a
+		// deadline-free ctx, so without this the request would inherit the
+		// coordination-frame default and fail mid-flight on every long
+		// session while the host carried on distilling behind it.
+		if budget := mcpschema.RelayBudget(name); budget > 0 {
+			if _, has := ctx.Deadline(); !has {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, budget)
+				defer cancel()
+			}
 		}
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{
 			Kind: &agentcoordpb.AgentRequest_Custom{Custom: &agentcoordpb.CustomRequest{

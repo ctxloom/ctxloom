@@ -13,13 +13,20 @@ install, you may have extra steps before the binary runs.
 
 | Method | Trust steps |
 |---|---|
-| **Homebrew** (`brew install ctxloom/tap/...`) | None — the casks clear macOS quarantine on install |
-| **Install script** (`install.sh` / `install.ps1`) | Usually none — the script clears quarantine where it can; see below if blocked |
+| **Homebrew** (`brew install ctxloom/tap/...`) | The casks clear quarantine only. They do **not** remove `com.apple.provenance` or ad-hoc sign, so on Sequoia+ you may still need the `codesign` step below |
+| **`install.sh`** (macOS/Linux) | Usually none — it clears quarantine *and* provenance and ad-hoc signs on macOS |
+| **`install.ps1`** (Windows) | It clears nothing; it only prints the `Unblock-File` command. Run that yourself if SmartScreen interposes |
 | **Manual download** | macOS and Windows both flag the file; manual steps below |
 | **`go install` / build from source** | None — binaries you build locally are never quarantined |
 
-If you want zero trust ceremony on macOS, prefer Homebrew — the install
-script can delegate to it with `install.sh --brew`.
+On macOS, `install.sh` is the path with the least ceremony, not Homebrew: it is
+the only installer that handles `com.apple.provenance`, which is the attribute
+behind the silent kill described below. Homebrew is still a fine way to install
+`ctxloom` itself if you prefer it (and `install.sh --brew` will delegate to it),
+with two caveats: you may have to ad-hoc sign afterwards, and the `taskloom` and
+`ltk` casks are **not published for prerelease tags** — every pre-1.0 release is
+one, so `brew install ctxloom/tap/taskloom` and `.../ltk` will currently fail.
+`install.sh --brew` warns and skips when they do.
 
 ## macOS (Gatekeeper)
 
@@ -32,10 +39,13 @@ Consequences for an unsigned binary:
 - **Provenance** can cause the kernel to kill the process outright — the
   symptom is a bare `zsh: killed ctxloom` with no dialog at all.
 
-`install.sh` handles both automatically when it can: it removes the two
-attributes and ad-hoc signs the binary (`codesign --force --sign -`). The
-Homebrew casks do the same in a post-install hook. If a binary is still
-blocked — or you downloaded an archive manually — run:
+`install.sh` handles both when it can: it removes the two attributes and ad-hoc
+signs the binary (`codesign --force --sign -`), skipping whichever step's tool
+is missing. The Homebrew casks do **less** — every cask's post-install hook runs
+exactly one command, `xattr -dr com.apple.quarantine`. No cask touches
+`com.apple.provenance` and no cask signs anything, so a brew-installed binary
+can still be killed outright on Sequoia+. If a binary is blocked or killed — or
+you downloaded an archive manually — run:
 
 ```bash
 xattr -d com.apple.quarantine /usr/local/bin/ctxloom
@@ -58,10 +68,14 @@ up front:
 Unblock-File C:\Users\you\bin\ctxloom.exe
 ```
 
-`install.ps1` downloads with `Invoke-WebRequest`, whose output generally does
-not carry the mark when run from an existing PowerShell session, but
-SmartScreen heuristics vary by system policy — the dialog is normal and safe
-to accept once you've verified the checksum.
+`install.ps1` never clears the mark itself — it calls neither `Unblock-File` nor
+anything else that strips the zone stream; at the end of a run it just prints
+the command above for you to run. In practice its `Invoke-WebRequest` download
+generally does not carry the mark when run from an existing PowerShell session,
+but SmartScreen heuristics vary by system policy, so if the dialog appears,
+clear the mark yourself. Because the script does not verify the `ctxloom`
+archive's checksum either, check the hash yourself first (see below) rather than
+accepting the dialog on trust.
 
 ## Linux
 
@@ -70,12 +84,30 @@ the executable bit, which the install script sets.
 
 ## Verifying what you run
 
-Every release publishes `checksums.txt`. The install scripts verify archives
-against it automatically. Manually:
+Every release publishes `checksums.txt`. What the install scripts do with it
+differs by platform, and neither one fails closed:
+
+- **`install.sh`** fetches `checksums.txt` and verifies each archive against it.
+  A genuine **mismatch aborts the install**. But verification *degrades* rather
+  than failing: if `checksums.txt` can't be fetched, if it has no entry for the
+  archive, or if neither `sha256sum` nor `shasum` is on the box, the script logs
+  a warning and installs anyway. Watch for that warning.
+- **`install.ps1`** does **not verify the `ctxloom` archive at all** — it
+  downloads, extracts, and installs it with no hash check. Checksum verification
+  on Windows exists only for the companions (`taskloom`, `ltk`), and a mismatch
+  there skips that companion rather than aborting. On Windows the primary binary
+  is the unverified one; verify it yourself with the command below.
+
+Manually:
 
 ```bash
 sha256sum ctxloom_*_linux_amd64.tar.gz
 grep linux_amd64 checksums.txt   # compare
+```
+
+```powershell
+(Get-FileHash ctxloom_*_windows_amd64.zip -Algorithm SHA256).Hash
+Select-String -Path checksums.txt -Pattern windows_amd64   # compare
 ```
 
 The install scripts themselves are auditable and their SHA256s are printed in
@@ -87,5 +119,11 @@ read, then run.
 Apple notarization and Windows code signing require paid developer accounts
 and infrastructure that this pre-1.0 project doesn't carry yet. Signing (or
 sigstore/cosign attestation) is on the roadmap; until then the trust model is
-open source + reproducible-ish builds + checksums, with the steps above as
-the cost.
+open source, public CI from tagged commits, and published checksums — with the
+steps above as the cost.
+
+Reproducible builds are **not** part of that model today. The `taskloom` and
+`ltk` builds are built with `-trimpath` and a pinned `mod_timestamp`; the four
+`ctxloom` build variants have neither, so you cannot currently rebuild the
+flagship binary from a tag and expect to reproduce the released artifact
+bit-for-bit. Making the `ctxloom` builds reproducible is on the same roadmap.

@@ -1,6 +1,20 @@
 # Bundle Review branch — retrospective and what's next
 
-> **Status:** implemented end-to-end on `feat/bundle-mcp-tools` (2026-05-25); audit + post-merge coverage push landed 2026-05-26/27. **Living document** — keep in sync with conversation decisions and follow-up PR progress.
+> ## SUPERSEDED for anything trust-related — historical record (2026-07-13)
+>
+> This retrospective is retained because code comments cite its phase numbering. Its
+> **bundle/MCP/session content is still a useful record**; its **trust content is
+> not, and is now false.**
+>
+> **What in here is FALSE:** it describes `trust_bundles` / trusted sources as live.
+> **They are deleted.** Trust is keyed to a signing identity in `allowed_signers`, the
+> `trust.yaml` ledger is replaced by countersignature stores, and review is a
+> three-state (pending / approved / rejected) gate over signed bytes.
+>
+> - Normative behavior: **[trust-model.md](trust-model.md)**.
+> - Wire contracts: **[signature-envelope.spec.md](signature-envelope.spec.md)**.
+>
+> **Status (original):** implemented end-to-end on `feat/bundle-mcp-tools` (2026-05-25); audit + post-merge coverage push landed 2026-05-26/27. No longer a living document.
 
 The branch landed bundle review on startup with SHA-keyed reads, a native task layer replacing flesler/mcp-tasks, harp-named sessions with a pre-launch picker, an MCP footprint cut (~46 → 18 tools + 12 resources), an embedded tasks bundle, hook command path-rewriting, and a coverage push that brought the aggregate to ~60%. The pre-implementation design lived as Phase 1–4 specs; the code is now the source of truth. Anything genuinely subtle is captured below.
 

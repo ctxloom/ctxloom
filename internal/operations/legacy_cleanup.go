@@ -30,7 +30,7 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return 0, nil
 	}
-	bundlesRoot := paths.BundlesPath(cfg.AppPaths[0])
+	bundlesRoot := paths.CacheBundlesPath(cfg.AppPaths[0])
 	info, err := os.Stat(bundlesRoot)
 	if err != nil || !info.IsDir() {
 		return 0, nil

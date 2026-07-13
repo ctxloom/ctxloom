@@ -10,7 +10,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -131,11 +130,12 @@ type PublishOptions struct {
 	FS afero.Fs
 
 	// SignPayload, when non-nil, is called with the EXACT bytes about to be
-	// written to remotePath (after addPublishMetadata — the bytes that will
-	// actually sit in the remote tree, spec §3.1: a publisher signature
-	// covers the raw bundle FILE bytes, verbatim) and must return an armored
-	// PROTOCOL.sshsig blob over them. The result is written as a detached
-	// sibling "<remotePath>.sig" in the SAME commit/branch (spec §4.1).
+	// written to remotePath — the local file's bytes, verbatim, which are also
+	// the bytes that will sit in the remote tree (spec §3.1: a publisher
+	// signature covers the raw bundle FILE bytes, unframed and unmodified) —
+	// and must return an armored PROTOCOL.sshsig blob over them. The result is
+	// written as a detached sibling "<remotePath>.sig" in the SAME
+	// commit/branch (spec §4.1).
 	//
 	// This is a callback rather than a concrete signer type so package
 	// remote stays decoupled from package signing/agentkey — key discovery
@@ -168,16 +168,16 @@ type PublishResult struct {
 
 // publishPrep holds everything resolved before the push/PR strategy runs.
 type publishPrep struct {
-	publisher     Publisher
-	repoURL       string
-	owner, repo   string
-	itemName      string
-	remotePath    string
-	branch        string
-	content       []byte // content with publish metadata added
+	publisher   Publisher
+	repoURL     string
+	owner, repo string
+	itemName    string
+	remotePath  string
+	branch      string
+	content     []byte // the local file's bytes, verbatim (spec §3.0, §3.1)
 	// signature is the armored sshsig blob over content, computed by
 	// PublishOptions.SignPayload when set; nil means "not signing".
-	signature []byte
+	signature     []byte
 	title, body   string
 	commitMessage string
 	created       bool
@@ -195,8 +195,9 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 	return pm.publishDirect(ctx, prep)
 }
 
-// loadPublishContent reads the local file and, for profiles, rewrites local
-// bundle references to canonical URLs before export.
+// loadPublishContent reads the local file's bytes. It does not transform them
+// in any way, and must not: the bytes it returns are the bytes that get signed
+// and the bytes that land in the remote (spec §3.0, §3.1).
 func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptions) ([]byte, error) {
 	fs := opts.FS
 	if fs == nil {
@@ -227,8 +228,8 @@ func (pm *PublishManager) resolvePublishBranch(ctx context.Context, repoURL, own
 }
 
 // preparePublish resolves the publisher, repo coordinates, target branch,
-// content (with metadata), and commit subject/body shared by both push
-// strategies.
+// content (the local file's bytes, verbatim), and commit subject/body shared by
+// both push strategies.
 func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (*publishPrep, error) {
 	content, err := pm.loadPublishContent(localPath, opts)
 	if err != nil {
@@ -256,21 +257,22 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, err
 	}
 
-	contentWithMeta, err := addPublishMetadata(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add metadata: %w", err)
-	}
-
-	// Sign the EXACT bytes about to be written to remotePath (post-metadata
-	// — spec §3.1: the publisher signature covers the bytes as they exist in
-	// the tree at the pinned SHA, not any earlier draft of them). A signing
-	// failure aborts here, before any network write: no publish has
+	// Sign the EXACT bytes about to be written to remotePath — which are the
+	// EXACT bytes read from the local file. Publish injects nothing and
+	// re-serializes nothing (spec §3.0: "No re-serialization anywhere between
+	// publisher and verifier"; §3.1: the publisher payload is the bundle file
+	// bytes, verbatim). One canonical byte-set runs author → signature →
+	// remote → consumer, so a `.sig` produced by `ctxloom sign` against the
+	// local file verifies against the published bytes unchanged, and
+	// republishing an unmodified bundle is reproducible.
+	//
+	// A signing failure aborts here, before any network write: no publish has
 	// happened yet, so there is no partial state to unwind, and the caller
 	// never sees the file land unsigned when signing was requested (spec
 	// §7A.4, normative — failing to sign is a hard error).
 	var signature []byte
 	if opts.SignPayload != nil {
-		signature, err = opts.SignPayload(contentWithMeta)
+		signature, err = opts.SignPayload(content)
 		if err != nil {
 			return nil, fmt.Errorf("sign %s: %w", remotePath, err)
 		}
@@ -289,7 +291,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		itemName:      itemName,
 		remotePath:    remotePath,
 		branch:        branch,
-		content:       contentWithMeta,
+		content:       content,
 		signature:     signature,
 		title:         title,
 		body:          body,
@@ -464,37 +466,6 @@ func buildPublishPath(itemType ItemType, name string) string {
 	return path.Join(paths.RepoContentPrefix, dir, name+".yaml")
 }
 
-// addPublishMetadata appends a `_published` provenance block to content. It
-// edits the YAML node tree rather than round-tripping through a map, so the
-// author's key order and comments survive (yaml.v3 sorts map keys and strips
-// comments). Only published_at is recorded: the author's local filesystem path
-// is deliberately NOT embedded — it leaks the username/directory layout into
-// shared (often public) content and nothing in the codebase consumes it.
-func addPublishMetadata(content []byte) ([]byte, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return content, nil // Not valid YAML, return as-is
-	}
-	root := documentMapping(&doc)
-	if root == nil {
-		return content, nil // Not a mapping document, leave it untouched
-	}
-
-	root.Content = append(root.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "_published"},
-		&yaml.Node{
-			Kind: yaml.MappingNode,
-			Tag:  "!!map",
-			Content: []*yaml.Node{
-				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "published_at"},
-				{Kind: yaml.ScalarNode, Tag: "!!str", Value: time.Now().UTC().Format(time.RFC3339)},
-			},
-		},
-	)
-
-	return yaml.Marshal(&doc)
-}
-
 // NewPublisher creates a publisher for the given repository URL.
 func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	forgeType, _, err := DetectForge(repoURL)
@@ -510,17 +481,4 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	default:
 		return nil, fmt.Errorf("unsupported forge for publishing: %s", repoURL)
 	}
-}
-
-// documentMapping returns the top-level mapping node of a parsed YAML document,
-// or nil when the document is empty or its root is not a mapping.
-func documentMapping(doc *yaml.Node) *yaml.Node {
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return nil
-	}
-	root := doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return nil
-	}
-	return root
 }

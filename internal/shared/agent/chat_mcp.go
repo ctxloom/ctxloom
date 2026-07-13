@@ -13,8 +13,10 @@ import (
 // never get its settings-file write. The sources and their override order are
 // exactly the ones MCPFileConfig.WriteServers reconciles into an engine's
 // settings file — the auto-registered ctxloom server (unless disabled),
-// bundle-shipped servers (the builtin taskloom bundle rides here), the
-// config+profile unified servers, then the engine's own passthrough servers
+// bundle-shipped servers (ResolveBundleMCPServers: the profile→bundle
+// cascade plus each discovered companion's own loadout — see
+// internal/config/companions.go), the config+profile unified servers, then
+// the engine's own passthrough servers
 // (pluginKey) — so the two delivery paths cannot diverge. A name already
 // present in existing is dropped: the caller's explicit entry wins, so a
 // client-supplied session server is never duplicated. The result is

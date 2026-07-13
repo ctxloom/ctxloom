@@ -1,0 +1,328 @@
+package operations
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
+)
+
+// moveDestKind distinguishes the two destinations a bundle can move to.
+type moveDestKind string
+
+const (
+	moveDestRemote moveDestKind = "remote"
+	moveDestPath   moveDestKind = "path"
+)
+
+// moveDest is a resolved `--to`: exactly one of Remote (a configured registry
+// name) or Dir (an existing local directory) is set.
+type moveDest struct {
+	Kind   moveDestKind
+	Remote string
+	Dir    string
+}
+
+// MoveBundleRequest is the input for MoveBundle.
+type MoveBundleRequest struct {
+	// Name is the authored bundle to relocate (in .ctxloom/content/bundles).
+	Name string `json:"name"`
+	// To is the destination: a configured remote NAME, or a local directory
+	// path. See resolveMoveDest for the (deliberately unambiguous) rule.
+	To string `json:"to"`
+	// Force overwrites an existing bundle of the same name at a local
+	// destination. Never applies to a remote (a push updates in place).
+	Force bool `json:"force,omitempty"`
+	// Message is the commit subject/body for a remote destination.
+	Message string `json:"message,omitempty"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem). Only the
+	// local-path destination honours it end-to-end; a remote move publishes
+	// through PushBundle, which reads the real filesystem.
+	FS afero.Fs `json:"-"`
+
+	// PublishManager overrides the default registry-built one for a remote
+	// destination (tests inject one backed by a mock Publisher).
+	PublishManager *remote.PublishManager `json:"-"`
+}
+
+// MoveBundleResult reports where the bundle went and that the source is gone.
+type MoveBundleResult struct {
+	Status   string `json:"status"` // "moved"
+	Name     string `json:"name"`
+	Source   string `json:"source"`
+	DestKind string `json:"dest_kind"` // "remote" | "path"
+	// Dest is the local destination file, or the path inside the remote repo.
+	Dest string `json:"dest"`
+	// SigDest is where the detached publisher signature landed, or "" when the
+	// bundle was never signed.
+	SigDest string `json:"sig_dest,omitempty"`
+	// Remote/CommitSHA/Signed are set for a remote destination only.
+	Remote    string `json:"remote,omitempty"`
+	CommitSHA string `json:"commit_sha,omitempty"`
+	Signed    bool   `json:"signed,omitempty"`
+}
+
+// MoveBundle relocates an authored bundle out of this project — to a configured
+// remote (a publish) or to another local directory / ctxloom checkout (a copy) —
+// and then removes the source.
+//
+// Bytes are carried VERBATIM. A bundle's publisher signature covers the bundle
+// file's exact bytes (spec §3.1) and nothing between publisher and verifier may
+// re-serialize them (spec §3.0), so move never parses-and-re-emits, and never
+// re-signs: the existing detached `<name>.yaml.sig` stays valid at the
+// destination precisely because the bytes don't change. A signature that exists
+// but cannot be carried is an error — landing the bundle unsigned would be a
+// silent trust downgrade (spec §7A.4).
+//
+// ORDERING (the invariant that stops this command eating someone's work): the
+// source is removed ONLY after the destination write has fully succeeded —
+// bundle bytes AND, when present, the signature. Every failure path above
+// returns early with the source untouched, so a move that dies half-way is a
+// no-op locally, never a deletion.
+func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) (*MoveBundleResult, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if req.To == "" {
+		return nil, fmt.Errorf("destination is required: pass --to <remote|path>")
+	}
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return nil, fmt.Errorf("no .ctxloom directory configured")
+	}
+	fs := getFS(req.FS)
+
+	name, src, err := loadMoveSource(cfg, fs, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	dest, err := resolveMoveDest(cfg, fs, req.To)
+	if err != nil {
+		return nil, err
+	}
+
+	var result *MoveBundleResult
+	switch dest.Kind {
+	case moveDestRemote:
+		result, err = moveToRemote(ctx, cfg, fs, req, name, src, dest.Remote)
+	default:
+		result, err = moveToPath(ctx, cfg, fs, req, name, src, dest.Dir)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Destination write succeeded — and only now is the source removed.
+	if err := removeMoveSource(fs, src); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// loadMoveSource resolves the authored bundle to move, returning its canonical
+// name and file path. It reads the COMMITTED content tree (LocalBundlesPath) —
+// the gitignored cache holds fetched copies of other people's bundles, which are
+// not ours to move.
+func loadMoveSource(cfg *config.Config, fs afero.Fs, arg string) (name, path string, err error) {
+	var dirs []string
+	for _, p := range cfg.AppPaths {
+		dirs = append(dirs, paths.LocalBundlesPath(p))
+	}
+	name = canonicalizeBundleArg(cfg, arg, dirs, fs)
+	bundle, err := bundles.NewLoader(dirs, false, bundles.WithFS(fs)).Load(name)
+	if err != nil {
+		return "", "", fmt.Errorf("bundle %q not found: %w", arg, err)
+	}
+	// Same symlink guard DeleteBundle applies: the source is about to be
+	// removed, so a symlinked component under the bundles tree must not steer
+	// the removal at a file outside it.
+	if err := requireSafeBundlePath(dirs, bundle.Path); err != nil {
+		return "", "", err
+	}
+	return name, bundle.Path, nil
+}
+
+// resolveMoveDest turns `--to` into a destination, and never guesses. A
+// configured remote NAME wins (that is the documented rule — a bundle repo is
+// addressed by name, not by whatever directory happens to share its spelling);
+// otherwise the argument must be an existing directory. Anything else is an
+// error listing what was available, rather than a silent misfire.
+func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, error) {
+	registry, err := getRegistry(cfg, remote.WithRegistryFS(fs))
+	if err != nil {
+		return moveDest{}, fmt.Errorf("load registry: %w", err)
+	}
+	if registry.Has(to) {
+		return moveDest{Kind: moveDestRemote, Remote: to}, nil
+	}
+	isDir, err := afero.DirExists(fs, to)
+	if err != nil {
+		return moveDest{}, fmt.Errorf("inspect destination %q: %w", to, err)
+	}
+	if isDir {
+		return moveDest{Kind: moveDestPath, Dir: destBundlesDir(fs, to)}, nil
+	}
+	return moveDest{}, fmt.Errorf("destination %q is neither a configured remote nor an existing directory%s",
+		to, knownRemotesHint(registry))
+}
+
+// destBundlesDir maps a destination directory to the directory the bundle
+// actually lands in: a ctxloom project checkout (or a .ctxloom directory itself)
+// takes the bundle into its committed content tree; any other directory takes it
+// as-is.
+func destBundlesDir(fs afero.Fs, dir string) string {
+	if filepath.Base(dir) == paths.AppDirName {
+		return paths.LocalBundlesPath(dir)
+	}
+	if isDir, _ := afero.DirExists(fs, filepath.Join(dir, paths.AppDirName)); isDir {
+		return paths.LocalBundlesPath(filepath.Join(dir, paths.AppDirName))
+	}
+	return dir
+}
+
+// knownRemotesHint lists the configured remote names for an error message.
+func knownRemotesHint(registry *remote.Registry) string {
+	all := registry.List()
+	if len(all) == 0 {
+		return " (no remotes configured)"
+	}
+	names := make([]string, 0, len(all))
+	for _, r := range all {
+		names = append(names, r.Name)
+	}
+	sort.Strings(names)
+	return fmt.Sprintf(" (configured remotes: %s)", strings.Join(names, ", "))
+}
+
+// moveToPath copies the bundle (and its signature) into a local directory. The
+// copy itself is ExportBundle — one verbatim-bytes copier, signature-carrying
+// included — so move re-implements none of it.
+func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, destDir string) (*MoveBundleResult, error) {
+	destFile := filepath.Join(destDir, filepath.Base(src))
+	if sameMovePath(destFile, src) {
+		return nil, fmt.Errorf("destination is the bundle's own directory: %s", destDir)
+	}
+	if exists, _ := afero.Exists(fs, destFile); exists && !req.Force {
+		return nil, fmt.Errorf("bundle already exists at destination: %s (use --force to overwrite)", destFile)
+	}
+
+	res, err := ExportBundle(ctx, cfg, ExportBundleRequest{Name: name, DestDir: destDir, FS: fs})
+	if err != nil {
+		return nil, err
+	}
+	// An unsigned bundle overwriting a signed one would leave the old .sig
+	// behind, "signing" bytes it never covered. Drop it with the content.
+	if res.SigDest == "" {
+		if err := removeIfExists(fs, destFile+sigSuffix); err != nil {
+			return nil, fmt.Errorf("remove stale destination signature: %w", err)
+		}
+	}
+	return &MoveBundleResult{
+		Status:   "moved",
+		Name:     name,
+		Source:   src,
+		DestKind: string(moveDestPath),
+		Dest:     res.Dest,
+		SigDest:  res.SigDest,
+	}, nil
+}
+
+// moveToRemote publishes the bundle to a configured remote, carrying its
+// existing signature, via the same PushBundle path `ctxloom bundle push` uses.
+func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, remoteName string) (*MoveBundleResult, error) {
+	// The detached signature travels as-is — but only once it has been proven to
+	// cover the bytes publish will write. It usually does: nothing re-serializes
+	// them (spec §3.0), so re-signing would be pointless churn needing a key the
+	// mover may not have to hand. What it does NOT survive is the bundle being
+	// edited after it was signed, which leaves a signature over bytes that no
+	// longer exist. Publishing that pair is worse than publishing nothing: the key
+	// is trusted, the bytes do not match, and every consumer reads it as tampering
+	// and withholds the bundle. PushBundle verifies the pair and refuses it, so a
+	// stale signature stops here rather than at the user's tamper alarm.
+	var signature []byte
+	if exists, _ := afero.Exists(fs, src+sigSuffix); exists {
+		data, err := afero.ReadFile(fs, src+sigSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("read signature %s: %w", src+sigSuffix, err)
+		}
+		signature = data
+	}
+
+	res, err := PushBundle(ctx, cfg, PushBundleRequest{
+		Path:           src,
+		Remote:         remoteName,
+		Message:        req.Message,
+		Signature:      signature,
+		PublishManager: req.PublishManager,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Publish reports Signed only when the sibling .sig actually landed; a
+	// carried signature that didn't land is a lost signature, so refuse to
+	// delete the source behind it.
+	if signature != nil && !res.Signed {
+		return nil, fmt.Errorf("bundle %q published to %s but its signature was not: source left in place", name, remoteName)
+	}
+
+	sigDest := ""
+	if res.Signed {
+		sigDest = res.TargetPath + sigSuffix
+	}
+	return &MoveBundleResult{
+		Status:    "moved",
+		Name:      name,
+		Source:    src,
+		DestKind:  string(moveDestRemote),
+		Dest:      res.TargetPath,
+		SigDest:   sigDest,
+		Remote:    res.Remote,
+		CommitSHA: res.CommitSHA,
+		Signed:    res.Signed,
+	}, nil
+}
+
+// removeMoveSource deletes the source bundle and its signature — the last step
+// of a move, reached only once the destination holds both.
+//
+// The YAML goes first: if that removal fails we abort with the signed pair still
+// intact and internally consistent, rather than a bundle stripped of its
+// signature.
+func removeMoveSource(fs afero.Fs, src string) error {
+	if err := fs.Remove(src); err != nil {
+		return fmt.Errorf("destination write succeeded but the source could not be removed: %w", err)
+	}
+	if err := removeIfExists(fs, src+sigSuffix); err != nil {
+		return fmt.Errorf("bundle moved, but its source signature %s could not be removed: %w", src+sigSuffix, err)
+	}
+	return nil
+}
+
+// removeIfExists removes path when present; absence is not an error.
+func removeIfExists(fs afero.Fs, path string) error {
+	exists, err := afero.Exists(fs, path)
+	if err != nil || !exists {
+		return err
+	}
+	return fs.Remove(path)
+}
+
+// sameMovePath reports whether two paths name the same file (cleaned + absolute
+// where possible) — the guard against a "move" that copies a bundle onto itself
+// and then deletes it.
+func sameMovePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return absA == absB
+}

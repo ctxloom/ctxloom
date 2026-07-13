@@ -303,7 +303,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	// Create registry with test remote
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -358,7 +358,7 @@ func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
 	}
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -546,7 +546,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	}
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -602,7 +602,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	}
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -933,7 +933,7 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
 
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
@@ -1233,7 +1233,7 @@ func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOp
 	if refStr == p.reveals {
 		p.cfg.Profiles.Definitions["revealed"] = config.Profile{Bundles: []string{p.revealedRef}}
 	}
-	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/revealed.yaml"}, nil
+	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/revealed.yaml"}, nil
 }
 
 // TestSyncDependencies_PullsRefsRevealedByEarlierPulls pins the fixed-point
@@ -1250,7 +1250,7 @@ func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
 	)
 
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:

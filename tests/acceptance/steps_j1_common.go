@@ -1,0 +1,344 @@
+//go:build acceptance
+
+// J1 shared harness: the "developer's assistant only sees what it's handed,
+// signed, and trusted" journey (j1_setup.feature, j1b_source_augmentation.feature).
+//
+// Deliberately does NOT drive a fresh `ctxloom init` for its hermetic
+// scenarios: a first-time init on a NEW .ctxloom dir always clones the seeded
+// "ctxloom-default" remote (internal/cli/init.go's setupNewCtxloomDir ->
+// cloneConfiguredRemotes/pullSeededDependencies) — which is exactly why
+// init.feature's own plain-init scenario is tagged @network. J1's scenarios
+// are not @network, so this harness authors config.yaml/profile/agent
+// scaffolding directly (mirroring steps_fixture.go's minimalConfig approach)
+// and only drives a REAL `ctxloom init` on an ALREADY-existing .ctxloom dir
+// (which takes init.go's alreadyExists branch — no clone, no pull) when a
+// scenario specifically needs to exercise the discovery-session launch path.
+package acceptance
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
+)
+
+// j1Source is one named J1 source fixture: a seeded git remote carrying one
+// bundle, optionally signed and/or trusted, plus enough bookkeeping for the
+// "adds ... as a source" wiring and later delivery assertions.
+type j1Source struct {
+	name       string
+	url        string // file:// seeded remote URL
+	bundleName string
+	marker     string // the distinctive content this source's item carries
+	itemKind   string // "fragments" or "skills" — for building item refs
+	itemName   string
+	signer     *testenv.TestSigner
+	principal  string
+}
+
+// ref returns this source's bundle item ref once it has been added as a
+// remote under its own name (e.g. "personal/onboarding#fragments/marker").
+func (s *j1Source) ref() string {
+	return fmt.Sprintf("%s/%s#%s/%s", s.name, s.bundleName, s.itemKind, s.itemName)
+}
+
+// source returns (lazily creating) the named j1Source for this scenario.
+func (w *World) source(name string) *j1Source {
+	if w.j1Sources == nil {
+		w.j1Sources = map[string]*j1Source{}
+	}
+	s, ok := w.j1Sources[name]
+	if !ok {
+		s = &j1Source{name: name, bundleName: "src"}
+		w.j1Sources[name] = s
+	}
+	return s
+}
+
+// runOK runs a ctxloom command and fails loudly on a non-zero exit — the J1
+// steps' analogue of steps_fixture.go's runFixture, operating on *World
+// directly rather than a step context.
+func runOK(w *World, args ...string) error {
+	_ = w.env.Run(args...)
+	if code := w.env.LastExitCode(); code != 0 {
+		return fmt.Errorf("%v failed (exit %d): %s", args, code, w.env.LastOutput())
+	}
+	return nil
+}
+
+// fragmentSourceYAML builds a bundle manifest carrying one fragment named
+// "marker" whose content IS the marker string — the payload J1's trust-posture
+// and delivery scenarios assert reached (or was withheld from) the assembled
+// context / mock engine.
+func fragmentSourceYAML(marker string) string {
+	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  marker:\n    content: %q\n", marker)
+}
+
+// skillSourceYAML builds a bundle manifest carrying an "agent-setup" skill
+// whose content is the marker string — j1b's augmentation payload.
+func skillSourceYAML(marker string) string {
+	return fmt.Sprintf("version: \"1.0.0\"\nskills:\n  agent-setup:\n    content: %q\n", marker)
+}
+
+// seedSource seeds a remote for a named J1 source carrying bundleYAML, whose
+// single item is (kind, item) with the given marker content, optionally
+// signed and/or trusted. Records the source in World for later "adds ... as a
+// source" wiring and assertions.
+func seedSource(w *World, name, kind, item, marker, bundleYAML string, sign, trustAsProject bool) (*j1Source, error) {
+	src := w.source(name)
+	src.marker = marker
+	src.itemKind = kind
+	src.itemName = item
+	rel := ".ctxloom/content/bundles/" + src.bundleName + ".yaml"
+	files := map[string]string{rel: bundleYAML}
+
+	var url string
+	var err error
+	if sign {
+		signer, serr := testenv.GenerateTestSigner()
+		if serr != nil {
+			return nil, fmt.Errorf("generate signer for %q: %w", name, serr)
+		}
+		src.signer = signer
+		url, err = w.env.SeedSignedRemote(files, []string{rel}, signer)
+	} else {
+		url, err = w.env.SeedRemote(files)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("seed remote %q: %w", name, err)
+	}
+	src.url = url
+	if w.remoteBare == nil {
+		w.remoteBare = map[string]string{}
+	}
+	w.remoteBare[name] = strings.TrimPrefix(url, "file://")
+
+	if trustAsProject {
+		if src.signer == nil {
+			return nil, fmt.Errorf("cannot trust %q: it was not signed", name)
+		}
+		src.principal = name + "@example.com"
+		if err := w.env.TrustSigner(src.signer, src.principal, true); err != nil {
+			return nil, fmt.Errorf("trust signer for %q: %w", name, err)
+		}
+	}
+	return src, nil
+}
+
+// addSourceAsRemote wires an already-seeded source into the project exactly
+// as a developer adding a personal/company repo: `remote add` (an address),
+// `profile modify <profile> --add-bundle <remote>/<bundle>` (reference it from
+// the composed profile), then `remote pull` (fetch + lock the closure). This
+// is the ONLY step that can make the source's content reachable — adding a
+// remote never implies trust (spec §11); whether it is EXPOSED is decided
+// later, per item, by the trust gate at materialize/assemble time.
+func addSourceAsRemote(w *World, name, profile string) error {
+	src := w.j1Sources[name]
+	if src == nil {
+		return fmt.Errorf("source %q was never seeded", name)
+	}
+	if err := runOK(w, "remote", "add", name, src.url, "--forge", "git"); err != nil {
+		return err
+	}
+	if err := runOK(w, "profile", "modify", profile, "--add-bundle", name+"/"+src.bundleName); err != nil {
+		return err
+	}
+	return runOK(w, "remote", "pull")
+}
+
+// buildJ1Config renders a hermetic config.yaml carrying one LLM entry labeled
+// label (type engineType, with optional env vars — e.g. the mock backend's
+// CTXLOOM_MOCK_RECORD_FILE), a "default" agent bound to it, and default_agent
+// set — the same shape `ctxloom init` would produce, minus the network-
+// touching ctxloom-default remote/parent-profile scaffolding (see file doc).
+func buildJ1Config(label, engineType string, env map[string]string) string {
+	var b strings.Builder
+	b.WriteString("version: 4\n")
+	b.WriteString("llm:\n  configs:\n")
+	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
+	if len(env) > 0 {
+		b.WriteString("      env:\n")
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(&b, "        %s: %q\n", k, env[k])
+		}
+	}
+	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)
+	fmt.Fprintf(&b, "agents:\n  default:\n    engine: %s\n    profiles:\n      - default\n", label)
+	b.WriteString("default_agent: default\n")
+	return b.String()
+}
+
+// scaffoldProjectWithConfig bootstraps a hermetic J1 project from a fully
+// rendered config.yaml (idempotent — a second call on an already-initialized
+// World is a no-op): git init, write the config, then a self-contained
+// "default" profile/agent so sources can be layered on top via
+// addSourceAsRemote.
+func scaffoldProjectWithConfig(w *World, configYAML string) error {
+	if w.env.FileExists(".ctxloom/config.yaml") {
+		return nil
+	}
+	if err := w.env.InitGitRepo(); err != nil {
+		return err
+	}
+	if err := w.env.WriteFile(".ctxloom/config.yaml", configYAML); err != nil {
+		return err
+	}
+	if err := runOK(w, "bundle", "create", "seed", "-d", "J1 seed bundle"); err != nil {
+		return err
+	}
+	return runOK(w, "profile", "create", "default", "-b", "seed", "-d", "J1 default profile")
+}
+
+// ensureProjectWithEngine is scaffoldProjectWithConfig for the common case: a
+// single declared engine, rendered via buildJ1Config.
+func ensureProjectWithEngine(w *World, label, engineType string, env map[string]string) error {
+	return scaffoldProjectWithConfig(w, buildJ1Config(label, engineType, env))
+}
+
+// materializeDefault materializes the "default" profile into target and
+// returns the resulting CLAUDE.md content (materialize itself is expected to
+// exit 0 even when it withholds pending content — that is a warning, not a
+// failure — so only a read failure after the run is fatal here).
+func materializeDefault(w *World, target string) (string, error) {
+	_ = w.env.Run("profile", "materialize", "default", "--target", target)
+	body, err := w.env.ReadFile(filepath.Join(target, "CLAUDE.md"))
+	if err != nil {
+		return "", fmt.Errorf("read materialized %s/CLAUDE.md (materialize output:\n%s): %w", target, w.env.LastOutput(), err)
+	}
+	return body, nil
+}
+
+// addMockAlongside merges an additional "mock" LLM entry into the project's
+// EXISTING config.yaml (preserving every other top-level key — agents,
+// profiles, the real engine's own llm entry, etc.) and returns the file the
+// mock backend will record its received input to. Used by scenarios that need
+// to observe delivery via the mock while the rest of the project stays
+// configured for a real (declared) engine.
+func addMockAlongside(w *World) (recordFile string, err error) {
+	recordFile = filepath.Join(w.env.Root, "mock-record.txt")
+	body, err := w.env.ReadFile(".ctxloom/config.yaml")
+	if err != nil {
+		return "", fmt.Errorf("read config.yaml: %w", err)
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(body), &m); err != nil {
+		return "", fmt.Errorf("parse config.yaml: %w", err)
+	}
+	llm, _ := m["llm"].(map[string]any)
+	if llm == nil {
+		llm = map[string]any{}
+	}
+	configs, _ := llm["configs"].(map[string]any)
+	if configs == nil {
+		configs = map[string]any{}
+	}
+	configs["mock"] = map[string]any{
+		"type": "mock",
+		"env":  map[string]any{"CTXLOOM_MOCK_RECORD_FILE": recordFile},
+	}
+	llm["configs"] = configs
+	m["llm"] = llm
+
+	out, err := yaml.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("marshal config.yaml: %w", err)
+	}
+	if err := w.env.WriteFile(".ctxloom/config.yaml", string(out)); err != nil {
+		return "", fmt.Errorf("write config.yaml: %w", err)
+	}
+	return recordFile, nil
+}
+
+// runFreshMockSession points the "default" agent at the mock backend (added
+// via addMockAlongside) and runs a plain `ctxloom run` — a freshly launched
+// engine process, precisely what a restart is — returning the mock's
+// recorded input. This is the harness's stand-in for driving init's real
+// interactive discovery-then-restart flow (offerSessionRelaunch): see the
+// scenario-level comments in steps_j1_setup.go for why the substitution was
+// made and what it still proves.
+func runFreshMockSession(w *World) (string, error) {
+	recordFile, err := addMockAlongside(w)
+	if err != nil {
+		return "", err
+	}
+	if err := runOK(w, "agent", "set", "default", "--engine", "mock", "--profiles", "default"); err != nil {
+		return "", err
+	}
+	_ = w.env.Run("run", "--print", "--profile", "default", "continue")
+	data, err := os.ReadFile(recordFile)
+	if err != nil {
+		return "", fmt.Errorf("mock recorded no input (run output:\n%s): %w", w.env.LastOutput(), err)
+	}
+	return string(data), nil
+}
+
+// ptyWaitTimeout bounds every PTY-driven wait in this file: the discovery
+// session spawns a real subprocess plugin handshake (`ctxloom llm serve
+// mock`), which — mirroring tests/integration/viewer_pty_test.go's
+// ptyRunTimeout — can take over a second under CI load.
+const ptyWaitTimeout = 20 * time.Second
+
+// driveDiscoverySessionViaMock drives a REAL `ctxloom init` (on an
+// ALREADY-initialized .ctxloom dir, so init.go's alreadyExists branch runs —
+// no network clone) over a real pty: the project's LLM default must already
+// be the mock backend (see addMockAlongside / buildJ1Config) with
+// CTXLOOM_MOCK_RECORD_FILE set, so init.go's launchDiscovery actually spawns
+// the mock and hands it discoverySessionPrompt(cfg) — the composed built-in +
+// every installed agent-setup skill (repo bundle or companion loadout) this
+// harness is proving delivery of. Declines the post-discovery relaunch offer
+// (this call proves the INTERVIEW prompt, not the restart — see
+// runFreshMockSession for that). Returns the mock's full recorded-input file.
+func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
+	sess, err := w.env.RunPTY(100, 30, "init")
+	if err != nil {
+		return "", fmt.Errorf("start pty session: %w", err)
+	}
+	defer sess.Close()
+
+	reachedRelaunchPrompt := sess.WaitForOutput(ptyWaitTimeout, func(out string) bool {
+		return strings.Contains(out, "Start your session now")
+	})
+	if !reachedRelaunchPrompt {
+		return "", fmt.Errorf("discovery session never reached the post-discovery relaunch prompt within %s; captured output:\n%s",
+			ptyWaitTimeout, sess.Output())
+	}
+	if _, err := sess.Write([]byte("n\n")); err != nil {
+		return "", fmt.Errorf("decline relaunch: %w", err)
+	}
+	exited, waitErr := sess.Wait(ptyWaitTimeout)
+	if !exited {
+		return "", fmt.Errorf("ctxloom init did not exit within %s; captured output:\n%s", ptyWaitTimeout, sess.Output())
+	}
+	if waitErr != nil {
+		return "", fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())
+	}
+
+	data, err := os.ReadFile(recordFile)
+	if err != nil {
+		return "", fmt.Errorf("mock recorded no input — the discovery session may never have launched it; captured output:\n%s: %w",
+			sess.Output(), err)
+	}
+	return string(data), nil
+}
+
+// promptSection extracts the "=== Prompt ===" section the mock backend
+// records (internal/lm/backends/mock.go's recordMockInput) — the exact text
+// the discovery session handed the engine as its interview prompt.
+func promptSection(recorded string) string {
+	i := strings.Index(recorded, "=== Prompt ===\n")
+	if i < 0 {
+		return ""
+	}
+	return recorded[i+len("=== Prompt ===\n"):]
+}

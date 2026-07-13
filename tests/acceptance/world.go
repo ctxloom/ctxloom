@@ -27,6 +27,12 @@ type World struct {
 	lastMime  string             // last resources/read MIME type
 
 	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
+
+	j1Sources         map[string]*j1Source // J1: named source fixtures (personal/company/third-party/…)
+	j1Live            bool                 // J1 @live: whether this scenario's real agent is available (else every step no-ops toward a clean skip)
+	j1RestartRecorded string               // J1: the mock's recorded input from the last "restart" (runFreshMockSession)
+	j1bRecordFile     string               // J1b: path the mock backend records its received input to
+	j1bRecorded       string               // J1b: the mock's recorded input from the discovery-session launch
 }
 
 type worldKey struct{}
@@ -86,4 +92,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerMCPSteps(ctx)
 	registerLiveSteps(ctx)
 	registerReviewSteps(ctx)
+	registerJ1SetupSteps(ctx)
+	registerJ1bSteps(ctx)
 }

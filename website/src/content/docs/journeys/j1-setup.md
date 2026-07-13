@@ -1,11 +1,31 @@
 ---
 title: "Setting up ctxloom on a project"
+tableOfContents: false
 ---
 <!-- GENERATED (prototype) by scripts/living-docs-prototype/gen_doc_page.py
      from tests/acceptance/features/j1_setup.feature +
      tests/acceptance/features/j1_setup.doc.md, using evidence captured
      from a PASSING acceptance run. Do not hand-edit; edit the narration
      companion or the .feature file and regenerate. -->
+<style>
+:root { --sl-content-width: 90rem; }
+.sl-markdown-content :is(p, ul, ol, blockquote) { max-width: 52rem; }
+.living-doc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+  gap: 0.4rem 1.5rem;
+  align-items: start;
+  margin: 0.75rem 0 1.75rem;
+  max-width: none;
+}
+.living-doc-grid > .ldc { min-width: 0; overflow-x: auto; }
+.living-doc-grid > .ldc > :first-child { margin-top: 0; }
+.living-doc-grid > .ldc > :last-child { margin-bottom: 0; }
+@media (max-width: 720px) {
+  .living-doc-grid { grid-template-columns: 1fr; gap: 0.2rem; }
+}
+</style>
+
 :::note
 This page is generated from a Gherkin acceptance journey (`j1_setup.feature`) plus real terminal output captured from an actual passing run of it — not hand-written. See [the living-docs proposal](https://github.com/ctxloom/ctxloom/blob/main/docs/living-docs-plan.md) for how.
 :::
@@ -43,29 +63,6 @@ before anything crosses that line.
 
 ## After setup, trusted sources are part of the configuration
 
-<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-```gherkin
-  Scenario Outline: After setup, trusted sources are part of the configuration
-    Given Alice has a fresh project directory
-    And her personal ctxloom repository is signed with her own key
-    And her company's ctxloom repository is signed with the company key, which Alice trusts
-    When Alice runs the ctxloom setup for <engine>
-    And she adds her personal repository as a source
-    And she adds her company's repository as a source
-    Then her project is configured for <engine>
-    And her personal repository's context is part of her configuration, because it is signed with her own key
-    And her company repository's context is part of her configuration, because she trusts the company key
-
-    Examples:
-      | engine      |
-      | claude-code |
-```
-
-</div>
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
 Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ Alice has a fresh project directory
@@ -78,14 +75,66 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 - ✓ her personal repository's context is part of her configuration, because it is signed with her own key
 - ✓ her company repository's context is part of her configuration, because she trusts the company key
 
-CLI output — `Alice runs the ctxloom setup for claude-code`:
+<div class="living-doc-grid">
+<div class="ldc">
+
+```gherkin
+Alice has a fresh project directory
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+her personal ctxloom repository is signed with her own key
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+her company's ctxloom repository is signed with the company key, which Alice trusts
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Alice runs the ctxloom setup for claude-code
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Created profile "default" with bundles: seed
 Saved to: /tmp/ctxloom-integration-1147116789/project/.ctxloom/profiles/default.yaml
 ```
 
-CLI output — `she adds her personal repository as a source`:
+</div>
+<div class="ldc">
+
+```gherkin
+she adds her personal repository as a source
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -94,7 +143,15 @@ Pulled 1 items:
   Installed: 1
 ```
 
-CLI output — `she adds her company's repository as a source`:
+</div>
+<div class="ldc">
+
+```gherkin
+she adds her company's repository as a source
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -104,7 +161,15 @@ Pulled 2 items:
   Skipped (already installed): 1
 ```
 
-CLI output — `her project is configured for claude-code`:
+</div>
+<div class="ldc">
+
+```gherkin
+her project is configured for claude-code
+```
+
+</div>
+<div class="ldc">
 
 ```text
 version: 6
@@ -123,7 +188,15 @@ agents:
 default_agent: default
 ```
 
-CLI output — `her personal repository's context is part of her configuration, because it is signed with her own key`:
+</div>
+<div class="ldc">
+
+```gherkin
+her personal repository's context is part of her configuration, because it is signed with her own key
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Materialized default → out (claude-code)
@@ -132,6 +205,18 @@ Materialized default → out (claude-code)
   wrote settings
   wrote skills
 ```
+
+</div>
+<div class="ldc">
+
+```gherkin
+her company repository's context is part of her configuration, because she trusts the company key
+```
+
+</div>
+<div class="ldc">
+
+
 
 </div>
 </div>
@@ -150,29 +235,6 @@ launches. That is the next scenario's job.
 
 ## Setup configures the agents, then a restart delivers their context
 
-<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-```gherkin
-  Scenario Outline: Setup configures the agents, then a restart delivers their context
-    Given her personal ctxloom repository is signed with her own key
-    And her company's ctxloom repository is signed with the company key, which Alice trusts
-    When Alice runs the ctxloom setup for <engine>
-    And she adds her personal and company repositories as sources
-    And the setup interview composes her agents' profiles from the sources' fragments
-    And ctxloom offers to restart into her newly configured session
-    And Alice accepts the restart
-    Then the restarted mock engine receives her personal repository's fragments
-    And the restarted mock engine receives her company repository's fragments
-
-    Examples:
-      | engine      |
-      | claude-code |
-```
-
-</div>
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
 Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ her personal ctxloom repository is signed with her own key
@@ -185,14 +247,54 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 - ✓ the restarted mock engine receives her personal repository's fragments
 - ✓ the restarted mock engine receives her company repository's fragments
 
-CLI output — `Alice runs the ctxloom setup for claude-code`:
+<div class="living-doc-grid">
+<div class="ldc">
+
+```gherkin
+her personal ctxloom repository is signed with her own key
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+her company's ctxloom repository is signed with the company key, which Alice trusts
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Alice runs the ctxloom setup for claude-code
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Created profile "default" with bundles: seed
 Saved to: /tmp/ctxloom-integration-329197080/project/.ctxloom/profiles/default.yaml
 ```
 
-CLI output — `she adds her personal and company repositories as sources`:
+</div>
+<div class="ldc">
+
+```gherkin
+she adds her personal and company repositories as sources
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -202,7 +304,15 @@ Pulled 2 items:
   Skipped (already installed): 1
 ```
 
-CLI output — `the setup interview composes her agents' profiles from the sources' fragments`:
+</div>
+<div class="ldc">
+
+```gherkin
+the setup interview composes her agents' profiles from the sources' fragments
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Profile: default
@@ -215,7 +325,27 @@ Bundles:
   - file:///tmp/ctxloom-integration-329197080/remote-1688341036/remote.git@bundles/src
 ```
 
-CLI output — `Alice accepts the restart`:
+</div>
+<div class="ldc">
+
+```gherkin
+ctxloom offers to restart into her newly configured session
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Alice accepts the restart
+```
+
+</div>
+<div class="ldc">
 
 ```text
 [mock] mode=1
@@ -227,8 +357,6 @@ ctxloom: warning: companion reprise (/home/babbitt/.cargo/bin/reprise): run vers
 ctxloom: companion taskloom v0.7.0-7676b91-20260713T155952-dirty
 ctxloom: starting session regal-local-scale
 ```
-
-What the mock engine received — `Alice accepts the restart`:
 
 ```text
 === Arguments ===
@@ -319,6 +447,30 @@ continue
 ```
 
 </div>
+<div class="ldc">
+
+```gherkin
+the restarted mock engine receives her personal repository's fragments
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+the restarted mock engine receives her company repository's fragments
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
 </div>
 
 The discovery session that walks Alice through setup is, itself, a running
@@ -341,9 +493,6 @@ fact.
 
 *Tags: @live*
 
-<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
 ```gherkin
   Scenario: The restarted assistant can see every source
     Given her personal and company repositories are trusted, signed sources
@@ -354,37 +503,11 @@ fact.
     And its reply contains her company repository's marker
 ```
 
-</div>
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-> **Not captured in this build.** This scenario was not exercised in the run that generated this page (for example, a `@live` scenario without credentials in this environment). The Gherkin at left is still the live spec — just without a proof-of-passing run attached yet.
-
-</div>
-</div>
+> **Not captured in this build.** This scenario was not exercised in the run that generated this page (for example, a `@live` scenario without credentials in this environment). The Gherkin below is still the live spec — just without a proof-of-passing run attached yet.
 
 ## Content ctxloom cannot verify is held, not delivered
 
-<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-```gherkin
-  Scenario Outline: Content ctxloom cannot verify is held, not delivered
-    Given a third-party ctxloom repository whose content is <trust_state>
-    When Alice adds it as a source
-    And Alice starts a session
-    Then her assistant does not receive that repository's content
-    And Alice is told the content is held for her review
-
-    Examples:
-      | trust_state                            |
-      | unsigned                               |
-      | signed with a key Alice does not trust |
-```
-
-</div>
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-**Captured run 1**
+**Example 1**
 
 Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
@@ -394,14 +517,30 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 - ✓ her assistant does not receive that repository's content
 - ✓ Alice is told the content is held for her review
 
-CLI output — `a third-party ctxloom repository whose content is unsigned`:
+<div class="living-doc-grid">
+<div class="ldc">
+
+```gherkin
+a third-party ctxloom repository whose content is unsigned
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Created profile "default" with bundles: seed
 Saved to: /tmp/ctxloom-integration-3448338260/project/.ctxloom/profiles/default.yaml
 ```
 
-CLI output — `Alice adds it as a source`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice adds it as a source
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -412,7 +551,15 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
-CLI output — `Alice starts a session`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice starts a session
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Materialized default → out (claude-code)
@@ -423,7 +570,34 @@ Materialized default → out (claude-code)
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
-**Captured run 2**
+</div>
+<div class="ldc">
+
+```gherkin
+her assistant does not receive that repository's content
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Alice is told the content is held for her review
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+</div>
+
+**Example 2**
 
 Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
@@ -433,14 +607,30 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 - ✓ her assistant does not receive that repository's content
 - ✓ Alice is told the content is held for her review
 
-CLI output — `a third-party ctxloom repository whose content is signed with a key Alice does not trust`:
+<div class="living-doc-grid">
+<div class="ldc">
+
+```gherkin
+a third-party ctxloom repository whose content is signed with a key Alice does not trust
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Created profile "default" with bundles: seed
 Saved to: /tmp/ctxloom-integration-238127705/project/.ctxloom/profiles/default.yaml
 ```
 
-CLI output — `Alice adds it as a source`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice adds it as a source
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -451,7 +641,15 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
-CLI output — `Alice starts a session`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice starts a session
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Materialized default → out (claude-code)
@@ -461,6 +659,30 @@ Materialized default → out (claude-code)
   wrote skills
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
+
+</div>
+<div class="ldc">
+
+```gherkin
+her assistant does not receive that repository's content
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Alice is told the content is held for her review
+```
+
+</div>
+<div class="ldc">
+
+
 
 </div>
 </div>
@@ -478,23 +700,6 @@ something is waiting on her review.
 
 ## Alice reviews held content and decides item by item
 
-<div class="living-doc-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:1.25rem;margin:1.5rem 0;align-items:start;">
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
-```gherkin
-  Scenario: Alice reviews held content and decides item by item
-    Given two sources are held for Alice's review
-    When Alice reviews the held content
-    Then she is shown each held item and where it came from
-    When she approves the first and rejects the second
-    And Alice starts a new session
-    Then her assistant receives the item she approved
-    And her assistant never receives the item she rejected
-```
-
-</div>
-<div class="living-doc-col" style="min-width:0;overflow-x:auto;">
-
 Every step below actually ran against a real `ctxloom` binary; nothing here is hand-written.
 
 - ✓ two sources are held for Alice's review
@@ -505,7 +710,15 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 - ✓ her assistant receives the item she approved
 - ✓ her assistant never receives the item she rejected
 
-CLI output — `two sources are held for Alice's review`:
+<div class="living-doc-grid">
+<div class="ldc">
+
+```gherkin
+two sources are held for Alice's review
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Pulling dependencies...
@@ -517,7 +730,15 @@ ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
 ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
 ```
 
-CLI output — `Alice reviews the held content`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice reviews the held content
+```
+
+</div>
+<div class="ldc">
 
 ```text
 2 item(s) pending review (0 update(s)):
@@ -532,7 +753,27 @@ Run 'ctxloom review' in a terminal to review interactively, or use the
 plumbing per item: ctxloom trust <bundle-ref>#<kind>/<name> / ctxloom blacklist <ref>.
 ```
 
-CLI output — `she approves the first and rejects the second`:
+</div>
+<div class="ldc">
+
+```gherkin
+she is shown each held item and where it came from
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+she approves the first and rejects the second
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Rejected src#fragments/marker
@@ -545,7 +786,15 @@ ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
 
-CLI output — `Alice starts a new session`:
+</div>
+<div class="ldc">
+
+```gherkin
+Alice starts a new session
+```
+
+</div>
+<div class="ldc">
 
 ```text
 Materialized default → out2 (claude-code)
@@ -555,6 +804,30 @@ Materialized default → out2 (claude-code)
   wrote skills
 ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
 ```
+
+</div>
+<div class="ldc">
+
+```gherkin
+her assistant receives the item she approved
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+her assistant never receives the item she rejected
+```
+
+</div>
+<div class="ldc">
+
+
 
 </div>
 </div>

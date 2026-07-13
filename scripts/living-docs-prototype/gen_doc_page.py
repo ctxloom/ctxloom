@@ -193,80 +193,87 @@ def fenced(text, lang=""):
     return f"{fence}{lang}\n{text.rstrip(chr(10))}\n{fence}"
 
 
-# Two-column row wrappers. The grid uses auto-fit + minmax(min(100%, …)) so it
-# is responsive WITHOUT a media query: two columns when the container is wide
-# enough, one stacked column on narrow screens (and never wider than 100% on a
-# very narrow phone). min-width:0 on the columns lets a wide <pre> scroll inside
-# its column instead of blowing the grid track out. Styles are inline so they
-# survive Starlight's markdown pass-through regardless of whether a <style>
-# block would be hoisted; the class names are there for a future shared
-# stylesheet to hook if desired.
-ROW_OPEN = (
-    '<div class="living-doc-row" '
-    'style="display:grid;'
-    'grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));'
-    'gap:1.25rem;margin:1.5rem 0;align-items:start;">'
-)
-COL_OPEN = '<div class="living-doc-col" style="min-width:0;overflow-x:auto;">'
-DIV_CLOSE = '</div>'
+# Page-level styles, emitted once near the top of the generated page. A raw
+# <style> in Starlight markdown passes through as global CSS. Two jobs:
+#   1. Collapse the wasted right margin — widen the content column
+#      (--sl-content-width) now that the TOC is gone (see frontmatter), while
+#      capping ordinary prose at a comfortable reading measure so only the
+#      wide grid uses the reclaimed room.
+#   2. Define the step→output grid: a fixed TWO columns (left = the cucumber
+#      step, right = that step's captured output) so horizontal position pairs
+#      them, collapsing to one stacked column on narrow screens (this is the
+#      one thing that genuinely needs a media query, hence a <style> block
+#      rather than inline styles). min-width:0 lets a wide <pre> scroll inside
+#      its cell instead of blowing the track out.
+PAGE_STYLE = """<style>
+:root { --sl-content-width: 90rem; }
+.sl-markdown-content :is(p, ul, ol, blockquote) { max-width: 52rem; }
+.living-doc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+  gap: 0.4rem 1.5rem;
+  align-items: start;
+  margin: 0.75rem 0 1.75rem;
+  max-width: none;
+}
+.living-doc-grid > .ldc { min-width: 0; overflow-x: auto; }
+.living-doc-grid > .ldc > :first-child { margin-top: 0; }
+.living-doc-grid > .ldc > :last-child { margin-bottom: 0; }
+@media (max-width: 720px) {
+  .living-doc-grid { grid-template-columns: 1fr; gap: 0.2rem; }
+}
+</style>"""
+
+GRID_OPEN = '<div class="living-doc-grid">'
+CELL_OPEN = '<div class="ldc">'
+CELL_CLOSE = '</div>'
+GRID_CLOSE = '</div>'
 
 
-def render_two_col(left_md, right_md):
-    """Wraps two already-rendered markdown blocks into a responsive two-column
-    grid. The blank lines around each column's content are load-bearing: an
-    HTML block (the <div>) only yields back to the markdown parser after a
-    blank line, so without them the fenced code inside would render as literal
-    text rather than a code block."""
-    return "\n".join([
-        ROW_OPEN,
-        COL_OPEN,
-        "",
-        left_md,
-        "",
-        DIV_CLOSE,
-        COL_OPEN,
-        "",
-        right_md,
-        "",
-        DIV_CLOSE,
-        DIV_CLOSE,
-    ])
+def cell(inner_md):
+    """One grid cell. The blank lines around inner_md are load-bearing: a raw
+    HTML block (<div>) only yields back to the markdown parser after a blank
+    line, so without them a fenced code block inside would render as literal
+    text. inner_md may be empty (an intentionally blank right cell for a step
+    with no captured output)."""
+    return [CELL_OPEN, "", inner_md, "", CELL_CLOSE]
 
 
-def render_captured_output(captures):
-    """Right-column content: the per-step pass checklist plus the real captured
-    CLI output / mock-engine-received payload, for one or more Examples-row
-    captures."""
-    lines = []
-    for idx, cap in enumerate(captures):
-        if len(captures) > 1:
-            lines.append(f"**Captured run {idx + 1}**")
-            lines.append("")
-        lines.append("Every step below actually ran against a real `ctxloom` "
-                     "binary; nothing here is hand-written.")
-        lines.append("")
-        for step in cap["steps"]:
-            mark = "✓" if step["status"] == "passed" else f"✗ ({step['status']})"
-            lines.append(f"- {mark} {step['text']}")
-        lines.append("")
-        for step in cap["steps"]:
-            if step.get("cli_output"):
-                lines.append(f"CLI output — `{step['text']}`:")
-                lines.append("")
-                lines.append(fenced(step["cli_output"], "text"))
-                lines.append("")
-            if step.get("mock_recorded"):
-                lines.append(f"What the mock engine received — `{step['text']}`:")
-                lines.append("")
-                lines.append(fenced(step["mock_recorded"], "text"))
-                lines.append("")
-    return "\n".join(lines).rstrip()
+def render_step_grid(cap):
+    """The wide two-column body: one grid row per step, left cell = the cucumber
+    step, right cell = that step's captured output (empty when the step
+    produced none). Horizontal alignment — not a label — links a step to its
+    output."""
+    lines = [GRID_OPEN]
+    for step in cap["steps"]:
+        left = fenced(step["text"], "gherkin")
+        right_parts = []
+        if step.get("cli_output"):
+            right_parts.append(fenced(step["cli_output"], "text"))
+        if step.get("mock_recorded"):
+            right_parts.append(fenced(step["mock_recorded"], "text"))
+        right = "\n\n".join(right_parts)
+        lines += cell(left)
+        lines += cell(right)
+    lines.append(GRID_CLOSE)
+    return "\n".join(lines)
+
+
+def render_checklist(cap):
+    """The per-scenario header, ABOVE the grid: the provenance line plus the
+    ✓ pass list for every step."""
+    lines = ["Every step below actually ran against a real `ctxloom` binary; "
+             "nothing here is hand-written.", ""]
+    for step in cap["steps"]:
+        mark = "✓" if step["status"] == "passed" else f"✗ ({step['status']})"
+        lines.append(f"- {mark} {step['text']}")
+    return "\n".join(lines)
 
 
 NOT_CAPTURED_MD = (
     "> **Not captured in this build.** This scenario was not exercised in the "
     "run that generated this page (for example, a `@live` scenario without "
-    "credentials in this environment). The Gherkin at left is still the live "
+    "credentials in this environment). The Gherkin below is still the live "
     "spec — just without a proof-of-passing run attached yet."
 )
 
@@ -280,13 +287,26 @@ def render_scenario(sc, narration, captures):
         out.append(f"*Tags: {tag_str}*")
         out.append("")
 
-    # The two-column row: Gherkin (left) beside its captured evidence (right).
-    left = fenced(sc["body"], "gherkin")
-    right = render_captured_output(captures) if captures else NOT_CAPTURED_MD
-    out.append(render_two_col(left, right))
-    out.append("")
+    if captures:
+        for idx, cap in enumerate(captures):
+            if len(captures) > 1:
+                out.append(f"**Example {idx + 1}**")
+                out.append("")
+            # 1. The checklist header, full width, ABOVE the grid.
+            out.append(render_checklist(cap))
+            out.append("")
+            # 2. The wide step→output grid.
+            out.append(render_step_grid(cap))
+            out.append("")
+    else:
+        # No capture for this scenario (e.g. @live without credentials): show
+        # the spec as a single Gherkin block and say plainly it wasn't run.
+        out.append(fenced(sc["body"], "gherkin"))
+        out.append("")
+        out.append(NOT_CAPTURED_MD)
+        out.append("")
 
-    # The narration prose sits full-width BELOW the row.
+    # 3. The narration prose, full width, BELOW the grid.
     if sc["name"] in narration["scenarios"]:
         out.append(narration["scenarios"][sc["name"]])
         out.append("")
@@ -297,12 +317,19 @@ def generate(feature, narration, captures_by_name, url_path):
     lines = []
     lines.append("---")
     lines.append(f'title: "{feature["name"]}"')
+    # This journey page is intentionally WIDE: the step→output grid needs
+    # horizontal room, so we drop the right-hand table of contents (it is what
+    # eats the right margin on a default Starlight page) and widen the content
+    # column via --sl-content-width in the <style> block below.
+    lines.append("tableOfContents: false")
     lines.append("---")
     lines.append("<!-- GENERATED (prototype) by scripts/living-docs-prototype/gen_doc_page.py")
     lines.append("     from tests/acceptance/features/j1_setup.feature +")
     lines.append("     tests/acceptance/features/j1_setup.doc.md, using evidence captured")
     lines.append("     from a PASSING acceptance run. Do not hand-edit; edit the narration")
     lines.append("     companion or the .feature file and regenerate. -->")
+    lines.append(PAGE_STYLE)
+    lines.append("")
     lines.append(":::note")
     lines.append(
         "This page is generated from a Gherkin acceptance journey "

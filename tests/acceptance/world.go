@@ -33,6 +33,8 @@ type World struct {
 	j1RestartRecorded string               // J1: the mock's recorded input from the last "restart" (runFreshMockSession)
 	j1bRecordFile     string               // J1b: path the mock backend records its received input to
 	j1bRecorded       string               // J1b: the mock's recorded input from the discovery-session launch
+
+	j2s *j2State // J2: team-authoring journey state (see steps_j2_team.go)
 }
 
 type worldKey struct{}
@@ -94,4 +96,5 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerReviewSteps(ctx)
 	registerJ1SetupSteps(ctx)
 	registerJ1bSteps(ctx)
+	registerJ2Steps(ctx)
 }

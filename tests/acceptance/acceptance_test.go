@@ -35,8 +35,11 @@ func TestAcceptance(t *testing.T) {
 	tags := os.Getenv("ACCEPTANCE_TAGS")
 	if tags == "" {
 		// Default suite is hermetic: @live needs the real agent, @network reaches
-		// out (real init clones the default remote). Both are opt-in.
-		tags = "~@live && ~@network"
+		// out (real init clones the default remote). Both are opt-in. @future
+		// scenarios describe behavior this suite deliberately does not implement
+		// yet (see j2_team_authoring.feature's own-active-session scenario) —
+		// excluded rather than left undefined, which Strict mode would fail on.
+		tags = "~@live && ~@network && ~@future"
 	}
 	paths := []string{"features"}
 	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local

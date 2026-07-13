@@ -7,14 +7,18 @@ inputs:
     exclude_paths:
       - internal/agentcoord/google
 plugins:
+  # LOCAL plugins (installed in the devcontainer, see .devcontainer/Dockerfile),
+  # not `remote:` BSR plugins: remote plugin execution is rate-limited and made
+  # `buf generate` — and therefore the whole build — fail non-deterministically.
+  # Pinned via the Dockerfile to the versions that were producing this output.
   # `module=` routes each file's output next to its source via go_package
   # (internal/lm/grpc, internal/agentcoord), replacing the single hardcoded
   # `out` that predated the second proto module.
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: .
     opt:
       - module=github.com/ctxloom/ctxloom
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: .
     opt:
       - module=github.com/ctxloom/ctxloom

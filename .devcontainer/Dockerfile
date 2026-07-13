@@ -104,6 +104,15 @@ RUN BIN="/usr/local/bin" && \
     curl -sSL "https://github.com/bufbuild/buf/releases/download/v${VERSION}/buf-$(uname -s)-$(uname -m)" -o "${BIN}/buf" && \
     chmod +x "${BIN}/buf"
 
+# Codegen plugins installed LOCALLY so `buf generate` never executes remote
+# plugins on the BSR — remote plugin execution is rate-limited and made the
+# build non-deterministic (a throttled `buf generate` failed the whole
+# pipeline). Versions pinned to match the output these plugins were producing
+# remotely (protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2) so generated
+# code stays byte-identical. buf.gen.yaml references these as `local:` plugins.
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+
 # Install gremlins for mutation testing
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 

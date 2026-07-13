@@ -66,8 +66,7 @@ Feature: Skills my company has validated
   # consults retraction at all, so a retracted bundle's content keeps being
   # exposed regardless. As wired today, retraction has NO effect on
   # already-distributed content through any CLI path — this scenario cannot be
-  # honestly greened without a product change. Filed: taskloom task cited in
-  # the J3 harness report.
+  # honestly greened without a product change. Filed: taskloom task outer-shut.
   @wip
   Scenario: Trent retracts a bundle and it stops reaching engineers on the next sync
     Given Alice already receives the company's secure-coding guidance

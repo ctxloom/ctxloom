@@ -27,3 +27,11 @@ rules:
     match: { command: [goreleaser] }
     message: "goreleaser must run in the devcontainer, never on the host: the host lacks upx, so a host snapshot produces uncompressed binaries masquerading as the `-upx` release artifacts."
     suggest: "just release-snapshot   # or `just release-check` to validate .goreleaser.yml only"
+  # gremlins copies the whole Go module into TMPDIR once per worker. Run by hand
+  # it will happily copy anything sitting in the module dir (agent worktrees, a
+  # stray build cache) and fill the disk — a bare run has already exhausted a 16G
+  # tmpfs here. The just targets pin the scope and the timeout budget.
+  - id: mutation-via-just
+    match: { command: [gremlins] }
+    message: "Run mutation testing through the task runner. A bare `gremlins unleash` copies the entire module per worker (it has filled /tmp here) and inherits a timeout budget that starves fast packages — a 3ms test suite gives each mutant ~15ms, so mutants score as TIMED OUT rather than killed or lived."
+    suggest: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation` for the whole module"

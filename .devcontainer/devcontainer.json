@@ -21,7 +21,9 @@
     "ghcr.io/devcontainers/features/git:1": {}
   },
   "mounts": [
-    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+    "source=ctxloom-gomodcache,target=/go/pkg/mod,type=volume",
+    "source=ctxloom-gobuildcache,target=/go/cache/build,type=volume"
   ],
   "workspaceFolder": "/workspace",
   "postCreateCommand": "go mod download",

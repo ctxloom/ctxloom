@@ -25,9 +25,14 @@ unleash:
   workers: 0
   # CPUs per test process (0 = no limit)
   test-cpu: 0
-  # Timeout multiplier for test runs (0 = default)
-  # Higher values reduce false timeouts but increase run time
-  timeout-coefficient: 5
+  # Timeout multiplier applied to the BASELINE test-suite duration. It is a
+  # multiplier, not an absolute budget, so a fast package starves: the pure
+  # triggers package runs in ~3ms, and at 5x every mutant got a ~15ms budget —
+  # 58 of 65 scored TIMED OUT, which is neither killed nor lived, so the run
+  # measured nothing. At 30x the same package produced 0 timeouts and a real
+  # verdict. Raise this, never lower it, unless a slow package makes runs
+  # unbearable — a false timeout silently voids a mutant.
+  timeout-coefficient: 30
 
   # Quality gates - fail if scores drop below these thresholds
   threshold:

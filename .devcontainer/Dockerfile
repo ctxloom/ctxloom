@@ -104,10 +104,17 @@ RUN go install github.com/benjaminabbitt/versionator@v0.2.1
 # its own goreleaser — this pin only governs local validation.
 RUN go install github.com/goreleaser/goreleaser/v2@v2.16.0
 
-# Runtime module/build cache in workspace (writable by any user, persists across runs)
-ENV GOMODCACHE="/workspace/.cache/go/mod"
-ENV GOCACHE="/workspace/.cache/go/build"
+# Go caches live under GOPATH, NEVER under /workspace. /workspace is the
+# bind-mounted source tree: caches written there land inside the Go module
+# directory itself, where any tool that copies the module (gremlins mutation
+# testing copies it per worker) drags in gigabytes of read-only module cache and
+# fails. Persistence across rebuilds comes from the named volumes mounted on
+# these paths (see .devcontainer/devcontainer.json), not from the source mount.
+# Mode 0777 keeps them writable whichever uid the container is run as.
+ENV GOMODCACHE="/go/pkg/mod"
+ENV GOCACHE="/go/cache/build"
 ENV GOTOOLCHAIN="local"
+RUN mkdir -p "${GOMODCACHE}" "${GOCACHE}" && chmod -R 0777 /go
 
 # Set working directory
 WORKDIR /workspace

@@ -378,19 +378,39 @@ test-pkg PKG *ARGS:
 
 # ===== Mutation testing =====
 
+# gremlins copies the whole Go module into TMPDIR once per worker. On a tmpfs
+# /tmp that exhausts RAM and wedges the machine (it has emptied a 16G tmpfs
+# here), so both recipes pin TMPDIR to disk and sweep the copies afterwards.
+mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
+
 # Run mutation tests with gremlins (requires gremlins installed)
 test-mutation *ARGS:
-    gremlins unleash {{ARGS}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{mutation_tmp}}"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    TMPDIR="{{mutation_tmp}}" gremlins unleash {{ARGS}}
 
 # Run mutation tests on specific package
+# gremlins appends /... to the target itself; passing it here yields
+# ./pkg/.../... which matches nothing and fails with "no packages to test".
 test-mutation-pkg PKG *ARGS:
-    gremlins unleash ./{{PKG}}/... {{ARGS}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{mutation_tmp}}"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    TMPDIR="{{mutation_tmp}}" gremlins unleash ./{{PKG}} {{ARGS}}
 
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 # Run mutation tests in container
+# The container path carries the same TMPDIR hazard as the host recipes: gremlins
+# copies the module per worker, so its scratch space must be a bind-mounted disk
+# dir, never the container's default (which is backed by the host's /tmp). The
+# image tag is pinned to the same gremlins version test-mutation-install builds,
+# so a container run and a host run mutate identically.
 test-mutation-container:
     #!/usr/bin/env bash
     # See _run for why --user is skipped under rootless docker.
@@ -398,7 +418,13 @@ test-mutation-container:
     if docker info 2>/dev/null | grep -q "rootless"; then
         user_flag=()
     fi
-    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
+    mkdir -p "{{mutation_tmp}}"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    docker run --rm "${user_flag[@]}" \
+        -v "$(pwd):/app" \
+        -v "{{mutation_tmp}}:/mutation-tmp" \
+        -e TMPDIR=/mutation-tmp \
+        -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
 
 # Clean build artifacts
 clean:

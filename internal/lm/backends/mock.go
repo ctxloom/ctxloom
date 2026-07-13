@@ -78,8 +78,19 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
+// configHomeEnvKeys are the per-agent config-home env vars isolation.EnvWorkspace
+// threads into RunOptions.Env (see internal/lm/isolation.EnvWorkspace) — each
+// engine's own global-config isolation knob.
+var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
+
 // recordMockInput writes the assembled request to recordFile when one is set
 // (via CTXLOOM_MOCK_RECORD_FILE), warning to stderr on failure.
+//
+// Records the process's actual cwd (os.Getwd, not req.WorkDir) and whichever
+// config-home env vars are set, so a hermetic test can prove WHERE the engine
+// actually ran and WHAT isolation env it received — the workdir/env plumbing
+// used to be received (Setup calls SetWorkDir) and then silently discarded,
+// so no test could assert on either.
 func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
 	if recordFile == "" {
 		return
@@ -88,6 +99,17 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, p
 	input.WriteString("=== Arguments ===\n")
 	_, _ = fmt.Fprintf(&input, "mode=%d\n", req.Mode)
 	_, _ = fmt.Fprintf(&input, "fragments=%d\n", fragmentCount)
+	if cwd, err := os.Getwd(); err == nil {
+		_, _ = fmt.Fprintf(&input, "cwd=%s\n", cwd)
+	} else {
+		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
+	}
+	input.WriteString("=== Env ===\n")
+	for _, key := range configHomeEnvKeys {
+		if v := getEnvFromMap(req.Env, key); v != "" {
+			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
+		}
+	}
 	input.WriteString("=== Context ===\n")
 	input.WriteString(contextStr)
 	input.WriteString("\n=== Prompt ===\n")

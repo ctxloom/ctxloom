@@ -1,7 +1,11 @@
 Feature: MCP tools
   The agent drives ctxloom through tools. These exercise the context and search
-  tools end to end. Session tools (compact/load/recover) are covered under
-  the @live distillation suite.
+  tools end to end, plus load_session (below). compact_session, recover_session,
+  and get_previous_session are NOT covered here or anywhere else — the live
+  distillation suite tagged live in distill_live.feature never touches the
+  session tools, it only exercises fragment/skill/bundle distillation. That is
+  a real, tracked gap (see tests/acceptance/completeness_test.go), not
+  something to paper over with a false "covered elsewhere" claim.
 
   Scenario: Assemble context from a profile
     Given an initialized ctxloom project

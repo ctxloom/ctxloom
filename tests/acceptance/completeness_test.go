@@ -5,6 +5,7 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -15,12 +16,50 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
+// requiredHiddenLeaves are machine callbacks (ctxloom hook ...) that run on
+// EVERY session but are registered Hidden: true, so leafCommands' walk never
+// emits them (a Hidden command fails the `!c.Hidden` gate that admits a node
+// to the walk's output, regardless of whether it's actually a runnable
+// leaf) — the completeness gate structurally could not flag them as
+// uncovered. Listed explicitly here so they're checked the same as any other
+// leaf. They are expected to show RED until real scenarios exist for them;
+// that redness is the fix, not a regression to paper over.
+var requiredHiddenLeaves = []string{
+	"ctxloom hook inject-context",
+	"ctxloom hook session-bind",
+	"ctxloom hook stamp-plan",
+	"ctxloom hook hud",
+}
+
+// engineMatrixLeaves are CLI leaves parameterized by --engine whose per-engine
+// path (claude-code vs. codex vs. kiro vs. antigravity) can rot silently
+// behind a single scenario that only ever exercises one engine value: a bare
+// substring match on the leaf's command path is satisfied forever by one
+// "--engine claude-code" scenario, so the other three engines' install/init
+// paths get no red signal when they break. Each listed leaf requires a
+// genuine "I run" invocation per engine, not just one for the whole leaf.
+var engineMatrixLeaves = map[string][]string{
+	"ctxloom manage install":     {"claude-code", "codex", "kiro", "antigravity"},
+	"ctxloom manage config init": {"claude-code", "codex", "kiro", "antigravity"},
+}
+
+// ranAsCommand reports whether path was actually invoked by a scenario (a
+// genuine "When/And I run "<path>..."" step), as opposed to merely
+// appearing as a substring somewhere in the corpus — e.g. quoted inside an
+// unrelated assertion like `the file "settings.json" contains "ctxloom hook
+// session-bind"`, which mentions the string without ever running the
+// command. Substring-only matching is exactly the vacuous-coverage failure
+// mode this gate exists to catch, so the required-hidden-leaf and
+// engine-matrix checks (the newly-honest parts of this gate) use this
+// stricter form instead of the plain corpus.Contains used elsewhere.
+func ranAsCommand(corpus, path string) bool {
+	return strings.Contains(corpus, `I run "`+path)
+}
+
 // excludedLeaves are public-surface entry points deliberately not exercised by a
 // scenario, each with the reason. Printed on every run so the exclusion is never
 // silent (see plan §7.5 / "no silent caps").
 var excludedLeaves = map[string]string{
-	// Machine callbacks (ctxloom hook inject-context|hud|session-bind|stamp-plan)
-	// are all hidden, so leafCommands never surfaces them — no exclusion needed.
 	"ctxloom manage config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
 	"ctxloom mcp serve":          "the MCP server itself; exercised by every @mcp scenario",
 	"ctxloom llm serve":          "internal gRPC plugin server",
@@ -49,12 +88,18 @@ var excludedLeaves = map[string]string{
 	"ctxloom plan watch":            "long-lived file watcher (runs until interrupted); no hermetic exit",
 }
 
-// excludedTools / excludedResources are registered surface that no hermetic
-// scenario can reach; @live scenarios cover the session tools.
+// excludedTools are registered MCP tools no hermetic scenario reaches.
+//
+// compact_session and get_previous_session used to be listed here too, with
+// justifications that turned out to be unearned: compact_session's claimed
+// "exercised at the operations layer in tests/integration" but grep finds no
+// Compact/Recover reference there at all, and get_previous_session's claim of
+// alternate coverage never existed anywhere. Both are now genuinely
+// uncovered — a real gap, not a documented, accepted one — and show RED
+// below rather than being quietly excluded. Tracked as a follow-up (Phase 0
+// only fixes the gate; it doesn't backfill the missing scenarios).
 var excludedTools = map[string]string{
-	"compact_session":      "compacts a live backend session transcript; exercised at the operations layer in tests/integration",
-	"recover_session":      "resolves the most-recent backend session; requires a real backend transcript",
-	"get_previous_session": "resolves the previous backend session; requires a real backend transcript",
+	"recover_session": "resolves the most-recent backend session; requires a real backend transcript",
 }
 
 // excludedTemplates are resource templates with no hermetic scenario. Currently
@@ -68,9 +113,31 @@ func TestCompleteness(t *testing.T) {
 	corpus := loadCorpus(t)
 
 	t.Run("cli leaves", func(t *testing.T) {
-		for _, path := range leafCommands(cli.GetRootCmd()) {
+		// requiredHiddenLeaves are appended rather than discovered by
+		// leafCommands: Hidden commands fail that walk's admission gate, which
+		// is the exact structural blind spot this list exists to close.
+		leaves := append([]string{}, leafCommands(cli.GetRootCmd())...)
+		leaves = append(leaves, requiredHiddenLeaves...)
+		sort.Strings(leaves)
+
+		for _, path := range leaves {
 			if reason, ok := excludedLeaves[path]; ok {
 				t.Logf("excluded: %s — %s", path, reason)
+				continue
+			}
+			if engines, ok := engineMatrixLeaves[path]; ok {
+				for _, engine := range engines {
+					invocation := path + " --engine " + engine
+					if !ranAsCommand(corpus, invocation) {
+						t.Errorf("uncovered CLI command engine variant: %q (no scenario runs it)", invocation)
+					}
+				}
+				continue
+			}
+			if slices.Contains(requiredHiddenLeaves, path) {
+				if !ranAsCommand(corpus, path) {
+					t.Errorf("uncovered hidden machine callback: %q (no scenario runs it)", path)
+				}
 				continue
 			}
 			if !strings.Contains(corpus, path) {

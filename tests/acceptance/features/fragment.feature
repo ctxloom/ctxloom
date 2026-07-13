@@ -8,7 +8,7 @@ Feature: Fragments
     And a bundle "demo" exists
     When I run "ctxloom fragment create demo testing"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" contains "testing"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "testing"
     When I run "ctxloom fragment list"
     Then the command succeeds
     And the output contains "testing"

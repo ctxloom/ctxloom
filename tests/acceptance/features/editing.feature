@@ -8,7 +8,7 @@ Feature: Editing content
     And a bundle "demo" exists
     When I run "ctxloom bundle edit demo -d updated-desc"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" contains "updated-desc"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "updated-desc"
 
   Scenario: Editing a fragment lands the change across axes
     Given a ctxloom project with a marker editor
@@ -16,7 +16,7 @@ Feature: Editing content
     And a fragment "testing" in bundle "demo" exists
     When I run "ctxloom fragment edit demo#fragments/testing"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
     When the agent reads resource "ctxloom://fragments/testing"
     Then the resource contains "EDITED-BY-TEST"
 
@@ -26,7 +26,7 @@ Feature: Editing content
     And a skill "review" in bundle "demo" exists
     When I run "ctxloom skill edit demo#skills/review"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
 
   Scenario: Edit a profile
     Given an initialized ctxloom project

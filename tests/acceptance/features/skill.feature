@@ -7,7 +7,7 @@ Feature: Prompts
     And a bundle "demo" exists
     When I run "ctxloom skill create demo review"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" contains "review"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "review"
     When I run "ctxloom skill list"
     Then the command succeeds
     And the output contains "review"

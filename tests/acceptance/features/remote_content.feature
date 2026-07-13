@@ -3,13 +3,21 @@ Feature: Remote content
   Fetching content from a remote over the real clone path, exercised hermetically
   against a seeded file:// repository. (Enabled by the NormalizeURL fix that
   preserves non-HTTP schemes.) Remote items are pure references: a local profile
-  names a remote bundle (a bare ref expands against the default remote), and
-  `remote pull` fetches and locks the dependency closure. The lockfile is pure
-  dependency pinning — a pull/upgrade moves pins freely into the active lock;
-  whether the pulled content ever reaches the agent is decided per item by
-  `ctxloom review` (see review.feature). Top-level profile distribution was
-  retired — profiles ship inside bundles — so only bundles are browsed,
-  referenced, and locked at the top level.
+  names a remote bundle via its per-remote short form ("<remote>/<bundle>", a
+  bare name is local — see decision A), and `remote pull` fetches and locks the
+  dependency closure. The lockfile is pure dependency pinning — a pull/upgrade
+  moves pins freely into the active lock; whether the pulled content ever
+  reaches the agent is decided per item by `ctxloom review` (see
+  review.feature). Top-level profile distribution was retired — profiles ship
+  inside bundles — so only bundles are browsed, referenced, and locked at the
+  top level.
+  #
+  # The pin and the payload are two different questions: these scenarios also
+  # assert that changed upstream content actually reaches an assembled/
+  # materialized context (not just the lockfile), that a stale local clone
+  # checkout never leaches into what's served, and that "Skipped (already
+  # installed)" — while accurate — does not mean the content is current; only
+  # `remote upgrade` moves an existing pin.
 
   Scenario: Browse a remote's contents
     Given an initialized ctxloom project
@@ -24,7 +32,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     When I run "ctxloom remote pull"
     Then the command succeeds
     And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
@@ -35,7 +43,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     And I run "ctxloom remote pull"
     When I run "ctxloom remote pull"
     Then the command succeeds
@@ -54,7 +62,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     And I run "ctxloom remote pull"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
@@ -65,10 +73,71 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     And I run "ctxloom remote pull"
     And I run "ctxloom bundle hold origin/demo"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
     Then the command succeeds
     And the output contains "up to date"
+
+  Scenario: An upstream content change reaches the assembled context
+    # The pin is not the point: what actually lands in front of the agent is.
+    # Upgrading to changed upstream content, then accepting it, must replace
+    # what the agent sees — not just what the lockfile records.
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --bundle origin/demo"
+    And I run "ctxloom remote pull"
+    And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+    And I run "ctxloom profile materialize dev --target before"
+    Then the file "before/CLAUDE.md" contains "Demo fragment content."
+    When the remote "origin" changes fragment "demo-frag" to "MARKER-BRAVO-second-edition"
+    And I run "ctxloom remote upgrade"
+    And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+    And I run "ctxloom profile materialize dev --target after"
+    Then the command succeeds
+    And the file "after/CLAUDE.md" contains "MARKER-BRAVO-second-edition"
+    And the file "after/CLAUDE.md" does not contain "Demo fragment content."
+
+  Scenario: A stale local checkout never leaks into what's served
+    # A clone's checked-out HEAD is not the source of truth for content — the
+    # remote-tracking refs a fetch advances are. Forcing the local checkout
+    # back to the very first commit must not resurrect old content.
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --bundle origin/demo"
+    And I run "ctxloom remote pull"
+    And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+    And the remote "origin" changes fragment "demo-frag" to "MARKER-STALE-CHECKOUT-current"
+    And I run "ctxloom remote upgrade"
+    And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+    And the remote "origin"'s cached clone is forced back to its first commit
+    When I run "ctxloom profile materialize dev --target out"
+    Then the command succeeds
+    And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"
+    And the file "out/CLAUDE.md" does not contain "Demo fragment content."
+
+  Scenario: A skipped pull leaves old content in place
+    # "Skipped (already installed)" is accurate about the pin — the reference
+    # already resolves — but it is easy to misread as "you have the latest
+    # content". A plain pull never moves an existing pin; only `remote upgrade`
+    # does. This is the behavior that once cost real time to diagnose as a
+    # false "stale content" bug: it is not a bug, but the wording invites the
+    # same mistake, so the invariant is pinned here.
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --bundle origin/demo"
+    And I run "ctxloom remote pull"
+    And I accept the pending item "demo#fragments/demo-frag" from remote "origin"
+    And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
+    When I run "ctxloom remote pull"
+    Then the command succeeds
+    And the output contains "Skipped (already installed)"
+    When I run "ctxloom profile materialize dev --target out"
+    Then the command succeeds
+    And the file "out/CLAUDE.md" contains "Demo fragment content."
+    And the file "out/CLAUDE.md" does not contain "MARKER-SKIPPED-PULL-never-seen"

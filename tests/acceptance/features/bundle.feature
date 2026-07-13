@@ -6,8 +6,8 @@ Feature: Bundles
     Given an initialized ctxloom project
     When I run "ctxloom bundle create demo"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" exists
-    And the file ".ctxloom/cache/bundles/demo.yaml" is valid YAML
+    And the file ".ctxloom/content/bundles/demo.yaml" exists
+    And the file ".ctxloom/content/bundles/demo.yaml" is valid YAML
     When I run "ctxloom bundle list"
     Then the command succeeds
     And the output contains "demo"
@@ -41,4 +41,4 @@ Feature: Bundles
     And a bundle "demo" exists
     When I run "ctxloom bundle delete demo -f"
     Then the command succeeds
-    And the file ".ctxloom/cache/bundles/demo.yaml" does not exist
+    And the file ".ctxloom/content/bundles/demo.yaml" does not exist

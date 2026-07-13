@@ -15,13 +15,25 @@ import (
 // layer bundles, profiles, and LLM config on top via the CLI itself, so the
 // fixtures exercise real create paths rather than hand-written YAML. The editor
 // is pinned to a no-op so `edit` commands run non-interactively.
-const minimalConfig = "version: 4\neditor:\n  command: \"true\"\nprofiles:\n  defaults: []\n"
+//
+// Deliberately carries NO `profiles:` key: the old `profiles.defaults` (a bare
+// seq) is the pre-v6 schema defaultAgentUpgrade migrates on load into a
+// synthesized `agents.default` + `default_agent: default` (profiles.defaults was
+// RETIRED — the default context is now whatever the always-bound default AGENT
+// composes). A fixture carrying the legacy key would silently gain that
+// synthesized agent the moment any command calls cfg.Save() — polluting
+// `agent list` with an unwanted "default" entry scenarios never asked for, and
+// tripping the schema-validation fatal finding `ctxloom run`'s strict startup
+// gate enforces on a not-yet-upgraded file. Scenarios that need a default agent
+// set one explicitly via `ctxloom agent default <name>`.
+const minimalConfig = "version: 4\neditor:\n  command: \"true\"\n"
 
 // markerEditorConfig pins the editor to a command that appends a fixed marker to
 // the file it is given, so `edit` round-trips produce an observable change. sh
 // receives `-c <script> editor <tmpfile>`, so "$1" is the temp file editInEditor
 // writes the content to. The marker is free text, fine for fragment/prompt
-// content (it would corrupt profile YAML, so those edits use other paths).
+// content (it would corrupt profile YAML, so those edits use other paths). See
+// minimalConfig for why there is no legacy `profiles: defaults: []` key.
 const markerEditorConfig = `version: 4
 editor:
   command: sh
@@ -29,8 +41,6 @@ editor:
     - "-c"
     - 'printf "\nEDITED-BY-TEST\n" >> "$1"'
     - editor
-profiles:
-  defaults: []
 `
 
 func registerFixtureSteps(ctx *godog.ScenarioContext) {
@@ -96,6 +106,24 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return runFixture(c, "profile", "create", name, "-b", bundle, "-d", "acceptance fixture profile")
 	})
 
+	// An INLINE profile, written straight into config.yaml's `profiles:
+	// definitions:` map — as opposed to `profile create`, which always writes a
+	// directory profile (.ctxloom/profiles/<name>.yaml). `ctxloom manage config
+	// get profiles` only ever reflects this inline map (cfg.Profiles.Definitions):
+	// there is no CLI surface that populates it, so a scenario asserting on that
+	// section must seed it directly. Appends to the existing config.yaml — safe
+	// because minimalConfig/markerEditorConfig carry no `profiles:` key of
+	// their own.
+	ctx.Step(`^a profile "([^"]*)" is defined inline in config with bundle "([^"]*)"$`, func(c context.Context, name, bundle string) error {
+		w := worldFrom(c)
+		existing, err := w.env.ReadFile(".ctxloom/config.yaml")
+		if err != nil {
+			return err
+		}
+		body := existing + fmt.Sprintf("profiles:\n  definitions:\n    %s:\n      bundles:\n        - %s\n", name, bundle)
+		return w.env.WriteFile(".ctxloom/config.yaml", body)
+	})
+
 	// A recorded session seeds the home session index so session list/show/
 	// rename/forget can be exercised without launching a backend. project_dir is
 	// the live project so current-project listing finds it too.
@@ -155,6 +183,47 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 				"description: Demo bundle v2\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",
 		})
+	})
+
+	// Publishes a new commit upstream with the named fragment's content replaced
+	// by an arbitrary, caller-chosen string — the payload-testing counterpart to
+	// "advances its bundle" above (which only ever moves to one fixed string).
+	// Letting the scenario pick unrelated marker text on each side avoids any
+	// accidental substring relationship between the "before" and "after"
+	// content, which would make a "does not contain the old content" assertion
+	// meaningless.
+	ctx.Step(`^the remote "([^"]*)" changes fragment "([^"]*)" to "([^"]*)"$`, func(c context.Context, name, frag, content string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		return w.env.AdvanceRemote(bare, map[string]string{
+			".ctxloom/content/bundles/demo.yaml": "version: 1.1.0\n" +
+				"author: test\n" +
+				"description: Demo bundle\n" +
+				"fragments:\n  " + frag + ":\n    tags: [demo]\n    content: |\n      " + content + "\n" +
+				"skills:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
+		})
+	})
+
+	// Forces the project's local cache clone for a seeded remote back to its
+	// very first commit — a stronger, deliberate version of the staleness a
+	// clone's checked-out HEAD always carries by construction (fetch advances
+	// refs/remotes/origin/* but never fast-forwards the local branch). Pins the
+	// invariant that content is served by resolving refs/remotes/origin/<branch>,
+	// never the clone's checked-out working tree/HEAD.
+	ctx.Step(`^the remote "([^"]*)"'s cached clone is forced back to its first commit$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		clone, err := w.env.FindRepoCacheClone()
+		if err != nil {
+			return fmt.Errorf("locate cached clone for %q: %w", name, err)
+		}
+		return w.env.ResetCachedCloneToFirstCommit(clone)
 	})
 
 	ctx.Step(`^the mock LLM responds "([^"]*)"$`, func(c context.Context, response string) error {

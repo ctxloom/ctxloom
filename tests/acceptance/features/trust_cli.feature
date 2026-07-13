@@ -1,17 +1,9 @@
 Feature: Trust posture CLI
   Per-item acceptances (`trust`) and rejections (`blacklist`) manage what
-  content the agent sees; the retired whole-bundle postures
-  (`bundle trust`/`untrust`) survive only as deprecation stubs.
-
-  Scenario: Bundle posture commands are deprecated no-ops
-    Given an initialized ctxloom project
-    And a bundle "demo" exists
-    When I run "ctxloom bundle trust demo"
-    Then the command succeeds
-    And the output contains "deprecated"
-    When I run "ctxloom bundle untrust demo"
-    Then the command succeeds
-    And the output contains "deprecated"
+  content the agent sees. The retired whole-bundle postures (`bundle
+  trust`/`untrust`, `remote trust`/`untrust`) are DELETED commands, not
+  deprecation stubs — trust is now keyed to a publisher signing key, not a
+  bundle or remote (see docs/trust-model.md, docs/trust-simplify-plan.md).
 
   Scenario: A per-item acceptance and a rejection are recorded
     Given an initialized ctxloom project
@@ -19,7 +11,7 @@ Feature: Trust posture CLI
     And a fragment "guide" in bundle "demo" exists
     When I run "ctxloom trust demo#fragments/guide"
     Then the command succeeds
-    And the output contains "Accepted demo#fragments/guide"
+    And the output contains "Approved demo#fragments/guide"
     And the output contains "sha256:"
     When I run "ctxloom blacklist demo#fragments/guide"
     Then the command succeeds

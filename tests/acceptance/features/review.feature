@@ -10,7 +10,7 @@ Feature: Review pending items
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     And I run "ctxloom remote pull"
     # The pinned third-party bundle's items are born pending: review names them…
     When I run "ctxloom review --list"
@@ -26,7 +26,7 @@ Feature: Review pending items
     # porcelain writes: the item leaves the pending set and reaches the agent.
     When I accept the pending item "demo#fragments/demo-frag" from remote "origin"
     Then the command succeeds
-    And the output contains "Accepted"
+    And the output contains "Approved"
     When I run "ctxloom review --list"
     Then the command succeeds
     And the output does not contain "fragments/demo-frag"
@@ -39,7 +39,7 @@ Feature: Review pending items
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --bundle demo"
+    And I run "ctxloom profile create dev --bundle origin/demo"
     And I run "ctxloom remote pull"
     When I reject the pending item "demo#fragments/demo-frag" from remote "origin"
     Then the command succeeds

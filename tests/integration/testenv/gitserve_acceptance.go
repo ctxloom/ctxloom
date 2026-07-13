@@ -109,6 +109,73 @@ func (e *TestEnvironment) AdvanceRemote(bareDir string, files map[string]string)
 	return nil
 }
 
+// FindRepoCacheClone locates the git clone the CLI cached under this
+// environment's project (.ctxloom/cache/repos/...) for a previously seeded
+// remote. Scenarios in this suite seed at most one remote, so the first clone
+// found (a directory containing ".git") is unambiguous. Used by steps that need
+// to reach into the clone directly (e.g. to force its checkout stale) rather
+// than through any ctxloom-facing surface.
+func (e *TestEnvironment) FindRepoCacheClone() (string, error) {
+	root := filepath.Join(e.ProjectDir, ".ctxloom", "cache", "repos")
+	var found string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			found = filepath.Dir(path)
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	if found == "" {
+		return "", fmt.Errorf("no cached git clone found under %s", root)
+	}
+	return found, nil
+}
+
+// ResetCachedCloneToFirstCommit forces clone's checked-out branch and working
+// tree back to the repo's very first commit (found via the remote-tracking
+// history, so it works regardless of what the local branch currently points
+// at). This simulates a clone whose checkout has drifted arbitrarily far behind
+// the remote-tracking refs a fetch keeps current.
+func (e *TestEnvironment) ResetCachedCloneToFirstCommit(clone string) error {
+	root, err := gitOutput(clone, "rev-list", "--max-parents=0", "refs/remotes/origin/main")
+	if err != nil {
+		return fmt.Errorf("find root commit: %w", err)
+	}
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return fmt.Errorf("no root commit found in %s", clone)
+	}
+	if err := runGitE(clone, "reset", "--hard", root); err != nil {
+		return fmt.Errorf("reset clone to %s: %w", root, err)
+	}
+	return nil
+}
+
+// gitOutput runs git in dir and returns its trimmed stdout, wrapping any
+// failure with stderr for diagnosis.
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
+	}
+	return string(out), nil
+}
+
 func runGitE(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	if dir != "" {

@@ -34,7 +34,7 @@ Feature: Live distillation with a real agent
   Scenario Outline: Distilling a whole bundle distills its fragment
     Given a real <agent> agent is available
     And a bundle "lore" with a long fragment "rules"
-    When I run "ctxloom bundle distill .ctxloom/cache/bundles/lore.yaml -f"
+    When I run "ctxloom bundle distill .ctxloom/content/bundles/lore.yaml -f"
     Then the command succeeds
     And the distilled fragment "rules" in bundle "lore" is a real compression
     And the distilled fragment "rules" in bundle "lore" preserves the domain

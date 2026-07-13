@@ -31,6 +31,18 @@ var EnvKeys = []string{
 	"CTXLOOM_DEGRADED",
 	"CTXLOOM_VERBOSE",
 	"CTXLOOM_NO_COMPANIONS",
+	// The agentcoord runner-handshake vars: read via the coord.Env* constants
+	// (os.Getenv(coord.EnvMCPSocket), not a literal "CTXLOOM_..." string), so
+	// TestEnvKeysCoversProductionReads' literal-string regex can't discover
+	// them itself — they must be listed here by hand. Confirmed missing
+	// 2026-07-13: an ambient CTXLOOM_MCP_SOCKET (present whenever the test
+	// suite runs inside a live ctxloom-coordinated session) silently flips
+	// `ctxloom mcp serve` into forward-mode, proxying every acceptance-suite
+	// MCP call to the REAL coordinator instead of the isolated test project.
+	"CTXLOOM_MCP_SOCKET",
+	"CTXLOOM_COORD_URL",
+	"CTXLOOM_COORD_CRED",
+	"CTXLOOM_RUN_ID",
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
 	"CODEX_HOME",

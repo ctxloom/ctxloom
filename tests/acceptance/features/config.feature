@@ -14,9 +14,13 @@ Feature: Configuration
     And the output contains "claude-code"
 
   Scenario: Get the profiles section reflects a created profile
+    # `config get profiles` renders cfg.Profiles — the INLINE `profiles:
+    # definitions:` map in config.yaml — not directory profiles written by
+    # `profile create` (.ctxloom/profiles/<name>.yaml never round-trips through
+    # this section).
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    And a profile "dev" with bundle "demo"
+    And a profile "dev" is defined inline in config with bundle "demo"
     When I run "ctxloom manage config get profiles"
     Then the command succeeds
     And the output contains "dev"

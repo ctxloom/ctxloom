@@ -35,6 +35,7 @@ type World struct {
 	j1bRecorded       string               // J1b: the mock's recorded input from the discovery-session launch
 
 	j2s *j2State // J2: team-authoring journey state (see steps_j2_team.go)
+	j3  *j3State // J3: the corporate-signed/trust journey's fixture state (steps_j3.go)
 }
 
 type worldKey struct{}
@@ -97,4 +98,5 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ1SetupSteps(ctx)
 	registerJ1bSteps(ctx)
 	registerJ2Steps(ctx)
+	registerJ3Steps(ctx)
 }

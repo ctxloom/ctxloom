@@ -70,6 +70,34 @@ func ranAsTool(corpus, name string) bool {
 	return strings.Contains(corpus, `calls tool "`+name+`"`)
 }
 
+// containsLeafPath is the ordinary (non-"I run") leaf check's substring test,
+// hardened against a PREFIX collision: "ctxloom sign" is a literal prefix of
+// "ctxloom signer add"/"ctxloom signer remove" (distinct leaves), so a bare
+// strings.Contains credited "ctxloom sign" with coverage the moment J3
+// (steps_j3.go) started mentioning the signer leaves in comments — a false
+// positive that would have silently pruned an actually-uncovered leaf from
+// the allowlist (exactly the vacuous-coverage failure mode this gate exists
+// to catch). A match only counts when the byte right after it is absent or
+// not itself an identifier character, so "ctxloom sign" no longer matches
+// inside "ctxloom signer ...".
+func containsLeafPath(corpus, path string) bool {
+	for idx := 0; ; {
+		i := strings.Index(corpus[idx:], path)
+		if i < 0 {
+			return false
+		}
+		end := idx + i + len(path)
+		if end >= len(corpus) || !isLeafIdentByte(corpus[end]) {
+			return true
+		}
+		idx += i + 1
+	}
+}
+
+func isLeafIdentByte(b byte) bool {
+	return b == '_' || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9')
+}
+
 // knownUncoveredCLI is the EXACT set of CLI leaves (bare leaves, hidden
 // machine callbacks, and "<leaf> --engine <name>" variants) this gate accepts
 // as uncovered today. This is not a cap or a silencer: TestCompleteness
@@ -80,11 +108,14 @@ func ranAsTool(corpus, name string) bool {
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
 	// Publisher signing surface: zero acceptance scenarios sign a bundle or
-	// manage the allowed_signers store. Backfill: task outer-water.
+	// list/show the allowed_signers store. Backfill: task outer-water.
+	// "ctxloom signer add"/"ctxloom signer remove" were here too, but J3
+	// (steps_j3.go, j3_corporate_signed.feature) now legitimately drives both:
+	// the Background's "Alice trusts the company key" step runs `ctxloom
+	// signer add ... --project`, and scenario 6's "Alice revokes her trust in
+	// the company key" runs `ctxloom signer remove ... --project` — pruned.
 	"ctxloom sign",
-	"ctxloom signer add",
 	"ctxloom signer list",
-	"ctxloom signer remove",
 	"ctxloom signer show",
 	// Relocates an authored bundle to another remote/project; needs a second
 	// project/remote fixture beyond this suite's single seeded remote.
@@ -247,7 +278,7 @@ func TestCompleteness(t *testing.T) {
 				}
 				continue
 			}
-			if !strings.Contains(corpus, path) {
+			if !containsLeafPath(corpus, path) {
 				uncovered = append(uncovered, path)
 			}
 		}

@@ -69,6 +69,33 @@ func (e *TestEnvironment) SeedSignedRemote(files map[string]string, signPaths []
 	return e.SeedRemote(seeded)
 }
 
+// AdvanceSignedRemote is AdvanceRemote plus a REFRESHED detached publisher
+// signature: every path in signPaths gets its "<path>.sig" sibling
+// regenerated over the new bytes in files, signed by signer under the publish
+// namespace. Use this for a legitimate new signed version (e.g. a publisher
+// adding content to an already-signed bundle). For an illegitimate change —
+// content mutated WITHOUT a matching re-sign, the J3 tamper scenario — call
+// AdvanceRemote directly instead and leave the old ".sig" sibling in place, so
+// it no longer verifies over the new bytes (signing.ErrSignatureTampered).
+func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]string, signPaths []string, signer *TestSigner) error {
+	seeded := make(map[string]string, len(files)+len(signPaths))
+	for k, v := range files {
+		seeded[k] = v
+	}
+	for _, path := range signPaths {
+		content, ok := files[path]
+		if !ok {
+			return fmt.Errorf("AdvanceSignedRemote: %q is not among the advanced files", path)
+		}
+		sig, err := signing.Sign([]byte(content), signer.Signer, signing.NamespacePublish)
+		if err != nil {
+			return fmt.Errorf("sign %q: %w", path, err)
+		}
+		seeded[path+".sig"] = string(sig)
+	}
+	return e.AdvanceRemote(bareDir, seeded)
+}
+
 // TrustSigner writes an allowed_signers entry trusting signer's public key for
 // principal, in the publish namespace. project=true writes the committable
 // project store (.ctxloom/allowed_signers); project=false writes the personal

@@ -110,8 +110,17 @@ func containerProfileFor(backend string) containerProfile {
 			resolveAuth:   resolveKiroContainerAuth,
 			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (subscription credential mounts pend live verification)",
 			overlayDirs:   kiroOverlayDirs,
-			// Kiro keeps its whole session store directly under $KIRO_HOME
-			// (per-session json triples), so the engine home IS the store root.
+			// ".kiro" is the ROOT of kiro's engine-home state (agents/,
+			// settings/, skills/, steering/, sessions/), not the transcript
+			// leaf directory itself — real per-session json+jsonl triples live
+			// one level deeper, under sessions/cli/ (see internal/kiro/session.go).
+			// Mounting the root still captures them (per this field's ROOT,
+			// never a leaf contract above), so no change is needed here, only
+			// this comment. NOTE a separate real gap this mount does NOT
+			// cover: a `kiro-cli chat --no-interactive` oneshot run persists
+			// into $XDG_DATA_HOME/kiro-cli/data.sqlite3 instead — a location
+			// outside containerHome/.kiro entirely, so oneshot session state
+			// is not captured by this mount at all.
 			transcriptStoreRel: ".kiro",
 		}
 	// codex and antigravity have no dedicated agent image/auth yet: both

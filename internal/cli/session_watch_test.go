@@ -329,10 +329,13 @@ func TestRunSessionWatch_ByLocationAcrossBackends(t *testing.T) {
 			},
 		},
 		{
+			// Real kiro-cli jsonl shape (live-verified against 2.12.1): the
+			// speaker lives in the line's "kind", the text nested under a
+			// "data.content[].data" block — see internal/kiro/session.go.
 			backend: "kiro",
 			rel:     "sess-1.jsonl",
-			fixture: `{"role":"user","content":"hi kiro"}
-{"role":"assistant","content":[{"type":"text","text":"kiro answer"}]}`,
+			fixture: `{"version":"v1","kind":"Prompt","data":{"content":[{"kind":"text","data":"hi kiro"}]}}
+{"version":"v1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"kiro answer"}]}}`,
 			want: 2,
 			check: func(t *testing.T, entries []watchEntry) {
 				assert.Equal(t, "user", entries[0].Type)

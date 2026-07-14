@@ -381,6 +381,13 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^nothing fails because of the companion's presence or absence$`, func(c context.Context) error {
 		w := worldFrom(c)
+		// Real evidence for the @doc capture sidecar: by the time this step
+		// runs, "Bob starts a session" already consumed w.j2().bobOutput via
+		// the automatic docLastBobOutput attribution, so this assertion (which
+		// runs no new command of its own) would otherwise render with an empty
+		// evidence pane despite being the load-bearing "and it actually
+		// succeeded" check — re-attach the same exit/output pair explicitly.
+		w.docStepMaterialized = fmt.Sprintf("Bob's session start: exit=%d\n%s", w.j2().bobExit, strings.TrimSpace(w.j2().bobOutput))
 		if w.j2().bobExit != 0 {
 			return fmt.Errorf("expected Bob's session start to succeed regardless of the companion's presence/absence; exit %d, output:\n%s",
 				w.j2().bobExit, w.j2().bobOutput)

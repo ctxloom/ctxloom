@@ -318,6 +318,10 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			j6.snapshots[label] = *fact
+			// Real evidence: the actual journaled fact this step just snapshot
+			// off runs.jsonl, not a restatement of "it was remembered".
+			w.docStepMaterialized = fmt.Sprintf("runs.jsonl — %q snapshot of %s: run_id %s, permission %q",
+				label, name, fact.RunID, fact.Permission)
 			return nil
 		})
 

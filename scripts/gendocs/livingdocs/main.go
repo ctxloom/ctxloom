@@ -7,8 +7,12 @@
 // <feature>.doc.md narration companion.
 //
 // The product claim this enforces: a feature that does not work cannot be
-// documented. If any scenario's capture has a non-passing step, this command
-// writes NOTHING and exits nonzero — see RefusalError in render.go.
+// documented — AND a feature that proves nothing cannot be documented either.
+// If any scenario's capture has a non-passing step, or a passing scenario's
+// assertion step captured no evidence at all, or an entire @doc feature has
+// zero captured scenarios (the capture directory misconfigured, or the
+// capture run never executed it), this command writes NOTHING and exits
+// nonzero — see RefusalError and EvidenceGapError in render.go.
 //
 // Run via `just gen-living-docs` (go run ./scripts/gendocs/livingdocs).
 package main
@@ -66,6 +70,36 @@ func run(featuresDir, captureDir, outDir string) error {
 		feat, err := ParseFeature(fp)
 		if err != nil {
 			return err
+		}
+
+		// Fail CLOSED, not open: a @doc feature with at least one scenario but
+		// ZERO of them captured is a strong, unambiguous signal that
+		// CTXLOOM_DOC_CAPTURE_DIR was misconfigured for this run (wrong path,
+		// the acceptance suite didn't actually execute, the capture dir got
+		// cleared after the run) — not a legitimate "nothing to show" case.
+		// Every @doc feature in this repo mixes captured scenarios with, at
+		// most, a handful of individually-tagged @live/@wip ones (see
+		// j5_multi_engine.feature) — no @doc feature is EVER entirely
+		// uncaptured by design. Left unchecked, this is the other half of the
+		// same class of bug as EvidenceGapError: every scenario would quietly
+		// render "Not captured in this build" and both the test run and this
+		// generator would still exit 0.
+		if len(feat.Scenarios) > 0 {
+			anyCaptured := false
+			for _, sc := range feat.Scenarios {
+				if len(captures[sc.Name]) > 0 {
+					anyCaptured = true
+					break
+				}
+			}
+			if !anyCaptured {
+				return fmt.Errorf(
+					"REFUSING TO GENERATE: @doc feature %q (%s) has ZERO captured scenarios out of %d — "+
+						"CTXLOOM_DOC_CAPTURE_DIR (%s) is likely misconfigured or the acceptance run never executed this feature; "+
+						"every step would otherwise silently render \"Not captured in this build\"",
+					feat.Name, fp, len(feat.Scenarios), captureDir,
+				)
+			}
 		}
 
 		docPath := narrationPathFor(fp)

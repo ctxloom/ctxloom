@@ -87,6 +87,12 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the interview prompt the mock engine receives includes ctxloom's built-in setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		// Real evidence: the mock's recorded prompt was already attached to
+		// "it launches a mock engine for the configuration interview" (the
+		// step that actually launched it), so this Then — which re-inspects
+		// the same recorded prompt without running anything new — needs its
+		// own excerpt re-attached, or its evidence pane renders empty.
+		w.docStepMaterialized = j5Excerpt(prompt, j1bBuiltinMarker, 2)
 		if !strings.Contains(prompt, j1bBuiltinMarker) {
 			return fmt.Errorf("interview prompt does not contain the built-in guidance marker %q; prompt:\n%s", j1bBuiltinMarker, prompt)
 		}
@@ -96,6 +102,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes the company's onboarding steps$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanyOnboarding, 2)
 		if !strings.Contains(prompt, j1bCompanyOnboarding) {
 			return fmt.Errorf("interview prompt does not contain the company's onboarding steps; prompt:\n%s", prompt)
 		}
@@ -105,6 +112,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes her personal setup preferences$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bPersonalPreference, 2)
 		if !strings.Contains(prompt, j1bPersonalPreference) {
 			return fmt.Errorf("interview prompt does not contain her personal setup preferences; prompt:\n%s", prompt)
 		}
@@ -142,6 +150,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes reprise's setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanionMarker, 2)
 		if !strings.Contains(prompt, j1bCompanionMarker) {
 			return fmt.Errorf("interview prompt does not contain reprise's setup guidance; prompt:\n%s", prompt)
 		}

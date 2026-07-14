@@ -125,6 +125,105 @@ func TestGeneratePage_MultipleExamplesLabeled(t *testing.T) {
 	assert.Contains(t, page, "**Example 2**")
 }
 
+func TestGeneratePage_RefusesOnThenStepWithNoEvidence(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "a precondition", Keyword: "Given", Status: "passed"},
+				{Text: "an assertion with nothing to show", Keyword: "Then", Status: "passed"},
+			}},
+		},
+	}
+
+	_, err := GeneratePage(feat, narr, captures, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "First scenario")
+	assert.Contains(t, err.Error(), "an assertion with nothing to show")
+	assert.Contains(t, err.Error(), "proves nothing")
+
+	var gap *EvidenceGapError
+	require.ErrorAs(t, err, &gap)
+	assert.Equal(t, "First scenario", gap.Scenario)
+	assert.Equal(t, 0, gap.Example)
+}
+
+func TestGeneratePage_AndContinuingAThenAlsoRequiresEvidence(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "a precondition", Keyword: "Given", Status: "passed"},
+				{Text: "the first assertion", Keyword: "Then", Status: "passed", CLIOutput: "real output"},
+				{Text: "a second assertion with nothing to show", Keyword: "And", Status: "passed"},
+			}},
+		},
+	}
+
+	_, err := GeneratePage(feat, narr, captures, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a second assertion with nothing to show")
+}
+
+func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "a precondition", Keyword: "Given", Status: "passed"},
+				{Text: "an And continuing the Given", Keyword: "And", Status: "passed"},
+				{Text: "an action", Keyword: "When", Status: "passed"},
+				{Text: "the one assertion", Keyword: "Then", Status: "passed", Materialized: "the real payload"},
+			}},
+		},
+	}
+
+	page, err := GeneratePage(feat, narr, captures, "")
+	require.NoError(t, err)
+	assert.Contains(t, page, "the real payload")
+}
+
+func TestGeneratePage_EvidenceGapNamesTheExampleRowForOutlines(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "row one assertion", Keyword: "Then", Status: "passed", CLIOutput: "ok"},
+			}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "row two assertion", Keyword: "Then", Status: "passed"}, // no evidence
+			}},
+		},
+	}
+
+	_, err := GeneratePage(feat, narr, captures, "")
+	require.Error(t, err)
+
+	var gap *EvidenceGapError
+	require.ErrorAs(t, err, &gap)
+	assert.Equal(t, 2, gap.Example)
+	assert.Contains(t, err.Error(), "Example 2")
+}
+
+func TestGeneratePage_MockRecordedOrMaterializedAloneSatisfyEvidence(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "an assertion evidenced only by the mock", Keyword: "Then", Status: "passed", MockRecorded: "recorded prompt"},
+			}},
+		},
+	}
+
+	_, err := GeneratePage(feat, narr, captures, "")
+	require.NoError(t, err)
+}
+
 func TestSafeFence_LongerThanContentBackticks(t *testing.T) {
 	assert.Equal(t, "```", safeFence("no backticks here"))
 	assert.Equal(t, "````", safeFence("has ``` triple backticks"))

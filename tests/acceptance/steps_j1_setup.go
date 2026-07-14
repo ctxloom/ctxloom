@@ -139,6 +139,12 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the restarted mock engine receives her personal repository's fragments$`, func(c context.Context) error {
 		w := worldFrom(c)
+		// Real evidence: the mock's recorded prompt was already attached to
+		// "Alice accepts the restart" (whichever step set w.j1RestartRecorded);
+		// re-excerpt it here around this step's own marker so THIS assertion's
+		// evidence pane shows what it actually checked, not a blank inherited
+		// from the set-and-consume field already being spent.
+		w.docStepMaterialized = j5Excerpt(w.j1RestartRecorded, j1PersonalMarker, 2)
 		if !strings.Contains(w.j1RestartRecorded, j1PersonalMarker) {
 			return fmt.Errorf("mock's recorded input does not contain the personal repository's marker; recorded:\n%s", w.j1RestartRecorded)
 		}
@@ -147,6 +153,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the restarted mock engine receives her company repository's fragments$`, func(c context.Context) error {
 		w := worldFrom(c)
+		w.docStepMaterialized = j5Excerpt(w.j1RestartRecorded, j1CompanyMarker, 2)
 		if !strings.Contains(w.j1RestartRecorded, j1CompanyMarker) {
 			return fmt.Errorf("mock's recorded input does not contain the company repository's marker; recorded:\n%s", w.j1RestartRecorded)
 		}
@@ -274,6 +281,11 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice is told the content is held for her review$`, func(c context.Context) error {
 		w := worldFrom(c)
+		// "Alice starts a session" (the preceding When) already ran the
+		// materialize command that produced this output, so the automatic
+		// CLIOutput attribution landed there, not here — re-attach the actual
+		// terminal text this Then is checking.
+		w.docStepMaterialized = strings.TrimSpace(w.env.LastOutput())
 		if !strings.Contains(w.env.LastOutput(), "awaiting review") {
 			return fmt.Errorf("materialize output does not tell Alice anything is awaiting review; output:\n%s", w.env.LastOutput())
 		}
@@ -306,6 +318,10 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^she is shown each held item and where it came from$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
+		// "Alice reviews the held content" (the preceding When) is the step
+		// that actually ran `review --list`, so it — not this Then — got the
+		// automatic CLIOutput attribution; re-attach the real listing here.
+		w.docStepMaterialized = strings.TrimSpace(out)
 		for _, want := range []string{"first", "second", "fragments/marker"} {
 			if !strings.Contains(out, want) {
 				return fmt.Errorf("review --list does not mention %q; output:\n%s", want, out)
@@ -349,6 +365,13 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("read materialized out2/CLAUDE.md: %w", err)
 		}
+		// This is a negative assertion — there is no rejected-marker text to
+		// excerpt from the delivered context, because it is not there. The
+		// real, observed evidence for an absence is what search for it found:
+		// zero matches, next to the approved item's own excerpt for context.
+		w.docStepMaterialized = fmt.Sprintf(
+			"out2/CLAUDE.md: 0 matches for the rejected item's marker %q; delivered content around the approved item instead:\n%s",
+			j1HeldSecondMarker, j5Excerpt(body, j1HeldFirstMarker, 2))
 		if strings.Contains(body, j1HeldSecondMarker) {
 			return fmt.Errorf("materialized context unexpectedly contains the rejected item's marker:\n%s", body)
 		}

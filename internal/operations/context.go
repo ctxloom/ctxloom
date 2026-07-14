@@ -76,11 +76,16 @@ type AssembleContextResult struct {
 // highest priority at start, second-highest at end, rest in middle.
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
 	loader := req.Loader
+	// gate is the underlying trust gate behind loader, when this call built
+	// its own (nil for an injected test loader — see warnWithheld). Kept so
+	// the withheld advisory below can name WHY each item was withheld, not
+	// just that it was.
+	var gate *contentGate
 	if loader == nil {
 		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
 		// gate runs the baseline first (idempotent) so existing content stays
 		// exposed, then withholds anything the cascade denies.
-		loader = exposureLoader(cfg)
+		loader, gate = exposureLoaderGated(cfg)
 	}
 
 	profileNames := resolveContextProfileNames(cfg, req)
@@ -138,8 +143,8 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	contextContent, loadedNames = appendBuiltinFragments(cfg, loader.Gate(), contextContent, loadedNames)
 
 	// Surface (content-free) any items the trust gate withheld during this
-	// assembly so the user knows content was hidden and how to review it.
-	warnWithheld(loader)
+	// assembly so the user knows content was hidden, WHY, and how to review it.
+	warnWithheld(loader, gate)
 
 	return &AssembleContextResult{
 		Profiles:         profileNames,

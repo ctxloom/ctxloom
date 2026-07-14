@@ -48,8 +48,9 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 	if cfg == nil {
 		return nil
 	}
+	var gate *contentGate
 	if loader == nil {
-		loader = exposureLoader(cfg)
+		loader, gate = exposureLoaderGated(cfg)
 	}
 	if loader == nil {
 		return nil
@@ -74,7 +75,7 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 		}
 		out = append(out, ToolingDeclaration{Source: ref, Content: content.Content})
 	}
-	warnWithheld(loader)
+	warnWithheld(loader, gate)
 	return out
 }
 

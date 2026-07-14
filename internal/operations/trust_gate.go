@@ -26,17 +26,28 @@ import (
 type contentGate struct {
 	cfg     *config.Config
 	records ReviewRecords
-	fs      afero.Fs
+	// retraction is a test-injection seam for the RETRACTION step (mirroring
+	// records above): nil (the production default for every real
+	// constructor — newContentGate/buildContentGate never set it) lets
+	// EffectiveTrust build its own default (the active lockfile, see
+	// buildLockfileRetraction). Tests construct a *contentGate literal
+	// directly (see gatedAcmeLoader, trust_exec_gate_test.go) and set this to
+	// a fakeRetraction to exercise the retracted Source without touching a
+	// real lockfile.
+	retraction RetractionRecords
+	fs         afero.Fs
 
-	// withheld records every ref this gate denied, mapped to the deciding
-	// source (pending vs rejected) so the advisory can tally them apart. The
-	// content loader surfaces its own withheld set (loader.Withheld()), but the
-	// executable surfaces (MCP servers, bundle hooks, prompt exports) call the
-	// gate directly with no loader to tally them, so the gate keeps its own
-	// record and the caller surfaces a content-free advisory
-	// (ExecutableTrustGate.WarnWithheld).
+	// withheld records every ref this gate denied, mapped to the FULL decided
+	// result (Source + Detail) so the advisory can report WHY, not just THAT,
+	// an item was withheld — a withhold must never be silent or reasonless
+	// (docs/trust-model.md). The content loader surfaces its own withheld set
+	// (loader.Withheld(), refs only), but the executable surfaces (MCP
+	// servers, bundle hooks, prompt exports) call the gate directly with no
+	// loader to tally them, so the gate keeps its own record and the caller
+	// surfaces a content-free, reasoned advisory (ExecutableTrustGate.
+	// WarnWithheld, warnWithheld).
 	withheldMu sync.Mutex
-	withheld   map[string]trust.Source
+	withheld   map[string]EffectiveTrustResult
 }
 
 // allow is the bundles.ContentGate the loader (and the executable resolvers)
@@ -48,37 +59,39 @@ func (g *contentGate) allow(ref string, payload []byte, form, signer string) boo
 		// A ref we cannot address cannot be trusted — withhold rather than expose
 		// content the decision function never evaluated.
 		clidiag.Warn("ctxloom", "trust gate: withholding %q (unparseable ref): %v", ref, err)
-		g.record(ref, trust.SourcePending)
+		g.record(ref, EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending})
 		return false
 	}
 	res, err := EffectiveTrust(g.cfg, EffectiveTrustRequest{
-		Ref:     tRef,
-		Payload: payload,
-		Form:    form,
-		Signer:  signer,
-		Records: g.records,
-		FS:      g.fs,
+		Ref:        tRef,
+		Payload:    payload,
+		Form:       form,
+		Signer:     signer,
+		Records:    g.records,
+		Retraction: g.retraction,
+		FS:         g.fs,
 	})
 	if err != nil || res == nil {
 		clidiag.Warn("ctxloom", "trust gate: withholding %q (evaluation error): %v", ref, err)
-		g.record(ref, trust.SourcePending)
+		g.record(ref, EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending})
 		return false
 	}
 	if res.Trusted() {
 		return true
 	}
-	g.record(ref, res.Source)
+	g.record(ref, *res)
 	return false
 }
 
-// record marks ref as withheld with its deciding source (deduplicated, lazily
-// allocated).
-func (g *contentGate) record(ref string, source trust.Source) {
+// record marks ref as withheld with the FULL deciding result — Source plus any
+// Detail (e.g. a retraction reason) — so a later advisory can name why, not
+// just that, ref was withheld (deduplicated, lazily allocated).
+func (g *contentGate) record(ref string, res EffectiveTrustResult) {
 	g.withheldMu.Lock()
 	if g.withheld == nil {
-		g.withheld = make(map[string]trust.Source)
+		g.withheld = make(map[string]EffectiveTrustResult)
 	}
-	g.withheld[ref] = source
+	g.withheld[ref] = res
 	g.withheldMu.Unlock()
 }
 
@@ -98,18 +111,45 @@ func (g *contentGate) withheldRefs() []string {
 }
 
 // withheldTally counts the withheld refs by disposition: pending (awaiting
-// review) vs rejected (a human already declined them).
+// review) vs rejected (a human already declined them). Retained for its
+// existing callers/tests; withheldItems below is the richer, per-ref-reasoned
+// accessor the withheld advisories (warnWithheld, ExecutableTrustGate.
+// WarnWithheld) actually print from.
 func (g *contentGate) withheldTally() (pending, rejected int) {
 	g.withheldMu.Lock()
 	defer g.withheldMu.Unlock()
-	for _, src := range g.withheld {
-		if src == trust.SourceRejected {
+	for _, res := range g.withheld {
+		if res.Source == trust.SourceRejected {
 			rejected++
 		} else {
 			pending++
 		}
 	}
 	return pending, rejected
+}
+
+// withheldItem pairs a withheld ref with the full trust decision that
+// withheld it — enough for a caller to print a content-free line naming both
+// the item and WHY (via Result.Reason()).
+type withheldItem struct {
+	Ref    string
+	Result EffectiveTrustResult
+}
+
+// withheldItems returns every ref this gate withheld, paired with its
+// deciding result, sorted by ref for stable output.
+func (g *contentGate) withheldItems() []withheldItem {
+	g.withheldMu.Lock()
+	defer g.withheldMu.Unlock()
+	if len(g.withheld) == 0 {
+		return nil
+	}
+	out := make([]withheldItem, 0, len(g.withheld))
+	for ref, res := range g.withheld {
+		out = append(out, withheldItem{Ref: ref, Result: res})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	return out
 }
 
 // newContentGate builds the fragment/prompt content gate for cfg. records/fs
@@ -164,16 +204,17 @@ func (e *ExecutableTrustGate) Gate() bundles.ContentGate {
 	return e.gate.allow
 }
 
-// WarnWithheld surfaces one content-free advisory naming how many bundle
-// executables this gate withheld (MCP servers, hooks, prompt exports), split
-// into pending (awaiting review) and rejected. Purely advisory (fault
-// tolerance); a no-op when nothing was withheld.
+// WarnWithheld surfaces one content-free advisory line PER bundle executable
+// this gate withheld (MCP servers, hooks, prompt exports), naming the item and
+// WHY — rejected, retracted by the publisher, or pending review — never a
+// bare "withheld" (docs/trust-model.md: a withhold must never be silent or
+// reasonless). Purely advisory (fault tolerance); a no-op when nothing was
+// withheld.
 func (e *ExecutableTrustGate) WarnWithheld() {
 	if e == nil || e.gate == nil {
 		return
 	}
-	pending, rejected := e.gate.withheldTally()
-	warnPendingTally(pending, rejected, "bundle executable(s)")
+	warnWithheldItems(e.gate.withheldItems())
 }
 
 // exposureLoader returns the read-path bundle loader with the content trust
@@ -184,9 +225,23 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // threaded so the gate's review-records store reads the same filesystem as the
 // rest of the operation (OS fs in production, a virtualized fs in tests).
 func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Loader {
-	gate := newContentGate(cfg, nil, cfgFS(cfg))
-	opts = append(opts, bundles.WithTrustGate(gate))
-	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
+	loader, _ := exposureLoaderGated(cfg, opts...)
+	return loader
+}
+
+// exposureLoaderGated is exposureLoader's sibling: it builds the identical
+// gated exposure loader but ALSO returns the underlying *contentGate, so a
+// caller that reports why items were withheld (warnWithheld) can read each
+// withheld ref's full decided result — Source and Detail — instead of just a
+// bare ref list. Use this over exposureLoader whenever the caller goes on to
+// call warnWithheld; callers that only load content (fragments.go, prompts.go
+// — a single-item resource fetch that already returns a distinct withheld
+// sentinel error, errs.ErrFragmentWithheld/ErrSkillWithheld) have no reasoned
+// advisory to print and keep using the simpler exposureLoader.
+func exposureLoaderGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Loader, *contentGate) {
+	gate := buildContentGate(cfg, nil, cfgFS(cfg))
+	opts = append(opts, bundles.WithTrustGate(gate.allow))
+	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...), gate
 }
 
 // cfgFS returns cfg's injected filesystem (nil for the OS default), nil-safe.
@@ -214,14 +269,44 @@ func warnPendingTally(pending, rejected int, what string) {
 	}
 }
 
-// warnWithheld emits a single content-free summary of the items the trust gate
-// withheld during this assembly, pointing the user at the review/accept
-// commands. It is purely advisory (fault tolerance: never an error) and a no-op
-// for a gate-free loader or when nothing was withheld. The loader's withheld
-// set carries no per-ref disposition, so the tally counts everything as
-// awaiting review (rejected items are the rare subset; the executable gate
-// splits them where it is cheap).
-func warnWithheld(loader *bundles.Loader) {
+// warnWithheldItems emits one content-free advisory line PER withheld item —
+// naming the item and WHY it was withheld (rejected, retracted by the
+// publisher, or pending review), via EffectiveTrustResult.Reason() — so a
+// withhold can never be silent or reasonless (docs/trust-model.md). Shared by
+// the content-loader path (warnWithheld) and the executable path
+// (ExecutableTrustGate.WarnWithheld) so both surfaces render identical
+// wording for identical sources. A no-op for an empty set.
+func warnWithheldItems(items []withheldItem) {
+	for _, it := range items {
+		clidiag.Warn("ctxloom", "withheld %s: %s", it.Ref, it.Result.Reason())
+	}
+}
+
+// warnWithheld emits a content-free, reasoned advisory for the items the trust
+// gate withheld during this assembly — one line per item, naming it and why
+// (see warnWithheldItems) — pointing the user at `ctxloom review` where that is
+// the action. It is purely advisory (fault tolerance: never an error) and a
+// no-op when nothing was withheld.
+//
+// gate is the *contentGate the loader's trust gate was actually built from
+// (see exposureLoaderGated); when the caller built the loader that way, gate's
+// own withheld set is used directly — it is a SUPERSET of loader.Withheld()
+// (it also captures builtin-fragment gate calls, which bypass the loader's
+// own content choke and so never reach loader.Withheld() at all — see
+// config.ResolveBuiltinBundleFragments), so this also fixes a prior gap where
+// a withheld builtin fragment surfaced no advisory whatsoever.
+//
+// gate is nil when loader came from an injected *bundles.Loader (a test seam,
+// or — in principle — a future caller with no *contentGate to introspect):
+// the loader's own ref-only Withheld() set is still surfaced, degraded to the
+// old reasonless tally rather than losing the advisory outright. Every real
+// production call site (context.go, hooks.go, tooling.go) always builds
+// through exposureLoaderGated, so this degrade path is test-only in practice.
+func warnWithheld(loader *bundles.Loader, gate *contentGate) {
+	if gate != nil {
+		warnWithheldItems(gate.withheldItems())
+		return
+	}
 	if loader == nil {
 		return
 	}

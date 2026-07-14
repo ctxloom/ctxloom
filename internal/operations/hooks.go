@@ -316,7 +316,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// surface (the SessionStart-injected context file), so it gates content the
 	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
 	// withhold anything the cascade denies.
-	loader := exposureLoader(cfg, bundleOpts...)
+	loader, gate := exposureLoaderGated(cfg, bundleOpts...)
 
 	// Collect through the same path AssembleContext uses: collectProfileFragments
 	// emits tag-matched fragments under their canonical qualified names (so
@@ -351,7 +351,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	// Surface (content-free) any items the trust gate withheld while regenerating
 	// the SessionStart context, mirroring AssembleContext.
-	warnWithheld(loader)
+	warnWithheld(loader, gate)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file

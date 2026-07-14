@@ -113,6 +113,13 @@ type RetractionRecords interface {
 type EffectiveTrustResult struct {
 	Decision trust.Decision `json:"decision"`
 	Source   trust.Source   `json:"source"`
+	// Detail is an OPTIONAL human-readable elaboration on Source, display-only
+	// (never a decision input). Today only step 2 (retraction) populates it,
+	// with the publisher's stated retraction reason (see
+	// RetractionRecords.Retracted) — the same untrusted, informational string
+	// `ctxloom remote pull`'s "Retracted:" bucket already surfaces at sync
+	// time (internal/cli/remote.go). Empty for every other Source.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Trusted reports whether the decision allowed exposure. It is the boolean the
@@ -135,6 +142,34 @@ func (r EffectiveTrustResult) State() trust.State {
 		return trust.StateAccepted
 	default:
 		return trust.StatePending
+	}
+}
+
+// Reason renders a short, content-free, human-readable explanation of WHY a
+// withheld item was withheld — deriving entirely from the already-computed
+// Source/Detail (never recomputing or re-deriving the decision). This is the
+// single place that turns a Source into user-facing words, so every withheld
+// advisory (the assembly-time warnWithheld, ExecutableTrustGate.WarnWithheld)
+// says the same thing for the same Source. A withhold must never be silent or
+// reasonless (see docs/trust-model.md): every caller printing a withheld ref
+// pairs it with this string.
+//
+// Only the three DENY sources are meaningful here (Reason is only ever
+// consulted for a withheld item); the default case covers them defensively.
+func (r EffectiveTrustResult) Reason() string {
+	switch r.Source {
+	case trust.SourceRejected:
+		return "rejected"
+	case trust.SourceRetracted:
+		if r.Detail != "" {
+			return fmt.Sprintf("retracted by the publisher (%s)", r.Detail)
+		}
+		return "retracted by the publisher"
+	default:
+		// trust.SourcePending, and the fail-closed default for any future
+		// deny source that forgets to add a case here — pending review is
+		// the safe, actionable default, never a bare "withheld".
+		return "pending review — run 'ctxloom review'"
 	}
 }
 
@@ -221,8 +256,8 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	//    exemption below (local/builtin never actually carry a retraction
 	//    record — see buildLockfileRetraction — but the ordering is principled
 	//    the same way rejection's is: nothing may short-circuit ahead of it).
-	if retracted, _ := retraction.Retracted(req.Ref); retracted {
-		return decide(trust.Deny, trust.SourceRetracted), nil
+	if retracted, reason := retraction.Retracted(req.Ref); retracted {
+		return decideDetail(trust.Deny, trust.SourceRetracted, reason), nil
 	}
 	// 3. LOCAL: authored in this project — first-party, every kind, including
 	//    executables. Locality is honest: a seeded or cloned bundle stamps its
@@ -275,6 +310,12 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 
 func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
 	return &EffectiveTrustResult{Decision: d, Source: s}
+}
+
+// decideDetail is decide's variant for a source that carries a display-only
+// elaboration (currently only SourceRetracted's publisher-stated reason).
+func decideDetail(d trust.Decision, s trust.Source, detail string) *EffectiveTrustResult {
+	return &EffectiveTrustResult{Decision: d, Source: s, Detail: detail}
 }
 
 // lockfileRetraction is the default RetractionRecords: it reads retraction

@@ -116,6 +116,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ5Steps(ctx)
 	registerJ6Steps(ctx)
 	registerJ7Steps(ctx)
+	registerJ8Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerDocCaptureHooks(ctx)
 }

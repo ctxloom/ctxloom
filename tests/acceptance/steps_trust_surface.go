@@ -479,6 +479,92 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the fragment is present in her assistant's delivered surface, a confirmed product gap$`, func(c context.Context) error {
 		return tsAssertPresence(worldFrom(c), "fragment", true)
 	})
+
+	// --- GAP C: the decision that was RECORDED, not just the payload served ----
+	//
+	// Every scenario above reads the downstream materialized payload. None of
+	// them look at what `ctxloom trust`/`blacklist` actually wrote — so a
+	// rejection could record a block for a form the item does not have, or
+	// silently fail to record one it does, and nothing would notice. These two
+	// read the decision back out of the CLI's own report of it.
+
+	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
+		w := worldFrom(c)
+		return runOK(w, "blacklist", tsRef(w, "fragments/context"), "--format", "json")
+	})
+
+	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {
+		w := worldFrom(c)
+		want := []string{"raw"}
+		if which == "raw and distilled forms" {
+			want = []string{"raw", "distilled"}
+		}
+		got, err := tsRejectedContentForms(w)
+		if err != nil {
+			return err
+		}
+		if len(got) != len(want) {
+			return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
+			}
+		}
+		return nil
+	})
+
+	// --- GAP F: an unparseable source ref must fail CLOSED, never "local" -----
+
+	ctx.Step(`^Alice tries to review an item whose source reference is malformed$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// "https://" carries a scheme marker (so it was plainly INTENDED as a
+		// canonical ref) but does not parse as one. parseTrustItemRef must
+		// refuse it outright rather than silently downgrading it to a local
+		// bundle name — a local ref is auto-ALLOWED at cascade step 3, so a
+		// downgrade here is a gate bypass, not a cosmetic mislabel.
+		_ = w.env.Run("trust", "https://#fragments/context")
+		return nil // the refusal is asserted next
+	})
+
+	ctx.Step(`^ctxloom refuses, rather than treating an unrecognized source as local$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		if !strings.Contains(out, "refusing to treat an unrecognized source as local") {
+			return fmt.Errorf("ctxloom did not refuse the malformed source ref for the stated fail-closed reason "+
+				"(want %q); output:\n%s", "refusing to treat an unrecognized source as local", out)
+		}
+		return nil
+	})
+}
+
+// tsRejectedContentForms parses the JSON `ctxloom blacklist --format json`
+// emitted (operations.SetBlacklistResult) and returns its "content_forms" —
+// the forms a CONTENT-level (ref-omitted) block was actually written for. This
+// is the recorded DECISION, read back from the tool's own report of it, as
+// distinct from the downstream payload every other assertion on this page
+// checks. The CLI prints a withheld-advisory warning line before the JSON, so
+// the object is located from its first "{" rather than parsing the whole
+// stream.
+func tsRejectedContentForms(w *World) ([]string, error) {
+	out := w.env.LastOutput()
+	start := strings.Index(out, "{")
+	if start < 0 {
+		return nil, fmt.Errorf("`blacklist --format json` emitted no JSON object; output:\n%s", out)
+	}
+	var res struct {
+		Status       string   `json:"status"`
+		ContentForms []string `json:"content_forms"`
+	}
+	// A Decoder (not Unmarshal) because the CLI also prints a withheld-advisory
+	// warning line AFTER the JSON object — Unmarshal rejects the trailing text,
+	// while a Decoder reads exactly the one value the command emitted.
+	if err := json.NewDecoder(strings.NewReader(out[start:])).Decode(&res); err != nil {
+		return nil, fmt.Errorf("parse `blacklist --format json` output: %w\noutput:\n%s", err, out)
+	}
+	w.docStepMaterialized = fmt.Sprintf("blacklist --format json → status=%q content_forms=%v", res.Status, res.ContentForms)
+	return res.ContentForms, nil
 }
 
 // tsSetUseDistilled appends a top-level "config:\n  use_distilled: <bool>\n"

@@ -155,6 +155,44 @@ Feature: The trust surface — what "review" actually controls
     When the publisher retracts the bundle
     Then the fragment's review state is "rejected"
 
+  Scenario: An approved item's review state is labeled "accepted," not left at "pending"
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice approves the fragment
+    Then the fragment's review state is "accepted"
+
+  # GAP C — the DECISION THAT WAS RECORDED, not the payload that was served.
+  # Every assertion above reads the downstream materialized surface. None of them
+  # ever look at what `ctxloom trust`/`ctxloom blacklist` actually wrote, so the
+  # write path could record a block for a form the item does not even have — or
+  # silently fail to record one it does — and the whole table would stay green.
+  # A rejection's content component is written PER FORM the item currently has
+  # (spec §5.3), so these two read that decision back out of the tool's own
+  # report of it: a raw-only item must be blocked in exactly its raw form, and an
+  # item that ships both forms must be blocked in both. A phantom block for a
+  # form that does not exist is not harmless bookkeeping — it is the tool
+  # claiming to have protected something it never looked at.
+  Scenario: Rejecting a raw-only item records a content block for exactly that form
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice rejects the fragment, and ctxloom reports what it recorded
+    Then the recorded rejection covers exactly the raw form
+
+  Scenario: Rejecting an item that ships both forms records a content block for both
+    Given a bundle from an unsigned, never-reviewed publisher ships a fragment with both a raw and a distilled form
+    When Alice rejects the fragment, and ctxloom reports what it recorded
+    Then the recorded rejection covers exactly the raw and distilled forms
+
+  # GAP F — FAIL CLOSED ON AN UNRECOGNIZED SOURCE. A ref that carries a scheme
+  # marker (so it was plainly INTENDED as a canonical reference) but does not
+  # parse as one must be REFUSED — never quietly downgraded to "a local bundle
+  # name." Locality is not a label: local content is auto-allowed at step 3 of
+  # the cascade, ahead of any review, so treating an unparseable remote ref as
+  # local is a gate bypass, not a cosmetic mislabel. Nothing on this page
+  # exercised that guard.
+  Scenario: A source reference that cannot be parsed is refused, never treated as local
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice tries to review an item whose source reference is malformed
+    Then ctxloom refuses, rather than treating an unrecognized source as local
+
   # GAP D — @wip: a CONFIRMED VULNERABILITY, not a coverage gap.
   # internal/operations/trust.go:230-246's "approvals store unreadable -> deny
   # EVERYTHING" guard only runs when EffectiveTrustRequest.Records is nil — and

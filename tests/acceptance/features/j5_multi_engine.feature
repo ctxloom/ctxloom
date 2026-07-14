@@ -74,12 +74,16 @@ Feature: One shared profile, reaching four engines in their own native format
     And the materialized codex skill file carries the shared skill's body, in its own native shape
     But the materialized codex context is not delivered at all, a known product gap
 
-  # LOCKED — @live: only claude and antigravity have a working live path today.
+  # LOCKED — @live: claude, antigravity, and kiro have a working live path
+  # today (kiro confirmed live: a logged-in kiro-cli genuinely reads the
+  # materialized steering context and echoes the sentinel back — the
+  # not-yet-authenticated gap in internal/kiro/chat.go's comment is closed).
   # codex has no binary on any dev host and is implemented against docs, never
-  # run (internal/codex/settings.go:7-29). kiro's CLI emits nothing over ACP
-  # before an interactive login (internal/kiro/chat.go:23-27). Both are absent
-  # from this table on purpose — not skipped, never written. Each present row
-  # self-skips without credentials, exactly like J1's own @live scenario.
+  # run (internal/codex/settings.go:7-29) — absent from this table on purpose,
+  # not skipped, never written. Each present row self-skips without
+  # credentials, exactly like J1's own @live scenario. Adding an engine here is
+  # adding a ROW, no new Go and no new steps — proven true a third time by
+  # kiro's row below.
   @live
   Scenario Outline: A real engine actually receives the shared context and can use it
     Given a real <engine> agent is available
@@ -91,3 +95,4 @@ Feature: One shared profile, reaching four engines in their own native format
       | engine      |
       | Claude      |
       | Antigravity |
+      | Kiro        |

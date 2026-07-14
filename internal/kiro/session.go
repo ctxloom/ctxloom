@@ -17,12 +17,23 @@ import (
 // {session_id}.jsonl append-only conversation log, and a {session_id}.lock.
 // Sessions are scoped per working directory via the metadata's cwd.
 //
-// WARNING: like the settings writer, this reader is DOC-FIRST — built from the
-// kiro-cli binary audit, not yet verified against live session files (session
-// creation is auth-gated). The metadata keys and jsonl line shape below are the
-// audit's best reading and are parsed DEFENSIVELY (unknown shapes degrade to a
-// partial transcript, never an error); a live `kiro-cli login` run is the
-// outstanding verification step.
+// CONFIRMED BROKEN against a live, authenticated kiro-cli — not merely
+// unverified. Two independent defects, either one alone sufficient: (1) real
+// session files live one directory deeper than storeDir() looks —
+// KIRO_HOME/sessions/cli/{id}.json + {id}.jsonl, not directly under
+// KIRO_HOME — so ListSessions's afero.ReadDir(dir) sees only KIRO_HOME's
+// agents/settings/skills/steering/sessions subdirectories and finds zero
+// real session files, regardless of line shape. (2) the jsonl line shape
+// audited here is also wrong: a real line is
+// {"version":"v1","kind":"Prompt"|"AssistantMessage",...,"data":{"content":
+// [{"kind":"text","data":"..."}],...}} — the text nested under "data", the
+// speaker under "kind" — not the flat {"type"/"role","content","timestamp"}
+// shape parseKiroLine expects, so a real line handed to it directly still
+// resolves to an empty speaker and parses to zero entries (degrading
+// silently per the defensive-parse contract, never erroring — which is
+// exactly why this went unnoticed rather than failing loudly). Fixing this
+// needs storeDir() to descend into sessions/cli/ AND parseKiroLine rewritten
+// for the real "kind"/"data"-wrapped shape; neither is done here.
 //
 // TODO(phase-3 remainder): map harp names → session ids (Kiro has no --name;
 // use --resume-id / --list-sessions --format json).

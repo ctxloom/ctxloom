@@ -256,8 +256,12 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 			// with --model: an adapter that needs this rejects --model too.
 			args = append(args, "-c", fmt.Sprintf("%s=%q", b.modelConfigKey, model))
 		} else {
-			// kiro-cli path: accepted at parse by kiro-cli; HONOR UNVERIFIED (no
-			// auth) — do not assume, cf. claude-code-acp silent-ignore.
+			// kiro-cli path: HONORED — confirmed live over this exact `kiro-cli
+			// acp` JSON-RPC session. An invalid --model value surfaces as a
+			// genuine mid-session RPC error ("model '<x>' is not available"),
+			// and a valid one changes both the self-reported model and the
+			// turn's wall-clock duration (cf. claude-code-acp's silent-ignore,
+			// which does neither).
 			args = append(args, "--model", model)
 		}
 	}

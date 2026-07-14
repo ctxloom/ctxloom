@@ -73,6 +73,31 @@ profiles:
 `,
 		copyCreds: copyAntigravityCredentials,
 	},
+	// Kiro CLI (kiro-cli) authenticates via `kiro-cli login` (OAuth: GitHub/
+	// Google/Builder ID social login) or KIRO_API_KEY for headless. Confirmed
+	// live: the subscription credential is NOT under ~/.kiro at all (that tree
+	// holds only agents/settings/skills/steering/sessions) — it lives in a
+	// single sqlite3 database at ~/.local/share/kiro-cli/data.sqlite3 (table
+	// auth_kv, key "kirocli:social:token" for social login), which the CLI
+	// resolves via the standard XDG data dir. A cheap model keeps paid calls
+	// inexpensive.
+	"kiro": {
+		apiKeyEnvs: []string{"KIRO_API_KEY"},
+		credDir:    filepath.Join(".local", "share", "kiro-cli"),
+		config: `version: 4
+llm:
+  configs:
+    kiro:
+      type: kiro
+      model: qwen3-coder-next
+  defaults:
+    primary: kiro
+    fast: kiro
+profiles:
+  defaults: []
+`,
+		copyCreds: copyKiroCredentials,
+	},
 }
 
 // envSet reports whether any of the named env vars is non-empty.
@@ -306,4 +331,24 @@ func copyAntigravityCredentials(realHome, fakeHome string) {
 			_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
 		}
 	}
+}
+
+// copyKiroCredentials copies the ONE file kiro-cli's subscription auth lives
+// in: ~/.local/share/kiro-cli/data.sqlite3, a sqlite3 database that mixes the
+// auth token (table auth_kv) with conversation/telemetry state — confirmed
+// live against an authenticated `kiro-cli login`. There is no separate
+// credential-only file to extract (unlike claude/antigravity's small JSON
+// sidecars): the whole opaque db is the smallest unit that carries the token,
+// so the isolated run inherits harmless local conversation/telemetry rows
+// alongside it. Nothing under ~/.kiro (agents/settings/skills/steering/
+// sessions — all project- or workspace-scoped, never auth) is touched.
+func copyKiroCredentials(realHome, fakeHome string) {
+	srcDir := filepath.Join(realHome, ".local", "share", "kiro-cli")
+	dstDir := filepath.Join(fakeHome, ".local", "share", "kiro-cli")
+	_ = os.MkdirAll(dstDir, 0o755)
+	data, err := os.ReadFile(filepath.Join(srcDir, "data.sqlite3"))
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dstDir, "data.sqlite3"), data, 0o600)
 }

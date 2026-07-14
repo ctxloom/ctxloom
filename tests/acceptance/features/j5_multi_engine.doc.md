@@ -47,7 +47,7 @@ that table. Its MCP, hook, and skill surfaces materialize exactly like the
 other three, but its context does not, so it gets its own separate (`@wip`)
 scenario below instead of a silent pass folded into the main table — the gap
 is the reason for the split, not an oversight. The second table (live
-delivery) covers only claude and antigravity, because those are the only two
+delivery) covers claude, antigravity, and kiro, because those are the three
 engines with a real, working, unattended path on this project's dev hosts
 right now. Nobody reading this journey can mistake either table for more
 coverage than it has — extending either later is adding a row, not rewriting
@@ -97,24 +97,28 @@ loudly — forcing an intentional update — the day someone fixes it.
 
 <!-- doc:scenario: A real engine actually receives the shared context and can use it -->
 Materialization proves the bytes were written in the right shape. It does not
-prove any assistant ever read them. This scenario closes that gap for the two
-engines where it can be closed honestly today: a fragment carrying one
+prove any assistant ever read them. This scenario closes that gap for the
+three engines where it can be closed honestly today: a fragment carrying one
 distinctive sentinel phrase is planted in the shared profile, a real engine is
 launched against it, and the assistant is asked to repeat back the one marker
 phrase it can see. If the marker comes back in the actual reply, the context
 genuinely reached a genuinely running assistant — not a mock, not a captured
 request, a real reply from a real engine process.
 
-Only claude and antigravity appear in this table, and that absence is a
-finding in itself, not an oversight. codex has no binary installed on any
-development host and its settings support is, by its own package
-documentation, implemented against docs and never actually run. kiro's CLI
-authenticates interactively and emits nothing over its agent protocol before
-that login completes, so there is no unattended path to drive it today. Both
-rows are deliberately absent rather than present-and-skipped, and each row
-that IS present still self-skips without live credentials, exactly like the
-claude row already does in the setup journey this scenario borrows its shape
-from.
+kiro joined this table once a logged-in `kiro-cli` became available to test
+against: the same row, the same steps, no new Go and no new step definitions
+— exactly the row-not-code claim this table was built to make. Its assistant
+read the materialized `.kiro/steering/ctxloom-context.md` steering file
+(kiro's stand-in for a SessionStart hook) and echoed the sentinel back through
+kiro's own agentSpawn hook and skill-resource wiring, live.
+
+Only codex is absent from this table, and that absence is a finding in
+itself, not an oversight: it has no binary installed on any development host
+and its settings support is, by its own package documentation, implemented
+against docs and never actually run. That row is deliberately absent rather
+than present-and-skipped, and each row that IS present still self-skips
+without live credentials, exactly like the claude row already does in the
+setup journey this scenario borrows its shape from.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
@@ -123,7 +127,7 @@ that standard's delivery is proven today: fully proven for the bytes on disk
 across three of them — claude-code, kiro, antigravity. codex's MCP, hook, and
 skill surfaces prove out the same way, but its context does not — a
 confirmed, silent gap this journey names explicitly instead of folding into a
-passing row. Two of the four are additionally proven end-to-end through a
+passing row. Three of the four are additionally proven end-to-end through a
 real running assistant, not just bytes on disk. That is the shape of claim
 this journey is built to make — never more than what was actually checked,
 and structured so that adding real coverage later means adding a row, not

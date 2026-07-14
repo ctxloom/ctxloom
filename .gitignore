@@ -79,7 +79,15 @@ coverage.raw.out
 resources/schema/gen/
 
 # ctxloom private working state (synced bundles, session/context, project id)
-.codex/config.toml
+# Codex runtime state. ctxloom points CODEX_HOME at <project>/.codex to keep
+# prompts cell-local (internal/codex/surfaces.go), but codex uses ONE home for
+# both its config surface AND all of its runtime state — so it also writes its
+# session store, conversation memories, logs, goals and temp files here. Only
+# the ctxloom-generated config surface (config.toml, prompts/) belongs in git;
+# the rest is engine state and must never be committed.
+.codex/*
+!.codex/config.toml
+!.codex/prompts/
 
 # ctxloom private working state (synced bundles, session/context, project id)
 .agents/

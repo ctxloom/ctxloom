@@ -263,6 +263,8 @@ def render_step_grid(cap):
             right_parts.append(fenced(step["cli_output"], "text"))
         if step.get("mock_recorded"):
             right_parts.append(fenced(step["mock_recorded"], "text"))
+        if step.get("materialized"):
+            right_parts.append(fenced(step["materialized"], "text"))
         right = "\n\n".join(right_parts)
         lines += cell(left)
         lines += cell(right)

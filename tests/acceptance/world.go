@@ -42,6 +42,8 @@ type World struct {
 	docFileName         string      // filename this scenario's capture flushes to
 	docLastMockRecorded string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
 	docLastCLIOutput    string      // last CLI output already attributed to a step, so a no-op step doesn't inherit the PREVIOUS step's output
+	docLastBobOutput    string      // J2: last teammate-checkout output already attributed (separate stream from w.env)
+	docLastBobFile      string      // J2: last materialized teammate file body already attributed
 }
 
 type worldKey struct{}

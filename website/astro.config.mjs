@@ -40,6 +40,14 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Journeys',
+					items: [
+						{ label: 'Setting up a project', link: '/journeys/j1-setup/' },
+						{ label: 'Sharing a skill with the team', link: '/journeys/j2-team-authoring/' },
+						{ label: 'Skills my company has validated', link: '/journeys/j3-corporate-signed/' },
+					],
+				},
+				{
 					label: 'Concepts',
 					items: [
 						{ label: 'Bundles', link: '/concepts/bundles/' },

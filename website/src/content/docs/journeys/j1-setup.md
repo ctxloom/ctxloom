@@ -134,7 +134,7 @@ Alice runs the ctxloom setup for claude-code
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-1147116789/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-1784616480/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
@@ -294,7 +294,7 @@ Alice runs the ctxloom setup for claude-code
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-329197080/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-206290918/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
@@ -327,13 +327,13 @@ the setup interview composes her agents' profiles from the sources' fragments
 
 ```text
 Profile: default
-Path: /tmp/ctxloom-integration-329197080/project/.ctxloom/profiles/default.yaml
+Path: /tmp/ctxloom-integration-206290918/project/.ctxloom/profiles/default.yaml
 Default: yes
 Description: J1 default profile
 Bundles:
   - seed
-  - file:///tmp/ctxloom-integration-329197080/remote-266736921/remote.git@bundles/src
-  - file:///tmp/ctxloom-integration-329197080/remote-1688341036/remote.git@bundles/src
+  - file:///tmp/ctxloom-integration-206290918/remote-2486725193/remote.git@bundles/src
+  - file:///tmp/ctxloom-integration-206290918/remote-2009012378/remote.git@bundles/src
 ```
 
 </div>
@@ -366,14 +366,14 @@ Alice accepts the restart
 ctxloom: companion ltk v0.7.0-7676b91-20260713T155949-dirty
 ctxloom: warning: companion reprise (/home/babbitt/.cargo/bin/reprise): run version --format json: exit status 2
 ctxloom: companion taskloom v0.7.0-7676b91-20260713T155952-dirty
-ctxloom: starting session regal-local-scale
+ctxloom: starting session sappy-cruel-mule
 ```
 
 ```text
 === Arguments ===
 mode=1
 fragments=1
-cwd=/tmp/ctxloom-integration-329197080/project
+cwd=/tmp/ctxloom-integration-206290918/project
 === Env ===
 === Context ===
 # Example Fragment
@@ -540,7 +540,7 @@ a third-party ctxloom repository whose content is unsigned
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-3448338260/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-2023114148/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
@@ -558,8 +558,8 @@ Pulling dependencies...
 
 Pulled 1 items:
   Installed: 1
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2023114148/remote-2624318786/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2023114148/remote-2624318786/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
 ```
 
 </div>
@@ -578,7 +578,7 @@ Materialized default → out (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2023114148/remote-2624318786/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
 ```
 
 </div>
@@ -630,7 +630,7 @@ a third-party ctxloom repository whose content is signed with a key Alice does n
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-238127705/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-3417860296/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
@@ -648,8 +648,8 @@ Pulling dependencies...
 
 Pulled 1 items:
   Installed: 1
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3417860296/remote-1470422245/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3417860296/remote-1470422245/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
 ```
 
 </div>
@@ -668,7 +668,7 @@ Materialized default → out (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3417860296/remote-1470422245/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
 ```
 
 </div>
@@ -737,8 +737,10 @@ Pulling dependencies...
 Pulled 2 items:
   Installed: 1
   Skipped (already installed): 1
-ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 2 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-1540120385/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-1540120385/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src#fragments/marker: awaiting review — run 'ctxloom review'
 ```
 
 </div>
@@ -754,10 +756,10 @@ Alice reviews the held content
 ```text
 2 item(s) pending review (0 update(s)):
 
-file:///tmp/ctxloom-integration-1414300136/remote-1844452430/remote.git@bundles/src (remote: first)
+file:///tmp/ctxloom-integration-2310314440/remote-1540120385/remote.git@bundles/src (remote: first)
   new      fragments/marker
 
-file:///tmp/ctxloom-integration-1414300136/remote-3996048272/remote.git@bundles/src (remote: second)
+file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src (remote: second)
   new      fragments/marker
 
 Run 'ctxloom review' in a terminal to review interactively, or use the
@@ -788,13 +790,13 @@ she approves the first and rejects the second
 
 ```text
 Rejected src#fragments/marker
-  repo:  file:///tmp/ctxloom-integration-1414300136/remote-3996048272/remote.git
+  repo:  file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git
   store: user
   UNSIGNED — recorded locally, not shareable (no signing key was available)
   ref block: recorded (sticky — survives content changes)
   content:   rejected in form(s) raw (blocks this content even if renamed/moved)
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src#fragments/marker: rejected
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src#fragments/marker: rejected
 ```
 
 </div>
@@ -813,7 +815,7 @@ Materialized default → out2 (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: 1 item(s) awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2310314440/remote-4143598412/remote.git@bundles/src#fragments/marker: rejected
 ```
 
 </div>

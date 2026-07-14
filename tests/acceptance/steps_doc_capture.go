@@ -56,6 +56,11 @@ type docCaptureStep struct {
 	Status       string `json:"status"`
 	CLIOutput    string `json:"cli_output,omitempty"`
 	MockRecorded string `json:"mock_recorded,omitempty"`
+	// Materialized is content read straight from a teammate's checkout (J2:
+	// findBobCommandFile) — the marker-bearing file that actually reached the
+	// teammate, which is proof no CLI stdout carries. Rendered as its own
+	// captured block.
+	Materialized string `json:"materialized,omitempty"`
 }
 
 // scenarioIDRe turns a scenario name (+ Examples row, for Outlines) into a
@@ -124,6 +129,25 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 				w.docLastCLIOutput = out
 			}
 		}
+		// J2 runs the teammate's (Bob's) commands in a separate checkout via its
+		// own exec plumbing, so that output never touches w.env.LastOutput().
+		// Surface it — and the materialized file that actually reached him — on
+		// the same new-since-last-step basis so each teammate-side step shows
+		// its real evidence rather than inheriting a prior step's.
+		if w.j2s != nil {
+			if bob := w.j2s.bobOutput; bob != "" && bob != w.docLastBobOutput {
+				if step.CLIOutput == "" {
+					step.CLIOutput = bob
+				} else {
+					step.CLIOutput = step.CLIOutput + "\n" + bob
+				}
+				w.docLastBobOutput = bob
+			}
+			if body := w.j2s.bobFileBody; body != "" && body != w.docLastBobFile {
+				step.Materialized = body
+				w.docLastBobFile = body
+			}
+		}
 		// Whichever mock-recorded slot this scenario populated most recently —
 		// j1_setup's restart-delivery scenario uses j1RestartRecorded, j1b's
 		// discovery-interview scenarios use j1bRecorded. Attach whichever is
@@ -150,6 +174,11 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		if step.MockRecorded != "" {
 			c = godog.Attach(c, godog.Attachment{
 				Body: []byte(step.MockRecorded), FileName: "mock-recorded.txt", MediaType: "text/plain",
+			})
+		}
+		if step.Materialized != "" {
+			c = godog.Attach(c, godog.Attachment{
+				Body: []byte(step.Materialized), FileName: "materialized.txt", MediaType: "text/plain",
 			})
 		}
 		return c, nil

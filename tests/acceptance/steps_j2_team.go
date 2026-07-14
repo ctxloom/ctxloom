@@ -60,6 +60,13 @@ type j2State struct {
 	bobOutput  string // last command's combined stdout+stderr run in Bob's checkout
 	bobExit    int
 	skillName  string // the skill name scenarios 1/3 authored/edited (default "conventional-commits")
+
+	// bobFileBody is the most recently read materialized command/context file
+	// from Bob's checkout (set by findBobCommandFile). J2's teammate-side
+	// assertions read Bob's files directly rather than through w.env, so this is
+	// the only place the @doc capture sidecar can see the content that actually
+	// reached Bob — the marker-bearing proof that propagation worked.
+	bobFileBody string
 }
 
 // j2 returns (lazily allocating) this scenario's J2 state.
@@ -420,6 +427,7 @@ func findBobCommandFile(w *World, skillName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	w.j2().bobFileBody = string(data)
 	return string(data), nil
 }
 

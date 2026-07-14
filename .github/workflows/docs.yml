@@ -8,11 +8,18 @@ on:
       - 'website/**'
       - 'README.md'
       - 'VERSION'
+      # The living-docs pipeline renders website/src/content/docs/journeys/
+      # (gitignored, not checked in — see .gitignore) from these sources at
+      # build time, so a change to any of them must redeploy the docs even
+      # though 'website/**' above doesn't see it.
+      - 'tests/acceptance/**'
+      - 'scripts/gendocs/livingdocs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: read
   pages: write
   id-token: write
 
@@ -23,8 +30,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The living-docs step below needs a real `ctxloom` binary (the godog
+    # suite execs it as a subprocess), which needs generated protobuf code
+    # (buf/protoc-gen-go, gitignored — see internal/agentcoord) that only the
+    # devcontainer image carries. Reuses the SAME image ci.yml's build-container
+    # job publishes (":latest" on every push to main; a fresh checkout of THIS
+    # commit's source is what actually gets built, so a same-day image lag is
+    # harmless — the image only supplies the toolchain, never the source).
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/setup-node@v4
         with:
@@ -37,6 +61,20 @@ jobs:
           VERSION=$(cat VERSION | tr -d 'v')
           echo "Injecting version: $VERSION"
           find website/src -name "*.md" -o -name "*.mdx" | xargs sed -i "s/{{VERSION}}/$VERSION/g"
+
+      # The godog suite execs the real ctxloom binary as a subprocess, resolved
+      # from PATH (see ci.yml's acceptance job, same requirement).
+      - name: Add binaries to PATH
+        run: echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
+
+      # Living docs: build ctxloom, run the acceptance suite with per-scenario
+      # evidence capture on, then render website/src/content/docs/journeys/
+      # from that run's REAL captured output — BEFORE the site build below, so
+      # the pages exist for npm to pick up. Refuses (nonzero exit, writes
+      # nothing) if any @doc scenario's capture has a non-passed step: a
+      # feature that does not work cannot be documented.
+      - name: Generate living-docs journey pages
+        run: just -f justfile.container gen-living-docs
 
       - name: Install dependencies
         working-directory: website

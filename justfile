@@ -595,6 +595,23 @@ docs-build:
 docs-preview:
     cd website && npm run preview
 
+# Generate the "living docs" journey pages: run the acceptance suite with
+# per-scenario evidence capture enabled, then render website/src/content/docs/
+# journeys/ from that run's REAL captured output (tests/acceptance/
+# steps_doc_capture.go + scripts/gendocs/livingdocs). The generator refuses
+# (nonzero exit, writes nothing) if any @doc scenario's capture has a
+# non-passed step — a broken feature cannot be documented.
+#
+# Generated pages are gitignored, not checked in (see .gitignore): they are
+# produced fresh from this run's capture, so they can never be stale. Neither
+# `docs` (dev server) nor `docs-build` depends on this — like `gen-docs`
+# (the CLI/MCP/config reference generator), it is a separate, explicit step so
+# a docs preview never forces a full acceptance run. CI's docs deploy workflow
+# (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
+gen-living-docs: build
+    CTXLOOM_DOC_CAPTURE_DIR=.cache/doc-capture go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir .cache/doc-capture
+
 # Initialize .ctxloom directory
 init:
     ./ctxloom init

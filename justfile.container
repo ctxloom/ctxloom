@@ -234,6 +234,15 @@ test-integration: build
 test-acceptance: build
     go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Generate the "living docs" journey pages inside the container: same as the
+# host justfile's gen-living-docs, but via this file's own `build` (no
+# docker-in-docker) — this is how the docs deploy workflow
+# (.github/workflows/docs.yml) runs it, mirroring how the acceptance job
+# invokes `just -f justfile.container test-acceptance`.
+gen-living-docs: build
+    CTXLOOM_DOC_CAPTURE_DIR=.cache/doc-capture go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir .cache/doc-capture
+
 # Run the docker-gated container transport integration tests (see the host
 # justfile's test-docker-integration for the full explanation). Requires the
 # devcontainer image to be run with the host's container runtime reachable

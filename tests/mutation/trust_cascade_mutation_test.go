@@ -188,3 +188,40 @@ func TestTrustCascadeMutation(t *testing.T) {
 		ooze.WithMinimumThreshold(0),
 	)
 }
+
+// TestTrustCascadeGuardMutation is the measurement that actually answers the
+// security question, and it exists because the stock run above CANNOT.
+//
+// The stock viruses mutate comparisons and arithmetic only. Five of the seven
+// EffectiveTrust steps — REJECTED, RETRACTED, LOCAL, BUILTIN, APPROVED — are
+// plain boolean guards with no comparison in them, so the stock run emits zero
+// mutants against them (verified: 0 of 114). A green "no survivors in the
+// cascade" from that run therefore means "the tool never attacked the
+// cascade", not "the cascade is covered" — exactly the kind of comfortable
+// non-measurement this project has been burned by four times.
+//
+// This test releases ONLY guardNegate (see guard_virus.go), which negates each
+// of those five guards in turn — five mutants, each one a direct assault on a
+// single step of the deny cascade. A survivor here is a mechanism the journeys
+// CLAIM to enforce and do not.
+func TestTrustCascadeGuardMutation(t *testing.T) {
+	root := repoRoot(t)
+
+	ignorePattern, ignoredCount := buildIgnorePattern(t, root)
+	if ignoredCount < 400 {
+		t.Fatalf("only %d files queued for ignoring — repoRoot() likely wrong: %s", ignoredCount, root)
+	}
+
+	testCmd := "sh " + filepath.ToSlash(filepath.Join("tests", "mutation", "run_scoped_suite.sh"))
+	if err := os.Setenv("ACCEPTANCE_PATHS", strings.Join(scopedFeatures, ",")); err != nil {
+		t.Fatalf("setting ACCEPTANCE_PATHS: %v", err)
+	}
+
+	ooze.Release(t,
+		ooze.WithRepositoryRoot(root),
+		ooze.IgnoreSourceFiles(ignorePattern.String()),
+		ooze.WithTestCommand(testCmd),
+		ooze.WithViruses(newGuardNegate()),
+		ooze.WithMinimumThreshold(0),
+	)
+}

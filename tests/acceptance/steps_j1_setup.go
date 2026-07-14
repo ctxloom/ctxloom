@@ -265,6 +265,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("read materialized out/CLAUDE.md: %w", err)
 		}
+		w.docStepMaterialized = body // the delivered context, proving the held marker is absent
 		if strings.Contains(body, j1ThirdPartyMarker) {
 			return fmt.Errorf("materialized context unexpectedly contains the held third-party marker:\n%s", body)
 		}
@@ -335,6 +336,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("read materialized out2/CLAUDE.md: %w", err)
 		}
+		w.docStepMaterialized = body // the delivered context after review: approved marker present, rejected absent
 		if !strings.Contains(body, j1HeldFirstMarker) {
 			return fmt.Errorf("materialized context does not contain the approved item's marker:\n%s", body)
 		}

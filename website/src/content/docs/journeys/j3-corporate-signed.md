@@ -87,7 +87,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -95,28 +95,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-3826975661/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-1418880727/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:j15m/RbwjP74NU7zlEEczx78nbQbdHGQ01SAxtLcEQY) — wrote /tmp/ctxloom-integration-3826975661/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:NGzFC45UqnDYj9uDxmvauI7laCltRoOsQNcllzeZx4A) — wrote /tmp/ctxloom-integration-1418880727/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice references the company's secure-coding bundle from her project
+When Alice references the company's secure-coding bundle from her project
 ```
 
 </div>
@@ -133,7 +133,7 @@ Pulled 1 items:
 <div class="ldc">
 
 ```gherkin
-Alice starts a session
+And Alice starts a session
 ```
 
 </div>
@@ -151,13 +151,87 @@ Materialized default → out (claude-code)
 <div class="ldc">
 
 ```gherkin
-her assistant receives the company's secure-coding guidance, because the company key signed it
+Then her assistant receives the company's secure-coding guidance, because the company key signed it
 ```
 
 </div>
 <div class="ldc">
 
+```text
+# Example Fragment
 
+Add your content here.
+
+---
+
+J3-COMPANY-SECURECODING-MARKER
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
+```
 
 </div>
 </div>
@@ -185,7 +259,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -193,35 +267,35 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-4103138358/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-601601241/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:AH8XRANnugMo4mxlPmZ0Ksr3W8xu0xpS6c8GxyFKmcs) — wrote /tmp/ctxloom-integration-4103138358/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:QY0fAfqxhYYF1qv74svWhQYMeOkCr7bmKyo37kcIJd8) — wrote /tmp/ctxloom-integration-601601241/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Mallory alters the company's secure-coding bundle after it was signed
+And Mallory alters the company's secure-coding bundle after it was signed
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-added bundle: file:///tmp/ctxloom-integration-4103138358/remote-3308741036/remote.git@bundles/secure-coding
+added bundle: file:///tmp/ctxloom-integration-601601241/remote-3427465789/remote.git@bundles/secure-coding
 Modified profile "default"
 ```
 
@@ -229,17 +303,17 @@ Modified profile "default"
 <div class="ldc">
 
 ```gherkin
-Alice syncs her project
+When Alice syncs her project
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-ctxloom: warning: remote bundle "file:///tmp/ctxloom-integration-4103138358/remote-3308741036/remote.git@bundles/secure-coding" has a signature that does not verify over its content; withholding it: signature does not cover these bytes: signed by trent@example.com: verify: ssh: signature did not verify
-ctxloom: warning: skipping unresolved bundle "file:///tmp/ctxloom-integration-4103138358/remote-3308741036/remote.git@bundles/secure-coding": bundle not found: file:///tmp/ctxloom-integration-4103138358/remote-3308741036/remote.git@bundles/secure-coding
+ctxloom: warning: remote bundle "file:///tmp/ctxloom-integration-601601241/remote-3427465789/remote.git@bundles/secure-coding" has a signature that does not verify over its content; withholding it: signature does not cover these bytes: signed by trent@example.com: verify: ssh: signature did not verify
+ctxloom: warning: skipping unresolved bundle "file:///tmp/ctxloom-integration-601601241/remote-3427465789/remote.git@bundles/secure-coding": bundle not found: file:///tmp/ctxloom-integration-601601241/remote-3427465789/remote.git@bundles/secure-coding
 ctxloom: aborting startup: 1 fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:
-  - [trust-store] remote bundle "file:///tmp/ctxloom-integration-4103138358/remote-3308741036/remote.git@bundles/secure-coding" has a signature that does not verify over its content; withholding it: signature does not cover these bytes: signed by trent@example.com: verify: ssh: signature did not verify
+  - [trust-store] remote bundle "file:///tmp/ctxloom-integration-601601241/remote-3427465789/remote.git@bundles/secure-coding" has a signature that does not verify over its content; withholding it: signature does not cover these bytes: signed by trent@example.com: verify: ssh: signature did not verify
     fix: re-pull the bundle, or investigate the source — its signature does not cover its bytes
 ```
 
@@ -247,19 +321,89 @@ ctxloom: aborting startup: 1 fatal finding(s); fix them, or rerun with --degrade
 <div class="ldc">
 
 ```gherkin
-her assistant does not receive the altered guidance
+Then her assistant does not receive the altered guidance
 ```
 
 </div>
 <div class="ldc">
 
+```text
+# Example Fragment
 
+Add your content here.
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
+```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice is warned that the content's signature does not verify
+And Alice is warned that the content's signature does not verify
 ```
 
 </div>
@@ -298,7 +442,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -306,28 +450,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-3451066677/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-2859684672/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:U0WPj5iLyiLu6RC7w19Zr5xEcm5xvTDhSIE6MNw9A74) — wrote /tmp/ctxloom-integration-3451066677/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:GCrYGG9HepAho4gYfrUlbFiQLSC7D7E5pt8PG6UZP5E) — wrote /tmp/ctxloom-integration-2859684672/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-the company's bundle ships an MCP server and a hook
+And the company's bundle ships an MCP server and a hook
 ```
 
 </div>
@@ -344,7 +488,7 @@ Pulled 1 items:
 <div class="ldc">
 
 ```gherkin
-Alice starts a session
+When Alice starts a session
 ```
 
 </div>
@@ -362,25 +506,97 @@ Materialized default → out (claude-code)
 <div class="ldc">
 
 ```gherkin
-the MCP server appears in her assistant's configuration
+Then the MCP server appears in her assistant's configuration
 ```
 
 </div>
 <div class="ldc">
 
-
+```text
+{
+  "mcpServers": {
+    "ctxloom": {
+      "_ctxloom": "ctxloom-auto",
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/babbitt/workspace/worktrees/ctxloom--living-docs/ctxloom",
+      "cwd": "${CLAUDE_PROJECT_DIR}"
+    },
+    "demo-server": {
+      "_ctxloom": "bundle:file:///tmp/ctxloom-integration-2859684672/remote-3243944918/remote.git@bundles/secure-coding",
+      "args": [
+        "J3-MCP-EXEC-MARKER"
+      ],
+      "command": "/bin/echo"
+    },
+    "taskloom": {
+      "_ctxloom": "bundle:ctxloom:companion@taskloom",
+      "args": [
+        "mcp"
+      ],
+      "command": "taskloom"
+    }
+  }
+}
+```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-the hook appears in her assistant's configuration
+And the hook appears in her assistant's configuration
 ```
 
 </div>
 <div class="ldc">
 
-
+```text
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "ctxloom hook stamp-plan",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "ltk evaluate",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "ctxloom hook session-bind",
+            "type": "command"
+          },
+          {
+            "command": "echo J3-HOOK-EXEC-MARKER",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "command": "/home/babbitt/workspace/worktrees/ctxloom--living-docs/ctxloom hook hud",
+    "type": "command"
+  }
+}
+```
 
 </div>
 </div>
@@ -411,7 +627,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -419,28 +635,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-2105099690/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-3978424675/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:l/5pfZp+HDKnC6ZzYDcULuR+/fxRx9G0BMhWlAtl4Ck) — wrote /tmp/ctxloom-integration-2105099690/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:T5Ox/cAGIVmlWEbB/ye3dxDsF78YsIaVSel9Fbzmuw8) — wrote /tmp/ctxloom-integration-3978424675/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-the company's bundle ships an MCP server and a hook
+And the company's bundle ships an MCP server and a hook
 ```
 
 </div>
@@ -457,7 +673,7 @@ Pulled 1 items:
 <div class="ldc">
 
 ```gherkin
-Alice has rejected the hook
+And Alice has rejected the hook
 ```
 
 </div>
@@ -465,19 +681,19 @@ Alice has rejected the hook
 
 ```text
 Rejected secure-coding#hooks/session_start/0
-  repo:  file:///tmp/ctxloom-integration-2105099690/remote-3691304460/remote.git
+  repo:  file:///tmp/ctxloom-integration-3978424675/remote-1058734875/remote.git
   store: user
   UNSIGNED — recorded locally, not shareable (no signing key was available)
   ref block: recorded (sticky — survives content changes)
   content:   rejected in form(s) raw (blocks this content even if renamed/moved)
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-2105099690/remote-3691304460/remote.git@bundles/secure-coding#hooks/session_start/0: rejected
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3978424675/remote-1058734875/remote.git@bundles/secure-coding#hooks/session_start/0: rejected
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice starts a session
+When Alice starts a session
 ```
 
 </div>
@@ -489,32 +705,100 @@ Materialized default → out (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-2105099690/remote-3691304460/remote.git@bundles/secure-coding#hooks/session_start/0: rejected
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3978424675/remote-1058734875/remote.git@bundles/secure-coding#hooks/session_start/0: rejected
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-the MCP server still appears in her configuration
+Then the MCP server still appears in her configuration
 ```
 
 </div>
 <div class="ldc">
 
-
+```text
+{
+  "mcpServers": {
+    "ctxloom": {
+      "_ctxloom": "ctxloom-auto",
+      "args": [
+        "mcp"
+      ],
+      "command": "/home/babbitt/workspace/worktrees/ctxloom--living-docs/ctxloom",
+      "cwd": "${CLAUDE_PROJECT_DIR}"
+    },
+    "demo-server": {
+      "_ctxloom": "bundle:file:///tmp/ctxloom-integration-3978424675/remote-1058734875/remote.git@bundles/secure-coding",
+      "args": [
+        "J3-MCP-EXEC-MARKER"
+      ],
+      "command": "/bin/echo"
+    },
+    "taskloom": {
+      "_ctxloom": "bundle:ctxloom:companion@taskloom",
+      "args": [
+        "mcp"
+      ],
+      "command": "taskloom"
+    }
+  }
+}
+```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-the hook is absent, because she rejected it
+And the hook is absent, because she rejected it
 ```
 
 </div>
 <div class="ldc">
 
-
+```text
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "ctxloom hook stamp-plan",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "ltk evaluate",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "ctxloom hook session-bind",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "command": "/home/babbitt/workspace/worktrees/ctxloom--living-docs/ctxloom hook hud",
+    "type": "command"
+  }
+}
+```
 
 </div>
 </div>
@@ -544,7 +828,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -552,58 +836,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-350430238/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-2234869503/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:msAZ1GjJJP57vcf8fmpB/7TkJaei/3dxLjLhaTAiUmA) — wrote /tmp/ctxloom-integration-350430238/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:W9yLBuGJPfs+f1FVb/oJvjyzAKPJ/n8FhlDOJSaqRhk) — wrote /tmp/ctxloom-integration-2234869503/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice already receives the company's secure-coding guidance
-```
-
-</div>
-<div class="ldc">
-
-```text
-Materialized default → out (claude-code)
-  wrote context
-  wrote mcp
-  wrote settings
-  wrote skills
-```
-
-</div>
-<div class="ldc">
-
-```gherkin
-Trent retracts that version of the bundle
-```
-
-</div>
-<div class="ldc">
-
-
-
-</div>
-<div class="ldc">
-
-```gherkin
-Alice syncs her project
+And Alice already receives the company's secure-coding guidance
 ```
 
 </div>
@@ -615,14 +869,89 @@ Materialized default → out (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-350430238/remote-1317205794/remote.git@bundles/secure-coding#fragments/guidance: retracted by the publisher (found to be incorrect guidance; do not use)
+```
+
+```text
+# Example Fragment
+
+Add your content here.
+
+---
+
+J3-COMPANY-SECURECODING-MARKER
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice is told the content was retracted
+When Trent retracts that version of the bundle
 ```
 
 </div>
@@ -634,13 +963,122 @@ Alice is told the content was retracted
 <div class="ldc">
 
 ```gherkin
-her assistant no longer receives it
+And Alice syncs her project
 ```
 
 </div>
 <div class="ldc">
 
+```text
+Materialized default → out (claude-code)
+  wrote context
+  wrote mcp
+  wrote settings
+  wrote skills
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2234869503/remote-565302010/remote.git@bundles/secure-coding#fragments/guidance: retracted by the publisher (found to be incorrect guidance; do not use)
+```
 
+</div>
+<div class="ldc">
+
+```gherkin
+Then Alice is told the content was retracted
+```
+
+</div>
+<div class="ldc">
+
+```text
+Pulling dependencies...
+
+Pulled 1 items:
+  Retracted: 1
+    - file:///tmp/ctxloom-integration-2234869503/remote-565302010/remote.git@bundles/secure-coding: retracted (found to be incorrect guidance; do not use)
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2234869503/remote-565302010/remote.git@bundles/secure-coding#fragments/guidance: retracted by the publisher (found to be incorrect guidance; do not use)
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-2234869503/remote-565302010/remote.git@bundles/secure-coding#fragments/guidance: retracted by the publisher (found to be incorrect guidance; do not use)
+```
+
+</div>
+<div class="ldc">
+
+```gherkin
+And her assistant no longer receives it
+```
+
+</div>
+<div class="ldc">
+
+```text
+# Example Fragment
+
+Add your content here.
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
+```
 
 </div>
 </div>
@@ -678,7 +1116,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -686,28 +1124,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-3819694196/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-669546259/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:lsb3R5anQbSeKxi2LtnH7gWkA889M6t7aaURGA046ys) — wrote /tmp/ctxloom-integration-3819694196/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:hhPF/qyc+iyM/bm32373amMsKJMI/yhHcGKo/P4PetI) — wrote /tmp/ctxloom-integration-669546259/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice receives several bundles the company signed with its key
+And Alice receives several bundles the company signed with its key
 ```
 
 </div>
@@ -725,7 +1163,7 @@ Pulled 3 items:
 <div class="ldc">
 
 ```gherkin
-the company key is compromised
+When the company key is compromised
 ```
 
 </div>
@@ -737,21 +1175,21 @@ the company key is compromised
 <div class="ldc">
 
 ```gherkin
-Alice revokes her trust in the company key
+And Alice revokes her trust in the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-removed 1 entry for trent@example.com from /tmp/ctxloom-integration-3819694196/project/.ctxloom/allowed_signers
+removed 1 entry for trent@example.com from /tmp/ctxloom-integration-669546259/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice syncs her project
+And Alice syncs her project
 ```
 
 </div>
@@ -763,28 +1201,98 @@ Materialized default → out (claude-code)
   wrote mcp
   wrote settings
   wrote skills
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-3819694196/remote-2603258080/remote.git@bundles/extra-a#fragments/guidance: awaiting review — run 'ctxloom review'
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-3819694196/remote-2769386308/remote.git@bundles/secure-coding#fragments/guidance: awaiting review — run 'ctxloom review'
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-3819694196/remote-3655746103/remote.git@bundles/extra-b#fragments/guidance: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-669546259/remote-1589912223/remote.git@bundles/extra-a#fragments/guidance: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-669546259/remote-2861520963/remote.git@bundles/extra-b#fragments/guidance: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-669546259/remote-3857941511/remote.git@bundles/secure-coding#fragments/guidance: awaiting review — run 'ctxloom review'
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-her assistant no longer receives any content signed by that key
+Then her assistant no longer receives any content signed by that key
 ```
 
 </div>
 <div class="ldc">
 
+```text
+# Example Fragment
 
+Add your content here.
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
+```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-that content is held for her review, as if it had never been signed
+And that content is held for her review, as if it had never been signed
 ```
 
 </div>
@@ -793,13 +1301,13 @@ that content is held for her review, as if it had never been signed
 ```text
 3 item(s) pending review (0 update(s)):
 
-file:///tmp/ctxloom-integration-3819694196/remote-2603258080/remote.git@bundles/extra-a (remote: company-extra-a)
+file:///tmp/ctxloom-integration-669546259/remote-1589912223/remote.git@bundles/extra-a (remote: company-extra-a)
   new      fragments/guidance
 
-file:///tmp/ctxloom-integration-3819694196/remote-2769386308/remote.git@bundles/secure-coding (remote: company)
+file:///tmp/ctxloom-integration-669546259/remote-2861520963/remote.git@bundles/extra-b (remote: company-extra-b)
   new      fragments/guidance
 
-file:///tmp/ctxloom-integration-3819694196/remote-3655746103/remote.git@bundles/extra-b (remote: company-extra-b)
+file:///tmp/ctxloom-integration-669546259/remote-3857941511/remote.git@bundles/secure-coding (remote: company)
   new      fragments/guidance
 
 Run 'ctxloom review' in a terminal to review interactively, or use the
@@ -836,7 +1344,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Trent's company publishes a "secure-coding" bundle, signed with the company key
+Given Trent's company publishes a "secure-coding" bundle, signed with the company key
 ```
 
 </div>
@@ -844,28 +1352,28 @@ Trent's company publishes a "secure-coding" bundle, signed with the company key
 
 ```text
 Created profile "default" with bundles: seed
-Saved to: /tmp/ctxloom-integration-1477056091/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-3440954141/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice trusts the company key
+And Alice trusts the company key
 ```
 
 </div>
 <div class="ldc">
 
 ```text
-Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:Pfn7mNBKe0V7+pOKatxhz6Pu80N0rK17lYPNP/sq4sE) — wrote /tmp/ctxloom-integration-1477056091/project/.ctxloom/allowed_signers
+Trusted trent@example.com for publish.v1.ctxloom.dev (SHA256:iQ6DfAFO++VQ0gH2KVc8rkLB4hFo8djSAGfkA9KKhR8) — wrote /tmp/ctxloom-integration-3440954141/project/.ctxloom/allowed_signers
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice has no signing key available
+And Alice has no signing key available
 ```
 
 </div>
@@ -876,15 +1384,39 @@ Pulling dependencies...
 
 Pulled 1 items:
   Installed: 1
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-1477056091/remote-3634427688/remote.git@bundles/bystander#fragments/guidance: awaiting review — run 'ctxloom review'
-ctxloom: warning: withheld file:///tmp/ctxloom-integration-1477056091/remote-3634427688/remote.git@bundles/bystander#fragments/guidance: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3440954141/remote-3276345022/remote.git@bundles/bystander#fragments/guidance: awaiting review — run 'ctxloom review'
+ctxloom: warning: withheld file:///tmp/ctxloom-integration-3440954141/remote-3276345022/remote.git@bundles/bystander#fragments/guidance: awaiting review — run 'ctxloom review'
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Alice tries to record a review decision into the team's shared store
+When Alice tries to record a review decision into the team's shared store
+```
+
+</div>
+<div class="ldc">
+
+```text
+Error: no signing key available (ctxloom: cannot sign — no signing key found.
+
+  Looked for: git config user.signingkey, then ssh-agent identities.
+  SSH_AUTH_SOCK is not set — no ssh-agent to sign with
+
+  ssh-add ~/.ssh/id_ed25519            # load a key you already have
+  ssh-keygen -t ed25519-sk             # or a hardware key (recommended)
+
+Publishing unsigned means every user of this bundle must review it by hand.
+To publish unsigned anyway: ctxloom fragment push my-frag --no-sign
+) — 'ctxloom review --project' requires one; run 'ssh-add ~/.ssh/id_ed25519' and try again, or review without --project
+```
+
+</div>
+<div class="ldc">
+
+```gherkin
+Then ctxloom refuses, because a team decision must be signed
 ```
 
 </div>
@@ -896,19 +1428,7 @@ Alice tries to record a review decision into the team's shared store
 <div class="ldc">
 
 ```gherkin
-ctxloom refuses, because a team decision must be signed
-```
-
-</div>
-<div class="ldc">
-
-
-
-</div>
-<div class="ldc">
-
-```gherkin
-nothing is written to the team store
+And nothing is written to the team store
 ```
 
 </div>

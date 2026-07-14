@@ -41,9 +41,10 @@ type World struct {
 	docCapture          *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
 	docFileName         string      // filename this scenario's capture flushes to
 	docLastMockRecorded string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
-	docLastCLIOutput    string      // last CLI output already attributed to a step, so a no-op step doesn't inherit the PREVIOUS step's output
+	docLastRunCount     int         // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
 	docLastBobOutput    string      // J2: last teammate-checkout output already attributed (separate stream from w.env)
-	docLastBobFile      string      // J2: last materialized teammate file body already attributed
+	docPrevStepType     string      // previous step's PickleStepType, to reconstruct And/But from a run of same-type steps for Gherkin keyword rendering
+	docStepMaterialized string      // set-and-consume: evidence a step observed that never flows through w.env (a file it read, a captured PTY session, a pre-materialize sync notice); the hook attaches it to that step and clears it
 }
 
 type worldKey struct{}

@@ -144,6 +144,11 @@ func j3ReadMaterialized(w *World) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read materialized out/CLAUDE.md (materialize output:\n%s): %w", w.env.LastOutput(), err)
 	}
+	// Surface the assembled context to the @doc capture sidecar (set-and-consume;
+	// no-op when capture is off): the delivered CLAUDE.md is the marker-bearing
+	// proof — present for a positive scenario, absent for a withheld/retracted/
+	// revoked one — that no CLI stdout carries.
+	w.docStepMaterialized = body
 	return body, nil
 }
 
@@ -164,6 +169,10 @@ func j3AssertGeneratedFile(w *World, rel, marker string, present bool) error {
 	if err != nil {
 		return fmt.Errorf("read generated %s: %w", rel, err)
 	}
+	// Surface the generated executable-surface file (.mcp.json /
+	// settings.json) to the @doc capture sidecar — the delivery proof for the
+	// MCP-server/hook scenarios, which lives in a file rather than any stdout.
+	w.docStepMaterialized = body
 	has := strings.Contains(body, marker)
 	if present && !has {
 		return fmt.Errorf("generated %s does not contain %q; content:\n%s", rel, marker, body)
@@ -359,6 +368,10 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice is told the content was retracted$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := j3Of(w).lastSyncOutput
+		// The retraction notice lives in the pull's OWN output, captured before
+		// the subsequent materialize overwrote w.env.LastOutput() — so surface
+		// it explicitly to the @doc sidecar, which only sees w.env otherwise.
+		w.docStepMaterialized = out
 		if !strings.Contains(out, "retracted") {
 			return fmt.Errorf("sync output does not mention retraction; output:\n%s", out)
 		}
@@ -498,6 +511,9 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		j3 := j3Of(w)
 		j3.reviewPTYOutput = sess.Output()
 		j3.reviewPTYExit = sess.ExitCode()
+		// The refusal ("no signing key available") is PTY output, invisible to
+		// the @doc sidecar's w.env view — surface it as this step's evidence.
+		w.docStepMaterialized = j3.reviewPTYOutput
 		return nil
 	})
 

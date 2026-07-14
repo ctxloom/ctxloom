@@ -257,7 +257,12 @@ def render_step_grid(cap):
     output."""
     lines = [GRID_OPEN]
     for step in cap["steps"]:
-        left = fenced(step["text"], "gherkin")
+        # Prefix the reconstructed Gherkin keyword (Given/When/Then/And) so the
+        # gherkin grammar actually tokenizes/colors the line — a bare step
+        # sentence has no keyword to highlight.
+        kw = step.get("keyword", "")
+        gherkin_line = (kw + " " + step["text"]).strip() if kw else step["text"]
+        left = fenced(gherkin_line, "gherkin")
         right_parts = []
         if step.get("cli_output"):
             right_parts.append(fenced(step["cli_output"], "text"))

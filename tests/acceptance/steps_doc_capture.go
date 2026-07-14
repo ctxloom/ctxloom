@@ -52,15 +52,37 @@ type docCapture struct {
 // terminal evidence the harness observed became available immediately after
 // that step ran.
 type docCaptureStep struct {
-	Text         string `json:"text"`
-	Status       string `json:"status"`
+	Text    string `json:"text"`
+	Keyword string `json:"keyword,omitempty"` // reconstructed Gherkin keyword (Given/When/Then/And) for syntax highlighting
+	Status  string `json:"status"`
+
 	CLIOutput    string `json:"cli_output,omitempty"`
 	MockRecorded string `json:"mock_recorded,omitempty"`
-	// Materialized is content read straight from a teammate's checkout (J2:
-	// findBobCommandFile) — the marker-bearing file that actually reached the
-	// teammate, which is proof no CLI stdout carries. Rendered as its own
-	// captured block.
+	// Materialized is evidence a step observed that never flowed through
+	// w.env.LastOutput(): a file it read (J2 teammate's materialized skill,
+	// J3's assembled CLAUDE.md / generated .mcp.json / settings.json), a
+	// captured PTY session (J3 forgery refusal), or a sync notice that a later
+	// materialize overwrote (J3 retraction). Marker-bearing proof no CLI stdout
+	// carries; rendered as its own captured block.
 	Materialized string `json:"materialized,omitempty"`
+}
+
+// gherkinKeyword reconstructs a Gherkin keyword from a pickle step's Type.
+// Pickles drop the authored keyword and keep only a coarse Type (Context /
+// Action / Outcome), so And/But — which inherit the governing keyword's Type —
+// are recovered by collapsing a run of same-type steps to "And" after the
+// first. For these features that reproduces the authored keywords verbatim
+// (they use Given/When/Then + And, no But). Unknown-type steps get no keyword.
+func gherkinKeyword(stepType, prevType string) string {
+	primary := map[string]string{"Context": "Given", "Action": "When", "Outcome": "Then"}
+	kw, ok := primary[stepType]
+	if !ok {
+		return ""
+	}
+	if stepType == prevType {
+		return "And"
+	}
+	return kw
 }
 
 // scenarioIDRe turns a scenario name (+ Examples row, for Outlines) into a
@@ -109,6 +131,14 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		}
 		w.docCapture = &docCapture{Scenario: sc.Name, Feature: sc.Uri, Tags: tags}
 		w.docFileName = scenarioFileName(sc)
+		// Per-scenario reset of the cross-step trackers so one scenario's tail
+		// state never bleeds into the next.
+		w.docPrevStepType = ""
+		w.docLastBobOutput = ""
+		w.docStepMaterialized = ""
+		if w.env != nil {
+			w.docLastRunCount = w.env.RunCount()
+		}
 		return c, nil
 	})
 
@@ -118,22 +148,29 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 			return c, nil
 		}
 		step := docCaptureStep{Text: st.Text, Status: status.String()}
+		step.Keyword = gherkinKeyword(string(st.Type), w.docPrevStepType)
+		w.docPrevStepType = string(st.Type)
+
 		if w.env != nil {
-			// Only attribute CLI output to THIS step if it's new since the last
-			// step that had any — env.LastOutput() persists across no-op steps
-			// (steps that run no CLI command, e.g. a scene-setting Given), so
-			// without this guard a no-op step would misleadingly inherit the
-			// PREVIOUS step's captured output as if it had produced it too.
-			if out := w.env.LastOutput(); out != "" && out != w.docLastCLIOutput {
-				step.CLIOutput = out
-				w.docLastCLIOutput = out
+			// Attribute CLI output to THIS step only if a command actually ran
+			// during it — env.RunCount() advances per invocation, so this
+			// distinguishes "a command ran (even one whose output is identical
+			// to the previous step's, e.g. two materialize calls)" from "no
+			// command ran and LastOutput is just stale from an earlier step".
+			// The earlier string-equality guard suppressed the former by
+			// mistake; the counter does not.
+			if rc := w.env.RunCount(); rc != w.docLastRunCount {
+				if out := w.env.LastOutput(); out != "" {
+					step.CLIOutput = out
+				}
+				w.docLastRunCount = rc
 			}
 		}
 		// J2 runs the teammate's (Bob's) commands in a separate checkout via its
-		// own exec plumbing, so that output never touches w.env.LastOutput().
-		// Surface it — and the materialized file that actually reached him — on
-		// the same new-since-last-step basis so each teammate-side step shows
-		// its real evidence rather than inheriting a prior step's.
+		// own exec plumbing, so that output never touches w.env.LastOutput() or
+		// its run counter. Surface it on a new-since-last-step basis so each
+		// teammate-side step shows its real output rather than inheriting a
+		// prior step's.
 		if w.j2s != nil {
 			if bob := w.j2s.bobOutput; bob != "" && bob != w.docLastBobOutput {
 				if step.CLIOutput == "" {
@@ -143,10 +180,14 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 				}
 				w.docLastBobOutput = bob
 			}
-			if body := w.j2s.bobFileBody; body != "" && body != w.docLastBobFile {
-				step.Materialized = body
-				w.docLastBobFile = body
-			}
+		}
+		// Set-and-consume evidence a step observed off w.env's streams entirely
+		// (a file it read, a captured PTY session, a sync notice a later
+		// materialize overwrote). The step that produced it set it during its
+		// own execution; attach it here and clear so it never bleeds onward.
+		if w.docStepMaterialized != "" {
+			step.Materialized = w.docStepMaterialized
+			w.docStepMaterialized = ""
 		}
 		// Whichever mock-recorded slot this scenario populated most recently —
 		// j1_setup's restart-delivery scenario uses j1RestartRecorded, j1b's

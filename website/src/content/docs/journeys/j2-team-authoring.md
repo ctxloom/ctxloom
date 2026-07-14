@@ -89,7 +89,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Carol is working in the team's project
+Given Carol is working in the team's project
 ```
 
 </div>
@@ -97,26 +97,14 @@ Carol is working in the team's project
 
 ```text
 Created profile "default" with bundles: team-standards
-Saved to: /tmp/ctxloom-integration-2108150703/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-1798215892/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Carol authors a "conventional-commits" skill
-```
-
-</div>
-<div class="ldc">
-
-
-
-</div>
-<div class="ldc">
-
-```gherkin
-she commits it to the project
+When Carol authors a "conventional-commits" skill
 ```
 
 </div>
@@ -128,7 +116,7 @@ she commits it to the project
 <div class="ldc">
 
 ```gherkin
-Bob pulls the project
+And she commits it to the project
 ```
 
 </div>
@@ -140,7 +128,19 @@ Bob pulls the project
 <div class="ldc">
 
 ```gherkin
-Bob's assistant can invoke the conventional-commits skill
+And Bob pulls the project
+```
+
+</div>
+<div class="ldc">
+
+
+
+</div>
+<div class="ldc">
+
+```gherkin
+Then Bob's assistant can invoke the conventional-commits skill
 ```
 
 </div>
@@ -162,7 +162,7 @@ J2-CONVENTIONAL-COMMITS-V1-USE-IMPERATIVE-MOOD-IN-THE-SUBJECT-LINE
 <div class="ldc">
 
 ```gherkin
-it reached him without any review, because the project is first-party
+And it reached him without any review, because the project is first-party
 ```
 
 </div>
@@ -200,7 +200,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Carol has authored a verbose fragment in the project
+Given Carol has authored a verbose fragment in the project
 ```
 
 </div>
@@ -208,14 +208,14 @@ Carol has authored a verbose fragment in the project
 
 ```text
 Created profile "default" with bundles: team-standards
-Saved to: /tmp/ctxloom-integration-2047290163/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-2869571177/project/.ctxloom/profiles/default.yaml
 ```
 
 </div>
 <div class="ldc">
 
 ```gherkin
-Carol distills the fragment
+When Carol distills the fragment
 ```
 
 </div>
@@ -229,7 +229,7 @@ Distilled guidance (mock-model)
 <div class="ldc">
 
 ```gherkin
-she commits both forms
+And she commits both forms
 ```
 
 </div>
@@ -241,7 +241,7 @@ she commits both forms
 <div class="ldc">
 
 ```gherkin
-Bob pulls the project with distilled context enabled
+And Bob pulls the project with distilled context enabled
 ```
 
 </div>
@@ -253,7 +253,7 @@ Bob pulls the project with distilled context enabled
 <div class="ldc">
 
 ```gherkin
-Bob's assistant receives the distilled guidance
+Then Bob's assistant receives the distilled guidance
 ```
 
 </div>
@@ -267,17 +267,155 @@ Materialized default → out (claude-code)
   wrote skills
 ```
 
-</div>
-<div class="ldc">
+```text
+J2-DISTILLED-COMPACT-FRAGMENT-GUIDANCE
 
-```gherkin
-it does not receive the verbose original
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
 ```
 
 </div>
 <div class="ldc">
 
+```gherkin
+And it does not receive the verbose original
+```
 
+</div>
+<div class="ldc">
+
+```text
+J2-DISTILLED-COMPACT-FRAGMENT-GUIDANCE
+
+---
+
+# llm-tool-killer (ltk)
+
+This project may run **ltk**, a pre-tool hook that inspects each shell
+command before it executes and redirects it when a rule matches. Where
+ctxloom shapes the context you see, ltk guides the commands you run.
+
+## What it does
+
+ltk parses the real command (resolving variables, unwrapping trivial
+wrappers and sub-shells) and matches it against the project's rules in
+`.ltk/config.yaml`. The first matching `deny` wins and returns a
+`message`/`suggest` telling you what to run instead. Example:
+
+    go test ./...   ->   blocked: "Run tests through the task runner."
+                    ->   retry with `just test`
+
+## How to work with it
+
+- Treat a redirect as guidance, not a failure: read the suggestion and
+  retry the command the way the rule asks.
+- Prefer the project's task runner (e.g. `just <target>`) over invoking
+  build/test/lint tools directly.
+- **Agents do not cut releases.** ltk blocks `git tag` and release
+  commands. Prepare the version bump and PR; a human (or CI) cuts the tag.
+
+## What it is not
+
+ltk is a cooperative redirect, not a sandbox. If explicitly instructed
+to work around a rule the agent can, so it makes the easy, accidental
+path the right one rather than enforcing hard isolation. For strict
+"never" boundaries, run the agent in a container.
+
+---
+
+# taskloom
+
+Persistent task tracking. Tasks live in a per-project append-only log
+(~/.ctxloom/tasks/<project-id>.jsonl) and are keyed by harp IDs
+(e.g. `swift-amber-falcon`). Statuses: `In Progress`, `To Do`,
+`Deferred`, `Done`, `Archived`.
+
+## MCP tools (served by `taskloom mcp`)
+
+- `task_list({statuses?, term?, include_completed?, include_summary?})`
+  — list/filter tasks. Set `include_summary: true` to also get
+  per-status counts plus the in-progress harp IDs.
+- `task_add({text, status?, trigger?})` — add a task with a fresh
+  harp ID. Default status is `"To Do"`; `"Deferred"` requires a
+  `trigger` (the condition that should revive it).
+- `task_set_status({harp_id, status, trigger?})` — move a task
+  between statuses.
+- `task_edit({harp_id, text})` — replace a task's text in place.
+
+Tasks are created and updated only through these tools (or the
+`taskloom` CLI). The harp ID appears in `task_list` output so you can
+reference a specific task in later calls.
+
+## Plan stamping
+
+When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+`docs/*-plan.md`), the active session's harp name is auto-stamped
+into the file's YAML frontmatter `sessions:` list. Plans and
+sessions cross-reference without a separate database.
+```
 
 </div>
 </div>
@@ -310,7 +448,7 @@ Every step below actually ran against a real `ctxloom` binary; nothing here is h
 <div class="ldc">
 
 ```gherkin
-Bob's assistant already has Carol's conventional-commits skill
+Given Bob's assistant already has Carol's conventional-commits skill
 ```
 
 </div>
@@ -318,7 +456,7 @@ Bob's assistant already has Carol's conventional-commits skill
 
 ```text
 Created profile "default" with bundles: team-standards
-Saved to: /tmp/ctxloom-integration-412830316/project/.ctxloom/profiles/default.yaml
+Saved to: /tmp/ctxloom-integration-3720829966/project/.ctxloom/profiles/default.yaml
 
 Materialized default → out (claude-code)
   wrote context
@@ -331,7 +469,7 @@ Materialized default → out (claude-code)
 <div class="ldc">
 
 ```gherkin
-Carol edits the skill
+When Carol edits the skill
 ```
 
 </div>
@@ -343,7 +481,7 @@ Carol edits the skill
 <div class="ldc">
 
 ```gherkin
-she commits the change
+And she commits the change
 ```
 
 </div>
@@ -355,7 +493,7 @@ she commits the change
 <div class="ldc">
 
 ```gherkin
-Bob pulls the project again
+And Bob pulls the project again
 ```
 
 </div>
@@ -367,7 +505,7 @@ Bob pulls the project again
 <div class="ldc">
 
 ```gherkin
-Bob's assistant has the updated skill
+Then Bob's assistant has the updated skill
 ```
 
 </div>
@@ -381,13 +519,15 @@ J2-CONVENTIONAL-COMMITS-V2-INCLUDE-A-SCOPE-IN-THE-SUBJECT-LINE
 <div class="ldc">
 
 ```gherkin
-it no longer has the previous version
+And it no longer has the previous version
 ```
 
 </div>
 <div class="ldc">
 
-
+```text
+J2-CONVENTIONAL-COMMITS-V2-INCLUDE-A-SCOPE-IN-THE-SUBJECT-LINE
+```
 
 </div>
 </div>

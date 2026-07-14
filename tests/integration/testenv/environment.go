@@ -45,6 +45,14 @@ type TestEnvironment struct {
 
 	// lastExitCode stores the exit code from the last command
 	lastExitCode int
+
+	// runCount is a monotonic count of CLI invocations (Run / RunWithStdin)
+	// whose output landed in lastOutput. It lets a caller distinguish "a
+	// command ran this step and happened to produce output identical to the
+	// previous step's" from "no command ran, lastOutput is just stale" — a
+	// difference lastOutput alone cannot express. Used by the @doc capture
+	// sidecar; harmless otherwise.
+	runCount int
 }
 
 // NewTestEnvironment creates a new isolated test environment.
@@ -382,6 +390,7 @@ func (e *TestEnvironment) Run(args ...string) error {
 	err := cmd.Run()
 	e.lastOutput = stdout.String() + stderr.String()
 	e.lastError = err
+	e.runCount++
 
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		e.lastExitCode = exitErr.ExitCode()
@@ -471,6 +480,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	err = cmd.Wait()
 	e.lastOutput = stdout.String() + stderr.String()
 	e.lastError = err
+	e.runCount++
 
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		e.lastExitCode = exitErr.ExitCode()
@@ -482,3 +492,8 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 
 	return err
 }
+
+// RunCount returns the monotonic number of CLI invocations whose output landed
+// in lastOutput. A change between two observations means a command actually ran
+// in the interim (see the runCount field).
+func (e *TestEnvironment) RunCount() int { return e.runCount }

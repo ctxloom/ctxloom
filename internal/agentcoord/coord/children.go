@@ -186,6 +186,8 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Prompt:      prompt,
 			Resume:      resume,
 			Ladder:      ladderToFact(plan.Ladder),
+			Permission:  plan.Perm.String(),
+			MCPServers:  mcpServerNames(plan.MCPServers),
 		})}, nil
 	}); err != nil {
 		return nil, "", err

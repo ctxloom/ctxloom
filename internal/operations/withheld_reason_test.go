@@ -63,7 +63,7 @@ func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
 	assert.Contains(t, reasons[gatePulledRef], "retracted")
 	assert.Contains(t, reasons[gatePulledRef], "found a security vulnerability",
 		"the publisher's stated retraction reason must be visible, content-free")
-	assert.Contains(t, reasons[gatePostgresRef], "pending review")
+	assert.Contains(t, reasons[gatePostgresRef], "awaiting review")
 	assert.Contains(t, reasons[gatePostgresRef], "ctxloom review",
 		"a pending item's reason must point at the action to take")
 
@@ -103,7 +103,7 @@ func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
 
 	stderr := captureStderr(t, func() { e.WarnWithheld() })
 
-	assert.Contains(t, stderr, gatePostgresRef+": pending review — run 'ctxloom review'")
+	assert.Contains(t, stderr, gatePostgresRef+": awaiting review — run 'ctxloom review'")
 	assert.Contains(t, stderr, gateHookRef+": rejected")
 	assert.Contains(t, stderr, gatePulledRef+": retracted by the publisher (found a security vulnerability)")
 }

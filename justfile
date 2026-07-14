@@ -319,8 +319,14 @@ test-integration-run PATTERN: build
 # Run the full-stack acceptance suite (godog): asserts each change across files,
 # CLI, and mock-agent MCP traffic. Hermetic by default (@live scenarios skipped).
 # Build runs in the devcontainer; the suite runs on the host like integration.
+# -v: without it, `go test` on a passing package buffers ALL of the test
+# binary's stdout (including the live-engine availability report printed once
+# up front, AND godog's own "pretty" per-scenario output) and only shows it on
+# failure — which had silently made every green CI run of this suite mute.
+# The report exists specifically so a run tells you what it covered even when
+# it passes; that only works if it is actually visible.
 test-acceptance: build
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the docker-gated container transport integration tests
 # (internal/lm/isolation/*_integration_test.go): builds a minimal image,
@@ -403,6 +409,7 @@ test-acceptance-live-container: container-build-acceptance
         -e HOME=/home/ctxloom \
         -e CTXLOOM_ACCEPTANCE_LIVE=1 \
         -e ACCEPTANCE_TAGS="~@network" \
+        -e CTXLOOM_LIVE_REQUIRE=claude \
         -e GOCACHE=/home/ctxloom/.cache/go-build \
         -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
         -e GOPATH=/home/ctxloom/go \
@@ -412,7 +419,7 @@ test-acceptance-live-container: container-build-acceptance
         {{registry}}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
-            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -tags "acceptance integration" -count=1 ./tests/acceptance/...'
+            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
 # Run a single package's tests under -race (fast local iteration)
 test-pkg PKG *ARGS:
@@ -501,6 +508,33 @@ test-mutation-container:
         -v "{{mutation_tmp}}:/mutation-tmp" \
         -e TMPDIR=/mutation-tmp \
         -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+
+# Mutate internal/operations/trust.go and drive the CUCUMBER acceptance suite
+# against a binary rebuilt from each mutant (github.com/gtramontina/ooze), not
+# `go test` against source like test-mutation-acceptance above. That is the
+# whole point: test-mutation-acceptance mutates source and runs `go test`,
+# but the acceptance suite execs a PRE-BUILT ctxloom binary
+# (tests/integration/testenv/environment.go) — a gremlins mutant never
+# reaches that already-compiled process (measured: 92 mutants on this same
+# file, 0 runnable, 92 NOT COVERED). ooze's laboratory instead symlinks the
+# repo into a tmpdir, overwrites ONLY the mutated file with real bytes at
+# that path (never the source tree), and runs
+# tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which
+# rebuilds ctxloom FROM the mutant and then runs the cucumber suite scoped
+# (ACCEPTANCE_PATHS) to trust_surface.feature + j3_corporate_signed.feature +
+# j7_incident.feature, the three that claim to cover the EffectiveTrust
+# cascade exhaustively. A survivor here is a mechanism one of those features
+# CLAIMS to cover but does not actually verify.
+#
+# Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
+# ~25-30s/mutant on this machine). Nightly/scoped, never a per-PR gate.
+# Scope is fixed to internal/operations/trust.go inside the test file itself
+# (tests/mutation/trust_cascade_mutation_test.go), built programmatically by
+# walking the repo and ignoring every other .go file — see that file's doc
+# comment for why (RE2 has no lookahead; ooze's own file discovery is as
+# scope-blind as gremlins').
+test-mutation-cucumber *ARGS:
+    go test -tags mutation -count=1 -timeout 120m ./tests/mutation/... {{ARGS}}
 
 # Clean build artifacts
 clean:
@@ -917,4 +951,4 @@ dev-shell: dev-image
 # TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
 # chain — proto artifacts are already generated on disk. Remove after use.
 test-acceptance-nobuild:
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...

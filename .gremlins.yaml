@@ -14,6 +14,21 @@ unleash:
   # never tested, so those land NOT COVERED/LIVED and drag both efficacy and
   # mutant-coverage down, which means every published number was computed over
   # a file set nobody intended to measure.
+  # SCOPE-BLIND DISCOVERY — why the list below is longer than you'd expect.
+  # gremlins finds mutants by walking the raw filesystem (engine.go's fs.WalkDir
+  # from the module root). It never calls `go list`, never notices a nested
+  # go.mod, and never evaluates //go:build tags — while its COVERAGE step runs an
+  # ordinary `go test ./...` that respects all three. So anything the walker sees
+  # but the compiler never compiled is scored NOT COVERED by construction, and it
+  # lands in the denominator.
+  #
+  # This wrecked the number: two leftover agent worktrees under .claude/ (each a
+  # full nested checkout of this same module) contributed 24,000 phantom mutants
+  # — 66% of the module total — and dragged reported mutant-coverage to 22.90%
+  # when the real figure for buildable first-party code is ~75%.
+  #
+  # PRECONDITION FOR A TRUSTWORTHY RUN: no nested go.mod under the tree, other
+  # than third_party/. Check with:  find . -name go.mod -not -path './go.mod'
   exclude-files:
     - ".*_test\\.go$"
     - ".*\\.pb\\.go$"
@@ -21,6 +36,16 @@ unleash:
     - ".*/testdata/.*"
     - "tests/integration/.*"
     - ".*/tests/integration/.*"
+    # Parity with tests/integration — the acceptance suite is //go:build
+    # acceptance, so `go test` with no tags never compiles it, yet the walker
+    # still mutates it. Was simply never added alongside its sibling.
+    - "tests/acceptance/.*"
+    - ".*/tests/acceptance/.*"
+    # Agent worktrees: nested checkouts of this module. Harness-created, recur
+    # as part of normal work here, invisible to `go list`.
+    - "^\\.claude/.*"
+    # Vendored fork with its own go.mod — never ours to measure.
+    - "^third_party/.*"
 
   # Don't run integration tests (use unit tests only for speed)
   integration: false

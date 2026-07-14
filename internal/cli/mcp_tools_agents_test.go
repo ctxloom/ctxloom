@@ -185,6 +185,89 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	}
 }
 
+// TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent is the JOURNAL
+// side of TestProdSpawner_ChildMCPServers_ScopedPerAgent's guarantee: the
+// same two disjoint-profile agents, but instead of inspecting what the
+// engine's ChatRequest received, this asserts what the "roster" MCP tool
+// (backed by Coordinator.ListRuns, see consumer.go's listRunsSnapshot)
+// reports — the only signal a REAL operator auditing their own coordinator
+// actually has. Before this test (and the fields it pins), roster showed
+// nothing about a child's permission or MCP servers at all.
+func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
+	cfg, root := delegationFixture(t, map[string]agents.Agent{
+		"workerA": headlessAgent("p-a"),
+		"workerB": headlessAgent("p-b"),
+	})
+	app := filepath.Join(root, ".ctxloom")
+	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-a.yaml"),
+		"version: \"1.0.0\"\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
+	writeDelegationFile(t, filepath.Join(app, "content", "bundles", "kit-b.yaml"),
+		"version: \"1.0.0\"\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
+	writeDelegationFile(t, filepath.Join(app, "profiles", "p-a.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-a\n")
+	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
+
+	resetStrictness(t)
+	spawns := &fakeChatEngineSpawns{}
+	c, err := coord.New(coord.Options{Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(), Factory: spawns.factory()})
+	require.NoError(t, err)
+	require.NoError(t, c.Serve())
+	t.Cleanup(c.Close)
+
+	s := &ctxServer{
+		cfg:  cfg,
+		self: coord.Identity{Harp: "coordinator-harp", Depth: 0},
+		agents: &agentDelegation{
+			self: coord.Identity{Harp: "coordinator-harp", Depth: 0},
+			c:    c,
+		},
+	}
+
+	_, _, err = s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "workerA", Prompt: "go"})
+	require.NoError(t, err)
+	_, _, err = s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "workerB", Prompt: "go"})
+	require.NoError(t, err)
+
+	var runs []*agentRunInfoWant
+	require.Eventually(t, func() bool {
+		result := c.ListRuns(true, "")
+		if len(result.GetRuns()) != 2 {
+			return false
+		}
+		runs = nil
+		for _, r := range result.GetRuns() {
+			runs = append(runs, &agentRunInfoWant{role: r.GetAgent().GetRole(), perm: r.GetPermissionMode(), servers: r.GetMcpServers()})
+		}
+		return true
+	}, 5*time.Second, 5*time.Millisecond, "roster never surfaced both spawned children")
+
+	var infoA, infoB *agentRunInfoWant
+	for _, r := range runs {
+		switch r.role {
+		case "workerA":
+			infoA = r
+		case "workerB":
+			infoB = r
+		}
+	}
+	require.NotNil(t, infoA, "roster must surface workerA's run")
+	require.NotNil(t, infoB, "roster must surface workerB's run")
+
+	assert.Equal(t, "bypass", infoA.perm, "roster must surface the child's resolved permission mode")
+	assert.Equal(t, "bypass", infoB.perm)
+	assert.Contains(t, infoA.servers, "server-a")
+	assert.NotContains(t, infoA.servers, "server-b", "workerA's roster entry must never list its sibling's MCP server")
+	assert.Contains(t, infoB.servers, "server-b")
+	assert.NotContains(t, infoB.servers, "server-a", "workerB's roster entry must never list its sibling's MCP server")
+}
+
+// agentRunInfoWant is a minimal projection of ListRunsResult_RunInfo for the
+// journaled-disjoint-per-agent assertion above.
+type agentRunInfoWant struct {
+	role    string
+	perm    string
+	servers []string
+}
+
 func hasMCPServer(servers []agent.ChatMCPServer, name string) bool {
 	for _, s := range servers {
 		if s.Name == name {

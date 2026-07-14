@@ -25,11 +25,12 @@ import (
 // materialized surface can be checked for exactly this payload (ASSERTION
 // DISCIPLINE — never a bare file-exists or exit-code proxy).
 const (
-	j5ContextMarker = "J5-CONTEXT-MARKER-3f8a91"
-	j5SkillMarker   = "J5-SKILL-BODY-MARKER-7c2d64"
-	j5MCPCommand    = "j5-mcp-tool-9e1b52"
-	j5HookCommand   = "echo J5-HOOK-COMMAND-4a6f18"
-	j5LiveSentinel  = "J5-LIVE-SENTINEL-PHRASE-2b9dfa"
+	j5ContextMarker      = "J5-CONTEXT-MARKER-3f8a91"
+	j5SkillMarker        = "J5-SKILL-BODY-MARKER-7c2d64"
+	j5MCPCommand         = "j5-mcp-tool-9e1b52"
+	j5HookCommand        = "echo J5-HOOK-COMMAND-4a6f18"
+	j5LiveSentinel       = "J5-LIVE-SENTINEL-PHRASE-2b9dfa"
+	j5HandAuthoredMarker = "J5-HAND-AUTHORED-MARKER-6d2e73: always use tabs, never spaces"
 )
 
 // j5State is J5's fixture state: which engine row (Outline A) is currently
@@ -114,14 +115,29 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 		return j5AssertSkill(worldFrom(c), engine)
 	})
 
-	// @wip: documents the confirmed materialize-only codex context gap (see the
-	// feature file's comment above that scenario) — this step's assertion is
-	// the CURRENT, honest behavior, not the desired one. It is meant to start
-	// FAILING the day profile_materialize.go is fixed to populate
-	// agent.SurfaceInputs.Fragments for codex, forcing an intentional update
-	// rather than silently continuing to under-test.
-	ctx.Step(`^the materialized codex context is not delivered at all, a known product gap$`, func(c context.Context) error {
-		return j5AssertCodexContextGap(worldFrom(c))
+	// --- Regression: lanky-plop (P0 data loss) --------------------------------
+	//
+	// A hand-authored context file must survive materialization byte-for-byte
+	// outside ctxloom's managed markers. The hand-authored step writes directly
+	// into the SAME target dir "Alice materializes the team profile for
+	// <engine>" derives deterministically ("out-"+engine), so it must run
+	// BEFORE that step in the Gherkin — Given/And ordering, not execution order
+	// inferred from step registration.
+
+	ctx.Step(`^Alice's team already hand-authored (\S+) for (\S+) with their own conventions$`, func(c context.Context, file, engine string) error {
+		w := worldFrom(c)
+		j5 := j5Of(w)
+		j5.engine = engine
+		j5.target = "out-" + engine
+		rel := filepath.Join(j5.target, file)
+		return w.env.WriteFile(rel, "# Team conventions\n"+j5HandAuthoredMarker+"\n")
+	})
+
+	ctx.Step(`^(\S+) still carries Alice's hand-authored conventions, byte-for-byte$`, func(c context.Context, file string) error {
+		w := worldFrom(c)
+		j5 := j5Of(w)
+		rel := filepath.Join(j5.target, file)
+		return j5FileContains(w, rel, j5HandAuthoredMarker)
 	})
 
 	// --- Outline B: live (@live, claude + antigravity only) -------------------
@@ -205,18 +221,22 @@ func j5Excerpt(body, marker string, context int) string {
 }
 
 // engineContextRelPath returns dir-relative path to an engine's own native
-// context surface (internal/{claude,kiro,antigravity}/surfaces.go). Shared
-// engine-axis knowledge: J5's own materialization outline uses it below, and
-// J4's onboarding journey reuses it rather than re-deriving a second copy of
-// the same per-engine path table (steps_j4_onboarding.go's "Bob starts a
-// session on <engine>" outline). codex is NOT one of the cases here — see
-// J5's @wip scenario and j5AssertCodexContextGap: `profile materialize` never
-// delivers codex's context at all today (a confirmed product gap), so no
-// caller of this function includes codex as a row.
+// context surface (internal/{claude,codex,kiro,antigravity}/surfaces.go).
+// Shared engine-axis knowledge: J5's own materialization outline uses it
+// below, and J4's onboarding journey reuses it rather than re-deriving a
+// second copy of the same per-engine path table (steps_j4_onboarding.go's
+// "Bob starts a session on <engine>" outline). codex is now a case here:
+// `profile materialize` used to leave its context surface a silent no-op
+// (taskloom tiny-ooze — keyed on agent.SurfaceInputs.Fragments, which
+// materialize never populates); codex's context surface now ALSO writes
+// AGENTS.md from agent.SurfaceInputs.Context, which materialize does
+// populate (internal/codex/surfaces.go's agentsMDSurface).
 func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
 	case "claude-code":
 		return filepath.Join(dir, "CLAUDE.md"), nil
+	case "codex":
+		return filepath.Join(dir, "AGENTS.md"), nil
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), nil
 	case "antigravity":
@@ -234,77 +254,6 @@ func j5AssertContext(w *World, engine string) error {
 		return err
 	}
 	return j5FileContains(w, rel, j5ContextMarker)
-}
-
-// j5AssertCodexContextGap asserts the CURRENT, confirmed-buggy behavior of
-// `profile materialize --backend codex`: no native context file (expected —
-// codex has none) AND no context cache file either (NOT expected — codex's
-// only context-delivery mechanism, driven by agent.SurfaceInputs.Fragments,
-// which profile_materialize.go never populates). This is the inverse of
-// j5AssertContext's codex-less cases on purpose: it documents a gap, not a
-// design choice, and is wired to the @wip scenario so it never gates the
-// green suite.
-func j5AssertCodexContextGap(w *World) error {
-	j5 := j5Of(w)
-	dir := j5.target
-	claudeStylePath := filepath.Join(dir, "CLAUDE.md")
-	if w.env.FileExists(claudeStylePath) {
-		return fmt.Errorf("codex unexpectedly wrote a native CLAUDE.md-style context file — codex has none")
-	}
-	cacheGlob := filepath.Join(dir, ".ctxloom", "cache", "context", "*.md")
-	matches, err := filepath.Glob(filepath.Join(w.env.ProjectDir, cacheGlob))
-	if err != nil {
-		return err
-	}
-	// Surface the ABSENCE, and its contrast, to the @doc capture sidecar: the
-	// gap is the point of this @wip scenario, so the published page shows
-	// what's missing (no native file, no cache file the context hook could
-	// read) directly beside what codex's OWN config.toml already proves it
-	// can materialize correctly (its MCP server and hook, read straight back
-	// out of the same file the MCP/hook Then steps above this one asserted
-	// against) — the same file, one table populated and one silently empty.
-	w.docStepMaterialized = j5CodexGapEvidence(w, dir, claudeStylePath, cacheGlob, len(matches))
-	if len(matches) != 0 {
-		return fmt.Errorf("codex UNEXPECTEDLY wrote a context cache file (%v) — the materialize gap this @wip scenario documents may be fixed; update the scenario to a real assertion instead of this gap-check", matches)
-	}
-	return nil
-}
-
-// j5CodexGapEvidence renders the codex context gap's absence, plus a
-// best-effort contrast against codex's own config.toml (which the MCP/hook
-// assertions above this step already proved carries the shared server and
-// hook) — a read failure there is not this step's concern, so it is dropped
-// silently rather than surfaced as an error.
-func j5CodexGapEvidence(w *World, dir, claudeStylePath, cacheGlob string, cacheMatchCount int) string {
-	evidence := fmt.Sprintf(
-		"%s: not written (codex has no native context file)\n%s: %d cache file(s) found (none — the context hook has nothing to read)",
-		claudeStylePath, cacheGlob, cacheMatchCount,
-	)
-	configPath := filepath.Join(dir, ".codex", "config.toml")
-	doc, err := j5ReadTOML(w, configPath)
-	if err != nil {
-		return evidence
-	}
-	var contrast []string
-	if mcp, ok := doc["mcp_servers"].(map[string]any); ok {
-		if srv, ok := mcp["toolserver"].(map[string]any); ok {
-			if cmd, ok := srv["command"].(string); ok {
-				contrast = append(contrast, fmt.Sprintf("  mcp_servers.toolserver.command = %q", cmd))
-			}
-		}
-	}
-	if hooks, ok := doc["hooks"].(map[string]any); ok {
-		for _, cmd := range j5HookCommandsFrom(hooks["SessionStart"]) {
-			if cmd == j5HookCommand {
-				contrast = append(contrast, fmt.Sprintf("  hooks.SessionStart includes %q", cmd))
-				break
-			}
-		}
-	}
-	if len(contrast) == 0 {
-		return evidence
-	}
-	return evidence + fmt.Sprintf("\n\ncontrast — the SAME %s DID materialize:\n%s", configPath, strings.Join(contrast, "\n"))
 }
 
 // j5ReadJSON reads a project-relative file and parses it as a generic JSON

@@ -231,6 +231,11 @@ type Surfaces struct {
 	MCP      *mcpSurface
 	Settings *settingsSurface
 	Skills   *skillsSurface
+
+	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
+	// here (not reallocated per SurfaceFor call) since it never changes after
+	// construction.
+	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds claude's surfaces from a run's inputs. isolated is the
@@ -240,11 +245,21 @@ type Surfaces struct {
 // target dir at call time, so only the race-safe variants bind isolated here.
 func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
+	context := newContextSurface(in.Context, isolated, fs)
+	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated}
+	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, fs: fs, isolated: isolated}
+	skills := &skillsSurface{skills: in.Skills, fs: fs, selfContainedSkills: in.SelfContainedSkills}
 	return Surfaces{
-		Context:  newContextSurface(in.Context, isolated, fs),
-		MCP:      &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated},
-		Settings: &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, fs: fs, isolated: isolated},
-		Skills:   &skillsSurface{skills: in.Skills, fs: fs, selfContainedSkills: in.SelfContainedSkills},
+		Context:  context,
+		MCP:      mcp,
+		Settings: settings,
+		Skills:   skills,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext:  context,
+			agent.SurfaceMCP:      mcp,
+			agent.SurfaceSettings: settings,
+			agent.SurfaceSkills:   skills,
+		},
 	}
 }
 
@@ -306,12 +321,7 @@ func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.De
 	if kind == agent.SurfaceContext && a == agent.ApproachHook {
 		return noopContextDelivery{}, nil
 	}
-	return claudeApproaches.SurfaceFor("claude", map[agent.SurfaceKind]agent.Delivery{
-		agent.SurfaceContext:  s.Context,
-		agent.SurfaceMCP:      s.MCP,
-		agent.SurfaceSettings: s.Settings,
-		agent.SurfaceSkills:   s.Skills,
-	}, kind, a)
+	return claudeApproaches.SurfaceFor("claude", s.dispatch, kind, a)
 }
 
 // SharedRealization reports claude's out-of-cwd scratch conversion for context,

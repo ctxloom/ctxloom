@@ -67,6 +67,40 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 		"an isolated cell scopes CODEX_HOME to <WorkDir>/.codex")
 }
 
+// TestCodex_Setup_WritesAGENTSmd proves the LIVE RUN/LAUNCH path — not just
+// `profile materialize` — now delivers codex's context via the native
+// AGENTS.md route (taskloom steep-lapel: a live, authenticated `ctxloom run`
+// against codex was measured to never deliver a planted sentinel; codex's
+// SessionStart-hook+cache-file route was the ONLY route, and it silently
+// diverged from what was actually assembled). `ctxloom run` calls this exact
+// Setup → setupViaCells → NewSurfaces → SurfaceFor(SurfaceContext, Hook) chain
+// (internal/shared/agent/launch_backend.go), building SurfaceInputs.Context
+// from assembleDedupedContext(req.Fragments) — the SAME deduped/assembled
+// string every other backend's ContextWriter already reads. So codex's
+// AGENTS.md route (agent.ComposedDelivery, this fix) reaches the live run path with NO
+// launch_backend.go changes: it rides the same NewSurfaces codex already
+// wires into its CellDelivery (backend.go).
+func TestCodex_Setup_WritesAGENTSmd(t *testing.T) {
+	work := t.TempDir()
+	b := NewCodex()
+
+	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   work,
+		Fragments: []*agent.Fragment{{Content: "the secret color is vermilion"}},
+		CellKind:  agent.CellKindDirectoryIsolated,
+		Managed:   &agent.ManagedConfig{},
+	}))
+
+	data, err := os.ReadFile(filepath.Join(work, "AGENTS.md"))
+	require.NoError(t, err, "codex's native AGENTS.md context surface must be written on the run/launch path, not just materialize")
+	assert.Contains(t, string(data), "the secret color is vermilion")
+
+	// The hash-file route the SessionStart hook reads is STILL written too —
+	// this fix is additive, not a replacement of the existing route.
+	hash := contextCacheHash(t, work)
+	assert.NotEmpty(t, hash)
+}
+
 // TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup proves CODEX_HOME is scoped to
 // <WorkDir>/.codex in EVERY cell (including SharedCell, so codex finds the
 // cell-scoped prompts in the live cwd), and is left unset for a minimal/distill

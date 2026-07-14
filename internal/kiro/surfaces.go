@@ -151,6 +151,11 @@ type Surfaces struct {
 	MCP      *mcpSurface
 	Settings *settingsSurface
 	Skills   *agent.ManagedSkillsDelivery
+
+	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
+	// here (not reallocated per SurfaceFor call) since it never changes after
+	// construction.
+	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds kiro's surfaces from a run's shared inputs (kiro uses the
@@ -160,13 +165,23 @@ type Surfaces struct {
 // (the `--agent` lever is Phase 2).
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
+	context := &contextSurface{context: in.Context, fs: fs}
+	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	settings := &settingsSurface{hooks: in.Hooks, fs: fs}
+	skills := agent.NewManagedSkillsDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
+		return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
+	})
 	return Surfaces{
-		Context:  &contextSurface{context: in.Context, fs: fs},
-		MCP:      &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Settings: &settingsSurface{hooks: in.Hooks, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
-			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
-		}),
+		Context:  context,
+		MCP:      mcp,
+		Settings: settings,
+		Skills:   skills,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext:  context,
+			agent.SurfaceMCP:      mcp,
+			agent.SurfaceSettings: settings,
+			agent.SurfaceSkills:   skills,
+		},
 	}
 }
 
@@ -204,17 +219,13 @@ func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
 	return kiroApproaches.Default(kind)
 }
 
-// SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via the
-// shared table lookup (kiro's agent JSON IS its settings surface, hooks folded
-// in). Any other approach is unsupported — WithContext(Hook) on kiro fails
-// loudly, matching kiro's steering (not hook) context.
+// SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via
+// the shared table lookup against s.dispatch (built once in NewSurfaces, not
+// reallocated per call). kiro's agent JSON IS its settings surface, hooks
+// folded in. Any other approach is unsupported — WithContext(Hook) on kiro
+// fails loudly, matching kiro's steering (not hook) context.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return kiroApproaches.SurfaceFor("kiro", map[agent.SurfaceKind]agent.Delivery{
-		agent.SurfaceContext:  s.Context,
-		agent.SurfaceMCP:      s.MCP,
-		agent.SurfaceSettings: s.Settings,
-		agent.SurfaceSkills:   s.Skills,
-	}, kind, a)
+	return kiroApproaches.SurfaceFor("kiro", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no realization for any kind: kiro has no out-of-cwd

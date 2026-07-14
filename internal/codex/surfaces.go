@@ -166,10 +166,13 @@ func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
 
 // Kind reports codex's native context surface as the same cross-backend
 // SurfaceContext kind as contextSurface — the two are alternate ROUTES for one
-// surface kind, not two kinds. Kind is only consulted by the approach-dispatch
-// table (SupportedApproaches/SurfaceFor), which still resolves SurfaceContext
-// to contextSurface alone (codexApproaches); agentsMDSurface reaches a cell
-// only through Deliveries(), which has no per-kind uniqueness requirement.
+// surface kind, not two kinds. SurfaceFor resolves EXACTLY one Delivery per
+// (kind, approach) — cells.go's SurfaceSelection.Build calls SurfaceFor once
+// per selected kind — so codex's two context routes are composed into a
+// single agent.ComposedDelivery value (built in NewSurfaces, see the routes
+// field) for that path (the one `profile materialize` and the live run/launch
+// path both use, via agent.Select(set).WithEverything()); a bare s.Context
+// alone would silently drop the AGENTS.md route from both.
 func (s *agentsMDSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // configSurface is codex's folded settings + hooks + MCP surface: the single
@@ -227,6 +230,21 @@ type Surfaces struct {
 	AgentsMD *agentsMDSurface
 	Config   *configSurface
 	Skills   *agent.ManagedSkillsDelivery
+
+	// routes composes Context+AgentsMD into the single Delivery SurfaceFor and
+	// Deliveries() both expose for agent.SurfaceContext (agent.ComposedDelivery)
+	// — built once here so every reader (approach-dispatch, isolated-cell
+	// iteration) resolves against the SAME underlying instance, per
+	// SurfaceSet.SurfaceFor's contract in cells.go.
+	routes agent.ComposedDelivery
+
+	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
+	// here (not per SurfaceFor call) since it never changes after
+	// construction — codex's SurfaceContext entry is s.routes (the composed
+	// value), the one asymmetry in this cross-backend family: every other
+	// backend's SurfaceFor builds an equivalent map inline because they have
+	// no analogous precomputed composite to reference.
+	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds codex's surfaces from a run's shared inputs. codex's
@@ -239,13 +257,28 @@ type Surfaces struct {
 // flag), so there is no isolated placement to bind.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
+	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
+	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
+	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	skills := agent.NewManagedSkillsDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.CommandExport) error {
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
+	})
+	routes := agent.ComposedDelivery{
+		Parts:       []agent.Delivery{ctxSurf, mdSurf},
+		Info:        "codex/context",
+		SurfaceKind: agent.SurfaceContext,
+	}
 	return Surfaces{
-		Context:  &contextSurface{fragments: in.Fragments, fs: fs},
-		AgentsMD: &agentsMDSurface{context: in.Context, fs: fs},
-		Config:   &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.CommandExport) error {
-			return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
-		}),
+		Context:  ctxSurf,
+		AgentsMD: mdSurf,
+		Config:   config,
+		Skills:   skills,
+		routes:   routes,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext:  routes,
+			agent.SurfaceSettings: config,
+			agent.SurfaceSkills:   skills,
+		},
 	}
 }
 
@@ -254,23 +287,27 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // where a well-known write into a private dir is safe. This is the ONLY way
 // codex's surfaces reach a cell directly: none has a SharedRealization, so a
 // SHARED-cwd delivery falls back to the loud well-known write (see
-// Surfaces.SharedRealization below). AgentsMD rides here alongside Context —
-// both are context, delivered unconditionally based on whichever input
-// (fragments vs. context string) each has.
+// Surfaces.SharedRealization below). The composed routes entry delivers BOTH
+// context routes (contextSurface + agentsMDSurface) as one surface, matching
+// what SurfaceFor resolves for the same kind.
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.AgentsMD, s.Config, s.Skills}
+	return []agent.Delivery{s.routes, s.Config, s.Skills}
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
 // per-provider dispatch). context remains declared Hook-ONLY: the SessionStart
-// inject-context hook's raw cache file (contextSurface) is the only
-// SEPARATELY-SELECTABLE context approach. agentsMDSurface (the native
-// AGENTS.md write) has no approach of its own — it is not part of this table
-// at all — and reaches a cell only via Deliveries(), delivering unconditionally
-// alongside whatever approach-dispatch resolves for SurfaceContext. So naming
-// UnsafeFile for codex's context remains an unsupported combo the builder
-// rejects: there is no way to select "only the native file" through this
-// table, the way claude/antigravity expose UnsafeFile as a first-class choice.
+// inject-context hook's raw cache file is the only SEPARATELY-SELECTABLE
+// context approach a caller can name. But `profile materialize` and the live
+// run/launch path both resolve surfaces through
+// agent.Select(set).WithEverything().Build(), which calls SurfaceFor EXACTLY
+// ONCE per selected kind (cells.go's SurfaceSelection.Build) — so the Hook
+// approach must resolve to something that ALSO performs the native AGENTS.md
+// write, or that write would never reach either path. The routes field
+// (an agent.ComposedDelivery) is that composition: naming UnsafeFile for codex's context
+// remains an unsupported combo the builder rejects — there is no way to select
+// "only the native file" separately through this table, the way
+// claude/antigravity expose UnsafeFile as a first-class choice; codex's native
+// write always rides alongside Hook.
 // settings/skills are native-file-only. SurfaceMCP is deliberately ABSENT: MCP
 // folds into the config/settings surface, so codex advertises no distinct MCP
 // surface — selecting MCP is a permitted no-op, resolved by whichever selection
@@ -294,17 +331,14 @@ func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
 	return codexApproaches.Default(kind)
 }
 
-// SurfaceFor resolves one (kind, approach) to the concrete codex surface via the
-// shared table lookup. context via Hook returns the SAME contextSurface
-// Deliveries() would (the raw cache-file write the SessionStart hook reads; a
-// no-op — nil handle — with no fragments); settings resolves to the folded
-// config surface.
+// SurfaceFor resolves one (kind, approach) to the concrete codex surface via
+// the shared table lookup against s.dispatch (built once in NewSurfaces, not
+// reallocated per call). context via Hook resolves to s.routes, the composed
+// Delivery that performs BOTH context routes (the raw cache-file write the
+// SessionStart hook reads, AND the native AGENTS.md managed-marker write) —
+// settings resolves to the folded config surface.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return codexApproaches.SurfaceFor("codex", map[agent.SurfaceKind]agent.Delivery{
-		agent.SurfaceContext:  s.Context,
-		agent.SurfaceSettings: s.Config,
-		agent.SurfaceSkills:   s.Skills,
-	}, kind, a)
+	return codexApproaches.SurfaceFor("codex", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no realization for any kind: codex has no out-of-cwd

@@ -126,3 +126,72 @@ func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, err
 		return err
 	}), nil
 }
+
+// DeliverAll runs every delivery against dir in order, collecting the handles
+// from any that actually deliver (a nil handle — "nothing written" — is
+// skipped, not an error) into one combined Delivered whose Cleanup reverses
+// all of them. Returns a nil handle if none delivered. This is how a backend
+// composes TWO OR MORE independent delivery routes for the SAME cross-backend
+// SurfaceKind into the single Delivery SurfaceFor must return for it (codex's
+// context: a fragments-keyed hook cache file for the run/launch path, and a
+// context-string-keyed native AGENTS.md write for the static materialize/init
+// path — see internal/codex/surfaces.go's contextRoutes).
+//
+// Stops at the first error without rolling back any prior successful
+// sub-delivery in this call — consistent with how a caller one level up
+// (materialize's DeliverUnder) already tolerates partial delivery across
+// surfaces rather than transactionally reversing them.
+func DeliverAll(dir string, deliveries ...Delivery) (Delivered, error) {
+	var handles []Delivered
+	for _, d := range deliveries {
+		h, err := d.Deliver(dir)
+		if err != nil {
+			return nil, err
+		}
+		if h != nil {
+			handles = append(handles, h)
+		}
+	}
+	if len(handles) == 0 {
+		return nil, nil
+	}
+	return DeliveredFunc(func() error {
+		var firstErr error
+		for _, h := range handles {
+			if err := h.Cleanup(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	}), nil
+}
+
+// ComposedDelivery composes multiple Deliveries that share ONE cross-backend
+// SurfaceKind into a single KindedDelivery, via DeliverAll. A backend uses
+// this when it has more than one independent thing to write for the same
+// kind (codex's context: a fragments-keyed hook cache file for the run/launch
+// path, plus a context-string-keyed native AGENTS.md write for the static
+// materialize/init path) — SurfaceFor names EXACTLY one Delivery per kind
+// (cells.go's SurfaceSelection.Build calls it once per selected kind), so the
+// parts must be composed into one value rather than registered separately
+// (the map type cannot express one key, two values).
+type ComposedDelivery struct {
+	Parts       []Delivery
+	Info        string
+	SurfaceKind SurfaceKind
+}
+
+// Deliver runs every part via DeliverAll.
+func (c ComposedDelivery) Deliver(dir string) (Delivered, error) {
+	return DeliverAll(dir, c.Parts...)
+}
+
+// UnsafeInfo returns the composed surface's identity for the DeliverShared
+// fallback's warning.
+func (c ComposedDelivery) UnsafeInfo() string { return c.Info }
+
+// Kind reports the composed surface's cross-backend kind.
+func (c ComposedDelivery) Kind() SurfaceKind { return c.SurfaceKind }
+
+// Compile-time contract: ComposedDelivery is a KindedDelivery.
+var _ KindedDelivery = ComposedDelivery{}

@@ -168,6 +168,11 @@ type Surfaces struct {
 	MCP     *mcpSurface
 	Hooks   *hooksSurface
 	Skills  *agent.ManagedSkillsDelivery
+
+	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
+	// here (not reallocated per SurfaceFor call) since it never changes after
+	// construction.
+	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds agy's surfaces from a run's shared inputs (agy uses the
@@ -178,13 +183,23 @@ type Surfaces struct {
 // is no isolated placement to bind.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
+	context := &contextSurface{context: in.Context, fs: fs}
+	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	hooks := &hooksSurface{hooks: in.Hooks, fs: fs}
+	skills := agent.NewManagedSkillsDelivery("antigravity/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
+		return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
+	})
 	return Surfaces{
-		Context: &contextSurface{context: in.Context, fs: fs},
-		MCP:     &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Hooks:   &hooksSurface{hooks: in.Hooks, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery("antigravity/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
-			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
-		}),
+		Context: context,
+		MCP:     mcp,
+		Hooks:   hooks,
+		Skills:  skills,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext:  context,
+			agent.SurfaceMCP:      mcp,
+			agent.SurfaceSettings: hooks,
+			agent.SurfaceSkills:   skills,
+		},
 	}
 }
 
@@ -220,16 +235,12 @@ func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
 	return agyApproaches.Default(kind)
 }
 
-// SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via the
-// shared table lookup (agy's hooks file IS its settings surface). Any other
+// SurfaceFor resolves one (kind, UnsafeFile) to the concrete agy surface via
+// the shared table lookup against s.dispatch (built once in NewSurfaces, not
+// reallocated per call). agy's hooks file IS its settings surface. Any other
 // approach is unsupported.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return agyApproaches.SurfaceFor("antigravity", map[agent.SurfaceKind]agent.Delivery{
-		agent.SurfaceContext:  s.Context,
-		agent.SurfaceMCP:      s.MCP,
-		agent.SurfaceSettings: s.Hooks,
-		agent.SurfaceSkills:   s.Skills,
-	}, kind, a)
+	return agyApproaches.SurfaceFor("antigravity", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no realization for any kind: agy has no out-of-cwd

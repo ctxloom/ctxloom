@@ -88,18 +88,20 @@ Feature: A new engineer clones the repo and is already set up
       | installed     | reaches        |
       | not installed | does not reach |
 
-  # LOCKED — hermetic materialization, over the same three-engine axis J5
+  # LOCKED — hermetic materialization, over the same four-engine axis J5
   # proved (j5_multi_engine.feature's Outline A: claude-code, kiro,
-  # antigravity — reusing that engine-axis machinery, not re-deriving it, see
-  # engineContextRelPath in steps_j5.go). Bob is precisely the person most
-  # likely to be on a different engine from the rest of the team, so a
+  # antigravity, codex — reusing that engine-axis machinery, not re-deriving
+  # it, see engineContextRelPath in steps_j5.go). Bob is precisely the person
+  # most likely to be on a different engine from the rest of the team, so a
   # journey whose thesis is "cloning IS the onboarding" must prove this on
   # more than one engine, not just claude-code.
   #
-  # codex is NOT a row: `profile materialize` never delivers codex's context
-  # at all today, a confirmed product gap J5's own @wip scenario documents
-  # (steps_j5.go's j5AssertCodexContextGap) — a codex row here would claim
-  # coverage that does not exist.
+  # codex IS a row now (taskloom lanky-plop/tiny-ooze): `profile materialize`
+  # used to leave codex's context surface a silent no-op (keyed on
+  # agent.SurfaceInputs.Fragments, which materialize never populates); codex's
+  # context surface now ALSO writes AGENTS.md from agent.SurfaceInputs.Context,
+  # which materialize does populate — the same fix J5's own materialization
+  # outline proves.
   Scenario Outline: Bob's engine is not Alice's and the team's context still reaches him natively
     When Bob clones the project
     And Bob starts a session on <engine>
@@ -110,3 +112,4 @@ Feature: A new engineer clones the repo and is already set up
       | claude-code |
       | kiro        |
       | antigravity |
+      | codex       |

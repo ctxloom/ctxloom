@@ -289,14 +289,16 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 
 // An isolated cell accepts EVERY codex surface as a plain Delivery — Deliveries()
 // is the iteration set for a worktree / container / materialize target, and the
-// only cell type codex's Delivery-only surfaces can enter directly.
+// only cell type codex's Delivery-only surfaces can enter directly. The
+// composed context route (agent.ComposedDelivery) counts as ONE delivery here — it
+// performs BOTH the hash-file write and the native AGENTS.md write internally.
 func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/worktree"
 	s := NewSurfaces(sampleInputs(), fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, agentsMD, config, skills")
+	require.Len(t, ds, 3, "context (composed), config, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -316,7 +318,10 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 }
 
 // DeliverShared falls back to the well-known write for every codex surface (codex
-// has no SharedRealization), and each warns when it delivers.
+// has no SharedRealization), and each warns when it delivers. Still 3 resolved
+// surfaces: context (composed: cache file + AGENTS.md), config, and skills —
+// the composition happens INSIDE ComposedDelivery.Deliver, so it is still one
+// resolved surface at the SurfaceKind level.
 func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live"
@@ -331,8 +336,13 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 3, "context (cache file), config, and skills each deliver")
+	require.Len(t, delivered, 3, "context (cache file + AGENTS.md), config, and skills each deliver")
 	assert.Contains(t, stderr, "warning:", "every codex surface warns when DeliverShared delivers it")
+
+	// The composed context route wrote BOTH its cache file and AGENTS.md into
+	// the shared cwd (sampleInputs sets both Fragments and Context).
+	exists, _ := afero.Exists(fs, filepath.Join(cwd, "AGENTS.md"))
+	assert.True(t, exists, "DeliverShared's context surface wrote AGENTS.md too, not just the cache file")
 }
 
 // ---- approach dispatch (vital-tiger v2) -------------------------------------
@@ -366,11 +376,16 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 	assert.False(t, ok, "MCP is folded/absent for codex")
 }
 
-// SurfaceFor(context, Hook) resolves to the real cache-file write (codex's ONLY
-// DECLARED context approach performs real work, unlike claude's Hook no-op);
-// naming UnsafeFile for codex's context is unsupported — codex's native
-// AGENTS.md write rides the SAME Hook-declared contextSurface (see
-// codexApproaches' doc comment), it is not a separately-selectable approach.
+// SurfaceFor(context, Hook) resolves to the composed agent.ComposedDelivery, which performs BOTH the
+// real cache-file write (codex's ONLY DECLARED context approach performs real
+// work, unlike claude's Hook no-op) AND the native AGENTS.md write — this is
+// the fix for taskloom tiny-ooze (materialize) AND steep-lapel (the live
+// run/launch path: `ctxloom run` resolves surfaces through this SAME
+// SurfaceFor(SurfaceContext, Hook) call, so codex's context now genuinely
+// reaches the model on both paths). Naming UnsafeFile for codex's context is
+// unsupported — codex's native AGENTS.md write rides the SAME Hook-declared
+// route (see codexApproaches' doc comment), it is not a separately-selectable
+// approach.
 func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewSurfaces(sampleInputs(), fs)
@@ -381,6 +396,11 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	handle, err := d.Deliver(dir)
 	require.NoError(t, err)
 	require.NotNil(t, handle, "codex's Hook approach performs the real cache-file write")
+
+	contextFile(t, fs, dir) // the hash-file route landed
+	data, err := afero.ReadFile(fs, filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err, "the native AGENTS.md route landed too — SAME Deliver call")
+	assert.Contains(t, string(data), "the secret color is vermilion")
 
 	_, err = s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	assert.Error(t, err, "UnsafeFile is not a separately-selectable approach for codex's context")

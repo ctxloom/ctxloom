@@ -15,26 +15,35 @@ Feature: One shared profile, reaching four engines in their own native format
   Verified straight from each engine's own surfaces.go (internal/{claude,codex,
   kiro,antigravity}/surfaces.go):
 
-    | engine      | context lands in                          | MCP lands in                              | hooks land in                | skills land in                     |
-    |-------------|--------------------------------------------|--------------------------------------------|-------------------------------|--------------------------------------|
-    | claude-code | CLAUDE.md                                  | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
-    | codex       | NO native file — a hook reads the cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
-    | kiro        | .kiro/steering/ctxloom-context.md          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
-    | antigravity | .agents/AGENTS.md                          | .agents/mcp_config.json                     | .agents/hooks.json (separate)   | .agents/skills/<name>.md             |
+    | engine      | context lands in                                          | MCP lands in                              | hooks land in                | skills land in                     |
+    |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
+    | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
+    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
+    | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
+    | antigravity | .agents/AGENTS.md (managed markers)                        | .agents/mcp_config.json                     | .agents/hooks.json (separate)   | .agents/skills/<name>.md             |
 
-  codex is the honest gap this feature exists to show, not to hide: it has NO
-  native context file and NO native MCP file at all — both fold into
-  .codex/config.toml, the same file that carries its hooks. Proving Alice's
-  bytes were WRITTEN in each engine's own shape is NOT the same claim as proving
-  any engine READ them — that is what the second, much smaller table below
-  exists to prove, for the two engines where it can honestly be proven today.
+  codex still has NO native MCP file of its own — MCP folds into
+  .codex/config.toml, the same file that carries its hooks. Its context surface
+  is the one that used to be the honest gap this feature existed to show: codex
+  now writes AGENTS.md natively too (managed-section markers, taskloom
+  lanky-plop/tiny-ooze), alongside the SessionStart-hook cache file the live
+  run/launch path still needs for its per-invocation content hash. Proving
+  Alice's bytes were WRITTEN in each engine's own shape is NOT the same claim as
+  proving any engine READ them — that is what the second, much smaller table
+  below exists to prove, for the engines where it can honestly be proven today.
 
   # LOCKED — materialization only (hermetic, no engine binary required). Every
   # row PARSES the generated file in its own format (JSON, TOML, or plain
   # markdown) and asserts the actual field — never a bare file-exists or a
   # substring-of-a-key-name (the exact vacuousness `manage.feature`'s ".mcp.json"
-  # assertion still carries, which this outline does not repeat). codex is
-  # deliberately NOT a row here — see the @wip scenario below for why.
+  # assertion still carries, which this outline does not repeat). codex is now a
+  # FOURTH ROW: `profile materialize` used to leave codex's context surface a
+  # silent no-op (it was keyed on agent.SurfaceInputs.Fragments, which
+  # materialize never populates); codex's context surface now ALSO writes
+  # AGENTS.md from agent.SurfaceInputs.Context (the assembled string materialize
+  # DOES populate), so this row proves the gap the table used to document is
+  # closed — the Outline's own design (add an engine, add a row) proves it a
+  # fourth time.
   Scenario Outline: The same profile materializes into each engine's own native surfaces
     Given Carol's team profile carries a shared fragment, skill, MCP server, and hook
     When Alice materializes the team profile for <engine>
@@ -48,31 +57,27 @@ Feature: One shared profile, reaching four engines in their own native format
       | claude-code |
       | kiro        |
       | antigravity |
+      | codex       |
 
-  # @wip — a PRODUCT GAP this journey found, not a harness limitation (the same
-  # kind of finding J1-J4 already surfaced, per the suite's own convention: see
-  # `manage apply` vs `materialize` in internal/operations/hooks.go regenerateContext
-  # vs internal/operations/profile_materialize.go's BuildSurfaces call). codex's
-  # context reaches an engine ONLY through a hook that reads a cache file
-  # (agent.WriteContextFile, keyed off agent.SurfaceInputs.Fragments) — never a
-  # native per-project file. `ctxloom manage hooks install` populates Fragments
-  # (via its own separate regenerateContext call) and the cache file lands
-  # correctly. `profile materialize` never populates Fragments at all, so
-  # codex's context surface is unconditionally a no-op there — the ONLY one of
-  # the four engines whose materialized target gets NO context, silently. Its
-  # MCP, hook, and skill surfaces are unaffected (they don't depend on
-  # Fragments) and materialize correctly, proven below. Excluded from the
-  # default green run until fixed. NOT the same claim as "codex has no native
-  # context format" (true and fine, see the table above) — this is "codex's
-  # only delivery mechanism silently does not fire from this CLI path."
-  @wip
-  Scenario: codex materializes its MCP, hook, and skill surfaces, but not its context — a confirmed product gap
+  # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
+  # profile for claude-code/codex must never destroy a team's hand-authored
+  # CLAUDE.md / AGENTS.md — content outside ctxloom's managed markers must
+  # survive byte-for-byte, and ctxloom's own content must still land alongside
+  # it. BREAK-POINT VERIFIED: reverting the marker-merge core
+  # (agent.WriteManagedContext, internal/shared/agent/managedcontext.go) back
+  # to a bare whole-file write makes this scenario fail for exactly that
+  # reason — the hand-authored line is gone, not merely unasserted.
+  Scenario Outline: A hand-authored context file survives materialization byte-for-byte
     Given Carol's team profile carries a shared fragment, skill, MCP server, and hook
-    When Alice materializes the team profile for codex
-    Then the materialized codex MCP configuration carries the shared server's command, in its own native shape
-    And the materialized codex hook configuration carries the shared hook's command, in its own native shape
-    And the materialized codex skill file carries the shared skill's body, in its own native shape
-    But the materialized codex context is not delivered at all, a known product gap
+    And Alice's team already hand-authored <file> for <engine> with their own conventions
+    When Alice materializes the team profile for <engine>
+    Then <file> still carries Alice's hand-authored conventions, byte-for-byte
+    And the materialized <engine> context carries the shared fragment's marker, in its own native shape
+
+    Examples:
+      | engine      | file      |
+      | claude-code | CLAUDE.md |
+      | codex       | AGENTS.md |
 
   # LOCKED — @live: claude, antigravity, and kiro have a working live path
   # today (kiro confirmed live: a logged-in kiro-cli genuinely reads the

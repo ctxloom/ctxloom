@@ -224,6 +224,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	cw, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
 	t.Cleanup(func() { _ = cw.Cleanup() })
+	requireCleanWorkspace(t, ws)
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
 	assert.Contains(t, cw.extraMounts, Mount{
@@ -278,6 +279,21 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	w, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
 	t.Cleanup(func() { _ = w.Cleanup() })
+	requireCleanWorkspace(t, ws)
+	// requireCleanWorkspace's *containerWorkspace case only reaches
+	// scratchRoot: the composed worktree base's own config-home
+	// (provisionConfigHome, real even under git.Fake — see cleanupConfigHome's
+	// doc) is buried behind the opaque baseCleanup closure with no typed way
+	// to reach it from here. It's never mounted/used inside the container
+	// (TestContainerWorktreeWorkspace_NoConfigHomeEnv), so sweep it by its
+	// deterministic prefix rather than leaving it to whatever mutant hits
+	// w.Cleanup()'s removal logic.
+	t.Cleanup(func() {
+		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "ctxloom-cfg-member-x-*"))
+		for _, m := range matches {
+			_ = os.RemoveAll(m)
+		}
+	})
 
 	assert.Contains(t, w.extraMounts, Mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts"),

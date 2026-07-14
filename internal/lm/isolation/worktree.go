@@ -75,6 +75,18 @@ func (Worktree) Approvals() Approvals { return ApprovalsPrompt }
 // GLOBAL layer, and (b) writes the broadened ctxloom-config excludes to the shared
 // common-dir .git/info/exclude so a developer member's merge-back never carries
 // per-agent config (§3.1). Neither best-effort step fails the workspace.
+//
+// The deferred recover below exists because the worktree checkout and the
+// config-home are real on-disk resources created BEFORE this function returns
+// a Workspace the caller could Cleanup() — if anything after WorktreeAdd
+// panics (a bug in excludeConfigFromMerge/skipTrackedConfig, or — the case
+// that surfaced this — a mutation-testing mutant deliberately breaking one of
+// them), the caller never gets a handle to clean up, and the checkout +
+// config-home leak under the OS temp dir with nothing left to remove them.
+// Recovering here, best-effort removing what THIS call created, and
+// re-panicking preserves the original failure (a real bug still crashes / a
+// mutant still gets killed) while guaranteeing no resource outlives the call
+// that made it.
 func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	if !w.git.IsRepo(projectDir) {
 		// The caller degrades to None (shared cwd). NOTE the user edge: concurrent
@@ -94,6 +106,15 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		repoDir: projectDir,
 		dir:     wtPath,
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = os.RemoveAll(ws.dir)
+			if ws.configHome != "" {
+				_ = os.RemoveAll(ws.configHome)
+			}
+			panic(r)
+		}
+	}()
 	ws.configHome = w.provisionConfigHome(agentID)
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
@@ -120,6 +141,12 @@ func (w Worktree) provisionConfigHome(agentID string) string {
 	// world-traversable.
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "worktree: per-agent config-home unavailable (using shared global config): %v", err)
+		// Defensive against a mutant flipping this check: home is a
+		// deterministic path (not MkdirTemp-random), so a real success
+		// misclassified as failure would otherwise leave a fully-created,
+		// unreferenced dir on disk — the caller stores "" and can never find
+		// it again. A genuine MkdirAll failure makes this a harmless no-op.
+		_ = os.RemoveAll(home)
 		return ""
 	}
 	return home

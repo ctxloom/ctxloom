@@ -68,6 +68,33 @@ func rejectedByBytes(recorded ...[]byte) func(trust.Ref, []byte) bool {
 	}
 }
 
+// fakeRetraction is a minimal, closure-driven RetractionRecords for testing
+// the DECISION FUNCTION's retraction step in isolation — mirroring fakeRecords
+// for Rejected/Approved above. The zero value fakeRetraction{} reports
+// "never retracted", so cascade cases that don't care about retraction can
+// simply omit the field.
+type fakeRetraction struct {
+	retracted func(trust.Ref) (bool, string)
+}
+
+func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
+	if f.retracted == nil {
+		return false, ""
+	}
+	return f.retracted(ref)
+}
+
+// retractedFor builds a fakeRetraction that reports ref as retracted (with
+// reason) whenever bundle/name match, mirroring rejectedByBytes's shape.
+func retractedFor(bundle, name, reason string) fakeRetraction {
+	return fakeRetraction{retracted: func(r trust.Ref) (bool, string) {
+		if r.Bundle == bundle && r.Name == name {
+			return true, reason
+		}
+		return false, ""
+	}}
+}
+
 type remoteSpec struct {
 	name string
 	url  string
@@ -108,14 +135,15 @@ var (
 // verification.
 func TestEffectiveTrust_Cascade(t *testing.T) {
 	tests := []struct {
-		name    string
-		records fakeRecords
-		ref     trust.Ref
-		payload []byte
-		form    string
-		signer  string
-		want    trust.Decision
-		source  trust.Source
+		name       string
+		records    fakeRecords
+		retraction fakeRetraction
+		ref        trust.Ref
+		payload    []byte
+		form       string
+		signer     string
+		want       trust.Decision
+		source     trust.Source
 	}{
 		// --- rejected: ref state and content match ---
 		{
@@ -214,6 +242,53 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			signer:  trust.BuiltinSigner,
 			want:    trust.Allow,
 			source:  trust.SourceBuiltin,
+		},
+
+		// --- retracted (step 2): a peer of rejected, beats every allow below ---
+		{
+			name:       "retracted bundle denies, beating a trusted signer",
+			retraction: retractedFor("tooling", "postgres", "compromised release"),
+			ref:        trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
+			payload:    pbytes("x"),
+			form:       rawForm,
+			signer:     trustedPublisher,
+			want:       trust.Deny,
+			source:     trust.SourceRetracted,
+		},
+		{
+			name:       "retraction of one bundle does not deny a different bundle from the same signer",
+			retraction: retractedFor("tooling", "postgres", "compromised release"),
+			ref:        trust.Ref{RepoURL: trustRepo, Bundle: "other", Kind: trust.KindFragment, Name: "solid"},
+			payload:    pbytes("x"),
+			form:       rawForm,
+			signer:     trustedPublisher,
+			want:       trust.Allow,
+			source:     trust.SourceTrustedSigner,
+		},
+		{
+			// Retraction is a REMOTE-manifest concept and local/builtin refs never
+			// carry a lockfile entry in production (RetractionRecords.Retracted
+			// guards on RepoURL/IsLocal/IsBuiltin) — but the DECISION FUNCTION's
+			// ordering is still exercised directly here, the same way the rejected
+			// block above proves rejection beats local/builtin regardless of
+			// whether a real store would ever produce that combination.
+			name:       "retraction ordering beats the local exemption",
+			retraction: fakeRetraction{retracted: func(r trust.Ref) (bool, string) { return r.IsLocal && r.Bundle == "dev", "withdrawn" }},
+			ref:        trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
+			payload:    pbytes("x"),
+			form:       rawForm,
+			want:       trust.Deny,
+			source:     trust.SourceRetracted,
+		},
+		{
+			name:       "retraction ordering beats the builtin exemption",
+			retraction: fakeRetraction{retracted: func(r trust.Ref) (bool, string) { return r.IsBuiltin && r.Bundle == "kit", "withdrawn" }},
+			ref:        trust.Ref{IsBuiltin: true, Bundle: "kit", Kind: trust.KindFragment, Name: "x"},
+			payload:    pbytes("x"),
+			form:       rawForm,
+			signer:     trust.BuiltinSigner,
+			want:       trust.Deny,
+			source:     trust.SourceRetracted,
 		},
 
 		// --- trusted signer (step 4) ---
@@ -323,11 +398,12 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-				Ref:     tt.ref,
-				Payload: tt.payload,
-				Form:    tt.form,
-				Signer:  tt.signer,
-				Records: tt.records,
+				Ref:        tt.ref,
+				Payload:    tt.payload,
+				Form:       tt.form,
+				Signer:     tt.signer,
+				Records:    tt.records,
+				Retraction: tt.retraction,
 			})
 			if err != nil {
 				t.Fatalf("EffectiveTrust: %v", err)

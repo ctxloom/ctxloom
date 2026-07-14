@@ -75,6 +75,44 @@ func (m *syncMockPuller) Pull(ctx context.Context, refStr string, opts remote.Pu
 	}, nil
 }
 
+// recordedRetraction captures one RecordRetraction call for assertion.
+type recordedRetraction struct {
+	itemType  remote.ItemType
+	ref       string
+	retracted bool
+	reason    string
+}
+
+// syncMockRetractionPuller extends syncMockPuller with the RetractionChecker
+// seam (operations.RetractionChecker) so tests can drive syncItem's
+// ALREADY-INSTALLED retraction re-check without a real *remote.Puller/
+// lockfile — the fix for the gap where an installed ref's retraction was
+// never re-evaluated (this puller stands in for *remote.Puller, which
+// implements the same two methods over a real fetcher + lockfile).
+type syncMockRetractionPuller struct {
+	syncMockPuller
+
+	retracted bool
+	reason    string
+	checkErr  error
+
+	checkCalls []string
+	recorded   []recordedRetraction
+}
+
+func (m *syncMockRetractionPuller) CheckRetraction(_ context.Context, refStr string, _ remote.ItemType) (bool, string, error) {
+	m.checkCalls = append(m.checkCalls, refStr)
+	if m.checkErr != nil {
+		return false, "", m.checkErr
+	}
+	return m.retracted, m.reason, nil
+}
+
+func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string) error {
+	m.recorded = append(m.recorded, recordedRetraction{itemType: itemType, ref: refStr, retracted: retracted, reason: reason})
+	return nil
+}
+
 // ==========================================================================
 // Reference classification tests
 // ==========================================================================
@@ -436,6 +474,103 @@ remotes:
 	if len(puller.pullCalls) != 0 {
 		t.Errorf("expected 0 pull calls, got %d", len(puller.pullCalls))
 	}
+}
+
+// TestSyncDependencies_RetractedInstalledRef pins the fix for the gap this
+// task closes: an ALREADY-INSTALLED ref must have its retraction status
+// re-evaluated on every sync, not just on a fresh pull. Before the fix,
+// syncItem's install-skip meant a retracted-after-the-fact bundle was
+// reported "skipped" forever with no warning and no lockfile record — see
+// tests/acceptance/features/j3_corporate_signed.feature's retraction
+// scenario, which exercises the same gap end to end through the real CLI.
+func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+
+	puller := &syncMockRetractionPuller{retracted: true, reason: "compromised release"}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
+
+	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        false,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, result.Retracted, 1, "a retracted already-installed ref must be reported, not silently skipped")
+	assert.Equal(t, "https://github.com/test/ctxloom@bundles/go-tools", result.Retracted[0].Reference)
+	assert.Equal(t, "compromised release", result.Retracted[0].Error)
+	assert.Empty(t, result.Skipped, "retracted takes the place of skipped, not alongside it")
+
+	require.Len(t, puller.checkCalls, 1, "the lightweight retraction check must run for the installed ref")
+	require.Len(t, puller.recorded, 1, "the verdict must be persisted so EffectiveTrust can read it back later")
+	assert.True(t, puller.recorded[0].retracted)
+	assert.Equal(t, "compromised release", puller.recorded[0].reason)
+	assert.Empty(t, puller.pullCalls, "an already-installed ref's retraction re-check must not trigger a full Pull")
+}
+
+// TestSyncDependencies_NotRetractedInstalledRef proves the happy path of the
+// same re-check is a no-op: an installed ref that is NOT retracted is still
+// reported skipped, and RecordRetraction is still called (to clear any STALE
+// retraction from a previous sync — RecordRetraction itself is a no-op when
+// nothing would change, see Puller.RecordRetraction).
+func TestSyncDependencies_NotRetractedInstalledRef(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+
+	puller := &syncMockRetractionPuller{retracted: false}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
+
+	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        false,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, result.Retracted)
+	assert.Len(t, result.Skipped, 1)
+	assert.Len(t, puller.checkCalls, 1)
 }
 
 // TestSyncDependencies_SkipCanonicalizesRef pins ref canonicalization in the

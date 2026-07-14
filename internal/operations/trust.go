@@ -299,6 +299,19 @@ type lockfileRetraction struct {
 // problem only insofar as a retraction it once knew about might now be
 // unreadable, which sync's own next successful run will re-establish).
 func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords {
+	if cfg == nil {
+		// A nil cfg means there is no project to read a lockfile FROM (every
+		// production call site threads a real cfg — see contentGate/TrustStamper
+		// construction; nil only ever appears in a decision-function unit test
+		// exercising the cascade directly). Building a default here would fall
+		// back to getFS(nil)'s real OS filesystem and read whatever lock.yaml
+		// happens to sit under the test process's cwd — exactly the un-hermetic
+		// disk touch buildCountersignRecords' own nil-cfg tests take pains to
+		// avoid (HOME override + injected FS). Degrading to "never retracted"
+		// is safe: a real caller always has cfg, so this branch never masks a
+		// production retraction.
+		return &lockfileRetraction{lock: &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}}
+	}
 	baseDir := getBaseDir(cfg)
 	lm := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(fs)))
 	lockfile, err := lm.Load()

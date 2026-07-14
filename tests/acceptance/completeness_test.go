@@ -145,9 +145,11 @@ var knownUncoveredCLI = []string{
 // set of registered tools (from a plain, non-forwarding `mcp serve`) this
 // gate accepts as uncovered, checked for exact-set equality the same way.
 var knownUncoveredTools = []string{
-	// Agent-delegation bus + trigger evaluation: no scenario launches/messages/
-	// stops a child agent or evaluates a trigger. Backfill: task spry-niece.
-	"agent_run",
+	// Agent-delegation bus + trigger evaluation: agent_run is now exercised by
+	// J6 (steps_j6_delegation.go, j6_delegation.feature — a coordinator
+	// spawning delegated children and auditing their journaled privilege
+	// grant). send/recv/stop and trigger evaluation remain unexercised.
+	// Backfill: task spry-niece.
 	"agent_send",
 	"agent_recv",
 	"agent_stop",

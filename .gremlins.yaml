@@ -3,16 +3,25 @@
 
 silent: false
 
-# Files to exclude from mutation testing
-exclude-files:
-  - ".*_test\\.go$"
-  - ".*\\.pb\\.go$"
-  - ".*/mock_.*\\.go$"
-  - ".*/testdata/.*"
-  - "tests/integration/.*"
-  - ".*/tests/integration/.*"
-
 unleash:
+  # Files to exclude from mutation testing.
+  #
+  # MUST be nested under `unleash:`. gremlins registers this setting at the
+  # viper path "unleash.exclude-files"; a TOP-LEVEL exclude-files key is parsed
+  # as valid YAML, silently ignored, and excludes nothing. It sat at the top
+  # level here and generated protobuf was being mutated the whole time —
+  # internal/agentcoord alone produced 1,261 .pb.go mutants. Generated code is
+  # never tested, so those land NOT COVERED/LIVED and drag both efficacy and
+  # mutant-coverage down, which means every published number was computed over
+  # a file set nobody intended to measure.
+  exclude-files:
+    - ".*_test\\.go$"
+    - ".*\\.pb\\.go$"
+    - ".*/mock_.*\\.go$"
+    - ".*/testdata/.*"
+    - "tests/integration/.*"
+    - ".*/tests/integration/.*"
+
   # Don't run integration tests (use unit tests only for speed)
   integration: false
   # Set to true to see what would be mutated without running tests

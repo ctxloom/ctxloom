@@ -25,11 +25,12 @@ import (
 // requires a private cwd (worktree) or container cell; a SHARED-cwd delivery
 // falls back to the loud well-known write.
 //
-//	surface  | well-known target                                    | also a SharedRealization?
-//	---------|-------------------------------------------------------|-----------------------
-//	context  | .ctxloom/cache/context/<hash>.md (hook) + AGENTS.md   | ❌ no flag
-//	config   | .codex/config.toml (hooks + MCP)                      | ❌ no flag
-//	skills   | $CODEX_HOME/prompts/<name>.md                         | ❌ no flag
+//	surface   | well-known target                       | also a SharedRealization?
+//	----------|------------------------------------------|-----------------------
+//	context   | .ctxloom/cache/context/<hash>.md (hook) | ❌ no flag
+//	agentsMD  | AGENTS.md (native, managed markers)     | ❌ no flag
+//	config    | .codex/config.toml (hooks + MCP)        | ❌ no flag
+//	skills    | $CODEX_HOME/prompts/<name>.md           | ❌ no flag
 //
 // Three codex realities shape the decomposition:
 //
@@ -41,26 +42,26 @@ import (
 //     SupportedApproaches reports SurfaceMCP absent, keying the fold at the
 //     SurfaceSelection builder level too).
 //
-//  2. context has TWO coexisting routes (taskloom lanky-plop / tiny-ooze).
-//     codex NATIVELY reads a workspace-fixed AGENTS.md at session start — no
-//     hook needed — and CodexHookWriter now implements agent.ContextWriter to
-//     write it with managed-section markers (agent.WriteManagedContext),
-//     preserving hand-authored content outside them byte-for-byte, exactly
-//     like claude's CLAUDE.md and antigravity's AGENTS.md. This route is keyed
-//     on the assembled context STRING (SurfaceInputs.Context). It coexists
-//     with, and does not replace, the raw fragments-keyed cache file
-//     (agent.WriteContextFile) a SessionStart hook in config.toml reads: that
-//     route remains necessary for the RUN/LAUNCH path, which needs a
+//  2. context has TWO coexisting SURFACE OBJECTS, not one (taskloom lanky-plop
+//     / tiny-ooze). contextSurface is the original hook route: the raw
+//     fragments-keyed cache file (agent.WriteContextFile) a SessionStart hook
+//     in config.toml reads — necessary for the RUN/LAUNCH path, which needs a
 //     per-invocation content HASH delivered out-of-band of any workspace-fixed
-//     file (see BaseContextProvider.Provide / setupViaCells) — a workspace-fixed
-//     AGENTS.md cannot replace a per-invocation hash. The STATIC
-//     materialize/init path only ever has the context STRING, never resolved
-//     Fragment objects, so before AGENTS.md existed that path's codex output
-//     silently carried NO context (fragments-only route saw an empty slice and
-//     no-op'd) — AGENTS.md fixes that at the root. contextSurface.Deliver fires
-//     whichever route(s) have content; SupportedApproaches still reports
-//     context as Hook-ONLY (see codexApproaches below) because both routes ride
-//     the same declared approach, not a separately-selectable one.
+//     file (see BaseContextProvider.Provide / setupViaCells). agentsMDSurface is
+//     the new native route: codex reads a workspace-fixed AGENTS.md NATIVELY at
+//     session start — no hook needed — via CodexHookWriter.WriteContext
+//     (agent.ContextWriter), which merges into managed-section markers
+//     (agent.WriteManagedContext), preserving hand-authored content outside
+//     them byte-for-byte, exactly like claude's CLAUDE.md and antigravity's
+//     AGENTS.md. It is keyed on the assembled context STRING
+//     (SurfaceInputs.Context), because the STATIC materialize/init path only
+//     ever has that string, never resolved Fragment objects — so before
+//     agentsMDSurface existed, materialize's codex output silently carried NO
+//     context (contextSurface saw an empty fragment slice and no-op'd).
+//     Deliveries() delivers both; SupportedApproaches still reports context as
+//     Hook-ONLY (see codexApproaches below) — agentsMDSurface has no
+//     separately-selectable approach, it always rides alongside whatever
+//     approach-dispatch selects for contextSurface.
 //
 //  3. skills are GLOBAL. codex discovers prompts only from $CODEX_HOME/prompts
 //     (default ~/.codex/prompts) — NOT cwd-relative — so an isolated *directory*
@@ -84,73 +85,41 @@ func cellScopedPromptsDir(dir string) string {
 	return filepath.Join(cellScopedCodexHome(dir), "prompts")
 }
 
-// contextSurface is codex's context surface, with TWO delivery routes that
-// coexist rather than replace one another:
+// contextSurface is codex's context surface. codex has no ContextWriter for
+// this route: the context reaches the model as a raw context file
+// (agent.WriteContextFile) that a SessionStart hook in config.toml reads. This
+// is the RUN/LAUNCH path's route — it needs a per-invocation content HASH
+// delivered out-of-band of any workspace-fixed file (see
+// BaseContextProvider.Provide / setupViaCells), which a native AGENTS.md write
+// cannot replace. Deliver writes that file into dir's well-known context
+// cache; the SessionStart hook that consumes it is delivered by the config
+// surface (it is one of the hooks). Delivery-ONLY — codex has no out-of-cwd
+// context flag.
 //
-//  1. The raw fragments-keyed cache file (agent.WriteContextFile) that a
-//     SessionStart hook in config.toml reads — the RUN/LAUNCH path, which needs
-//     a per-invocation content hash delivered out-of-band of any
-//     workspace-fixed file (see BaseContextProvider.Provide / setupViaCells).
-//     This route is keyed on fragments (raw Fragment objects).
-//  2. The managed-marker AGENTS.md write (agent.ContextWriter, via
-//     CodexHookWriter.WriteContext) — codex reads AGENTS.md NATIVELY at
-//     session start, no hook needed. This route is keyed on the assembled
-//     context STRING, because the STATIC materialize/init path (`ctxloom
-//     profile materialize`) only ever has that string, never resolved Fragment
-//     objects (AssembleContext returns a flattened string) — so before this
-//     route existed, materialize's codex output silently carried NO context at
-//     all (taskloom tiny-ooze: fragments-only route saw an empty slice and
-//     no-op'd).
-//
-// Both routes fire independently based on whichever input they have (fragments
-// vs. context string); a caller with both (the live run/launch path) gets both.
+// This is one of TWO codex context routes that now coexist (see agentsMDSurface
+// below for the other, native one); Surfaces.Deliveries() delivers both.
 type contextSurface struct {
 	fragments []*agent.Fragment
-	context   string
 	fs        afero.Fs
 }
 
-// Deliver writes whichever of codex's two context routes has content: the raw
-// context cache file (from fragments, for the SessionStart hook) and/or the
-// managed AGENTS.md section (from the context string, codex's native read).
-// Returns a NIL handle only if NEITHER route delivered anything — which is how
-// a caller distinguishes "codex received context" from "no-op".
+// Deliver writes the assembled context file into dir via agent.WriteContextFile
+// (the same writer BaseContextProvider.Provide uses) and returns a handle whose
+// Cleanup removes it. Empty/absent content writes nothing and returns a NIL handle
+// (there is nothing to clean up and nothing was delivered) — which is how a caller
+// distinguishes "codex wrote a context file" from "no-op", e.g. materialize (no
+// fragments) reports no context surface for codex.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
-	var cleanups []func() error
-
 	hash, err := agent.WriteContextFile(dir, s.fragments, agent.WithContextFS(s.fs))
 	if err != nil {
 		return nil, err
 	}
-	if hash != "" {
-		fs := s.fs
-		path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
-		cleanups = append(cleanups, func() error { return fs.Remove(path) })
-	}
-
-	if s.context != "" {
-		w := &CodexHookWriter{FS: s.fs}
-		if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
-			return nil, err
-		}
-		cleanups = append(cleanups, func() error {
-			_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
-			return err
-		})
-	}
-
-	if len(cleanups) == 0 {
+	if hash == "" {
 		return nil, nil
 	}
-	return deliveredFunc(func() error {
-		var firstErr error
-		for _, cleanup := range cleanups {
-			if err := cleanup(); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-		return firstErr
-	}), nil
+	fs := s.fs
+	path := filepath.Join(dir, agent.SCMContextSubdir, hash+".md")
+	return deliveredFunc(func() error { return fs.Remove(path) }), nil
 }
 
 // UnsafeInfo returns codex's context identity for the DeliverShared fallback's
@@ -159,6 +128,49 @@ func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
 
 // Kind reports codex's context surface (the raw context cache file).
 func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
+
+// agentsMDSurface is codex's OTHER, native context route (taskloom
+// lanky-plop/tiny-ooze): codex reads a workspace-fixed AGENTS.md NATIVELY at
+// session start — no hook required — and CodexHookWriter now implements
+// agent.ContextWriter to write it with managed-section markers
+// (agent.WriteManagedContext), preserving hand-authored content outside them
+// byte-for-byte, exactly like claude's CLAUDE.md and antigravity's AGENTS.md.
+// This route is keyed on the assembled context STRING (SurfaceInputs.Context),
+// because the STATIC materialize/init path only ever has that string, never
+// resolved Fragment objects (AssembleContext returns a flattened string) — so
+// before this surface existed, materialize's codex output silently carried NO
+// context at all: contextSurface (above) is keyed on fragments, which
+// materialize never populates, so it saw an empty slice and no-op'd.
+// Delivery-ONLY, like every codex surface.
+type agentsMDSurface struct {
+	context string
+	fs      afero.Fs
+}
+
+// Deliver merges the context into AGENTS.md and returns a handle whose Cleanup
+// strips the managed section (removing the file when nothing user-authored
+// remains) by writing empty context. This is the shared
+// agent.DeliverManagedContext shape — the SAME one antigravity's and claude's
+// own native-file ContextWriter surfaces use — not contextSurface's hash-file
+// precision (where empty content genuinely creates nothing, so IT reports a
+// nil handle): WriteContext("") on an absent file is a harmless no-op report
+// (Removed with nothing to remove), not a call worth special-casing.
+func (s *agentsMDSurface) Deliver(dir string) (agent.Delivered, error) {
+	return agent.DeliverManagedContext(&CodexHookWriter{FS: s.fs}, dir, s.context)
+}
+
+// UnsafeInfo returns codex's AGENTS.md identity for the DeliverShared
+// fallback's warning (ResolvedSelection.deliverOneShared's unsafeNamed check,
+// cells.go).
+func (s *agentsMDSurface) UnsafeInfo() string { return "codex/agents-md" }
+
+// Kind reports codex's native context surface as the same cross-backend
+// SurfaceContext kind as contextSurface — the two are alternate ROUTES for one
+// surface kind, not two kinds. Kind is only consulted by the approach-dispatch
+// table (SupportedApproaches/SurfaceFor), which still resolves SurfaceContext
+// to contextSurface alone (codexApproaches); agentsMDSurface reaches a cell
+// only through Deliveries(), which has no per-kind uniqueness requirement.
+func (s *agentsMDSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext }
 
 // configSurface is codex's folded settings + hooks + MCP surface: the single
 // .codex/config.toml written by CodexHookWriter.WriteSettings, which owns the
@@ -206,26 +218,31 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// Surfaces is codex's set of delivery surfaces for one run. codex has three
-// surface objects — context (the raw context file), config (config.toml's folded
-// hooks + MCP), and skills (cell-scoped prompts).
+// Surfaces is codex's set of delivery surfaces for one run. codex has four
+// surface objects — context (the raw context file, for the SessionStart hook),
+// agentsMD (the native AGENTS.md managed section — the other context route),
+// config (config.toml's folded hooks + MCP), and skills (cell-scoped prompts).
 type Surfaces struct {
-	Context *contextSurface
-	Config  *configSurface
-	Skills  *agent.ManagedSkillsDelivery
+	Context  *contextSurface
+	AgentsMD *agentsMDSurface
+	Config   *configSurface
+	Skills   *agent.ManagedSkillsDelivery
 }
 
-// NewSurfaces builds codex's surfaces from a run's shared inputs. codex's context
-// is a raw file, so it takes the Fragments (not the assembled Context string); it
-// also uses the merged MCP + bundle servers, the hook set, and the skill exports.
-// A nil fs defaults to the OS filesystem. Every codex surface's Delivery takes its
-// target dir at call time; none is race-safe (codex exposes no out-of-cwd flag),
-// so there is no isolated placement to bind.
+// NewSurfaces builds codex's surfaces from a run's shared inputs. codex's
+// hook-driven context route takes the Fragments; its native AGENTS.md route
+// takes the assembled Context string (the STATIC materialize/init path only
+// ever has the string — see agentsMDSurface's doc comment); it also uses the
+// merged MCP + bundle servers, the hook set, and the skill exports. A nil fs
+// defaults to the OS filesystem. Every codex surface's Delivery takes its
+// target dir at call time; none is race-safe (codex exposes no out-of-cwd
+// flag), so there is no isolated placement to bind.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	return Surfaces{
-		Context: &contextSurface{fragments: in.Fragments, context: in.Context, fs: fs},
-		Config:  &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
+		Context:  &contextSurface{fragments: in.Fragments, fs: fs},
+		AgentsMD: &agentsMDSurface{context: in.Context, fs: fs},
+		Config:   &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
 		Skills: agent.NewManagedSkillsDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.CommandExport) error {
 			return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
 		}),
@@ -237,19 +254,23 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // where a well-known write into a private dir is safe. This is the ONLY way
 // codex's surfaces reach a cell directly: none has a SharedRealization, so a
 // SHARED-cwd delivery falls back to the loud well-known write (see
-// Surfaces.SharedRealization below).
+// Surfaces.SharedRealization below). AgentsMD rides here alongside Context —
+// both are context, delivered unconditionally based on whichever input
+// (fragments vs. context string) each has.
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.Config, s.Skills}
+	return []agent.Delivery{s.Context, s.AgentsMD, s.Config, s.Skills}
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
-// per-provider dispatch). context remains declared Hook-ONLY: codex's context
-// surface now ALSO writes a native AGENTS.md (managed markers) alongside the
-// SessionStart inject-context hook's raw cache file, but both routes ride the
-// SAME contextSurface.Deliver call under the one declared approach — there is
-// no separately-selectable "give me only the native file" approach for codex's
-// context the way claude/antigravity expose UnsafeFile, so naming UnsafeFile
-// for codex's context remains an unsupported combo the builder rejects.
+// per-provider dispatch). context remains declared Hook-ONLY: the SessionStart
+// inject-context hook's raw cache file (contextSurface) is the only
+// SEPARATELY-SELECTABLE context approach. agentsMDSurface (the native
+// AGENTS.md write) has no approach of its own — it is not part of this table
+// at all — and reaches a cell only via Deliveries(), delivering unconditionally
+// alongside whatever approach-dispatch resolves for SurfaceContext. So naming
+// UnsafeFile for codex's context remains an unsupported combo the builder
+// rejects: there is no way to select "only the native file" through this
+// table, the way claude/antigravity expose UnsafeFile as a first-class choice.
 // settings/skills are native-file-only. SurfaceMCP is deliberately ABSENT: MCP
 // folds into the config/settings surface, so codex advertises no distinct MCP
 // surface — selecting MCP is a permitted no-op, resolved by whichever selection
@@ -296,6 +317,7 @@ func (Surfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, e
 // Compile-time capability contracts. Every codex surface is a KindedDelivery.
 var (
 	_ agent.KindedDelivery = (*contextSurface)(nil)
+	_ agent.KindedDelivery = (*agentsMDSurface)(nil)
 	_ agent.KindedDelivery = (*configSurface)(nil)
 	_ agent.Delivered      = deliveredFunc(nil)
 	// Surfaces exposes Deliveries (for an isolated cell) + the approach-aware

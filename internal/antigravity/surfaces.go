@@ -54,16 +54,11 @@ type contextSurface struct {
 
 // Deliver merges the context into .agents/AGENTS.md via WriteContext and returns
 // a handle whose Cleanup strips the managed section (removing the file when
-// nothing user-authored remains) by writing empty context.
+// nothing user-authored remains) by writing empty context. This is the shared
+// agent.DeliverManagedContext shape, the same one claude's CLAUDE.md and
+// codex's AGENTS.md context surfaces use.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &AntigravityHookWriter{FS: s.fs}
-	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
-		return err
-	}), nil
+	return agent.DeliverManagedContext(&AntigravityHookWriter{FS: s.fs}, dir, s.context)
 }
 
 // UnsafeInfo returns agy's context identity for the DeliverShared fallback's

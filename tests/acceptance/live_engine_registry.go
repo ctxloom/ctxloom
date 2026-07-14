@@ -14,9 +14,13 @@
 //     the BINARY to probe (not necessarily the engine's own name — kiro's is
 //     kiro-cli, antigravity's is agy), how to tell INSTALLED apart from
 //     AUTHENTICATED, the credential material an isolated run needs, and one
-//     cheap pinned model (claude, kiro) or an explicit "no pin, use the
+//     cheap pinned model (claude, kiro, codex) or an explicit "no pin, use the
 //     engine's own default" (antigravity has no verified cheap-model slug
-//     recorded here yet — see the config comment below).
+//     recorded here yet — see the config comment below). codex's authCheck
+//     and credential copier are real as of 2026-07-14, but a direct
+//     (non-suite) live run found its run-path context delivery broken — see
+//     the codex entry's own comment; it is NOT yet a proven context-delivering
+//     row.
 //  2. computeLiveEngineReport / formatLiveEngineReport: what actually ran vs.
 //     skipped, per engine, WITH THE REASON — printed on every acceptance run
 //     (TestAcceptance), not only live ones, so credential expiry shows up as
@@ -88,9 +92,11 @@ type liveAgent struct {
 
 // liveAgentOrder is the availability report's fixed display order, matching
 // the Examples tables' own convention (claude, antigravity, kiro) plus codex
-// last as the confirmed, permanently-unavailable row. Kept separate from the
-// map because map iteration order is unspecified and this report's whole
-// point is to be predictable and diffable across runs.
+// last — codex now genuinely authenticates on a box with a real `codex` on
+// PATH (confirmed 2026-07-14), so it is no longer a permanently-unavailable
+// row, but it stays last as the newest/most-recently-wired entry. Kept
+// separate from the map because map iteration order is unspecified and this
+// report's whole point is to be predictable and diffable across runs.
 var liveAgentOrder = []string{"claude", "antigravity", "kiro", "codex"}
 
 // liveAgents maps the lowercased scenario token ("claude", "antigravity",
@@ -169,16 +175,57 @@ profiles:
 		copyCreds: copyKiroCredentials,
 		authCheck: authCheckKiro,
 	},
-	// codex has NO binary on any dev host today (confirmed 2026-07-14) and its
-	// settings support is implemented against docs, never actually run
-	// (internal/codex/settings.go). It stays declared-but-unavailable: a real
-	// row in this registry (so the availability report always names it,
-	// rather than pretending only three engines exist), but with no config,
-	// no credential copier, and an authCheck that only matters if a future
-	// dev host ever puts a `codex` binary on PATH before this comment is
-	// updated with a real probe.
+	// Codex CLI (codex) authenticates via `codex login` (ChatGPT subscription
+	// OAuth) or an OPENAI_API_KEY/CODEX_API_KEY env var for headless
+	// (internal/codex/backend.go:102's own comment names the latter; not
+	// live-verified here, so both are offered as candidates rather than
+	// asserted). Confirmed live 2026-07-14 on this box: `codex login status`
+	// → "Logged in using ChatGPT" (real probe, see authCheckCodex).
+	//
+	// CODEX'S HOME IS A LANDMINE: codex resolves BOTH its config surface and
+	// its ENTIRE runtime state (sessions, memories, logs, goals, model cache,
+	// plugins, temp — confirmed 472MB on this box) from the single
+	// $CODEX_HOME var (default ~/.codex). The credential is the ONE file
+	// auth.json (confirmed: `~/.codex/auth.json`, holds auth_mode +
+	// id/access/refresh tokens) — copyCodexCredentials copies only that file,
+	// never the tree, the same principle copyClaudeCredentials states
+	// explicitly and internal/codex/backend.go's own linkUserCodexAuth
+	// already applies to the run-time cell home.
+	//
+	// PRODUCT BUG FOUND while proving this live (2026-07-14, direct
+	// `ctxloom run --print` against a real authenticated codex, NOT via this
+	// suite — see the codex-live-proof session): codex's run-path composed
+	// context cache file (.ctxloom/cache/context/<hash>.md, written by the
+	// RawContext Setup step) carries ONLY companion-contributed fragments
+	// (ltk/taskloom docs) and DROPS the active profile's own bundle
+	// fragments — confirmed reproducibly: `run --dry-run` correctly shows
+	// the profile's fragment in "Assembled Context", but the on-disk cache
+	// file codex's SessionStart hook actually reads does not contain it, and
+	// its hash is IDENTICAL across two profiles with different fragment
+	// content. So a real, authenticated codex run genuinely executes (~9-12s,
+	// not a skip) but currently answers questions about context it was never
+	// given — bigger than taskloom tiny-ooze (materialize-only gap), since
+	// this is the launch/run path. So codex reports AUTHENTICATED here (that
+	// axis is real and correct), but is NOT YET a proven context-delivering
+	// live row — do not add a J5 @live Examples row for codex until this is
+	// fixed, or it would be red (or falsely green on a weakened assertion).
 	"codex": {
-		binary:    "codex",
+		binary:     "codex",
+		apiKeyEnvs: []string{"OPENAI_API_KEY", "CODEX_API_KEY"},
+		credDir:    ".codex",
+		config: `version: 4
+llm:
+  configs:
+    codex:
+      type: codex
+      model: gpt-5.4-mini
+  defaults:
+    primary: codex
+    fast: codex
+profiles:
+  defaults: []
+`,
+		copyCreds: copyCodexCredentials,
 		authCheck: authCheckCodex,
 	},
 }
@@ -403,14 +450,25 @@ func authCheckAntigravity(realHome string) (bool, string) {
 	return false, "no oauth_creds.json found under ~/.gemini or ~/.gemini/antigravity-cli"
 }
 
-// authCheckCodex always reports unavailable: codex has no binary on any dev
-// host today, so engineAvailable never actually reaches this (the
-// binary-not-found check above short-circuits first). It exists so the
-// registry entry is complete and self-documenting rather than silently
-// nil, and as a real answer if a future dev host ever does have a `codex`
-// binary on PATH before anyone gets around to writing a genuine probe.
-func authCheckCodex(string) (bool, string) {
-	return false, "codex has no live authentication probe implemented (declared but unavailable)"
+// authCheckCodex runs `codex login status`, a local, non-interactive status
+// read confirmed live 2026-07-14 (~0.1s, no network stall observed): exit 0
+// with "Logged in using ChatGPT" on the subscription path, exit 1 with "Not
+// logged in" otherwise — a genuine authenticated/not-authenticated probe, the
+// same INSTALLED-vs-AUTHENTICATED distinction authCheckClaude/authCheckKiro
+// make (and whose absence hid kiro's own breakage for months), replacing the
+// old hardcoded "codex has no live authentication probe implemented" stub
+// that reported unavailable regardless of reality.
+func authCheckCodex(realHome string) (bool, string) {
+	ctx, cancel := context.WithTimeout(context.Background(), authProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "codex", "login", "status")
+	cmd.Env = append(os.Environ(), "HOME="+realHome)
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		return false, fmt.Sprintf("`codex login status` reports not logged in: %s", text)
+	}
+	return true, fmt.Sprintf("codex login status: %s", text)
 }
 
 // copyClaudeCredentials copies just the auth-relevant files from the real
@@ -473,4 +531,31 @@ func copyKiroCredentials(realHome, fakeHome string) {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(dstDir, "data.sqlite3"), data, 0o600)
+}
+
+// copyCodexCredentials copies the ONE file codex's subscription auth lives
+// in: ~/.codex/auth.json (auth_mode + id/access/refresh tokens; confirmed
+// live against a real `codex login status` → "Logged in using ChatGPT" on
+// 2026-07-14) — never the rest of ~/.codex, which on this box holds 472MB of
+// sessions, memories, logs, goals, a model-list cache, and plugins, all
+// mixed with config under the SAME $CODEX_HOME codex uses for its credential
+// lookup (confirmed: pointing CODEX_HOME at a project dir once made codex
+// dump 91MB of sqlite/temp state there). This is the identical "never the
+// whole tree" principle copyClaudeCredentials states explicitly, and the
+// identical file internal/codex/backend.go's own linkUserCodexAuth
+// symlinks into a run's cell-scoped $CODEX_HOME — applied here to the
+// isolated test HOME instead. codexHome() (internal/codex/commandfiles.go)
+// resolves $CODEX_HOME if set, else $HOME/.codex, so once the acceptance
+// harness overrides HOME to the isolated fakeHome, writing auth.json under
+// fakeHome/.codex is exactly where codex (and ctxloom's own
+// linkUserCodexAuth, when a real run follows) will find it.
+func copyCodexCredentials(realHome, fakeHome string) {
+	srcDir := filepath.Join(realHome, ".codex")
+	dstDir := filepath.Join(fakeHome, ".codex")
+	data, err := os.ReadFile(filepath.Join(srcDir, "auth.json"))
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(dstDir, 0o755)
+	_ = os.WriteFile(filepath.Join(dstDir, "auth.json"), data, 0o600)
 }

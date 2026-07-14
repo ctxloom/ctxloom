@@ -36,6 +36,7 @@ func captureStderr(t *testing.T, fn func()) string {
 // sampleInputs is a representative, fully-populated SurfaceInputs.
 func sampleInputs() agent.SurfaceInputs {
 	return agent.SurfaceInputs{
+		Context:   "the secret color is vermilion",
 		Fragments: []*agent.Fragment{{Name: "rules", Content: "the secret color is vermilion"}},
 		MCP: &wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -126,23 +127,25 @@ func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	assert.False(t, exists, "no context, nothing written")
 }
 
+// ---- agentsMD surface (the OTHER, native context route) --------------------
+
 // taskloom tiny-ooze: the materialize path only ever populates
 // SurfaceInputs.Context (the assembled STRING) — never Fragments, because
 // AssembleContext only returns a flattened string, not resolved Fragment
 // objects (see internal/operations/profile_materialize.go). Before codex had
 // a ContextWriter, this meant materialize silently delivered ZERO context to
-// codex: the fragments-keyed cache-file route saw an empty fragment slice and
-// no-op'd. codex's context surface must ALSO deliver via AGENTS.md (managed
-// markers) whenever in.Context is non-empty, regardless of whether Fragments
-// was populated.
-func TestContextSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
+// codex: the fragments-keyed cache-file route (contextSurface) saw an empty
+// fragment slice and no-op'd. codex's NEW agentsMDSurface must deliver via
+// AGENTS.md (managed markers) whenever in.Context is non-empty, regardless of
+// whether Fragments was populated.
+func TestAgentsMDSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	// Materialize shape: Context is populated, Fragments is NOT (this is the
 	// exact input shape profile_materialize.go builds for codex).
 	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
 
-	handle, err := s.Context.Deliver(dir)
+	handle, err := s.AgentsMD.Deliver(dir)
 	require.NoError(t, err)
 	require.NotNil(t, handle, "materialize-shaped input (Context, no Fragments) must still deliver codex context")
 
@@ -155,16 +158,35 @@ func TestContextSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
 	assert.False(t, exists, "cleanup strips the managed section; wholly-managed file is removed")
 }
 
+// Empty context writes nothing to disk (the file never existed, so
+// WriteContext("") is a harmless no-op), but — unlike contextSurface's
+// hash-file route — Deliver still returns a real handle: agentsMDSurface
+// follows antigravity's and claude's own native-file ContextWriter surfaces,
+// which always deliver.
+func TestAgentsMDSurface_EmptyContextStillDelivers(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewSurfaces(agent.SurfaceInputs{}, fs)
+
+	handle, err := s.AgentsMD.Deliver("/proj")
+	require.NoError(t, err)
+	require.NotNil(t, handle, "matches antigravity/claude's own always-delivers context surface")
+
+	exists, _ := afero.Exists(fs, "/proj/AGENTS.md")
+	assert.False(t, exists, "empty content creates nothing")
+
+	require.NoError(t, handle.Cleanup())
+}
+
 // Hand-authored AGENTS.md content outside the managed markers survives
 // materialize's write byte-for-byte (the other half of lanky-plop's fix:
 // AGENTS.md is a file codex users may already hand-author).
-func TestContextSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
+func TestAgentsMDSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "AGENTS.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
 	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
 
-	handle, err := s.Context.Deliver(dir)
+	handle, err := s.AgentsMD.Deliver(dir)
 	require.NoError(t, err)
 	require.NotNil(t, handle)
 
@@ -274,7 +296,7 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 3, "context, config, skills")
+	require.Len(t, ds, 4, "context, agentsMD, config, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -285,7 +307,9 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 
 	// The private-dir writes all landed at codex's well-known cell-local locations.
 	contextFile(t, fs, dir) // asserts exactly one context file exists in the cell
-	exists, _ := afero.Exists(fs, filepath.Join(dir, ".codex", "config.toml"))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, "AGENTS.md"))
+	assert.True(t, exists, "the native AGENTS.md context route also landed")
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "config.toml"))
 	assert.True(t, exists)
 	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "prompts", "review.md"))
 	assert.True(t, exists)

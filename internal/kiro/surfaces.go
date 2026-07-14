@@ -46,16 +46,11 @@ type contextSurface struct {
 }
 
 // Deliver writes the steering file via WriteContext and returns a handle whose
-// Cleanup removes it (writing empty context).
+// Cleanup removes it (writing empty context). This is the shared
+// agent.DeliverManagedContext shape, the same one antigravity's AGENTS.md,
+// claude's CLAUDE.md, and codex's AGENTS.md context surfaces use.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &KiroWriter{FS: s.fs}
-	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
-		return err
-	}), nil
+	return agent.DeliverManagedContext(&KiroWriter{FS: s.fs}, dir, s.context)
 }
 
 // UnsafeInfo returns kiro's context identity for the DeliverShared fallback's

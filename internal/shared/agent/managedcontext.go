@@ -102,3 +102,27 @@ func ifNonEmptySuffix(s, suffix string) string {
 	}
 	return suffix
 }
+
+// DeliveredFunc adapts a cleanup closure to Delivered, for a Delivery whose
+// reversal is a single function call.
+type DeliveredFunc func() error
+
+// Cleanup runs the wrapped cleanup closure.
+func (f DeliveredFunc) Cleanup() error { return f() }
+
+// DeliverManagedContext is the shared Delivery.Deliver shape for a
+// ContextWriter that owns a human-editable managed-marker file: write content,
+// then wrap the reversal (re-writing with empty content, which strips the
+// managed section) in a Delivered handle. Every native-file ContextWriter
+// context surface — antigravity's .agents/AGENTS.md, claude's CLAUDE.md, and
+// codex's AGENTS.md — shares this exact shape, so it lives here once rather
+// than as three (and counting) copy-pasted Deliver methods.
+func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, error) {
+	if _, err := w.WriteContext(ContextWriteRequest{ProjectDir: dir, Context: content}); err != nil {
+		return nil, err
+	}
+	return DeliveredFunc(func() error {
+		_, err := w.WriteContext(ContextWriteRequest{ProjectDir: dir, Context: ""})
+		return err
+	}), nil
+}

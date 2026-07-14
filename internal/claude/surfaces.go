@@ -74,16 +74,11 @@ func newContextSurface(context string, isolated agent.Placement, fs afero.Fs) *c
 // nothing user-authored remains) by writing empty context — the honest
 // reversal of a MARKER-MERGED write. (Before markers landed, this used
 // fs.Remove to reverse a whole-file write; a plain removal would now delete
-// hand-authored content that lived outside the markers.)
+// hand-authored content that lived outside the markers.) This is the shared
+// agent.DeliverManagedContext shape, the same one antigravity's AGENTS.md and
+// codex's AGENTS.md context surfaces use.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &ClaudeCodeHookWriter{FS: s.fs}
-	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
-		return err
-	}), nil
+	return agent.DeliverManagedContext(&ClaudeCodeHookWriter{FS: s.fs}, dir, s.context)
 }
 
 // DeliverIsolated writes the framed context file through the reused

@@ -262,3 +262,19 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 		assert.True(t, ok, fmt.Sprintf("liveAgentOrder names %q, which is not in liveAgents", name))
 	}
 }
+
+// TestCodexRegistryEntry_IsWiredNotStub guards against a regression back to
+// the old authCheckCodex stub ("codex has no live authentication probe
+// implemented (declared but unavailable)") — codex now has a real probe, a
+// real credential copier, and a real pinned-cheap-model config, confirmed
+// live 2026-07-14 against an authenticated `codex login status`.
+func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
+	a, ok := liveAgents["codex"]
+	assert.True(t, ok, "codex must remain a registered live agent")
+	assert.Equal(t, "codex", a.binary)
+	assert.Equal(t, ".codex", a.credDir)
+	assert.NotNil(t, a.authCheck, "codex must have a real authCheck, not the old permanently-unavailable stub")
+	assert.NotNil(t, a.copyCreds, "codex must have a credential copier, not nil (the old declared-but-unavailable state)")
+	assert.Contains(t, a.config, "type: codex")
+	assert.Contains(t, a.config, "gpt-5.4-mini", "codex must pin a cheap model — live tests prove context delivery, not model quality")
+}

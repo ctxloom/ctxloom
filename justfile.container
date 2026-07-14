@@ -240,8 +240,15 @@ test-acceptance: build
 # (.github/workflows/docs.yml) runs it, mirroring how the acceptance job
 # invokes `just -f justfile.container test-acceptance`.
 gen-living-docs: build
-    CTXLOOM_DOC_CAPTURE_DIR=.cache/doc-capture go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
-    go run ./scripts/gendocs/livingdocs --capture-dir .cache/doc-capture
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Absolute path: see the host justfile's gen-living-docs for why a
+    # relative CTXLOOM_DOC_CAPTURE_DIR silently breaks (go test's cwd is the
+    # package dir, not the repo root).
+    capture_dir="$(pwd)/.cache/doc-capture"
+    rm -rf "$capture_dir"
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # Run the docker-gated container transport integration tests (see the host
 # justfile's test-docker-integration for the full explanation). Requires the

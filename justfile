@@ -609,8 +609,17 @@ docs-preview:
 # a docs preview never forces a full acceptance run. CI's docs deploy workflow
 # (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
 gen-living-docs: build
-    CTXLOOM_DOC_CAPTURE_DIR=.cache/doc-capture go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
-    go run ./scripts/gendocs/livingdocs --capture-dir .cache/doc-capture
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Absolute path: `go test ./tests/acceptance/...` runs with its cwd set to
+    # the package directory (tests/acceptance/), not the repo root, so a
+    # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and
+    # every scenario would render as "not captured" — the generator, run
+    # separately via `go run` from the repo root, would never find it.
+    capture_dir="$(pwd)/.cache/doc-capture"
+    rm -rf "$capture_dir"
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # Initialize .ctxloom directory
 init:

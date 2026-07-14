@@ -39,6 +39,7 @@ type World struct {
 	j4s *j4State // J4: the onboarding journey's fixture state (steps_j4_onboarding.go)
 	j5  *j5State // J5: the multi-engine journey's fixture state (steps_j5.go)
 	j6  *j6State // J6: the delegation/privilege journey's fixture state (steps_j6_delegation.go)
+	j7s *j7State // J7: the incident journey's fixture state (steps_j7.go)
 	ts  *tsState // trust-surface matrix: fixture state (steps_trust_surface.go)
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
 	docCapture          *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
@@ -114,6 +115,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ4Steps(ctx)
 	registerJ5Steps(ctx)
 	registerJ6Steps(ctx)
+	registerJ7Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerDocCaptureHooks(ctx)
 }

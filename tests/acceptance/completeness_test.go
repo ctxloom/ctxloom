@@ -108,15 +108,17 @@ func isLeafIdentByte(b byte) bool {
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
 	// Publisher signing surface: zero acceptance scenarios sign a bundle or
-	// list/show the allowed_signers store. Backfill: task outer-water.
+	// list the allowed_signers store. Backfill: task outer-water.
 	// "ctxloom signer add"/"ctxloom signer remove" were here too, but J3
 	// (steps_j3.go, j3_corporate_signed.feature) now legitimately drives both:
 	// the Background's "Alice trusts the company key" step runs `ctxloom
 	// signer add ... --project`, and scenario 6's "Alice revokes her trust in
 	// the company key" runs `ctxloom signer remove ... --project` — pruned.
+	// "ctxloom signer show" was here too, but J7 (steps_j7.go,
+	// j7_incident.feature)'s irrevocable-embedded-key scenario now legitimately
+	// drives it (before/after the removal attempt) — pruned.
 	"ctxloom sign",
 	"ctxloom signer list",
-	"ctxloom signer show",
 	// Relocates an authored bundle to another remote/project; needs a second
 	// project/remote fixture beyond this suite's single seeded remote.
 	// Backfill: task cheap-pug.

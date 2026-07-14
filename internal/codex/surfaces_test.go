@@ -126,6 +126,60 @@ func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	assert.False(t, exists, "no context, nothing written")
 }
 
+// taskloom tiny-ooze: the materialize path only ever populates
+// SurfaceInputs.Context (the assembled STRING) — never Fragments, because
+// AssembleContext only returns a flattened string, not resolved Fragment
+// objects (see internal/operations/profile_materialize.go). Before codex had
+// a ContextWriter, this meant materialize silently delivered ZERO context to
+// codex: the fragments-keyed cache-file route saw an empty fragment slice and
+// no-op'd. codex's context surface must ALSO deliver via AGENTS.md (managed
+// markers) whenever in.Context is non-empty, regardless of whether Fragments
+// was populated.
+func TestContextSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	// Materialize shape: Context is populated, Fragments is NOT (this is the
+	// exact input shape profile_materialize.go builds for codex).
+	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
+
+	handle, err := s.Context.Deliver(dir)
+	require.NoError(t, err)
+	require.NotNil(t, handle, "materialize-shaped input (Context, no Fragments) must still deliver codex context")
+
+	data, err := afero.ReadFile(fs, filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err, "codex now owns a native AGENTS.md context surface")
+	assert.Contains(t, string(data), "the secret color is vermilion")
+
+	require.NoError(t, handle.Cleanup())
+	exists, _ := afero.Exists(fs, filepath.Join(dir, "AGENTS.md"))
+	assert.False(t, exists, "cleanup strips the managed section; wholly-managed file is removed")
+}
+
+// Hand-authored AGENTS.md content outside the managed markers survives
+// materialize's write byte-for-byte (the other half of lanky-plop's fix:
+// AGENTS.md is a file codex users may already hand-author).
+func TestContextSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "AGENTS.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
+	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
+
+	handle, err := s.Context.Deliver(dir)
+	require.NoError(t, err)
+	require.NotNil(t, handle)
+
+	data, err := afero.ReadFile(fs, filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "always use tabs", "hand-written content survives")
+	assert.Contains(t, string(data), "the secret color is vermilion")
+
+	require.NoError(t, handle.Cleanup())
+	data, err = afero.ReadFile(fs, filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, err, "the hand-authored file survives cleanup (not wholly ctxloom's)")
+	assert.Contains(t, string(data), "always use tabs")
+	assert.NotContains(t, string(data), "the secret color is vermilion", "the managed section is gone after cleanup")
+}
+
 // ---- config surface (folded settings + hooks + MCP) ------------------------
 
 // config Delivery writes .codex/config.toml (hooks + mcp_servers) into dir via
@@ -289,9 +343,10 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 }
 
 // SurfaceFor(context, Hook) resolves to the real cache-file write (codex's ONLY
-// context approach performs real work, unlike claude's Hook no-op); naming
-// UnsafeFile for codex's context is unsupported — codex has no native context
-// file at all.
+// DECLARED context approach performs real work, unlike claude's Hook no-op);
+// naming UnsafeFile for codex's context is unsupported — codex's native
+// AGENTS.md write rides the SAME Hook-declared contextSurface (see
+// codexApproaches' doc comment), it is not a separately-selectable approach.
 func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewSurfaces(sampleInputs(), fs)
@@ -304,7 +359,7 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	require.NotNil(t, handle, "codex's Hook approach performs the real cache-file write")
 
 	_, err = s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	assert.Error(t, err, "codex has no native context file — UnsafeFile is unsupported")
+	assert.Error(t, err, "UnsafeFile is not a separately-selectable approach for codex's context")
 }
 
 // SharedRealization is absent for every kind: codex has no out-of-cwd redirect,

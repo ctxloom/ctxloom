@@ -160,12 +160,19 @@ func IsAvailable(name string) bool {
 // provider SDK and makes no direct call to any model API — and must not acquire one on
 // any path that carries subscription credentials.
 //
-// This is a licensing invariant, not a style preference. Anthropic's Feb-2026 Consumer
-// ToS prohibits using Free/Pro/Max OAuth tokens "in any other product, tool, or service,
-// including the Agent SDK", and enforces it server-side. Lifting a subscription token
-// into our own HTTP client is the prohibited act; launching the vendor's signed-in binary
-// as a child process is not. Adding anthropic-sdk-go / openai-go / langchaingo "to
-// simplify the launcher" would convert a compliant design into a ToS violation.
+// This is a licensing invariant, not a style preference. Anthropic reserves subscription
+// OAuth for "ordinary use of Claude Code and other native Anthropic applications", bars
+// tools that "misrepresent their identity to Anthropic's servers" or "route third-party
+// traffic against subscription limits", and directs anyone building on the Agent SDK to
+// API keys instead (support article 13189465, updated 2026-05-19; code.claude.com
+// legal-and-compliance). Lifting a subscription token into our own HTTP client is the
+// prohibited act — it is precisely the identity misrepresentation named above. Launching
+// the vendor's signed-in binary as a child process is not: the genuine binary makes the
+// call, so there is nothing to misrepresent, and Anthropic names `claude -p` as drawing
+// on subscription limits, i.e. metered rather than banned. Adding anthropic-sdk-go /
+// openai-go / langchaingo "to simplify the launcher" would forfeit that standing.
+//
+// The compliance therefore lives in the SHAPE of this table, not in any one backend.
 //
 // Metered BYO-API-key access through a gateway (OpenRouter, LiteLLM) is fine — but a
 // gateway serves Anthropic *models*, never Claude *Code*, and a subscription-authenticated

@@ -190,18 +190,26 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, projec
 	return w.saveSettings(settingsPath, settings)
 }
 
-// WriteContext implements agent.ContextWriter for Claude Code: it writes the
-// assembled context (req.Context) to <projectDir>/CLAUDE.md as raw, whole-file
-// content (0644, no markers). This is the STATIC context surface an
-// externally-launched Claude Code session reads directly — the same payload the
-// SessionStart injection hook delivers at runtime, but written to disk with
-// ctxloom out of the loop. (The framed-cache / --append-system-prompt-file
-// runtime path is separate; managed-section markers arrive later.)
+// WriteContext implements agent.ContextWriter for Claude Code: it merges the
+// assembled context (req.Context) into the ctxloom-managed section of
+// <projectDir>/CLAUDE.md, preserving any hand-authored content outside the
+// markers BYTE-FOR-BYTE (taskloom lanky-plop — this used to be a bare
+// whole-file afero.WriteFile with no read-first and no merge, which silently
+// destroyed a team's hand-written CLAUDE.md). Empty content removes the managed
+// section (and the file, when it was wholly ctxloom's). This is the STATIC
+// context surface an externally-launched Claude Code session reads directly —
+// the same payload the SessionStart injection hook delivers at runtime, but
+// written to disk with ctxloom out of the loop. (The framed-cache /
+// --append-system-prompt-file runtime path is separate: it writes its own
+// out-of-cwd <hash>.sysprompt.md from the context string directly and never
+// reads CLAUDE.md, so it is unaffected by this change.)
+//
+// The marker merge itself is the shared core (agent.WriteManagedContext),
+// ported from antigravity's original .agents/AGENTS.md implementation so every
+// backend that owns a human-editable context file shares one merge.
 func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
-	if err := afero.WriteFile(w.getFS(), filepath.Join(req.ProjectDir, "CLAUDE.md"), []byte(req.Context), 0o644); err != nil {
-		return agent.ContextReport{}, fmt.Errorf("write CLAUDE.md: %w", err)
-	}
-	return agent.ContextReport{Wrote: []string{"CLAUDE.md"}}, nil
+	path := filepath.Join(req.ProjectDir, "CLAUDE.md")
+	return agent.WriteManagedContext(w.getFS(), path, "CLAUDE.md", req.Context, "CLAUDE.md")
 }
 
 // loadSettings loads existing settings.json or returns empty settings.

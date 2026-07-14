@@ -86,8 +86,9 @@ var (
 
 // ---- context surface -------------------------------------------------------
 
-// context Delivery writes CLAUDE.md (the ContextWriter core) into the target dir
-// and its Cleanup removes it.
+// context Delivery writes CLAUDE.md (the ContextWriter core) into the target
+// dir, in the ctxloom-managed section, and its Cleanup removes the file when
+// nothing user-authored remains outside the markers.
 func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
@@ -97,10 +98,33 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 
 	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	require.NoError(t, err)
-	assert.Equal(t, sampleInputs().Context, string(got), "CLAUDE.md holds the raw context")
+	assert.Contains(t, string(got), sampleInputs().Context, "CLAUDE.md holds the assembled context in the managed section")
 
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "cleanup reverses the whole-file write")
+	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "cleanup strips the managed section; wholly-managed file is removed")
+}
+
+// Hand-authored content in CLAUDE.md outside the managed markers survives both
+// Deliver and Cleanup byte-for-byte (lanky-plop regression, at the surface
+// layer materialize/run actually drive).
+func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	handle, err := s.Context.Deliver(dir)
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "always use tabs", "hand-written content survives Deliver")
+	assert.Contains(t, string(got), sampleInputs().Context)
+
+	require.NoError(t, handle.Cleanup())
+	got, err = os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "always use tabs", "hand-written content survives Cleanup too")
+	assert.NotContains(t, string(got), sampleInputs().Context, "the managed section is gone after cleanup")
 }
 
 // context DeliverIsolated writes the framed <hash>.sysprompt.md into the

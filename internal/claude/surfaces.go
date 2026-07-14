@@ -1,8 +1,6 @@
 package claude
 
 import (
-	"path/filepath"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -71,16 +69,21 @@ func newContextSurface(context string, isolated agent.Placement, fs afero.Fs) *c
 	}
 }
 
-// Deliver writes CLAUDE.md into dir via the ContextWriter core and returns a
-// handle whose Cleanup removes it.
+// Deliver merges context into CLAUDE.md via the ContextWriter core and returns
+// a handle whose Cleanup strips the managed section (removing the file when
+// nothing user-authored remains) by writing empty context — the honest
+// reversal of a MARKER-MERGED write. (Before markers landed, this used
+// fs.Remove to reverse a whole-file write; a plain removal would now delete
+// hand-authored content that lived outside the markers.)
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	w := &ClaudeCodeHookWriter{FS: s.fs}
 	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
 		return nil, err
 	}
-	fs := s.fs
-	path := filepath.Join(dir, "CLAUDE.md")
-	return deliveredFunc(func() error { return fs.Remove(path) }), nil
+	return deliveredFunc(func() error {
+		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
+		return err
+	}), nil
 }
 
 // DeliverIsolated writes the framed context file through the reused

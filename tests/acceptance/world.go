@@ -37,6 +37,7 @@ type World struct {
 	j2s *j2State // J2: team-authoring journey state (see steps_j2_team.go)
 	j3  *j3State // J3: the corporate-signed/trust journey's fixture state (steps_j3.go)
 	j4s *j4State // J4: the onboarding journey's fixture state (steps_j4_onboarding.go)
+	j5  *j5State // J5: the multi-engine journey's fixture state (steps_j5.go)
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
 	docCapture          *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
 	docFileName         string      // filename this scenario's capture flushes to
@@ -109,5 +110,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ2Steps(ctx)
 	registerJ3Steps(ctx)
 	registerJ4Steps(ctx)
+	registerJ5Steps(ctx)
 	registerDocCaptureHooks(ctx)
 }

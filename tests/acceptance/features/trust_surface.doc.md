@@ -174,6 +174,46 @@ It is expected to pass today, because it is asserting what actually happens,
 not what is supposed to. Filed as a product finding, not fixed here.
 <!-- /doc:scenario -->
 
+<!-- doc:scenario: An approved item's review state is labeled "accepted," not left at "pending" -->
+The mirror of the two label scenarios above, on the allow side: approving an
+item has to move its state to "accepted," not merely let its bytes flow while
+the tool still reports it as awaiting review. A user who has decided about
+something needs the tool to say a decision was made — a payload that reaches
+the assistant while the listing still reads "pending" is the same lie as a
+withheld item that reads "pending," pointed the other way.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: Rejecting a raw-only item records a content block for exactly that form -->
+Everything above reads the served payload. This pair reads instead what the
+tool actually WROTE when it rejected something — the decision, not its
+downstream effect. A rejection blocks the item's content per form the item
+currently has, so a raw-only fragment should be blocked in exactly its raw
+form, no more. A phantom block recorded for a form the item does not have is
+not harmless: it is the tool reporting it protected bytes it never saw, and no
+scenario that only checks the materialized surface would ever notice the
+difference.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: Rejecting an item that ships both forms records a content block for both -->
+The other half of the recorded-decision check, and the one that catches the
+opposite failure: an item that genuinely ships both a raw and a distilled form
+must have BOTH blocked, not just whichever one the write path happened to reach
+first. Read together with the raw-only case, this pins the recorded rejection
+to exactly the forms the item has — no missing block that would let a form slip
+through, no phantom block that would misreport coverage.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: A source reference that cannot be parsed is refused, never treated as local -->
+Locality is not a cosmetic label on this page — it is a decision. Local content
+is auto-allowed at the top of the cascade, ahead of any review, so the question
+"is this ref local?" is load-bearing. A reference that carries a scheme marker,
+and was therefore plainly meant as a remote/canonical ref, but does not parse
+as one, must be REFUSED outright — never quietly downgraded to "a bare local
+bundle name," which would walk it straight past the gate. This scenario drives
+exactly such a malformed ref and confirms the tool fails closed, in its own
+words, rather than guessing local.
+<!-- /doc:scenario -->
+
 <!-- doc:outro -->
 Read as a single artifact, this page closes the gap the rest of the suite left
 open: before it, "can this be rejected" had real proof for exactly two of five

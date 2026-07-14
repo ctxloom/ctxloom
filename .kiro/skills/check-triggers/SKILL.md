@@ -21,7 +21,7 @@ list until that condition is met.
    repository's current state, and the status of other tasks), batches every
    Deferred task's trigger into one model call, and returns a verdict per
    task: **fired**, **not-fired**, **needs-investigation**, or
-   **cannot-determine** — each with evidence and reasoning. For a
+   **cannot-determine** — each with confidence, evidence, and reasoning. For a
    needs-investigation verdict, ctxloom may already have run one bounded
    follow-up look (file existence, a targeted grep, recent commits on a path,
    another task's status) before returning, so what you get back is often
@@ -30,10 +30,8 @@ list until that condition is met.
    its output and get a decision.
 
 3. **Report — do not act yet.** Present the verdicts: for each task its harp
-   id, text, trigger, verdict, evidence, and reasoning. Lead with
-   **fired**. The evidence is the case for the verdict — cite it. Never
-   substitute your own sense of how likely a trigger is for what the evidence
-   shows; a verdict with thin evidence is thin, and should read that way. Explain what each outcome means for the decision ahead:
+   id, text, trigger, verdict, confidence, evidence, and reasoning. Lead with
+   **fired**. Explain what each outcome means for the decision ahead:
    - **fired** — the evidence shows the condition occurred. Propose reviving it.
    - **not-fired** — positive evidence shows the condition hasn't occurred yet. Leave it Deferred.
    - **needs-investigation** — the evidence is suggestive but not conclusive, even after ctxloom's own follow-up look. Worth a closer look from you before deciding; leave it Deferred until then.

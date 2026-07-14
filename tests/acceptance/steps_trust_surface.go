@@ -27,7 +27,9 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,13 +46,31 @@ const (
 	tsSkillMarker    = "TS-SKILL-MARKER-9d2e60"
 	tsMCPMarker      = "TS-MCP-EXEC-MARKER-6a1c33"
 	tsHookMarker     = "echo TS-HOOK-EXEC-MARKER-7f0e52"
+
+	// tsFragmentDistilledAddedMarker is GAP-B's "form flip" fixture: the bytes
+	// a distilled form ADDED AFTER approval carries. Distinct from
+	// tsFragmentMarker (the raw form, approved) so presence of EITHER one is
+	// individually distinguishable in the assembled context.
+	tsFragmentDistilledAddedMarker = "TS-FRAGMENT-DISTILLED-ADDED-MARKER-8e21f0"
+
+	// tsDualRawMarker/tsDualDistilledMarker are GAP-B's "both forms shipped at
+	// once" fixture: a fragment carrying distinct raw and distilled content
+	// from the start, so approving it and then flipping use_distilled proves
+	// an approval covers BOTH forms it saw, not just whichever one a caller
+	// happened to check first.
+	tsDualRawMarker       = "TS-DUALFORM-RAW-MARKER-2f9c81"
+	tsDualDistilledMarker = "TS-DUALFORM-DISTILLED-MARKER-71ac9d"
 )
 
 // tsState is this feature's fixture state: the seeded remote's URL, the
-// bundle name inside it, and (signed-fixture only) the trusted principal.
+// bundle name inside it, and (signed-fixture only) the trusted principal and
+// its signer — retained so a later step can RE-SIGN the bundle after
+// legitimately changing it (GAP A's rename-and-resign), the same way
+// steps_j3.go's j3State keeps its signer for AdvanceSignedRemote.
 type tsState struct {
 	url        string
 	bundleName string
+	signer     *testenv.TestSigner
 }
 
 func tsOf(w *World) *tsState {
@@ -86,6 +106,81 @@ profiles:
   reviewme:
     description: trust-surface demo profile — never trust-gated, see the last scenario
 `, tsFragmentMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+}
+
+// tsBundleYAMLFragmentRenamed is GAP A's fixture: the SAME bundle
+// tsBundleYAML ships, except the fragment's key is "context2" instead of
+// "context" — a rename/move at the publisher, with the fragment's BYTES
+// (tsFragmentMarker) left byte-for-byte identical. Everything else
+// (skill/mcp/hook/profile) is unchanged. Used with AdvanceSignedRemote so the
+// re-signed document is still validly signed by the same trusted principal —
+// if the content-level rejection were not enforced, step 5 (trusted signer)
+// would re-admit it under its new name.
+func tsBundleYAMLFragmentRenamed() string {
+	return fmt.Sprintf(`version: "1.0.0"
+fragments:
+  context2:
+    content: %q
+skills:
+  guide:
+    description: trust-surface demo skill
+    content: %q
+mcp:
+  toolserver:
+    command: "/bin/echo"
+    args: [%q]
+hooks:
+  session_start:
+    - command: %q
+      type: command
+profiles:
+  reviewme:
+    description: trust-surface demo profile — never trust-gated, see the last scenario
+`, tsFragmentMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+}
+
+// tsBundleYAMLFragmentDistilledAdded is GAP B's "form flip" fixture: the same
+// bundle, except the fragment now ALSO carries a "distilled:" field
+// (tsFragmentDistilledAddedMarker) the publisher added after Alice already
+// approved the raw-only version. The raw bytes (tsFragmentMarker) are left
+// unchanged — only a new form is added.
+func tsBundleYAMLFragmentDistilledAdded() string {
+	return fmt.Sprintf(`version: "1.0.0"
+fragments:
+  context:
+    content: %q
+    distilled: %q
+skills:
+  guide:
+    description: trust-surface demo skill
+    content: %q
+mcp:
+  toolserver:
+    command: "/bin/echo"
+    args: [%q]
+hooks:
+  session_start:
+    - command: %q
+      type: command
+profiles:
+  reviewme:
+    description: trust-surface demo profile — never trust-gated, see the last scenario
+`, tsFragmentMarker, tsFragmentDistilledAddedMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+}
+
+// tsDualFormBundleYAML is GAP B's "both forms shipped at once" fixture: a
+// single fragment named "context" (the same selector tsSelector("fragment")
+// resolves) carrying DISTINCT raw and distilled content from the start, so
+// approving it exercises SetItemTrust's dual-form write path (both
+// writeApprove calls, not just the raw one every other fixture in this file
+// exercises).
+func tsDualFormBundleYAML() string {
+	return fmt.Sprintf(`version: "1.0.0"
+fragments:
+  context:
+    content: %q
+    distilled: %q
+`, tsDualRawMarker, tsDualDistilledMarker)
 }
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
@@ -126,6 +221,22 @@ func tsWireAndPull(w *World, url string) error {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "trustdemo/"+ts.bundleName); err != nil {
+		return err
+	}
+	return runOK(w, "remote", "pull")
+}
+
+// tsUpdateAndPull advances an ALREADY-INSTALLED bundle to a newly published
+// commit. Plain "remote pull" is passive by design — remote_upgrade.go's own
+// doc: "Passive 'remote pull' installs exactly what is already pinned and
+// never advances" — so a bundle this feature already pulled once (GAP A's
+// rename, GAP B's later-added distilled form) needs 'remote update --apply'
+// to actually fetch+apply the new commit before a subsequent pull refreshes
+// the lockfile; verified empirically (a plain second pull silently no-ops:
+// "Skipped (already installed)"). --force skips the interactive per-item
+// confirmation prompt (this test drives stdin-less exec.Command).
+func tsUpdateAndPull(w *World) error {
+	if err := runOK(w, "remote", "update", "--apply", "--force"); err != nil {
 		return err
 	}
 	return runOK(w, "remote", "pull")
@@ -172,6 +283,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.TrustSigner(signer, "trustsurface-publisher@example.com", true); err != nil {
 			return fmt.Errorf("trust the trust-surface signer: %w", err)
 		}
+		ts.signer = signer
 		return tsWireAndPull(w, url)
 	})
 
@@ -223,6 +335,193 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// --- GAP A: content-hash (byte-level) rejection survives a rename/move ----
+
+	ctx.Step(`^the publisher renames the fragment to a new name, keeping its bytes identical, and re-signs it$`, func(c context.Context) error {
+		w := worldFrom(c)
+		ts := tsOf(w)
+		if ts.signer == nil {
+			return fmt.Errorf("trust-surface: rename-and-resign requires the signed fixture (no signer recorded)")
+		}
+		bareDir := strings.TrimPrefix(ts.url, "file://")
+		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		if err := w.env.AdvanceSignedRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentRenamed()}, []string{rel}, ts.signer); err != nil {
+			return fmt.Errorf("advance signed trust-surface remote (rename fragment): %w", err)
+		}
+		return tsUpdateAndPull(w)
+	})
+
+	// --- GAP B: dual-form (raw + distilled) approve/reject ---------------------
+
+	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a fragment with both a raw and a distilled form$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+			return err
+		}
+		ts := tsOf(w)
+		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		url, err := w.env.SeedRemote(map[string]string{rel: tsDualFormBundleYAML()})
+		if err != nil {
+			return fmt.Errorf("seed dual-form trust-surface remote: %w", err)
+		}
+		return tsWireAndPull(w, url)
+	})
+
+	ctx.Step(`^Alice starts a session preferring (raw|distilled) content$`, func(c context.Context, form string) error {
+		w := worldFrom(c)
+		if err := tsSetUseDistilled(w, form == "distilled"); err != nil {
+			return err
+		}
+		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
+		return nil
+	})
+
+	ctx.Step(`^the fragment's (raw|distilled) marker is present in her assistant's delivered surface$`, func(c context.Context, form string) error {
+		w := worldFrom(c)
+		rel := filepath.Join("out", "CLAUDE.md")
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read materialized %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		marker, other := tsDualRawMarker, tsDualDistilledMarker
+		if form == "distilled" {
+			marker, other = tsDualDistilledMarker, tsDualRawMarker
+		}
+		has := strings.Contains(body, marker)
+		if has {
+			w.docStepMaterialized = j5Excerpt(body, marker, 1)
+		} else {
+			w.docStepMaterialized = fmt.Sprintf("%s: does not contain %q (%d bytes assembled)", rel, marker, len(body))
+		}
+		if !has {
+			return fmt.Errorf("%s does not contain the %s form's marker %q; content:\n%s", rel, form, marker, body)
+		}
+		// The approval covers BOTH forms, but the CONFIG PREFERENCE must still
+		// pick exactly one at a time — the other form's marker appearing too
+		// would mean the preference did nothing, not that both are approved.
+		if strings.Contains(body, other) {
+			return fmt.Errorf("%s unexpectedly ALSO contains the other form's marker %q while preferring %s; content:\n%s", rel, other, form, body)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the publisher adds a distilled form to the fragment, keeping its raw bytes unchanged$`, func(c context.Context) error {
+		w := worldFrom(c)
+		ts := tsOf(w)
+		bareDir := strings.TrimPrefix(ts.url, "file://")
+		rel := ".ctxloom/content/bundles/" + ts.bundleName + ".yaml"
+		if err := w.env.AdvanceRemote(bareDir, map[string]string{rel: tsBundleYAMLFragmentDistilledAdded()}); err != nil {
+			return fmt.Errorf("advance unsigned trust-surface remote (add distilled form): %w", err)
+		}
+		return tsUpdateAndPull(w)
+	})
+
+	ctx.Step(`^the fragment is withheld entirely, in neither its raw nor its new distilled form$`, func(c context.Context) error {
+		w := worldFrom(c)
+		rel := filepath.Join("out", "CLAUDE.md")
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read materialized %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		hasRaw := strings.Contains(body, tsFragmentMarker)
+		hasDistilled := strings.Contains(body, tsFragmentDistilledAddedMarker)
+		w.docStepMaterialized = fmt.Sprintf("%s: raw marker present=%v, new distilled marker present=%v (%d bytes assembled)", rel, hasRaw, hasDistilled, len(body))
+		if hasRaw || hasDistilled {
+			return fmt.Errorf("%s unexpectedly exposes the fragment (raw=%v, distilled=%v) after an unapproved distilled form was added; content:\n%s", rel, hasRaw, hasDistilled, body)
+		}
+		return nil
+	})
+
+	// --- GAP E: the review STATE LABEL, not just the payload -------------------
+
+	ctx.Step(`^the fragment's review state is "(pending|accepted|rejected)"$`, func(c context.Context, want string) error {
+		w := worldFrom(c)
+		state, err := tsFragmentListState(w, "context")
+		if err != nil {
+			return err
+		}
+		if state != want {
+			return fmt.Errorf("fragment's review state is %q, want %q", state, want)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the publisher retracts the bundle$`, func(c context.Context) error {
+		w := worldFrom(c)
+		ts := tsOf(w)
+		bareDir := strings.TrimPrefix(ts.url, "file://")
+		manifest := fmt.Sprintf(
+			"version: 1\nretracted:\n  - type: bundle\n    name: %q\n    version: \"\"\n    reason: %q\n",
+			ts.bundleName, "trust-surface GAP-E retraction demo")
+		if err := w.env.AdvanceRemote(bareDir, map[string]string{".ctxloom/content/manifest.yaml": manifest}); err != nil {
+			return fmt.Errorf("advance trust-surface remote with a retraction manifest: %w", err)
+		}
+		return runOK(w, "remote", "pull")
+	})
+
+	// --- GAP D: a corrupted approvals store — see doc.md, @wip in the .feature -
+
+	ctx.Step(`^her approvals store is corrupted, a file where a directory should be$`, func(c context.Context) error {
+		w := worldFrom(c)
+		dir := filepath.Join(w.env.HomeDir, ".ctxloom", "approvals")
+		// The user store (not project) is what "Alice rejects the X" wrote to
+		// (SetBlacklist's default is the personal store) — remove the directory
+		// entirely and replace it with a plain FILE, so countersign.Store.
+		// Readable's afero.ReadDir call fails with a non-ENOENT error (a real
+		// I/O failure), not "does not exist yet" (the ordinary, harmless shape).
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove approvals dir to corrupt it: %w", err)
+		}
+		return w.env.WriteHomeFile(".ctxloom/approvals", "not a directory\n")
+	})
+
+	ctx.Step(`^the fragment is present in her assistant's delivered surface, a confirmed product gap$`, func(c context.Context) error {
+		return tsAssertPresence(worldFrom(c), "fragment", true)
+	})
+}
+
+// tsSetUseDistilled appends a top-level "config:\n  use_distilled: <bool>\n"
+// block to the project's config.yaml (which ensureProjectWithEngine's
+// buildJ1Config never emits one of, so this is additive, never a collision —
+// see steps_j1_common.go's addMockAlongside for the same read-then-append
+// convention). internal/config has no CLI setter for this value; a direct
+// config.yaml edit is the only way a black-box CLI-driving test can toggle it.
+func tsSetUseDistilled(w *World, use bool) error {
+	body, err := w.env.ReadFile(".ctxloom/config.yaml")
+	if err != nil {
+		return fmt.Errorf("read config.yaml: %w", err)
+	}
+	body += fmt.Sprintf("config:\n  use_distilled: %t\n", use)
+	return w.env.WriteFile(".ctxloom/config.yaml", body)
+}
+
+// tsFragmentListState runs `ctxloom fragment list --format json` and returns
+// the named fragment's "state" field (internal/cli/item_helpers.go's itemRow,
+// stamped by operations.NewTrustStamper — the SAME TrustStamper/EffectiveTrust
+// path materialize uses) — the review-state LABEL a human sees in `ctxloom
+// review`/list JSON, as distinct from whether the payload happens to be
+// present (see trust_surface.doc.md's GAP-E note: both SourceRejected and
+// SourceRetracted must independently render this as "rejected", never
+// "pending").
+func tsFragmentListState(w *World, name string) (string, error) {
+	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
+		return "", err
+	}
+	out := w.env.LastOutput()
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		return "", fmt.Errorf("parse `fragment list --format json` output: %w\noutput:\n%s", err, out)
+	}
+	for _, row := range rows {
+		if n, _ := row["name"].(string); n == name {
+			state, _ := row["state"].(string)
+			w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %q: state=%q trust_source=%v trusted=%v",
+				name, state, row["trust_source"], row["trusted"])
+			return state, nil
+		}
+	}
+	return "", fmt.Errorf("fragment %q not found in `fragment list --format json` output:\n%s", name, out)
 }
 
 // tsAssertPresence dispatches to the right generated-surface parser per

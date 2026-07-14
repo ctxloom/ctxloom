@@ -84,3 +84,101 @@ Feature: The trust surface — what "review" actually controls
     Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
     When Alice tries to approve the bundle's profile
     Then ctxloom refuses, because profiles are not a trust-addressable kind
+
+  # GAP A — the sharpest untested claim on this whole page: "a rejection is of
+  # BYTES, not provenance" (internal/operations/trust.go's ReviewRecords.Rejected
+  # doc). Every scenario above rejects at the REF (this exact bundle, this exact
+  # name); none of them prove the CONTENT-level block a renamed or moved copy
+  # still has to clear. Proven the same way the REJECT outline above proves
+  # anything: start from a trusted-signer bundle (allowed by default), reject
+  # the fragment, then have the publisher legitimately re-publish it under a
+  # new name (re-signed, so a broken content check would let it right back in
+  # via step 5) — the marker must still never reach the assistant.
+  Scenario: A rejection binds bytes, not identity — it survives a rename or move
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice rejects the fragment
+    And the publisher renames the fragment to a new name, keeping its bytes identical, and re-signs it
+    And Alice starts a session
+    Then the fragment is absent from her assistant's delivered surface
+
+  # GAP B — "an approval only allows when it covers THIS FORM" (EffectiveTrust
+  # step 6's own comment) was never checked: nothing in this suite ships a
+  # distilled form at all, so SetItemTrust's second (distilled) countersignature
+  # write, and computeItemPayload's form selection, ran on every approve call
+  # but nothing ever depended on the RESULT differing by form. Two scenarios:
+  # first, that approving a fragment shipped with both forms covers BOTH — not
+  # just whichever one got checked first — by flipping which form materialize
+  # prefers and watching the SERVED bytes flip with it. Second, and sharper: an
+  # approval must never silently expand to cover bytes it never saw. A fragment
+  # approved while it had only a raw form, and then given a distilled form
+  # afterward, must NOT start serving that new, unapproved form just because
+  # config now prefers distilled by default — it must re-gate to pending.
+  Scenario Outline: Approving a fragment shipped with both a raw and a distilled form covers both, not just the one form checked first
+    Given a bundle from an unsigned, never-reviewed publisher ships a fragment with both a raw and a distilled form
+    When Alice approves the fragment
+    And Alice starts a session preferring <form> content
+    Then the fragment's <form> marker is present in her assistant's delivered surface
+
+    Examples:
+      | form      |
+      | raw       |
+      | distilled |
+
+  Scenario: Approving a fragment while it has only a raw form does not silently cover a distilled form added later
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice approves the fragment
+    And Alice starts a session
+    Then the fragment is present in her assistant's delivered surface
+    When the publisher adds a distilled form to the fragment, keeping its raw bytes unchanged
+    And Alice starts a session
+    Then the fragment is withheld entirely, in neither its raw nor its new distilled form
+    And the fragment's review state is "pending"
+
+  # GAP E — the review STATE LABEL a human actually sees (`ctxloom review`,
+  # `fragment list --format json`'s "state" field) is a SEPARATE claim from "the
+  # payload is withheld", and nothing above checks it: EffectiveTrustResult.
+  # State() renders BOTH SourceRejected and SourceRetracted as "rejected" through
+  # one shared case arm, and either half of that arm could be deleted with every
+  # payload assertion above still green — a rejected or retracted item could
+  # render as "pending" (awaiting review) and mislead a reviewer into thinking
+  # nothing has been decided about it yet. Withholding still happens either
+  # way — this is a display gap, not a gate bypass — but a wrong label is its
+  # own kind of failure for a tool whose whole job is telling a human what was
+  # decided and why.
+  Scenario: A rejected item's review state is labeled "rejected," not silently "pending"
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice rejects the fragment
+    Then the fragment's review state is "rejected"
+
+  Scenario: A retracted bundle's items are labeled "rejected," not silently "pending"
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    When the publisher retracts the bundle
+    Then the fragment's review state is "rejected"
+
+  # GAP D — @wip: a CONFIRMED VULNERABILITY, not a coverage gap.
+  # internal/operations/trust.go:230-246's "approvals store unreadable -> deny
+  # EVERYTHING" guard only runs when EffectiveTrustRequest.Records is nil — and
+  # NO real caller ever leaves it nil. TrustStamper, the content/executable
+  # gates (trust_gate.go), and PendingReview (`ctxloom review`) each build their
+  # OWN non-nil ReviewRecords before calling EffectiveTrust, so this guard is
+  # unreachable dead code from every real CLI path. What actually happens on a
+  # corrupted store instead: countersign.Store.candidates (internal/signing/
+  # countersign/store.go) swallows the afero.Glob error and returns "no
+  # candidates" — indistinguishable from "nothing was ever rejected". Verified
+  # empirically this session: a rejected local fragment REAPPEARED in
+  # materialized output, exit 0, no warning, the moment its user approvals
+  # store was replaced with a plain file. This scenario documents the REAL
+  # (bad) behavior — it is expected to PASS today, proving the bug, not the
+  # guarantee — and is excluded from the default green run until fixed, per
+  # this suite's own @wip convention (see j5_multi_engine.feature's codex
+  # scenario). Filed as a taskloom task per this project's standing
+  # workaround-discipline rule; not fixed here — that is a product change.
+  @wip
+  Scenario: A corrupted approvals store silently un-rejects previously withheld content, instead of denying everything
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    When Alice rejects the fragment
+    And Alice starts a session
+    Then the fragment is absent from her assistant's delivered surface
+    When her approvals store is corrupted, a file where a directory should be
+    And Alice starts a session
+    Then the fragment is present in her assistant's delivered surface, a confirmed product gap

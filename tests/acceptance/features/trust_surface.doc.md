@@ -94,6 +94,86 @@ CLI command a reviewer would try and shows the refusal, in the tool's own
 words, rather than describing what would happen.
 <!-- /doc:scenario -->
 
+<!-- doc:scenario: A rejection binds bytes, not identity — it survives a rename or move -->
+Every rejection scenario above proves the same thing at the same address: reject
+this ref, and this ref goes dark. None of them answer the sharper question a
+real publisher relationship eventually asks: what happens when the REJECTED
+thing shows back up somewhere else? ctxloom's own design answers that a
+rejection is of bytes, not of provenance — a countersigned content-reject
+covers the payload wherever it appears, deliberately omitting the ref so a
+renamed or moved copy cannot simply outrun it. That claim had never been
+exercised. This scenario rejects a fragment, then has the publisher
+legitimately republish the identical bytes under a new name — re-signed, so a
+broken content check would let it straight back in through the trusted-signer
+step exactly as if nothing had ever been rejected. The marker still never
+reaches the assistant. The content check, not the ref check, is what is
+actually doing the work here.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: Approving a fragment shipped with both a raw and a distilled form covers both, not just the one form checked first -->
+`ctxloom review`'s countersignature covers the exact bytes a human looked at —
+and a fragment can present TWO different sets of bytes, raw and distilled,
+depending on project config. Nothing above ever gave a reviewed item a second
+form to have an opinion about, so the rule that an approval is scoped to a
+FORM, not just a ref, had a rule with nothing testing it. This fragment ships
+both a raw and a distilled form from the start; approving it signs both,
+and flipping which one the project prefers flips which bytes the assistant
+actually receives — proving the approval travels with the content, not with
+whichever form happened to get checked at review time.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: Approving a fragment while it has only a raw form does not silently cover a distilled form added later -->
+The dangerous direction of the same rule: an approval must never silently
+grow to cover bytes nobody ever reviewed. A fragment approved while it had
+only a raw form is later given a distilled form by its publisher — the raw
+bytes are untouched, only a new form is added. Project config prefers
+distilled by default, so materializing now reaches for bytes that exist for
+the first time and that nobody has ever countersigned. The fragment goes
+completely dark rather than serving content on the strength of an approval
+that was never about it — and its review state reports "pending," the honest
+label for "somebody needs to look at this," not "rejected" or a leftover
+"accepted" from before the new form existed.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: A rejected item's review state is labeled "rejected," not silently "pending" -->
+Everything on this page up to now asks "did the bytes get through" — a real
+reviewer also asks "what does the tool say happened," and those are different
+claims. `ctxloom review`/`fragment list --format json`'s state field is what a
+human actually reads to know an item was decided at all, and nothing checked
+that a rejected item's label matches its behavior. This scenario rejects a
+fragment and reads its state back through the JSON listing, confirming it says
+"rejected" — not "pending," which would tell a reviewer a decision is still
+outstanding when one has already been made.
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: A retracted bundle's items are labeled "rejected," not silently "pending" -->
+The other half of the same label claim, and it is a genuinely separate line of
+code: a rejection and a retraction are two different decision-function steps
+that happen to render through the identical three-state label, and either half
+of that rendering could go missing without a single payload assertion on this
+page noticing — withholding would still work, only the label would lie. This
+scenario has the publisher retract the whole bundle instead of a human
+rejecting one item, and checks the same state field lands on "rejected," never
+"pending."
+<!-- /doc:scenario -->
+
+<!-- doc:scenario: A corrupted approvals store silently un-rejects previously withheld content, instead of denying everything -->
+This scenario is tagged `@wip` and it documents a bug, not a proof. The trust
+system's own comments promise that an approvals store this process cannot read
+denies EVERYTHING — on the theory that an unreadable store might be hiding a
+rejection, and rejection is supposed to be supreme. That guard exists in the
+code. It is also never reached: every real caller builds its own record store
+and hands EffectiveTrust something already non-nil, so the one preamble check
+that would fail closed never runs. What actually happens when the store
+becomes unreadable is the opposite of "deny everything" — the store's read
+path treats an I/O error exactly like "nothing was ever recorded here," so a
+previously rejected item silently stops being rejected. This scenario proves
+it: reject a fragment, confirm it is withheld, corrupt the store, and watch
+the SAME fragment reach the assistant again, with no warning and exit code 0.
+It is expected to pass today, because it is asserting what actually happens,
+not what is supposed to. Filed as a product finding, not fixed here.
+<!-- /doc:scenario -->
+
 <!-- doc:outro -->
 Read as a single artifact, this page closes the gap the rest of the suite left
 open: before it, "can this be rejected" had real proof for exactly two of five

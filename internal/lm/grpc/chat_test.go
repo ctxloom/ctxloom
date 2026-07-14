@@ -122,11 +122,25 @@ func TestGRPCServer_Chat_FirstMessageMustBeStart(t *testing.T) {
 }
 
 // fakeChatClientStream implements the bidi client stream for GRPCClient.Chat.
+//
+// closeSendDone is closed inside CloseSend, which GRPCClient.Chat's outbound
+// pump goroutine only calls once its `for msg := range in { stream.Send(msg) }`
+// loop has fully drained — i.e. once every queued Send has already landed in
+// `sent`. Callers that need `sentInputs` to reflect all messages a test wrote
+// to `in` MUST wait on closeSendDone first: draining `events`/`errs` gives no
+// such guarantee, since the canned recv data is independent of the outbound
+// side and the two pump goroutines are otherwise unsynchronized.
 type fakeChatClientStream struct {
-	mu      sync.Mutex
-	sent    []*ChatInput
-	recv    []*ChatEvent
-	recvIdx int
+	mu            sync.Mutex
+	sent          []*ChatInput
+	recv          []*ChatEvent
+	recvIdx       int
+	closeSendOnce sync.Once
+	closeSendDone chan struct{}
+}
+
+func newFakeChatClientStream(recv []*ChatEvent) *fakeChatClientStream {
+	return &fakeChatClientStream{recv: recv, closeSendDone: make(chan struct{})}
 }
 
 func (s *fakeChatClientStream) Send(in *ChatInput) error {
@@ -150,7 +164,10 @@ func (s *fakeChatClientStream) Recv() (*ChatEvent, error) {
 	s.recvIdx++
 	return ev, nil
 }
-func (s *fakeChatClientStream) CloseSend() error             { return nil }
+func (s *fakeChatClientStream) CloseSend() error {
+	s.closeSendOnce.Do(func() { close(s.closeSendDone) })
+	return nil
+}
 func (s *fakeChatClientStream) Header() (metadata.MD, error) { return nil, nil }
 func (s *fakeChatClientStream) Trailer() metadata.MD         { return nil }
 func (s *fakeChatClientStream) Context() context.Context     { return context.Background() }
@@ -160,11 +177,11 @@ func (s *fakeChatClientStream) RecvMsg(any) error            { return nil }
 var _ googlegrpc.BidiStreamingClient[ChatInput, ChatEvent] = (*fakeChatClientStream)(nil)
 
 func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
-	cs := &fakeChatClientStream{recv: []*ChatEvent{
+	cs := newFakeChatClientStream([]*ChatEvent{
 		{Event: &ChatEvent_Session{Session: &ChatSessionInfo{Model: "m"}}},
 		{Event: &ChatEvent_Entry{Entry: &SessionEntry{Content: "hi"}}},
 		{Event: &ChatEvent_Complete{Complete: &TurnMeta{InputTokens: 5}}},
-	}}
+	})
 	c := &GRPCClient{client: &fakeLLMClient{chatStream: cs}}
 
 	in, events, errs, err := c.Chat(context.Background(), agent.ChatRequest{Model: "m"})
@@ -172,6 +189,12 @@ func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
 
 	in <- agent.ChatMessage{Text: "hello"}
 	close(in)
+
+	// The outbound pump only calls CloseSend once its loop over `in` has fully
+	// drained (see fakeChatClientStream doc comment) — waiting here is what
+	// actually guarantees "hello" has landed in `sent` below, rather than
+	// relying on the unrelated timing of the events/errs drain.
+	<-cs.closeSendDone
 
 	var got []agent.ChatEvent
 	for ev := range events {

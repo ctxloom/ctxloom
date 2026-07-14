@@ -43,14 +43,29 @@ unleash:
   # unbearable — a false timeout silently voids a mutant.
   timeout-coefficient: 30
 
-  # Quality gates - fail if scores drop below these thresholds
+  # Quality gates - fail if scores drop below these thresholds (0 = disabled).
+  #
+  # BOTH ARE DISABLED PENDING A REAL MEASUREMENT. They previously read
+  # efficacy:60 / mutant-coverage:45, justified by a comment claiming "current
+  # baseline is ~48%". That 48% was never measured — it was invented. The real
+  # whole-module figure, once exclude-files was fixed so generated code stopped
+  # being counted, is 22.90% mutant coverage: roughly HALF the threshold that
+  # was supposedly set "slightly below" it. The gate passed only because the CI
+  # job is advisory.
+  #
+  # Do not restore a number here from memory, intuition, or a doc. MEASURE, publish
+  # the figure, then set a floor just under it and ratchet. A threshold chosen
+  # before the measurement is how a gate gets tuned into measuring nothing — which
+  # has now happened to this gate four separate times (taskloom urban-depth).
+  #
+  # NOTE: the 22.90% figure is itself under investigation — gremlins reports 22.90%
+  # mutant coverage where `go tool cover` reports 72.5% statement coverage on the
+  # same test set, and that ~50-point gap is not yet explained (see shady-reply for
+  # one known coverage-position-mapping bug). Do not set a threshold off either
+  # number until that contradiction is resolved.
   threshold:
-    # Percentage of mutants killed by tests (0 = disabled)
-    # Start conservative, increase as coverage improves
-    efficacy: 60
-    # Percentage of mutants covered by tests (0 = disabled)
-    # Current baseline is ~48%, set threshold slightly below
-    mutant-coverage: 45
+    efficacy: 0
+    mutant-coverage: 0
 
 # Mutation operators to enable
 # Start with the most valuable ones, add more as test suite matures

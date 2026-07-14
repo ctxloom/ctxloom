@@ -155,6 +155,21 @@ func IsAvailable(name string) bool {
 	return err == nil
 }
 
+// Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
+// binary (claude, codex, kiro-cli, agy) or that vendor's ACP adapter. ctxloom holds no
+// provider SDK and makes no direct call to any model API — and must not acquire one on
+// any path that carries subscription credentials.
+//
+// This is a licensing invariant, not a style preference. Anthropic's Feb-2026 Consumer
+// ToS prohibits using Free/Pro/Max OAuth tokens "in any other product, tool, or service,
+// including the Agent SDK", and enforces it server-side. Lifting a subscription token
+// into our own HTTP client is the prohibited act; launching the vendor's signed-in binary
+// as a child process is not. Adding anthropic-sdk-go / openai-go / langchaingo "to
+// simplify the launcher" would convert a compliant design into a ToS violation.
+//
+// Metered BYO-API-key access through a gateway (OpenRouter, LiteLLM) is fine — but a
+// gateway serves Anthropic *models*, never Claude *Code*, and a subscription-authenticated
+// CLI cannot be pointed at one.
 func init() {
 	// Register all built-in backends — ONE descriptor per agent covering
 	// construction, config decoding, settings writing, and slash-command
@@ -221,7 +236,7 @@ func init() {
 		newWriter:            codex.NewWriter,
 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return codex.NewSurfaces(in, fs) },
 		exports:              codexExports,
-		enforcesReadOnlyPlan: true, // --sandbox read-only --ask-for-approval never
+		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the

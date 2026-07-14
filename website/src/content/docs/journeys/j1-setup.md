@@ -21,6 +21,17 @@ tableOfContents: false
 .living-doc-grid > .ldc { min-width: 0; overflow-x: auto; }
 .living-doc-grid > .ldc > :first-child { margin-top: 0; }
 .living-doc-grid > .ldc > :last-child { margin-bottom: 0; }
+/* Wrap the LEFT column only (the cucumber steps: odd grid children). Long
+   Given/When/Then lines wrap to the column width instead of overflowing.
+   Expressive Code puts the text in <pre><code>…<div class="ec-line"><div
+   class="code">, all defaulting to white-space:pre, so the override reaches
+   every level. The RIGHT column (even children — captured terminal output) is
+   deliberately left with its default horizontal-scroll behaviour. */
+.living-doc-grid > .ldc:nth-child(odd) :is(pre, code, .ec-line, .code) {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 @media (max-width: 720px) {
   .living-doc-grid { grid-template-columns: 1fr; gap: 0.2rem; }
 }

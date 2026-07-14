@@ -182,6 +182,11 @@ release: build-all compress-all
 test:
     #!/usr/bin/env bash
     set -e
+    # Mirrors the host justfile's `test`: gate on BOTH the plain (no-race) and
+    # -race suites, not just -race — see the host recipe's comment for why
+    # (the no-race path is what gremlins/`just cover` actually run, and it was
+    # gating nothing). `set -e` aborts here on either failure.
+    go test ./...
     go test -race -coverprofile=coverage.raw.out ./...
     just -f justfile.container _check-no-ctxloom-leak
     just -f justfile.container _filter_coverage coverage.raw.out coverage.out

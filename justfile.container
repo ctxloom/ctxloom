@@ -236,8 +236,13 @@ test-integration: build
 
 # Run the full-stack acceptance suite (godog) inside the container. Hermetic by
 # default; @live scenarios are opt-in and self-skip without credentials.
+# -v: this is what CI actually invokes (ci.yml: `just -f justfile.container
+# test-acceptance`) — without it, a passing `go test` run buffers ALL of the
+# test binary's stdout (the live-engine availability report printed once up
+# front, and godog's own "pretty" per-scenario output) and only shows it on
+# failure, which had silently made every green CI run of this suite mute.
 test-acceptance: build
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Generate the "living docs" journey pages inside the container: same as the
 # host justfile's gen-living-docs, but via this file's own `build` (no

@@ -204,24 +204,36 @@ func j5Excerpt(body, marker string, context int) string {
 	return strings.TrimSpace(strings.Join(lines[start:end], "\n"))
 }
 
-// j5AssertContext dispatches to the right native context surface per engine.
-// codex is NOT one of the cases here — see the @wip scenario and
-// j5AssertCodexContextGap: `profile materialize` never delivers codex's
-// context at all today (a confirmed product gap), so it is not part of this
-// outline.
-func j5AssertContext(w *World, engine string) error {
-	j5 := j5Of(w)
-	dir := j5.target
+// engineContextRelPath returns dir-relative path to an engine's own native
+// context surface (internal/{claude,kiro,antigravity}/surfaces.go). Shared
+// engine-axis knowledge: J5's own materialization outline uses it below, and
+// J4's onboarding journey reuses it rather than re-deriving a second copy of
+// the same per-engine path table (steps_j4_onboarding.go's "Bob starts a
+// session on <engine>" outline). codex is NOT one of the cases here — see
+// J5's @wip scenario and j5AssertCodexContextGap: `profile materialize` never
+// delivers codex's context at all today (a confirmed product gap), so no
+// caller of this function includes codex as a row.
+func engineContextRelPath(dir, engine string) (string, error) {
 	switch engine {
 	case "claude-code":
-		return j5FileContains(w, filepath.Join(dir, "CLAUDE.md"), j5ContextMarker)
+		return filepath.Join(dir, "CLAUDE.md"), nil
 	case "kiro":
-		return j5FileContains(w, filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), j5ContextMarker)
+		return filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), nil
 	case "antigravity":
-		return j5FileContains(w, filepath.Join(dir, ".agents", "AGENTS.md"), j5ContextMarker)
+		return filepath.Join(dir, ".agents", "AGENTS.md"), nil
 	default:
-		return fmt.Errorf("j5: unknown engine %q", engine)
+		return "", fmt.Errorf("unknown engine %q for native context surface", engine)
 	}
+}
+
+// j5AssertContext dispatches to the right native context surface per engine.
+func j5AssertContext(w *World, engine string) error {
+	j5 := j5Of(w)
+	rel, err := engineContextRelPath(j5.target, engine)
+	if err != nil {
+		return err
+	}
+	return j5FileContains(w, rel, j5ContextMarker)
 }
 
 // j5AssertCodexContextGap asserts the CURRENT, confirmed-buggy behavior of

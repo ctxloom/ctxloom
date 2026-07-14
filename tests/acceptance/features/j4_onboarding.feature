@@ -88,14 +88,25 @@ Feature: A new engineer clones the repo and is already set up
       | installed     | reaches        |
       | not installed | does not reach |
 
-  # FUTURE — deferred, NOT in the green run. Bob's engine may not be Alice's, and
-  # the team's context must land in whichever engine's native surface he uses.
-  # Held back because only claude-code is live-verified today; the other engines
-  # are unverified by their own source comments, and asserting them here would be
-  # claiming coverage we do not have. This becomes a Scenario Outline over the
-  # engine table when J5 verifies them.
-  # Scenario: Bob's engine is not Alice's and the team's context reaches him natively
-  #   Given Bob uses a different engine from the rest of the team
-  #   When Bob clones the project
-  #   And Bob starts a session
-  #   Then his assistant receives the team's standardized context in his engine's own surface
+  # LOCKED — hermetic materialization, over the same three-engine axis J5
+  # proved (j5_multi_engine.feature's Outline A: claude-code, kiro,
+  # antigravity — reusing that engine-axis machinery, not re-deriving it, see
+  # engineContextRelPath in steps_j5.go). Bob is precisely the person most
+  # likely to be on a different engine from the rest of the team, so a
+  # journey whose thesis is "cloning IS the onboarding" must prove this on
+  # more than one engine, not just claude-code.
+  #
+  # codex is NOT a row: `profile materialize` never delivers codex's context
+  # at all today, a confirmed product gap J5's own @wip scenario documents
+  # (steps_j5.go's j5AssertCodexContextGap) — a codex row here would claim
+  # coverage that does not exist.
+  Scenario Outline: Bob's engine is not Alice's and the team's context still reaches him natively
+    When Bob clones the project
+    And Bob starts a session on <engine>
+    Then his assistant receives the team's standardized context in <engine>'s own native surface
+
+    Examples:
+      | engine      |
+      | claude-code |
+      | kiro        |
+      | antigravity |

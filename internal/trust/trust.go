@@ -56,6 +56,14 @@ const (
 	// old gate=nil bypass) reachable by SourceRejected: a user can reject a
 	// builtin item and have that rejection enforced.
 	SourceBuiltin Source = "builtin"
+	// SourceRetracted: the PUBLISHER withdrew this bundle (or this exact
+	// version of it) via its remote manifest — see internal/remote/retract.go
+	// CheckRetracted. Retraction is recorded LOCALLY at sync time (sync has the
+	// network in hand) and consulted here with no network call of its own;
+	// like rejection, it beats every exemption below, including a trusted
+	// signer's own key — a publisher can retract content signed by a key this
+	// machine still trusts.
+	SourceRetracted Source = "retracted"
 	// SourceTrustedSigner: the item's bundle carries a VERIFIED publisher
 	// signature by a key this machine trusts for the publish namespace
 	// (allowed_signers). Trust is keyed to the signing IDENTITY, not to the

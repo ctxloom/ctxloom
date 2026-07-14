@@ -62,6 +62,16 @@ type PullResult struct {
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
 	// synthetic) and also for profiles (where it equals what was written).
 	Content []byte
+
+	// Retracted reports whether THIS pull's own confirmRetraction check found
+	// the item retracted in its remote manifest — true regardless of whether
+	// the pull proceeded (Force / non-interactive) or the user confirmed
+	// through the interactive prompt: a pull only fails on retraction when the
+	// user is prompted AND declines. Callers (operations.syncItem) use this to
+	// report the retraction to the user even though the pull itself succeeded.
+	Retracted bool
+	// RetractedReason is the publisher's stated reason, set when Retracted.
+	RetractedReason string
 }
 
 // FetcherFactory creates Fetcher instances. Allows mocking for tests.
@@ -142,6 +152,8 @@ type fetchedItem struct {
 	resolvedVersion  string       // concrete tag a semver constraint resolved to, "" otherwise
 	kind             SelectorKind // classified selector kind (sha/tag/version/branch)
 	content          []byte
+	retracted        bool   // this fetch's own confirmRetraction verdict
+	retractedReason  string // the publisher's stated reason, when retracted
 }
 
 // Pull downloads an item from a remote and records its pin. It is the
@@ -171,6 +183,65 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	return p.installPulledItem(ctx, ref, opts, item)
 }
 
+// CheckRetraction reports whether refStr is CURRENTLY retracted in its
+// remote's manifest, without pulling content or writing any pin. It is the
+// lightweight counterpart to the retraction check a full Pull already runs
+// (confirmRetraction) — for a ref operations.syncItem finds ALREADY installed,
+// where a full Pull would be needless (re-fetch content that hasn't changed,
+// rewrite a SHA that hasn't moved) just to learn whether the publisher
+// retracted it since the last sync. See operations.RetractionChecker, the
+// seam syncItem consults this through.
+func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType ItemType) (retracted bool, reason string, err error) {
+	ref, err := ParseReference(refStr)
+	if err != nil {
+		return false, "", fmt.Errorf("invalid reference: %w", err)
+	}
+	repoURL, _, _, err := p.resolveRemoteTarget(ref)
+	if err != nil {
+		return false, "", err
+	}
+	fetcher, err := p.fetcherFactory(repoURL, p.auth)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to create fetcher: %w", err)
+	}
+	owner, repo, err := ParseRepoURL(repoURL)
+	if err != nil {
+		return false, "", fmt.Errorf("invalid remote URL: %w", err)
+	}
+	return CheckRetracted(ctx, fetcher, owner, repo, ref, itemType)
+}
+
+// RecordRetraction persists retracted/reason onto refStr's EXISTING lockfile
+// entry (loading, mutating, saving) — the write half of the already-installed
+// re-check CheckRetraction reads. A no-op when refStr has no lockfile entry
+// yet (nothing pinned, nothing to mark) and when the recorded status already
+// matches (no redundant disk write on every sync). This is deliberately NOT
+// folded into updateLockfile: that path always has a freshly-fetched SHA to
+// write alongside; this one mutates an entry that pull isn't touching at all.
+func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bool, reason string) error {
+	ref, err := ParseReference(refStr)
+	if err != nil {
+		return fmt.Errorf("invalid reference: %w", err)
+	}
+	localName := ref.CanonicalString()
+
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+	entry, ok := lockfile.GetEntry(itemType, localName)
+	if !ok {
+		return nil
+	}
+	if entry.Retracted == retracted && entry.RetractedReason == reason {
+		return nil
+	}
+	entry.Retracted = retracted
+	entry.RetractedReason = reason
+	lockfile.AddEntry(itemType, localName, entry)
+	return p.lockfileManager.Save(lockfile)
+}
+
 // fetchForPull resolves the remote, checks retraction, resolves the SHA, and
 // fetches the content — everything needed before writing the pin.
 func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOptions) (*fetchedItem, error) {
@@ -189,7 +260,8 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	if err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, opts); err != nil {
+	retracted, retractedReason, err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, opts)
+	if err != nil {
 		return nil, err
 	}
 
@@ -204,7 +276,11 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, resolvedVersion: resolvedVersion, kind: kind, content: content}, nil
+	return &fetchedItem{
+		rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion,
+		resolvedVersion: resolvedVersion, kind: kind, content: content,
+		retracted: retracted, retractedReason: retractedReason,
+	}, nil
 }
 
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
@@ -223,27 +299,35 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 	return repoURL, rem, ref.CanonicalString(), nil
 }
 
-// confirmRetraction warns and (unless forced) prompts when a version has been
-// retracted. A declined prompt cancels the pull. Non-interactive callers (sync,
-// batch update) pass Force so a prompt never blocks on a stdin nobody answers.
-func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) error {
-	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
+// confirmRetraction checks whether ref is retracted, warns, and (unless
+// forced) prompts for confirmation — a declined prompt cancels the pull.
+// Non-interactive callers (sync, batch update) pass Force so a prompt never
+// blocks on a stdin nobody answers.
+//
+// It ALWAYS reports its retraction verdict back to the caller (retracted,
+// reason), regardless of which branch below returns: this is what lets
+// installPulledItem persist the verdict into the lockfile even on the
+// Force=true / non-interactive path, where the warning prints but nothing was
+// previously recorded anywhere — the gap that left a forced/sync re-pull of
+// retracted content just as exposed as before.
+func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) (retracted bool, reason string, err error) {
+	retracted, reason, _ = CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
 	if !retracted {
-		return nil
+		return false, "", nil
 	}
 	_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
 	_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
 	if opts.Force {
-		return nil
+		return true, reason, nil
 	}
-	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
-	if err != nil {
-		return err
+	confirmed, cerr := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
+	if cerr != nil {
+		return true, reason, cerr
 	}
 	if !confirmed {
-		return fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
+		return true, reason, fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
 	}
-	return nil
+	return true, reason, nil
 }
 
 // resolveContentSHA resolves the commit SHA to fetch through the constraint
@@ -287,11 +371,18 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind); err != nil {
+	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason); err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
-	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}, nil
+	return &PullResult{
+		LocalPath:       localPath,
+		SHA:             item.sha,
+		Overwritten:     overwritten,
+		Content:         content,
+		Retracted:       item.retracted,
+		RetractedReason: item.retractedReason,
+	}, nil
 }
 
 // writePulledContent records a pulled remote item. Remote bundles AND profiles
@@ -324,7 +415,13 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // straight to the active lock — there is no pending-review split anymore;
 // whether the pulled content ever reaches the agent is decided per item by the
 // content-hash trust gate, not by which lockfile the pin lives in.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind) error {
+//
+// retracted/retractedReason are THIS pull's own fresh confirmRetraction verdict
+// (never carried forward from the previous entry — a pull always re-checks the
+// live manifest, so its result is authoritative) — persisted here so
+// operations.EffectiveTrust can withhold exposure later without a network call
+// of its own (see operations.RetractionRecords).
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string) error {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()
@@ -341,6 +438,8 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		Version:          resolvedVersion,
 		Kind:             kind,
 		FetchedAt:        time.Now().UTC(),
+		Retracted:        retracted,
+		RetractedReason:  retractedReason,
 	}
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull

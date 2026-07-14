@@ -248,6 +248,12 @@ Examples:
 		if len(result.Skipped) > 0 {
 			fmt.Printf("  Skipped (already installed): %d\n", len(result.Skipped))
 		}
+		if len(result.Retracted) > 0 {
+			fmt.Printf("  Retracted: %d\n", len(result.Retracted))
+			for _, item := range result.Retracted {
+				fmt.Printf("    - %s: retracted (%s)\n", item.Reference, item.Error)
+			}
+		}
 		if result.Errors > 0 {
 			fmt.Printf("  Failed: %d\n", result.Errors)
 			for _, item := range result.Failed {

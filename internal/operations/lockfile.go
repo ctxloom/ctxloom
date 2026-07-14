@@ -82,9 +82,21 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 	}
 	prevPinned := map[string]bool{}
+	// prevRetracted carries the previous lockfile's retraction verdict forward
+	// across a full closure rebuild, exactly like prevPinned does for holds.
+	// Without this, a relock triggered right after syncItem's lightweight
+	// installed-ref retraction re-check (operations.checkInstalledRetraction)
+	// would silently drop the Retracted flag it just recorded — this rebuild
+	// has no live manifest in hand, so it must never CLEAR a retraction only a
+	// fresh check (sync's own re-check, or the next Pull) is entitled to lift.
+	prevRetracted := map[string]string{} // key -> reason; presence means retracted
 	for _, e := range prev.AllEntries() {
+		key := string(e.Type) + "\x00" + e.Ref
 		if e.Entry.Pinned {
-			prevPinned[string(e.Type)+"\x00"+e.Ref] = true
+			prevPinned[key] = true
+		}
+		if e.Entry.Retracted {
+			prevRetracted[key] = e.Entry.RetractedReason
 		}
 	}
 
@@ -93,12 +105,17 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Bundles: make(map[string]remote.LockEntry),
 	}
 	for _, p := range pins {
+		key := string(p.Type) + "\x00" + p.Identity
 		// RequestedVersion records the manifest constraint so a later relock can
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
-		if prevPinned[string(p.Type)+"\x00"+p.Identity] {
+		if prevPinned[key] {
 			entry.Pinned = true
+		}
+		if reason, ok := prevRetracted[key]; ok {
+			entry.Retracted = true
+			entry.RetractedReason = reason
 		}
 		lockfile.AddEntry(p.Type, p.Identity, entry)
 	}

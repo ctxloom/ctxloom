@@ -62,25 +62,42 @@ func TestConfirmRetraction(t *testing.T) {
 	t.Run("not_retracted_passes", func(t *testing.T) {
 		fetcher := newMockFetcher() // no manifest at all
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}}
-		assert.NoError(t, p.confirmRetraction(context.Background(), fetcher, "alice", "repo", ref, opts))
+		retracted, reason, err := p.confirmRetraction(context.Background(), fetcher, "alice", "repo", ref, opts)
+		assert.NoError(t, err)
+		assert.False(t, retracted)
+		assert.Empty(t, reason)
 	})
 
 	t.Run("retracted_force_proceeds_with_warning", func(t *testing.T) {
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeBundle, Force: true, Stdout: &out}
-		require.NoError(t, p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts))
+		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		require.NoError(t, err)
 		assert.Contains(t, out.String(), "retracted", "a forced pull still surfaces the retraction warning")
+		// Force bypasses the block, but the verdict must still be reported so
+		// installPulledItem can persist it — this is the fix: a forced/
+		// non-interactive pull no longer records nothing.
+		assert.True(t, retracted)
+		assert.Equal(t, "security hole", reason)
 	})
 
 	t.Run("retracted_prompt_yes_proceeds", func(t *testing.T) {
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("y\n")}
-		assert.NoError(t, p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts))
+		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		assert.NoError(t, err)
+		assert.True(t, retracted)
+		assert.Equal(t, "security hole", reason)
 	})
 
 	t.Run("retracted_prompt_no_cancels", func(t *testing.T) {
 		opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("n\n")}
-		err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
+		retracted, reason, err := p.confirmRetraction(context.Background(), retractedManifest(t), "alice", "repo", ref, opts)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, errs.ErrCancelled))
+		// Even the cancelled path reports what it found — informational, not
+		// consumed by the caller here, but confirmRetraction's contract is to
+		// always report its verdict.
+		assert.True(t, retracted)
+		assert.Equal(t, "security hole", reason)
 	})
 }

@@ -180,6 +180,21 @@ type LockEntry struct {
 	// lock rebuild carries the flag forward. Toggled via `ctxloom bundle
 	// hold`/`unhold`.
 	Pinned bool `yaml:"pinned,omitempty" json:"pinned,omitempty"`
+
+	// Retracted records that the publisher withdrew this bundle (or the exact
+	// version pinned here) — learned from the remote manifest at the last
+	// sync/pull that had the network in hand (internal/remote/retract.go
+	// CheckRetracted), never derived locally. operations.EffectiveTrust reads
+	// this field (via its RetractionRecords seam) to withhold exposure WITHOUT
+	// making a network call at exposure time. A lock rebuild (operations.
+	// LockDependencies) carries it forward from the previous lockfile the same
+	// way it carries Pinned forward — a full relock must not silently
+	// un-retract something no fresh check has actually cleared.
+	Retracted bool `yaml:"retracted,omitempty" json:"retracted,omitempty"`
+
+	// RetractedReason is the publisher's stated reason for the retraction
+	// (display-only — never a decision input). Empty when Retracted is false.
+	RetractedReason string `yaml:"retracted_reason,omitempty" json:"retracted_reason,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.

@@ -54,20 +54,18 @@ Feature: Skills my company has validated
 
   # LOCKED — REVOCATION (publisher retract): the publisher withdraws ONE version
   # and it stops reaching engineers on the next sync, with a notice.
-  # Verified: remote/retract.go CheckRetracted + sync.go retraction prompt.
   #
-  # @wip (harness investigation, J3-green): CheckRetracted is consulted from
-  # EXACTLY one call site, Puller.confirmRetraction (internal/remote/pull.go).
-  # Its only caller, operations.syncItem (the plumbing under `ctxloom remote
-  # pull`), either (a) skips an already-installed ref before Pull ever runs —
-  # confirmRetraction never fires, no warning, nothing changes — or (b), on a
-  # forced re-pull, hardcodes PullOptions.Force:true, which prints the warning
-  # but can never cancel. EffectiveTrust (internal/operations/trust.go) never
-  # consults retraction at all, so a retracted bundle's content keeps being
-  # exposed regardless. As wired today, retraction has NO effect on
-  # already-distributed content through any CLI path — this scenario cannot be
-  # honestly greened without a product change. Filed: taskloom task outer-shut.
-  @wip
+  # Verified: EffectiveTrust (internal/operations/trust.go) now has a RETRACTED
+  # step (a peer of REJECTED, beating the trusted-signer exemption) that
+  # consults a LOCAL record — never the network — so exposure-time evaluation
+  # never dials out. That local record is written by operations.syncItem
+  # (internal/operations/sync.go), which now re-evaluates retraction for
+  # ALREADY-INSTALLED refs too (previously it skipped them before
+  # Puller.confirmRetraction ever ran), and by Puller.Pull itself on a fresh
+  # pull (internal/remote/pull.go), persisting onto the lockfile entry
+  # (remote.LockEntry.Retracted) either way. Formerly @wip: retraction had NO
+  # effect on already-distributed content through any CLI path. Fixed;
+  # was filed as taskloom task outer-shut.
   Scenario: Trent retracts a bundle and it stops reaching engineers on the next sync
     Given Alice already receives the company's secure-coding guidance
     When Trent retracts that version of the bundle

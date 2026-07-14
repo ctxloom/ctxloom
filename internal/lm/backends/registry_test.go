@@ -141,7 +141,12 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			// delegates to the acp driver), so materialization stays with the
 			// target's writer, never this descriptor. (acp still registers a
 			// newSurfaces that yields an EmptySurfaceSet so BuildSurfaces is total.)
-			if name == "mock" || name == "acp" {
+			// opencode is the slice-1 HOST-only chat spine: it materializes no
+			// native config yet (opencode reads .claude/skills/ and CLAUDE.md
+			// natively, and the model rides a project-local opencode.json written
+			// on the chat path) — its settings writer / command exports arrive in a
+			// later slice, at which point this exemption is removed.
+			if name == "mock" || name == "acp" || name == "opencode" {
 				assert.Nil(t, d.newWriter, "%s must not gain settings support silently", name)
 				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
 				return

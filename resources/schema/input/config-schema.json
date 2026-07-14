@@ -404,6 +404,20 @@
           "additionalProperties": false
         },
         {
+          "title": "opencode",
+          "description": "opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.",
+          "properties": {
+            "type": { "const": "opencode" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
+            "model": { "type": "string", "examples": ["openrouter/meta-llama/llama-3.3-70b-instruct:free"], "description": "opencode model string (provider/model); written into the run's opencode.json." },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        {
           "title": "mock",
           "properties": {
             "type": { "const": "mock" },

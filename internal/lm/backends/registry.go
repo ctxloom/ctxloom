@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -287,6 +288,24 @@ func init() {
 		// A GENERIC ACP agent has no known native config format to materialize, so
 		// it opts out with an empty surface set (mirrors its nil settings writer).
 		newSurfaces: func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
+	})
+
+	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 1:
+	// structured chat + its headless oneshot projection, model delivered via a
+	// project-local opencode.json (opencode acp has no --model flag). No settings
+	// writer / command exports yet — opencode reads .claude/skills/ and CLAUDE.md
+	// natively, and MCP/permission/session-history/interactive/read-only-plan are
+	// later slices. enforcesReadOnlyPlan stays FALSE until a slice earns it.
+	registerDescriptor(agentDescriptor{
+		name: "opencode",
+		newBackend: func() agent.Backend {
+			b := opencode.NewOpencode()
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &opencode.OpencodeConfig{})
+		},
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

@@ -238,6 +238,20 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `kiro`. |
 
+#### opencode
+
+opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `args` | string[] |  |
+| `binary_path` | string |  |
+| `env` | map → string |  |
+| `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
+| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `type` | string | Must be `opencode`. |
+
 #### mock
 
 | Field | Type | Description |

@@ -433,6 +433,40 @@ test-mutation-pkg PKG *ARGS:
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     TMPDIR="{{mutation_tmp}}" gremlins unleash ./{{PKG}} {{ARGS}}
 
+# Run mutation tests against the ACCEPTANCE/journey suite
+# (.gremlins.acceptance.yaml), not the unit suite .gremlins.yaml normally
+# measures. See that config's header comment for why this profile exists and
+# its one load-bearing subtlety: GOFLAGS restricts every `go test` gremlins
+# runs here (both the coverage gather and every per-mutant retest) to the
+# acceptance package's entrypoint (TestAcceptance) only, so a KILLED verdict
+# can only have come from the journeys, never from internal/operations' own
+# (extensive) unit tests riding along on the `./...` scan that
+# unleash.integration:true forces.
+#
+# Builds the ctxloom binary once, up front, at an ABSOLUTE path outside any of
+# gremlins' per-worker scratch copies — the acceptance suite always execs a
+# pre-built binary (tests/integration/testenv's exec.Command), so CTXLOOM_BINARY
+# must resolve regardless of which copy's cwd is active when a worker runs.
+#
+# KNOWN LIMITATION (see the config file's own comment, confirmed empirically
+# before this recipe was written): mutating source under internal/operations
+# can never change what that already-built, frozen binary does when the suite
+# execs it, so a mutant whose only effect is on a subprocess-only code path
+# will report NOT COVERED here even when the journeys genuinely exercise it —
+# Go's coverage instrumentation cannot see across the exec boundary. That is a
+# floor on what this tool can prove, not proof the journeys don't cover it.
+#
+# Pass --dry-run to only count candidate mutants without executing anything
+# (use this first — see the config's scope-narrowing comment on cost).
+test-mutation-acceptance *ARGS: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{mutation_tmp}}"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    export CTXLOOM_BINARY="$(pwd)/ctxloom"
+    export GOFLAGS="-run=TestAcceptance"
+    TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}}
+
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0

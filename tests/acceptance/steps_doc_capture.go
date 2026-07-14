@@ -98,6 +98,20 @@ func scenarioFileName(sc *godog.Scenario) string {
 	return slug + "-" + sc.Id + ".json"
 }
 
+// scrubTempProjectDir replaces this scenario's throwaway hermetic project
+// directory (TestEnvironment.ProjectDir — a freshly-random-named
+// /tmp/ctxloom-integration-<N>/project per run) with a stable "/project"
+// placeholder in captured evidence text. Capture-time only: it runs after a
+// step's assertions have already passed or failed, so it can never change
+// what was checked — only how the already-decided evidence is displayed on
+// the published page.
+func scrubTempProjectDir(w *World, s string) string {
+	if s == "" || w == nil || w.env == nil || w.env.ProjectDir == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, w.env.ProjectDir, "/project")
+}
+
 func hasDocTag(sc *godog.Scenario) bool {
 	for _, t := range sc.Tags {
 		if t.Name == "@doc" {
@@ -189,6 +203,14 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 			step.Materialized = w.docStepMaterialized
 			w.docStepMaterialized = ""
 		}
+		// Scrub this scenario's throwaway hermetic project directory (a
+		// freshly-random-named /tmp/ctxloom-integration-<N>/project per run)
+		// to a stable placeholder, so the published page reads as a fixed
+		// path rather than a temp directory that churns on every
+		// regeneration. Capture-time only: never touches assertion logic or
+		// the real directory ctxloom actually wrote to.
+		step.CLIOutput = scrubTempProjectDir(w, step.CLIOutput)
+		step.Materialized = scrubTempProjectDir(w, step.Materialized)
 		// Whichever mock-recorded slot this scenario populated most recently —
 		// j1_setup's restart-delivery scenario uses j1RestartRecorded, j1b's
 		// discovery-interview scenarios use j1bRecorded. Attach whichever is

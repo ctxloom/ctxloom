@@ -163,10 +163,45 @@ func j5FileContains(w *World, rel, want string) error {
 	if err != nil {
 		return fmt.Errorf("read %q: %w", rel, err)
 	}
+	// Surface a short, marker-centered excerpt of the delivered file to the
+	// @doc capture sidecar (set-and-consume; no-op when capture is off) — the
+	// real bytes that landed, not a restatement of the assertion. On the host
+	// machines these files run against, materialize also folds in whatever
+	// companions are actually on PATH (ltk, taskloom), so the full file can be
+	// much longer than the one marker line this scenario cares about; the
+	// excerpt keeps the published page short and on-topic.
+	w.docStepMaterialized = fmt.Sprintf("%s:\n%s", rel, j5Excerpt(body, want, 1))
 	if !strings.Contains(body, want) {
 		return fmt.Errorf("file %q does not contain %q; content:\n%s", rel, want, body)
 	}
 	return nil
+}
+
+// j5Excerpt returns a short window of body centered on the first line
+// containing marker: up to context lines before and after. Falls back to the
+// full (trimmed) body if marker never appears on its own line, so a caller
+// never loses evidence to a formatting surprise.
+func j5Excerpt(body, marker string, context int) string {
+	lines := strings.Split(body, "\n")
+	idx := -1
+	for i, line := range lines {
+		if strings.Contains(line, marker) {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return strings.TrimSpace(body)
+	}
+	start := idx - context
+	if start < 0 {
+		start = 0
+	}
+	end := idx + context + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.TrimSpace(strings.Join(lines[start:end], "\n"))
 }
 
 // j5AssertContext dispatches to the right native context surface per engine.
@@ -200,17 +235,64 @@ func j5AssertContext(w *World, engine string) error {
 func j5AssertCodexContextGap(w *World) error {
 	j5 := j5Of(w)
 	dir := j5.target
-	if w.env.FileExists(filepath.Join(dir, "CLAUDE.md")) {
+	claudeStylePath := filepath.Join(dir, "CLAUDE.md")
+	if w.env.FileExists(claudeStylePath) {
 		return fmt.Errorf("codex unexpectedly wrote a native CLAUDE.md-style context file — codex has none")
 	}
-	matches, err := filepath.Glob(filepath.Join(w.env.ProjectDir, dir, ".ctxloom", "cache", "context", "*.md"))
+	cacheGlob := filepath.Join(dir, ".ctxloom", "cache", "context", "*.md")
+	matches, err := filepath.Glob(filepath.Join(w.env.ProjectDir, cacheGlob))
 	if err != nil {
 		return err
 	}
+	// Surface the ABSENCE, and its contrast, to the @doc capture sidecar: the
+	// gap is the point of this @wip scenario, so the published page shows
+	// what's missing (no native file, no cache file the context hook could
+	// read) directly beside what codex's OWN config.toml already proves it
+	// can materialize correctly (its MCP server and hook, read straight back
+	// out of the same file the MCP/hook Then steps above this one asserted
+	// against) — the same file, one table populated and one silently empty.
+	w.docStepMaterialized = j5CodexGapEvidence(w, dir, claudeStylePath, cacheGlob, len(matches))
 	if len(matches) != 0 {
 		return fmt.Errorf("codex UNEXPECTEDLY wrote a context cache file (%v) — the materialize gap this @wip scenario documents may be fixed; update the scenario to a real assertion instead of this gap-check", matches)
 	}
 	return nil
+}
+
+// j5CodexGapEvidence renders the codex context gap's absence, plus a
+// best-effort contrast against codex's own config.toml (which the MCP/hook
+// assertions above this step already proved carries the shared server and
+// hook) — a read failure there is not this step's concern, so it is dropped
+// silently rather than surfaced as an error.
+func j5CodexGapEvidence(w *World, dir, claudeStylePath, cacheGlob string, cacheMatchCount int) string {
+	evidence := fmt.Sprintf(
+		"%s: not written (codex has no native context file)\n%s: %d cache file(s) found (none — the context hook has nothing to read)",
+		claudeStylePath, cacheGlob, cacheMatchCount,
+	)
+	configPath := filepath.Join(dir, ".codex", "config.toml")
+	doc, err := j5ReadTOML(w, configPath)
+	if err != nil {
+		return evidence
+	}
+	var contrast []string
+	if mcp, ok := doc["mcp_servers"].(map[string]any); ok {
+		if srv, ok := mcp["toolserver"].(map[string]any); ok {
+			if cmd, ok := srv["command"].(string); ok {
+				contrast = append(contrast, fmt.Sprintf("  mcp_servers.toolserver.command = %q", cmd))
+			}
+		}
+	}
+	if hooks, ok := doc["hooks"].(map[string]any); ok {
+		for _, cmd := range j5HookCommandsFrom(hooks["SessionStart"]) {
+			if cmd == j5HookCommand {
+				contrast = append(contrast, fmt.Sprintf("  hooks.SessionStart includes %q", cmd))
+				break
+			}
+		}
+	}
+	if len(contrast) == 0 {
+		return evidence
+	}
+	return evidence + fmt.Sprintf("\n\ncontrast — the SAME %s DID materialize:\n%s", configPath, strings.Join(contrast, "\n"))
 }
 
 // j5ReadJSON reads a project-relative file and parses it as a generic JSON
@@ -253,21 +335,26 @@ func j5AssertMCP(w *World, engine string) error {
 		doc map[string]any
 		err error
 		key string
+		rel string
 	)
 	switch engine {
 	case "claude-code":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".mcp.json"))
+		rel = filepath.Join(dir, ".mcp.json")
+		doc, err = j5ReadJSON(w, rel)
 		key = "mcpServers"
 	case "kiro":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".kiro", "settings", "mcp.json"))
+		rel = filepath.Join(dir, ".kiro", "settings", "mcp.json")
+		doc, err = j5ReadJSON(w, rel)
 		key = "mcpServers"
 	case "antigravity":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".agents", "mcp_config.json"))
+		rel = filepath.Join(dir, ".agents", "mcp_config.json")
+		doc, err = j5ReadJSON(w, rel)
 		key = "mcpServers"
 	case "codex":
 		// codex has NO distinct MCP file — it folds "mcp_servers" into the
 		// SAME config.toml the hooks assertion below also reads.
-		doc, err = j5ReadTOML(w, filepath.Join(dir, ".codex", "config.toml"))
+		rel = filepath.Join(dir, ".codex", "config.toml")
+		doc, err = j5ReadTOML(w, rel)
 		key = "mcp_servers"
 	default:
 		return fmt.Errorf("j5: unknown engine %q", engine)
@@ -284,10 +371,40 @@ func j5AssertMCP(w *World, engine string) error {
 		return fmt.Errorf("%s: no %q server entry under %q; parsed: %+v", engine, "toolserver", key, top)
 	}
 	cmd, _ := srv["command"].(string)
+	// Surface the real parsed server entry — the actual command (and args, if
+	// any) this engine's OWN file carries under its own table name (mcpServers
+	// vs codex's mcp_servers) — to the @doc capture sidecar (set-and-consume;
+	// no-op when capture is off), rather than letting the published page show
+	// only a bare claim.
+	evidence := fmt.Sprintf("%s → %s.toolserver\n  command: %s", rel, key, cmd)
+	if args := j5FormatArgs(srv["args"]); args != "" {
+		evidence += fmt.Sprintf("\n  args:    %s", args)
+	}
+	w.docStepMaterialized = evidence
 	if cmd != j5MCPCommand {
 		return fmt.Errorf("%s's MCP server %q has command %q, want %q", engine, "toolserver", cmd, j5MCPCommand)
 	}
 	return nil
+}
+
+// j5FormatArgs renders a decoded JSON/TOML args array (a []any of strings) as
+// a short bracketed, space-joined native-ish snippet for evidence display, or
+// "" if there are none.
+func j5FormatArgs(v any) string {
+	list, _ := v.([]any)
+	if len(list) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(list))
+	for _, item := range list {
+		if s, ok := item.(string); ok {
+			parts = append(parts, s)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, " ") + "]"
 }
 
 // j5HookCommandsFrom walks a decoded hooks event value — which is, depending
@@ -326,19 +443,24 @@ func j5AssertHook(w *World, engine string) error {
 		doc   map[string]any
 		event string
 		err   error
+		rel   string
 	)
 	switch engine {
 	case "claude-code":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".claude", "settings.json"))
+		rel = filepath.Join(dir, ".claude", "settings.json")
+		doc, err = j5ReadJSON(w, rel)
 		event = "SessionStart"
 	case "kiro":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".kiro", "agents", "ctxloom.json"))
+		rel = filepath.Join(dir, ".kiro", "agents", "ctxloom.json")
+		doc, err = j5ReadJSON(w, rel)
 		event = "agentSpawn"
 	case "antigravity":
-		doc, err = j5ReadJSON(w, filepath.Join(dir, ".agents", "hooks.json"))
+		rel = filepath.Join(dir, ".agents", "hooks.json")
+		doc, err = j5ReadJSON(w, rel)
 		event = "SessionStart"
 	case "codex":
-		doc, err = j5ReadTOML(w, filepath.Join(dir, ".codex", "config.toml"))
+		rel = filepath.Join(dir, ".codex", "config.toml")
+		doc, err = j5ReadTOML(w, rel)
 		event = "SessionStart"
 	default:
 		return fmt.Errorf("j5: unknown engine %q", engine)
@@ -351,10 +473,25 @@ func j5AssertHook(w *World, engine string) error {
 		return fmt.Errorf("%s: no %q table in the generated hook configuration; parsed: %+v", engine, "hooks", doc)
 	}
 	cmds := j5HookCommandsFrom(top[event])
+	found := false
 	for _, cmd := range cmds {
 		if cmd == j5HookCommand {
-			return nil
+			found = true
+			break
 		}
+	}
+	// Surface the real event name and command this engine's own hook
+	// configuration carries to the @doc capture sidecar (set-and-consume;
+	// no-op when capture is off) — kiro diverts session_start to its own
+	// "agentSpawn" event name, which the note below makes visible rather than
+	// leaving it as a fact only findable by re-reading the Go source.
+	note := ""
+	if engine == "kiro" {
+		note = "  (kiro diverts session_start → agentSpawn, its own event name)"
+	}
+	w.docStepMaterialized = fmt.Sprintf("%s → hooks.%s%s\n  command: %s", rel, event, note, j5HookCommand)
+	if found {
+		return nil
 	}
 	return fmt.Errorf("%s's %q hooks %v do not include the shared hook's command %q", engine, event, cmds, j5HookCommand)
 }

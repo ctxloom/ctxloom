@@ -1,5 +1,5 @@
 <!--
-J5 narration companion (PROTOTYPE — see docs/living-docs-plan.md).
+J5 narration companion.
 
 Prose ONLY. It never restates what the Gherkin already says business-readably,
 and it carries no assertions of its own — j5_multi_engine.feature next to it is
@@ -40,13 +40,18 @@ format (JSON, TOML, or plain text) and checking the real field, never a bare
 
 And it draws an honest line most journeys of this kind blur: writing a file in
 an engine's native format is not the same claim as that engine having read it.
-The first table below (materialization) covers all four engines and needs no
-engine binary at all — it is pure file generation, provable today, for
-everyone. The second table (live delivery) covers only claude and antigravity,
-because those are the only two engines with a real, working, unattended path
-on this project's dev hosts right now. Nobody reading this journey can mistake
-a four-row table for four-way proof of delivery, because there isn't one yet
-— extending it later is adding a row, not rewriting a claim.
+The first table below (materialization) covers three engines — claude-code,
+kiro, and antigravity — and needs no engine binary at all: it is pure file
+generation, provable today, for all three. codex is deliberately NOT a row in
+that table. Its MCP, hook, and skill surfaces materialize exactly like the
+other three, but its context does not, so it gets its own separate (`@wip`)
+scenario below instead of a silent pass folded into the main table — the gap
+is the reason for the split, not an oversight. The second table (live
+delivery) covers only claude and antigravity, because those are the only two
+engines with a real, working, unattended path on this project's dev hosts
+right now. Nobody reading this journey can mistake either table for more
+coverage than it has — extending either later is adding a row, not rewriting
+a claim.
 <!-- /doc:intro -->
 
 <!-- doc:scenario: The same profile materializes into each engine's own native surfaces -->
@@ -115,9 +120,12 @@ from.
 <!-- doc:outro -->
 Four engines, one authored standard, and an honest map of exactly how far
 that standard's delivery is proven today: fully proven for the bytes on disk
-across all four engines, proven end-to-end through a real running assistant
-for two of them, and one confirmed silent gap named rather than hidden. That
-is the shape of claim this journey is built to make — never more than what
-was actually checked, and structured so that adding real coverage later means
-adding a row, not rewriting a claim.
+across three of them — claude-code, kiro, antigravity. codex's MCP, hook, and
+skill surfaces prove out the same way, but its context does not — a
+confirmed, silent gap this journey names explicitly instead of folding into a
+passing row. Two of the four are additionally proven end-to-end through a
+real running assistant, not just bytes on disk. That is the shape of claim
+this journey is built to make — never more than what was actually checked,
+and structured so that adding real coverage later means adding a row, not
+rewriting a claim.
 <!-- /doc:outro -->

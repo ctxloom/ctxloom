@@ -86,3 +86,9 @@ resources/schema/gen/
 
 # ctxloom private working state (synced bundles, session/context, project id)
 .ctxloom/project-id
+
+# Generated living-docs journey pages (like generated protobuf/JSON Schema):
+# produced by `just gen-living-docs` from a passing acceptance run's capture,
+# so they cannot be stale by construction. The docs CI workflow generates
+# them fresh before `npm run build`; see .github/workflows/docs.yml.
+website/src/content/docs/journeys/

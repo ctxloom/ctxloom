@@ -595,6 +595,32 @@ docs-build:
 docs-preview:
     cd website && npm run preview
 
+# Generate the "living docs" journey pages: run the acceptance suite with
+# per-scenario evidence capture enabled, then render website/src/content/docs/
+# journeys/ from that run's REAL captured output (tests/acceptance/
+# steps_doc_capture.go + scripts/gendocs/livingdocs). The generator refuses
+# (nonzero exit, writes nothing) if any @doc scenario's capture has a
+# non-passed step — a broken feature cannot be documented.
+#
+# Generated pages are gitignored, not checked in (see .gitignore): they are
+# produced fresh from this run's capture, so they can never be stale. Neither
+# `docs` (dev server) nor `docs-build` depends on this — like `gen-docs`
+# (the CLI/MCP/config reference generator), it is a separate, explicit step so
+# a docs preview never forces a full acceptance run. CI's docs deploy workflow
+# (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
+gen-living-docs: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Absolute path: `go test ./tests/acceptance/...` runs with its cwd set to
+    # the package directory (tests/acceptance/), not the repo root, so a
+    # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and
+    # every scenario would render as "not captured" — the generator, run
+    # separately via `go run` from the repo root, would never find it.
+    capture_dir="$(pwd)/.cache/doc-capture"
+    rm -rf "$capture_dir"
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
+
 # Initialize .ctxloom directory
 init:
     ./ctxloom init

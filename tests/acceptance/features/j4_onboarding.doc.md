@@ -69,12 +69,11 @@ review precisely as it would be for anyone else meeting an untrusted publisher.
 This is also the first moment a new hire meets "held for your review," and it
 is worth being precise about what that phrase actually decides — approval and
 denial mean something different for a paragraph of guidance than for an MCP
-server or a hook that runs a command. *(TODO: once the trust-surface reference
-page exists — the exhaustive approve/deny table across fragments, skills, MCP
-servers, hooks, and profiles — link Bob's review moment to it here, so a new
-hire hitting this hold can see exactly what he is being asked to decide. Not
-yet written; tracked as task `rural-payee`. Do not invent a path in the
-meantime.)*
+server or a hook that runs a command. See
+[The trust surface](/journeys/trust-surface/) for the exhaustive approve/deny
+table across fragments, skills, MCP servers, and hooks (and why a bundle
+*profile* is not on that table at all) — a new hire hitting this hold can see
+exactly what he is being asked to decide.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: Once Bob trusts the company key, the held content reaches him -->

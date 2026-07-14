@@ -1,20 +1,37 @@
 ---
 title: "The engine you don't control"
+# EDITORS — read before changing this page. (Kept in frontmatter, not an HTML comment:
+# frontmatter is stripped at build, so none of this ships in the published page source.)
+#
+# This page names NO engine, NO engine-specific environment variable, and NO engine dotfile
+# path. It describes live, unfixed vendor behaviour we measured. Tying any of it to a named
+# vendor turns documentation into a disclosure.
+#
+# The anonymisation is load-bearing and FRAGILE. Those variable names and paths DO appear
+# elsewhere on this site (environment reference, architecture, the multi-engine journey) —
+# which is fine, because those pages don't tie a name to a failure. This page is the only one
+# that describes failures, so it must stay the one without names. Both halves are required:
+# break either and the property is gone.
+#
+# Watch for identification by ELIMINATION, not just by name. Listing three engines' context
+# filenames next to "one engine has no context file" identifies the fourth without naming it.
+# Ordering the four failures to match a publicly-known engine order would do the same.
 ---
 
 You set `runtime: container`, or `workspace: worktree`, and you stop thinking about it. Two
 agents run side by side, each with its own worktree, its own config-home environment
 variables, its own line in `ctxloom agent list`. You believe they are isolated.
 
-Every engine CLI has a "home" environment variable. Every one of them honours it differently,
-and **none of them documents where it draws the line between config and state.** We pointed
-that variable at a per-agent directory and measured what three real engines actually did. One
-**leaked** state out past the boundary. One **flooded** its entire runtime state into the
-project tree — into a directory tracked in git. One isolated so perfectly that it **locked the
-agent out**, unable to authenticate at all.
+Host-mode isolation asks each engine CLI, politely, via an environment variable, to keep its
+state somewhere private. **Not one of these engines documents where it draws the line between
+config and state.** So we pointed that variable at a per-agent directory and measured what
+four real engines actually did. One **leaked** state out past the boundary. One **flooded** its
+entire runtime state into the project tree — into a directory tracked in git. One isolated so
+perfectly that it **locked the agent out**, unable to authenticate at all. And the fourth has
+no such lever at all — for that one, host-mode isolation is not broken, it is **impossible**.
 
-Same variable. Three engines. Three different definitions of "home". Nothing about
-`ctxloom agent list` looking healthy catches any of it.
+Four engines. Four different answers to "where does your state live?" — and the fourth cannot
+be answered at all. Nothing about `ctxloom agent list` looking healthy catches any of it.
 
 ## An isolation scheme with a counterparty
 
@@ -31,12 +48,12 @@ request. Honouring it is a choice made inside a vendor binary you did not write,
 line by line, and do not control the release cadence of. Isolation that depends on the
 cooperation of the thing being isolated is not isolation. It is a negotiation.
 
-## Three engines, three failures
+## Four engines, four failures
 
 This is not a hypothetical about a badly-behaved model. These are specific, young, fast-moving
 CLIs, checked against real authenticated binaries rather than assumed from their
-documentation. The three failures are not variations on one bug. They are three different
-answers to the same question, failing in three different directions.
+documentation. The four failures are not variations on one bug. They are four different
+answers to the same question, and they escalate.
 
 **One: state escapes.** An engine CLI honours its home-directory variable for *configuration*
 — steering files, agent definitions, MCP server declarations — and silently ignores it for the
@@ -75,6 +92,30 @@ for, you can still lose — because "honour the variable for everything" and "br
 credentials the agent needs" pull against each other, and nobody told you which side of that
 tension they picked.
 
+**Four: there is no boundary to draw.** A fourth engine has *no config-home lever at all*. No
+environment variable redirects its configuration or its state; none exists. Host-mode isolation
+for this engine is not broken — it is impossible. There is nothing to negotiate with. (ctxloom
+sets a config-home variable for every engine that has one. This one does not have one.)
+
+It keeps its state — credentials, an account list, a project index and history, tens of
+megabytes of it — in a directory belonging to a *different, now-retired product*. Every agent
+on the machine shares all of it. That path is an accident of product history, not a contract,
+and nothing stops it moving in the next release.
+
+Redirecting the process's `HOME` does work: point it at a fresh home and the engine builds a
+complete new state tree there. So the container's one lever is effective. And then the part
+that matters. With a fresh `HOME`, no API-key environment variable set, and the system keyring
+made unreachable, **it still authenticated and answered a real prompt.** We probed four ways
+and could not determine where its credential came from. We are not going to guess: the honest
+statement is that we could not find it.
+
+That is the reductio of this whole page. For the other three there was a findable answer — a
+variable honoured or ignored, a store located, a credential path confirmed. For this one there
+is not. **We cannot state what an isolated instance of this engine can and cannot reach,
+because we cannot locate what it reads.**
+
+**You cannot isolate what you cannot locate.**
+
 ## The ecosystem converged — on the parts that don't matter
 
 It would be easy, and wrong, to call this ecosystem uniformly chaotic. It isn't. It has
@@ -97,14 +138,15 @@ depends on**: where state lives, which variable governs it, what gets written wh
 whether your credentials come with you. Convergence where it's cheap; chaos where it matters.
 
 There is no principle you can reason from here. Only measurement — per engine, per version,
-re-done every time they ship. And knowing today's stores does not protect you from tomorrow's:
-a future release can add a cache, a log, a session index, and isolation degrades again,
-silently, the same way. **You cannot build an isolation guarantee on top of that by
+re-done every time they ship. And measurement has a floor: on the fourth engine it ran out
+entirely. Knowing today's stores does not protect you from tomorrow's, either — a future
+release can add a cache, a log, a session index, and isolation degrades again, silently, the
+same way. **You cannot build an isolation guarantee on top of that by
 negotiation.**
 
 ## Why it fails silently
 
-None of these three failures is a crash. ctxloom reports the worktree as prepared, the
+None of these four failures is a crash. ctxloom reports the worktree as prepared, the
 config-home variables as set, the run as isolated — and it isn't lying about what it controls.
 It isolated everything it has a *mechanism* to isolate. The gap is in the state it has no way
 to **verify** landed where it should, because verifying that would mean auditing the vendor
@@ -128,6 +170,11 @@ honours, which stores it invents that nobody documented, where it draws its priv
 between config and state, or what the next release changes. You are no longer trying to
 predict which of a vendor's stores respects which variable — **you have stopped asking the
 vendor for anything.**
+
+It is also the only answer that survives the fourth engine. Every other approach requires
+first *locating* the state you intend to isolate — and on that engine we could not. A boundary
+does not need to locate anything. Whatever the engine reads, if it is outside the boundary, it
+is not there. **You stop needing to know.**
 
 That is the entire argument for `runtime: container`. It moves isolation from a **property of
 the binary's behaviour**, which you can neither observe nor control, to a **property of the

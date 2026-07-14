@@ -259,7 +259,6 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Bob is told the bundle was retracted too, and his assistant no longer receives it either$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j7 := j7Of(w)
-		w.docStepMaterialized = j7.bobSyncOutput + "\n" + j7.bobMaterialized
 		if !strings.Contains(j7.bobSyncOutput, "retracted") {
 			return fmt.Errorf("Bob's sync output does not mention retraction; output:\n%s", j7.bobSyncOutput)
 		}
@@ -267,6 +266,11 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(j7.bobMaterialized, wantWarn) {
 			return fmt.Errorf("Bob's materialize output does not carry the exact withheld reason %q; output:\n%s", wantWarn, j7.bobMaterialized)
 		}
+		// readBobFile sets docStepMaterialized itself (to the file it read), so
+		// this must run BEFORE the evidence assignment below or it would clobber
+		// it — the reader's evidence pane for this step must show Bob being TOLD
+		// (the retraction notice + the reasoned withheld advisory), which is the
+		// claim the step's own text makes.
 		body, err := readBobFile(w, filepath.Join("out", "CLAUDE.md"))
 		if err != nil {
 			return err
@@ -274,6 +278,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		if strings.Contains(body, j7Marker) {
 			return fmt.Errorf("Bob's materialized context still contains the retracted marker; content:\n%s", body)
 		}
+		w.docStepMaterialized = j7.bobSyncOutput + "\n" + j7.bobMaterialized
 		return nil
 	})
 
@@ -304,7 +309,12 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^ctxloom reports that no entry existed for that key$`, func(c context.Context) error {
-		j7 := j7Of(worldFrom(c))
+		w := worldFrom(c)
+		j7 := j7Of(w)
+		// This Then's OWN evidence: the removal attempt's actual reply. A Then
+		// with an empty evidence pane proves nothing to a reader of the
+		// published page, however green it is in the suite.
+		w.docStepMaterialized = "$ ctxloom signer remove " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput
 		if !strings.Contains(j7.embeddedRemoveOutput, "no entry for") {
 			return fmt.Errorf("expected 'signer remove' to report no entry for the embedded principal; output:\n%s", j7.embeddedRemoveOutput)
 		}
@@ -312,7 +322,13 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^ctxloom's own signer listing never showed that key as trusted to begin with$`, func(c context.Context) error {
-		j7 := j7Of(worldFrom(c))
+		w := worldFrom(c)
+		j7 := j7Of(w)
+		// This Then's OWN evidence: the signer listing before AND after the
+		// removal attempt — identical, and in neither case naming the embedded
+		// principal at all. That absence IS the finding.
+		w.docStepMaterialized = "$ ctxloom signer show " + j7EmbeddedPrincipal + "   # before the removal attempt\n" + j7.embeddedShowBefore +
+			"\n$ ctxloom signer show " + j7EmbeddedPrincipal + "   # after the removal attempt\n" + j7.embeddedShowAfter
 		for _, out := range []string{j7.embeddedShowBefore, j7.embeddedShowAfter} {
 			if strings.Contains(out, j7EmbeddedPrincipal) {
 				return fmt.Errorf("expected 'signer show' to never list the embedded principal; output:\n%s", out)

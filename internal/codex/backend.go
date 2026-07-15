@@ -2,10 +2,9 @@ package codex
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -25,17 +24,33 @@ type CodexConfig struct {
 // BackendType identifies the backend this config drives.
 func (CodexConfig) BackendType() string { return "codex" }
 
-// codexAuthFile is the credential file codex resolves from $CODEX_HOME.
-const codexAuthFile = "auth.json"
-
 // Codex implements the Backend interface for OpenAI Codex CLI. The shared launch
 // core (capability wiring, accessors, Setup/Cleanup) lives in the embedded
 // agent.LaunchBackend; Codex adds only the Codex-specific Configure/Execute.
 type Codex struct {
 	agent.LaunchBackend
+	// resolvedProjectDir is the "virtual project dir" cellScopedCodexHome joins
+	// ".codex" onto for THIS run — computed once per Setup (white-dawn §2.2A)
+	// and read by both buildSurfaces (Setup's delivery target) and
+	// cellCodexHomeEnv (Execute's env), so the two can never disagree about
+	// where CODEX_HOME points. See resolveCodexProjectDir.
+	resolvedProjectDir string
+	// resolvedTrustAbsPath is the absolute WorkDir to pre-seed
+	// `[projects."<path>"] trust_level = "trusted"` for, set ONLY when
+	// resolveCodexProjectDir found an isolation-provided CODEX_HOME (an
+	// ephemeral, never-committed home safe to auto-trust) — "" for the
+	// in-tree/None path, which never pre-seeds trust.
+	resolvedTrustAbsPath string
 }
 
-// NewCodex creates a new Codex backend with default settings.
+// NewCodex creates a new Codex backend with default settings. Its InitLaunch
+// call necessarily diverges from NewAntigravity/NewClaudeCode/NewKiro's: codex
+// alone needs Setup-time state (resolvedProjectDir/resolvedTrustAbsPath, see
+// buildSurfaces) threaded into its CellDelivery.Build, so it supplies a bound
+// method instead of the shared agent.BuildWellKnown every other well-known-
+// file backend uses — a deliberate, reviewed divergence (white-dawn §2.2A),
+// not a missed sibling update.
+// reprise:accept-drift
 func NewCodex() *Codex {
 	b := &Codex{}
 	b.BaseBackend = agent.NewBaseBackend("codex", "1.0.0")
@@ -46,88 +61,128 @@ func NewCodex() *Codex {
 	// codex is the one engine that fires the SessionStart inject-context hook, so
 	// the hook is keyed to the cache file's hash. The config surface writes the
 	// [hooks] (incl. that hook) + [mcp_servers] tables of .codex/config.toml.
+	// Build is b.buildSurfaces (a method, not the shared BuildWellKnown every
+	// other well-known-file backend uses) because codex — uniquely among them —
+	// needs Setup-time state (resolvedProjectDir/resolvedTrustAbsPath) threaded
+	// into its surfaces; see buildSurfaces' doc.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("codex"),
 		&CodexCommands{},
 		agent.NewBaseContextProvider(),
 		NewCodexSessionHistory(b),
-		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true, ContextHook: true},
+		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},
 	)
-	b.SetExecuteEnv(cellCodexHomeEnv)
+	b.SetExecuteEnv(b.cellCodexHomeEnv)
 	return b
 }
 
-// cellCodexHomeEnv is codex's per-backend child-env contributor. Setup delivers
-// codex's config (.codex/config.toml) and cell-scoped prompts (.codex/prompts)
-// under <WorkDir>/.codex in EVERY cell (they ride the delivery dir), so point
-// CODEX_HOME there — the one env that makes codex discover them (its project
-// config is cwd-relative, but its prompts/sessions hang off CODEX_HOME). This
-// applies to a SharedCell too: without it, codex would read prompts from the
-// user's global ~/.codex and miss the cell-scoped commands. Skipped for a minimal/
-// distill run (SkipSetup), which delivers no surfaces and should keep codex's
-// global home.
+// resolveCodexProjectDir resolves the "virtual project dir" this run's codex
+// surfaces target — cellScopedCodexHome(dir) is the FINAL CODEX_HOME
+// (config.toml/prompts/skills/state/auth.json all hang off it). This is the
+// single-owner fix for the env-precedence bug the per-engine-isolation-home
+// plan found live: launch_backend.go's ExecuteEnv applies req.Env FIRST, then
+// this backend's SetExecuteEnv contributor LAST, so cellCodexHomeEnv used to
+// unconditionally override an isolation-provided CODEX_HOME
+// (internal/lm/isolation/worktree.go's Env(), gated through
+// credentialSeedSpecs["codex"]) with the in-tree <WorkDir>/.codex — the
+// worktree config-home CODEX_HOME was DEAD.
 //
-// A cell-scoped CODEX_HOME also moves codex's CREDENTIAL lookup — auth.json is
-// resolved from $CODEX_HOME, never from $HOME — so every run through this env
-// must seed the cell home with the user's credentials (linkUserCodexAuth) or it
-// authenticates as nobody and 401s.
+// When the isolation layer already set CODEX_HOME, it is now the single
+// owner: isolation/auth.go's codex HomeVar uses Subdir ".codex", so the value
+// already ends in "/.codex" — this strips that suffix back to the virtual
+// project dir cellScopedCodexHome expects, so every existing cell-scoped
+// writer (cellScopedCodexHome/cellScopedPromptsDir/cellScopedSkillsDir,
+// settings.go's SettingsPath) keeps resolving the join itself, unchanged; it
+// simply joins against the isolation-provided config-home instead of the real
+// WorkDir. isolated=true then, so the caller (Setup) knows this run's config
+// home is ephemeral and safe to pre-seed trust into (see
+// WriteSettingsWithTrust's doc) — an out-of-tree home that spills no engine
+// state into the project tree and is removed at Worktree.Cleanup.
 //
-// OPEN QUESTION (plan risk): a ProcessIsolatedCell (container) already has a fresh
-// $HOME, so a <WorkDir>/.codex CODEX_HOME may be redundant or point at a
+// No isolation-provided value (None/shared-cwd, or no backend context) falls
+// back to today's default: WorkDir itself, in-tree. This is a KNOWN,
+// deliberately-scoped residual — see the codex state spill note in this
+// package's materialize/apply doc and the task's final report — not a
+// silent regression: it is EXACTLY today's behavior, already dbea746-
+// gitignored, and None was never an isolation boundary to begin with (no
+// concurrent-agent claim is made for it).
+func resolveCodexProjectDir(env map[string]string, workDir string) (dir string, isolated bool) {
+	if home := env["CODEX_HOME"]; home != "" {
+		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+".codex"); stripped != home {
+			return stripped, true
+		}
+		// An isolation-provided CODEX_HOME not in the expected "/.codex" shape
+		// (a caller override, or a future spec whose Subdir changes) — use it
+		// AS the project dir directly. cellScopedCodexHome will nest an extra
+		// ".codex" under it, which is at least self-consistent (Setup and
+		// Execute still agree) even if it doesn't match what the isolation
+		// layer intended.
+		return home, true
+	}
+	if workDir == "" {
+		return ".", false
+	}
+	return workDir, false
+}
+
+// buildSurfaces is codex's CellDelivery.Build: unlike every other well-known-
+// file backend (which use the shared agent.BuildWellKnown, ignoring
+// isolatedDir entirely), codex needs its OWN Setup-time resolution
+// (resolvedProjectDir/resolvedTrustAbsPath, computed by Setup below) threaded
+// into NewSurfaces so its config/commands/skills surfaces target the SAME
+// isolation-provided CODEX_HOME cellCodexHomeEnv points the launched child
+// at — the single-owner fix (white-dawn §2.2A). isolatedDir (the generic
+// per-backend placement channel) is intentionally unused here: codex's
+// resolution is backend-specific (env-derived, not cell-kind-derived).
+func (b *Codex) buildSurfaces(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
+	return NewSurfaces(in, b.resolvedProjectDir, b.resolvedTrustAbsPath, nil)
+}
+
+// Setup resolves this run's CODEX_HOME ownership ONCE (resolveCodexProjectDir)
+// before delegating to the shared LaunchBackend.Setup, which calls
+// buildSurfaces — storing the result on b so cellCodexHomeEnv (Execute, later
+// in the same request lifecycle: grpc/server.go's Run calls Setup then
+// Execute on the same backend instance) reads the IDENTICAL value rather than
+// re-deriving it from a possibly-different view of req. This is what makes
+// Setup's delivery and Execute's env agree by construction, not convention.
+func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
+	dir, isolated := resolveCodexProjectDir(req.Env, req.WorkDir)
+	b.resolvedProjectDir = dir
+	b.resolvedTrustAbsPath = ""
+	if isolated {
+		if abs, err := filepath.Abs(req.WorkDir); err == nil {
+			b.resolvedTrustAbsPath = abs
+		} else {
+			b.resolvedTrustAbsPath = req.WorkDir
+		}
+	}
+	return b.LaunchBackend.Setup(ctx, req)
+}
+
+// cellCodexHomeEnv is codex's per-backend child-env contributor. It reads the
+// SAME resolution Setup already computed (b.resolvedProjectDir) so Execute's
+// CODEX_HOME can never disagree with where Setup delivered config.toml/
+// prompts/skills — the single-owner fix (see resolveCodexProjectDir). Falls
+// back to re-deriving fresh from req only for a caller that reaches Execute
+// without Setup having run first (defensive; the normal request lifecycle
+// always runs Setup first — see Setup's doc — except SkipSetup, handled
+// below). Skipped for a minimal/distill run (SkipSetup), which delivers no
+// surfaces and should keep codex's global home.
+//
+// OPEN QUESTION (plan risk): a ProcessIsolatedCell (container) already has a
+// fresh $HOME, so a relocated CODEX_HOME may be redundant or point at a
 // non-existent in-namespace path. It is set here consistently pending a live
-// container smoke test; revisit if codex resolves its home differently under the
-// container mount model.
-func cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
+// container smoke test; revisit if codex resolves its home differently under
+// the container mount model.
+func (b *Codex) cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
 	if req.SkipSetup {
 		return nil
 	}
-	work := req.WorkDir
-	if work == "" {
-		work = "."
+	dir := b.resolvedProjectDir
+	if dir == "" {
+		dir, _ = resolveCodexProjectDir(req.Env, req.WorkDir)
 	}
-	return map[string]string{"CODEX_HOME": cellScopedCodexHome(work)}
-}
-
-// linkUserCodexAuth seeds a cell-scoped $CODEX_HOME with the user's codex
-// credentials. codex resolves auth.json from $CODEX_HOME ONLY — never from $HOME
-// (its own help: "--ignore-user-config: Do not load $CODEX_HOME/config.toml; auth
-// still uses CODEX_HOME") — so redirecting CODEX_HOME without seeding auth makes
-// every host run 401 against api.openai.com.
-//
-// The seed is a SYMLINK to the user's real auth.json: no credential is ever copied
-// into the workspace (where it would sit in a tracked dir), and a token refresh
-// written through it lands in the user's own file instead of forking a second,
-// diverging credential.
-//
-// No-ops when the user has no auth.json (env-var auth, e.g. CODEX_API_KEY), when
-// the cell home already IS the user's home, or when the cell holds a REAL auth.json
-// of its own — a hand-placed cell credential is not ours to replace.
-func linkUserCodexAuth(cellHome string) error {
-	userHome, err := codexHome()
-	if err != nil || userHome == "" || filepath.Clean(userHome) == filepath.Clean(cellHome) {
-		return nil
-	}
-	src := filepath.Join(userHome, codexAuthFile)
-	if _, err := os.Stat(src); err != nil {
-		return nil
-	}
-
-	dst := filepath.Join(cellHome, codexAuthFile)
-	switch info, err := os.Lstat(dst); {
-	case err == nil && info.Mode()&os.ModeSymlink == 0:
-		return nil
-	case err == nil:
-		if err := os.Remove(dst); err != nil {
-			return fmt.Errorf("replace stale codex auth link: %w", err)
-		}
-	}
-	if err := os.MkdirAll(cellHome, 0o755); err != nil {
-		return fmt.Errorf("create cell codex home: %w", err)
-	}
-	if err := os.Symlink(src, dst); err != nil {
-		return fmt.Errorf("link codex credentials into %s: %w", cellHome, err)
-	}
-	return nil
+	return map[string]string{"CODEX_HOME": cellScopedCodexHome(dir)}
 }
 
 // Configure applies a decoded codex config to this backend.
@@ -146,16 +201,13 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// ModelInfo (bundle distillation records it as source provenance).
 	modelInfo := &agent.ModelInfo{ModelName: req.Model, Provider: "openai"}
 
-	// A cell-scoped CODEX_HOME (cellCodexHomeEnv) relocates codex's credential
-	// lookup along with its config, so seed it before launch. Skipped for the
-	// container cell, which resolves its own home inside the namespace: a host-path
-	// symlink would only dangle there.
-	if !req.DryRun && !req.SkipSetup && req.WorkDir != "" && req.CellKind != agent.CellKindProcessIsolated {
-		if err := linkUserCodexAuth(cellScopedCodexHome(req.WorkDir)); err != nil {
-			agent.Warn("codex credentials could not be linked into the run's CODEX_HOME "+
-				"(%v) — codex will start unauthenticated", err)
-		}
-	}
+	// Codex's credential seeding (balmy-comic) is now a COPY into the
+	// isolation-provided CODEX_HOME, performed host-side by
+	// internal/lm/isolation/worktree.go's provisionConfigHome BEFORE this run
+	// even starts (credentialSeedSpecs["codex"], auth.go) — replacing the
+	// former per-Execute SYMLINK (linkUserCodexAuth, deleted). Nothing to do
+	// here: by the time Execute runs, auth.json is already in place (or
+	// OPENAI_API_KEY rides the env instead).
 
 	// Context reaches Codex through the SessionStart hook + context file (the
 	// shared file+hook mechanism), so Execute only forwards the context-file

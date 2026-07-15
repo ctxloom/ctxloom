@@ -151,16 +151,33 @@ func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
 	assert.Equal(t, "ANTHROPIC_API_KEY", spec.envTrigger)
 }
 
-// TestCredentialSeedSpecs_CodexAndKiroNotRegistered documents the deliberate
-// exclusions (see credentialSeedSpecs' doc): kiro's creds live in a global
-// sqlite KIRO_HOME doesn't relocate, and codex ALREADY seeds itself through a
-// separate mechanism (internal/codex/backend.go) that wins over anything this
-// package's Env() would ship — registering either here would be inert or wrong.
-func TestCredentialSeedSpecs_CodexAndKiroNotRegistered(t *testing.T) {
-	_, codexOK := credentialSeedSpecs["codex"]
-	assert.False(t, codexOK, "codex seeds its own CODEX_HOME via backend.go's linkUserCodexAuth, not this registry")
-	_, kiroOK := credentialSeedSpecs["kiro"]
-	assert.False(t, kiroOK, "kiro's KIRO_HOME does not relocate credentials (global sqlite) — nothing to seed")
+// TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed pins the
+// balmy-comic/legal-hula shape (per-engine-isolation-home plan §6, replacing
+// the old "codex/kiro not registered" pin): codex IS now registered — this
+// registry is its ONE credential-seed mechanism (backend.go's
+// linkUserCodexAuth symlink is deleted) — with copyable sourceFiles and
+// HonoursVarForCreds true (CODEX_HOME relocates creds too). kiro IS also
+// registered (for its HomeVars — KIRO_HOME/XDG_DATA_HOME — so Env() has one
+// place to read them from) but carries NO sourceFiles: its creds live in a
+// global sqlite no per-agent HomeVar relocates, so HonoursVarForCreds is
+// false and its XDG_DATA_HOME entry is gated instead of seeded (see
+// gateHomeVars in worktree.go). antigravity has no entry at all (no lever).
+func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
+	codexSpec, codexOK := credentialSeedSpecs["codex"]
+	require.True(t, codexOK, "codex now rides this registry's copy-seed, replacing linkUserCodexAuth's symlink")
+	assert.NotNil(t, codexSpec.sourceFiles, "codex has a copyable auth.json to seed")
+	assert.True(t, codexSpec.HonoursVarForCreds, "CODEX_HOME relocates codex's auth.json too")
+	require.Len(t, codexSpec.HomeVars, 1)
+	assert.Equal(t, "CODEX_HOME", codexSpec.HomeVars[0].EnvVar)
+
+	kiroSpec, kiroOK := credentialSeedSpecs["kiro"]
+	require.True(t, kiroOK, "kiro is registered for its HomeVars, even though it has nothing copyable")
+	assert.Nil(t, kiroSpec.sourceFiles, "kiro's creds live in a global sqlite no HomeVar relocates — nothing to seed")
+	assert.False(t, kiroSpec.HonoursVarForCreds)
+	require.Len(t, kiroSpec.HomeVars, 2)
+
+	_, agyOK := credentialSeedSpecs["antigravity"]
+	assert.False(t, agyOK, "antigravity has no config-home lever at all (vast-rut)")
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →

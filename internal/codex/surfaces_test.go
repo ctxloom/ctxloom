@@ -111,7 +111,7 @@ func contextFile(t *testing.T, fs afero.Fs, dir string) string {
 func TestContextSurface_DeliverWritesContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	handle, err := s.Context.Deliver(dir)
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestContextSurface_DeliverWritesContextFile(t *testing.T) {
 // Empty context writes nothing and cleans up to a no-op.
 func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	s := NewSurfaces(agent.SurfaceInputs{}, fs)
+	s := NewSurfaces(agent.SurfaceInputs{}, "", "", fs)
 
 	handle, err := s.Context.Deliver("/proj")
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestAgentsMDSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
 	dir := "/proj"
 	// Materialize shape: Context is populated, Fragments is NOT (this is the
 	// exact input shape profile_materialize.go builds for codex).
-	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
+	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, "", "", fs)
 
 	handle, err := s.AgentsMD.Deliver(dir)
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestAgentsMDSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
 // which always deliver.
 func TestAgentsMDSurface_EmptyContextStillDelivers(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	s := NewSurfaces(agent.SurfaceInputs{}, fs)
+	s := NewSurfaces(agent.SurfaceInputs{}, "", "", fs)
 
 	handle, err := s.AgentsMD.Deliver("/proj")
 	require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestAgentsMDSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "AGENTS.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
-	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, fs)
+	s := NewSurfaces(agent.SurfaceInputs{Context: "the secret color is vermilion"}, "", "", fs)
 
 	handle, err := s.AgentsMD.Deliver(dir)
 	require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestAgentsMDSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
 func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	handle, err := s.Config.Deliver(dir)
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
@@ -275,7 +275,7 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	handle, err := s.Skills.Deliver(dir)
 	require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live-cwd"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	r, err := agent.Select(s).WithCommands(agent.CommandsWriteUnsafeFile).Build()
 	require.NoError(t, err)
@@ -343,7 +343,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/worktree"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	ds := s.Deliveries()
 	require.Len(t, ds, 4, "context (composed), config, commands, skills")
@@ -375,7 +375,7 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live"
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	r, err := agent.Select(s).WithEverything().Build()
 	require.NoError(t, err)
@@ -401,7 +401,7 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 // has no CLAUDE.md-style native file), settings/commands are native-file-only, and
 // MCP is absent (folded into the config/settings surface).
 func TestSurfaces_SupportedApproaches(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 
 	assert.Equal(t, []agent.Approach{agent.ApproachHook}, s.SupportedApproaches(agent.SurfaceContext))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
@@ -413,7 +413,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 // DefaultApproach is Hook for context (codex's only approach), the native file for
 // settings/commands, and absent for the folded MCP kind.
 func TestSurfaces_DefaultApproach(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 
 	a, ok := s.DefaultApproach(agent.SurfaceContext)
 	require.True(t, ok)
@@ -443,7 +443,7 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 // approach.
 func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	s := NewSurfaces(sampleInputs(), fs)
+	s := NewSurfaces(sampleInputs(), "", "", fs)
 
 	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachHook)
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 // SharedRealization is absent for every kind: codex has no out-of-cwd redirect,
 // so a SHARED-cwd delivery always falls back to the loud well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
-	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
+	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: codex has no out-of-cwd realization", kind)

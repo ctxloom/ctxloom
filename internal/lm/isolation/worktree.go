@@ -126,6 +126,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		git:     w.git,
 		repoDir: projectDir,
 		dir:     wtPath,
+		backend: w.backend,
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -136,7 +137,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 			panic(r)
 		}
 	}()
-	ws.configHome = w.provisionConfigHome(agentID)
+	ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
 	return ws, nil
@@ -156,9 +157,11 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspa
 // with the backend's host subscription credentials (grave-prize). Returns "" on
 // the MkdirAll failure — the run still proceeds against the shared global config
 // (warn), never blocking. The scoped envs are preferred over a per-session HOME,
-// which would strip ~/.gitconfig/ssh identity the worktree still needs.
-func (w Worktree) provisionConfigHome(agentID string) string {
-	home := worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
+// which would strip ~/.gitconfig/ssh identity the worktree still needs. denied
+// carries any GatedOnCreds HomeVars seedCredentials decided NOT to isolate (see
+// its doc) — Env() reads it back to omit them.
+func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[string]bool) {
+	home = worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
 	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
 	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
 	// world-traversable.
@@ -170,18 +173,21 @@ func (w Worktree) provisionConfigHome(agentID string) string {
 		// unreferenced dir on disk — the caller stores "" and can never find
 		// it again. A genuine MkdirAll failure makes this a harmless no-op.
 		_ = os.RemoveAll(home)
-		return ""
+		return "", nil
 	}
-	w.seedCredentials(home, agentID)
-	return home
+	denied = w.seedCredentials(home, agentID)
+	return home, denied
 }
 
 // seedCredentials seeds w.backend's subscription credentials into the per-agent
-// config-home when the backend has a registered credentialSeedSpec (auth.go) —
-// an engine whose isolation env var relocates CREDENTIALS, not just config. No
-// spec (w.backend == "", or a backend deliberately left out of the registry —
-// see credentialSeedSpecs' doc) is a silent no-op: the pre-fix, config-only
-// provisioning.
+// config-home when the backend has a registered credentialSeedSpec (auth.go)
+// with copyable sourceFiles (claude/codex — HonoursVarForCreds true: an engine
+// whose isolation env var relocates CREDENTIALS, not just config), or — for a
+// HonoursVarForCreds==false spec whose creds live in an unrelocatable global
+// store (kiro) — gates each GatedOnCreds HomeVar on its bypass env instead (see
+// gateHomeVars). No spec (w.backend == "", or a backend deliberately left out of
+// the registry — antigravity, vast-rut) is a silent no-op: the pre-fix,
+// config-only provisioning.
 //
 // The copy mechanics (I/O failure) stay best-effort like the rest of this
 // provisioning step — a warn, not a block. But "nothing seedable" is NOT
@@ -191,21 +197,55 @@ func (w Worktree) provisionConfigHome(agentID string) string {
 // ClassIsolation finding the choke owner aborts on in strict mode (default)
 // unless --degraded — matching how the container path treats unresolvable auth
 // (resolveClaudeContainerAuth / container.go).
-func (w Worktree) seedCredentials(configHome, agentID string) {
+func (w Worktree) seedCredentials(configHome, agentID string) map[string]bool {
 	spec, ok := credentialSeedSpecs[w.backend]
 	if !ok {
-		return
+		return nil
+	}
+	if spec.sourceFiles == nil {
+		return w.gateHomeVars(spec, agentID)
 	}
 	result, err := hostCredentialSeed(spec, configHome)
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree: could not seed %s credentials for %q (using an unseeded config-home): %v", spec.engine, agentID, err)
-		return
+		return nil
 	}
 	if result == seedNoSource {
 		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
 			"worktree isolation for agent %q: no %s and no host %s credentials found to seed the per-agent config-home — the agent would start logged out",
 			agentID, spec.envTrigger, spec.engine)
 	}
+	return nil
+}
+
+// gateHomeVars decides, for a HonoursVarForCreds==false spec (kiro — its
+// credentials live in a global sqlite no per-agent HomeVar relocates), whether
+// each GatedOnCreds HomeVar is safe to isolate: safe when spec.envTrigger is
+// present in the process env (the agent authenticates under a fresh var via
+// that key — live-verified for kiro: KIRO_API_KEY + a fresh XDG_DATA_HOME
+// authenticates headlessly, no browser). When it is absent, isolating that var
+// would silently strand the agent logged out of a credential store it can never
+// reach again (legal-hula's exact failure shape), so this records a
+// ClassIsolation fail-loud finding (degradable via --degraded) and returns the
+// var DENIED — Env() omits it, so the agent falls back to the engine's shared
+// global store instead. Non-gated HomeVars on the same spec (kiro's KIRO_HOME —
+// sessions only, no creds) are never denied.
+func (w Worktree) gateHomeVars(spec credentialSeedSpec, agentID string) map[string]bool {
+	granted := spec.envTrigger != "" && os.Getenv(spec.envTrigger) != ""
+	var denied map[string]bool
+	for _, hv := range spec.HomeVars {
+		if !hv.GatedOnCreds || granted {
+			continue
+		}
+		if denied == nil {
+			denied = map[string]bool{}
+		}
+		denied[hv.EnvVar] = true
+		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
+			"worktree isolation for agent %q: isolating %s would relocate %s's credential store away from where it's authenticated, with no %s set to authenticate a fresh one — sharing the host's global store instead",
+			agentID, hv.EnvVar, spec.engine, spec.envTrigger)
+	}
+	return denied
 }
 
 // excludeConfigFromMerge writes the broadened ctxloom-config exclude block to the
@@ -259,6 +299,14 @@ type worktreeWorkspace struct {
 	repoDir    string
 	dir        string
 	configHome string
+	// backend is the registered backend name this workspace's config-home was
+	// provisioned for (Worktree.backend, copied at PrepareWorkspace time) —
+	// Env() looks up credentialSeedSpecs[backend] to build its HomeVars set.
+	backend string
+	// deniedHomeVars names GatedOnCreds env vars seedCredentials decided NOT
+	// to isolate (gateHomeVars — kiro's XDG_DATA_HOME with no KIRO_API_KEY);
+	// Env() omits them.
+	deniedHomeVars map[string]bool
 }
 
 // Ensure the workspace exposes its per-agent config-home envs.
@@ -268,16 +316,32 @@ var _ EnvWorkspace = (*worktreeWorkspace)(nil)
 func (w *worktreeWorkspace) Dir() string { return w.dir }
 
 // Env returns the per-agent config-home envs that isolate each engine's GLOBAL
-// config layer (T0.6). Empty when no config-home could be provisioned.
+// config/state/creds home (T0.6, widened per per-engine-isolation-home plan
+// §6). Driven entirely by credentialSeedSpecs[w.backend].HomeVars — a single
+// per-engine descriptor instead of a hardcoded var map — so claude/codex each
+// get their one var and kiro gets two (KIRO_HOME always, XDG_DATA_HOME unless
+// gateHomeVars denied it). Empty when no config-home could be provisioned, the
+// backend has no registered spec (antigravity — no lever, "" — no backend
+// context), or every var was denied.
 func (w *worktreeWorkspace) Env() map[string]string {
 	if w.configHome == "" {
 		return nil
 	}
-	return map[string]string{
-		"CLAUDE_CONFIG_DIR": filepath.Join(w.configHome, "claude"),
-		"CODEX_HOME":        filepath.Join(w.configHome, "codex"),
-		"KIRO_HOME":         filepath.Join(w.configHome, "kiro"),
+	spec, ok := credentialSeedSpecs[w.backend]
+	if !ok {
+		return nil
 	}
+	env := make(map[string]string, len(spec.HomeVars))
+	for _, hv := range spec.HomeVars {
+		if w.deniedHomeVars[hv.EnvVar] {
+			continue
+		}
+		env[hv.EnvVar] = filepath.Join(w.configHome, hv.Subdir)
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 
 // Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes the

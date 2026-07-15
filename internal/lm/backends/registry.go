@@ -253,7 +253,13 @@ func init() {
 			return decodeBody(body, &codex.CodexConfig{})
 		},
 		newWriter:            codex.NewWriter,
-		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return codex.NewSurfaces(in, fs) },
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
+			// The static apply/materialize path has no isolation context — no
+			// homeOverride/trustAbsPath, exactly as before those params existed
+			// (the live run/launch path wires them via Codex.buildSurfaces
+			// instead, which does not go through this registry closure).
+			return codex.NewSurfaces(in, "", "", fs)
+		},
 		exports:              codexExports,
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)

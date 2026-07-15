@@ -100,6 +100,22 @@ func (w *CodexHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.Con
 // WriteSettings implements SettingsWriter for Codex CLI. Hooks and MCP servers
 // are written to .codex/config.toml as the [hooks] and [mcp_servers] tables.
 func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
+	return w.WriteSettingsWithTrust(hooks, mcp, bundleMCP, projectDir, "")
+}
+
+// WriteSettingsWithTrust is WriteSettings plus an optional project-trust
+// pre-seed (white-dawn §2.2A): when trustAbsPath is non-empty, it appends
+// `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
+// config.toml so codex does not re-prompt for trust the FIRST time it reads a
+// config.toml it has never seen before (an isolation-provided, per-run
+// CODEX_HOME — see internal/codex/backend.go's resolveCodexProjectDir). Safe
+// ONLY there: the file is ephemeral and never committed, so a
+// machine-specific absolute path baked in is harmless — unlike the in-tree
+// materialize/apply path, which never passes trustAbsPath and stays exactly
+// as WriteSettings behaved before this method existed (the trust key that
+// lands there is legitimately codex's own, appended on ITS first real run,
+// not ctxloom's).
+func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir, trustAbsPath string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
@@ -124,8 +140,30 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 		addBackendHooks(cfg, backendHooks)
 	}
 	addMCPServers(cfg, mcp, bundleMCP)
+	if trustAbsPath != "" {
+		addProjectTrust(cfg, trustAbsPath)
+	}
 
 	return w.save(settingsPath, cfg)
+}
+
+// addProjectTrust sets `[projects."<absPath>"] trust_level = "trusted"` in
+// cfg — the EXACT key/section codex itself appends after a user answers its
+// interactive trust prompt (live-verified 2026-07-15 against codex-cli
+// 0.144.4's own ~/.codex/config.toml). Idempotent: overwrites any existing
+// entry for absPath, preserving its other keys.
+func addProjectTrust(cfg map[string]any, absPath string) {
+	projects := asMap(cfg["projects"])
+	if projects == nil {
+		projects = map[string]any{}
+	}
+	entry := asMap(projects[absPath])
+	if entry == nil {
+		entry = map[string]any{}
+	}
+	entry["trust_level"] = "trusted"
+	projects[absPath] = entry
+	cfg["projects"] = projects
 }
 
 // load parses config.toml into a generic table, preserving every key. It is

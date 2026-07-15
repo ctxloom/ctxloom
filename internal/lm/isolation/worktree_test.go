@@ -28,7 +28,10 @@ func TestWorktree_Axes(t *testing.T) {
 func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	common := t.TempDir() // stand-in .git common dir so the exclude write succeeds
 	f := &git.Fake{CommonDirValue: common}
-	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-a")
+	// A real backend is needed so Env() (now driven by credentialSeedSpecs,
+	// per-engine-isolation-home plan §6) has a spec to resolve HomeVars from —
+	// see TestWorktree_HomeVars_PerBackend for the per-engine var-count guard.
+	ws, err := NewWorktree(f, "claude-code").PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
 	// Safety net registered BEFORE any assertion below can fail/panic and skip
 	// the ws.Cleanup() call at the end of this test (see requireCleanWorkspace).
@@ -45,8 +48,6 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	env := WorkspaceEnv(ws)
 	require.NotNil(t, env, "worktree exposes per-agent config-home envs")
 	assert.Contains(t, env["CLAUDE_CONFIG_DIR"], "ctxloom-cfg-")
-	assert.Contains(t, env["CODEX_HOME"], "ctxloom-cfg-")
-	assert.Contains(t, env["KIRO_HOME"], "ctxloom-cfg-")
 
 	// §3.1: the broadened config excludes land in the common-dir info/exclude.
 	excl, err := os.ReadFile(filepath.Join(common, "info", "exclude"))
@@ -169,7 +170,7 @@ func TestWorktree_TeardownLeaksOnListFailure(t *testing.T) {
 // owner-only (0700) like every MkdirTemp sibling in this package, never
 // world-traversable.
 func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
-	home := Worktree{}.provisionConfigHome("agent-x")
+	home, _ := Worktree{}.provisionConfigHome("agent-x")
 	require.NotEmpty(t, home)
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 
@@ -381,7 +382,7 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := &git.Fake{CommonDirValue: t.TempDir()}
 
-	w := NewWorktree(f, "")
+	w := NewWorktree(f, "claude-code")
 	w.state = SessionState{Harp: "brisk-teal-otter"}
 	ws, err := w.PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
@@ -395,4 +396,126 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 	require.NotNil(t, env)
 	assert.True(t, strings.HasPrefix(env["CLAUDE_CONFIG_DIR"], eph+string(os.PathSeparator)),
 		"config-home %q lives under the session ephemeral dir", env["CLAUDE_CONFIG_DIR"])
+}
+
+// --- Per-engine isolation-home (legal-hula / white-dawn / balmy-comic) -----
+
+// TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
+// per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
+// size must match the §1 cartography table — claude:1, codex:1, kiro:2,
+// antigravity:0 (no lever at all), and "" (no backend context):0 (the
+// pre-fix, config-only-isolation default — see TestWorktree_NoBackendSkipsSeedingAndFailLoud).
+func TestWorktree_HomeVars_PerBackend(t *testing.T) {
+	resetStrictness(t)
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // skip claude's seed attempt — only var COUNT matters here
+	t.Setenv("OPENAI_API_KEY", "sk-test")    // skip codex's seed attempt
+	t.Setenv("KIRO_API_KEY", "sk-test")      // grant kiro's gated XDG_DATA_HOME
+
+	cases := []struct {
+		backend string
+		want    int
+	}{
+		{"claude-code", 1},
+		{"codex", 1},
+		{"kiro", 2},
+		{"antigravity", 0},
+		{"", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.backend, func(t *testing.T) {
+			common := t.TempDir()
+			f := &git.Fake{CommonDirValue: common}
+			ws, err := NewWorktree(f, c.backend).PrepareWorkspace(context.Background(), "/proj", "member-"+c.backend)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = ws.Cleanup() })
+
+			env := WorkspaceEnv(ws)
+			assert.Len(t, env, c.want, "backend %q home-var count", c.backend)
+		})
+	}
+}
+
+// TestWorktree_KiroTwoAgentsDisjointXDG is legal-hula's headline PAYLOAD test:
+// two concurrent kiro worktree agents (KIRO_API_KEY set, so XDG isolation is
+// granted) get DISJOINT XDG_DATA_HOME roots — the assertion that would have
+// caught the original bug (both "isolated" agents sharing one global
+// $XDG_DATA_HOME/kiro-cli/data.sqlite3, silently reading each other's
+// conversations). Simulates a marker write into agent A's would-be sqlite
+// path and asserts agent B's XDG root does not contain it.
+func TestWorktree_KiroTwoAgentsDisjointXDG(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("KIRO_API_KEY", "sk-test")
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+
+	wsA, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "agent-a")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wsA.Cleanup() })
+	wsB, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "agent-b")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wsB.Cleanup() })
+
+	envA, envB := WorkspaceEnv(wsA), WorkspaceEnv(wsB)
+	require.NotEmpty(t, envA["XDG_DATA_HOME"])
+	require.NotEmpty(t, envB["XDG_DATA_HOME"])
+	assert.NotEqual(t, envA["XDG_DATA_HOME"], envB["XDG_DATA_HOME"], "two agents must resolve to DISJOINT XDG roots")
+
+	// Payload: a marker "conversation" written under A's kiro-cli data dir
+	// must not be visible under B's.
+	markerRel := filepath.Join("kiro-cli", "data.sqlite3")
+	markerPath := filepath.Join(envA["XDG_DATA_HOME"], markerRel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(markerPath), 0o700))
+	require.NoError(t, os.WriteFile(markerPath, []byte("agent-a-conversation"), 0o600))
+
+	assert.NoFileExists(t, filepath.Join(envB["XDG_DATA_HOME"], markerRel),
+		"agent B's XDG root must not contain agent A's conversation store")
+	assert.Empty(t, strictness.All(), "KIRO_API_KEY present — both agents isolate cleanly, no finding")
+}
+
+// TestWorktree_KiroFailLoudWithoutApiKey pins legal-hula's fail-loud floor: no
+// KIRO_API_KEY means isolating XDG_DATA_HOME would silently strand the agent
+// logged out of its (global, unrelocatable) credential store, so it is
+// OMITTED from Env() (falling back to the shared global store) and a
+// ClassIsolation finding is recorded — the previously-SILENT non-isolation
+// (legal-hula) becomes a loud, degradable error instead. KIRO_HOME (sessions
+// only, no creds) still isolates unconditionally.
+func TestWorktree_KiroFailLoudWithoutApiKey(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("KIRO_API_KEY", "")
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+
+	ws, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "member-nokey")
+	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
+	t.Cleanup(func() { _ = ws.Cleanup() })
+
+	env := WorkspaceEnv(ws)
+	assert.NotEmpty(t, env["KIRO_HOME"], "KIRO_HOME isolates unconditionally (no creds live there)")
+	assert.Empty(t, env["XDG_DATA_HOME"], "XDG_DATA_HOME is DENIED — isolating it would silently log the agent out")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1)
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "XDG_DATA_HOME")
+	assert.Contains(t, findings[0].Message, "member-nokey")
+	assert.NotEmpty(t, findings[0].FixIt)
+}
+
+// TestWorktree_KiroIsolatesXDGWithApiKey is the positive half of the gate:
+// KIRO_API_KEY set → XDG_DATA_HOME isolates (present in Env()) and no
+// ClassIsolation finding is recorded.
+func TestWorktree_KiroIsolatesXDGWithApiKey(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("KIRO_API_KEY", "sk-test")
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+
+	ws, err := NewWorktree(f, "kiro").PrepareWorkspace(context.Background(), "/proj", "member-key")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Cleanup() })
+
+	env := WorkspaceEnv(ws)
+	assert.NotEmpty(t, env["XDG_DATA_HOME"], "KIRO_API_KEY present — XDG_DATA_HOME isolates")
+	assert.Empty(t, strictness.All(), "no finding when the gate is satisfied")
 }

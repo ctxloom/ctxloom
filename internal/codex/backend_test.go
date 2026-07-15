@@ -1,13 +1,12 @@
 package codex
 
 import (
-	"os"
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -192,65 +191,97 @@ func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
 }
 
 // =============================================================================
-// Credentials — a cell-scoped CODEX_HOME moves codex's auth.json lookup with it.
+// CODEX_HOME single ownership (white-dawn §2.2A) — resolveCodexProjectDir is
+// the one function Setup's delivery target and Execute's env both read, so
+// they can never disagree about where CODEX_HOME points. codex's credential
+// seeding is now internal/lm/isolation's copy-based framework
+// (credentialSeedSpecs["codex"], balmy-comic) — linkUserCodexAuth's symlink
+// is deleted; there is no codex-package credential test left here.
 // =============================================================================
 
-func TestCodex_linkUserCodexAuth(t *testing.T) {
-	userHome := t.TempDir()
-	authFile := filepath.Join(userHome, "auth.json")
-	require.NoError(t, os.WriteFile(authFile, []byte(`{"tokens":{}}`), 0o600))
-	t.Setenv("CODEX_HOME", userHome)
-
-	t.Run("links the user's credentials into a cell home codex would otherwise 401 from", func(t *testing.T) {
-		cellHome := filepath.Join(t.TempDir(), ".codex")
-		require.NoError(t, linkUserCodexAuth(cellHome))
-
-		link := filepath.Join(cellHome, "auth.json")
-		target, err := os.Readlink(link)
-		require.NoError(t, err, "the seed is a symlink, never a copy of the credential")
-		assert.Equal(t, authFile, target)
-
-		body, err := os.ReadFile(link)
-		require.NoError(t, err)
-		assert.Equal(t, `{"tokens":{}}`, string(body), "codex reads the user's real credential through it")
-	})
-
-	t.Run("re-points a stale link", func(t *testing.T) {
-		cellHome := filepath.Join(t.TempDir(), ".codex")
-		require.NoError(t, os.MkdirAll(cellHome, 0o755))
-		require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone.json"), filepath.Join(cellHome, "auth.json")))
-
-		require.NoError(t, linkUserCodexAuth(cellHome))
-		target, err := os.Readlink(filepath.Join(cellHome, "auth.json"))
-		require.NoError(t, err)
-		assert.Equal(t, authFile, target)
-	})
-
-	t.Run("leaves a real credential file in the cell alone", func(t *testing.T) {
-		cellHome := filepath.Join(t.TempDir(), ".codex")
-		require.NoError(t, os.MkdirAll(cellHome, 0o755))
-		cellAuth := filepath.Join(cellHome, "auth.json")
-		require.NoError(t, os.WriteFile(cellAuth, []byte(`{"cell":true}`), 0o600))
-
-		require.NoError(t, linkUserCodexAuth(cellHome))
-		body, err := os.ReadFile(cellAuth)
-		require.NoError(t, err)
-		assert.Equal(t, `{"cell":true}`, string(body))
-	})
-
-	t.Run("no-ops when the cell home is the user's home", func(t *testing.T) {
-		require.NoError(t, linkUserCodexAuth(userHome))
-		info, err := os.Lstat(authFile)
-		require.NoError(t, err)
-		assert.Zero(t, info.Mode()&os.ModeSymlink, "the user's own auth.json is never replaced by a link to itself")
-	})
+// TestResolveCodexProjectDir_NoIsolation_FallsBackToWorkDir pins today's
+// default (None/shared-cwd, or no backend context): no isolation-provided
+// CODEX_HOME in env → the virtual project dir is WorkDir itself, in-tree,
+// exactly as before this fix — isolated=false (no trust pre-seed).
+func TestResolveCodexProjectDir_NoIsolation_FallsBackToWorkDir(t *testing.T) {
+	dir, isolated := resolveCodexProjectDir(nil, "/proj")
+	assert.Equal(t, "/proj", dir)
+	assert.False(t, isolated)
 }
 
-func TestCodex_linkUserCodexAuth_NoUserCredential(t *testing.T) {
-	t.Setenv("CODEX_HOME", t.TempDir()) // a home with no auth.json (env-var auth)
-	cellHome := filepath.Join(t.TempDir(), ".codex")
+// TestResolveCodexProjectDir_EmptyWorkDir mirrors cellCodexHomeEnv's old
+// "" → "." fallback.
+func TestResolveCodexProjectDir_EmptyWorkDir(t *testing.T) {
+	dir, isolated := resolveCodexProjectDir(nil, "")
+	assert.Equal(t, ".", dir)
+	assert.False(t, isolated)
+}
 
-	require.NoError(t, linkUserCodexAuth(cellHome), "nothing to link is not an error")
-	_, err := os.Lstat(filepath.Join(cellHome, "auth.json"))
-	assert.True(t, os.IsNotExist(err), "no dangling link is planted")
+// TestResolveCodexProjectDir_IsolationProvided_StripsCodexSuffix is the
+// single-owner fix's core case: an isolation-provided CODEX_HOME (worktree's
+// per-agent config-home, always ending in "/.codex" — credentialSeedSpecs's
+// codex HomeVar Subdir) wins over WorkDir, and the ".codex" suffix is
+// stripped back to the virtual project dir cellScopedCodexHome expects — so
+// existing writers (SettingsPath, cellScopedPromptsDir/SkillsDir) resolve
+// the SAME final home unchanged.
+func TestResolveCodexProjectDir_IsolationProvided_StripsCodexSuffix(t *testing.T) {
+	dir, isolated := resolveCodexProjectDir(map[string]string{"CODEX_HOME": "/tmp/ctxloom-cfg-x/.codex"}, "/proj")
+	assert.Equal(t, "/tmp/ctxloom-cfg-x", dir)
+	assert.True(t, isolated, "an isolation-provided home is ephemeral — safe to pre-seed trust into")
+	assert.Equal(t, "/tmp/ctxloom-cfg-x/.codex", cellScopedCodexHome(dir), "the final CODEX_HOME round-trips exactly")
+}
+
+// TestResolveCodexProjectDir_IsolationProvided_UnexpectedShape covers an
+// isolation-provided CODEX_HOME that does NOT end in "/.codex" (a caller
+// override) — used AS the project dir directly rather than dropped, so
+// Setup and Execute still agree even on an unexpected shape.
+func TestResolveCodexProjectDir_IsolationProvided_UnexpectedShape(t *testing.T) {
+	dir, isolated := resolveCodexProjectDir(map[string]string{"CODEX_HOME": "/custom/home"}, "/proj")
+	assert.Equal(t, "/custom/home", dir)
+	assert.True(t, isolated)
+}
+
+// TestCodex_SetupExecute_AgreeOnIsolatedCodexHome is the end-to-end PAYLOAD
+// test for the precedence bug: Setup (delivery) and cellCodexHomeEnv
+// (Execute's env) must resolve to the IDENTICAL CODEX_HOME when isolation
+// provides one — this is the assertion that would have caught the original
+// bug (the isolation-provided value being silently overridden by the
+// backend's own <WorkDir>/.codex).
+func TestCodex_SetupExecute_AgreeOnIsolatedCodexHome(t *testing.T) {
+	b := NewCodex()
+	isolatedHome := filepath.Join(t.TempDir(), ".codex")
+	setupReq := &agent.SetupRequest{
+		WorkDir: "/proj",
+		Env:     map[string]string{"CODEX_HOME": isolatedHome},
+	}
+	// Setup best-effort delivers files (may warn on I/O in a bare temp tree);
+	// what matters here is the resolved state it stashes, not delivery success.
+	_ = b.Setup(context.Background(), setupReq)
+	assert.Equal(t, filepath.Dir(isolatedHome), b.resolvedProjectDir)
+	assert.NotEmpty(t, b.resolvedTrustAbsPath, "an isolation-provided home is trusted-pre-seed eligible")
+
+	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj", Env: setupReq.Env})
+	assert.Equal(t, isolatedHome, execEnv["CODEX_HOME"], "Execute's CODEX_HOME matches exactly what Setup delivered into")
+}
+
+// TestCodex_SetupExecute_NoneCellUnchanged pins the deliberately-scoped
+// residual: with NO isolation-provided CODEX_HOME (None/shared-cwd), Setup
+// and Execute both still land on <WorkDir>/.codex — today's behavior,
+// unchanged by this fix.
+func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
+	b := NewCodex()
+	setupReq := &agent.SetupRequest{WorkDir: "/proj"}
+	_ = b.Setup(context.Background(), setupReq)
+	assert.Equal(t, "/proj", b.resolvedProjectDir)
+	assert.Empty(t, b.resolvedTrustAbsPath, "in-tree config.toml is never trust-pre-seeded")
+
+	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj"})
+	assert.Equal(t, filepath.Join("/proj", ".codex"), execEnv["CODEX_HOME"])
+}
+
+// TestCodex_CellCodexHomeEnv_SkipsSetup: SkipSetup (minimal/distill) sets no
+// CODEX_HOME at all — codex keeps its global home, matching pre-fix behavior.
+func TestCodex_CellCodexHomeEnv_SkipsSetup(t *testing.T) {
+	b := NewCodex()
+	assert.Nil(t, b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj", SkipSetup: true}))
 }

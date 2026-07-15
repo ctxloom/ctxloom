@@ -191,17 +191,41 @@ type configSurface struct {
 	mcp       *wire.MCPConfig
 	bundleMCP map[string]wire.MCPServer
 	fs        afero.Fs
+	// homeOverride, when non-empty, is the project-dir-equivalent config.toml
+	// (and, via the sibling commands/skills surfaces, prompts/skills) is
+	// written under INSTEAD of the dir Deliver receives — the isolation-
+	// provided CODEX_HOME's virtual project dir (white-dawn §2.2A; see
+	// backend.go's resolveCodexProjectDir). Empty for the static
+	// materialize/apply path (registry.go's NewSurfaces caller has no
+	// isolation context), which keeps deriving from Deliver's dir exactly as
+	// before this field existed.
+	homeOverride string
+	// trustAbsPath, when non-empty, pre-seeds `[projects."<trustAbsPath>"]
+	// trust_level = "trusted"` into the written config.toml (white-dawn
+	// §2.2A's trust pre-seed) — set ONLY alongside homeOverride, since it is
+	// safe only in an ephemeral, never-committed home (see
+	// WriteSettingsWithTrust's doc).
+	trustAbsPath string
 }
 
-// Deliver writes .codex/config.toml into dir via the reused WriteSettings and
-// returns a handle whose Cleanup reverts the ctxloom-managed hooks and servers
-// via RemoveSettings (user keys preserved).
+// Deliver writes .codex/config.toml into dir (or homeOverride, when set) via
+// the reused WriteSettingsWithTrust and returns a handle whose Cleanup
+// reverts the ctxloom-managed hooks and servers via RemoveSettings (user keys
+// preserved). The homeOverride indirection is codex-specific (white-dawn
+// §2.2A's single-owner CODEX_HOME fix) — the sibling backends' Deliver
+// methods have no analogous split-target need, so this is a deliberate,
+// reviewed divergence from their shape, not a missed update.
+// reprise:accept-drift
 func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
+	target := dir
+	if s.homeOverride != "" {
+		target = s.homeOverride
+	}
 	w := &CodexHookWriter{FS: s.fs}
-	if err := w.WriteSettings(s.hooks, s.mcp, s.bundleMCP, dir); err != nil {
+	if err := w.WriteSettingsWithTrust(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
-	return deliveredFunc(func() error { return w.RemoveSettings(dir) }), nil
+	return deliveredFunc(func() error { return w.RemoveSettings(target) }), nil
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
@@ -268,17 +292,35 @@ type Surfaces struct {
 // merged MCP + bundle servers, the hook set, and the command exports. A nil fs
 // defaults to the OS filesystem. Every codex surface's Delivery takes its
 // target dir at call time; none is race-safe (codex exposes no out-of-cwd
-// flag), so there is no isolated placement to bind.
-func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
+// flag), so there is no isolated placement to bind — EXCEPT the config/
+// commands/skills surfaces' homeOverride: when non-empty (the live
+// run/launch path, wired from Codex.buildSurfaces — see backend.go's
+// resolveCodexProjectDir), they write under it INSTEAD of whatever dir a
+// later Deliver call receives, making the isolation-provided CODEX_HOME the
+// single owner (white-dawn §2.2A). Empty (the static materialize/apply path,
+// via registry.go's backends.BuildSurfaces) keeps every surface deriving
+// from Deliver's dir, unchanged from before homeOverride existed.
+// trustAbsPath, when non-empty, pre-seeds config.toml's project trust (see
+// WriteSettingsWithTrust) — passed through to the config surface only; it is
+// meaningless without homeOverride (the in-tree path never sets it).
+func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
-	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath}
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
-		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, commands, codexPromptFile)
+		target := dir
+		if homeOverride != "" {
+			target = homeOverride
+		}
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(target), codexManifest, commands, codexPromptFile)
 	})
 	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return writeCodexSkillPackages(fs, cellScopedSkillsDir(dir), skills)
+		target := dir
+		if homeOverride != "" {
+			target = homeOverride
+		}
+		return writeCodexSkillPackages(fs, cellScopedSkillsDir(target), skills)
 	})
 	routes := agent.ComposedDelivery{
 		Parts:       []agent.Delivery{ctxSurf, mdSurf},

@@ -43,7 +43,8 @@ import (
 // agentskills SKILL.md, auto-discovered via the `skill://.kiro/skills/**/
 // SKILL.md` glob (kiro/settings.go), invocable both as a model-selected skill
 // and as a /<name> slash command. When a command and a skill share a name,
-// filterClaimedCommands (below, invoked from NewSurfaces) resolves the D6
+// the shared agent.FilterCommandsClaimedBySkills (invoked from NewSurfaces via
+// agent.NewSkillShapedCommandsAndSkills) resolves the D6
 // collision as skill-wins BEFORE the commands delivery is even built, so the
 // two writers' manifests (kiroManifest / kiroSkillManifest) never both claim
 // the same path.
@@ -153,18 +154,19 @@ func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSetting
 // WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
 // is identical across engines, so it lives in internal/shared/agent, not here.
 
-// filterClaimedCommands is kiro's D6 collision resolution (skill-command-split
-// plan §3.3/§3.5 B5): kiro has ONE native directory, .kiro/skills/<name>/, that
-// serves BOTH the renamed command surface (a slash-command rendered as
-// SKILL.md) and the true Agent Skills surface. When a command and a skill
-// share the same name, both would target the identical path
-// .kiro/skills/<name>/SKILL.md — resolved here as SKILL-WINS: the richer
+// kiro's D6 collision resolution (skill-command-split plan §3.3/§3.5 B5): kiro
+// has ONE native directory, .kiro/skills/<name>/, that serves BOTH the renamed
+// command surface (a slash-command rendered as SKILL.md) and the true Agent
+// Skills surface. When a command and a skill share the same name, both would
+// target the identical path .kiro/skills/<name>/SKILL.md — resolved as
+// SKILL-WINS by the shared agent.FilterCommandsClaimedBySkills (called from
+// NewSurfaces below, via agent.NewSkillShapedCommandsAndSkills): the richer
 // native package is materialized and the command's rendering of that name is
 // dropped before it ever reaches WriteCommandFiles.
 //
-// This is arbitrated HERE, at export-assembly time in NewSurfaces, rather
-// than inside either writer, because that is the one place that keeps the
-// TWO MANIFESTS (kiroManifest for commands, kiroSkillManifest for skills)
+// This is arbitrated at export-assembly time in NewSurfaces, rather than
+// inside either writer, because that is the one place that keeps the TWO
+// MANIFESTS (kiroManifest for commands, kiroSkillManifest for skills)
 // coherent: a claimed name is simply never handed to the commands writer, so
 // it never appears in kiroManifest and the skills writer is the SOLE owner of
 // that path in kiroSkillManifest. No manifest ever claims a file the other
@@ -173,26 +175,6 @@ func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSetting
 // delete the other's live file. Only skills ENABLED for kiro claim a name —
 // a skill disabled for this engine writes nothing here, so it must not shadow
 // the command with the same name.
-func filterClaimedCommands(cmds []agent.CommandExport, skills []agent.SkillExport) []agent.CommandExport {
-	claimed := make(map[string]bool, len(skills))
-	for _, s := range skills {
-		if s.Enabled {
-			claimed[s.Name] = true
-		}
-	}
-	if len(claimed) == 0 {
-		return cmds
-	}
-	out := make([]agent.CommandExport, 0, len(cmds))
-	for _, c := range cmds {
-		if claimed[c.Name] {
-			agent.Warn("kiro: skill %q wins over command of the same name; command not written to .kiro/skills/%s/SKILL.md", c.Name, c.Name)
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -204,7 +186,9 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // Surfaces is kiro's set of delivery surfaces for one run — five surface
 // objects: context (steering), MCP (settings/mcp.json), settings (agent JSON +
 // hooks), commands, and skills (both of the latter two share .kiro/skills/,
-// reconciled by filterClaimedCommands above).
+// reconciled skill-wins by the shared
+// agent.FilterCommandsClaimedBySkills, see the collision-resolution doc
+// comment above NewSurfaces).
 type Surfaces struct {
 	Context  *contextSurface
 	MCP      *mcpSurface
@@ -224,21 +208,27 @@ type Surfaces struct {
 // filesystem. Every kiro surface's Delivery takes its target dir at call time;
 // none is modeled as race-safe here (the `--agent` lever is Phase 2).
 //
-// Commands are filtered through filterClaimedCommands BEFORE the commands
-// delivery is built, so the skill-wins collision resolution (D6) is baked in
-// here, once, rather than duplicated at every call site.
+// Commands are filtered through the shared agent.FilterCommandsClaimedBySkills
+// BEFORE the commands delivery is built (via
+// agent.NewSkillShapedCommandsAndSkills), so the skill-wins collision
+// resolution (D6) is baked in here, once, rather than duplicated at every call
+// site — the SAME shared constructor antigravity's NewSurfaces calls (its
+// commands surface converged on the identical SKILL.md shape via the G3 fix),
+// so the two engines' identical assembly sequence lives in ONE place instead
+// of two.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
 	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
 	settings := &settingsSurface{hooks: in.Hooks, fs: fs}
-	cmds := filterClaimedCommands(in.Commands, in.Skills)
-	commands := agent.NewManagedCommandsDelivery("kiro/commands", cmds, func(dir string, commands []agent.CommandExport) error {
-		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
-	})
-	skills := agent.NewManagedSkillPackagesDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
-	})
+	commands, skills := agent.NewSkillShapedCommandsAndSkills("kiro", "kiro", kiroSkillsDir, in, fs,
+		func(dir string, cmds []agent.CommandExport, fs afero.Fs) error {
+			return WriteCommandFiles(dir, cmds, agent.WithCommandFS(fs))
+		},
+		func(dir string, skills []agent.SkillExport, fs afero.Fs) error {
+			return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
+		},
+	)
 	return Surfaces{
 		Context:  context,
 		MCP:      mcp,
@@ -263,7 +253,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // Surfaces.SharedRealization below). (The `--agent` name lever isolates
 // CONCURRENT agents at launch, orthogonally to this seam.) Commands is
 // delivered BEFORE Skills, but the order is not what makes collisions safe —
-// filterClaimedCommands already removed any claimed name from Commands, so
+// agent.FilterCommandsClaimedBySkills already removed any claimed name from Commands, so
 // Skills never overwrites a file Commands just wrote.
 func (s Surfaces) Deliveries() []agent.Delivery {
 	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Commands, s.Skills}

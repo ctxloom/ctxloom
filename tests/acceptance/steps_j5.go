@@ -461,7 +461,10 @@ func j5AssertHook(w *World, engine string) error {
 // command file path — claude/codex flatten the "<bundle>/<item>" export name's
 // slash to a dash (backends/commandfiles.go's exportNames), while kiro and
 // antigravity preserve it as a subdirectory (internal/{kiro,antigravity}
-// capabilities.go).
+// capabilities.go). antigravity's commands now render as `<name>/SKILL.md`
+// directories (G3 fix: the old flat `<name>.md` was a silent no-op agy's
+// skill scanner never discovered — see capabilities.go's WriteCommandFiles
+// doc comment), the SAME shape kiro already used.
 func j5AssertCommand(w *World, engine string) error {
 	j5 := j5Of(w)
 	dir := j5.target
@@ -474,7 +477,7 @@ func j5AssertCommand(w *World, engine string) error {
 	case "kiro":
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "antigravity":
-		rel = filepath.Join(dir, ".agents", "skills", "team", "onboarding.md")
+		rel = filepath.Join(dir, ".agents", "skills", "team", "onboarding", "SKILL.md")
 	default:
 		return fmt.Errorf("j5: unknown engine %q", engine)
 	}

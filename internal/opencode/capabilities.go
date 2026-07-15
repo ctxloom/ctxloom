@@ -105,10 +105,7 @@ type opencodeListEntry struct {
 
 // GetCurrentSession returns the most recent session transcript for workDir.
 func (h *opencodeSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
-	sessions, err := h.ListSessions(workDir)
-	return agent.MostRecentSession(sessions, err, func(m agent.SessionMeta) (*agent.Session, error) {
-		return h.GetSession(workDir, m.ID)
-	})
+	return agent.GetCurrentSessionViaGetSession(workDir, h.ListSessions, h.GetSession)
 }
 
 // ListSessions returns opencode sessions whose `directory` matches workDir,

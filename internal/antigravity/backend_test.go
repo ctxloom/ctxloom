@@ -68,8 +68,28 @@ func TestAntigravity_BuildArgs(t *testing.T) {
 			want:  []string{"--dangerously-skip-permissions", "-p", "x"},
 		},
 		{
-			name: "skip setup suppresses auto approve",
+			// SkipSetup (minimal/distill) always maps to read-only, overriding a
+			// requested bypass — matching codex's SkipSetup->read-only precedence
+			// (codex.buildArgs' identical switch shape). A distillation run must
+			// never widen to bypass just because the label's configured posture
+			// happens to be bypass.
+			name: "skip setup forces plan mode even over requested bypass",
 			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
+			want: []string{"--mode", "plan", "-p", "x"},
+		},
+		{
+			name: "plan mode",
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionPlan, Prompt: &agent.Fragment{Content: "x"}},
+			want: []string{"--mode", "plan", "-p", "x"},
+		},
+		{
+			name: "accept-edits mode",
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionAcceptEdits, Prompt: &agent.Fragment{Content: "x"}},
+			want: []string{"--mode", "accept-edits", "-p", "x"},
+		},
+		{
+			name: "default permission leaves agy's own prompting",
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionDefault, Prompt: &agent.Fragment{Content: "x"}},
 			want: []string{"-p", "x"},
 		},
 	}

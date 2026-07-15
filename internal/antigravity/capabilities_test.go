@@ -13,7 +13,9 @@ import (
 
 // TestWriteCommandFiles_SkipsTraversalNames verifies skill names from bundle
 // content (potentially remote) cannot write outside .agents/skills/: absolute
-// and ".."-bearing names are skipped, while plain and nested names still land.
+// and ".."-bearing names are skipped, while plain and nested names still land
+// as `<name>/SKILL.md` directories (G3: the shape agy's skill scanner
+// actually discovers, not the old flat `<name>.md` silent no-op).
 func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cmds := []agent.CommandExport{
@@ -27,8 +29,8 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 
 	skillsDir := filepath.Join("/work", ".agents", "skills")
 	for _, p := range []string{
-		filepath.Join(skillsDir, "good.md"),
-		filepath.Join(skillsDir, "group", "cmd.md"),
+		filepath.Join(skillsDir, "good", "SKILL.md"),
+		filepath.Join(skillsDir, "group", "cmd", "SKILL.md"),
 	} {
 		exists, err := afero.Exists(fs, p)
 		require.NoError(t, err)
@@ -37,15 +39,14 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 	// Assert absence at the ACTUAL join sites the writer would use if the
 	// SafeCommandRelPath guard regressed — not at paths the code can never
 	// reach. filepath.Join(skillsDir, <rendered name>) resolves each traversal
-	// name to: "../escape" -> /work/.agents/escape.md; "/abs/path" ->
-	// /work/.agents/skills/abs/path.md (leading slash is a separator, not an
-	// escape); "a/../../b" -> /work/.agents/b.md (escapes up into .agents/).
-	// The old expectations (/abs/path.md, /work/b.md) targeted locations the
-	// writer never writes, so they could never fail.
+	// name to: "../escape" -> /work/.agents/escape/SKILL.md; "/abs/path" ->
+	// /work/.agents/skills/abs/path/SKILL.md (leading slash is a separator,
+	// not an escape); "a/../../b" -> /work/.agents/b/SKILL.md (escapes up
+	// into .agents/).
 	for _, p := range []string{
-		"/work/.agents/escape.md",          // ../escape escapes to .agents/
-		"/work/.agents/skills/abs/path.md", // /abs/path joins under skills dir
-		"/work/.agents/b.md",               // a/../../b escapes to .agents/
+		"/work/.agents/escape/SKILL.md",          // ../escape escapes to .agents/
+		"/work/.agents/skills/abs/path/SKILL.md", // /abs/path joins under skills dir
+		"/work/.agents/b/SKILL.md",               // a/../../b escapes to .agents/
 	} {
 		exists, err := afero.Exists(fs, p)
 		require.NoError(t, err)
@@ -54,13 +55,23 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 
 	manifest, err := afero.ReadFile(fs, filepath.Join(skillsDir, antigravityManifest))
 	require.NoError(t, err)
-	assert.Contains(t, string(manifest), "good.md")
-	assert.Contains(t, string(manifest), "group/cmd.md")
+	assert.Contains(t, string(manifest), "good/SKILL.md")
+	assert.Contains(t, string(manifest), "group/cmd/SKILL.md")
 	assert.NotContains(t, string(manifest), "escape")
 	assert.NotContains(t, string(manifest), "abs")
 	// The a/../../b case had no compensating manifest signal; its rendered line
-	// would be "b.md", so a regression that re-enabled the traversal is caught here.
-	assert.NotContains(t, string(manifest), "b.md")
+	// would be "b/SKILL.md", so a regression that re-enabled the traversal is
+	// caught here.
+	assert.NotContains(t, string(manifest), "b/SKILL.md")
+
+	// Payload: the frontmatter is generated and the body carries the command
+	// content verbatim, so agy's parser (name+description YAML keys) actually
+	// has something to read.
+	good, err := afero.ReadFile(fs, filepath.Join(skillsDir, "good", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(good), "name: \"good\"")
+	assert.Contains(t, string(good), "description: \"good\"") // Description empty -> falls back to Name
+	assert.Contains(t, string(good), "fine")
 }
 
 // TestWriteCommandFiles_ManifestTraversalLinesNotDeleted verifies the
@@ -70,8 +81,8 @@ func TestWriteCommandFiles_ManifestTraversalLinesNotDeleted(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	skillsDir := filepath.Join("/work", ".agents", "skills")
 	require.NoError(t, afero.WriteFile(fs, "/work/victim.txt", []byte("keep"), 0644))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, "old.md"), []byte("stale"), 0644))
-	manifest := "../../victim.txt\n/work/victim.txt\nold.md\n"
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, "old", "SKILL.md"), []byte("stale"), 0644))
+	manifest := "../../victim.txt\n/work/victim.txt\nold/SKILL.md\n"
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, antigravityManifest), []byte(manifest), 0644))
 
 	cmds := []agent.CommandExport{{Name: "new", Content: "x", Enabled: true}}
@@ -80,7 +91,20 @@ func TestWriteCommandFiles_ManifestTraversalLinesNotDeleted(t *testing.T) {
 	exists, err := afero.Exists(fs, "/work/victim.txt")
 	require.NoError(t, err)
 	assert.True(t, exists, "manifest traversal line must not delete outside the skills tree")
-	exists, err = afero.Exists(fs, filepath.Join(skillsDir, "old.md"))
+	exists, err = afero.Exists(fs, filepath.Join(skillsDir, "old", "SKILL.md"))
 	require.NoError(t, err)
 	assert.False(t, exists, "legit stale manifest entry still removed")
+}
+
+// TestWriteCommandFiles_DescriptionUsed verifies a non-empty Description rides
+// into the generated frontmatter rather than always falling back to Name.
+func TestWriteCommandFiles_DescriptionUsed(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cmds := []agent.CommandExport{{Name: "reviewer", Description: "Review a diff", Content: "do the review", Enabled: true}}
+	require.NoError(t, WriteCommandFiles("/work", cmds, agent.WithCommandFS(fs)))
+
+	body, err := afero.ReadFile(fs, filepath.Join("/work", ".agents", "skills", "reviewer", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "description: \"Review a diff\"")
+	assert.Contains(t, string(body), "do the review")
 }

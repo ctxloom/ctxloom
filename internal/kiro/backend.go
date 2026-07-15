@@ -136,13 +136,34 @@ func (b *Kiro) buildArgs(req *agent.ExecuteRequest, model string) []string {
 		args = append(args, "--agent-engine", b.agentEngine)
 	}
 
-	// SkipSetup (the minimal/distill path) gets no trust flag; bypass maps to
-	// Kiro's blanket trust. Kiro has no read-only/edit-only tier, so every other
-	// posture leaves its default prompting. Fine-grained
-	// `--trust-tools=fs_read,fs_write` is a future refinement.
-	if !req.SkipSetup && req.Permissions == agent.PermissionBypass {
+	// Map the generalized permission posture onto kiro's --trust-tools /
+	// --trust-all-tools flags (tangy-fox; was bypass-only — read-only used to
+	// silently collapse to kiro's own prompting, the worst-collapsed engine of
+	// the three under-mapped ones). SkipSetup forces the read-only arm
+	// regardless of a requested bypass, matching codex's and agy's identical
+	// SkipSetup-wins switch shape (a distillation run must never widen to
+	// bypass just because the label's configured posture happens to be
+	// bypass).
+	//
+	// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1): a headless
+	// sentinel-write probe under `--trust-tools=fs_read` left the target file
+	// byte-unchanged, with kiro-cli printing "Command fs_write is rejected
+	// because it matches one or more rules on the denied list: - non-
+	// interactive mode (no user to approve)"; `--trust-tools=fs_read,fs_write`
+	// and `--trust-all-tools` (positive controls) both let the identical write
+	// land. So fs_read/fs_write are confirmed as kiro's real tool-name
+	// vocabulary (also grepped directly from kiro-cli's own bundled tui.js
+	// alongside "execute_bash", the third tool the allowlist implicitly
+	// excludes here).
+	switch {
+	case req.SkipSetup, req.Permissions == agent.PermissionPlan:
+		args = append(args, "--trust-tools=fs_read")
+	case req.Permissions == agent.PermissionAcceptEdits:
+		args = append(args, "--trust-tools=fs_read,fs_write")
+	case req.Permissions == agent.PermissionBypass:
 		args = append(args, "--trust-all-tools")
 	}
+	// PermissionDefault: no flag — kiro's own prompting.
 
 	prompt := agent.GetPromptContent(req.Prompt)
 	if req.Mode == agent.ModeOneshot {

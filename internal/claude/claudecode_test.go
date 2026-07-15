@@ -159,6 +159,23 @@ func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 	}
 }
 
+// TestClaudeCode_BuildArgs_PlanAddsConservativeDisallowedTools is the
+// tangy-fox claude row: plan gets a belt-and-suspenders --disallowedTools on
+// top of --permission-mode plan (LIVE VERIFIED tool-name vocabulary, see the
+// buildArgs comment), while every other posture is untouched by it.
+func TestClaudeCode_BuildArgs_PlanAddsConservativeDisallowedTools(t *testing.T) {
+	backend := NewClaudeCode()
+	args := backend.buildArgs(&agent.ExecuteRequest{Permissions: agent.PermissionPlan})
+	assert.Subset(t, args, []string{"--disallowedTools", "Bash,Edit,Write,NotebookEdit"})
+
+	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionAcceptEdits, agent.PermissionBypass} {
+		t.Run(perm.String(), func(t *testing.T) {
+			args := backend.buildArgs(&agent.ExecuteRequest{Permissions: perm})
+			assert.NotContains(t, args, "--disallowedTools")
+		})
+	}
+}
+
 // TestClaudeCode_BuildArgs_Model verifies that a custom model is passed
 // via the --model flag.
 func TestClaudeCode_BuildArgs_Model(t *testing.T) {

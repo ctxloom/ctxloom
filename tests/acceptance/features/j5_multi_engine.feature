@@ -20,7 +20,7 @@ Feature: One shared profile, reaching four engines in their own native format
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
     | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
     | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
-    | antigravity | .agents/AGENTS.md (managed markers)                        | .agents/mcp_config.json                     | .agents/hooks.json (separate)   | .agents/skills/<name>.md             |
+    | antigravity | .agents/AGENTS.md (managed markers)                        | .agents/mcp_config.json                     | .agents/hooks.json (separate)   | .agents/skills/<name>/SKILL.md       |
 
   codex still has NO native MCP file of its own — MCP folds into
   .codex/config.toml, the same file that carries its hooks. Its context surface

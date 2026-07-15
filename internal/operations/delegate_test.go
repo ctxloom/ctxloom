@@ -138,11 +138,20 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 // independent oneshot through the fan's launch tail, with the agent's
 // composed context as the lead fragment and the turn text as the prompt, and
 // the output surfaces as an assistant entry + turn boundary.
+//
+// Backend is a deliberately UNREGISTERED name, not "antigravity": every real
+// registered backend (claude-code/antigravity/codex/kiro/opencode/acp/mock)
+// now implements agent.StructuredChat (antigravity's own bespoke prose driver
+// landed in chat.go), so backends.Get(rs.Backend) returning nil — the
+// PrepareAgentChat capability check's OTHER route to "!ok" — is the only way
+// left to exercise this fallback with a real registry lookup. The test's own
+// Factory bypasses real backend construction entirely for the actual
+// execution, so the name only matters for that one capability check.
 func TestPrepareAgentChat_OneshotFallback(t *testing.T) {
 	resetStrictness(t)
 	stub := &stubClient{echo: true}
 	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-		Resolved:    &ResolvedAgent{Name: "w1", Backend: "antigravity", Label: "agy", Context: "CTX-LEAD"},
+		Resolved:    &ResolvedAgent{Name: "w1", Backend: "no-structured-chat-backend", Label: "agy", Context: "CTX-LEAD"},
 		WorkDir:     t.TempDir(),
 		Permissions: agent.PermissionBypass,
 		Factory:     func(string, string, int) (pb.Client, error) { return stub, nil },
@@ -151,7 +160,7 @@ func TestPrepareAgentChat_OneshotFallback(t *testing.T) {
 
 	launch, err := p.Start(context.Background())
 	require.NoError(t, err)
-	assert.True(t, launch.Oneshot, "antigravity has no structured chat — the oneshot fallback drives it")
+	assert.True(t, launch.Oneshot, "an unregistered backend name has no structured chat — the oneshot fallback drives it")
 	defer launch.Close()
 
 	launch.In <- agent.ChatMessage{Text: "do the thing"}

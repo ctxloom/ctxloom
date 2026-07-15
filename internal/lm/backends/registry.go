@@ -126,9 +126,18 @@ func Exists(name string) bool {
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
 // --permission-mode plan, codex --sandbox read-only, opencode.json permission
-// {edit:deny, bash:deny}). Backends that don't (antigravity, kiro, acp) would run
-// plan unrestrained and can't be trusted to be headless-safe for it, so the run
-// resolver collapses plan to default for them. An unregistered name reports false.
+// {edit:deny, bash:deny}, kiro --trust-tools=fs_read). Backends that don't
+// (antigravity, acp) would run plan unrestrained and can't be trusted to be
+// headless-safe for it, so the run resolver collapses plan to default for
+// them. antigravity is the deliberate exception even though it now PASSES
+// --mode plan (backend.go's buildArgs): that flag was LIVE VERIFIED
+// (2026-07-15, authenticated agy 1.1.2) to NOT enforce read-only in headless
+// `-p` execution — self-reported "not in read-only mode", a sentinel write
+// and a probe shell command both succeeded unblocked. Flipping this true
+// would tell the resolver to trust a flag proven not to work, the exact
+// silent-no-op class this codebase treats as a bug, not a shortcut. Revisit
+// if a future agy release actually enforces it. An unregistered name reports
+// false.
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := descriptors[name]
 	return ok && d.enforcesReadOnlyPlan
@@ -288,6 +297,14 @@ func init() {
 		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
 		exports:      kiroExports,
 		skillExports: kiroSkillExports,
+		// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1, tangy-fox):
+		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
+		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
+		// printed "Command fs_write is rejected because it matches one or
+		// more rules on the denied list". `--trust-tools=fs_read,fs_write`
+		// and `--trust-all-tools` (positive controls) both let the same write
+		// land. See kiro.buildArgs (backend.go) for the mapping.
+		enforcesReadOnlyPlan: true,
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent

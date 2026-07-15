@@ -79,9 +79,22 @@ func TestKiro_BuildArgs(t *testing.T) {
 			want: []string{"chat", "--agent", "ctxloom", "--trust-all-tools", "--no-interactive", "x"},
 		},
 		{
-			name: "skip setup suppresses auto approve and agent selection",
+			// SkipSetup (minimal/distill) always maps to the read-only allowlist,
+			// overriding a requested bypass and also suppressing agent selection
+			// — matching codex's/agy's identical SkipSetup-wins switch shape.
+			name: "skip setup forces read-only trust-tools even over requested bypass",
 			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
-			want: []string{"chat", "--no-interactive", "x"},
+			want: []string{"chat", "--trust-tools=fs_read", "--no-interactive", "x"},
+		},
+		{
+			name: "plan trusts read-only tools",
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionPlan, Prompt: &agent.Fragment{Content: "x"}},
+			want: []string{"chat", "--agent", "ctxloom", "--trust-tools=fs_read", "--no-interactive", "x"},
+		},
+		{
+			name: "acceptEdits trusts read+write tools",
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionAcceptEdits, Prompt: &agent.Fragment{Content: "x"}},
+			want: []string{"chat", "--agent", "ctxloom", "--trust-tools=fs_read,fs_write", "--no-interactive", "x"},
 		},
 		{
 			name:      "custom agent name",

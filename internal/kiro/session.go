@@ -88,8 +88,7 @@ type kiroSessionMeta struct {
 
 // GetCurrentSession returns the most recent session transcript for workDir.
 func (h *kiroSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
-	sessions, err := h.ListSessions(workDir)
-	return agent.MostRecentSession(sessions, err, func(m agent.SessionMeta) (*agent.Session, error) {
+	return agent.GetCurrentSessionViaListSessions(workDir, h.ListSessions, func(m agent.SessionMeta) (*agent.Session, error) {
 		return h.GetSessionByPath(m.Path)
 	})
 }

@@ -1,9 +1,7 @@
 package kiro
 
 import (
-	"encoding/json"
 	"path/filepath"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -42,39 +40,12 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		agent.WithManifestTrailingNewline())
 }
 
-// renderSkillFile renders one command export as a Kiro SKILL.md. The relative
-// path <name>/SKILL.md places each skill in its own directory (subdirectory
-// names in the export name are preserved as nested directories, matched by the
-// agent's `skill://.kiro/skills/**/SKILL.md` glob). name is slash-flattened for
-// the front-matter identifier (the slash-command name); description is
-// JSON-quoted, which is a valid YAML double-quoted scalar and needs no bespoke
-// escaping.
+// renderSkillFile renders one command export as a Kiro SKILL.md via the
+// shared agent.RenderCommandAsSkillFile (identical shape antigravity's writer
+// uses — reprise flagged the two as byte-for-byte duplicates when each carried
+// its own copy). Kept as a named wrapper (rather than passing the shared func
+// directly to WriteManagedCommandFiles) so existing call sites/tests that name
+// "kiro's own renderer" keep reading naturally.
 func renderSkillFile(c agent.CommandExport) (string, []byte, error) {
-	desc := c.Description
-	if desc == "" {
-		desc = c.Name
-	}
-	name := strings.ReplaceAll(c.Name, "/", "-")
-
-	var b strings.Builder
-	b.WriteString("---\n")
-	b.WriteString("name: " + jsonScalar(name) + "\n")
-	b.WriteString("description: " + jsonScalar(desc) + "\n")
-	b.WriteString("---\n\n")
-	b.WriteString(c.Content)
-	if !strings.HasSuffix(c.Content, "\n") {
-		b.WriteString("\n")
-	}
-	return c.Name + "/SKILL.md", []byte(b.String()), nil
-}
-
-// jsonScalar renders s as a double-quoted scalar safe for YAML front-matter. A
-// JSON string literal is a valid YAML flow scalar, so json.Marshal handles the
-// escaping (quotes, backslashes, control chars) without a bespoke quoter.
-func jsonScalar(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
+	return agent.RenderCommandAsSkillFile(c)
 }

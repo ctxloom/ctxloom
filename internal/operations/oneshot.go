@@ -196,6 +196,31 @@ func CellKindForPolicy(p isolation.Policy) agent.CellKind {
 	}
 }
 
+// mcpCommandOverrider is the narrow capability isolation.Container implements
+// (MCPCommandOverride) and None/Worktree do not — probed here rather than
+// added to the isolation.Policy interface so the two policies that carry no
+// override need no method at all.
+type mcpCommandOverrider interface {
+	MCPCommandOverride() string
+}
+
+// MCPCommandOverrideForPolicy mirrors CellKindForPolicy: it reports the
+// container axis's MCP command override for a resolved policy — "" for
+// none/worktree (no override; the host self-exec-absolute invariant in
+// agent.CtxloomCommand applies unchanged), or the in-container ctxloom binary
+// path for a container policy (host or worktree base) — so the host can stamp
+// it onto the run env (agent.MCPCommandOverrideEnv) and the in-container
+// MCP-surface writer emits the CONTAINER path instead of the host self-exec
+// path (dire-five). Lives HERE, not in isolation, for the same reason
+// CellKindForPolicy does: this is the run boundary where both isolation and
+// agent are already imported.
+func MCPCommandOverrideForPolicy(p isolation.Policy) string {
+	if o, ok := p.(mcpCommandOverrider); ok {
+		return o.MCPCommandOverride()
+	}
+	return ""
+}
+
 // prepareIsolation is runResolvedAgent's seam onto isolation.Prepare — a
 // package var so tests simulate a container degrade (which records
 // ClassIsolation findings) without probing the real host's container

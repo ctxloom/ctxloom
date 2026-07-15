@@ -50,6 +50,23 @@ func TestContainer_Axes(t *testing.T) {
 	assert.Equal(t, ApprovalsBypass, c.Approvals(), "isolated runs bypass the in-engine approval prompt")
 }
 
+// TestContainer_MCPCommandOverride pins dire-five's fix at its source: a
+// container policy (either base tier — hostBase and worktreeBase share the
+// same binaryPath field) reports the in-container ctxloom binary
+// (defaultContainerBinary) as its MCP command override, the single source of
+// truth threaded from NewContainerFor. This is the value
+// operations.MCPCommandOverrideForPolicy relays onto the run env
+// (agent.MCPCommandOverrideEnv) so the MCP-surface writer stamps a `command`
+// the container can actually exec instead of the host self-exec path.
+func TestContainer_MCPCommandOverride(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	assert.Equal(t, defaultContainerBinary, c.MCPCommandOverride())
+	assert.Equal(t, "/usr/local/bin/ctxloom", c.MCPCommandOverride(), "the documented in-container path — a change here is a wire-contract change")
+
+	wt := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: true}, "", ImageConfig{}, nil)
+	assert.Equal(t, defaultContainerBinary, wt.MCPCommandOverride(), "the worktree-in-container base shares the same binaryPath field")
+}
+
 // TestContainer_PrepareDegrades: an unavailable runtime OR a missing image makes
 // PrepareWorkspace return an error so the caller falls back to None — never blocks.
 func TestContainer_PrepareDegrades(t *testing.T) {

@@ -35,6 +35,14 @@ type MCPFileConfig struct {
 	PluginKey string
 	// Warn is the diagnostics sink (never fails the write).
 	Warn func(format string, args ...interface{})
+	// CommandOverride, when non-empty, replaces CtxloomCommand() as the
+	// ctxloom-managed stdio server's command (see ResolveMCPCommand) — set
+	// ONLY for an isolated-container cell (the in-container ctxloom binary
+	// path). Empty (the default) preserves today's host self-exec-absolute
+	// behavior exactly. Read-only for WriteServers; RemoveServers/
+	// ManagedPresent never consult it (removal keys off the ledger, not the
+	// command value).
+	CommandOverride string
 }
 
 // mcpFileServersKey is the top-level key holding the server map — the same
@@ -76,7 +84,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 	}
 
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(MCPServerName, MCPFileServer{Command: CtxloomCommand(), Args: CtxloomMCPArgs})
+		add(MCPServerName, MCPFileServer{Command: ResolveMCPCommand(c.CommandOverride), Args: CtxloomMCPArgs})
 	}
 	for name, server := range bundleMCP {
 		add(name, MCPFileServer{Command: server.Command, Args: server.Args, Env: server.Env})

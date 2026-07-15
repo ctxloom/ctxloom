@@ -44,6 +44,25 @@ func CtxloomCommand() string {
 	return selfexec.Path()
 }
 
+// ResolveMCPCommand returns override when non-empty, else CtxloomCommand()'s
+// self-exec-absolute default. Every MCP-surface writer's ctxloom stdio entry
+// resolves through this one function, so a caller that never sets an override
+// (every cell but an isolated CONTAINER) gets byte-for-byte the old
+// CtxloomCommand() behavior — the host self-exec-absolute invariant stays
+// untouched. The container axis is the ONLY populated caller (see
+// isolation.Container.MCPCommandOverride / MCPCommandOverrideEnv): a
+// container cell's engine reads its own bind-mounted, identical-path
+// .mcp.json, but the binary that materialized the surface may not be the
+// binary INSIDE the container (dire-five) — the override substitutes the
+// known in-container path (e.g. /usr/local/bin/ctxloom) so the ctxloom MCP
+// stdio command is one the container can actually exec.
+func ResolveMCPCommand(override string) string {
+	if override != "" {
+		return override
+	}
+	return CtxloomCommand()
+}
+
 // SettingsOptions configures a settings-writing operation.
 type SettingsOptions struct {
 	FS                 afero.Fs // filesystem to use; nil means the real OS filesystem

@@ -206,6 +206,11 @@ type configSurface struct {
 	// safe only in an ephemeral, never-committed home (see
 	// WriteSettingsWithTrust's doc).
 	trustAbsPath string
+	// mcpCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when
+	// non-empty, replaces agent.CtxloomCommand() as the ctxloom-managed
+	// [mcp_servers] entry's command (dire-five's fix; set only for an
+	// isolated-container cell).
+	mcpCommandOverride string
 }
 
 // Deliver writes .codex/config.toml into dir (or homeOverride, when set) via
@@ -221,7 +226,7 @@ func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
 	if s.homeOverride != "" {
 		target = s.homeOverride
 	}
-	w := &CodexHookWriter{FS: s.fs}
+	w := &CodexHookWriter{FS: s.fs, MCPCommandOverride: s.mcpCommandOverride}
 	if err := w.WriteSettingsWithTrust(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
@@ -307,7 +312,7 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 	fs = agent.GetFS(fs)
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
-	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath}
+	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
 		target := dir
 		if homeOverride != "" {

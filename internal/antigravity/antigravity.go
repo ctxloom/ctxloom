@@ -47,6 +47,12 @@ const antigravityCtxloomHookName = "ctxloom-managed"
 type AntigravityHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
+	// the ctxloom-managed mcp_config.json entry's command (see
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
+	// dire-five fix). Empty (the default) preserves the host self-exec-
+	// absolute behavior exactly.
+	mcpCommandOverride string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -489,12 +495,13 @@ const antigravityMCPLedger = ".ctxloom-mcp-managed"
 // mcp_config.json + sidecar ledger.
 func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 	return agent.MCPFileConfig{
-		FS:         w.getFS(),
-		Path:       w.MCPConfigPath(projectDir),
-		LedgerPath: filepath.Join(projectDir, AgentsDir, antigravityMCPLedger),
-		Label:      AgentsDir + "/mcp_config.json",
-		PluginKey:  "antigravity",
-		Warn:       w.warn,
+		FS:              w.getFS(),
+		Path:            w.MCPConfigPath(projectDir),
+		LedgerPath:      filepath.Join(projectDir, AgentsDir, antigravityMCPLedger),
+		Label:           AgentsDir + "/mcp_config.json",
+		PluginKey:       "antigravity",
+		Warn:            w.warn,
+		CommandOverride: w.mcpCommandOverride,
 	}
 }
 

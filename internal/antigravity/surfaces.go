@@ -72,16 +72,21 @@ func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext 
 // mcpSurface is agy's MCP surface: .agents/mcp_config.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
-	mcp       *wire.MCPConfig
-	bundleMCP map[string]wire.MCPServer
-	fs        afero.Fs
+	mcp             *wire.MCPConfig
+	bundleMCP       map[string]wire.MCPServer
+	fs              afero.Fs
+	commandOverride string // see agent.SurfaceInputs.MCPCommandOverride
 }
 
 // Deliver writes .agents/mcp_config.json via the reused reconciler and returns a
 // handle whose Cleanup drops the ctxloom-managed servers (RemoveServers), leaving
-// user entries intact.
+// user entries intact. Reads s.commandOverride (dire-five) — hooksSurface below
+// and opencode's configSurface are deliberately NOT touched the same way: the
+// override is MCP-only (it replaces the ctxloom stdio command), and neither
+// hooks.json nor opencode's config carries that command.
+// reprise:accept-drift
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &AntigravityHookWriter{FS: s.fs}
+	w := &AntigravityHookWriter{FS: s.fs, mcpCommandOverride: s.commandOverride}
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
@@ -192,7 +197,7 @@ type Surfaces struct {
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
-	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
 	hooks := &hooksSurface{hooks: in.Hooks, fs: fs}
 	commands := agent.NewManagedCommandsDelivery("antigravity/commands", in.Commands, func(dir string, commands []agent.CommandExport) error {
 		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))

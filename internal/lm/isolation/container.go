@@ -215,6 +215,25 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	}, nil
 }
 
+// MCPCommandOverride returns the in-container ctxloom binary path
+// (defaultContainerBinary, threaded as c.binaryPath — the container axis's
+// single source of truth) that a container cell's MCP-surface writer should
+// stamp into the ctxloom-managed stdio command instead of the host self-exec
+// path (agent.CtxloomCommand). This is dire-five's fix: the engine inside the
+// container reads its bind-mounted, identical-path .mcp.json, but the process
+// that MATERIALIZED that surface is not necessarily the one running inside
+// the container — relying on self-exec resolution to "just happen" to agree
+// is fragile, so the container policy states its binary path explicitly.
+//
+// Exposed as a narrow capability (not a Policy interface method, probed via
+// operations.MCPCommandOverrideForPolicy) rather than a Policy method so
+// None/Worktree need no method at all: their absence IS "no override",
+// which is exactly what preserves the host self-exec-absolute invariant
+// (CtxloomCommand's doc: staged/installed divergence) on every non-container
+// cell. A leak of this override onto a non-container cell would reintroduce
+// that exact divergence bug — see the host-unchanged unit test pinning it.
+func (c Container) MCPCommandOverride() string { return c.binaryPath }
+
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a
 // git.Fake to drive the host base's gitdir mirror without a real linked worktree.

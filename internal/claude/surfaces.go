@@ -103,23 +103,32 @@ func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext 
 // --mcp-config <file> (paired with --strict-mcp-config, which replaces the
 // project .mcp.json rather than merging — a buildArgs concern).
 type mcpSurface struct {
-	mcp      *wire.MCPConfig
-	bundle   map[string]wire.MCPServer
-	fs       afero.Fs
-	isolated agent.Placement // out-of-cwd location for the --mcp-config file
-	path     string          // set by DeliverIsolated: the out-of-cwd .mcp.json
+	mcp             *wire.MCPConfig
+	bundle          map[string]wire.MCPServer
+	fs              afero.Fs
+	isolated        agent.Placement // out-of-cwd location for the --mcp-config file
+	path            string          // set by DeliverIsolated: the out-of-cwd .mcp.json
+	commandOverride string          // see SurfaceInputs.MCPCommandOverride
 }
 
 // Deliver writes .mcp.json into dir via the reused file-template MCP writer.
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
-	return newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverMCP(s.mcp, s.bundle)
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.mcpCommandOverride = s.commandOverride
+	return d.DeliverMCP(s.mcp, s.bundle)
 }
 
 // DeliverIsolated writes the merged .mcp.json into the out-of-cwd placement and
-// records its path for --mcp-config.
+// records its path for --mcp-config. settingsSurface.DeliverIsolated below is
+// deliberately NOT threading an analogous override: MCPCommandOverride
+// (dire-five) replaces the ctxloom MCP stdio command, a concern the settings
+// surface (hooks + statusline) has none of.
+// reprise:accept-drift
 func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
-	handle, err := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverMCP(s.mcp, s.bundle)
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.mcpCommandOverride = s.commandOverride
+	handle, err := d.DeliverMCP(s.mcp, s.bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +252,11 @@ type SurfaceInputs struct {
 	Skills []agent.SkillExport
 	// SelfContainedSkills mirrors SelfContainedCommands for the skills surface.
 	SelfContainedSkills bool
+	// MCPCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when
+	// non-empty, the MCP surface stamps this as the ctxloom-managed .mcp.json
+	// entry's command instead of agent.CtxloomCommand() (dire-five's fix; set
+	// only for an isolated-container cell).
+	MCPCommandOverride string
 }
 
 // Surfaces is claude's set of delivery surfaces for one run, exposed so the
@@ -270,7 +284,7 @@ type Surfaces struct {
 func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := newContextSurface(in.Context, isolated, fs)
-	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated}
+	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated, commandOverride: in.MCPCommandOverride}
 	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, fs: fs, isolated: isolated}
 	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
 	skills := newSkillsSurface(in.Skills, fs)

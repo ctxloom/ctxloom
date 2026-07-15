@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -540,6 +541,41 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 		}
 	}
 }
+// TestClaudeCodeHookWriter_MCPCommandOverride pins dire-five's fix at claude's
+// own writer (which does NOT ride the shared agent.MCPFileConfig reconciler —
+// claude has its own .mcp.json shape): a zero-value writer (mcpCommandOverride
+// unset — every cell but an isolated container) emits EXACTLY
+// agent.CtxloomCommand()'s host self-exec-absolute path; a writer with the
+// override set (the container-cell path, surfacedelivery.go's DeliverMCP)
+// emits the override instead.
+func TestClaudeCodeHookWriter_MCPCommandOverride(t *testing.T) {
+	readCommand := func(t *testing.T, dir string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+		require.NoError(t, err)
+		var cfg map[string]interface{}
+		require.NoError(t, json.Unmarshal(data, &cfg))
+		servers := cfg["mcpServers"].(map[string]interface{})
+		ctxloomServer := servers["ctxloom"].(map[string]interface{})
+		return ctxloomServer["command"].(string)
+	}
+
+	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writer := &ClaudeCodeHookWriter{}
+		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, nil, nil, tmpDir))
+		assert.Equal(t, agent.CtxloomCommand(), readCommand(t, tmpDir))
+	})
+
+	t.Run("container cell: override wins", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		const containerBin = "/usr/local/bin/ctxloom"
+		writer := &ClaudeCodeHookWriter{mcpCommandOverride: containerBin}
+		require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, nil, nil, tmpDir))
+		assert.Equal(t, containerBin, readCommand(t, tmpDir))
+	})
+}
+
 func TestClaudeCodeHookWriter_MCPServerEnvPreserved(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}

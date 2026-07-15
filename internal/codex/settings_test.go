@@ -136,6 +136,39 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 	assert.True(t, status.MCPPresent)
 }
 
+// TestWriteSettings_MCPCommandOverride pins dire-five's fix at codex's own
+// writer: a zero-value writer (MCPCommandOverride unset — every cell but an
+// isolated container) emits EXACTLY agent.CtxloomCommand()'s host self-exec-
+// absolute path into [mcp_servers.ctxloom]; a writer with the override set
+// (the container-cell path, surfaces.go's configSurface) emits the override
+// instead.
+func TestWriteSettings_MCPCommandOverride(t *testing.T) {
+	command := func(t *testing.T, fs afero.Fs) string {
+		t.Helper()
+		cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+		servers := asMap(cfg["mcp_servers"])
+		require.NotNil(t, servers)
+		entry := asMap(servers[agent.MCPServerName])
+		cmd, _ := entry["command"].(string)
+		return cmd
+	}
+
+	t.Run("host-unchanged: no override writes CtxloomCommand()", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		w := &CodexHookWriter{FS: fs}
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		assert.Equal(t, agent.CtxloomCommand(), command(t, fs))
+	})
+
+	t.Run("container cell: override wins", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		const containerBin = "/usr/local/bin/ctxloom"
+		w := &CodexHookWriter{FS: fs, MCPCommandOverride: containerBin}
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+		assert.Equal(t, containerBin, command(t, fs))
+	})
+}
+
 // TestWriteSettings_MCPServerEnvPreserved verifies env vars on MCP servers
 // from config, bundles, and backend passthrough all reach [mcp_servers.NAME]
 // as an env table, matching what MCPRegistrar.Install writes.

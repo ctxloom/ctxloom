@@ -57,6 +57,12 @@ func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
 // user (preserved, managed set tracked via the ledger).
 type KiroWriter struct {
 	FS afero.Fs
+	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
+	// the ctxloom-managed .kiro/settings/mcp.json entry's command (see
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
+	// dire-five fix). Empty (the default) preserves the host self-exec-
+	// absolute behavior exactly.
+	mcpCommandOverride string
 }
 
 func (w *KiroWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
@@ -267,12 +273,13 @@ func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextRep
 // project's settings/mcp.json + sidecar ledger.
 func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 	return agent.MCPFileConfig{
-		FS:         w.getFS(),
-		Path:       w.mcpPath(projectDir),
-		LedgerPath: w.mcpLedgerPath(projectDir),
-		Label:      kiroDir + "/settings/mcp.json",
-		PluginKey:  "kiro",
-		Warn:       w.warn,
+		FS:              w.getFS(),
+		Path:            w.mcpPath(projectDir),
+		LedgerPath:      w.mcpLedgerPath(projectDir),
+		Label:           kiroDir + "/settings/mcp.json",
+		PluginKey:       "kiro",
+		Warn:            w.warn,
+		CommandOverride: w.mcpCommandOverride,
 	}
 }
 

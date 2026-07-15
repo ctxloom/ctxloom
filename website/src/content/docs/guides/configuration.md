@@ -107,6 +107,9 @@ runtime: host                 # agent runtime axis: host|container
 
 # Container-image overrides for containerized agents
 isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
+isolation_devcontainer_base: true      # auto-detect .devcontainer/devcontainer.json as the base (default true)
+isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile
+isolation_engines: [claude-code, kiro] # trim the composed engine set (default: every known engine)
 isolation_images:             # fully user-provided images, run as-is
   claude-code: my-registry/claude-agent:latest
 
@@ -214,10 +217,12 @@ antigravity equivalent) are dropped.
 
 ## Agents and Isolation
 
-The `agents:`, `workspace:`, `runtime:`, `isolation_images:`, and
-`isolation_base_containerfile:` keys configure local agent bindings and where
-they execute. See [Agents & Isolation](/concepts/agents/) for the model, and
-prefer `ctxloom agent set` over hand-editing the `agents:` key.
+The `agents:`, `workspace:`, `runtime:`, `isolation_images:`,
+`isolation_base_containerfile:`, `isolation_devcontainer_base:`,
+`isolation_devcontainer_service:`, and `isolation_engines:` keys configure
+local agent bindings and where they execute. See
+[Agents & Isolation](/concepts/agents/) for the model, and prefer
+`ctxloom agent set` over hand-editing the `agents:` key.
 
 ## Hooks
 

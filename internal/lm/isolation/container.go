@@ -85,8 +85,25 @@ type Container struct {
 	socketDir  string           // fixed in-container unix-socket dir (bind-mount target)
 	// baseContainerfile is the user-provided base Containerfile a local build
 	// layers the agent stage onto (config isolation_base_containerfile;
-	// "" = the embedded default base).
+	// "" = the embedded default base). Beats devcontainer auto-detection
+	// (locked decision 8).
 	baseContainerfile string
+	// appRoot is the project root devcontainer auto-detection resolves
+	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
+	// disables auto-detection (same effect as noDevcontainerBase — the zero
+	// Container built by NewContainer/NewContainerFor never auto-detects).
+	appRoot string
+	// noDevcontainerBase opts out of devcontainer auto-detection (config
+	// isolation_devcontainer_base: false).
+	noDevcontainerBase bool
+	// devcontainerService names the docker-compose service to use as the base
+	// when the detected devcontainer.json declares dockerComposeFile (config
+	// isolation_devcontainer_service).
+	devcontainerService string
+	// engines selects which engine fragments compose into a COMPOSABLE
+	// backend's shared agent image (config isolation_engines); empty = every
+	// engine with a known official-installer fragment (composableEngines()).
+	engines []string
 	// state is the run's session identity (harp + project id), stamped by
 	// Prepare (withSessionState); it scopes the read-write state mounts that
 	// keep transcripts/session artifacts/task writes durable across teardown
@@ -136,17 +153,61 @@ func NewContainerFor(rt Runtime, backend string) Container {
 // configuration: an image override (config isolation_images) is run AS-IS —
 // never locally built or overlaid (the user owns it) — so an absent override
 // degrades with a warning instead of triggering the on-the-fly build; a base
-// Containerfile (config isolation_base_containerfile) makes the on-the-fly
-// build layer the agent stage onto the user's base instead of the default.
+// Containerfile (config isolation_base_containerfile), or an auto-detected
+// project devcontainer, makes the on-the-fly build layer the agent stage onto
+// that base instead of the embedded default. A COMPOSABLE backend's image
+// resolves to the shared content-keyed composed tag (composedIdentity) —
+// devcontainer detection here is BEST-EFFORT (errors only affect the TAG
+// NAME, never abort construction); a real detection failure surfaces loudly
+// later, when ensureImage actually needs to build.
 func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 	c := NewContainerFor(rt, backend)
 	c.baseContainerfile = img.BaseContainerfile
+	c.appRoot = img.AppRoot
+	c.noDevcontainerBase = img.NoDevcontainerBase
+	c.devcontainerService = img.DevcontainerService
+	c.engines = img.Engines
 	if img.Image != "" {
 		c.image = img.Image
 		c.profile.officialImage = ""
 		c.profile.containerfile = nil
+		c.profile.engineInstall = nil
+		return c
+	}
+	devBase, _ := resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
+	if image, _, ok := composedIdentity(c.profile, c.baseContainerfile, devBase, c.engines); ok {
+		c.image = image
 	}
 	return c
+}
+
+// containerBuildSources resolves this container's local-build sources,
+// including the auto-detected devcontainer base when enabled. A non-nil err
+// means devcontainer DETECTION failed (malformed JSON, an unresolvable
+// dockerComposeFile) — sources is still populated from every OTHER source
+// (an explicit base Containerfile, or the embedded default), so a caller that
+// downgrades the error to a fatal-unless-degraded finding and continues (see
+// runEnsureImage) gets a still-usable degrade chain; Diagnose instead folds it
+// into an advisory guidance line.
+func (c Container) containerBuildSources(baseOverride string) (sources []buildSource, devBase *baseStage, err error) {
+	devBase, err = resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
+	sources = buildSources(c.profile, buildSourcesOptions{
+		baseOverride:      baseOverride,
+		baseContainerfile: c.baseContainerfile,
+		devBase:           devBase,
+		engines:           c.engines,
+	})
+	return sources, devBase, err
+}
+
+// provenanceFor resolves this container's provenance label for the given
+// resolved devcontainer base: composedIdentity's engine-aware digest for a
+// COMPOSABLE profile, else the legacy HostProvenanceDigest.
+func (c Container) provenanceFor(devBase *baseStage) string {
+	if _, prov, ok := composedIdentity(c.profile, c.baseContainerfile, devBase, c.engines); ok {
+		return prov
+	}
+	return HostProvenanceDigest(c.baseContainerfile)
 }
 
 // Name identifies the policy: the injected base names it — "container" for the
@@ -589,7 +650,8 @@ const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-b
 // recipe): no build source exists, so nothing ctxloom authored — the identity
 // entrypoint included — is guaranteed to be in the image.
 func (c Container) runAsIs() bool {
-	return len(buildSources(c.profile, "", c.baseContainerfile)) == 0
+	sources, _, _ := c.containerBuildSources("")
+	return len(sources) == 0
 }
 
 // entrypointGoverned reports whether the image's PID-1 entrypoint is the

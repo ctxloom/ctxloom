@@ -103,14 +103,17 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 	assert.Contains(t, err.Error(), "no local build recipe")
 }
 
-// TestBuildSources_Precedence pins the source order: an explicit base override
-// wins outright; else the official client image overlay leads and the embedded
-// install Containerfile follows; a profile with neither yields nothing.
+// TestBuildSources_Precedence pins the source order for a NON-COMPOSABLE
+// profile (no engineInstall — the legacy shape antigravity/unknown backends
+// still use): an explicit base override wins outright; else a user base
+// Containerfile leads, the official client image overlay follows, and the
+// embedded install Containerfile is the fallback; a profile with neither
+// yields nothing.
 func TestBuildSources_Precedence(t *testing.T) {
 	// Synthetic profile with BOTH sources (no current profile ships an official
 	// image — claude's documented ref does not resolve publicly).
 	both := containerProfile{officialImage: "vendor/client:latest", containerfile: []byte("FROM x\n"), validate: "client --version"}
-	srcs := buildSources(both, "", "")
+	srcs := buildSources(both, buildSourcesOptions{})
 	require.Len(t, srcs, 2)
 	assert.Contains(t, srcs[0].desc, "official client image vendor/client:latest")
 	assert.Nil(t, srcs[0].base, "an overlay is single-stage")
@@ -118,14 +121,14 @@ func TestBuildSources_Precedence(t *testing.T) {
 	require.NotNil(t, srcs[1].base, "the install recipe layers onto the shared base stage")
 	assert.NotEmpty(t, srcs[1].base.containerfile, "the default base is the embedded Containerfile")
 
-	override := buildSources(both, "my-base:latest", "")
+	override := buildSources(both, buildSourcesOptions{baseOverride: "my-base:latest"})
 	require.Len(t, override, 1, "an explicit base override wins outright")
 	assert.Contains(t, override[0].desc, "my-base:latest")
 	assert.Nil(t, override[0].base)
 
 	// A user base Containerfile LEADS (their environment, our agent layers),
 	// with the official overlay and the default-base recipe as fallbacks.
-	userBase := buildSources(both, "", "/proj/Containerfile.base")
+	userBase := buildSources(both, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"})
 	require.Len(t, userBase, 3)
 	assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
 	require.NotNil(t, userBase[0].base)
@@ -133,14 +136,85 @@ func TestBuildSources_Precedence(t *testing.T) {
 	assert.Contains(t, userBase[1].desc, "official client image")
 	assert.Contains(t, userBase[2].desc, "install Containerfile")
 
-	for _, backend := range []string{"claude-code", "kiro"} {
-		got := buildSources(containerProfileFor(backend), "", "")
-		require.Len(t, got, 1, "backend %q builds via its install recipe", backend)
-		assert.Contains(t, got[0].desc, "install Containerfile")
-		require.NotNil(t, got[0].base, "backend %q layers onto the shared base", backend)
-	}
+	assert.Empty(t, buildSources(containerProfileFor("mock"), buildSourcesOptions{}), "no recipe for an unprofiled/non-composable backend")
+}
 
-	assert.Empty(t, buildSources(containerProfileFor("codex"), "", ""), "no recipe for unprofiled backends")
+// TestBuildSources_Composable pins the COMPOSABLE profile shape
+// (claude-code/codex/kiro/opencode — engineInstall != nil): the SAME
+// generated multi-engine Containerfile builds onto each candidate base in
+// precedence order (explicit user base > auto-detected devcontainer >
+// embedded default), and an explicit base-image override still wins outright
+// exactly like the legacy shape.
+func TestBuildSources_Composable(t *testing.T) {
+	for _, backend := range []string{"claude-code", "codex", "kiro", "opencode"} {
+		p := containerProfileFor(backend)
+		require.NotNil(t, p.engineInstall, "backend %q must be composable", backend)
+
+		got := buildSources(p, buildSourcesOptions{})
+		require.Len(t, got, 1, "backend %q: default-base only", backend)
+		assert.Contains(t, got[0].desc, "composed agent stage")
+		assert.Contains(t, got[0].desc, "embedded default base")
+		require.NotNil(t, got[0].base)
+
+		override := buildSources(p, buildSourcesOptions{baseOverride: "my-base:latest"})
+		require.Len(t, override, 1, "an explicit base-image override wins outright")
+		assert.Contains(t, override[0].desc, "my-base:latest")
+		assert.Nil(t, override[0].base)
+
+		userBase := buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"})
+		require.Len(t, userBase, 2, "user base Containerfile leads, default base falls back")
+		assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
+		assert.Contains(t, userBase[1].desc, "embedded default base")
+
+		dev := &baseStage{desc: "test devcontainer", containerfile: []byte("FROM debian:13\n"), kind: baseStageKindDevcontainer}
+		withDev := buildSources(p, buildSourcesOptions{devBase: dev})
+		require.Len(t, withDev, 2, "auto-detected devcontainer base, default base falls back")
+		assert.Contains(t, withDev[0].desc, "auto-detected project devcontainer")
+		assert.Contains(t, withDev[1].desc, "embedded default base")
+
+		all := buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base", devBase: dev})
+		require.Len(t, all, 3, "explicit user base beats the auto-detected devcontainer, default base still falls back")
+		assert.Contains(t, all[0].desc, "user base Containerfile")
+		assert.Contains(t, all[1].desc, "auto-detected project devcontainer")
+		assert.Contains(t, all[2].desc, "embedded default base")
+	}
+}
+
+// TestComposeAgentContainerfile_EngineOrderAndGates pins composeAgentContainerfile's
+// shape: one RUN fragment per selected engine in the given order, plus the
+// shared identity/entrypoint/companion scaffolding every composed image needs.
+func TestComposeAgentContainerfile_EngineOrderAndGates(t *testing.T) {
+	cf := string(composeAgentContainerfile([]string{"claude-code", "kiro"}))
+	assert.Contains(t, cf, "ARG BASE_IMAGE=ctxloom-agent-base:latest\n")
+	assert.Contains(t, cf, "FROM ${BASE_IMAGE}\n")
+	assert.Contains(t, cf, baseContractLayer, "best-effort tool layer for an arbitrary base")
+	assert.Contains(t, cf, overlayUserLayer)
+	assert.Contains(t, cf, overlayUserGate)
+	assert.Contains(t, cf, "claude --version", "claude's engine fragment is included")
+	assert.Contains(t, cf, "kiro-cli --version", "kiro's engine fragment is included")
+	assert.Less(t, strings.Index(cf, "claude --version"), strings.Index(cf, "kiro-cli --version"), "engines compose in the GIVEN order")
+	assert.Contains(t, cf, "COPY ctxloom /usr/local/bin/ctxloom\n")
+	assert.Contains(t, cf, "COPY companions/ /usr/local/bin/\n")
+	assert.Contains(t, cf, "RUN /usr/local/bin/ctxloom version\n")
+	assert.Contains(t, cf, companionGate)
+
+	// A backend with no known fragment is silently skipped (resolveEngines
+	// already warns about it before this is ever called with such a name).
+	single := string(composeAgentContainerfile([]string{"claude-code"}))
+	assert.NotContains(t, single, "kiro-cli", "only the requested engine's fragment is baked")
+}
+
+// TestResolveEngines pins the default/override/unknown-filtering behaviour:
+// empty config = every known fragment; a configured subset is reordered to
+// composableEngines()'s DETERMINISTIC order (never the caller's order); an
+// unknown/non-composable name is dropped, never silently promoted to "use
+// everything".
+func TestResolveEngines(t *testing.T) {
+	assert.Equal(t, composableEngines(), resolveEngines(nil), "empty config = every known fragment")
+	assert.Equal(t, []string{"claude-code", "kiro"}, resolveEngines([]string{"kiro", "claude-code"}),
+		"reordered to composableEngines() order regardless of input order")
+	assert.Equal(t, []string{"claude-code"}, resolveEngines([]string{"claude-code", "not-a-real-engine"}),
+		"an unknown engine is dropped, not promoted to \"use everything\"")
 }
 
 // TestOverlayContainerfile pins the generated overlay: the base FROM, the

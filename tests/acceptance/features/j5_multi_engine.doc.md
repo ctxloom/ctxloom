@@ -98,7 +98,7 @@ loudly — forcing an intentional update — the day someone fixes it.
 <!-- doc:scenario: A real engine actually receives the shared context and can use it -->
 Materialization proves the bytes were written in the right shape. It does not
 prove any assistant ever read them. This scenario closes that gap for the
-three engines where it can be closed honestly today: a fragment carrying one
+four engines where it can be closed honestly today: a fragment carrying one
 distinctive sentinel phrase is planted in the shared profile, a real engine is
 launched against it, and the assistant is asked to repeat back the one marker
 phrase it can see. If the marker comes back in the actual reply, the context
@@ -112,13 +112,13 @@ read the materialized `.kiro/steering/ctxloom-context.md` steering file
 (kiro's stand-in for a SessionStart hook) and echoed the sentinel back through
 kiro's own agentSpawn hook and skill-resource wiring, live.
 
-Only codex is absent from this table, and that absence is a finding in
-itself, not an oversight: it has no binary installed on any development host
-and its settings support is, by its own package documentation, implemented
-against docs and never actually run. That row is deliberately absent rather
-than present-and-skipped, and each row that IS present still self-skips
-without live credentials, exactly like the claude row already does in the
-setup journey this scenario borrows its shape from.
+codex joined this table once its context surface actually fired on the real
+materialize/run path: a logged-in `codex` CLI reads the materialized
+`AGENTS.md` and echoes the sentinel back, live, the same row and the same
+steps as every other engine here — no new Go, no new step definitions. Every
+row in this table still self-skips without live credentials, exactly like the
+claude row already does in the setup journey this scenario borrows its shape
+from.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
@@ -127,9 +127,9 @@ that standard's delivery is proven today: fully proven for the bytes on disk
 across three of them — claude-code, kiro, antigravity. codex's MCP, hook, and
 skill surfaces prove out the same way, but its context does not — a
 confirmed, silent gap this journey names explicitly instead of folding into a
-passing row. Three of the four are additionally proven end-to-end through a
-real running assistant, not just bytes on disk. That is the shape of claim
-this journey is built to make — never more than what was actually checked,
-and structured so that adding real coverage later means adding a row, not
+passing row. All four are additionally proven end-to-end through a real
+running assistant, not just bytes on disk. That is the shape of claim this
+journey is built to make — never more than what was actually checked, and
+structured so that adding real coverage later means adding a row, not
 rewriting a claim.
 <!-- /doc:outro -->

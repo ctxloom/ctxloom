@@ -79,16 +79,17 @@ Feature: One shared profile, reaching four engines in their own native format
       | claude-code | CLAUDE.md |
       | codex       | AGENTS.md |
 
-  # LOCKED — @live: claude, antigravity, and kiro have a working live path
-  # today (kiro confirmed live: a logged-in kiro-cli genuinely reads the
+  # LOCKED — @live: claude, antigravity, kiro, and codex have a working live
+  # path today (kiro confirmed live: a logged-in kiro-cli genuinely reads the
   # materialized steering context and echoes the sentinel back — the
   # not-yet-authenticated gap in internal/kiro/chat.go's comment is closed).
-  # codex has no binary on any dev host and is implemented against docs, never
-  # run (internal/codex/settings.go:7-29) — absent from this table on purpose,
-  # not skipped, never written. Each present row self-skips without
-  # credentials, exactly like J1's own @live scenario. Adding an engine here is
-  # adding a ROW, no new Go and no new steps — proven true a third time by
-  # kiro's row below.
+  # codex joined this table once 7beee9a routed AGENTS.md through SurfaceFor
+  # on the real materialize/run path (not just the dead Deliveries() path) —
+  # a logged-in codex CLI genuinely reads the materialized AGENTS.md and
+  # echoes the sentinel back. Each present row self-skips without
+  # credentials, exactly like J1's own @live scenario. Adding an engine here
+  # is adding a ROW, no new Go and no new steps — proven true a fourth time by
+  # codex's row below.
   @live
   Scenario Outline: A real engine actually receives the shared context and can use it
     Given a real <engine> agent is available
@@ -101,3 +102,4 @@ Feature: One shared profile, reaching four engines in their own native format
       | Claude      |
       | Antigravity |
       | Kiro        |
+      | Codex       |

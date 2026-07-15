@@ -155,7 +155,7 @@ List this session's delegated children (the roster): each entry's harp (agent_id
 
 ### search_content
 
-Search across all ctxloom content types (fragments, prompts, profiles, MCP servers)
+Search across all ctxloom content types (fragments, commands, skills, profiles, MCP servers)
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -164,7 +164,7 @@ Search across all ctxloom content types (fragments, prompts, profiles, MCP serve
 | `sort_by` | string | No | Sort field (one of: name, type, relevance; default: relevance) |
 | `sort_order` | string | No | Sort order (one of: asc, desc; default: asc) |
 | `tags` | string[] | No | Filter by tags (fragments only) |
-| `types` | string[] | No | Content types to search (any of: fragment, prompt, profile, mcp_server; default: all) |
+| `types` | string[] | No | Content types to search (any of: fragment, command, skill, profile, mcp_server; default: all) |
 
 ### search_library
 
@@ -189,6 +189,7 @@ Read-only listings are exposed as MCP resources rather than tools.
 | `ctxloom://remotes` | remotes | Configured remote sources. Replaces the list_remotes tool. |
 | `ctxloom://sessions` | sessions | All harp-named sessions across every project. For the cwd-filtered view, use ctxloom://sessions/recent. |
 | `ctxloom://sessions/recent` | recent sessions | Harp-named sessions for the current project, most recent first. YAML, with harp_name, started_at, summary. |
+| `ctxloom://skills` | skills | All available Agent Skill packages (model-invoked SKILL.md directories) with descriptions and file counts. Distinct from commands (user-invoked slash commands). |
 
 ## Resource Templates
 
@@ -200,4 +201,5 @@ Parameterized resources for single-record lookup (RFC 6570 URI templates).
 | `ctxloom://fragments/{name}` | fragment | A single fragment's content by name. Replaces the get_fragment tool. |
 | `ctxloom://profiles/{name}` | profile | A single profile's config by name. Replaces the get_profile tool. |
 | `ctxloom://remotes/{name}/contents` | remote contents | Bundles and profiles available in a configured remote, by remote name. Replaces the browse_remote tool. |
+| `ctxloom://skills/{name}` | skill | A single Agent Skill package's frontmatter, instructions body, and file manifest by name. |
 

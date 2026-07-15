@@ -57,7 +57,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Determine which types to search
-	searchTypes := collections.NewSetFrom("fragment", "command", "profile", "mcp_server")
+	searchTypes := collections.NewSetFrom("fragment", "command", "skill", "profile", "mcp_server")
 	if len(req.Types) > 0 {
 		searchTypes = collections.NewSetFrom(req.Types...)
 	}
@@ -82,6 +82,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		}{
 			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
 			{"command", func() []SearchResult { return searchCommands(loader, query) }},
+			{"skill", func() []SearchResult { return searchSkills(loader, query) }},
 			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
 			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 		}
@@ -176,6 +177,37 @@ func searchCommands(loader *bundles.Loader, query string) []SearchResult {
 				Name:   p.Name,
 				Source: p.Source,
 				Match:  "name",
+			})
+		}
+	}
+	return results
+}
+
+// searchSkills returns Agent Skill packages whose name or description matches
+// query. Loader errors yield no results — mirrors searchCommands.
+func searchSkills(loader *bundles.Loader, query string) []SearchResult {
+	infos, err := loader.ListAllSkills()
+	if err != nil {
+		return nil
+	}
+	var results []SearchResult
+	for _, info := range infos {
+		matchType := ""
+		switch {
+		case strings.Contains(strings.ToLower(info.Name), query):
+			matchType = "name"
+		case strings.Contains(strings.ToLower(info.Description), query):
+			matchType = "description"
+		case containsTag(info.Tags, query):
+			matchType = "tag"
+		}
+		if matchType != "" {
+			results = append(results, SearchResult{
+				Type:   "skill",
+				Name:   info.Name,
+				Tags:   info.Tags,
+				Source: info.Bundle,
+				Match:  matchType,
 			})
 		}
 	}

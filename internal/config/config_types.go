@@ -132,7 +132,17 @@ type Profile struct {
 	// version-agnostic identity is the stored string — like bundle_items, any
 	// "@<commit>" is parsed transiently at assembly and the lockfile stays
 	// untouched.
-	Commands  []string          `mapstructure:"commands" yaml:"commands,omitempty"`
+	Commands []string `mapstructure:"commands" yaml:"commands,omitempty"`
+	// Skills curates the Agent Skill exports for this profile (skill/command
+	// split plan §3.2), mirroring Commands: when a resolved active profile
+	// declares a NON-EMPTY list, ONLY these skills are exported per-engine
+	// (force-enabled), suppressing the global bundle-wide auto-export
+	// (config.ResolveBundleSkills) for that profile; an empty list keeps
+	// today's global auto-export (every profile-referenced bundle's skills,
+	// each still gated by its own per-engine enablement). Each entry is a
+	// skill ref ("<bundle>#skills/<name>") — no version pin (a skill carries
+	// no historical-content resolution the way a command's "@<commit>" does).
+	Skills    []string          `mapstructure:"skills" yaml:"skills,omitempty"`
 	Variables map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Hooks     wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
 	MCP       wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)

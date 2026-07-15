@@ -27,6 +27,7 @@ const (
 	resourceFragmentsURI      = "ctxloom://fragments"
 	resourceProfilesURI       = "ctxloom://profiles"
 	resourcePromptsURI        = "ctxloom://commands"
+	resourceSkillsURI         = "ctxloom://skills"
 	resourceRemotesURI        = "ctxloom://remotes"
 	resourceMCPServersURI     = "ctxloom://mcp-servers"
 	resourceSessionsURI       = "ctxloom://sessions"
@@ -70,6 +71,13 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Description: "All available commands with descriptions. Replaces the list_commands tool.",
 		MIMEType:    "application/yaml",
 	}, listResource(s, operations.ListCommands))
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceSkillsURI,
+		Name:        "skills",
+		Description: "All available Agent Skill packages (model-invoked SKILL.md directories) with descriptions and file counts. Distinct from commands (user-invoked slash commands).",
+		MIMEType:    "application/yaml",
+	}, listResource(s, operations.ListSkills))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceRemotesURI,
@@ -116,6 +124,13 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 	}, s.handleResourceCommand)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://skills/{name}",
+		Name:        "skill",
+		Description: "A single Agent Skill package's frontmatter, instructions body, and file manifest by name.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceSkill)
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: "ctxloom://remotes/{name}/contents",
 		Name:        "remote contents",
 		Description: "Bundles and profiles available in a configured remote, by remote name. Replaces the browse_remote tool.",
@@ -136,8 +151,10 @@ separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + 
 ## Available URIs
 
 - ` + "`ctxloom://help`" + ` — this file.
-- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://commands`" + `, ` + "`ctxloom://profiles`" + ` — listings;
-  append ` + "`/{name}`" + ` for a single item's content.
+- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://commands`" + `, ` + "`ctxloom://skills`" + `,
+  ` + "`ctxloom://profiles`" + ` — listings; append ` + "`/{name}`" + ` for a single item's content.
+  A command is user-invoked (a slash command); a skill is model-invoked (a
+  SKILL.md package loaded via progressive disclosure).
 - ` + "`ctxloom://remotes`" + ` — configured remotes; ` + "`ctxloom://remotes/{name}/contents`" + `
   lists a remote's bundles and profiles.
 - ` + "`ctxloom://mcp-servers`" + ` — configured MCP servers.
@@ -256,6 +273,18 @@ func (s *ctxServer) handleResourceCommand(ctx context.Context, req *mcp.ReadReso
 		return nil, err
 	}
 	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+}
+
+func (s *ctxServer) handleResourceSkill(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://skills/")
+	if name == "" {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.GetSkill(ctx, s.cfg, operations.GetSkillRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
 }
 
 func (s *ctxServer) handleResourceRemoteContents(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

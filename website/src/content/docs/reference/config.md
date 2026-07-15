@@ -123,6 +123,7 @@ Named profile definitions
 | `mcp` | mcpConfig | MCP servers for this profile (inherited) |
 | `parents` | string[] | Parent profiles to inherit from (processed depth-first) |
 | `select_tags` | string[] | Fragment tags to select content by: fragments carrying any of these tags are included. |
+| `skills` | string[] | Agent Skill packages curated for this profile (each a "<bundle>#skills/<name>" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement). |
 | `tags` | string[] | Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag. |
 | `variables` | map → string | Variable values for template substitution in fragments |
 

@@ -1,12 +1,15 @@
 package bundles
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -135,4 +138,109 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 		Files:       files,
 		LLM:         entry.LLM,
 	}
+}
+
+// SkillInfo provides metadata about an Agent Skill package for listing —
+// the skill analog of ContentInfo. Skills carry no single-blob "content" (a
+// skill is a directory tree), so listing surfaces file count instead.
+type SkillInfo struct {
+	Name        string   // Full name (bundle/item)
+	Bundle      string   // Bundle name this came from
+	Description string   // SKILL.md frontmatter description
+	Tags        []string // Combined (bundle + skill) tags
+	FileCount   int      // Number of files in the package (SKILL.md included)
+}
+
+// ListAllSkills returns info about every Agent Skill package across every
+// bundle, in deterministic (bundle, then name) order — the skill analog of
+// ListAllCommands. A skill the trust gate withholds, or whose source tree
+// fails to parse, is omitted (skillContent already warns).
+func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
+	bundleInfos, err := l.List()
+	if err != nil {
+		return nil, err
+	}
+
+	var out []SkillInfo
+	for _, bi := range bundleInfos {
+		bundle, err := l.LoadFile(bi.Path)
+		if err != nil {
+			continue
+		}
+		for _, name := range bundle.SkillNames() {
+			ls := l.skillContent(bundle, name, bundle.Skills[name])
+			if ls == nil {
+				continue
+			}
+			out = append(out, SkillInfo{
+				Name:        ls.Name,
+				Bundle:      ls.Bundle,
+				Description: ls.Frontmatter.Description,
+				Tags:        slices.Concat(bundle.Tags, bundle.Skills[name].Tags),
+				FileCount:   len(ls.Files),
+			})
+		}
+	}
+	return out, nil
+}
+
+// GetSkill finds and loads an Agent Skill package by name — the skill analog
+// of GetCommand. Name can be "skill-name" (searches all bundles) or
+// "bundle#skills/name".
+func (l *Loader) GetSkill(name string) (*LoadedSkill, error) {
+	bundleName, skillName, isRef, err := splitItemRef(name, "skills")
+	if err != nil {
+		return nil, err
+	}
+	if isRef {
+		return l.skillFromBundle(bundleName, skillName)
+	}
+	return l.searchSkill(name)
+}
+
+// skillFromBundle loads a specific bundle and returns the named skill.
+func (l *Loader) skillFromBundle(bundleName, skillName string) (*LoadedSkill, error) {
+	bundle, err := l.Load(bundleName)
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := bundle.Skills[skillName]
+	if !ok {
+		return nil, fmt.Errorf("skill %q not found in bundle %q", skillName, bundleName)
+	}
+	ls := l.skillContent(bundle, skillName, entry)
+	if ls == nil {
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, skillName)
+	}
+	return ls, nil
+}
+
+// searchSkill scans every bundle for a skill with the given name. A
+// gate-withheld match does not end the scan — a trusted copy in another
+// bundle still wins; only when every match is withheld does it report
+// ErrSkillWithheld (distinct from not-found).
+func (l *Loader) searchSkill(name string) (*LoadedSkill, error) {
+	bundleInfos, err := l.List()
+	if err != nil {
+		return nil, err
+	}
+	withheld := false
+	for _, bi := range bundleInfos {
+		bundle, err := l.LoadFile(bi.Path)
+		if err != nil {
+			continue
+		}
+		entry, ok := bundle.Skills[name]
+		if !ok {
+			continue
+		}
+		if ls := l.skillContent(bundle, name, entry); ls != nil {
+			return ls, nil
+		}
+		withheld = true
+	}
+	if withheld {
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, name)
+	}
+	return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
 }

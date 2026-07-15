@@ -204,6 +204,11 @@
             "description": "Slash-command exports curated for this profile (each a \"<bundle>#commands/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
             "items": { "type": "string", "minLength": 1 }
           },
+          "skills": {
+            "type": "array",
+            "description": "Agent Skill packages curated for this profile (each a \"<bundle>#skills/<name>\" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement).",
+            "items": { "type": "string", "minLength": 1 }
+          },
           "variables": {
             "type": "object",
             "description": "Variable values for template substitution in fragments",

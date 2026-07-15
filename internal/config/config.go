@@ -547,6 +547,7 @@ func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
 	p.Bundles = append([]string(nil), bp.Bundles...)
 	p.Parents = append([]string(nil), bp.Parents...)
 	p.Commands = append([]string(nil), bp.Commands...)
+	p.Skills = append([]string(nil), bp.Skills...)
 	p.BundleItems = append([]string(nil), bp.BundleItems...)
 	p.Fragments = append([]profiles.FragmentRef(nil), bp.Fragments...)
 	return p

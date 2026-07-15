@@ -107,6 +107,12 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	for i, pr := range p.Commands {
 		p.Commands[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
+	// Curated skill refs ("<bundle>#skills/<name>") carry a bundle reference
+	// exactly like Commands, so a remote profile's short skill refs canonicalize
+	// against its source repo the same way.
+	for i, sr := range p.Skills {
+		p.Skills[i] = remote.ResolveRefString(sr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
 	// Fragment refs and bundle_items cherry-picks both name bundle content, so a
 	// remote profile's short forms canonicalize against its source repo exactly
 	// like Bundles. Inline hooks:/mcp: are directly-declared executables with no
@@ -163,6 +169,15 @@ type Profile struct {
 	// identity is the stored string — like bundles, any "@<commit>" is parsed
 	// transiently at assembly and the lockfile stays untouched.
 	Commands []string `yaml:"commands,omitempty"`
+
+	// Skills curates the Agent Skill exports for this directory profile, the
+	// mirror of config.Profile.Skills for inline profiles (B6a). When a
+	// resolved active profile declares a NON-EMPTY list, ONLY these skills are
+	// exported per-engine (force-enabled), suppressing the global bundle-wide
+	// auto-export for that profile; an empty list keeps today's global
+	// auto-export. Each entry is a skill ref ("<bundle>#skills/<name>") — no
+	// version pin (a skill has no historical-content resolution).
+	Skills []string `yaml:"skills,omitempty"`
 
 	// Fragments are direct fragment references with optional priority — the
 	// mirror of config.Profile.Fragments for inline profiles. Each entry may
@@ -793,6 +808,9 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// their version-agnostic stored ref — the directory-profile mirror of how
 	// inline profiles fold Commands in config_resolve.mergeProfileValues.
 	resolved.Commands = appendUnique(resolved.Commands, profile.Commands...)
+	// Curated skills union with parents in declaration order, deduped by their
+	// stored ref — the skill mirror of the Commands fold immediately above.
+	resolved.Skills = appendUnique(resolved.Skills, profile.Skills...)
 	// Direct fragments union (dedup by version-agnostic Name, child raises
 	// priority) and cherry-picked bundle_items union — the directory mirror of
 	// profileBuilder.addFragment / addBundleItem. Applied after parents so a
@@ -831,6 +849,7 @@ type ResolvedProfile struct {
 	Tags        []string         // Descriptive (listing/discovery); does NOT select content
 	SelectTags  []string         // Fragment tags to select content by
 	Commands    []string         // Curated slash-command refs (opt-in; empty = global auto-export)
+	Skills      []string         // Curated skill refs (opt-in; empty = global auto-export)
 	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
 	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
 	Hooks       wire.HooksConfig // Directly-declared lifecycle hooks (executable; gated downstream)
@@ -851,6 +870,7 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Tags = appendUnique(r.Tags, other.Tags...)
 	r.SelectTags = appendUnique(r.SelectTags, other.SelectTags...)
 	r.Commands = appendUnique(r.Commands, other.Commands...)
+	r.Skills = appendUnique(r.Skills, other.Skills...)
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
 	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
 	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)

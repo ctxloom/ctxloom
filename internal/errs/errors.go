@@ -15,6 +15,9 @@ var (
 	// ErrCommandNotFound indicates a command could not be located.
 	ErrCommandNotFound = errors.New("command not found")
 
+	// ErrSkillNotFound indicates an Agent Skill package could not be located.
+	ErrSkillNotFound = errors.New("skill not found")
+
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
 
@@ -28,6 +31,11 @@ var (
 	// ErrCommandWithheld indicates a command resolved but the per-item trust
 	// gate (trust rework, TR5) withheld it. See ErrFragmentWithheld.
 	ErrCommandWithheld = errors.New("command withheld by trust gate")
+
+	// ErrSkillWithheld indicates an Agent Skill package resolved but the
+	// per-item trust gate withheld it (or its on-disk tree failed manifest
+	// verification against a signed bundle.yaml entry). See ErrFragmentWithheld.
+	ErrSkillWithheld = errors.New("skill withheld by trust gate")
 
 	// ErrNoVersionResolver indicates a per-commit-version resolution was
 	// requested (multi-version coexistence, trust rework, TR5) but the loader

@@ -68,6 +68,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
@@ -127,6 +130,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system

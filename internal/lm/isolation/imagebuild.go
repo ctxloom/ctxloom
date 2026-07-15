@@ -259,16 +259,17 @@ type buildSourcesOptions struct {
 
 // buildSources orders a profile's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
-// COMPOSABLE profile (engineInstall != nil — claude-code/codex/kiro/opencode)
-// then builds the SAME composed multi-engine Containerfile (composeAgentContainerfile)
-// onto, in order: the explicit user base Containerfile, the auto-detected
-// project devcontainer, and the embedded default base — precedence locked
-// decision 8 (explicit beats auto-detect beats default). A non-composable
-// profile (no known official-installer fragment yet — antigravity, unknown
-// backends) keeps the LEGACY behaviour unchanged: a user base Containerfile
-// leads, the client's OFFICIAL image overlay follows, and the embedded
-// per-backend install recipe (p.containerfile, when set) over the default
-// base is the fallback. Empty means the image cannot be built locally.
+// COMPOSABLE profile (engineInstall != nil — antigravity/claude-code/codex/
+// kiro/opencode) then builds the SAME composed multi-engine Containerfile
+// (composeAgentContainerfile) onto, in order: the explicit user base
+// Containerfile, the auto-detected project devcontainer, and the embedded
+// default base — precedence locked decision 8 (explicit beats auto-detect
+// beats default). A non-composable profile (no known official-installer
+// fragment yet — an unknown backend) keeps the LEGACY behaviour unchanged: a
+// user base Containerfile leads, the client's OFFICIAL image overlay
+// follows, and the embedded per-backend install recipe (p.containerfile,
+// when set) over the default base is the fallback. Empty means the image
+// cannot be built locally.
 func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	if opts.baseOverride != "" {
 		return []buildSource{{

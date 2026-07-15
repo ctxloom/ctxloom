@@ -109,6 +109,20 @@ type RetractionRecords interface {
 	Retracted(ref trust.Ref) (retracted bool, reason string)
 }
 
+// readableRecords is the OPTIONAL capability a ReviewRecords implementation
+// may expose: "can this backing store actually be read". EffectiveTrust
+// checks it via a type assertion (never adds it to the ReviewRecords
+// interface itself) so the fail-closed gate applies to any REAL,
+// disk-backed records value — whether EffectiveTrust built it fresh (the
+// records == nil default) or a caller built one the same way and threaded it
+// in non-nil, which is what every production caller actually does — while a
+// test fake with no physical store to corrupt (fakeRecords) simply doesn't
+// implement it and is assumed readable. countersignRecords.readable (see
+// countersign_records.go) is the sole production implementation.
+type readableRecords interface {
+	readable() error
+}
+
 // EffectiveTrustResult reports the decision outcome and which step decided it.
 type EffectiveTrustResult struct {
 	Decision trust.Decision `json:"decision"`
@@ -230,8 +244,23 @@ func (r EffectiveTrustResult) Reason() string {
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
 	records := req.Records
 	if records == nil {
-		built := buildCountersignRecords(cfg, req.FS, nil, nil, nil)
-		if err := built.readable(); err != nil {
+		records = buildCountersignRecords(cfg, req.FS, nil, nil, nil)
+	}
+	// The unreadable-store fail-closed gate runs HERE, unconditionally — not
+	// only when records was built fresh above. Every production caller
+	// (contentGate.allow, review.go's PendingReview, bundle_distill.go)
+	// builds its ReviewRecords ONCE at construction time and threads it into
+	// EffectiveTrustRequest.Records non-nil on EVERY call; a check gated on
+	// "records == nil" therefore never runs for any of them and is dead code
+	// in production (taskloom rocky-motto — confirmed empirically: reject a
+	// local fragment, corrupt the approvals store, re-materialize, and it
+	// silently un-rejects). readableRecords is an OPTIONAL capability, not
+	// part of the ReviewRecords contract: a test fake that doesn't implement
+	// it (fakeRecords) is assumed readable and skips this gate entirely —
+	// only a REAL countersignRecords (built here or injected by a caller
+	// that built one the same way) is ever asked.
+	if rr, ok := records.(readableRecords); ok {
+		if err := rr.readable(); err != nil {
 			// An approvals store we cannot read may hold REJECTIONS we would
 			// otherwise miss — deny everything rather than silently reopen the
 			// gate, ahead of every other step (including the local/builtin
@@ -242,7 +271,6 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 				"approvals store unreadable, denying all items: %v", err)
 			return decide(trust.Deny, trust.SourcePending), nil
 		}
-		records = built
 	}
 	retraction := req.Retraction
 	if retraction == nil {

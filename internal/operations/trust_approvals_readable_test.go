@@ -185,3 +185,52 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	require.NotEmpty(t, found, "a corrupted approvals store reached via the production-injected Records path must record a strictness finding")
 	assert.Equal(t, strictness.ClassTrust, found[0].Class)
 }
+
+// TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending
+// is the BOUNDARY case the unconditional .readable() gate must NOT trip: a
+// brand-new install / fresh project whose approvals directories have NEVER
+// been created yet. This is indistinguishable from "corrupt" only if the
+// gate conflates "absent" with "unreadable" — it must not, because that
+// would deny every single item on a first run, which is its own outage (see
+// Store.Readable's own doc: os.IsNotExist degrades to nil, never an error).
+//
+// This exercises the records value in the SAME shape as
+// TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll (built
+// once, injected non-nil, mirroring contentGate's constructor) specifically
+// to prove the new unconditional check point doesn't regress the "fresh
+// project" case now that it also runs on the non-nil/injected path.
+func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(t *testing.T) {
+	resetStrictness(t)
+	fs := afero.NewOsFs()
+	dir := t.TempDir()
+	// Deliberately never created — WriteApprove/WriteRefReject lazily
+	// MkdirAll on first write, so a fresh install's directories simply do
+	// not exist on disk yet.
+	userStore := countersign.NewStore(filepath.Join(dir, "user-approvals"), fs)
+	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
+	records := countersignRecords{user: userStore, project: projectStore}
+
+	mark := strictness.Checkpoint()
+
+	// An ordinary unsigned/unreviewed remote item resolves the everyday
+	// "awaiting review" pending — not the deny-all fail-closed path.
+	remoteRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}
+	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+		Ref: remoteRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, res.Decision)
+	assert.Equal(t, trust.SourcePending, res.Source, "a fresh, never-written approvals store must resolve ordinary pending, not a fail-closed deny")
+
+	// A local item must STILL be allowed via the local exemption — proving
+	// the guard genuinely did not fire (a false trip would deny this too).
+	localRef := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
+	res2, err2 := EffectiveTrust(nil, EffectiveTrustRequest{
+		Ref: localRef, Payload: pbytes("y"), Form: rawForm, Records: records, FS: fs,
+	})
+	require.NoError(t, err2)
+	assert.Equal(t, trust.Allow, res2.Decision, "a fresh install must not deny local content — the readable() gate must not false-trip on 'never created yet'")
+	assert.Equal(t, trust.SourceLocal, res2.Source)
+
+	assert.Empty(t, strictness.Since(mark), "a fresh/absent approvals store must never record a strictness finding, even reached via the injected-records path")
+}

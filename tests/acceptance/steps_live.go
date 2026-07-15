@@ -167,7 +167,7 @@ func liveDistinctFacts() []string {
 }
 
 // liveBundleYAML builds a bundle manifest with a substantial, information-dense
-// fragment and skill for distillation.
+// fragment and command for distillation.
 func liveBundleYAML(fragment string) string {
 	facts := liveDistinctFacts()
 	var b strings.Builder
@@ -180,7 +180,7 @@ func liveBundleYAML(fragment string) string {
 	for _, f := range facts {
 		fmt.Fprintf(&b, "      %s\n", f)
 	}
-	b.WriteString("skills:\n")
+	b.WriteString("commands:\n")
 	b.WriteString("  guidance:\n")
 	b.WriteString("    description: live distillation prompt fixture\n")
 	b.WriteString("    content: |\n")

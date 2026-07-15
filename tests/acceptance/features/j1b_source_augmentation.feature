@@ -10,12 +10,12 @@ Feature: Sources and companions shape how a project is set up
   baseline or their personal preferences.
 
   # DEPENDS ON paced-trump (augment-not-override) — RED until that lands. Today
-  # a bundle's agent-setup skill OVERRIDES the built-in; these assert AUGMENT.
+  # a bundle's agent-setup command OVERRIDES the built-in; these assert AUGMENT.
 
   # PROPOSED — repo bundles augment (mock): proves DELIVERY of the composed prompt.
   Scenario: Trusted sources augment the setup interview, they do not replace it
-    Given her company's repository ships an "agent-setup" skill with the company's onboarding steps
-    And her personal repository ships an "agent-setup" skill with her own setup preferences
+    Given her company's repository ships an "agent-setup" command with the company's onboarding steps
+    And her personal repository ships an "agent-setup" command with her own setup preferences
     And both repositories are trusted, each signed with its owner's key
     When Alice runs the ctxloom setup
     And it launches a mock engine for the configuration interview
@@ -26,7 +26,7 @@ Feature: Sources and companions shape how a project is set up
   # PROPOSED — @live twin: a REAL assistant reflects the composed guidance it was given.
   @live
   Scenario: A real assistant follows the composed setup guidance
-    Given her company's "agent-setup" skill instructs the assistant to confirm a company codeword
+    Given her company's "agent-setup" command instructs the assistant to confirm a company codeword
     And the company repository is trusted, signed with the company key
     When Alice runs the ctxloom setup and its interview launches her real assistant
     Then the assistant's setup response confirms the company codeword

@@ -13,10 +13,10 @@ Manage ctxloom bundles
 
 ### Synopsis
 
-Manage ctxloom bundles - versioned collections of fragments, skills, and MCP servers.
+Manage ctxloom bundles - versioned collections of fragments, commands, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
-skills, and optional MCP server configurations with a single version.
+commands, and optional MCP server configurations with a single version.
 
 Examples:
   ctxloom bundle list                  # List all installed bundles
@@ -37,7 +37,7 @@ Examples:
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

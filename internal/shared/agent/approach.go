@@ -6,7 +6,7 @@ import "fmt"
 // dispatches on — the vital-tiger v2 rework — plus the shared, DATA-driven
 // ApproachTable each backend declares its per-provider dispatch through. Every
 // `.WithX()` on the builder takes a per-surface, caller-facing enum (ContextWrite
-// / MCPWrite / SettingsWrite / SkillsWrite) whose race-capable values are
+// / MCPWrite / SettingsWrite / CommandsWrite) whose race-capable values are
 // UNSAFE-NAMED: choosing UnsafeFile is the caller's loud acknowledgment that
 // ctxloom does not lock projects, so a live shared-cwd session may be using that
 // exact well-known file. Each per-surface enum converts (via the unexported
@@ -20,7 +20,7 @@ import "fmt"
 // engine-specific WAY that surface's bytes reach the model. It is the dispatch key
 // SurfaceSet.SupportedApproaches / DefaultApproach / SurfaceFor / SharedRealization
 // key on; callers never construct one directly — they name a per-surface enum
-// value (ContextWrite / MCPWrite / SettingsWrite / SkillsWrite), which converts to
+// value (ContextWrite / MCPWrite / SettingsWrite / CommandsWrite), which converts to
 // this shared space via its approach() method.
 type Approach int
 
@@ -119,19 +119,19 @@ func (w SettingsWrite) String() string { return w.approach().String() }
 // approach converts the caller-facing enum to the shared dispatch key.
 func (w SettingsWrite) approach() Approach { return ApproachUnsafeFile }
 
-// SkillsWrite names HOW the skills surface is delivered. Every engine has exactly
-// one approach (the native command/skill dir).
-type SkillsWrite int
+// CommandsWrite names HOW the commands surface is delivered. Every engine has
+// exactly one approach (the native command/skill dir).
+type CommandsWrite int
 
-// SkillsWriteUnsafeFile writes the engine's native skills/command dir
+// CommandsWriteUnsafeFile writes the engine's native commands/skill dir
 // (.claude/commands/, $CODEX_HOME/prompts, .agents/skills/, .kiro/skills/).
-const SkillsWriteUnsafeFile SkillsWrite = iota
+const CommandsWriteUnsafeFile CommandsWrite = iota
 
-// String renders the skills-write approach for diagnostics.
-func (w SkillsWrite) String() string { return w.approach().String() }
+// String renders the commands-write approach for diagnostics.
+func (w CommandsWrite) String() string { return w.approach().String() }
 
 // approach converts the caller-facing enum to the shared dispatch key.
-func (w SkillsWrite) approach() Approach { return ApproachUnsafeFile }
+func (w CommandsWrite) approach() Approach { return ApproachUnsafeFile }
 
 // ApproachTable is a backend's DECLARED per-surface approach support — the data
 // half of the per-provider dispatch. Each backend declares one as a literal in

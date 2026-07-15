@@ -493,7 +493,7 @@ func resolveSignerOrUnsigned(injected ssh.Signer, project bool) (signer ssh.Sign
 type SetItemTrustRequest struct {
 	// Ref is the item reference, "<bundle-ref>#<kind>/<name>" where bundle-ref
 	// is a canonical URL ref, a ctxloom:local ref, or a plain local bundle name,
-	// kind is fragments|skills|mcp|hooks (legacy "prompts" still accepted). A
+	// kind is fragments|commands|mcp|hooks (legacy "skills"/"prompts" still accepted). A
 	// trailing "@<commit>" on the bundle ref is accepted for resolution;
 	// approval pins by content BYTES (a countersignature), not commit.
 	Ref string
@@ -812,12 +812,13 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 	switch kindDir {
 	case "fragments":
 		return trust.KindFragment, name, nil
-	case "skills", "prompts":
-		// "skills" is the current spelling (the CLI list emits #skills/<name>);
-		// "prompts" is the legacy alias. Both map to trust.KindPrompt so the
+	case "commands", "skills", "prompts":
+		// "commands" is the current spelling (the CLI list emits #commands/<name>);
+		// "skills" and "prompts" are legacy aliases (skill→command rename, and the
+		// prompt→skill rename before it). All three map to trust.KindPrompt so the
 		// stored key (KindPrompt.Dir() == "prompts"), the assembly-time content
 		// gate, and existing acceptances stay valid — the content lives in
-		// bundle.Skills, which the hash helpers read under KindPrompt.
+		// bundle.Commands, which the hash helpers read under KindPrompt.
 		return trust.KindPrompt, name, nil
 	case "mcp":
 		return trust.KindMCP, name, nil
@@ -825,7 +826,7 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 		// name is the hook's "<event>/<index>" identity (carries an inner slash).
 		return trust.KindHook, name, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|skills|mcp|hooks)", kindDir)
+		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks)", kindDir)
 	}
 }
 
@@ -871,7 +872,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		rawPayload, distilledPayload = payloadPair(frag.ContentPayload)
 		return rawPayload, distilledPayload, signer, nil
 	case trust.KindPrompt:
-		prompt, ok := bundle.Skills[tRef.Name]
+		prompt, ok := bundle.Commands[tRef.Name]
 		if !ok {
 			return nil, nil, "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
 		}

@@ -23,14 +23,14 @@ const antigravitySkillsDir = AgentsDir + "/skills"
 // subdirectory).
 const antigravityManifest = ".ctxloom-manifest"
 
-// AntigravitySkills writes skills for Antigravity CLI as markdown skill files
-// under .agents/skills/.
-type AntigravitySkills struct{}
+// AntigravityCommands writes commands for Antigravity CLI as markdown skill
+// files under .agents/skills/.
+type AntigravityCommands struct{}
 
 // RegisterFromContent writes skill files from host-resolved command exports.
 // The host maps bundle content (with antigravity enablement + metadata) to
 // these agent-agnostic exports, so this stays config/bundle-free.
-func (s *AntigravitySkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *AntigravityCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

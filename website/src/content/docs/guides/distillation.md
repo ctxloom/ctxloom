@@ -4,7 +4,7 @@ title: "Distillation"
 
 Distillation compresses verbose context into token-efficient versions while preserving essential information. This helps you stay within context limits and reduce costs.
 
-This is authoring-time compression: it runs on the fragments and skills in your bundles, not on conversation history. If you're looking for how ctxloom summarizes a session's transcript across `/clear`, that's a different feature — see [Session Memory](/getting-started/memory).
+This is authoring-time compression: it runs on the fragments and commands in your bundles, not on conversation history. If you're looking for how ctxloom summarizes a session's transcript across `/clear`, that's a different feature — see [Session Memory](/getting-started/memory).
 
 ## Why Distill?
 

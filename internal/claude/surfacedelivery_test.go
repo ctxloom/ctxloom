@@ -99,30 +99,30 @@ func TestFileTemplateDelivery_DeliverMCP_PreservesUserServers(t *testing.T) {
 	assert.NotContains(t, servers, AppMCPServerName, "ctxloom server must be reverted")
 }
 
-// TestFileTemplateDelivery_DeliverSkills verifies the skills surface is written
+// TestFileTemplateDelivery_DeliverCommands verifies the commands surface is written
 // into the injected Placement identically to WriteCommandFiles, and that Cleanup
 // reverts the manifest-tracked set while preserving user-authored commands.
-func TestFileTemplateDelivery_DeliverSkills(t *testing.T) {
-	skills := []agent.CommandExport{
+func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
+	commands := []agent.CommandExport{
 		{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
 		{Name: "simple", Content: "Simple command", Enabled: true},
 	}
 
 	deliverDir := t.TempDir()
 	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, nil)
-	handle, err := d.DeliverSkills(skills)
+	handle, err := d.DeliverCommands(commands)
 	require.NoError(t, err)
 
 	// Control: the existing writer targeted at a separate dir.
 	controlDir := t.TempDir()
-	require.NoError(t, WriteCommandFiles(controlDir, skills))
+	require.NoError(t, WriteCommandFiles(controlDir, commands))
 
 	for _, rel := range []string{"review.md", "simple.md", ".ctxloom-manifest"} {
 		got, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "commands", rel))
-		require.NoError(t, err, "DeliverSkills must write %s", rel)
+		require.NoError(t, err, "DeliverCommands must write %s", rel)
 		want, err := os.ReadFile(filepath.Join(controlDir, ".claude", "commands", rel))
 		require.NoError(t, err)
-		assert.Equal(t, string(want), string(got), "DeliverSkills must match WriteCommandFiles for %s", rel)
+		assert.Equal(t, string(want), string(got), "DeliverCommands must match WriteCommandFiles for %s", rel)
 	}
 
 	// Seed a user-authored command that ctxloom does not track.
@@ -149,13 +149,13 @@ func writeRenderedHomeCommand(t *testing.T, homeDir string, cmd agent.CommandExp
 		[]byte(TransformToClaudeCommand(cmd)), 0o644))
 }
 
-// TestFileTemplateDelivery_DeliverSkills_DedupsIdenticalHomeCopy verifies the
+// TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy verifies the
 // wiring added to close the WithDedupHomeDir gap (never called in production
 // before this fix, per bb0e42f's unwired option): a project delivery skips a
-// skill whose rendered bytes are byte-identical to the same-named file already
+// command whose rendered bytes are byte-identical to the same-named file already
 // in the user-global ~/.claude/commands (here faked via $HOME), and the skip
-// is not manifest-tracked, while a project-unique skill still lands normally.
-func TestFileTemplateDelivery_DeliverSkills_DedupsIdenticalHomeCopy(t *testing.T) {
+// is not manifest-tracked, while a project-unique command still lands normally.
+func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
@@ -166,7 +166,7 @@ func TestFileTemplateDelivery_DeliverSkills_DedupsIdenticalHomeCopy(t *testing.T
 	keep := agent.CommandExport{Name: "keep", Content: "Project-only command", Enabled: true}
 
 	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
-	_, err := d.DeliverSkills([]agent.CommandExport{dup, keep})
+	_, err := d.DeliverCommands([]agent.CommandExport{dup, keep})
 	require.NoError(t, err)
 
 	commandsDir := filepath.Join(projectDir, ".claude", "commands")
@@ -175,14 +175,14 @@ func TestFileTemplateDelivery_DeliverSkills_DedupsIdenticalHomeCopy(t *testing.T
 
 	manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest"))
 	require.NoError(t, err)
-	assert.NotContains(t, string(manifest), "recover.md", "a deduped skill must not be manifest-tracked")
+	assert.NotContains(t, string(manifest), "recover.md", "a deduped command must not be manifest-tracked")
 	assert.Contains(t, string(manifest), "keep.md")
 }
 
-// TestFileTemplateDelivery_DeliverSkills_DivergentHomeCopyWritesNormally
+// TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally
 // verifies a same-named home file that differs from the rendered project bytes
 // (version skew) is never silently hidden: the project copy is still written.
-func TestFileTemplateDelivery_DeliverSkills_DivergentHomeCopyWritesNormally(t *testing.T) {
+func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
@@ -193,7 +193,7 @@ func TestFileTemplateDelivery_DeliverSkills_DivergentHomeCopyWritesNormally(t *t
 	updated := agent.CommandExport{Name: "recover", Content: "NEW BODY", Enabled: true}
 
 	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
-	_, err := d.DeliverSkills([]agent.CommandExport{updated})
+	_, err := d.DeliverCommands([]agent.CommandExport{updated})
 	require.NoError(t, err)
 
 	commandsDir := filepath.Join(projectDir, ".claude", "commands")
@@ -206,12 +206,12 @@ func TestFileTemplateDelivery_DeliverSkills_DivergentHomeCopyWritesNormally(t *t
 	assert.Contains(t, string(manifest), "recover.md")
 }
 
-// TestFileTemplateDelivery_DeliverSkills_DedupConvergence verifies the manifest
+// TestFileTemplateDelivery_DeliverCommands_DedupConvergence verifies the manifest
 // reconcile: a file a PREVIOUS run delivered (and manifest-tracked) that this
 // run's dedup now skips is not just left stale on disk — it is removed and
 // dropped from the manifest, so the project scope actually converges to
 // matching the global copy instead of leaving an orphaned duplicate.
-func TestFileTemplateDelivery_DeliverSkills_DedupConvergence(t *testing.T) {
+func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 	// No home copy yet for this run.
@@ -221,7 +221,7 @@ func TestFileTemplateDelivery_DeliverSkills_DedupConvergence(t *testing.T) {
 	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
 
 	// Run 1: delivered and manifest-tracked normally (no home copy to dedup against).
-	_, err := d.DeliverSkills([]agent.CommandExport{cmd})
+	_, err := d.DeliverCommands([]agent.CommandExport{cmd})
 	require.NoError(t, err)
 	commandsDir := filepath.Join(projectDir, ".claude", "commands")
 	require.FileExists(t, filepath.Join(commandsDir, "recover.md"), "precondition: run 1 delivered the file")
@@ -234,7 +234,7 @@ func TestFileTemplateDelivery_DeliverSkills_DedupConvergence(t *testing.T) {
 
 	// Run 2: dedup now applies -> the stale project copy must be removed and
 	// dropped from the manifest, not merely left un-rewritten.
-	_, err = d.DeliverSkills([]agent.CommandExport{cmd})
+	_, err = d.DeliverCommands([]agent.CommandExport{cmd})
 	require.NoError(t, err)
 	assert.NoFileExists(t, filepath.Join(commandsDir, "recover.md"), "run 2 must remove the now-deduped stale project copy")
 	if manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest")); err == nil {
@@ -242,21 +242,21 @@ func TestFileTemplateDelivery_DeliverSkills_DedupConvergence(t *testing.T) {
 	}
 }
 
-// TestFileTemplateDelivery_DeliverSkills_HomeScopeDeliveryDisablesDedup
+// TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup
 // verifies a directory never dedups against itself: when the delivery target
 // IS the resolved global commands directory (workDir == $HOME), the file is
 // still delivered even though it is byte-identical to "itself".
-func TestFileTemplateDelivery_DeliverSkills_HomeScopeDeliveryDisablesDedup(t *testing.T) {
+func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
 	cmd := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	// Pre-seed the exact file the delivery is about to (re)write, at the same
-	// path DeliverSkills targets — this is the "identical to itself" case.
+	// path DeliverCommands targets — this is the "identical to itself" case.
 	writeRenderedHomeCommand(t, fakeHome, cmd)
 
 	d := newFileTemplateDelivery(fakePlacement{dir: fakeHome}, nil)
-	_, err := d.DeliverSkills([]agent.CommandExport{cmd})
+	_, err := d.DeliverCommands([]agent.CommandExport{cmd})
 	require.NoError(t, err)
 
 	commandsDir := filepath.Join(fakeHome, ".claude", "commands")
@@ -266,15 +266,15 @@ func TestFileTemplateDelivery_DeliverSkills_HomeScopeDeliveryDisablesDedup(t *te
 	assert.Contains(t, string(manifest), "recover.md", "a home-scope delivery must still manifest-track its write")
 }
 
-// TestFileTemplateDelivery_DeliverSkills_SelfContainedSkipsHomeDedup verifies
+// TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup verifies
 // the materialize-only opt-out (sour-feed): `profile materialize --target` must
-// produce a PORTABLE, self-contained tree, so a skill that happens to be
+// produce a PORTABLE, self-contained tree, so a command that happens to be
 // deduped against the DELIVERING machine's ~/.claude/commands must still land
-// in the target when selfContainedSkills is set — the launch environment is
+// in the target when selfContainedCommands is set — the launch environment is
 // not this host and would otherwise silently lose it. The default (false)
 // behavior — dedup against home, as live launch/apply/container want — must be
 // unchanged.
-func TestFileTemplateDelivery_DeliverSkills_SelfContainedSkipsHomeDedup(t *testing.T) {
+func TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
@@ -284,20 +284,20 @@ func TestFileTemplateDelivery_DeliverSkills_SelfContainedSkipsHomeDedup(t *testi
 	// Default (false): unchanged — still dedups against home.
 	projectDir := t.TempDir()
 	d := newFileTemplateDelivery(fakePlacement{dir: projectDir}, nil)
-	_, err := d.DeliverSkills([]agent.CommandExport{dup})
+	_, err := d.DeliverCommands([]agent.CommandExport{dup})
 	require.NoError(t, err)
 	assert.NoFileExists(t, filepath.Join(projectDir, ".claude", "commands", "recover.md"),
 		"default (non-self-contained) delivery must still dedup against home")
 
-	// selfContainedSkills = true: the portable target must keep the skill even
+	// selfContainedCommands = true: the portable target must keep the command even
 	// though it shadows a command in the delivering machine's home.
 	selfContainedDir := t.TempDir()
 	sc := newFileTemplateDelivery(fakePlacement{dir: selfContainedDir}, nil)
-	sc.selfContainedSkills = true
-	_, err = sc.DeliverSkills([]agent.CommandExport{dup})
+	sc.selfContainedCommands = true
+	_, err = sc.DeliverCommands([]agent.CommandExport{dup})
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(selfContainedDir, ".claude", "commands", "recover.md"),
-		"selfContainedSkills delivery must NOT dedup against the delivering machine's home — the portable target must keep every skill")
+		"selfContainedCommands delivery must NOT dedup against the delivering machine's home — the portable target must keep every command")
 }
 
 // TestFileTemplateDelivery_DeliverSettings verifies the settings surface (hooks +

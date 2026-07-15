@@ -3,7 +3,7 @@
 // The trust-surface matrix (trust_surface.feature): a REFERENCE demonstration,
 // not a journey — no persona arc, just the exhaustive element × decision table
 // this file proves. One bundle ships one of each trust-addressable kind
-// (fragment, skill, mcp server, hook); each row approves or rejects ONE of
+// (fragment, command, mcp server, hook); each row approves or rejects ONE of
 // them and asserts the PAYLOAD — the element's actual bytes in the generated
 // surface — landed or did not.
 //
@@ -43,7 +43,7 @@ import (
 // file-exists or exit-code proxy.
 const (
 	tsFragmentMarker = "TS-FRAGMENT-MARKER-4b7f1a"
-	tsSkillMarker    = "TS-SKILL-MARKER-9d2e60"
+	tsCommandMarker    = "TS-COMMAND-MARKER-9d2e60"
 	tsMCPMarker      = "TS-MCP-EXEC-MARKER-6a1c33"
 	tsHookMarker     = "echo TS-HOOK-EXEC-MARKER-7f0e52"
 
@@ -81,7 +81,7 @@ func tsOf(w *World) *tsState {
 }
 
 // tsBundleYAML renders the one bundle both fixtures share: a fragment, a
-// skill, an MCP server, a hook, and a profile — one of each trust-addressable
+// command, an MCP server, a hook, and a profile — one of each trust-addressable
 // kind, plus the one kind that ISN'T (profiles) — each carrying its own
 // distinctive marker. Identical content either signed or not; only the
 // SEEDING (signed+trusted vs unsigned) differs between the two fixtures.
@@ -90,9 +90,9 @@ func tsBundleYAML() string {
 fragments:
   context:
     content: %q
-skills:
+commands:
   guide:
-    description: trust-surface demo skill
+    description: trust-surface demo command
     content: %q
 mcp:
   toolserver:
@@ -105,14 +105,14 @@ hooks:
 profiles:
   reviewme:
     description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+`, tsFragmentMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
 }
 
 // tsBundleYAMLFragmentRenamed is GAP A's fixture: the SAME bundle
 // tsBundleYAML ships, except the fragment's key is "context2" instead of
 // "context" — a rename/move at the publisher, with the fragment's BYTES
 // (tsFragmentMarker) left byte-for-byte identical. Everything else
-// (skill/mcp/hook/profile) is unchanged. Used with AdvanceSignedRemote so the
+// (command/mcp/hook/profile) is unchanged. Used with AdvanceSignedRemote so the
 // re-signed document is still validly signed by the same trusted principal —
 // if the content-level rejection were not enforced, step 5 (trusted signer)
 // would re-admit it under its new name.
@@ -121,9 +121,9 @@ func tsBundleYAMLFragmentRenamed() string {
 fragments:
   context2:
     content: %q
-skills:
+commands:
   guide:
-    description: trust-surface demo skill
+    description: trust-surface demo command
     content: %q
 mcp:
   toolserver:
@@ -136,7 +136,7 @@ hooks:
 profiles:
   reviewme:
     description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+`, tsFragmentMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
 }
 
 // tsBundleYAMLFragmentDistilledAdded is GAP B's "form flip" fixture: the same
@@ -150,9 +150,9 @@ fragments:
   context:
     content: %q
     distilled: %q
-skills:
+commands:
   guide:
-    description: trust-surface demo skill
+    description: trust-surface demo command
     content: %q
 mcp:
   toolserver:
@@ -165,7 +165,7 @@ hooks:
 profiles:
   reviewme:
     description: trust-surface demo profile — never trust-gated, see the last scenario
-`, tsFragmentMarker, tsFragmentDistilledAddedMarker, tsSkillMarker, tsMCPMarker, tsHookMarker)
+`, tsFragmentMarker, tsFragmentDistilledAddedMarker, tsCommandMarker, tsMCPMarker, tsHookMarker)
 }
 
 // tsDualFormBundleYAML is GAP B's "both forms shipped at once" fixture: a
@@ -193,13 +193,13 @@ func tsRef(w *World, selector string) string {
 
 // tsSelector maps a Scenario Outline's <element> column to the item's
 // "<kind>/<name>" selector (internal/operations/trust.go's parseTrustSelector
-// vocabulary: fragments|skills|mcp|hooks).
+// vocabulary: fragments|commands|mcp|hooks).
 func tsSelector(element string) (string, error) {
 	switch element {
 	case "fragment":
 		return "fragments/context", nil
-	case "skill":
-		return "skills/guide", nil
+	case "command":
+		return "commands/guide", nil
 	case "MCP server":
 		return "mcp/toolserver", nil
 	case "hook":
@@ -243,7 +243,7 @@ func tsUpdateAndPull(w *World) error {
 }
 
 func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook$`, func(c context.Context) error {
+	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
@@ -260,7 +260,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return tsWireAndPull(w, url)
 	})
 
-	ctx.Step(`^a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook$`, func(c context.Context) error {
+	ctx.Step(`^a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 			return err
@@ -287,7 +287,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return tsWireAndPull(w, url)
 	})
 
-	ctx.Step(`^Alice approves the (fragment|skill|MCP server|hook)$`, func(c context.Context, element string) error {
+	ctx.Step(`^Alice approves the (fragment|command|MCP server|hook)$`, func(c context.Context, element string) error {
 		w := worldFrom(c)
 		selector, err := tsSelector(element)
 		if err != nil {
@@ -296,7 +296,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return runOK(w, "trust", tsRef(w, selector))
 	})
 
-	ctx.Step(`^Alice rejects the (fragment|skill|MCP server|hook)$`, func(c context.Context, element string) error {
+	ctx.Step(`^Alice rejects the (fragment|command|MCP server|hook)$`, func(c context.Context, element string) error {
 		w := worldFrom(c)
 		selector, err := tsSelector(element)
 		if err != nil {
@@ -309,11 +309,11 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// (materializes "default" into "out") — reused verbatim; godog rejects an
 	// ambiguous second match for the same step text (steps_j3.go:229-235).
 
-	ctx.Step(`^the (fragment|skill|MCP server|hook) is present in her assistant's delivered surface$`, func(c context.Context, element string) error {
+	ctx.Step(`^the (fragment|command|MCP server|hook) is present in her assistant's delivered surface$`, func(c context.Context, element string) error {
 		return tsAssertPresence(worldFrom(c), element, true)
 	})
 
-	ctx.Step(`^the (fragment|skill|MCP server|hook) is absent from her assistant's delivered surface$`, func(c context.Context, element string) error {
+	ctx.Step(`^the (fragment|command|MCP server|hook) is absent from her assistant's delivered surface$`, func(c context.Context, element string) error {
 		return tsAssertPresence(worldFrom(c), element, false)
 	})
 
@@ -502,7 +502,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// never regenerated at all — the session aborted — so the rejected
 	// fragment's bytes stay gone. A missing/empty CLAUDE.md is the cleanest
 	// pass: the refused session assembled nothing, so nothing rejected came
-	// back. (The skill/MCP/hook were legitimately delivered by the PRIOR,
+	// back. (The command/MCP/hook were legitimately delivered by the PRIOR,
 	// healthy session and its files linger untouched by the aborted run —
 	// that stale surface is not the rejected content reappearing, so this
 	// step deliberately asserts only on the fragment that was rejected.)
@@ -692,8 +692,8 @@ func tsAssertPresence(w *World, element string, present bool) error {
 	switch element {
 	case "fragment":
 		return tsAssertFragment(w, present)
-	case "skill":
-		return tsAssertSkill(w, present)
+	case "command":
+		return tsAssertCommand(w, present)
 	case "MCP server":
 		return tsAssertMCP(w, present)
 	case "hook":
@@ -732,27 +732,27 @@ func tsAssertFragment(w *World, present bool) error {
 	return nil
 }
 
-// tsAssertSkill reads the exported slash-command file (claude flattens
+// tsAssertCommand reads the exported slash-command file (claude flattens
 // "<bundle>/<item>" to "<bundle>-<item>.md" — internal/claude/commandfiles.go)
-// and asserts the skill's body landed (or the export never happened at all —
-// a withheld skill is never written, not written-then-emptied).
-func tsAssertSkill(w *World, present bool) error {
+// and asserts the command's body landed (or the export never happened at all —
+// a withheld command is never written, not written-then-emptied).
+func tsAssertCommand(w *World, present bool) error {
 	rel := filepath.Join("out", ".claude", "commands", "trustdemo-guide.md")
 	body, err := w.env.ReadFile(rel)
 	if err != nil {
 		if present {
-			return fmt.Errorf("read exported skill %s: %w", rel, err)
+			return fmt.Errorf("read exported command %s: %w", rel, err)
 		}
-		w.docStepMaterialized = fmt.Sprintf("%s: not written (skill withheld)", rel)
+		w.docStepMaterialized = fmt.Sprintf("%s: not written (command withheld)", rel)
 		return nil
 	}
 	w.docStepMaterialized = body
-	has := strings.Contains(body, tsSkillMarker)
+	has := strings.Contains(body, tsCommandMarker)
 	if present && !has {
-		return fmt.Errorf("%s does not contain the skill's marker %q; content:\n%s", rel, tsSkillMarker, body)
+		return fmt.Errorf("%s does not contain the command's marker %q; content:\n%s", rel, tsCommandMarker, body)
 	}
 	if !present && has {
-		return fmt.Errorf("%s unexpectedly contains the skill's marker %q; content:\n%s", rel, tsSkillMarker, body)
+		return fmt.Errorf("%s unexpectedly contains the command's marker %q; content:\n%s", rel, tsCommandMarker, body)
 	}
 	return nil
 }

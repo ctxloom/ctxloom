@@ -82,24 +82,24 @@ func TestWriteCommandFiles_CleanupRemovesOnlyOurs(t *testing.T) {
 	assert.Equal(t, "user command", string(foreignData))
 }
 
-// TestSurfaces_SkillsSurface proves the materialize path's SurfaceSet carries a
-// skills surface that writes the command files and reverts them on cleanup.
-func TestSurfaces_SkillsSurface(t *testing.T) {
+// TestSurfaces_CommandsSurface proves the materialize path's SurfaceSet carries
+// a commands surface that writes the command files and reverts them on cleanup.
+func TestSurfaces_CommandsSurface(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	set := NewSurfaces(agent.SurfaceInputs{
-		Skills: []agent.CommandExport{{Name: "s", Description: "d", Content: "b", Enabled: true}},
+		Commands: []agent.CommandExport{{Name: "s", Description: "d", Content: "b", Enabled: true}},
 	}, fs)
 
-	s, err := set.SurfaceFor(agent.SurfaceSkills, agent.ApproachUnsafeFile)
-	require.NoError(t, err, "opencode declares a skills surface")
+	s, err := set.SurfaceFor(agent.SurfaceCommands, agent.ApproachUnsafeFile)
+	require.NoError(t, err, "opencode declares a commands surface")
 
 	delivered, err := s.Deliver("/proj")
 	require.NoError(t, err)
 	path := filepath.Join("/proj", ".opencode", "command", "s.md")
 	exists, _ := afero.Exists(fs, path)
-	assert.True(t, exists, "skills surface materializes the command")
+	assert.True(t, exists, "commands surface materializes the command")
 
 	require.NoError(t, delivered.Cleanup())
 	exists, _ = afero.Exists(fs, path)
-	assert.False(t, exists, "skills surface cleanup reverts the command")
+	assert.False(t, exists, "commands surface cleanup reverts the command")
 }

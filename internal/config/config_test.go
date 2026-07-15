@@ -1461,10 +1461,10 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 }
 
 // TestConfig_ResolveBundle_ScopesToSelectedProfile pins the per-agent config
-// retarget: passing an explicit profile set scopes bundle MCP AND prompts/skills
+// retarget: passing an explicit profile set scopes bundle MCP AND prompts/commands
 // to THAT profile's bundles, distinct from the configured defaults. This is the
 // fix for `run -p X` leaking the default profile's MCP and every pulled bundle's
-// skills into X's session.
+// commands into X's session.
 func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -1477,9 +1477,9 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
 		[]byte("name: finder\nbundles:\n  - finder-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev-bundle.yaml"),
-		[]byte("name: dev-bundle\nversion: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\nskills:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
+		[]byte("name: dev-bundle\nversion: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "finder-bundle.yaml"),
-		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\nskills:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
+		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
 
 	cfg := &Config{
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
@@ -1497,13 +1497,13 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 	assert.Contains(t, defMCP, "dev-mcp")
 	assert.NotContains(t, defMCP, "finder-mcp")
 
-	// Same scoping for prompts/skills — the formerly-global surface.
-	var selSkills []string
-	for _, lc := range cfg.ResolveBundleSkills([]string{"finder"}) {
-		selSkills = append(selSkills, lc.Item)
+	// Same scoping for prompts/commands — the formerly-global surface.
+	var selCommands []string
+	for _, lc := range cfg.ResolveBundleCommands([]string{"finder"}) {
+		selCommands = append(selCommands, lc.Item)
 	}
-	assert.Contains(t, selSkills, "finder-skill")
-	assert.NotContains(t, selSkills, "dev-skill", "selecting finder must not pull every bundle's skills")
+	assert.Contains(t, selCommands, "finder-skill")
+	assert.NotContains(t, selCommands, "dev-skill", "selecting finder must not pull every bundle's commands")
 }
 
 // hookBundleYAML is a bundle that ships one hook per several event types, used

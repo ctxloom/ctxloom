@@ -70,7 +70,7 @@ ctxloom manage hooks install --backend claude-code
 ctxloom manage install
 ```
 
-Applying hooks also writes the command files exported from skills, the MCP server config, and the HUD statusline (honoring `config.statusline`). There is no MCP tool for this — hook management is CLI-only.
+Applying hooks also writes the command files exported from commands, the MCP server config, and the HUD statusline (honoring `config.statusline`). There is no MCP tool for this — hook management is CLI-only.
 
 ## Context Assembly
 

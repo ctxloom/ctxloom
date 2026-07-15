@@ -35,7 +35,7 @@ func TestContextWrite_StringAndApproach(t *testing.T) {
 	}
 }
 
-// ---- MCPWrite / SettingsWrite / SkillsWrite ------------------------------------
+// ---- MCPWrite / SettingsWrite / CommandsWrite ------------------------------------
 
 // Every one of these single-valued enums converts to ApproachUnsafeFile — the
 // only approach any of these surfaces offers today (a claude-only extension point
@@ -47,8 +47,8 @@ func TestSingleValueWrites_StringAndApproach(t *testing.T) {
 	assert.Equal(t, "unsafe-file", SettingsWriteUnsafeFile.String())
 	assert.Equal(t, ApproachUnsafeFile, SettingsWriteUnsafeFile.approach())
 
-	assert.Equal(t, "unsafe-file", SkillsWriteUnsafeFile.String())
-	assert.Equal(t, ApproachUnsafeFile, SkillsWriteUnsafeFile.approach())
+	assert.Equal(t, "unsafe-file", CommandsWriteUnsafeFile.String())
+	assert.Equal(t, ApproachUnsafeFile, CommandsWriteUnsafeFile.approach())
 }
 
 // ---- ApproachTable (shared per-provider dispatch mechanics) -----------------
@@ -85,7 +85,7 @@ func TestApproachTable_SupportedDefaultAndSurfaceFor(t *testing.T) {
 		"an undeclared approach is rejected, naming backend/surface/approach")
 
 	// A declared kind missing from the surface map is a loud mismatch.
-	mismatched := ApproachTable{SurfaceSkills: {ApproachUnsafeFile}}
-	_, err = mismatched.SurfaceFor("enginex", map[SurfaceKind]Delivery{}, SurfaceSkills, ApproachUnsafeFile)
-	assert.ErrorContains(t, err, "enginex: no skills surface")
+	mismatched := ApproachTable{SurfaceCommands: {ApproachUnsafeFile}}
+	_, err = mismatched.SurfaceFor("enginex", map[SurfaceKind]Delivery{}, SurfaceCommands, ApproachUnsafeFile)
+	assert.ErrorContains(t, err, "enginex: no commands surface")
 }

@@ -13,33 +13,33 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestResolveSetupPrompt_NoSkillsIsBuiltinAlone proves the built-in alone is
-// returned when nothing installed ships an `agent-setup` skill, and that a nil
+// TestResolveSetupPrompt_NoCommandsIsBuiltinAlone proves the built-in alone is
+// returned when nothing installed ships an `agent-setup` command, and that a nil
 // config is safe (never blocks setup).
-func TestResolveSetupPrompt_NoSkillsIsBuiltinAlone(t *testing.T) {
+func TestResolveSetupPrompt_NoCommandsIsBuiltinAlone(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "misc", `version: "1.0"
-skills:
+commands:
   something-else:
     content: "UNRELATED"
 `)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(cfg, "BUILTIN"),
-		"no agent-setup skill installed → the built-in prompt alone")
+		"no agent-setup command installed → the built-in prompt alone")
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(nil, "BUILTIN"),
 		"a nil config is safe and falls back to the built-in")
 }
 
-// TestResolveSetupPrompt_OneSkillAugmentsBuiltin proves a bundle shipping a
-// single `agent-setup` skill ADDS to the built-in rather than replacing it —
+// TestResolveSetupPrompt_OneCommandAugmentsBuiltin proves a bundle shipping a
+// single `agent-setup` command ADDS to the built-in rather than replacing it —
 // "bundles can ship setup guidance" now means augment, not override.
-func TestResolveSetupPrompt_OneSkillAugmentsBuiltin(t *testing.T) {
+func TestResolveSetupPrompt_OneCommandAugmentsBuiltin(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "onboarding", `version: "1.0"
-skills:
+commands:
   agent-setup:
     content: "BUNDLE-SHIPPED-SETUP-PROMPT"
 `)
@@ -50,24 +50,24 @@ skills:
 	assert.Contains(t, got, "BUNDLE-SHIPPED-SETUP-PROMPT", "the bundle's agent-setup content must be added")
 }
 
-// TestResolveSetupPrompt_TwoSkillsComposeInStableOrder proves TWO installed
-// agent-setup skills (e.g. a personal repo's and a company repo's) both land
+// TestResolveSetupPrompt_TwoCommandsComposeInStableOrder proves TWO installed
+// agent-setup commands (e.g. a personal repo's and a company repo's) both land
 // in the composed prompt, alongside the built-in, in a deterministic
-// (sorted-by-skill-name) order regardless of which bundle happened to load
+// (sorted-by-command-name) order regardless of which bundle happened to load
 // first.
-func TestResolveSetupPrompt_TwoSkillsComposeInStableOrder(t *testing.T) {
+func TestResolveSetupPrompt_TwoCommandsComposeInStableOrder(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	// "alpha-onboarding" sorts before "zebra-onboarding" by bundle-qualified
-	// skill name, so the composed order is deterministic across repeated runs
+	// command name, so the composed order is deterministic across repeated runs
 	// regardless of directory listing order.
 	writeRegenBundle(t, appDir, "zebra-onboarding", `version: "1.0"
-skills:
+commands:
   agent-setup:
     content: "ZEBRA-SETUP-CONTENT"
 `)
 	writeRegenBundle(t, appDir, "alpha-onboarding", `version: "1.0"
-skills:
+commands:
   agent-setup:
     content: "ALPHA-SETUP-CONTENT"
 `)
@@ -88,13 +88,13 @@ skills:
 	assert.Equal(t, got, again, "composition order must be stable across repeated resolutions")
 }
 
-// TestResolveSetupPrompt_CompanionLoadoutSkillAugmentsBuiltin proves the
-// paced-trump claim that a companion loadout's `agent-setup` skill lands in
+// TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin proves the
+// paced-trump claim that a companion loadout's `agent-setup` command lands in
 // the SAME seeded set a repo bundle's does (config.go's SeededBundleLoader
 // merges loadRemoteBundleSeed and companionBundleSeed into one map), so
-// composing over ListAllSkills picks up an installed companion's setup
+// composing over ListAllCommands picks up an installed companion's setup
 // guidance with no separate companion-specific lookup in this package.
-func TestResolveSetupPrompt_CompanionLoadoutSkillAugmentsBuiltin(t *testing.T) {
+func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("HOME", t.TempDir())
 
@@ -106,7 +106,7 @@ func TestResolveSetupPrompt_CompanionLoadoutSkillAugmentsBuiltin(t *testing.T) {
 	})
 	defer restoreLook()
 
-	bundleYAML := []byte("version: \"1.0.0\"\nskills:\n  agent-setup:\n    content: COMPANION-SHIPPED-SETUP-PROMPT\n")
+	bundleYAML := []byte("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: COMPANION-SHIPPED-SETUP-PROMPT\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
 	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
@@ -118,5 +118,5 @@ func TestResolveSetupPrompt_CompanionLoadoutSkillAugmentsBuiltin(t *testing.T) {
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")
 	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-PROMPT",
-		"an installed companion's agent-setup skill must be composed in exactly like a repo bundle's")
+		"an installed companion's agent-setup command must be composed in exactly like a repo bundle's")
 }

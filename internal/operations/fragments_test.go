@@ -213,7 +213,7 @@ fragments:
     tags: ["go", "best-practices"]
     content: |
       Go development best practices
-skills:
+commands:
   code-review:
     description: Review code
     content: |

@@ -67,7 +67,7 @@ func NewKiro() *Kiro {
 	// .kiro/steering/ctxloom-context.md directly, and the merge hash is "".
 	b.InitLaunch(
 		agent.NewBaseLifecycle("kiro"),
-		&KiroSkills{},
+		&KiroCommands{},
 		agent.NewBaseContextProvider(),
 		newKiroSessionHistory(),
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

@@ -20,7 +20,7 @@ func newItemTestBundle(t *testing.T) *config.Config {
 }
 
 func TestAddItem_AddOnlyAcrossKinds(t *testing.T) {
-	for _, kind := range []ItemKind{ItemKindFragment, ItemKindSkill} {
+	for _, kind := range []ItemKind{ItemKindFragment, ItemKindCommand} {
 		t.Run(string(kind), func(t *testing.T) {
 			cfg := newItemTestBundle(t)
 
@@ -76,17 +76,17 @@ func TestAddItem_NoDistillerStoresRaw(t *testing.T) {
 
 func TestDeleteItem(t *testing.T) {
 	cfg := newItemTestBundle(t)
-	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindSkill, Name: "p", Content: "c"})
+	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindCommand, Name: "p", Content: "c"})
 	require.NoError(t, err)
 
-	_, err = DeleteItem(context.Background(), cfg, DeleteItemRequest{Bundle: "b", Kind: ItemKindSkill, Name: "p"})
+	_, err = DeleteItem(context.Background(), cfg, DeleteItemRequest{Bundle: "b", Kind: ItemKindCommand, Name: "p"})
 	require.NoError(t, err)
 
-	_, err = GetItemContent(context.Background(), cfg, GetItemRequest{Bundle: "b", Kind: ItemKindSkill, Name: "p"})
+	_, err = GetItemContent(context.Background(), cfg, GetItemRequest{Bundle: "b", Kind: ItemKindCommand, Name: "p"})
 	require.ErrorIs(t, err, ErrItemNotFound)
 
 	// Deleting an absent item is ErrItemNotFound, not a silent success.
-	_, err = DeleteItem(context.Background(), cfg, DeleteItemRequest{Bundle: "b", Kind: ItemKindSkill, Name: "p"})
+	_, err = DeleteItem(context.Background(), cfg, DeleteItemRequest{Bundle: "b", Kind: ItemKindCommand, Name: "p"})
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 

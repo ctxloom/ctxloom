@@ -58,25 +58,25 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 		"the assembled fragment block is the CLAUDE.md payload")
 }
 
-// TestMaterializeProfile_KeepsHomeShadowedSkill is the end-to-end regression for
-// sour-feed: `profile materialize --target` must produce a PORTABLE,
-// self-contained tree, so a builtin skill (e.g. "recover") that happens to be
-// byte-identical to a file already sitting in the MATERIALIZING machine's own
-// ~/.claude/commands must still land in --target. Pre-fix, claude's
-// DeliverSkills unconditionally deduped against GlobalCommandsDir(), silently
+// TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end regression
+// for sour-feed: `profile materialize --target` must produce a PORTABLE,
+// self-contained tree, so a builtin command (e.g. "recover") that happens to
+// be byte-identical to a file already sitting in the MATERIALIZING machine's
+// own ~/.claude/commands must still land in --target. Pre-fix, claude's
+// DeliverCommands unconditionally deduped against GlobalCommandsDir(), silently
 // dropping it — exactly the observed cr-correctness bug (3 built-ins missing
 // for claude-code only, present for antigravity/kiro/codex, because this host
 // happened to already have them installed under ~/.claude/commands).
-func TestMaterializeProfile_KeepsHomeShadowedSkill(t *testing.T) {
+func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 
-	// Render the "recover" builtin skill exactly as materialize itself will (same
-	// LoadSkillExports/CommandExportsFor pipeline profile_materialize.go drives),
+	// Render the "recover" builtin command exactly as materialize itself will (same
+	// LoadCommandExports/CommandExportsFor pipeline profile_materialize.go drives),
 	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
 	// a materializing host that has already installed its own commands (e.g. via
 	// `manage hooks install`), which the --target launch environment does NOT
 	// share.
-	exports := backends.CommandExportsFor("claude-code", backends.LoadSkillExports(cfg, []string{"reviewer"}))
+	exports := backends.CommandExportsFor("claude-code", backends.LoadCommandExports(cfg, []string{"reviewer"}))
 	var seeded bool
 	for _, e := range exports {
 		if e.Name != "recover" {
@@ -89,16 +89,16 @@ func TestMaterializeProfile_KeepsHomeShadowedSkill(t *testing.T) {
 		seeded = true
 		break
 	}
-	require.True(t, seeded, "precondition: the recover builtin skill must be among the exports")
+	require.True(t, seeded, "precondition: the recover builtin command must be among the exports")
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, res.Wrote, "skills")
+	assert.Contains(t, res.Wrote, "commands")
 
 	assert.FileExists(t, filepath.Join(target, ".claude", "commands", "recover.md"),
-		"a skill byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
+		"a command byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 
 // TestMaterializeProfile_BackendAlias proves `claude` maps to claude-code.

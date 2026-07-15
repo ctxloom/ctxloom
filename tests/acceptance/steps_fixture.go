@@ -89,8 +89,8 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return runFixture(c, "fragment", "create", bundle, frag)
 	})
 
-	ctx.Step(`^a skill "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, skill, bundle string) error {
-		return runFixture(c, "skill", "create", bundle, skill)
+	ctx.Step(`^a command "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, command, bundle string) error {
+		return runFixture(c, "command", "create", bundle, command)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a
@@ -153,7 +153,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
-				"skills:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
+				"commands:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
 		})
 		if err != nil {
 			return fmt.Errorf("seed remote: %w", err)
@@ -203,7 +203,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 				"author: test\n" +
 				"description: Demo bundle\n" +
 				"fragments:\n  " + frag + ":\n    tags: [demo]\n    content: |\n      " + content + "\n" +
-				"skills:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
+				"commands:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
 		})
 	})
 

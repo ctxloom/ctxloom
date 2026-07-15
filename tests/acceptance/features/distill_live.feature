@@ -22,7 +22,7 @@ Feature: Live distillation with a real agent
   Scenario Outline: Distilling a prompt records a compressed rendering
     Given a real <agent> agent is available
     And a bundle "lore" with a long fragment "rules"
-    When I run "ctxloom skill distill lore#skills/guidance -f"
+    When I run "ctxloom command distill lore#commands/guidance -f"
     Then the command succeeds
     And the bundle "lore" records a distillation
 

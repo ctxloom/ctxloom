@@ -496,7 +496,7 @@ Examples:
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
 		if prompt == "" && runSavedPrompt != "" {
-			promptRes, err := operations.GetSkill(cmd.Context(), cfg, operations.GetSkillRequest{Name: runSavedPrompt})
+			promptRes, err := operations.GetCommand(cmd.Context(), cfg, operations.GetCommandRequest{Name: runSavedPrompt})
 			if err != nil {
 				return fmt.Errorf("failed to load prompt: %w", err)
 			}
@@ -969,12 +969,12 @@ Examples:
 		// exports are resolved for this backend's enablement + metadata.
 		//
 		// AssembleManagedConfig takes BOTH the executable trust gate (so bundle
-		// MCP/hooks/skill exports are gated at their own choke, TR5) AND
+		// MCP/hooks/command exports are gated at their own choke, TR5) AND
 		// ctxResult.Profiles — the SELECTED profile set (from -p, or the resolved
 		// defaults) that AssembleContext scoped context to. Passing the profiles
-		// here scopes the managed mcp/skills/hooks to the SAME profiles, so
+		// here scopes the managed mcp/commands/hooks to the SAME profiles, so
 		// `run -p X` no longer leaks the default profile's MCP or every pulled
-		// bundle's skills into X's session.
+		// bundle's commands into X's session.
 		// Launch-time permission posture. Precedence: --permissions flag > agent
 		// binding > engine-label config > built-in default (claude-code → bypass
 		// while container isolation isn't relied on; others prompt). A headless

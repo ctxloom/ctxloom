@@ -120,15 +120,15 @@ func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.
 	stderr := captureStderr(t, func() {
 		delivered, _, errs := r.DeliverShared(sharedCwd)
 		require.Empty(t, errs)
-		assert.Len(t, delivered, 4, "context, mcp, settings, and skills (Unsafe) all deliver")
+		assert.Len(t, delivered, 4, "context, mcp, settings, and commands (Unsafe) all deliver")
 	})
 
 	exists, _ := afero.Exists(fs, filepath.Join(sharedCwd, "CLAUDE.md"))
 	assert.False(t, exists, "context must NEVER land as a native file in the shared cwd")
 	assert.Equal(t, isolated, filepath.Dir(set.Context.Path()), "context converted to the out-of-cwd system-prompt scratch")
-	assert.Contains(t, stderr, "skills", "skills has no realization and must warn")
+	assert.Contains(t, stderr, "commands", "commands has no realization and must warn")
 	assert.Equal(t, 1, strings.Count(stderr, "warning:"),
-		"only skills (no SharedRealization) warns — context/mcp/settings convert silently via SharedRealization")
+		"only commands (no SharedRealization) warns — context/mcp/settings convert silently via SharedRealization")
 }
 
 // A backend with NO SharedRealization for any surface (codex, antigravity, kiro —
@@ -139,10 +139,10 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
 	set := kiro.NewSurfaces(agent.SurfaceInputs{
-		Skills: []agent.CommandExport{{Name: "review", Content: "do it", Enabled: true}},
+		Commands: []agent.CommandExport{{Name: "review", Content: "do it", Enabled: true}},
 	}, fs)
 
-	r, err := agent.Select(set).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	r, err := agent.Select(set).WithCommands(agent.CommandsWriteUnsafeFile).Build()
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -153,7 +153,7 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	})
 	require.Len(t, delivered, 1)
 	assert.Contains(t, stderr, "warning:")
-	assert.Contains(t, stderr, "skills")
+	assert.Contains(t, stderr, "commands")
 	assert.Contains(t, stderr, "shared cwd")
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, ".kiro", "skills", "review", "SKILL.md"))

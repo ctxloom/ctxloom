@@ -8,18 +8,18 @@ Feature: The trust surface — what "review" actually controls
   payload the assistant receives?
 
   A bundle ships five kinds of thing (internal/bundles/bundles.go:38-59):
-  fragments, skills, mcp servers, hooks, and profiles. They are not equally
+  fragments, commands, mcp servers, hooks, and profiles. They are not equally
   dangerous. A hook is a shell command the harness runs on a matching tool
   call, with no model in the loop — straight RCE. An MCP server is a binary
   launched and handed a tool surface the agent can invoke. A fragment or
-  skill is prose injected into an agent that already holds the shell, the
+  command is prose injected into an agent that already holds the shell, the
   filesystem, the network, and the credentials — "just text" is the
   industry's mistake, not ours.
 
   Before this table existed, reject-coverage was scattered and lopsided in
   exactly the highest-stakes places: the hook had been rejected in one test
   (claude only), the fragment had been rejected in one test, and the MCP
-  server, the skill, and the profile had NEVER been denied in any test, on
+  server, the command, and the profile had NEVER been denied in any test, on
   any engine. Every existing scenario that mentions an MCP server asserts
   it APPEARS.
 
@@ -53,7 +53,7 @@ Feature: The trust surface — what "review" actually controls
   # Ordered by execution tier — hooks first, because Tier 1 (RCE, no model in
   # the loop) is the loudest claim this table can make or break.
   Scenario Outline: Approving the shipped item is what makes it reach the assistant
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice approves the <element>
     And Alice starts a session
     Then the <element> is present in her assistant's delivered surface
@@ -62,11 +62,11 @@ Feature: The trust surface — what "review" actually controls
       | element    |
       | hook       |
       | MCP server |
-      | skill      |
+      | command    |
       | fragment   |
 
   Scenario Outline: Rejecting the shipped item withholds it, even though a trusted publisher signed it
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice rejects the <element>
     And Alice starts a session
     Then the <element> is absent from her assistant's delivered surface
@@ -75,13 +75,13 @@ Feature: The trust surface — what "review" actually controls
       | element    |
       | hook       |
       | MCP server |
-      | skill      |
+      | command    |
       | fragment   |
 
   # PROFILES: not a fifth row on either table above — there is no decision to
   # make one, on either side.
   Scenario: A profile cannot be approved or denied — there is no gate to run it through
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice tries to approve the bundle's profile
     Then ctxloom refuses, because profiles are not a trust-addressable kind
 
@@ -95,7 +95,7 @@ Feature: The trust surface — what "review" actually controls
   # new name (re-signed, so a broken content check would let it right back in
   # via step 5) — the marker must still never reach the assistant.
   Scenario: A rejection binds bytes, not identity — it survives a rename or move
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice rejects the fragment
     And the publisher renames the fragment to a new name, keeping its bytes identical, and re-signs it
     And Alice starts a session
@@ -125,7 +125,7 @@ Feature: The trust surface — what "review" actually controls
       | distilled |
 
   Scenario: Approving a fragment while it has only a raw form does not silently cover a distilled form added later
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice approves the fragment
     And Alice starts a session
     Then the fragment is present in her assistant's delivered surface
@@ -146,17 +146,17 @@ Feature: The trust surface — what "review" actually controls
   # own kind of failure for a tool whose whole job is telling a human what was
   # decided and why.
   Scenario: A rejected item's review state is labeled "rejected," not silently "pending"
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice rejects the fragment
     Then the fragment's review state is "rejected"
 
   Scenario: A retracted bundle's items are labeled "rejected," not silently "pending"
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When the publisher retracts the bundle
     Then the fragment's review state is "rejected"
 
   Scenario: An approved item's review state is labeled "accepted," not left at "pending"
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice approves the fragment
     Then the fragment's review state is "accepted"
 
@@ -172,7 +172,7 @@ Feature: The trust surface — what "review" actually controls
   # form that does not exist is not harmless bookkeeping — it is the tool
   # claiming to have protected something it never looked at.
   Scenario: Rejecting a raw-only item records a content block for exactly that form
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice rejects the fragment, and ctxloom reports what it recorded
     Then the recorded rejection covers exactly the raw form
 
@@ -189,7 +189,7 @@ Feature: The trust surface — what "review" actually controls
   # local is a gate bypass, not a cosmetic mislabel. Nothing on this page
   # exercised that guard.
   Scenario: A source reference that cannot be parsed is refused, never treated as local
-    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice tries to review an item whose source reference is malformed
     Then ctxloom refuses, rather than treating an unrecognized source as local
 
@@ -213,7 +213,7 @@ Feature: The trust surface — what "review" actually controls
   # "this one item"), with Alice told plainly that her approvals store is the
   # problem.
   Scenario: A corrupted approvals store denies everything, rather than silently un-rejecting previously withheld content
-    Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
+    Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice rejects the fragment
     And Alice starts a session
     Then the fragment is absent from her assistant's delivered surface

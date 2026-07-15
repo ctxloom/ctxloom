@@ -58,7 +58,7 @@ Triggers are declarative free text, and nothing evaluates them mechanically. Rev
 review step, not a mechanism: list the deferred tasks (`taskloom list --status Deferred`),
 reason about which triggers have actually fired, and move the ones that have back with
 `taskloom status <harp-id> "To Do"`. There is no automatic transition — an LLM judges, a
-human confirms. (A `check-triggers` skill that automates this review ships as one of
+human confirms. (A `check-triggers` command that automates this review ships as one of
 `ctxloom`'s own built-in slash commands, embedded in the `ctxloom` binary and available in
 any session `ctxloom run` launches — it is not part of taskloom's loadout, so a bare
 `taskloom` install with no `ctxloom` binary in the picture won't have it.) This mirrors the

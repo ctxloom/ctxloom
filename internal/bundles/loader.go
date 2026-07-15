@@ -379,7 +379,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			Description:   b.Description,
 			Tags:          b.Tags,
 			FragmentCount: b.FragmentCount(),
-			SkillCount:    b.SkillCount(),
+			CommandCount:  b.CommandCount(),
 			MCPCount:      b.MCPCount(),
 			ProfileCount:  b.ProfileCount(),
 		})
@@ -460,7 +460,7 @@ type BundleInfo struct {
 	Description   string
 	Tags          []string
 	FragmentCount int
-	SkillCount    int
+	CommandCount  int
 	MCPCount      int
 	ProfileCount  int
 	// Deleted marks a bundle that existed in an installed remote's history but
@@ -483,7 +483,7 @@ func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
 		Description:   bundle.Description,
 		Tags:          bundle.Tags,
 		FragmentCount: bundle.FragmentCount(),
-		SkillCount:    bundle.SkillCount(),
+		CommandCount:  bundle.CommandCount(),
 		MCPCount:      bundle.MCPCount(),
 		ProfileCount:  bundle.ProfileCount(),
 	}, nil

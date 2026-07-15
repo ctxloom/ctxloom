@@ -60,8 +60,8 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	// user's own commands in the same dir survive; with no exports the dir is left
 	// entirely untouched (no manifest write, so a materialized set here is not clobbered).
 	revertCmds := func() error { return nil }
-	if len(b.pendingSkills) > 0 {
-		if err := WriteCommandFiles(req.WorkDir, b.pendingSkills, agent.WithCommandFS(fs)); err != nil {
+	if len(b.pendingCommands) > 0 {
+		if err := WriteCommandFiles(req.WorkDir, b.pendingCommands, agent.WithCommandFS(fs)); err != nil {
 			_ = restore()
 			close(out)
 			return err

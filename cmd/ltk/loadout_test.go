@@ -20,7 +20,7 @@ import (
 
 // TestLoadout_YAML_IsAValidBundle proves the embedded loadout.yaml itself
 // parses as a well-formed bundles.Bundle and carries the ltk fragment plus
-// the task-runner skill — the two required contents (S8, item 1/4).
+// the task-runner command — the two required contents (S8, item 1/4).
 func TestLoadout_YAML_IsAValidBundle(t *testing.T) {
 	b, err := bundles.ParseBundle(loadoutYAML)
 	require.NoError(t, err, "ltk's loadout.yaml must be a well-formed bundle")
@@ -28,8 +28,8 @@ func TestLoadout_YAML_IsAValidBundle(t *testing.T) {
 	require.Contains(t, b.Fragments, "ltk", "loadout must carry the ltk fragment")
 	assert.NotEmpty(t, b.Fragments["ltk"].Content)
 
-	require.Contains(t, b.Skills, "task-runner", "loadout must carry the task-runner skill")
-	assert.NotEmpty(t, b.Skills["task-runner"].Content)
+	require.Contains(t, b.Commands, "task-runner", "loadout must carry the task-runner command")
+	assert.NotEmpty(t, b.Commands["task-runner"].Content)
 
 	require.Len(t, b.Hooks.PreTool, 1, "loadout must carry the pre-tool hook that wires ltk in")
 	assert.Contains(t, b.Hooks.PreTool[0].Command, "ltk evaluate")
@@ -65,7 +65,7 @@ func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
 	// --format yaml read would produce.
 	b, err := bundles.ParseBundle(decoded)
 	require.NoError(t, err)
-	assert.Contains(t, b.Skills, "task-runner")
+	assert.Contains(t, b.Commands, "task-runner")
 }
 
 // TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher is the end-to-end proof
@@ -119,9 +119,9 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	assert.Empty(t, buf.Bytes())
 }
 
-// exampleTaskRunnerRule is the worked example from the task-runner skill's
-// own instructions (cmd/ltk/loadout.yaml, skills.task-runner.content, step
-// 2) — kept here as a literal so this test proves the ACTUAL text the skill
+// exampleTaskRunnerRule is the worked example from the task-runner command's
+// own instructions (cmd/ltk/loadout.yaml, commands.task-runner.content, step
+// 2) — kept here as a literal so this test proves the ACTUAL text the command
 // ships, not a paraphrase that could drift from it.
 const exampleTaskRunnerRule = `
 version: 1
@@ -136,13 +136,13 @@ rules:
     suggest: "just test"
 `
 
-// TestLoadout_TaskRunnerSkill_SampleRulesPassLtkCheck is the required proof
-// (S8 output contract, item e) that the task-runner skill's worked example
+// TestLoadout_TaskRunnerCommand_SampleRulesPassLtkCheck is the required proof
+// (S8 output contract, item e) that the task-runner command's worked example
 // is not just prose: it is a VALID ltk config, and — driven through the
 // EXACT SAME path the `ltk check --command <sample> --format json` CLI
-// command uses (runCheck) — it produces the deny/suggest decision the skill
+// command uses (runCheck) — it produces the deny/suggest decision the command
 // promises for its own "validate before finishing" step.
-func TestLoadout_TaskRunnerSkill_SampleRulesPassLtkCheck(t *testing.T) {
+func TestLoadout_TaskRunnerCommand_SampleRulesPassLtkCheck(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(exampleTaskRunnerRule), 0o644))
 
@@ -156,13 +156,13 @@ func TestLoadout_TaskRunnerSkill_SampleRulesPassLtkCheck(t *testing.T) {
 	assert.Equal(t, "just test", result.Suggestion)
 }
 
-// TestLoadout_TaskRunnerSkill_RuleIDDoesNotCollideWithDefaults is the id-
-// collision guardrail the skill itself instructs the agent to follow (never
+// TestLoadout_TaskRunnerCommand_RuleIDDoesNotCollideWithDefaults is the id-
+// collision guardrail the command itself instructs the agent to follow (never
 // reuse a shipped default rule id, especially "tests-via-task-runner"),
 // proven mechanically against ltk's ACTUAL shipped default rule set
 // (sample.ltk.yaml, embedded as defaultRules) rather than trusted by
 // inspection.
-func TestLoadout_TaskRunnerSkill_RuleIDDoesNotCollideWithDefaults(t *testing.T) {
+func TestLoadout_TaskRunnerCommand_RuleIDDoesNotCollideWithDefaults(t *testing.T) {
 	example, err := rules.Parse([]byte(exampleTaskRunnerRule))
 	require.NoError(t, err)
 	require.Len(t, example.Rules, 1)
@@ -172,6 +172,6 @@ func TestLoadout_TaskRunnerSkill_RuleIDDoesNotCollideWithDefaults(t *testing.T) 
 
 	for _, r := range defaultCfg.Rules {
 		assert.NotEqual(t, r.ID, example.Rules[0].ID,
-			"the skill's worked-example rule id must not collide with a shipped default rule id")
+			"the command's worked-example rule id must not collide with a shipped default rule id")
 	}
 }

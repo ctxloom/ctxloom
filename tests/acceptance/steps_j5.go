@@ -3,7 +3,7 @@
 // J5: "one shared profile, reaching four engines in their own native format"
 // (j5_multi_engine.feature). Outline A materializes Carol's team profile for
 // each of the four engines and PARSES the generated file in its own format
-// (JSON, TOML, or markdown) to assert the fragment/server/hook/skill payload
+// (JSON, TOML, or markdown) to assert the fragment/server/hook/command payload
 // actually landed — never a bare file-exists or a substring-of-a-key-name.
 // Outline B (@live) plants a sentinel in a fragment and drives a real claude
 // or antigravity engine, asserting the sentinel returns through the actual
@@ -26,7 +26,7 @@ import (
 // DISCIPLINE — never a bare file-exists or exit-code proxy).
 const (
 	j5ContextMarker      = "J5-CONTEXT-MARKER-3f8a91"
-	j5SkillMarker        = "J5-SKILL-BODY-MARKER-7c2d64"
+	j5CommandMarker      = "J5-COMMAND-BODY-MARKER-7c2d64"
 	j5MCPCommand         = "j5-mcp-tool-9e1b52"
 	j5HookCommand        = "echo J5-HOOK-COMMAND-4a6f18"
 	j5LiveSentinel       = "J5-LIVE-SENTINEL-PHRASE-2b9dfa"
@@ -47,7 +47,7 @@ func j5Of(w *World) *j5State {
 	return w.j5
 }
 
-// j5TeamBundleYAML renders the shared "team" bundle: one fragment, one skill,
+// j5TeamBundleYAML renders the shared "team" bundle: one fragment, one command,
 // one MCP server, one hook — all first-party (authored directly in the
 // project, not pulled from a remote), so the executable trust gate exempts
 // them (operations/trust.go:265's LOCAL rule) and no signing ceremony is
@@ -58,9 +58,9 @@ description: J5 shared team bundle
 fragments:
   onboarding-context:
     content: %q
-skills:
+commands:
   onboarding:
-    description: J5 onboarding skill
+    description: J5 onboarding command
     content: %q
 mcp:
   toolserver:
@@ -70,13 +70,13 @@ hooks:
   session_start:
     - command: %q
       type: command
-`, j5ContextMarker, j5SkillMarker, j5MCPCommand, j5HookCommand)
+`, j5ContextMarker, j5CommandMarker, j5MCPCommand, j5HookCommand)
 }
 
 func registerJ5Steps(ctx *godog.ScenarioContext) {
 	// --- Outline A: materialization (hermetic) --------------------------------
 
-	ctx.Step(`^Carol's team profile carries a shared fragment, skill, MCP server, and hook$`, func(c context.Context) error {
+	ctx.Step(`^Carol's team profile carries a shared fragment, command, MCP server, and hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j5Of(w)
 		if err := w.env.InitGitRepo(); err != nil {
@@ -111,8 +111,8 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 		return j5AssertHook(worldFrom(c), engine)
 	})
 
-	ctx.Step(`^the materialized (\S+) skill file carries the shared skill's body, in its own native shape$`, func(c context.Context, engine string) error {
-		return j5AssertSkill(worldFrom(c), engine)
+	ctx.Step(`^the materialized (\S+) command file carries the shared command's body, in its own native shape$`, func(c context.Context, engine string) error {
+		return j5AssertCommand(worldFrom(c), engine)
 	})
 
 	// --- Regression: lanky-plop (P0 data loss) --------------------------------
@@ -457,12 +457,12 @@ func j5AssertHook(w *World, engine string) error {
 	return fmt.Errorf("%s's %q hooks %v do not include the shared hook's command %q", engine, event, cmds, j5HookCommand)
 }
 
-// j5AssertSkill asserts the shared skill's body reached each engine's own
-// skill file path — claude/codex flatten the "<bundle>/<item>" export name's
+// j5AssertCommand asserts the shared command's body reached each engine's own
+// command file path — claude/codex flatten the "<bundle>/<item>" export name's
 // slash to a dash (backends/commandfiles.go's exportNames), while kiro and
 // antigravity preserve it as a subdirectory (internal/{kiro,antigravity}
 // capabilities.go).
-func j5AssertSkill(w *World, engine string) error {
+func j5AssertCommand(w *World, engine string) error {
 	j5 := j5Of(w)
 	dir := j5.target
 	var rel string
@@ -478,5 +478,5 @@ func j5AssertSkill(w *World, engine string) error {
 	default:
 		return fmt.Errorf("j5: unknown engine %q", engine)
 	}
-	return j5FileContains(w, rel, j5SkillMarker)
+	return j5FileContains(w, rel, j5CommandMarker)
 }

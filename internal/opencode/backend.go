@@ -44,13 +44,13 @@ func (OpencodeConfig) BackendType() string { return "opencode" }
 type Opencode struct {
 	agent.LaunchBackend
 	model string
-	// pendingSkills holds the host-assembled command (skill) exports captured
-	// during Setup's surface build, so the LIVE chat path can materialize them
+	// pendingCommands holds the host-assembled command exports captured during
+	// Setup's surface build, so the LIVE chat path can materialize them
 	// transiently. opencode's live delivery does not use the cell/surface path
 	// (Setup writes no persistent surfaces — see NewOpencode); the CellDelivery
 	// Build closure is the only place these host-resolved exports reach the
 	// backend, so it stashes them here for Chat rather than delivering a surface.
-	pendingSkills []agent.CommandExport
+	pendingCommands []agent.CommandExport
 	// pendingContext is the assembled context string stashed at the same seam, so
 	// the interactive TUI launch (interactive.go) can materialize it transiently as
 	// the .opencode/ctxloom-context.md that opencode.json's `instructions` points at.
@@ -65,21 +65,21 @@ func NewOpencode() *Opencode {
 	// on PATH) overrides it via Configure/ApplyLocalCLIConfig.
 	b.BinaryPath = "opencode"
 	// The live run/oneshot path delivers everything (model, MCP, read-only
-	// permission, and now commands/skills) TRANSIENTLY in Chat, not via persistent
+	// permission, and now commands) TRANSIENTLY in Chat, not via persistent
 	// Setup surfaces — so the empty CellDelivery still runs the lifecycle merge but
 	// writes no files. Its Build closure is, however, the seam where the
-	// host-assembled command exports (inputs.Skills) reach this backend: it stashes
-	// them for Chat to materialize transiently, then returns an empty surface set so
-	// Setup itself writes nothing. (The persistent `profile materialize` path is
-	// separate — it uses the descriptor's newSurfaces builder, which DOES carry a
-	// skills surface; see surfaces.go.)
+	// host-assembled command exports (inputs.Commands) reach this backend: it
+	// stashes them for Chat to materialize transiently, then returns an empty
+	// surface set so Setup itself writes nothing. (The persistent `profile
+	// materialize` path is separate — it uses the descriptor's newSurfaces
+	// builder, which DOES carry a commands surface; see surfaces.go.)
 	b.InitLaunch(
 		agent.NewBaseLifecycle("opencode"),
-		&opencodeSkills{},
+		&opencodeCommands{},
 		agent.NewBaseContextProvider(),
 		newOpencodeSessionHistory(b),
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
-			b.pendingSkills = in.Skills
+			b.pendingCommands = in.Commands
 			b.pendingContext = in.Context
 			return agent.EmptySurfaceSet{}
 		}},

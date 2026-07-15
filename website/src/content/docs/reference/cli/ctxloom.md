@@ -21,7 +21,7 @@ QUICK START
 
 CONTENT COMMANDS
   fragment      Manage fragments (list, show, create, delete, edit, search)
-  skill         Manage skills (list, show, create, delete, edit)
+  command       Manage commands (list, show, create, delete, edit)
   profile       Manage profiles (list, show, create, delete, edit, default)
 
 INFRASTRUCTURE
@@ -34,14 +34,14 @@ WORKFLOW
 
 KEY CONCEPTS
   Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Skills      Saved prompt templates, exported as slash commands
+  Commands    Saved prompt templates, exported as slash commands
   Profiles    Named configurations combining bundles and variables
-  Bundles     YAML files containing fragments/skills (internal format)
+  Bundles     YAML files containing fragments/commands (internal format)
   Remotes     Git repositories for sharing content (GitHub or generic git)
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle
-  bundle#skills/name              Specific skill from bundle
+  bundle#commands/name            Specific command from bundle
   remote/bundle                   Bundle from a remote repository
 
 Run 'ctxloom <command> --help' for details on any command.
@@ -52,7 +52,7 @@ Run 'ctxloom <command> --help' for details on any command.
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
   -h, --help            help for ctxloom
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
@@ -61,6 +61,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
 * [ctxloom blacklist](/reference/cli/ctxloom_blacklist/)	 - Reject an item so it is withheld from the agent
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
+* [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom harp](/reference/cli/ctxloom_harp/)	 - Generate harp IDs (human-appropriate random phraselets)
@@ -78,9 +79,8 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
 * [ctxloom sign](/reference/cli/ctxloom_sign/)	 - Sign a local bundle for publication
 * [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage trusted signers (allowed_signers)
-* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage skills
 * [ctxloom tooling](/reference/cli/ctxloom_tooling/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, skill, MCP server, or hook)
+* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number
 * [ctxloom weave](/reference/cli/ctxloom_weave/)	 - Fan a task across agents/profiles in parallel, then synthesize the results
 

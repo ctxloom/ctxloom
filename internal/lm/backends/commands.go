@@ -11,9 +11,9 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// LoadSkillExports loads every prompt that exports as a slash command:
-// ctxloom's embedded builtin commands, the skills shipped by every DISCOVERED
-// COMPANION's loadout, plus the bundle prompts. This is the SINGLE
+// LoadCommandExports loads every prompt that exports as a slash command:
+// ctxloom's embedded builtin commands, the commands shipped by every
+// DISCOVERED COMPANION's loadout, plus the bundle prompts. This is the SINGLE
 // prompt-export assembly — both the `ctxloom run` setup payload
 // (AssembleManagedConfig, which passes the run's resolved profile set) and
 // operations.ApplyHooks (which passes nil → the configured defaults) route
@@ -21,30 +21,30 @@ import (
 // ctxloom-managed files and re-adding the assembled set, so two diverging
 // assemblies would silently delete whatever one produced and the other didn't.
 //
-// Companion skills (S8 — config.ResolveCompanionSkills) are unconditional
-// whenever the companion binary is on PATH — e.g. ltk's task-runner skill
+// Companion commands (S8 — config.ResolveCompanionCommands) are unconditional
+// whenever the companion binary is on PATH — e.g. ltk's task-runner command
 // becomes the `/ltk-task-runner` slash command with no profile wiring needed —
 // gated through the SAME discovery+trust path as a companion's fragments/
 // hooks/MCP, never a builtin-style exemption. They are added on BOTH branches
-// below (curated and uncurated), since profile prompt curation otherwise
-// bypasses config.ResolveBundleSkills entirely and would silently drop them;
-// dedup keeps an explicit curation of the SAME skill (e.g. a profile that
-// lists "ctxloom:companion@ltk#skills/task-runner" itself) from doubling up.
+// below (curated and uncurated), since profile command curation otherwise
+// bypasses config.ResolveBundleCommands entirely and would silently drop them;
+// dedup keeps an explicit curation of the SAME command (e.g. a profile that
+// lists "ctxloom:companion@ltk#commands/task-runner" itself) from doubling up.
 //
 // Bundle prompts (non-companion) come from one of two sources, chosen by the
 // SELECTED (or default) profiles:
-//   - When the profiles declare a NON-EMPTY prompts: list (profile prompt
+//   - When the profiles declare a NON-EMPTY commands: list (profile command
 //     curation, opt-in), ONLY those are exported (each at its pinned version),
 //     force-enabled so a curated prompt surfaces even if its bundle didn't flag
 //     it as a slash command — the profile explicitly curates the set. Scoped to
 //     the SELECTED profiles (profileNames), so `run -p X` curates from X rather
 //     than the configured defaults.
 //   - Otherwise (the common case) the SELECTED (or default) profiles' bundle
-//     skills are exported via config.ResolveBundleSkills, each still gated by
-//     the downstream per-backend enabled flag — the profile-scoped analog of
+//     commands are exported via config.ResolveBundleCommands, each still gated
+//     by the downstream per-backend enabled flag — the profile-scoped analog of
 //     the mcp/hooks resolvers (ResolveBundleMCPServers/ResolveBundleHooks), so
-//     `run -p X` carries only X's bundle skills, not every pulled bundle's.
-//     ResolveBundleSkills already folds in the companion skills itself, so
+//     `run -p X` carries only X's bundle commands, not every pulled bundle's.
+//     ResolveBundleCommands already folds in the companion commands itself, so
 //     this branch does not add them again.
 //
 // Builtins are always present in both modes (ctxloom's core commands aren't
@@ -53,8 +53,8 @@ import (
 // The SeededBundleLoader is the only loader that also surfaces remote bundles
 // from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
 // setups still produce commands.
-func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	prompts := builtinSkills()
+func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+	prompts := builtinCommands()
 
 	// Gate prompt command-file exports through the same per-item decision
 	// function as content: a prompt whose effective content the trust model
@@ -68,32 +68,33 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 		}
 	}
 
-	// Profile prompt curation (opt-in): a non-empty curated set exports EXACTLY
+	// Profile command curation (opt-in): a non-empty curated set exports EXACTLY
 	// the listed prompts (force-enabled), scoped to the SELECTED profiles. Even
-	// here, companion skills stay unconditional (see doc comment above).
+	// here, companion commands stay unconditional (see doc comment above).
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
 		loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 		prompts = append(prompts, loadCuratedPrompts(loader, curated)...)
 		if cfg != nil {
-			prompts = append(prompts, dedupSkillsByItem(prompts, cfg.ResolveCompanionSkills(opts...))...)
+			prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
 		}
 		return prompts
 	}
 
 	// Uncurated (common case): export the SELECTED (or default) profiles' bundle
-	// skills via the profile-scoped resolver — the analog of ResolveBundleMCPServers
-	// / ResolveBundleHooks — so `run -p X` carries only X's bundle skills, plus every
-	// discovered companion's skills (ResolveBundleSkills folds both in). Each is
-	// still gated downstream by its per-backend enabled flag; a trust-withheld skill
-	// never loads. opts thread the seed + trust gate into the resolver's loader.
-	return append(prompts, cfg.ResolveBundleSkills(profileNames, opts...)...)
+	// commands via the profile-scoped resolver — the analog of ResolveBundleMCPServers
+	// / ResolveBundleHooks — so `run -p X` carries only X's bundle commands, plus
+	// every discovered companion's commands (ResolveBundleCommands folds both
+	// in). Each is still gated downstream by its per-backend enabled flag; a
+	// trust-withheld command never loads. opts thread the seed + trust gate
+	// into the resolver's loader.
+	return append(prompts, cfg.ResolveBundleCommands(profileNames, opts...)...)
 }
 
-// dedupSkillsByItem returns the entries of add whose Item does not already
-// appear in existing, preserving add's order. Used to fold companion skills
-// into the curated LoadSkillExports branch without doubling up a skill a
-// profile's prompts: list already names explicitly.
-func dedupSkillsByItem(existing, add []*bundles.LoadedContent) []*bundles.LoadedContent {
+// dedupCommandsByItem returns the entries of add whose Item does not already
+// appear in existing, preserving add's order. Used to fold companion commands
+// into the curated LoadCommandExports branch without doubling up a command a
+// profile's commands: list already names explicitly.
+func dedupCommandsByItem(existing, add []*bundles.LoadedContent) []*bundles.LoadedContent {
 	seen := make(map[string]bool, len(existing))
 	for _, p := range existing {
 		if p.Item != "" {
@@ -111,17 +112,17 @@ func dedupSkillsByItem(existing, add []*bundles.LoadedContent) []*bundles.Loaded
 	return out
 }
 
-// resolveProfilePromptRefs returns the union of prompt refs curated by the
+// resolveProfilePromptRefs returns the union of command refs curated by the
 // resolved active (default) profiles, in declaration order. It mirrors how
 // operations.resolveProfile resolves a default profile: inline definitions
 // (config.ResolveProfile over the config.yaml profiles: map) win, and a name
 // that isn't an inline profile falls back to a directory profile
 // (.ctxloom/profiles/<name>.yaml via the profile loader) — so a directory
-// profile's prompts: curation reaches the same curation point as an inline
+// profile's commands: curation reaches the same curation point as an inline
 // one. Each resolution carries parent inheritance (the same parents-merge the
-// Fragments path uses) and the prompts: lists union across all default
-// profiles. A nil/empty result means no profile curates prompts, so the caller
-// keeps the global flag-based auto-export (opt-in: no silent change).
+// Fragments path uses) and the commands: lists union across all default
+// profiles. A nil/empty result means no profile curates commands, so the
+// caller keeps the global flag-based auto-export (opt-in: no silent change).
 func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []string {
 	if cfg == nil {
 		return nil
@@ -140,18 +141,18 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 		// Inline profile (config.yaml profiles: map) wins, matching
 		// operations.resolveProfile's inline-first ordering.
 		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
-			add(resolved.Prompts)
+			add(resolved.Commands)
 			continue
 		}
 		// Directory profile fallback (.ctxloom/profiles/<name>.yaml): its
-		// prompts: curation lives in profiles.ResolvedProfile, the directory-side
-		// mirror of config.Profile.Prompts.
+		// commands: curation lives in profiles.ResolvedProfile, the directory-side
+		// mirror of config.Profile.Commands.
 		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
 		if err != nil {
 			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated prompts omitted: %v", profileName, err)
 			continue
 		}
-		add(resolved.Prompts)
+		add(resolved.Commands)
 	}
 	return refs
 }
@@ -171,7 +172,7 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.Loaded
 			err     error
 		)
 		if version == "" {
-			content, err = loader.GetSkill(ref)
+			content, err = loader.GetCommand(ref)
 		} else {
 			content, err = loader.GetPromptAtVersion(name, version)
 		}
@@ -196,9 +197,9 @@ func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	return c
 }
 
-// builtinSkills returns ctxloom's built-in slash command prompts. These are
+// builtinCommands returns ctxloom's built-in slash command prompts. These are
 // embedded in the ctxloom binary and always available.
-func builtinSkills() []*bundles.LoadedContent {
+func builtinCommands() []*bundles.LoadedContent {
 	names, err := resources.ListBuiltinCommands()
 	if err != nil {
 		clidiag.Warn("ctxloom", "builtin commands unavailable: %v", err)

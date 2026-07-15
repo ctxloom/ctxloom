@@ -74,7 +74,7 @@ var backtickRunRe = regexp.MustCompile("`+")
 
 // safeFence returns a backtick fence at least one longer than the longest run
 // of backticks already present in text, so captured content that itself
-// contains a ```-fenced example (e.g. a skill's own markdown) can never
+// contains a ```-fenced example (e.g. a command's own markdown) can never
 // prematurely close the wrapping fence.
 func safeFence(text string) string {
 	longest := 0

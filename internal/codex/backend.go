@@ -48,7 +48,7 @@ func NewCodex() *Codex {
 	// [hooks] (incl. that hook) + [mcp_servers] tables of .codex/config.toml.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("codex"),
-		&CodexSkills{},
+		&CodexCommands{},
 		agent.NewBaseContextProvider(),
 		NewCodexSessionHistory(b),
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true, ContextHook: true},
@@ -63,7 +63,7 @@ func NewCodex() *Codex {
 // CODEX_HOME there — the one env that makes codex discover them (its project
 // config is cwd-relative, but its prompts/sessions hang off CODEX_HOME). This
 // applies to a SharedCell too: without it, codex would read prompts from the
-// user's global ~/.codex and miss the cell-scoped skills. Skipped for a minimal/
+// user's global ~/.codex and miss the cell-scoped commands. Skipped for a minimal/
 // distill run (SkipSetup), which delivers no surfaces and should keep codex's
 // global home.
 //

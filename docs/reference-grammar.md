@@ -13,7 +13,7 @@ the entry-point tests in `internal/profiles/grammar_test.go` and
                   ctxloom:local@bundles/<bundle>       canonical local bundle
                   <bundle>                             plain local bundle name
                   <alias>/<bundle>                     bundle via a configured remote
-<selector>        #fragments/<name> | #skills/<name> | #mcp/<name>
+<selector>        #fragments/<name> | #commands/<name> | #mcp/<name>
                   | #hooks/<event>/<n> | #profiles/<name>
 <version>         @<sha> | @<tag> | @<semver-range> | @<branch>
 ```
@@ -71,7 +71,7 @@ the lockfile records the resolved SHA.
 
 ## Item references
 
-`fragment`/`skill` CLI commands and `-f` accept `<bundle-ref>#<kind>/<name>`.
+`fragment`/`command` CLI commands and `-f` accept `<bundle-ref>#<kind>/<name>`.
 A bare fragment name in `-f` is searched across installed bundles
 (deterministic pick with a warning on collision). `trust`/`blacklist` refs use
 the same shape and additionally accept `@<commit>` as provenance.

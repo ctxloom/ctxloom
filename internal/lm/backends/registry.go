@@ -33,7 +33,7 @@ type Configurable interface {
 // no surfaces (BuildSurfaces returns an EmptySurfaceSet); a nil newWriter means it
 // has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
 // returns nil); a nil exports means no slash-command export (CommandExportsFor
-// yields nil, so the skills surface has nothing to write). The mock backend
+// yields nil, so the commands surface has nothing to write). The mock backend
 // registers only backend+config.
 type agentDescriptor struct {
 	// name is the backend's registry key and must match its module's Name().
@@ -55,8 +55,8 @@ type agentDescriptor struct {
 	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
-	// Read by commandExportsFor / CommandExportsFor, which feed the skills surface
-	// (SurfaceInputs.Skills) the enabled exports for the delivery seam.
+	// Read by commandExportsFor / CommandExportsFor, which feed the commands surface
+	// (SurfaceInputs.Commands) the enabled exports for the delivery seam.
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
@@ -200,13 +200,13 @@ func init() {
 		// a wellKnownPlacement is fine.
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 			return claude.NewSurfaces(claude.SurfaceInputs{
-				Context:             in.Context,
-				MCP:                 in.MCP,
-				BundleMCP:           in.BundleMCP,
-				Hooks:               in.Hooks,
-				ManageStatusline:    in.ManageStatusline,
-				Skills:              in.Skills,
-				SelfContainedSkills: in.SelfContainedSkills,
+				Context:               in.Context,
+				MCP:                   in.MCP,
+				BundleMCP:             in.BundleMCP,
+				Hooks:                 in.Hooks,
+				ManageStatusline:      in.ManageStatusline,
+				Commands:              in.Commands,
+				SelfContainedCommands: in.SelfContainedCommands,
 			}, wellKnownPlacement{}, fs)
 		},
 		exports:              claudeExports,
@@ -250,7 +250,7 @@ func init() {
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
 	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
 	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
-	// skills (.kiro/skills/<n>/SKILL.md).
+	// commands (.kiro/skills/<n>/SKILL.md).
 	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
 	// (see the package doc in internal/kiro for what's proven vs unverified;
 	// taskloom numb-panda / bold-smirk track the revive).
@@ -295,12 +295,12 @@ func init() {
 	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
 	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
 	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
-	// adds command (skills) materialization: enabled bundle prompts become opencode
-	// custom commands (.opencode/command/<name>.md), delivered by the skills surface
-	// on the static `profile materialize` path and transiently in Chat on the LIVE
-	// path (written before the run, reverted after — same no-debris shape as the
-	// opencode.json overlay). The newSurfaces builder serves materialize (mcp +
-	// context + skills).
+	// adds command (commands) materialization: enabled bundle prompts become
+	// opencode custom commands (.opencode/command/<name>.md), delivered by the
+	// commands surface on the static `profile materialize` path and transiently
+	// in Chat on the LIVE path (written before the run, reverted after — same
+	// no-debris shape as the opencode.json overlay). The newSurfaces builder
+	// serves materialize (mcp + context + commands).
 	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
 	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
 	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.

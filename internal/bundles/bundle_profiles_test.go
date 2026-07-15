@@ -12,7 +12,7 @@ import (
 // TestParseBundle_LoadsProfiles confirms the new ungated, compound `profiles:`
 // bundle item kind round-trips through ParseBundle into the shared profile
 // shape (profiles.Profile via the BundleProfile alias), composing leaves
-// (fragments/skills/mcp/hooks/llm/parents/variables).
+// (fragments/commands/mcp/hooks/llm/parents/variables).
 func TestParseBundle_LoadsProfiles(t *testing.T) {
 	data := []byte(`version: "1.0.0"
 fragments:
@@ -48,7 +48,7 @@ profiles:
 }
 
 // TestParseBundle_NoProfiles_InitsEmptyMap pins that a bundle with no profiles
-// still gets an initialized (non-nil) map, matching fragments/skills/mcp.
+// still gets an initialized (non-nil) map, matching fragments/commands/mcp.
 func TestParseBundle_NoProfiles_InitsEmptyMap(t *testing.T) {
 	b, err := ParseBundle([]byte(`version: "1.0.0"`))
 	require.NoError(t, err)

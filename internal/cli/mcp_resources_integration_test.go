@@ -82,7 +82,7 @@ func TestMCP_WireProtocol_ResourcesList(t *testing.T) {
 		"ctxloom://sessions/recent",
 		"ctxloom://fragments",
 		"ctxloom://profiles",
-		"ctxloom://skills",
+		"ctxloom://commands",
 		"ctxloom://remotes",
 		"ctxloom://mcp-servers",
 	} {

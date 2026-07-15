@@ -32,15 +32,15 @@ type ItemType string
 
 const (
 	ItemTypeFragment ItemType = "fragment"
-	ItemTypeSkill    ItemType = "skill"
+	ItemTypeCommand  ItemType = "command"
 )
 
-// itemPrefix returns the prefix used in references (e.g., "fragments/" or "skills/").
+// itemPrefix returns the prefix used in references (e.g., "fragments/" or "commands/").
 func (t ItemType) prefix() string {
 	return string(t) + "s/"
 }
 
-// parseItemRef parses a reference like "bundle#fragments/name" or "bundle#skills/name".
+// parseItemRef parses a reference like "bundle#fragments/name" or "bundle#commands/name".
 func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, err error) {
 	hashIdx := strings.Index(ref, "#")
 	if hashIdx == -1 {
@@ -66,8 +66,8 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 // itemRow is the normalized listing shape shared by the fragment and prompt
 // listings: a name, its merged tags, the bundle it came from (the grouping
 // key), and the fully-qualified ref (bundle#fragments/name or
-// bundle#skills/name) that `show` and assemble accept. It flattens the
-// operations FragmentEntry / SkillEntry projections so the grouping/printing
+// bundle#commands/name) that `show` and assemble accept. It flattens the
+// operations FragmentEntry / CommandEntry projections so the grouping/printing
 // logic is type-agnostic. The json tags are snake_case (matching session list)
 // and expose `ref` so frontends don't have to reconstruct it from name+bundle.
 type itemRow struct {
@@ -166,13 +166,13 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 			rows = append(rows, row(f.Name, f.Tags, f.Source))
 		}
 		return rows, nil
-	case ItemTypeSkill:
-		res, err := operations.ListSkills(ctx, cfg, operations.ListSkillsRequest{SortBy: "source"})
+	case ItemTypeCommand:
+		res, err := operations.ListCommands(ctx, cfg, operations.ListCommandsRequest{SortBy: "source"})
 		if err != nil {
 			return nil, err
 		}
-		rows := make([]itemRow, 0, len(res.Skills))
-		for _, p := range res.Skills {
+		rows := make([]itemRow, 0, len(res.Commands))
+		for _, p := range res.Commands {
 			rows = append(rows, row(p.Name, p.Tags, p.Source))
 		}
 		return rows, nil
@@ -295,10 +295,10 @@ func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemTy
 				itemName, strings.Join(bundle.FragmentNames(), ", "))
 		}
 		return frag.Content, frag.Distilled, nil
-	case ItemTypeSkill:
-		prompt, exists := bundle.Skills[itemName]
+	case ItemTypeCommand:
+		prompt, exists := bundle.Commands[itemName]
 		if !exists {
-			return "", "", fmt.Errorf("skill not found: %s\n\nAvailable skills: %s",
+			return "", "", fmt.Errorf("command not found: %s\n\nAvailable commands: %s",
 				itemName, strings.Join(bundle.PromptNames(), ", "))
 		}
 		return prompt.Content, prompt.Distilled, nil

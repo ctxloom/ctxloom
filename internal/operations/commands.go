@@ -10,17 +10,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// SkillEntry represents a prompt in operation results. Tags carry the
-// bundle's tags merged with the prompt's own; Source is the bundle name,
+// CommandEntry represents a command in operation results. Tags carry the
+// bundle's tags merged with the command's own; Source is the bundle name,
 // which also serves as the grouping key for the CLI's grouped listing.
-type SkillEntry struct {
+type CommandEntry struct {
 	Name   string   `json:"name"`
 	Tags   []string `json:"tags,omitempty"`
 	Source string   `json:"source"`
 }
 
-// ListSkillsRequest contains parameters for listing prompts.
-type ListSkillsRequest struct {
+// ListCommandsRequest contains parameters for listing commands.
+type ListCommandsRequest struct {
 	Query     string `json:"query"`
 	SortBy    string `json:"sort_by"`    // "name" or "source"
 	SortOrder string `json:"sort_order"` // "asc" or "desc"
@@ -29,23 +29,23 @@ type ListSkillsRequest struct {
 	Loader *bundles.Loader `json:"-"`
 }
 
-// ListSkillsResult contains the list of skills.
-type ListSkillsResult struct {
-	Skills []SkillEntry `json:"skills"`
-	Count  int          `json:"count"`
+// ListCommandsResult contains the list of commands.
+type ListCommandsResult struct {
+	Commands []CommandEntry `json:"commands"`
+	Count    int            `json:"count"`
 }
 
-// ListSkills returns all prompts matching the criteria. Mirrors
+// ListCommands returns all commands matching the criteria. Mirrors
 // ListFragments: it filters and sorts the raw ContentInfo (so SortBy:"source"
 // groups by bundle) before projecting, keeping one read path for both the MCP
 // resource surface and the grouped CLI listing.
-func ListSkills(ctx context.Context, cfg *config.Config, req ListSkillsRequest) (*ListSkillsResult, error) {
+func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsRequest) (*ListCommandsResult, error) {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
 
-	infos, err := loader.ListAllSkills()
+	infos, err := loader.ListAllCommands()
 	if err != nil {
 		return nil, err
 	}
@@ -64,12 +64,12 @@ func ListSkills(ctx context.Context, cfg *config.Config, req ListSkillsRequest) 
 
 	sortContentInfos(infos, req.SortBy, req.SortOrder)
 
-	result := &ListSkillsResult{
-		Skills: make([]SkillEntry, 0, len(infos)),
-		Count:  len(infos),
+	result := &ListCommandsResult{
+		Commands: make([]CommandEntry, 0, len(infos)),
+		Count:    len(infos),
 	}
 	for _, info := range infos {
-		result.Skills = append(result.Skills, SkillEntry{
+		result.Commands = append(result.Commands, CommandEntry{
 			Name:   info.Name,
 			Tags:   info.Tags,
 			Source: info.Source,
@@ -79,38 +79,38 @@ func ListSkills(ctx context.Context, cfg *config.Config, req ListSkillsRequest) 
 	return result, nil
 }
 
-// GetSkillRequest contains parameters for getting a prompt.
-type GetSkillRequest struct {
+// GetCommandRequest contains parameters for getting a command.
+type GetCommandRequest struct {
 	Name string `json:"name"`
 
-	// Version optionally pins the prompt to a historical content version
-	// ("@<commit>"). When empty, GetSkill parses any "@<commit>" trailing Name
-	// itself (the name-addressed form `<bundle>#skills/<name>@<commit>`); a set
+	// Version optionally pins the command to a historical content version
+	// ("@<commit>"). When empty, GetCommand parses any "@<commit>" trailing Name
+	// itself (the name-addressed form `<bundle>#commands/<name>@<commit>`); a set
 	// Version wins (mirroring how FragmentRef.Version threads a pin). The pinned
 	// version resolves via the loader's GetPromptAtVersion, gated by ITS OWN
-	// content hash; an unversioned ref takes today's GetSkill path unchanged.
+	// content hash; an unversioned ref takes today's GetCommand path unchanged.
 	Version string `json:"version,omitempty"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
 }
 
-// GetSkillResult contains the prompt content.
-type GetSkillResult struct {
+// GetCommandResult contains the command content.
+type GetCommandResult struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 }
 
-// GetSkill returns a specific prompt by name.
-func GetSkill(ctx context.Context, cfg *config.Config, req GetSkillRequest) (*GetSkillResult, error) {
+// GetCommand returns a specific command by name.
+func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) (*GetCommandResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 
 	loader := req.Loader
 	if loader == nil {
-		// Exposure surface (ctxloom://skills/{name}): gate the resolved content
-		// (trust rework, TR5). A withheld skill surfaces as errs.ErrSkillWithheld
+		// Exposure surface (ctxloom://commands/{name}): gate the resolved content
+		// (trust rework, TR5). A withheld command surfaces as errs.ErrCommandWithheld
 		// so the resource omits it.
 		loader = exposureLoader(cfg)
 	}
@@ -118,7 +118,7 @@ func GetSkill(ctx context.Context, cfg *config.Config, req GetSkillRequest) (*Ge
 	// A name-addressed ref may pin a content version ("@<commit>"): split it to
 	// the canonical version-less ref + parsed version. An explicit req.Version
 	// wins over the parsed one (mirrors FragmentRef.Version threading). With no
-	// version the unchanged GetSkill path resolves the lockfile-pinned default;
+	// version the unchanged GetCommand path resolves the lockfile-pinned default;
 	// a pinned ref resolves that exact historical version via GetPromptAtVersion,
 	// gated by ITS OWN content hash (fail-closed on fetch/resolve error).
 	ref, version := remote.SplitPromptVersion(req.Name)
@@ -144,14 +144,14 @@ func GetSkill(ctx context.Context, cfg *config.Config, req GetSkillRequest) (*Ge
 	}
 	content := strings.TrimSpace(strings.Join(lines[i:], "\n"))
 
-	return &GetSkillResult{
+	return &GetCommandResult{
 		Name:    prompt.Name,
 		Content: content,
 	}, nil
 }
 
-// getPromptVersioned resolves a prompt honoring a pinned content version. An
-// unversioned request takes the lockfile-pinned default path (loader.GetSkill
+// getPromptVersioned resolves a command honoring a pinned content version. An
+// unversioned request takes the lockfile-pinned default path (loader.GetCommand
 // on the ORIGINAL name, so today's behavior is unchanged); a "@<commit>"-pinned
 // request resolves that exact historical version (loader.GetPromptAtVersion on
 // the canonical version-less ref), gated by ITS OWN effective-content hash. A
@@ -159,7 +159,7 @@ func GetSkill(ctx context.Context, cfg *config.Config, req GetSkillRequest) (*Ge
 // withholds), mirroring loadFragmentRef.
 func getPromptVersioned(loader *bundles.Loader, name, ref, version string) (*bundles.LoadedContent, error) {
 	if version == "" {
-		return loader.GetSkill(name)
+		return loader.GetCommand(name)
 	}
 	return loader.GetPromptAtVersion(ref, version)
 }

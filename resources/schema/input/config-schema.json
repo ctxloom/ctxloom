@@ -77,7 +77,7 @@
         },
         "sign": {
           "type": "object",
-          "description": "Publisher-signing defaults for `fragment push`/`skill push`.",
+          "description": "Publisher-signing defaults for `fragment push`/`command push`.",
           "properties": {
             "default": {
               "type": "boolean",
@@ -199,9 +199,9 @@
             "$ref": "#/$defs/mcpConfig",
             "description": "MCP servers for this profile (inherited)"
           },
-          "prompts": {
+          "commands": {
             "type": "array",
-            "description": "Slash-command prompt exports curated for this profile (each a \"<bundle>#prompts/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these prompts are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
+            "description": "Slash-command exports curated for this profile (each a \"<bundle>#commands/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
             "items": { "type": "string", "minLength": 1 }
           },
           "variables": {

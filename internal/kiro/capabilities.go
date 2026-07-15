@@ -20,13 +20,13 @@ const kiroSkillsDir = kiroDir + "/skills"
 // — only manifest-listed files are reconciled.
 const kiroManifest = ".ctxloom-manifest"
 
-// KiroSkills writes skills for Kiro CLI as SKILL.md files under .kiro/skills/.
-type KiroSkills struct{}
+// KiroCommands writes commands for Kiro CLI as SKILL.md files under .kiro/skills/.
+type KiroCommands struct{}
 
 // RegisterFromContent writes skill files from host-resolved command exports.
 // The host maps bundle content (with kiro enablement + metadata) to these
 // agent-agnostic exports, so this stays config/bundle-free.
-func (s *KiroSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *KiroCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

@@ -62,12 +62,12 @@ func TestRenderTooling(t *testing.T) {
 	t.Run("declarations", func(t *testing.T) {
 		var buf bytes.Buffer
 		entries := []operations.ToolingDeclaration{
-			{Source: "go-tools#skills/tooling", Content: "Install golangci-lint."},
+			{Source: "go-tools#commands/tooling", Content: "Install golangci-lint."},
 		}
 		assert.NoError(t, renderTooling(&buf, entries))
 		out := buf.String()
 		assert.Contains(t, out, "explicit approval", "the instruction preamble leads")
-		assert.Contains(t, out, "### go-tools#skills/tooling")
+		assert.Contains(t, out, "### go-tools#commands/tooling")
 		assert.Contains(t, out, "Install golangci-lint.")
 	})
 }

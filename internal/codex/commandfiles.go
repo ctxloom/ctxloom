@@ -60,7 +60,7 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 // `<name>.md` (slashes flattened to dashes, since Codex scans only top-level
 // markdown) whose bytes are TransformToCodexPrompt's rendering. It is the single
 // source of truth for the prompt-file shape, shared by WriteCommandFiles (global
-// $CODEX_HOME/prompts) and the cell-scoped skills surface (surfaces.go) so the
+// $CODEX_HOME/prompts) and the cell-scoped commands surface (surfaces.go) so the
 // two can never drift.
 func codexPromptFile(c agent.CommandExport) (string, []byte, error) {
 	filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"

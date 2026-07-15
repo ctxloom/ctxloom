@@ -26,7 +26,7 @@ import (
 // best-effort (a failure warns and never fails the approval — the
 // countersignature is the authority), a missing snapshot degrades review to a
 // full-content display, and there is no pruning this slice — objects are tiny
-// (fragment/skill text) and superseded entries are simply never read again; a
+// (fragment/command text) and superseded entries are simply never read again; a
 // pruning pass can walk the countersignature stores' live approvals later if
 // it ever matters.
 
@@ -74,7 +74,7 @@ func readTrustSnapshot(fs afero.Fs, baseDir, hash string) (string, bool) {
 
 // snapshotAcceptedItemContent writes the accepted-content snapshots for an
 // acceptance that was just recorded: the raw and (when one exists) distilled
-// bytes of a fragment/skill, each stored under the hash the acceptance
+// bytes of a fragment/command, each stored under the hash the acceptance
 // recorded for that form (rawHash / distilledHash — never recomputed here, so
 // snapshot keys cannot drift from the store). It is the one shared snapshot
 // writer under BOTH acceptance surfaces — the `ctxloom review` porcelain and
@@ -123,11 +123,11 @@ func itemContentPair(bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled str
 		raw, distilled = formPair(frag.EffectiveContent)
 		return raw, distilled, true
 	case trust.KindPrompt:
-		skill, found := bundle.Skills[tRef.Name]
+		command, found := bundle.Commands[tRef.Name]
 		if !found {
 			return "", "", false
 		}
-		raw, distilled = formPair(skill.EffectiveContent)
+		raw, distilled = formPair(command.EffectiveContent)
 		return raw, distilled, true
 	default:
 		return "", "", false

@@ -56,7 +56,7 @@ fragments:
       - Wrap errors with context: fmt.Errorf("operation: %w", err)
       - Use sentinel errors sparingly
 
-skills:
+commands:
   code-review:
     description: Review Go code for best practices
     tags:
@@ -77,7 +77,7 @@ skills:
 | `author` | No | Author name or organization |
 | `tags` | No | Bundle-level tags (inherited by all items) |
 | `fragments` | No | Map of fragment definitions |
-| `skills` | No | Map of skill definitions |
+| `commands` | No | Map of command definitions |
 | `profiles` | No | Map of profiles shipped with the bundle |
 | `hooks` | No | Hooks shipped with the bundle |
 | `mcp` | No | Map of MCP server configurations |
@@ -91,7 +91,7 @@ skills:
 | `notes` | No | Human-readable notes (not sent to AI) |
 | `no_distill` | No | Prevent automatic distillation |
 
-Skills take the same fields plus `description` and an optional `llm:` block with per-backend slash-command export settings.
+Commands take the same fields plus `description` and an optional `llm:` block with per-backend slash-command export settings.
 
 ## Sharing a Profile
 
@@ -152,7 +152,7 @@ ctxloom review
 ```
 
 `ctxloom remote pull` only fetches this bundle; `ctxloom review` is what
-actually lets its fragments and skills reach the agent — pulled content is
+actually lets its fragments and commands reach the agent — pulled content is
 born pending and withheld until a human reviews it, unless you already trust
 this bundle's publisher key.
 

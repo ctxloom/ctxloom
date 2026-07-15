@@ -1,17 +1,17 @@
 ---
-title: "Skills"
+title: "Commands"
 ---
 
 You've got a five-paragraph code-review request you paste into every PR, the one that reminds the AI to check error handling and watch for N+1 queries. Or you don't, because retyping it every time is tedious enough that you skip it on the small changes — the ones that turn out to matter anyway.
 
-A **skill** saves that request once in a bundle and, once trusted, exposes it as a slash command in Claude Code, Codex, Kiro, or the Antigravity CLI, so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts"; bundles using the old `prompts:` key are migrated on load.)
+A **command** saves that request once in a bundle and, once trusted, exposes it as a slash command in Claude Code, Codex, Kiro, or the Antigravity CLI, so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts", then "skills"; bundles using the old `prompts:`/`skills:` key are migrated on load.)
 
-## Skill Structure
+## Command Structure
 
-Skills are defined within bundles:
+Commands are defined within bundles:
 
 ```yaml
-skills:
+commands:
   code-review:
     description: "Review code for best practices"
     content: |
@@ -36,33 +36,33 @@ skills:
 
 ## Slash Command Integration
 
-**A trusted skill is exposed as a slash command.** Command export is a trust choke: a skill from a bundle that's still pending review isn't written out at all — only local, builtin, trusted-signer, or already-approved content reaches your AI CLI. See [Review & Trust](/concepts/review-and-trust/).
+**A trusted command is exposed as a slash command.** Command export is a trust choke: a command from a bundle that's still pending review isn't written out at all — only local, builtin, trusted-signer, or already-approved content reaches your AI CLI. See [Review & Trust](/concepts/review-and-trust/).
 
-The slash command name isn't the bare skill name — it's `<bundle>-<skill>`, taken from the owning bundle's last path segment. A `code-review` skill defined in a bundle called `my-bundle` becomes:
+The slash command name isn't the bare command name — it's `<bundle>-<command>`, taken from the owning bundle's last path segment. A `code-review` command defined in a bundle called `my-bundle` becomes:
 
 ```bash
 # Claude Code, Codex, Kiro, or Antigravity CLI:
 /my-bundle-code-review
 ```
 
-Only a builtin skill (one with no bundle metadata) falls back to its bare name.
+Only a builtin command (one with no bundle metadata) falls back to its bare name.
 
 ctxloom writes command files to the appropriate location:
 - **Claude Code**: `.claude/commands/*.md` (nested names flatten: `/` becomes `-` in the filename)
 - **Codex**: `$CODEX_HOME/prompts/*.md` — global, not project-scoped (Codex only discovers prompts there)
-- **Kiro**: `.kiro/skills/<bundle>-<skill>/SKILL.md` — one directory per skill
+- **Kiro**: `.kiro/skills/<bundle>-<command>/SKILL.md` — one directory per command
 - **Antigravity CLI**: `.agents/skills/<bundle>/*.md` (subdirectories are preserved, not flattened)
 
 ### Command Configuration
 
-Control how skills appear as slash commands per backend:
+Control how commands appear as slash commands per backend:
 
 ```yaml
-skills:
+commands:
   code-review:
     description: "Review code for best practices"
     content: |
-      Review this code...
+      Review code...
     llm:
       claude-code:
         enabled: true              # Default: true (opt-out model)
@@ -91,21 +91,21 @@ The `llm:` map has one key per backend: `claude-code`, `antigravity`, `codex`, `
 | Field | Default | Description |
 |-------|---------|-------------|
 | `enabled` | `true` | Set to `false` to hide from slash commands |
-| `description` | skill description | Short description for `/help` |
+| `description` | command description | Short description for `/help` |
 | `argument_hint` | none | Hint shown during autocomplete (Claude, Codex) |
 | `allowed_tools` | all | Restrict which tools the command can use (Claude only) |
 | `model` | default | Override the model (Claude only) |
 
 ### Disabling a Command
 
-To keep a skill but not expose it as a slash command:
+To keep a command but not expose it as a slash command:
 
 ```yaml
-skills:
-  internal-skill:
+commands:
+  internal-command:
     description: "Internal use only"
     content: |
-      This skill is used programmatically, not as a command.
+      This command is used programmatically, not as a slash command.
     llm:
       claude-code:
         enabled: false
@@ -113,13 +113,13 @@ skills:
         enabled: false
 ```
 
-## Using Skills
+## Using Commands
 
 ### As Slash Commands
 
 ```bash
 # In Claude Code, Codex, Kiro, or Antigravity CLI, just use the slash command
-# (a `code-review` skill in bundle `my-bundle` exports as /my-bundle-code-review):
+# (a `code-review` command in bundle `my-bundle` exports as /my-bundle-code-review):
 /my-bundle-code-review
 
 # With arguments:
@@ -129,42 +129,42 @@ skills:
 ### Via CLI
 
 ```bash
-# Run a saved skill by name
+# Run a saved command by name
 ctxloom run -r code-review
 ```
 
-### List Available Skills
+### List Available Commands
 
 ```bash
-# List all skills
-ctxloom skill list
+# List all commands
+ctxloom command list
 
-# Show skill details
-ctxloom skill show my-bundle#skills/code-review
+# Show command details
+ctxloom command show my-bundle#commands/code-review
 ```
 
-## Editing Skills
+## Editing Commands
 
 ```bash
-# Edit skill content in your editor
-ctxloom skill edit my-bundle#skills/code-review
+# Edit command content in your editor
+ctxloom command edit my-bundle#commands/code-review
 ```
 
-## Skills vs Fragments
+## Commands vs Fragments
 
-| Aspect | Fragments | Skills |
+| Aspect | Fragments | Commands |
 |--------|-----------|--------|
 | Purpose | Context/instructions | Specific actions/requests |
 | Usage | Combined with user input | Standalone commands or combined |
 | Typical content | Guidelines, patterns, standards | Review requests, generation tasks |
 | In Claude/Codex/Kiro/Antigravity | Injected as context | Exposed as slash commands (once trusted) |
 
-**Fragments** provide context that's always available. **Skills** provide specific actions you invoke when needed.
+**Fragments** provide context that's always available. **Commands** provide specific actions you invoke when needed.
 
 ### Using Together
 
 ```bash
-# Fragment provides context, skill defines the action
+# Fragment provides context, command defines the action
 ctxloom run -f python-standards -r code-review
 
 # In Claude Code, Codex, Kiro, or Antigravity CLI:
@@ -175,10 +175,10 @@ ctxloom run -f python-standards -r code-review
 
 ## Examples
 
-### Code Review Skill
+### Code Review Command
 
 ```yaml
-skills:
+commands:
   review:
     description: "Comprehensive code review"
     tags: [review, quality]
@@ -198,10 +198,10 @@ skills:
         argument_hint: "<file or directory>"
 ```
 
-### Test Generator Skill
+### Test Generator Command
 
 ```yaml
-skills:
+commands:
   gen-tests:
     description: "Generate unit tests"
     content: |
@@ -222,10 +222,10 @@ skills:
           - Grep
 ```
 
-### Documentation Skill
+### Documentation Command
 
 ```yaml
-skills:
+commands:
   document:
     description: "Generate documentation"
     content: |

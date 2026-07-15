@@ -205,11 +205,11 @@ func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 // TestMultiVersion_Prompt covers the prompt counterpart: a historical prompt
 // version is gated by its own effective hash under the version-less ref.
 func TestMultiVersion_Prompt(t *testing.T) {
-	promptRef := cqRef + "#skills/review"
-	def := &Bundle{Skills: map[string]BundleSkill{"review": {Content: "default review"}}}
+	promptRef := cqRef + "#commands/review"
+	def := &Bundle{Commands: map[string]BundleCommand{"review": {Content: "default review"}}}
 	versions := map[string]*Bundle{
-		"c1": {Skills: map[string]BundleSkill{"review": {Content: "v1 review"}}},
-		"c2": {Skills: map[string]BundleSkill{"review": {Content: "v2 review"}}},
+		"c1": {Commands: map[string]BundleCommand{"review": {Content: "v1 review"}}},
+		"c2": {Commands: map[string]BundleCommand{"review": {Content: "v2 review"}}},
 	}
 	gate := hashGate(map[string]bool{effHash("v1 review"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
@@ -221,7 +221,7 @@ func TestMultiVersion_Prompt(t *testing.T) {
 	if v1.Content != "v1 review" {
 		t.Errorf("c1 prompt = %q, want v1 review", v1.Content)
 	}
-	if _, err := l.GetPromptAtVersion(promptRef, "c2"); !errors.Is(err, errs.ErrSkillWithheld) {
-		t.Errorf("GetPromptAtVersion(c2) err = %v, want ErrSkillWithheld", err)
+	if _, err := l.GetPromptAtVersion(promptRef, "c2"); !errors.Is(err, errs.ErrCommandWithheld) {
+		t.Errorf("GetPromptAtVersion(c2) err = %v, want ErrCommandWithheld", err)
 	}
 }

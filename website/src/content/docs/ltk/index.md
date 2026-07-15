@@ -32,7 +32,7 @@ than hitting a silent failure or an opaque block.
 
 ## Why it pairs with ctxloom
 
-ctxloom weaves the right context into the session: fragments, profiles, skills,
+ctxloom weaves the right context into the session: fragments, profiles, commands,
 memory. `ltk` keeps the agent on your rails once it starts acting, steering it
 toward your task runner and away from commands you'd rather it not run, with the
 suggestion you wrote. The agent gets the right context and runs the right

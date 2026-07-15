@@ -123,15 +123,16 @@ type Profile struct {
 	Bundles     []string      `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
 	BundleItems []string      `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
 	Fragments   []FragmentRef `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
-	// Prompts curates the slash-command prompt exports for this profile. When a
-	// resolved active profile declares a NON-EMPTY list, ONLY these prompts are
-	// exported (each optionally version-pinned with a trailing "@<commit>"),
-	// suppressing the global flag-based auto-export for that profile; an empty
-	// list keeps today's global auto-export (opt-in). Each entry is a prompt ref
-	// ("<bundle>#prompts/<name>") whose version-agnostic identity is the stored
-	// string — like bundle_items, any "@<commit>" is parsed transiently at
-	// assembly and the lockfile stays untouched.
-	Prompts   []string          `mapstructure:"prompts" yaml:"prompts,omitempty"`
+	// Commands curates the slash-command exports for this profile (D2: renamed
+	// from prompts). When a resolved active profile declares a NON-EMPTY list,
+	// ONLY these commands are exported (each optionally version-pinned with a
+	// trailing "@<commit>"), suppressing the global flag-based auto-export for
+	// that profile; an empty list keeps today's global auto-export (opt-in).
+	// Each entry is a command ref ("<bundle>#commands/<name>") whose
+	// version-agnostic identity is the stored string — like bundle_items, any
+	// "@<commit>" is parsed transiently at assembly and the lockfile stays
+	// untouched.
+	Commands  []string          `mapstructure:"commands" yaml:"commands,omitempty"`
 	Variables map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Hooks     wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
 	MCP       wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
@@ -164,7 +165,7 @@ type SettingsConfig struct {
 // zero-config discovery chain (internal/signing/agentkey) should use when
 // set, overriding git config user.signingkey and ssh-agent auto-detection.
 type SignConfig struct {
-	// Default: when true, `fragment push`/`skill push` sign unless --no-sign
+	// Default: when true, `fragment push`/`command push` sign unless --no-sign
 	// is given. Defaults to false — signing must be opted into, exactly like
 	// git commit -S is opt-in until gpg.commit.sign flips it.
 	Default bool `mapstructure:"default" yaml:"default,omitempty"`

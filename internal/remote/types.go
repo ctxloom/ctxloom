@@ -33,7 +33,7 @@ type ItemType string
 const (
 	// ItemTypeBundle is the only distributed item type. Top-level profile
 	// distribution was retired; profiles ship inside bundles (<bundle>#profiles/).
-	ItemTypeBundle ItemType = "bundle" // Primary content unit (fragments, skills, mcp, hooks, profiles)
+	ItemTypeBundle ItemType = "bundle" // Primary content unit (fragments, commands, mcp, hooks, profiles)
 )
 
 // DirName returns the directory name for this item type in the repo structure.

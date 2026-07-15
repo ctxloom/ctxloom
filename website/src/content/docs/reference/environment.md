@@ -39,7 +39,7 @@ ctxloom checks `VISUAL` first, then `EDITOR` (falling back to `nano`). The `edit
 
 ```bash
 ctxloom fragment edit my-bundle#fragments/coding-standards
-ctxloom skill edit my-bundle#skills/review
+ctxloom command edit my-bundle#commands/review
 ```
 
 ## Containerized Agents

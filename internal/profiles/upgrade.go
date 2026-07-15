@@ -36,30 +36,33 @@ func profileUpgrades(ownURL string, aliasToURL func(string) string, seeded map[s
 }
 
 // promptSelectorUpgrade rewrites legacy item selectors that targeted a bundle
-// prompt ("<bundle>#prompts/<name>" or the ":prompts/" alias) to the skills
-// section, matching the prompt→skill item-kind rename. It runs BEFORE
-// bundleRefCanonicalizeUpgrade so the ':' alias it preserves is then normalized
-// to the canonical '#' form by that later stage. Idempotent: a ref already
-// pointing at "#skills/"/":skills/" (or with no item selector) is untouched.
+// prompt ("<bundle>#prompts/<name>" or the ":prompts/" alias) to the commands
+// section, matching the prompt→skill→command item-kind rename (the one-hop
+// rewrite lands directly on "commands" — "skills" is reserved for a
+// different, future item-kind, so a permanent rewrite can never target it).
+// It runs BEFORE bundleRefCanonicalizeUpgrade so the ':' alias it preserves is
+// then normalized to the canonical '#' form by that later stage. Idempotent:
+// a ref already pointing at "#commands/"/":commands/" (or with no item
+// selector) is untouched.
 type promptSelectorUpgrade struct{}
 
 // Name identifies the upgrade in logs and the rewrite prompt.
-func (promptSelectorUpgrade) Name() string { return "rename prompt selectors to skills" }
+func (promptSelectorUpgrade) Name() string { return "rename prompt selectors to commands" }
 
 // Apply rewrites prompt selectors in the bundles and bundle_items sequences.
 func (u promptSelectorUpgrade) Apply(root *yaml.Node) bool {
-	bundlesChanged := mapScalarSeq(root, "bundles", rewriteSkillSelector)
-	itemsChanged := mapScalarSeq(root, "bundle_items", rewriteSkillSelector)
+	bundlesChanged := mapScalarSeq(root, "bundles", rewriteCommandSelector)
+	itemsChanged := mapScalarSeq(root, "bundle_items", rewriteCommandSelector)
 	return bundlesChanged || itemsChanged
 }
 
-// rewriteSkillSelector migrates a single ref's legacy prompt item selector to
-// the skills section, preserving the selector's separator ('#' or ':'). Returns
-// the ref unchanged (false) when it carries no prompt selector.
-func rewriteSkillSelector(ref string) (string, bool) {
+// rewriteCommandSelector migrates a single ref's legacy prompt item selector
+// to the commands section, preserving the selector's separator ('#' or ':').
+// Returns the ref unchanged (false) when it carries no prompt selector.
+func rewriteCommandSelector(ref string) (string, bool) {
 	for _, sep := range []string{"#prompts/", ":prompts/"} {
 		if strings.Contains(ref, sep) {
-			return strings.Replace(ref, sep, sep[:1]+"skills/", 1), true
+			return strings.Replace(ref, sep, sep[:1]+"commands/", 1), true
 		}
 	}
 	return ref, false
@@ -151,7 +154,7 @@ func FindBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 //     aliasToURL — including the common case where the alias is the profile's
 //     own remote (a redundant prefix the old qualifier produced).
 //   - An already-canonical ref is left untouched, so the upgrade is idempotent.
-//   - A legacy ":fragments/…" / ":skills/…" / ":mcp" item selector is rewritten
+//   - A legacy ":fragments/…" / ":commands/…" / ":mcp" item selector is rewritten
 //     to the canonical "#…" form; a "#…" selector is preserved verbatim.
 //   - Anything that cannot be resolved (no context, unknown alias, or a result
 //     that fails to parse) is left unchanged — fault tolerant: persist the
@@ -280,7 +283,7 @@ func splitBundleSelector(ref string) (base, item string) {
 	if i := strings.Index(ref, "#"); i != -1 {
 		return ref[:i], ref[i:]
 	}
-	for _, marker := range []string{":fragments/", ":skills/", ":mcp"} {
+	for _, marker := range []string{":fragments/", ":commands/", ":mcp"} {
 		if i := strings.Index(ref, marker); i != -1 {
 			// Drop the ':' and reintroduce the selector under the canonical '#'.
 			return ref[:i], "#" + ref[i+1:]

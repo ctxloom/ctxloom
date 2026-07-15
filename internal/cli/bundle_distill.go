@@ -203,7 +203,7 @@ func loadDistillPrompt() (string, error) {
 	}
 
 	// Try to load "distill" prompt from bundles
-	prompt, err := operations.GetSkill(context.Background(), cfg, operations.GetSkillRequest{Name: "distill"})
+	prompt, err := operations.GetCommand(context.Background(), cfg, operations.GetCommandRequest{Name: "distill"})
 	if err == nil && prompt.Content != "" {
 		return strings.TrimSpace(prompt.Content), nil
 	}
@@ -272,12 +272,12 @@ func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, exclud
 // appendSiblingPrompts lists the bundle's prompts (excluding excludeName),
 // preferring each prompt's Description over a content preview.
 func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
-	if !hasSiblingsOfType(len(bundle.Skills), excludeName, "skills/") {
+	if !hasSiblingsOfType(len(bundle.Commands), excludeName, "commands/") {
 		return
 	}
-	ctx.WriteString("Sibling skills:\n")
-	for name, prompt := range bundle.Skills {
-		if "skills/"+name == excludeName {
+	ctx.WriteString("Sibling commands:\n")
+	for name, prompt := range bundle.Commands {
+		if "commands/"+name == excludeName {
 			continue
 		}
 		desc := prompt.Description
@@ -383,7 +383,7 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          model, // explicit override; empty → backend's lightweight model
 			Env:            env,
-			SkipSetup:      true, // Headless distill: no hooks/skills/context writes
+			SkipSetup:      true, // Headless distill: no hooks/commands/context writes
 		},
 	}
 

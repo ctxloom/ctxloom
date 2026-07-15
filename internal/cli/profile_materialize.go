@@ -18,7 +18,7 @@ var (
 )
 
 // profileMaterializeCmd writes a profile's ASSEMBLED, ready-to-run agent surface
-// into a target dir (CLAUDE.md + .mcp.json + settings hooks + skills), so an
+// into a target dir (CLAUDE.md + .mcp.json + settings hooks + commands), so an
 // externally-launched agent inherits it with ctxloom out of the loop. Distinct
 // from `profile export`, which publishes the profile's YAML definition.
 var profileMaterializeCmd = &cobra.Command{
@@ -26,7 +26,7 @@ var profileMaterializeCmd = &cobra.Command{
 	Short: "Write a profile's assembled context to a dir as a launchable agent surface",
 	Long: `Materialize one or more profiles into --target as a backend's NATIVE on-disk
 agent surface — CLAUDE.md (context) + .mcp.json (MCP) + .claude/settings.json
-(hooks) + .claude/commands (skills) — so an externally-launched agent inherits
+(hooks) + .claude/commands (commands) — so an externally-launched agent inherits
 the profile with ctxloom out of the loop.
 
 Each run OVERWRITES the target's ctxloom-managed surfaces (they are the source

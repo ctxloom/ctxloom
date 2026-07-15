@@ -100,12 +100,12 @@ func searchScopes(localOnly, remoteOnly bool) (local, remote bool) {
 func resolveSearchTypes(itemType string) (localTypes, remoteTypes []string, err error) {
 	if itemType == "" {
 		// Profiles are searched locally only; top-level profile distribution was
-		// retired, so remote search covers bundles (and the fragments/skills/mcp
+		// retired, so remote search covers bundles (and the fragments/commands/mcp
 		// they ship).
-		return []string{"fragment", "skill", "profile", "mcp_server"}, []string{"bundle"}, nil
+		return []string{"fragment", "command", "profile", "mcp_server"}, []string{"bundle"}, nil
 	}
 	switch itemType {
-	case "fragment", "skill", "mcp_server":
+	case "fragment", "command", "mcp_server":
 		return []string{itemType}, nil, nil
 	case "profile":
 		return []string{itemType}, nil, nil
@@ -214,10 +214,10 @@ func printLocalResults(results []operations.SearchResult) {
 		byType[r.Type] = append(byType[r.Type], r)
 	}
 
-	typeOrder := []string{"fragment", "skill", "profile", "mcp_server"}
+	typeOrder := []string{"fragment", "command", "profile", "mcp_server"}
 	typeNames := map[string]string{
 		"fragment":   "Fragments",
-		"skill":      "Skills",
+		"command":    "Commands",
 		"profile":    "Profiles",
 		"mcp_server": "MCP Servers",
 	}

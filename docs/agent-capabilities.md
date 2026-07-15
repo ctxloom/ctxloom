@@ -3,7 +3,7 @@
 What ctxloom actually wires per **engine**. Vocabulary is GLOSSARY.md's: an
 **engine** is the thing a runner drives (claude-code, codex, kiro, antigravity,
 or a generic ACP client); an **agent** is a ctxloom actor (a profile in action);
-a **surface** is one managed deliverable (context, MCP, hooks, skills,
+a **surface** is one managed deliverable (context, MCP, hooks, commands,
 settings), and the composed set is a **loadout**.
 
 Engines are registered as descriptors in `internal/lm/backends/registry.go` —
@@ -31,9 +31,9 @@ global.
 | Context | `CLAUDE.md` | `.agents/AGENTS.md` | context file + SessionStart hook | `.kiro/steering/ctxloom-context.md` (auto-loaded) | in-band (lead fragment) |
 | MCP | `.mcp.json` | `.agents/mcp_config.json` | `.codex/config.toml` | `.kiro/settings/mcp.json` | — |
 | Hooks | `.claude/settings.json` | `.agents/hooks.json` | `.codex/config.toml` | `.kiro/agents/<name>.json` | — |
-| Skills (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) | `.kiro/skills/<name>/SKILL.md` | — |
+| Commands (slash commands) | `.claude/commands/` | `.agents/skills/` | `~/.codex/prompts/` (**global**) | `.kiro/skills/<name>/SKILL.md` | — |
 | Settings writer | ✓ | ✓ | ✓ | ✓ | **none** |
-| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (skills: **no**) | **N/A** (no flag) | **N/A** (no flag) | **N/A** (no flag) | n/a (no surfaces) |
+| Out-of-cwd surface placement (concurrency-safe in a shared cwd) | ✓ `--append-system-prompt-file`, `--mcp-config`, `--settings` (commands: **no**) | **N/A** (no flag) | **N/A** (no flag) | **N/A** (no flag) | n/a (no surfaces) |
 | Command metadata accepted | description, argument-hint, allowed-tools, model | description | description, argument-hint | description | — |
 | Read-only plan mode enforced by the CLI | ✓ `--permission-mode plan` | — | ✓ `exec --sandbox read-only --ask-for-approval never` | — | — |
 | Statusline / HUD | ✓ (`ctxloom hook hud`) | **N/A** | **N/A** | **N/A** | **N/A** |
@@ -122,7 +122,7 @@ manifest scopes its own cleanup.
 Claude takes each surface from a path ctxloom chooses
 (`--append-system-prompt-file`, `--mcp-config`, `--settings`), so concurrent
 runs can share one working directory without fighting over config files. Its
-skills are the exception even there: `.claude/commands/` has no redirect flag.
+commands are the exception even there: `.claude/commands/` has no redirect flag.
 Antigravity, codex, and kiro expose no such flag for any surface
 (`internal/{antigravity,codex,kiro}/surfaces.go`), so concurrent per-agent runs
 on those engines need a private cwd.

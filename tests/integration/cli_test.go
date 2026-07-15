@@ -641,7 +641,7 @@ func TestBundle_PromptList(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-skills:
+commands:
   prompt1:
     content: |
       Prompt content 1
@@ -815,7 +815,7 @@ func TestFragment_Search_ByTag(t *testing.T) {
 func TestPrompt_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("skill", "list")
+	_ = env.Run("command", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -824,7 +824,7 @@ func TestPrompt_List_WithPrompts(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-skills:
+commands:
   analyze:
     content: |
       Analyze the following:
@@ -834,7 +834,7 @@ skills:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompts.yaml", bundleContent))
 
-	_ = env.Run("skill", "list")
+	_ = env.Run("command", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -846,14 +846,14 @@ func TestPrompt_Show(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-skills:
+commands:
   test-prompt:
     content: |
       This is a test prompt with detailed instructions.
 `
 	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompt-test.yaml", bundleContent))
 
-	_ = env.Run("skill", "show", "prompt-test#skills/test-prompt")
+	_ = env.Run("command", "show", "prompt-test#commands/test-prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "test prompt with detailed instructions")
@@ -881,7 +881,7 @@ func TestSearch_Prompts(t *testing.T) {
 	env := setupTestEnv(t)
 
 	bundleContent := `version: "1.0"
-skills:
+commands:
   code-review:
     content: |
       Review this code for quality, performance and security

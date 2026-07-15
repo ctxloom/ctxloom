@@ -439,24 +439,27 @@ func migrateSettingsV3(root *yaml.Node) {
 	}
 }
 
-// profileSkillSelectorUpgrade is the v4→v5 config upgrade: inline profile
+// profileCommandSelectorUpgrade is the v4→v5 config upgrade: inline profile
 // definitions that cherry-pick a bundle prompt via a "#prompts/" / ":prompts/"
-// item selector are migrated to the "skills" section, matching the prompt→skill
-// item-kind rename. It mirrors the directory-profile promptSelectorUpgrade
-// (internal/profiles) and the bundle skillsKeyUpgrade (internal/bundles) so every
-// load path migrates the legacy vocabulary. A comment-preserving yaml.Node rewrite.
-type profileSkillSelectorUpgrade struct{}
+// item selector are migrated to the "commands" section, matching the
+// prompt→skill→command item-kind rename (the one-hop rewrite lands directly on
+// "commands" — "skills" is reserved for a different, future item-kind, so a
+// permanent rewrite can never target it). It mirrors the directory-profile
+// promptSelectorUpgrade (internal/profiles) and the bundle commandsKeyUpgrade
+// (internal/bundles) so every load path migrates the legacy vocabulary. A
+// comment-preserving yaml.Node rewrite.
+type profileCommandSelectorUpgrade struct{}
 
 // Name identifies the upgrade in logs and the rewrite prompt.
-func (profileSkillSelectorUpgrade) Name() string {
-	return "rename profile prompt selectors to skills (v4→v5)"
+func (profileCommandSelectorUpgrade) Name() string {
+	return "rename profile prompt selectors to commands (v4→v5)"
 }
 
 // Apply rewrites prompt selectors in every inline profile's bundles/bundle_items
 // and stamps version 5, a no-op at version 5+. As with earlier steps, stamping
 // the version is itself a valid upgrade, so a selector-free v4 config upgrades
 // simply by gaining `version: 5`.
-func (profileSkillSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
+func (profileCommandSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
 	if upgrade.Version(root, versionKey) >= 5 {
 		return false
 	}
@@ -467,8 +470,8 @@ func (profileSkillSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
 				if prof.Kind != yaml.MappingNode {
 					continue
 				}
-				rewriteSeqSkillSelectors(prof, "bundles")
-				rewriteSeqSkillSelectors(prof, "bundle_items")
+				rewriteSeqCommandSelectors(prof, "bundles")
+				rewriteSeqCommandSelectors(prof, "bundle_items")
 			}
 		}
 	}
@@ -476,11 +479,11 @@ func (profileSkillSelectorUpgrade) Apply(root *yaml.Node) (changed bool) {
 	return true
 }
 
-// rewriteSeqSkillSelectors migrates each scalar entry of the named sequence on m
-// that carries a legacy prompt item selector ("#prompts/" / ":prompts/") to the
-// skills section, preserving the selector's separator. A missing/non-sequence
-// node is a no-op.
-func rewriteSeqSkillSelectors(m *yaml.Node, key string) {
+// rewriteSeqCommandSelectors migrates each scalar entry of the named sequence
+// on m that carries a legacy prompt item selector ("#prompts/" / ":prompts/")
+// to the commands section, preserving the selector's separator. A
+// missing/non-sequence node is a no-op.
+func rewriteSeqCommandSelectors(m *yaml.Node, key string) {
 	seq := upgrade.MapValue(m, key)
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return
@@ -491,7 +494,7 @@ func rewriteSeqSkillSelectors(m *yaml.Node, key string) {
 		}
 		for _, sep := range []string{"#prompts/", ":prompts/"} {
 			if strings.Contains(item.Value, sep) {
-				item.Value = strings.Replace(item.Value, sep, sep[:1]+"skills/", 1)
+				item.Value = strings.Replace(item.Value, sep, sep[:1]+"commands/", 1)
 				break
 			}
 		}

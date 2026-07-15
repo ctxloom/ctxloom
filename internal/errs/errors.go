@@ -12,8 +12,8 @@ var (
 	// ErrFragmentNotFound indicates a fragment could not be located.
 	ErrFragmentNotFound = errors.New("fragment not found")
 
-	// ErrSkillNotFound indicates a skill could not be located.
-	ErrSkillNotFound = errors.New("skill not found")
+	// ErrCommandNotFound indicates a command could not be located.
+	ErrCommandNotFound = errors.New("command not found")
 
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
@@ -25,9 +25,9 @@ var (
 	// caller can tell "missing" from "exists-but-withheld" via errors.Is.
 	ErrFragmentWithheld = errors.New("fragment withheld by trust gate")
 
-	// ErrSkillWithheld indicates a skill resolved but the per-item trust gate
-	// (trust rework, TR5) withheld it. See ErrFragmentWithheld.
-	ErrSkillWithheld = errors.New("skill withheld by trust gate")
+	// ErrCommandWithheld indicates a command resolved but the per-item trust
+	// gate (trust rework, TR5) withheld it. See ErrFragmentWithheld.
+	ErrCommandWithheld = errors.New("command withheld by trust gate")
 
 	// ErrNoVersionResolver indicates a per-commit-version resolution was
 	// requested (multi-version coexistence, trust rework, TR5) but the loader

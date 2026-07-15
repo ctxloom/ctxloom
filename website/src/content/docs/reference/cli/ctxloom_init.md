@@ -16,7 +16,7 @@ Initialize a new .ctxloom directory
 Initialize a new .ctxloom directory in the current working directory.
 
 This creates a marker directory that ctxloom uses to identify a project root.
-All ctxloom data (profiles, bundles, fragments, skills) will be stored here.
+All ctxloom data (profiles, bundles, fragments, commands) will be stored here.
 
 If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
 is used as a fallback.
@@ -62,7 +62,7 @@ ctxloom init [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

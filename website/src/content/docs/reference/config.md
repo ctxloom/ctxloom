@@ -59,13 +59,13 @@ Behavioral settings
 | Field | Type | Description |
 |-------|------|-------------|
 | `compaction_chunks` | integer | Target tokens per compaction chunk (default: 8000) |
-| `sign` | object | Publisher-signing defaults for `fragment push`/`skill push`. |
+| `sign` | object | Publisher-signing defaults for `fragment push`/`command push`. |
 | `statusline` | boolean | Whether ctxloom manages its HUD statusline (default: true); set false to keep your own |
 | `use_distilled` | boolean | Whether to prefer distilled versions of fragments/prompts (default: true) |
 
 #### config.sign
 
-Publisher-signing defaults for `fragment push`/`skill push`.
+Publisher-signing defaults for `fragment push`/`command push`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -113,6 +113,7 @@ Named profile definitions
 |-------|------|-------------|
 | `bundle_items` | string[] | Cherry-picked bundle items (e.g. remote/bundle:fragments/name) |
 | `bundles` | string[] | Bundle references (e.g. remote/bundle-name) |
+| `commands` | string[] | Slash-command exports curated for this profile (each a "<bundle>#commands/<name>" ref, optionally version-pinned with a trailing "@<commit>"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in). |
 | `description` | string | Human-readable description of this profile |
 | `exclude_fragments` | string[] | Fragment names to exclude from this profile (filtered after inheritance) |
 | `exclude_mcp` | string[] | MCP server names to exclude from this profile (filtered after inheritance) |
@@ -121,7 +122,6 @@ Named profile definitions
 | `llm` | string | Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`) |
 | `mcp` | mcpConfig | MCP servers for this profile (inherited) |
 | `parents` | string[] | Parent profiles to inherit from (processed depth-first) |
-| `prompts` | string[] | Slash-command prompt exports curated for this profile (each a "<bundle>#prompts/<name>" ref, optionally version-pinned with a trailing "@<commit>"). When a resolved active profile declares a NON-EMPTY list, ONLY these prompts are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in). |
 | `select_tags` | string[] | Fragment tags to select content by: fragments carrying any of these tags are included. |
 | `tags` | string[] | Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag. |
 | `variables` | map → string | Variable values for template substitution in fragments |

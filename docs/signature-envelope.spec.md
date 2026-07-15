@@ -232,9 +232,9 @@ be wrong:
 
 **The publisher signs a *file*. The gate exposes an *item*.**
 `Loader.gateContent` (`internal/bundles/loader.go`) never sees file bytes. It is
-fed, from the fragment and skill resolution paths in
+fed, from the fragment and command resolution paths in
 `internal/bundles/loader_content.go`, the *decoded scalar value* of one item —
-`BundleFragment.ContentPayload` / `BundleSkill.ContentPayload` — and the gate
+`BundleFragment.ContentPayload` / `BundleCommand.ContentPayload` — and the gate
 covers exactly those bytes. A human approves *that fragment*, in *that form*, not
 the whole file.
 
@@ -329,7 +329,7 @@ Bind these to the existing hash preimages, and to nothing else:
 | kind | `payload_bytes` | preimage builder |
 |---|---|---|
 | fragments | the fragment's effective content in the exposed form | `BundleFragment.ContentPayload` |
-| skills | the skill's effective content in the exposed form | `BundleSkill.ContentPayload` |
+| skills | the command's effective content in the exposed form | `BundleCommand.ContentPayload` |
 | mcp | `BundleMCP` canonical JSON (Command, Args, Env, Installation) | `BundleMCP.ContentPayload` |
 | hooks | `BundleHook` canonical JSON (executable surface) | `BundleHook.ContentPayload` |
 
@@ -860,7 +860,7 @@ ctxloom sign <ref>                  # bundle-ref or item-ref (resolves to its bu
 ctxloom sign --all                  # every local bundle this project publishes
 ctxloom sign --key <path|fingerprint>
 ctxloom fragment push <name> --sign # sign at the moment of publishing
-ctxloom skill push <name> --sign
+ctxloom command push <name> --sign
 ctxloom config set sign.default true    # set once, every push signs
 ```
 

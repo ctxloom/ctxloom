@@ -13,8 +13,8 @@ import (
 )
 
 // This file carries the launch capabilities the embedded agent.LaunchBackend
-// requires: skills (a no-op — opencode reads .claude/skills/ natively) and the
-// session-history reader.
+// requires: commands (a no-op — opencode reads .claude/skills/ natively) and
+// the session-history reader.
 //
 // The session reader is driven entirely by opencode's OWN documented commands
 // — `opencode session list --format json` (listing, with a per-session
@@ -25,11 +25,11 @@ import (
 // exactly that kind of guess-the-private-layout coupling, so this reader refuses
 // to depend on it. Verified against opencode 1.18.1.
 
-// opencodeSkills is a no-op ContentSkills. opencode reads .claude/skills/
+// opencodeCommands is a no-op ContentCommands. opencode reads .claude/skills/
 // natively, so ctxloom writes no skill format of its own here.
-type opencodeSkills struct{}
+type opencodeCommands struct{}
 
-func (s *opencodeSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *opencodeCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return nil
 }
 

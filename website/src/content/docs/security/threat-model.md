@@ -85,7 +85,7 @@ it cannot sign is inert noise. (This holds only under the preconditions in the n
 ## What we do not defend
 
 **We do not encrypt your context. There is no confidentiality claim.** Bundles travel over
-git in the clear. Anyone who can read the repo can read every fragment, skill, hook and MCP
+git in the clear. Anyone who can read the repo can read every fragment, command, hook and MCP
 declaration in it. ctxloom proves **provenance and integrity** — where content came from, and
 that it was not changed. It does not, anywhere, keep it secret.
 

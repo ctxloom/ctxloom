@@ -1,5 +1,5 @@
 @doc
-Feature: An incident — a bad skill ships and must be pulled
+Feature: An incident — a bad command ships and must be pulled
 
   A publisher's mistake does not stay contained to one developer. By the time
   anyone notices a bundle is wrong, it is usually already sitting on more than

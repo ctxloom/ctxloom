@@ -13,7 +13,7 @@ place is "the agent never sees it".
 
 ## Three states
 
-Every remote item — fragment, skill, MCP server, hook — is in exactly one of three states.
+Every remote item — fragment, command, MCP server, hook — is in exactly one of three states.
 There is no fourth.
 
 **pending** — never reviewed, or its content changed since a human approved it. Withheld from
@@ -96,11 +96,11 @@ on stderr — `N item(s) awaiting review — run 'ctxloom review'`.
 
 | Choke | Covers | On deny |
 |---|---|---|
-| Content gate | fragments, skills | absent from assembled context |
+| Content gate | fragments, commands | absent from assembled context |
 | Executable gate — MCP | bundle MCP servers | omitted from backend settings |
 | Executable gate — hooks | bundle hooks | omitted from backend settings |
-| Executable gate — command export | skill slash-commands | not exported |
-| Tooling collection | a bundle's `tooling` skill | withheld from Containerfile proposals |
+| Executable gate — command export | command slash-commands | not exported |
+| Tooling collection | a bundle's `tooling` command | withheld from Containerfile proposals |
 | Listing stamp | JSON listings | stamped `trusted: false` |
 
 **Ungated by design:** profile *definitions*. A profile is orchestration — a list of what to

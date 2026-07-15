@@ -93,8 +93,8 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	// .opencode/command/ so the TUI discovers them, mirroring Chat. SkipSetup delivers
 	// none. WriteCommandFiles(nil) on revert removes only ctxloom-manifest files.
 	revertCmds := func() error { return nil }
-	if !req.SkipSetup && len(b.pendingSkills) > 0 {
-		if err := WriteCommandFiles(workDir, b.pendingSkills, agent.WithCommandFS(fs)); err != nil {
+	if !req.SkipSetup && len(b.pendingCommands) > 0 {
+		if err := WriteCommandFiles(workDir, b.pendingCommands, agent.WithCommandFS(fs)); err != nil {
 			_ = removeContext()
 			_ = restore()
 			return nil, err

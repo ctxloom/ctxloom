@@ -92,32 +92,33 @@ func SplitFragmentVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
-// PromptSelector is the selector prefix addressing a skill within a bundle
-// ("<bundle>#skills/<name>"). The skill counterpart to FragmentSelector;
+// CommandSelector is the selector prefix addressing a command within a bundle
+// ("<bundle>#commands/<name>"). The command counterpart to FragmentSelector;
 // producers and consumers share it so the grammar lives in one place. (The
-// bundle item-kind "prompt" was renamed to "skill"; the selector is "#skills/".)
-const PromptSelector = "#skills/"
+// bundle item-kind was renamed prompt→skill→command; the selector is
+// "#commands/".)
+const CommandSelector = "#commands/"
 
-// SplitPromptVersion is the skill counterpart to SplitFragmentVersion: it
-// canonicalizes the bundle part of a qualified skill ref and splits off any
+// SplitPromptVersion is the command counterpart to SplitFragmentVersion: it
+// canonicalizes the bundle part of a qualified command ref and splits off any
 // "@<commit>" content version it carries, whether the version sits on the
-// bundle part ("X@<commit>#skills/n") or trails the skill name
-// ("X#skills/n@<commit>", the name-addressed CLI/resource form). The returned
-// canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#skills/n"),
+// bundle part ("X@<commit>#commands/n") or trails the command name
+// ("X#commands/n@<commit>", the name-addressed CLI/resource form). The returned
+// canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#commands/n"),
 // so the trust gate and dedup stay version-agnostic; the version is meant to be
 // honored only at the read/resolution path (GetPromptAtVersion). A ref without a
-// skill selector (a bare name) is returned unchanged with no version — a bare
+// command selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.
 func SplitPromptVersion(ref string) (canonical, version string) {
 	base, sel := SplitItemPath(ref)
-	if !strings.HasPrefix(sel, PromptSelector) {
+	if !strings.HasPrefix(sel, CommandSelector) {
 		return ref, ""
 	}
-	// Version on the bundle part: "X@<commit>#prompts/n".
+	// Version on the bundle part: "X@<commit>#commands/n".
 	if parsed, err := ParseReference(base); err == nil {
 		version = parsed.ContentVersion
 	}
-	// Version trailing the prompt name: "X#prompts/n@<commit>" (wins if present).
+	// Version trailing the command name: "X#commands/n@<commit>" (wins if present).
 	if atIdx := strings.LastIndex(sel, "@"); atIdx != -1 {
 		version = sel[atIdx+1:]
 		sel = sel[:atIdx]
@@ -127,12 +128,12 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 
 // ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
 // bundle ("<bundle>#profiles/<name>"). Profiles are an ungated, COMPOUND bundle
-// item kind — a profile composes leaves (fragments/skills/mcp/hooks/llm/parents/
+// item kind — a profile composes leaves (fragments/commands/mcp/hooks/llm/parents/
 // variables) — so the selector is the profile counterpart to FragmentSelector /
-// PromptSelector, keeping the bundle-item grammar in one place. Unlike those,
+// CommandSelector, keeping the bundle-item grammar in one place. Unlike those,
 // there is no trust kind for profiles: a profile definition is orchestration/
 // config, carrying no review state and never gated. Its constituent leaves still gate at
-// their own chokes (fragments/skills at content assembly, mcp/hooks at the exec
+// their own chokes (fragments/commands at content assembly, mcp/hooks at the exec
 // choke) — only the profile definition itself is ungated.
 const ProfileSelector = "#profiles/"
 

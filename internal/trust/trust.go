@@ -1,6 +1,6 @@
 // Package trust implements the addressing/canonicalization primitives and the
 // data model the trust decision function resolves over: every remote item
-// (fragment, skill, MCP server, hook) is in exactly one of three states —
+// (fragment, command, MCP server, hook) is in exactly one of three states —
 // pending (never reviewed, or changed since approval — withheld), accepted (a
 // human COUNTERSIGNED this exact content with their own SSH key — see
 // internal/signing/countersign), or rejected (withheld permanently; the

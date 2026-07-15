@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// J7: the "incident" journey (j7_incident.feature) — a bad skill ships and
+// J7: the "incident" journey (j7_incident.feature) — a bad command ships and
 // must be pulled. RESCOPED 2026-07-14: J3 (j3_corporate_signed.feature)
 // already has LOCKED, green scenarios for single-developer retraction and
 // company-key revocation, so this journey keeps only the two things J3
@@ -10,7 +10,7 @@
 // feature file's own comments for the full rationale).
 //
 // Cast: Carol (team lead, reused from steps_j2_team.go's persona — this is
-// exactly the "team lead shares a skill" shape, just with a remote/signed
+// exactly the "team lead shares a command" shape, just with a remote/signed
 // bundle instead of first-party content), Bob (teammate, j2State.bobDir — a
 // genuinely separate clone, NOT a new persona model per the task brief),
 // Trent (the company/trusted publisher, reusing J3's signing primitives:

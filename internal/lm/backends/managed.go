@@ -29,10 +29,10 @@ import (
 // exports) for the `ctxloom run` setup payload (trust rework, TR5). It is built
 // by the run command (which can reach operations.EffectiveTrust); attaching it
 // to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
-// / LoadSkillExports. nil = no gating.
+// / LoadCommandExports. nil = no gating.
 //
 // profileNames is the run's SELECTED profile set (the same set AssembleContext
-// scoped context to), so the managed mcp/skills/hooks track the chosen profile
+// scoped context to), so the managed mcp/commands/hooks track the chosen profile
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
 func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate, profileNames []string) *agent.ManagedConfig {
@@ -47,7 +47,7 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 	}
 	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
-		Skills:           commandExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
+		Commands:         commandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
 		MCP:              assembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),

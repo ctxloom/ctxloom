@@ -31,7 +31,7 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 				"evil":    {Content: "evil body"},
 				"swapped": {Content: "swapped body"},
 			},
-			Skills: map[string]bundles.BundleSkill{
+			Commands: map[string]bundles.BundleCommand{
 				"review":     {Content: "review body"},
 				"evilprompt": {Content: "evil prompt body"},
 			},
@@ -86,7 +86,7 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 }
 
 // TestExposureGate_Resource_GetFragmentWithheld proves the ctxloom://fragments/
-// and ctxloom://prompts/ resource path (operations.GetFragment/GetSkill) omits a
+// and ctxloom://prompts/ resource path (operations.GetFragment/GetCommand) omits a
 // denied item — surfacing the distinct withheld sentinel — while an accepted one
 // still resolves.
 func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
@@ -105,9 +105,9 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 	assert.Equal(t, "solid body", okFrag.Content)
 
 	// Prompt resource.
-	_, err = GetSkill(context.Background(), cfg, GetSkillRequest{Name: acmeBundle + "tooling#skills/evilprompt", Loader: loader})
-	assert.True(t, errors.Is(err, errs.ErrSkillWithheld), "denied prompt resource err = %v", err)
-	okPrompt, err := GetSkill(context.Background(), cfg, GetSkillRequest{Name: acmeBundle + "tooling#skills/review", Loader: loader})
+	_, err = GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/evilprompt", Loader: loader})
+	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "denied prompt resource err = %v", err)
+	okPrompt, err := GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/review", Loader: loader})
 	require.NoError(t, err)
 	assert.Contains(t, okPrompt.Content, "review body")
 }

@@ -20,7 +20,7 @@ import (
 
 // captureStderr redirects os.Stderr around fn and returns what was written. The
 // Unsafe adapter's WARN streams through clidiag → os.Stderr with no recorded
-// finding, so this is how the skills-Unsafe test observes the loud line.
+// finding, so this is how the commands-Unsafe test observes the loud line.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stderr
@@ -55,7 +55,7 @@ func sampleInputs() SurfaceInputs {
 			},
 		},
 		ManageStatusline: true,
-		Skills: []agent.CommandExport{
+		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
 		},
 	}
@@ -65,14 +65,14 @@ func sampleInputs() SurfaceInputs {
 
 // The seam's contracts, proven by these assignments compiling. Context/MCP/
 // settings ADDITIONALLY offer DeliverIsolated (the method SharedRealization
-// returns as a value — see TestSurfaces_SharedRealization below); skills is
+// returns as a value — see TestSurfaces_SharedRealization below); commands is
 // Delivery-only, so a SHARED-cwd delivery of it always falls back to the loud
-// well-known write (proven live in TestSkillsSurface_Unsafe_WarnsAndProceeds).
+// well-known write (proven live in TestCommandsSurface_Unsafe_WarnsAndProceeds).
 var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*mcpSurface)(nil)
 	_ agent.Delivery = (*settingsSurface)(nil)
-	_ agent.Delivery = (*skillsSurface)(nil)
+	_ agent.Delivery = (*commandsSurface)(nil)
 	_ interface {
 		DeliverIsolated() (agent.Delivered, error)
 	} = (*contextSurface)(nil)
@@ -237,31 +237,31 @@ func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	require.NoError(t, handle.Cleanup())
 }
 
-// ---- skills surface --------------------------------------------------------
+// ---- commands surface -------------------------------------------------------
 
-// skills Delivery writes .claude/commands/ into the target dir; Cleanup reverts
+// commands Delivery writes .claude/commands/ into the target dir; Cleanup reverts
 // the manifest-tracked set.
-func TestSkillsSurface_DeliverWritesCommands(t *testing.T) {
+func TestCommandsSurface_DeliverWritesCommands(t *testing.T) {
 	dir := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
-	handle, err := s.Skills.Deliver(dir)
+	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
 
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
 
 	require.NoError(t, handle.Cleanup())
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "cleanup reverts the skill export")
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"), "cleanup reverts the command export")
 }
 
-// skills has no out-of-cwd flag and no SharedRealization, so DeliverShared falls
+// commands has no out-of-cwd flag and no SharedRealization, so DeliverShared falls
 // back to the well-known write — WARNING to stderr AND PROCEEDING (a sanctioned,
 // permitted action, never a fatal abort).
-func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
+func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := t.TempDir()
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
-	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	r, err := agent.Select(s).WithCommands(agent.CommandsWriteUnsafeFile).Build()
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -273,7 +273,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	require.Len(t, delivered, 1)
 
 	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
-	assert.Contains(t, stderr, "skills")
+	assert.Contains(t, stderr, "commands")
 	assert.Contains(t, stderr, "shared cwd")
 	// It PROCEEDED: the well-known write landed under the shared cwd.
 	assert.FileExists(t, filepath.Join(cwd, ".claude", "commands", "review.md"),
@@ -285,7 +285,7 @@ func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 
 // DeliverShared converts claude's flag-backed surfaces (context/MCP/settings) via
 // SharedRealization with no warning, and falls back to the loud well-known write
-// for skills (no realization) — the builder's shared-cwd terminal packages exactly
+// for commands (no realization) — the builder's shared-cwd terminal packages exactly
 // that set for iteration.
 func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 	cwd := t.TempDir()
@@ -301,8 +301,8 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 4, "context, MCP, settings, and skills all deliver")
-	assert.Contains(t, stderr, "warning:", "the skills fallback warns when DeliverShared delivers it")
+	require.Len(t, delivered, 4, "context, MCP, settings, and commands all deliver")
+	assert.Contains(t, stderr, "warning:", "the commands fallback warns when DeliverShared delivers it")
 }
 
 // An isolated cell accepts EVERY surface as a plain Delivery — Deliveries() is the
@@ -312,7 +312,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, MCP, settings, skills")
+	require.Len(t, ds, 4, "context, MCP, settings, commands")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -332,7 +332,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 
 // SupportedApproaches pins claude's per-surface table: context offers all three
 // approaches (native file, out-of-cwd system-prompt scratch, settings-carried
-// hook); mcp/settings/skills offer only the native file.
+// hook); mcp/settings/commands offer only the native file.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
@@ -340,14 +340,14 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 		s.SupportedApproaches(agent.SurfaceContext))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceMCP))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
-	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSkills))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceCommands))
 }
 
 // DefaultApproach is UnsafeFile (the native file) for every surface claude has —
 // never SystemPrompt or Hook, which are explicit caller choices.
 func TestSurfaces_DefaultApproach(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s has a default approach", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, a)
@@ -393,7 +393,7 @@ func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
 }
 
 // SharedRealization is present for context/MCP/settings (claude's out-of-cwd
-// scratch conversion) and ABSENT for skills (no out-of-cwd flag exists for
+// scratch conversion) and ABSENT for commands (no out-of-cwd flag exists for
 // slash-commands) — claude is the only backend with any realization at all.
 func TestSurfaces_SharedRealization(t *testing.T) {
 	isolated := t.TempDir()
@@ -404,8 +404,8 @@ func TestSurfaces_SharedRealization(t *testing.T) {
 		require.True(t, ok, "%s has a scratch realization", kind)
 		require.NotNil(t, realize)
 	}
-	_, ok := s.SharedRealization(agent.SurfaceSkills)
-	assert.False(t, ok, "skills has no out-of-cwd flag")
+	_, ok := s.SharedRealization(agent.SurfaceCommands)
+	assert.False(t, ok, "commands has no out-of-cwd flag")
 }
 
 // readJSON reads a JSON object file into a map.

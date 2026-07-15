@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// J3: the "skills my company has validated" journey (j3_corporate_signed.feature)
+// J3: the "content my company has validated" journey (j3_corporate_signed.feature)
 // — signing/trust as the product's value proposition. Cast: Trent (the
 // company/trusted publisher), Alice (the developer), Mallory (the attacker who
 // wants to change what reaches Alice's assistant, not read it).

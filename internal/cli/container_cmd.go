@@ -129,14 +129,14 @@ var containerProvenanceCmd = &cobra.Command{
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
 // toolingCmd emits the agent-image tooling instructions plus every
-// TRUSTED bundle's `tooling` skill. The LLM runs this, reads the
+// TRUSTED bundle's `tooling` command. The LLM runs this, reads the
 // declarations, and folds them — with the user's explicit approval — into the
 // scaffolded base Containerfile. Read-only: collection goes through the trust
 // gate and nothing is written here.
 var toolingCmd = &cobra.Command{
 	Use:   "tooling",
 	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
-	Long: `Collect every trusted bundle's 'tooling' skill — the tools its
+	Long: `Collect every trusted bundle's 'tooling' command — the tools its
 content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
@@ -170,7 +170,7 @@ type toolingJSON struct {
 func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
 	w := iox.NewErrWriter(out)
 	if len(entries) == 0 {
-		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' skill).")
+		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' command).")
 		w.Println("Untrusted declarations are withheld — review with `ctxloom review`, then re-run.")
 		return w.Err()
 	}

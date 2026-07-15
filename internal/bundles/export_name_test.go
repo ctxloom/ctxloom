@@ -69,7 +69,7 @@ func TestLoadedContent_ExportName(t *testing.T) {
 	}
 }
 
-// fragmentContent/skillContent must carry the owning bundle's loader name and
+// fragmentContent/commandContent must carry the owning bundle's loader name and
 // the bare item name so export-name derivation doesn't have to re-parse the
 // composite Name.
 func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
@@ -77,15 +77,15 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 	b := &Bundle{
 		Version:   "1.0.0",
 		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
-		Skills:    map[string]BundleSkill{"review": {Content: "REVIEW"}},
+		Commands:  map[string]BundleCommand{"review": {Content: "REVIEW"}},
 	}
 	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{canonical: b}))
 
-	infos, err := loader.ListAllSkills()
+	infos, err := loader.ListAllCommands()
 	require.NoError(t, err)
 	require.Len(t, infos, 1)
 
-	prompt, err := loader.GetSkill(infos[0].Name)
+	prompt, err := loader.GetCommand(infos[0].Name)
 	require.NoError(t, err)
 	assert.Equal(t, canonical, prompt.Bundle)
 	assert.Equal(t, "review", prompt.Item)

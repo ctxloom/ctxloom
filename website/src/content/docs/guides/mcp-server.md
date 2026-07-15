@@ -60,7 +60,7 @@ The MCP surface is deliberately small: it retrieves context, works with session 
 | Tool | Description |
 |------|-------------|
 | `assemble_context` | Combine a profile, fragments, and/or tags into context |
-| `search_content` | Search installed content (fragments, skills, profiles, MCP servers) |
+| `search_content` | Search installed content (fragments, commands, profiles, MCP servers) |
 | `search_library` | Search installable bundles across configured remotes (discovery) |
 | `compact_session` | Compact a session log into a distilled summary |
 | `load_session` | Distill and load a session by ID or harp name |
@@ -79,7 +79,7 @@ Read-only listings are exposed as MCP resources rather than tools:
 |-----|----------|
 | `ctxloom://help` | Orientation for the connected agent |
 | `ctxloom://fragments`, `ctxloom://fragments/{name}` | Fragment listing / content |
-| `ctxloom://skills`, `ctxloom://skills/{name}` | Skill listing / content |
+| `ctxloom://commands`, `ctxloom://commands/{name}` | Command listing / content |
 | `ctxloom://profiles`, `ctxloom://profiles/{name}` | Profile listing / configuration |
 | `ctxloom://remotes`, `ctxloom://remotes/{name}/contents` | Remotes / a remote's bundles |
 | `ctxloom://mcp-servers` | Configured MCP servers |

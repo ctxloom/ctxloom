@@ -27,7 +27,7 @@ import (
 // is shared with the user's own sub-agents — is never wiped wholesale.
 
 // ClaudeAgents registers a multi-agent roster for Claude Code, symmetric to
-// ClaudeSkills (which registers slash commands). The host maps a bundle's roster
+// ClaudeCommands (which registers slash commands). The host maps a bundle's roster
 // component — each entry binding an agent to a ctxloom profile — to resolved
 // AgentExports for claude-code, so this stays config/bundle/profile-free.
 //

@@ -94,8 +94,8 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		}
 	}
 	for _, name := range bundle.PromptNames() {
-		p := bundle.Skills[name]
-		if item, ok := planBundleItemDistill(ItemKindSkill, name, p.NoDistill, p.NeedsDistill(), req.Force); ok {
+		p := bundle.Commands[name]
+		if item, ok := planBundleItemDistill(ItemKindCommand, name, p.NoDistill, p.NeedsDistill(), req.Force); ok {
 			res.Items = append(res.Items, item)
 		} else {
 			promptTargets = append(promptTargets, name)
@@ -104,12 +104,12 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 
 	if req.DryRun {
 		appendStatus(&res.Items, ItemKindFragment, fragTargets, DistillStatusPlanned, "")
-		appendStatus(&res.Items, ItemKindSkill, promptTargets, DistillStatusPlanned, "")
+		appendStatus(&res.Items, ItemKindCommand, promptTargets, DistillStatusPlanned, "")
 		return res, nil
 	}
 	if req.Distiller == nil {
 		appendStatus(&res.Items, ItemKindFragment, fragTargets, DistillStatusSkipped, "no_distiller")
-		appendStatus(&res.Items, ItemKindSkill, promptTargets, DistillStatusSkipped, "no_distiller")
+		appendStatus(&res.Items, ItemKindCommand, promptTargets, DistillStatusSkipped, "no_distiller")
 		return res, nil
 	}
 
@@ -119,7 +119,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy, failedFrags.Has(n)))
 	}
 	for _, n := range promptTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindSkill, n, bundle.Skills[n].DistilledBy, failedPrompts.Has(n)))
+		res.Items = append(res.Items, distillOutcome(ItemKindCommand, n, bundle.Commands[n].DistilledBy, failedPrompts.Has(n)))
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {
@@ -163,12 +163,12 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 }
 
 // distillItemKindToTrust maps operations.ItemKind onto trust.ItemKind (the
-// two kinds distill touches: fragment, skill/prompt).
+// two kinds distill touches: fragment, command/prompt).
 func distillItemKindToTrust(k ItemKind) (trust.ItemKind, bool) {
 	switch k {
 	case ItemKindFragment:
 		return trust.KindFragment, true
-	case ItemKindSkill:
+	case ItemKindCommand:
 		return trust.KindPrompt, true
 	default:
 		return "", false

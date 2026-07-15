@@ -79,7 +79,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// the migration baseline + opens the trust store, idempotent with the regen
 	// content gate). Fault tolerant: the gate never errors (fail-closed) and
 	// attaching it never blocks the write. Set before any resolve below so
-	// ResolveBundleMCPServers / AssembleManagedHooks / LoadSkillExports all gate.
+	// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports all gate.
 	execGate := NewExecutableTrustGate(freshCfg)
 	freshCfg.SetExecutableTrustGate(execGate.Gate())
 
@@ -104,7 +104,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// (the `manage hooks install` path) for the configured DEFAULT profiles —
 	// there is no per-run `-p` selection here — so nil scopes to the defaults.
 	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
-	prompts := backends.LoadSkillExports(freshCfg, nil, bundleLoaderOpts(req)...)
+	prompts := backends.LoadCommandExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
 		backendNames:     hookBackendNames(backend),
@@ -241,7 +241,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 }
 
 // applyHooksToBackend writes one backend's managed config into the project via
-// the surfaces × cells seam: settings (hooks) + MCP + context + skills. The hook
+// the surfaces × cells seam: settings (hooks) + MCP + context + commands. The hook
 // set is assembled fresh per backend (config + default-profile + bundle-shipped +
 // context-injection, via AssembleManagedHooks) so this write matches the
 // `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
@@ -260,7 +260,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // WithContext(UnsafeFile), materializing the context surface with the assembled
 // context. contextViaHook (descriptor-keyed via SupportedApproaches) picks the
 // right approach per backend — the enum-driven replacement for the retired
-// contextViaNativeFile bool. Skills are delivered only when there are prompts,
+// contextViaNativeFile bool. Commands are delivered only when there are prompts,
 // preserving the prior guard (no prompts ⇒ command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
@@ -276,7 +276,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		BundleMCP:        p.bundleMCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: p.freshCfg.Settings.ShouldManageStatusline(),
-		Skills:           backends.CommandExportsFor(backendName, p.prompts),
+		Commands:         backends.CommandExportsFor(backendName, p.prompts),
 	}, p.fs)
 
 	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)
@@ -286,7 +286,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		sel = sel.WithContext(agent.ContextWriteUnsafeFile)
 	}
 	if len(p.prompts) > 0 {
-		sel = sel.WithSkills(agent.SkillsWriteUnsafeFile)
+		sel = sel.WithCommands(agent.CommandsWriteUnsafeFile)
 	}
 	if _, _, errs := sel.DeliverUnder(p.workDir); len(errs) > 0 {
 		return fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))

@@ -21,20 +21,20 @@ import (
 
 var trustCmd = &cobra.Command{
 	Use:   "trust <ref>",
-	Short: "Accept an item's current content (fragment, skill, MCP server, or hook)",
+	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
 	Long: `Accept the currently-resolved content of an item so it is exposed to the agent.
 
 The acceptance is bound to the item's current content-hash pair (raw and, when
 one exists, distilled): a later change to either form returns the item to
 pending and forces re-review.
 
-Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#skills/<name>,
+Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 <bundle-ref>#mcp/<name>, or <bundle-ref>#hooks/<event>/<index>. The bundle ref
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
 
 Examples:
   ctxloom trust core#fragments/tdd
-  ctxloom trust ctxloom:local@bundles/dev#skills/review
+  ctxloom trust ctxloom:local@bundles/dev#commands/review
   ctxloom trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
 Reject an item with 'ctxloom blacklist <ref>'.`,

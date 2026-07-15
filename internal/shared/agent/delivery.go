@@ -8,7 +8,7 @@ import (
 )
 
 // This file defines the pure type contracts for the runner-side delivery seam.
-// A loadout is composed of surfaces (context, MCP, skills, settings). Each
+// A loadout is composed of surfaces (context, MCP, commands, settings). Each
 // surface is delivered by a mechanism strategy (added in later slices) that
 // returns a handle owning its own cleanup. The facet interfaces below are kept
 // small so a strategy implements only the surface(s) it actually delivers.
@@ -44,13 +44,13 @@ type MCPDelivery interface {
 	DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (Delivered, error)
 }
 
-// SkillsDelivery delivers the skills surface of a loadout: the per-target-agent
-// slash-command (skill) exports. It is a small per-surface facet a skills
-// mechanism strategy satisfies on its own.
-type SkillsDelivery interface {
-	// DeliverSkills materializes the skill exports for the session and returns a
-	// handle owning its cleanup.
-	DeliverSkills(skills []CommandExport) (Delivered, error)
+// CommandsDelivery delivers the commands surface of a loadout: the
+// per-target-agent slash-command exports. It is a small per-surface facet a
+// commands mechanism strategy satisfies on its own.
+type CommandsDelivery interface {
+	// DeliverCommands materializes the command exports for the session and
+	// returns a handle owning its cleanup.
+	DeliverCommands(commands []CommandExport) (Delivered, error)
 }
 
 // SettingsDelivery delivers the settings surface of a loadout: the hook set

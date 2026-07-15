@@ -21,7 +21,7 @@ A bundle is one YAML document. These are all the keys it may carry:
 | `author`, `description`, `notes` | Metadata. `notes` is human-only | Nothing |
 | `installation` | Setup instructions, shown to a human on install | Nothing on its own |
 | `fragments` | Prose injected into agent context | **Tier 3** — instructions to an LLM holding your shell |
-| `skills` | Prose invoked on demand; exportable as slash commands | **Tier 3** |
+| `commands` | Prose invoked on demand; exportable as slash commands | **Tier 3** |
 | `mcp` | MCP server declarations | **Tier 2** — a binary is launched |
 | `hooks` | Lifecycle hooks | **Tier 1** — a shell command line the harness runs |
 | `profiles` | Composition units (which items load together) | Not gated as a definition — see below |
@@ -85,7 +85,7 @@ Your approval covers `command`, `args`, `env`, and `installation`. `notes` is ex
 is never executed and never sent to the agent. Argument order is significant (reordering
 `args` is a different server); environment key order is not (the encoding sorts keys).
 
-## `fragments` and `skills` — the prose
+## `fragments` and `commands` — the prose
 
 | Field | Meaning |
 |---|---|
@@ -95,11 +95,11 @@ is never executed and never sent to the agent. Argument order is significant (re
 | `no_distill` | Suppress distillation for this item |
 | `content_hash` | Author-supplied. See below |
 | `tags`, `notes`, `installation` | Metadata; `notes` is human-only |
-| `description` (skills) | One-line summary |
-| `llm` (skills) | Per-harness export settings — how the skill becomes a slash command |
+| `description` (commands) | One-line summary |
+| `llm` (commands) | Per-harness export settings — how the command becomes a slash command |
 
-A skill that is exported as a slash command passes the same trust gate as a hook or an MCP
-server, at its own choke: a pending or rejected skill is not written out as a command at all.
+A command that is exported as a slash command passes the same trust gate as a hook or an MCP
+server, at its own choke: a pending or rejected command is not written out as a command at all.
 
 **Distillation matters here.** `content` and `distilled` are *different bytes*, and the
 distilled form is bytes an LLM wrote that no human read. So they are approved **separately**:
@@ -116,7 +116,7 @@ mistake the former for the latter.
 
 ## `profiles` — composition, not content
 
-A bundle can ship profiles: units that say which fragments, skills, MCP servers and hooks
+A bundle can ship profiles: units that say which fragments, commands, MCP servers and hooks
 load together.
 
 A **profile definition is not trust-gated**. It is orchestration — a list of what to compose
@@ -132,7 +132,7 @@ file.
 ## What this adds up to
 
 Every executable surface a bundle carries — hooks, MCP servers, exported slash-commands —
-and every text surface — fragments, skills — is routed through one decision function, per
+and every text surface — fragments, commands — is routed through one decision function, per
 item, on the exact bytes about to be exposed. If that decision cannot justify exposure, the
 item is silently absent from the agent and counted in a stderr advisory.
 

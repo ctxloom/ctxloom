@@ -33,7 +33,7 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 	b := NewCodex()
 
 	managed := &agent.ManagedConfig{
-		Skills: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
+		Commands: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			PreTool: []wire.Hook{{Command: "ctxloom hook guard", Type: "command"}},
 		}},
@@ -59,7 +59,7 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 
 	// Cell-scoped prompts live under <work>/.codex/prompts (NOT the global ~/.codex).
 	assert.FileExists(t, filepath.Join(work, ".codex", "prompts", "demo.md"),
-		"skills are delivered to the cell-scoped prompts dir")
+		"commands are delivered to the cell-scoped prompts dir")
 
 	// CODEX_HOME points codex at the cell-scoped home so it discovers those prompts.
 	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindDirectoryIsolated})

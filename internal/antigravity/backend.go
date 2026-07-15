@@ -39,7 +39,7 @@ func NewAntigravity() *Antigravity {
 	// and the merge hash is "" (no injection hook).
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity"),
-		&AntigravitySkills{},
+		&AntigravityCommands{},
 		agent.NewBaseContextProvider(),
 		NewAntigravitySessionHistory(b),
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

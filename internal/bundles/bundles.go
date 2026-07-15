@@ -36,25 +36,25 @@ type Bundle struct {
 
 	// Content maps (keyed by name)
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`
-	Skills    map[string]BundleSkill    `yaml:"skills,omitempty"`
+	Commands  map[string]BundleCommand  `yaml:"commands,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
 
 	// Profiles shipped with this bundle, keyed by name. A profile is an
-	// ungated, COMPOUND item — it composes leaves (fragments/skills/mcp/hooks/
+	// ungated, COMPOUND item — it composes leaves (fragments/commands/mcp/hooks/
 	// llm/parents/variables) into a runnable context unit — so a bundle that
 	// ships fragments can also ship the profiles that compose them, as one unit.
 	// Addressed by "<bundle>#profiles/<name>" (remote.ProfileSelector) and seeded
 	// into the shared profile loader so a bundle profile resolves/runs exactly
 	// like a top-level or local profile (config bundle-profile seed). The profile
 	// DEFINITION is never trust-gated (no trust.ItemKind for profiles, never
-	// baselined); its constituent fragments/skills still gate at content
+	// baselined); its constituent fragments/commands still gate at content
 	// assembly and any mcp/hooks it pulls in still gate at the exec choke.
 	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
 	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
 	// Bundle-shipped hooks are subject to the same review gate as bundle
-	// fragments/prompts/MCP: a remote-sourced bundle whose SHA changed must
+	// fragments/commands/MCP: a remote-sourced bundle whose SHA changed must
 	// be acknowledged before its hooks fire (see docs/bundle-review-plan.md).
 	Hooks BundleHooks `yaml:"hooks,omitempty"`
 
@@ -268,8 +268,8 @@ type BundleFragment struct {
 	NoDistill    bool     `yaml:"no_distill,omitempty"`
 }
 
-// BundleSkill defines a prompt within a bundle.
-type BundleSkill struct {
+// BundleCommand defines a slash command within a bundle.
+type BundleCommand struct {
 	Description  string     `yaml:"description,omitempty"`
 	Tags         []string   `yaml:"tags,omitempty"`
 	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
@@ -398,18 +398,18 @@ func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, Con
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
 // feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
 // trust gate uses EffectiveContentHash instead.
-func (p *BundleSkill) ComputeContentHash() string {
+func (p *BundleCommand) ComputeContentHash() string {
 	return hashContent([]byte(p.Content))
 }
 
-// NeedsDistill returns true if this prompt needs distillation.
-func (p *BundleSkill) NeedsDistill() bool {
+// NeedsDistill returns true if this command needs distillation.
+func (p *BundleCommand) NeedsDistill() bool {
 	return staleDistill(p.NoDistill, p.Distilled, p.ContentHash, p.Content)
 }
 
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
-func (p *BundleSkill) EffectiveContent(preferDistilled bool) string {
+func (p *BundleCommand) EffectiveContent(preferDistilled bool) string {
 	content, _ := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
 	return content
 }
@@ -417,7 +417,7 @@ func (p *BundleSkill) EffectiveContent(preferDistilled bool) string {
 // ContentPayload returns the exact bytes EffectiveContent(preferDistilled)
 // would serve, and the form they were exposed in. See
 // BundleFragment.ContentPayload — same single-preimage-builder contract.
-func (p *BundleSkill) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
+func (p *BundleCommand) ContentPayload(preferDistilled bool) ([]byte, ContentForm) {
 	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
 	return []byte(content), form
 }
@@ -425,7 +425,7 @@ func (p *BundleSkill) ContentPayload(preferDistilled bool) ([]byte, ContentForm)
 // EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
 // returns, and reports their form. See BundleFragment.EffectiveContentHash — same
 // contract for the per-item trust gate (trust rework, TR0).
-func (p *BundleSkill) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
+func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	payload, form := p.ContentPayload(preferDistilled)
 	return hashContent(payload), form
 }
@@ -460,7 +460,7 @@ type mcpContentPayload struct {
 // This is the SINGLE preimage builder for an MCP server: ComputeContentHash
 // below hashes exactly this function's output, and a countersignature
 // (signature envelope spec §3.2/§3.3) covers exactly it too. Unlike the
-// fragment/skill preimage, this one IS a canonicalization — an existing,
+// fragment/command preimage, this one IS a canonicalization — an existing,
 // already-shipped one (spec §3.3.2) — because an MCP server has no "raw bytes";
 // it is structured fields with no other faithful serialization. That is
 // precisely why it carries a version: see signing.ExecPreimageContract.
@@ -567,9 +567,9 @@ func (b *Bundle) FragmentCount() int {
 	return len(b.Fragments)
 }
 
-// SkillCount returns the number of prompts in the bundle.
-func (b *Bundle) SkillCount() int {
-	return len(b.Skills)
+// CommandCount returns the number of commands in the bundle.
+func (b *Bundle) CommandCount() int {
+	return len(b.Commands)
 }
 
 // FragmentNames returns sorted fragment names.
@@ -577,9 +577,9 @@ func (b *Bundle) FragmentNames() []string {
 	return slices.Sorted(maps.Keys(b.Fragments))
 }
 
-// PromptNames returns sorted prompt names.
+// PromptNames returns sorted command names.
 func (b *Bundle) PromptNames() []string {
-	return slices.Sorted(maps.Keys(b.Skills))
+	return slices.Sorted(maps.Keys(b.Commands))
 }
 
 // HasProfiles reports whether the bundle ships any profiles.
@@ -604,7 +604,7 @@ func (b *Bundle) AllTags() []string {
 	for _, f := range b.Fragments {
 		tagSet.AddAll(f.Tags...)
 	}
-	for _, p := range b.Skills {
+	for _, p := range b.Commands {
 		tagSet.AddAll(p.Tags...)
 	}
 
@@ -616,10 +616,21 @@ func (b *Bundle) AllTags() []string {
 // ParseBundle parses raw YAML into a Bundle.
 func ParseBundle(data []byte) (*Bundle, error) {
 	// Migrate older on-disk/remote bundle schemas (e.g. the legacy `prompts:`
-	// key → `skills:`) in memory before unmarshal, so old bundles load instead
-	// of silently dropping renamed keys. No-op for already-current bundles.
+	// key → `commands:`) in memory before unmarshal, so old bundles load
+	// instead of silently dropping renamed keys. No-op for already-current
+	// bundles.
 	if upgraded, applied := bundleUpgrades.Run(data); len(applied) > 0 {
 		data = upgraded
+	}
+
+	// `skills:` is reserved for a future, different item-kind (Agent Skills,
+	// SKILL.md packages) that never carries an inline `content:` field. Detect
+	// any leftover legacy (command-shaped) entry under `skills:` and fail loud
+	// — a permanent rewrite is impossible here (it would corrupt real Agent
+	// Skills once that item-kind exists), and a silent unmarshal-drop would be
+	// exactly the silent-no-op this codebase treats as a bug.
+	if err := detectLegacySkillsKey(data); err != nil {
+		return nil, err
 	}
 
 	var bundle Bundle
@@ -631,8 +642,8 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	if bundle.Fragments == nil {
 		bundle.Fragments = make(map[string]BundleFragment)
 	}
-	if bundle.Skills == nil {
-		bundle.Skills = make(map[string]BundleSkill)
+	if bundle.Commands == nil {
+		bundle.Commands = make(map[string]BundleCommand)
 	}
 	if bundle.MCP == nil {
 		bundle.MCP = make(map[string]BundleMCP)
@@ -642,6 +653,69 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	}
 
 	return &bundle, nil
+}
+
+// detectLegacySkillsKey inspects the raw bundle YAML for a top-level
+// `skills:` key and, if present, fails loud rather than letting the default
+// YAML unmarshal silently drop it (Bundle no longer has a field bound to
+// `skills`). `skills:` used to be this codebase's name for the command
+// item-kind; it is now reserved for a future, different item-kind (Agent
+// Skills / SKILL.md packages, which never carry an inline `content:` field).
+// A legacy-shaped entry (one with a scalar `content:`) gets a precise,
+// actionable message; any other shape under `skills:` still errors — Part B's
+// real skill item-kind isn't implemented yet, so nothing under `skills:` can
+// be honored today.
+func detectLegacySkillsKey(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil // let the normal parse path below surface the real error
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	root := doc.Content[0]
+
+	var bundleName string
+	var skillsNode *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		switch root.Content[i].Value {
+		case "name":
+			bundleName = root.Content[i+1].Value
+		case "skills":
+			skillsNode = root.Content[i+1]
+		}
+	}
+	if skillsNode == nil || skillsNode.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	var legacyNames []string
+	for i := 0; i+1 < len(skillsNode.Content); i += 2 {
+		entryName := skillsNode.Content[i].Value
+		entryNode := skillsNode.Content[i+1]
+		if entryNode.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(entryNode.Content); j += 2 {
+			if entryNode.Content[j].Value == "content" {
+				legacyNames = append(legacyNames, entryName)
+				break
+			}
+		}
+	}
+
+	if len(legacyNames) > 0 {
+		return fmt.Errorf(
+			"bundle %s: `skills:` now means Agent Skills (SKILL.md packages); "+
+				"entr(y/ies) %v are shaped like slash commands (they carry `content:`) — "+
+				"rename the `skills:` key to `commands:` (skill→command rename, v0.7.0) or re-init the bundle",
+			bundleName, legacyNames)
+	}
+
+	return fmt.Errorf(
+		"bundle %s: `skills:` key found but Agent Skills are not supported in this version; "+
+			"if these entries are slash commands, rename the `skills:` key to `commands:`",
+		bundleName)
 }
 
 // ValidateBundleName rejects bundle names that would escape the bundles

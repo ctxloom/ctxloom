@@ -20,8 +20,8 @@ Feature: Additional read and configuration commands
   Scenario: Show a prompt's content
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    And a skill "review" in bundle "demo" exists
-    When I run "ctxloom skill show demo#skills/review"
+    And a command "review" in bundle "demo" exists
+    When I run "ctxloom command show demo#commands/review"
     Then the command succeeds
     And the output contains "review"
 

@@ -50,7 +50,7 @@ func sampleInputs() agent.SurfaceInputs {
 				PreTool: []wire.Hook{{Command: "ltk evaluate"}},
 			},
 		},
-		Skills: []agent.CommandExport{
+		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review the diff", Enabled: true, Description: "Code review"},
 		},
 	}
@@ -65,7 +65,7 @@ var (
 	_ agent.Delivery = (*contextSurface)(nil)
 	_ agent.Delivery = (*mcpSurface)(nil)
 	_ agent.Delivery = (*settingsSurface)(nil)
-	_ agent.Delivery = (*agent.ManagedSkillsDelivery)(nil) // kiro's skills surface
+	_ agent.Delivery = (*agent.ManagedCommandsDelivery)(nil) // kiro's commands surface
 )
 
 // No kiro surface has a SharedRealization, so a SHARED-cwd delivery of any kiro
@@ -154,14 +154,14 @@ func TestSettingsSurface_DeliverWritesAgentConfig(t *testing.T) {
 	assert.False(t, exists, "cleanup removes the ctxloom-owned agent config")
 }
 
-// ---- skills surface (.kiro/skills/) ----------------------------------------
+// ---- commands surface (.kiro/skills/) --------------------------------------
 
-func TestSkillsSurface_DeliverWritesSkillMd(t *testing.T) {
+func TestCommandsSurface_DeliverWritesSkillMd(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	handle, err := s.Skills.Deliver(dir)
+	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
 
 	skillPath := filepath.Join(dir, kiroDir, "skills", "review", "SKILL.md")
@@ -170,7 +170,7 @@ func TestSkillsSurface_DeliverWritesSkillMd(t *testing.T) {
 
 	require.NoError(t, handle.Cleanup())
 	exists, _ = afero.Exists(fs, skillPath)
-	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
+	assert.False(t, exists, "cleanup reverts the manifest-tracked command")
 }
 
 // ---- no SharedRealization (the only path to a shared cwd) ------------------
@@ -180,7 +180,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	cwd := "/live-cwd"
 	s := NewSurfaces(sampleInputs(), fs)
 
-	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	r, err := agent.Select(s).WithCommands(agent.CommandsWriteUnsafeFile).Build()
 	require.NoError(t, err)
 
 	var delivered []agent.Delivered
@@ -192,7 +192,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	require.Len(t, delivered, 1)
 
 	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
-	assert.Contains(t, stderr, "skills")
+	assert.Contains(t, stderr, "commands")
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
@@ -209,7 +209,7 @@ func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, MCP, settings, skills")
+	require.Len(t, ds, 4, "context, MCP, settings, commands")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -253,7 +253,7 @@ func TestSharedCell_AcceptsOnlyUnsafeKiroSurfaces(t *testing.T) {
 // native-file-only — kiro reads steering directly, no hook, no out-of-cwd flag.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
 		assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(kind), "%s", kind)
 	}
 }
@@ -261,7 +261,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 // DefaultApproach is the native file for every kind kiro has.
 func TestSurfaces_DefaultApproach(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, a)
@@ -280,7 +280,7 @@ func TestSurfaceFor_ContextHookUnsupported(t *testing.T) {
 // a SHARED-cwd delivery always falls back to the loud well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceSkills} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: kiro has no out-of-cwd realization", kind)
 	}

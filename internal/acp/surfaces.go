@@ -15,7 +15,7 @@ package acp
 //
 //   - It materializes NOTHING to the filesystem. A generic ACP agent's native
 //     config format is unknown by construction (any ACP-capable CLI), so the
-//     descriptor writes no engine files at all — acpSkills.RegisterFromContent is
+//     descriptor writes no engine files at all — acpCommands.RegisterFromContent is
 //     a no-op, and there is no settings writer (see doc.go, capabilities.go).
 //
 //   - Its loadout rides the PROTOCOL, not files. Context reaches a run in-band as

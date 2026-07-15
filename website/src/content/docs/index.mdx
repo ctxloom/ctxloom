@@ -38,7 +38,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 </CardGrid>
 
 :::note[Why not just CLAUDE.md?]
-Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and skills can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
+Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and commands can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
 
 **ctxloom replaces the native context file, it does not merge with it.** `ctxloom run` assembles context itself and launches the engine in isolation, ignoring `CLAUDE.md` entirely. And if you install ctxloom's hooks into an externally-launched Claude Code, the assembled context is written to `CLAUDE.md` as the whole file - a hand-written `CLAUDE.md` is overwritten. Keep your standards in fragments, not in `CLAUDE.md`.
 :::
@@ -48,10 +48,10 @@ Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **proje
 | Capability | Description |
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
-| **Slash Commands** | Skills become `/commands` in Claude Code and Antigravity automatically |
+| **Slash Commands** | Commands become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
-| **Token Optimization** | Distill fragments and skills with a cheap, fast LLM |
+| **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
 
 ## Quick Example
 
@@ -78,11 +78,11 @@ ctxloom remote pull
 
 ## Slash Commands
 
-Skills in bundles become slash commands in Claude Code and Antigravity CLI:
+Commands in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
 # .ctxloom/content/bundles/my-tools.yaml
-skills:
+commands:
   code-review:
     description: "Review code for issues"
     content: |
@@ -128,7 +128,7 @@ flowchart LR
     Context --> AI["Claude/Antigravity<br/>(native context channel)"]
 ```
 
-1. **Bundles** contain fragments (context), skills (slash commands), and MCP servers
+1. **Bundles** contain fragments (context), commands (slash commands), and MCP servers
 2. **Profiles** combine bundles with inheritance and exclusions
 3. **Context** is assembled and handed to the engine on its own context channel - Claude Code is launched with `--append-system-prompt-file`, Antigravity reads `.agents/AGENTS.md`. No MCP is involved in delivery; `ctxloom mcp serve` is a separate, opt-in surface your agent can *retrieve* from mid-session.
 4. **Remotes** provide team sharing and community bundles. Pulled content is withheld from the agent until you accept it with `ctxloom review`
@@ -138,8 +138,8 @@ flowchart LR
 | Concept | What It Is |
 |---------|------------|
 | **Fragment** | A piece of context (guidelines, patterns, examples) |
-| **Skill** | A saved prompt template, exported as a slash command |
-| **Bundle** | A versioned YAML containing fragments + skills + MCP servers |
+| **Command** | A saved prompt template, exported as a slash command |
+| **Bundle** | A versioned YAML containing fragments + commands + MCP servers |
 | **Profile** | A named configuration referencing bundles/tags |
 | **Remote** | A GitHub/GitLab repository containing bundles |
 
@@ -195,7 +195,7 @@ default_agent: go-developer
     [Create your first bundle](/getting-started/quickstart/)
   </Card>
   <Card title="Bundles" icon="puzzle">
-    [Fragment and skill structure](/concepts/bundles/)
+    [Fragment and command structure](/concepts/bundles/)
   </Card>
   <Card title="Session Memory" icon="open-book">
     [Preserve context across sessions](/getting-started/memory/)

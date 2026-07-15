@@ -24,7 +24,7 @@ description: |
   the agent sees, ltk guides the commands it runs.
 
 notes: |
-  This bundle ships one pre-tool hook and one skill:
+  This bundle ships one pre-tool hook and one command:
 
     PreTool matcher=shell+edit tools → ltk evaluate
       ltk parses the real command (resolving variables, unwrapping trivial
@@ -33,7 +33,7 @@ notes: |
       instead. Without a project config, ltk falls back to a built-in
       allow-all — the hook is a cheap no-op until rules are added.
 
-    skills/task-runner
+    commands/task-runner
       Detects the task runner(s) a project actually uses and authors (or
       merges) .ltk/config.yaml rules that redirect the raw tool to it —
       the setup step that used to be entirely manual.
@@ -42,7 +42,7 @@ notes: |
   the same hook directly (and scaffolds a starter config). ctxloom users get
   registration from this bundle; rule authoring stays with ltk
   (`ltk manage install --config .ltk/config.yaml` scaffolds defaults, or use
-  the task-runner skill to author project-specific rules).
+  the task-runner command to author project-specific rules).
 
 installation: |
   The ctxloom install script and `brew install ctxloom/tap/ltk` ship the ltk
@@ -101,7 +101,7 @@ fragments:
       path the right one rather than enforcing hard isolation. For strict
       "never" boundaries, run the agent in a container.
 
-skills:
+commands:
   task-runner:
     description: "Detect this project's task runner(s) and configure ltk to redirect raw build/test/lint tools through it"
     tags:

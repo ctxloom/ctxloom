@@ -2,7 +2,7 @@
 Feature: One shared profile, reaching four engines in their own native format
 
   A team does not standardize on one assistant. Carol's team writes one shared
-  profile — a fragment, a skill, an MCP server, a hook — once. Alice's teammates
+  profile — a fragment, a command, an MCP server, a hook — once. Alice's teammates
   use claude-code, codex, kiro, and antigravity, and every one of them needs that
   same profile to reach their own engine, in whatever native shape that engine
   actually reads. ctxloom's job is to be the one place the team's standard is
@@ -15,7 +15,7 @@ Feature: One shared profile, reaching four engines in their own native format
   Verified straight from each engine's own surfaces.go (internal/{claude,codex,
   kiro,antigravity}/surfaces.go):
 
-    | engine      | context lands in                                          | MCP lands in                              | hooks land in                | skills land in                     |
+    | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
     | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
@@ -45,12 +45,12 @@ Feature: One shared profile, reaching four engines in their own native format
   # closed — the Outline's own design (add an engine, add a row) proves it a
   # fourth time.
   Scenario Outline: The same profile materializes into each engine's own native surfaces
-    Given Carol's team profile carries a shared fragment, skill, MCP server, and hook
+    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for <engine>
     Then the materialized <engine> context carries the shared fragment's marker, in its own native shape
     And the materialized <engine> MCP configuration carries the shared server's command, in its own native shape
     And the materialized <engine> hook configuration carries the shared hook's command, in its own native shape
-    And the materialized <engine> skill file carries the shared skill's body, in its own native shape
+    And the materialized <engine> command file carries the shared command's body, in its own native shape
 
     Examples:
       | engine      |
@@ -68,7 +68,7 @@ Feature: One shared profile, reaching four engines in their own native format
   # to a bare whole-file write makes this scenario fail for exactly that
   # reason — the hand-authored line is gone, not merely unasserted.
   Scenario Outline: A hand-authored context file survives materialization byte-for-byte
-    Given Carol's team profile carries a shared fragment, skill, MCP server, and hook
+    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     And Alice's team already hand-authored <file> for <engine> with their own conventions
     When Alice materializes the team profile for <engine>
     Then <file> still carries Alice's hand-authored conventions, byte-for-byte

@@ -54,8 +54,8 @@ const (
 	// SurfaceSettings is the engine's settings/hooks surface (.claude/settings.json,
 	// codex config.toml, .agents/hooks.json, kiro agent JSON).
 	SurfaceSettings
-	// SurfaceSkills is the engine's slash-command / skill / prompt files.
-	SurfaceSkills
+	// SurfaceCommands is the engine's slash-command / skill / prompt files.
+	SurfaceCommands
 )
 
 // String renders the kind as the stable lowercase label used in delivery reports.
@@ -67,8 +67,8 @@ func (k SurfaceKind) String() string {
 		return "mcp"
 	case SurfaceSettings:
 		return "settings"
-	case SurfaceSkills:
-		return "skills"
+	case SurfaceCommands:
+		return "commands"
 	default:
 		return "unknown"
 	}
@@ -116,7 +116,7 @@ type SurfaceSet interface {
 	// SharedRealization reports the backend's out-of-cwd, genuinely race-safe
 	// conversion for kind — claude's --append-system-prompt-file /--mcp-config /
 	// --settings scratch writers. false means the backend has no such conversion
-	// for kind (every kind on codex/antigravity/kiro; claude's skills), so a
+	// for kind (every kind on codex/antigravity/kiro; claude's commands), so a
 	// SHARED-cwd delivery falls back to the loud well-known write. The returned
 	// closure, when non-nil, performs the isolated write and returns its handle.
 	SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool)
@@ -126,7 +126,7 @@ type SurfaceSet interface {
 // surfaces write: the assembled context (as a string for the ContextWriter-core
 // engines, and the raw fragments for codex's file writer), the merged MCP config
 // + profile/builtin bundle servers, the merged hook set + statusline policy, and
-// the skill exports. Setup fills it once (from req + the merged lifecycle state)
+// the command exports. Setup fills it once (from req + the merged lifecycle state)
 // and hands it to a backend's CellDelivery.Build closure, which picks the fields
 // IT needs and calls its own NewSurfaces. It is the cross-backend contract that
 // lets the generic Setup build any backend's SurfaceSet without importing the
@@ -138,15 +138,15 @@ type SurfaceInputs struct {
 	BundleMCP        map[string]wire.MCPServer
 	Hooks            *wire.HooksConfig
 	ManageStatusline bool
-	Skills           []CommandExport
-	// SelfContainedSkills, when true, tells a backend's skills surface to
-	// materialize skills WITHOUT deduping against the delivering machine's own
+	Commands         []CommandExport
+	// SelfContainedCommands, when true, tells a backend's commands surface to
+	// materialize commands WITHOUT deduping against the delivering machine's own
 	// skill/command directories (e.g. claude's ~/.claude/commands) — for portable
 	// `profile materialize --target` artifacts whose launch environment is not
 	// this host. Live launch, `manage hooks install` apply, and container
 	// delivery all share their process/home with the launch environment, so they
 	// leave this false (the default) and keep self-resolving dedup ON.
-	SelfContainedSkills bool
+	SelfContainedCommands bool
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A
@@ -280,10 +280,10 @@ func NewDirectoryIsolatedCell(dir string) DirectoryIsolatedCell {
 }
 
 // surfaceOrder is the stable cross-backend delivery order — context, MCP,
-// settings, skills — matching every backend's Deliveries() order, so a Build()ed
+// settings, commands — matching every backend's Deliveries() order, so a Build()ed
 // selection's report and LIFO teardown are deterministic regardless of the order
 // a caller chained the WithX() calls in.
-var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceSkills}
+var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands}
 
 // SurfaceSelection is an OPT-IN builder over a SurfaceSet: the default selects
 // NOTHING, and each chainable .WithX(approach) opts one SurfaceKind in AT A NAMED
@@ -324,10 +324,10 @@ func (s *SurfaceSelection) WithSettings(w SettingsWrite) *SurfaceSelection {
 	return s
 }
 
-// WithSkills opts the skills / slash-command surface into the selection at the
-// named approach.
-func (s *SurfaceSelection) WithSkills(w SkillsWrite) *SurfaceSelection {
-	s.approaches[SurfaceSkills] = w.approach()
+// WithCommands opts the commands / slash-command surface into the selection at
+// the named approach.
+func (s *SurfaceSelection) WithCommands(w CommandsWrite) *SurfaceSelection {
+	s.approaches[SurfaceCommands] = w.approach()
 	return s
 }
 
@@ -515,8 +515,8 @@ func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, ki
 }
 
 // unsafeNamed is optionally implemented by a concrete surface Delivery to
-// self-describe for the DeliverShared warning (e.g. "claude/skills"). A surface
-// without it (the shared codex/antigravity/kiro ManagedSkillsDelivery) falls back
+// self-describe for the DeliverShared warning (e.g. "claude/commands"). A surface
+// without it (the shared codex/antigravity/kiro ManagedCommandsDelivery) falls back
 // to its cross-backend SurfaceKind label.
 type unsafeNamed interface {
 	UnsafeInfo() string

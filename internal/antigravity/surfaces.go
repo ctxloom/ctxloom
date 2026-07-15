@@ -32,7 +32,7 @@ import (
 //	context  | .agents/AGENTS.md             | ❌ no flag
 //	MCP      | .agents/mcp_config.json       | ❌ no flag
 //	hooks    | .agents/hooks.json            | ❌ no flag
-//	skills   | .agents/skills/<name>.md      | ❌ no flag
+//	commands | .agents/skills/<name>.md      | ❌ no flag
 //
 // Unlike claude (which folds settings + hooks into one .claude/settings.json),
 // agy keeps hooks, MCP, and context in three separate files under .agents/, so
@@ -148,8 +148,8 @@ func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
 // agy's hooks file IS its settings, so a caller selecting Settings gets it.
 func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
-// agy's skills surface — the markdown skill files under .agents/skills/ — is the
-// shared agent.ManagedSkillsDelivery bound to agy's manifest-scoped
+// agy's commands surface — the markdown skill files under .agents/skills/ — is
+// the shared agent.ManagedCommandsDelivery bound to agy's manifest-scoped
 // WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
 // is identical across engines, so it lives in internal/shared/agent, not here.
 
@@ -162,12 +162,12 @@ func (f deliveredFunc) Cleanup() error { return f() }
 
 // Surfaces is agy's set of delivery surfaces for one run — four surface objects,
 // one per .agents/ file: context (AGENTS.md), MCP (mcp_config.json), hooks
-// (hooks.json), and skills (skills/).
+// (hooks.json), and commands (skills/).
 type Surfaces struct {
-	Context *contextSurface
-	MCP     *mcpSurface
-	Hooks   *hooksSurface
-	Skills  *agent.ManagedSkillsDelivery
+	Context  *contextSurface
+	MCP      *mcpSurface
+	Hooks    *hooksSurface
+	Commands *agent.ManagedCommandsDelivery
 
 	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
 	// here (not reallocated per SurfaceFor call) since it never changes after
@@ -177,7 +177,7 @@ type Surfaces struct {
 
 // NewSurfaces builds agy's surfaces from a run's shared inputs (agy uses the
 // assembled context text, merged MCP + bundle servers, the hook set, and the
-// skill exports; Fragments/ManageStatusline are for other engines). A nil fs
+// command exports; Fragments/ManageStatusline are for other engines). A nil fs
 // defaults to the OS filesystem. Every agy surface's Delivery takes its target
 // dir at call time; none is race-safe (agy exposes no out-of-cwd flag), so there
 // is no isolated placement to bind.
@@ -186,19 +186,19 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	context := &contextSurface{context: in.Context, fs: fs}
 	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
 	hooks := &hooksSurface{hooks: in.Hooks, fs: fs}
-	skills := agent.NewManagedSkillsDelivery("antigravity/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
-		return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
+	commands := agent.NewManagedCommandsDelivery("antigravity/commands", in.Commands, func(dir string, commands []agent.CommandExport) error {
+		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
 	})
 	return Surfaces{
-		Context: context,
-		MCP:     mcp,
-		Hooks:   hooks,
-		Skills:  skills,
+		Context:  context,
+		MCP:      mcp,
+		Hooks:    hooks,
+		Commands: commands,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  context,
 			agent.SurfaceMCP:      mcp,
 			agent.SurfaceSettings: hooks,
-			agent.SurfaceSkills:   skills,
+			agent.SurfaceCommands: commands,
 		},
 	}
 }
@@ -210,7 +210,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // delivery falls back to the loud well-known write (see Surfaces.SharedRealization
 // below).
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Skills}
+	return []agent.Delivery{s.Context, s.MCP, s.Hooks, s.Commands}
 }
 
 // agyApproaches is agy's DECLARED per-surface approach table (vital-tiger v2
@@ -221,7 +221,7 @@ var agyApproaches = agent.ApproachTable{
 	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
 	agent.SurfaceMCP:      {agent.ApproachUnsafeFile},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
-	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
+	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 }
 
 // SupportedApproaches reports agy's declared approach table for kind.

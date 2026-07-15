@@ -139,7 +139,7 @@ func NewACP() *ACP {
 	b.BinaryPath = "" // resolved from ACPConfig.Command / BinaryPath at Configure time
 	b.InitLaunch(
 		agent.NewBaseLifecycle("acp"),
-		&acpSkills{},
+		&acpCommands{},
 		agent.NewBaseContextProvider(),
 		&acpSessionHistory{},
 		// acp materializes no files (its loadout rides the ACP protocol, see

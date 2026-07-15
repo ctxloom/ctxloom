@@ -60,7 +60,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 }
 
 // removeBackendHarness strips one backend's ctxloom harness: RemoveSettings
-// reverts the per-backend hooks/MCP (unchanged), and the skills surface — built
+// reverts the per-backend hooks/MCP (unchanged), and the commands surface — built
 // from an EMPTY export set and delivered — clears ONLY ctxloom-managed command
 // files. That clear routes through the same manifest-scoped writer the old
 // WriteCommandFilesFor(nil) used: it removes exactly the .ctxloom-manifest-tracked
@@ -72,7 +72,7 @@ func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []back
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}
 	set := backends.BuildSurfaces(name, agent.SurfaceInputs{}, fs)
-	if _, _, errs := agent.Select(set).WithSkills(agent.SkillsWriteUnsafeFile).DeliverUnder(workDir); len(errs) > 0 {
+	if _, _, errs := agent.Select(set).WithCommands(agent.CommandsWriteUnsafeFile).DeliverUnder(workDir); len(errs) > 0 {
 		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
 	}
 	return nil

@@ -6,7 +6,8 @@ import mermaid from 'astro-mermaid';
 export default defineConfig({
 	site: 'https://ctxloom.dev',
 	redirects: {
-		'/concepts/prompts/': '/concepts/skills/',
+		'/concepts/prompts/': '/concepts/commands/',
+		'/concepts/skills/': '/concepts/commands/',
 		// ltk graduated from an Ecosystem footnote to a top-level section.
 		'/ecosystem/llm-tool-killer/': '/ltk/',
 	},
@@ -52,7 +53,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Bundles', link: '/concepts/bundles/' },
 						{ label: 'Fragments', link: '/concepts/fragments/' },
-						{ label: 'Skills', link: '/concepts/skills/' },
+						{ label: 'Commands', link: '/concepts/commands/' },
 						{ label: 'Profiles', link: '/concepts/profiles/' },
 						{ label: 'Agents & Isolation', link: '/concepts/agents/' },
 						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },

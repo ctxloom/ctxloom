@@ -178,7 +178,7 @@ them with 'ctxloom agent set'. Engine choice stays yours.
 Run this (or ask your agent to) when you have profiles but no agents yet.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// A bundle (or installed companion) can ship its own `agent-setup` skill
+		// A bundle (or installed companion) can ship its own `agent-setup` command
 		// to AUGMENT the built-in onboarding/composition guidance (data, not
 		// baked into the binary); every match's content adds to the built-in,
 		// never replaces it. Falls back to the built-in alone when none is

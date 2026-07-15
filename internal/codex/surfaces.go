@@ -30,7 +30,7 @@ import (
 //	context   | .ctxloom/cache/context/<hash>.md (hook) | ❌ no flag
 //	agentsMD  | AGENTS.md (native, managed markers)     | ❌ no flag
 //	config    | .codex/config.toml (hooks + MCP)        | ❌ no flag
-//	skills    | $CODEX_HOME/prompts/<name>.md           | ❌ no flag
+//	commands  | $CODEX_HOME/prompts/<name>.md           | ❌ no flag
 //
 // Three codex realities shape the decomposition:
 //
@@ -63,9 +63,9 @@ import (
 //     separately-selectable approach, it always rides alongside whatever
 //     approach-dispatch selects for contextSurface.
 //
-//  3. skills are GLOBAL. codex discovers prompts only from $CODEX_HOME/prompts
+//  3. commands are GLOBAL. codex discovers prompts only from $CODEX_HOME/prompts
 //     (default ~/.codex/prompts) — NOT cwd-relative — so an isolated *directory*
-//     would not isolate them. The skillsSurface therefore writes prompts under a
+//     would not isolate them. The commands surface therefore writes prompts under a
 //     CELL-SCOPED $CODEX_HOME derived from the delivery dir (<dir>/.codex/prompts,
 //     i.e. CODEX_HOME=<dir>/.codex), so a DirectoryIsolatedCell genuinely
 //     isolates them. Exporting CODEX_HOME=<dir>/.codex to the launched codex is a
@@ -206,7 +206,7 @@ func (s *configSurface) UnsafeInfo() string { return "codex/config" }
 // either Settings or MCP gets the whole file.
 func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
-// codex's prompts surface is the shared agent.ManagedSkillsDelivery bound to
+// codex's prompts surface is the shared agent.ManagedCommandsDelivery bound to
 // codex's writer (built in NewSurfaces). codex prompts are GLOBAL
 // ($CODEX_HOME/prompts), so the bound writer targets a CELL-SCOPED $CODEX_HOME
 // derived from the delivery dir (cellScopedPromptsDir) via the shared
@@ -224,12 +224,12 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // Surfaces is codex's set of delivery surfaces for one run. codex has four
 // surface objects — context (the raw context file, for the SessionStart hook),
 // agentsMD (the native AGENTS.md managed section — the other context route),
-// config (config.toml's folded hooks + MCP), and skills (cell-scoped prompts).
+// config (config.toml's folded hooks + MCP), and commands (cell-scoped prompts).
 type Surfaces struct {
 	Context  *contextSurface
 	AgentsMD *agentsMDSurface
 	Config   *configSurface
-	Skills   *agent.ManagedSkillsDelivery
+	Commands *agent.ManagedCommandsDelivery
 
 	// routes composes Context+AgentsMD into the single Delivery SurfaceFor and
 	// Deliveries() both expose for agent.SurfaceContext (agent.ComposedDelivery)
@@ -251,7 +251,7 @@ type Surfaces struct {
 // hook-driven context route takes the Fragments; its native AGENTS.md route
 // takes the assembled Context string (the STATIC materialize/init path only
 // ever has the string — see agentsMDSurface's doc comment); it also uses the
-// merged MCP + bundle servers, the hook set, and the skill exports. A nil fs
+// merged MCP + bundle servers, the hook set, and the command exports. A nil fs
 // defaults to the OS filesystem. Every codex surface's Delivery takes its
 // target dir at call time; none is race-safe (codex exposes no out-of-cwd
 // flag), so there is no isolated placement to bind.
@@ -260,8 +260,8 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
 	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
-	skills := agent.NewManagedSkillsDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.CommandExport) error {
-		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, skills, codexPromptFile)
+	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, commands, codexPromptFile)
 	})
 	routes := agent.ComposedDelivery{
 		Parts:       []agent.Delivery{ctxSurf, mdSurf},
@@ -272,12 +272,12 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		Context:  ctxSurf,
 		AgentsMD: mdSurf,
 		Config:   config,
-		Skills:   skills,
+		Commands: commands,
 		routes:   routes,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  routes,
 			agent.SurfaceSettings: config,
-			agent.SurfaceSkills:   skills,
+			agent.SurfaceCommands: commands,
 		},
 	}
 }
@@ -291,7 +291,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // context routes (contextSurface + agentsMDSurface) as one surface, matching
 // what SurfaceFor resolves for the same kind.
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.routes, s.Config, s.Skills}
+	return []agent.Delivery{s.routes, s.Config, s.Commands}
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
@@ -308,7 +308,7 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 // "only the native file" separately through this table, the way
 // claude/antigravity expose UnsafeFile as a first-class choice; codex's native
 // write always rides alongside Hook.
-// settings/skills are native-file-only. SurfaceMCP is deliberately ABSENT: MCP
+// settings/commands are native-file-only. SurfaceMCP is deliberately ABSENT: MCP
 // folds into the config/settings surface, so codex advertises no distinct MCP
 // surface — selecting MCP is a permitted no-op, resolved by whichever selection
 // also names Settings. The mechanical lookups ride agent.ApproachTable; only
@@ -316,7 +316,7 @@ func (s Surfaces) Deliveries() []agent.Delivery {
 var codexApproaches = agent.ApproachTable{
 	agent.SurfaceContext:  {agent.ApproachHook},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
-	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
+	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 }
 
 // SupportedApproaches reports codex's declared approach table for kind.
@@ -326,7 +326,7 @@ func (Surfaces) SupportedApproaches(kind agent.SurfaceKind) []agent.Approach {
 
 // DefaultApproach reports codex's default (first-declared) approach for kind:
 // Hook for context (its only approach — the existing cache-file write), the
-// native file for settings/skills, absent for the folded MCP kind.
+// native file for settings/commands, absent for the folded MCP kind.
 func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
 	return codexApproaches.Default(kind)
 }

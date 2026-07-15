@@ -4,7 +4,7 @@ title: "Bundles"
 
 Your coding standards live in one project's `CLAUDE.md` and your MCP server config lives in another repo's `.claude/settings.json`. Each project reinvents its own copy, and they drift the moment one gets updated and the others don't.
 
-A **bundle** collects that content (fragments, skills, MCP server configs, profiles, hooks) into one versioned YAML file you can commit, share through a [remote](/concepts/remotes/), and pull into any project. Update the bundle once and every project that references it can pick up the change with `ctxloom remote pull`.
+A **bundle** collects that content (fragments, commands, MCP server configs, profiles, hooks) into one versioned YAML file you can commit, share through a [remote](/concepts/remotes/), and pull into any project. Update the bundle once and every project that references it can pick up the change with `ctxloom remote pull`.
 
 ## Bundle Structure
 
@@ -43,15 +43,15 @@ fragments:
     distilled_by: "claude-code"     # Model that created it
     no_distill: false               # Disable distillation
 
-skills:
-  skill-name:
-    description: "Skill description"
+commands:
+  command-name:
+    description: "Command description"
     tags: [tool, generation]
     notes: "Human notes"            # NOT sent to AI
     installation: "Setup"           # Shown in `bundle show`/`bundle list`, not surfaced on install
     content: |
-      # Skill Content
-      Your skill template here...
+      # Command Content
+      Your command template here...
 
     # Per-LLM export settings
     llm:
@@ -97,11 +97,11 @@ hooks:
 | `distilled` | string | Token-efficient version |
 | `distilled_by` | string | Model that created distillation |
 
-### Skill Fields
+### Command Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `content` | string | Required. The skill content |
+| `content` | string | Required. The command content |
 | `description` | string | Human-readable description |
 | `tags` | array | Tags for filtering |
 | `llm` | object | Per-LLM export settings (slash-command surface per backend) |
@@ -161,14 +161,14 @@ fragments:
 ## Content References
 
 Reference bundle content using hash syntax. These forms work on the command
-line — `ctxloom fragment show`, `ctxloom skill show`, `ctxloom trust`, and
+line — `ctxloom fragment show`, `ctxloom command show`, `ctxloom trust`, and
 similar item-addressing commands:
 
 | Syntax | Description |
 |--------|-------------|
-| `bundle-name` | Entire bundle (all fragments, skills, MCP) |
+| `bundle-name` | Entire bundle (all fragments, commands, MCP) |
 | `bundle#fragments/name` | Specific fragment |
-| `bundle#skills/name` | Specific skill |
+| `bundle#commands/name` | Specific command |
 | `bundle#profiles/name` | Profile shipped by the bundle |
 | `bundle#mcp` | All MCP servers |
 | `bundle#mcp/name` | Specific MCP server |
@@ -178,8 +178,8 @@ similar item-addressing commands:
 They are **not** all valid inside a profile's `bundles:` list. A profile only
 recognizes a whole-bundle ref or a `#fragments/name` cherry-pick there — see
 [Content Reference Syntax](/concepts/profiles/#content-reference-syntax) in
-the profiles doc for why `#skills/name` and `#mcp/name` silently do the wrong
-thing in that position, and use a profile's `prompts:` list to curate skills
+the profiles doc for why `#commands/name` and `#mcp/name` silently do the wrong
+thing in that position, and use a profile's `commands:` list to curate commands
 instead.
 
 ## Notes vs Installation

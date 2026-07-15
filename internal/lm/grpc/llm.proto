@@ -307,14 +307,14 @@ message RunStart {
 // config+profile+bundle set WITHOUT context-injection — the agent appends its
 // own context-injection hook from its plugin-side context hash.
 message ManagedConfig {
-  repeated CommandExport skills = 1;    // per-target-agent skill (slash-command) exports
+  repeated CommandExport commands = 1;  // per-target-agent command (slash-command) exports
   HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
   MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
   map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
 }
 
-// CommandExport mirrors agent.CommandExport: one skill's agent-agnostic
+// CommandExport mirrors agent.CommandExport: one command's agent-agnostic
 // slash-command export spec, with the target agent's enablement+metadata already
 // resolved host-side.
 message CommandExport {
@@ -416,7 +416,7 @@ message RunOptions {
   string model = 7;       // Model to use (e.g., "opus", "gpt-4", "claude-3-sonnet")
   float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
   uint32 max_tokens = 9;  // Maximum response tokens (0=default)
-  bool skip_setup = 10;   // Skip context/hooks/skills setup (for distillation)
+  bool skip_setup = 10;   // Skip context/hooks/commands setup (for distillation)
   // Resolved isolation CELL for this run, decided host-side by isolation.Prepare
   // and carried to the plugin so Setup/buildArgs know which cell they run in
   // (the host resolves it; the plugin can't infer it from WorkDir alone). Shared

@@ -520,7 +520,7 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			// "@<commit>" pin), exactly like Bundles — the directory-profile mirror
 			// of the inline cherry-pick path.
 			BundleItems: resolved.BundleItems,
-			Prompts:     resolved.Prompts,
+			Commands:    resolved.Commands,
 			// Direct fragments carry into the same Fragments pipeline inline
 			// profiles use (collectProfileFragments → normalizeFragmentRef honors
 			// "@<commit>"); filtered by exclude_fragments here, parity with the

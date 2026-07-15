@@ -38,14 +38,14 @@ const (
 type ReviewItem struct {
 	Bundle string `json:"bundle"` // the bundle's source ref (canonical for remote, name for local)
 	Ref    string `json:"ref"`    // full item ref, directly usable by trust/blacklist
-	Kind   string `json:"kind"`   // display selector dir: fragments|skills|mcp|hooks
+	Kind   string `json:"kind"`   // display selector dir: fragments|commands|mcp|hooks
 	Name   string `json:"name"`   // item name (hooks: "<event>/<index>")
 	Status string `json:"status"` // ReviewStatusNew | ReviewStatusUpdate
 
 	// Executable marks the render-what-it-runs kinds (mcp, hooks).
 	Executable bool `json:"-"`
 	// CurrentContent is what review shows: the effective content that would be
-	// exposed (fragments/skills) or the rendered executable surface (mcp/hooks).
+	// exposed (fragments/commands) or the rendered executable surface (mcp/hooks).
 	CurrentContent string `json:"-"`
 	// PreviousContent is the snapshot of the previously-accepted effective form
 	// for an UPDATE — the diff base. Empty when no snapshot exists (e.g. a
@@ -160,7 +160,7 @@ type reviewEnumerator struct {
 }
 
 // pendingItems walks one bundle's items in stable display order — fragments,
-// skills, MCP servers, hooks; name-sorted within each kind — and returns the
+// commands, MCP servers, hooks; name-sorted within each kind — and returns the
 // pending ones.
 func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle) []ReviewItem {
 	var out []ReviewItem
@@ -186,9 +186,9 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		out = append(out, item)
 	}
 	for _, name := range bundle.PromptNames() {
-		skill := bundle.Skills[name]
-		payload, form := skill.ContentPayload(preferDistilled)
-		item, ok := e.classify(bundleRef, "skills", name, payload, string(form), signer, false)
+		command := bundle.Commands[name]
+		payload, form := command.ContentPayload(preferDistilled)
+		item, ok := e.classify(bundleRef, "commands", name, payload, string(form), signer, false)
 		if !ok {
 			continue
 		}

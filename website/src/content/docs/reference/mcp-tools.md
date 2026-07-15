@@ -13,7 +13,7 @@ Reference for the tools and resources ctxloom exposes to the agent it launches â
 Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's config, gets you the retrieval and session-memory tools below **unchanged** â€” but a **reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, `agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no `agent_fetch_artifact`), and those four take different parameters than documented here. Agent delegation is coordinated by the runner, so drive it from `ctxloom run` / `ctxloom acp`.
 :::
 
-The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
+The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; reviewing and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 
 ## Tools
 
@@ -181,6 +181,7 @@ Read-only listings are exposed as MCP resources rather than tools.
 
 | URI | Name | Description |
 |-----|------|-------------|
+| `ctxloom://commands` | commands | All available commands with descriptions. Replaces the list_commands tool. |
 | `ctxloom://fragments` | fragments | All local context fragments with tags and source locations. Replaces the list_fragments tool. |
 | `ctxloom://help` | ctxloom help | Documentation of every ctxloom resource URI. Read this first if you need to know what's available. |
 | `ctxloom://mcp-servers` | mcp servers | Configured MCP servers per backend. Replaces the list_mcp_servers tool. |
@@ -188,7 +189,6 @@ Read-only listings are exposed as MCP resources rather than tools.
 | `ctxloom://remotes` | remotes | Configured remote sources. Replaces the list_remotes tool. |
 | `ctxloom://sessions` | sessions | All harp-named sessions across every project. For the cwd-filtered view, use ctxloom://sessions/recent. |
 | `ctxloom://sessions/recent` | recent sessions | Harp-named sessions for the current project, most recent first. YAML, with harp_name, started_at, summary. |
-| `ctxloom://skills` | skills | All available skills with descriptions. Replaces the list_skills tool. |
 
 ## Resource Templates
 
@@ -196,8 +196,8 @@ Parameterized resources for single-record lookup (RFC 6570 URI templates).
 
 | URI Template | Name | Description |
 |--------------|------|-------------|
+| `ctxloom://commands/{name}` | command | A single command's content by name. Replaces the get_command tool. |
 | `ctxloom://fragments/{name}` | fragment | A single fragment's content by name. Replaces the get_fragment tool. |
 | `ctxloom://profiles/{name}` | profile | A single profile's config by name. Replaces the get_profile tool. |
 | `ctxloom://remotes/{name}/contents` | remote contents | Bundles and profiles available in a configured remote, by remote name. Replaces the browse_remote tool. |
-| `ctxloom://skills/{name}` | skill | A single skill's content by name. Replaces the get_skill tool. |
 

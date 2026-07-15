@@ -18,10 +18,10 @@ import (
 // promptVersions builds a def bundle (lockfile default) and a per-commit version
 // map carrying prompts, for reuse across the pinning cases.
 func promptVersions(defBody string, commitBodies map[string]string) (*bundles.Bundle, map[string]*bundles.Bundle) {
-	def := &bundles.Bundle{Skills: map[string]bundles.BundleSkill{"review": {Content: defBody}}}
+	def := &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: defBody}}}
 	versions := make(map[string]*bundles.Bundle, len(commitBodies))
 	for commit, body := range commitBodies {
-		versions[commit] = &bundles.Bundle{Skills: map[string]bundles.BundleSkill{"review": {Content: body}}}
+		versions[commit] = &bundles.Bundle{Commands: map[string]bundles.BundleCommand{"review": {Content: body}}}
 	}
 	return def, versions
 }
@@ -36,8 +36,8 @@ func TestGetPrompt_Pinned_ResolvesHistoricalVersion(t *testing.T) {
 	fx.approvePrompt("cq", "review", "V1-REVIEW")
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
-	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   cqVersionRef + "#skills/review@c1",
+	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   cqVersionRef + "#commands/review@c1",
 		Loader: loader,
 	})
 	require.NoError(t, err)
@@ -54,8 +54,8 @@ func TestGetPrompt_Unversioned_Unchanged(t *testing.T) {
 	fx.approvePrompt("cq", "review", "DEFAULT-REVIEW")
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
-	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   cqVersionRef + "#skills/review",
+	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   cqVersionRef + "#commands/review",
 		Loader: loader,
 	})
 	require.NoError(t, err)
@@ -73,9 +73,9 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
 	// Un-granted pinned version → withheld (GetPrompt surfaces the loader's
-	// ErrSkillWithheld).
-	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   cqVersionRef + "#skills/review@c2",
+	// ErrCommandWithheld).
+	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   cqVersionRef + "#commands/review@c2",
 		Loader: loader,
 	})
 	require.Error(t, err, "an un-granted pinned version must be withheld")
@@ -84,8 +84,8 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	// the version cache + withheld set don't carry the prior decision).
 	fx.approvePrompt("cq", "review", "V2-REVIEW")
 	loader2, _ := versionPinnedLoader(t, fx.records(), def, versions)
-	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   cqVersionRef + "#skills/review@c2",
+	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   cqVersionRef + "#commands/review@c2",
 		Loader: loader2,
 	})
 	require.NoError(t, err)
@@ -102,8 +102,8 @@ func TestGetPrompt_Pinned_FetchFailureFailsClosed(t *testing.T) {
 	fx.approvePrompt("cq", "review", "V1-REVIEW")
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
-	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   cqVersionRef + "#skills/review@broken",
+	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   cqVersionRef + "#commands/review@broken",
 		Loader: loader,
 	})
 	require.Error(t, err, "a fetch failure must fail closed (withhold), never silently default")
@@ -118,8 +118,8 @@ func TestGetPrompt_ExplicitVersionField(t *testing.T) {
 	fx.approvePrompt("cq", "review", "V1-REVIEW")
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
-	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:    cqVersionRef + "#skills/review",
+	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:    cqVersionRef + "#commands/review",
 		Version: "c1",
 		Loader:  loader,
 	})

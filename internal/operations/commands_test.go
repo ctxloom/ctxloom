@@ -13,8 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-func TestSkillEntry_Fields(t *testing.T) {
-	entry := SkillEntry{
+func TestCommandEntry_Fields(t *testing.T) {
+	entry := CommandEntry{
 		Name:   "my-prompt",
 		Source: "local",
 	}
@@ -23,41 +23,41 @@ func TestSkillEntry_Fields(t *testing.T) {
 	assert.Equal(t, "local", entry.Source)
 }
 
-func TestListSkillsRequest_Defaults(t *testing.T) {
-	req := ListSkillsRequest{}
+func TestListCommandsRequest_Defaults(t *testing.T) {
+	req := ListCommandsRequest{}
 
 	assert.Empty(t, req.Query)
 	assert.Empty(t, req.SortBy)
 	assert.Empty(t, req.SortOrder)
 }
 
-func TestListSkillsResult_Fields(t *testing.T) {
-	result := ListSkillsResult{
-		Skills: []SkillEntry{
+func TestListCommandsResult_Fields(t *testing.T) {
+	result := ListCommandsResult{
+		Commands: []CommandEntry{
 			{Name: "prompt1", Source: "local"},
 			{Name: "prompt2", Source: "bundle"},
 		},
 		Count: 2,
 	}
 
-	assert.Len(t, result.Skills, 2)
+	assert.Len(t, result.Commands, 2)
 	assert.Equal(t, 2, result.Count)
 }
 
-func TestGetSkillRequest_Validation(t *testing.T) {
+func TestGetCommandRequest_Validation(t *testing.T) {
 	tests := []struct {
 		name        string
-		req         GetSkillRequest
+		req         GetCommandRequest
 		shouldError bool
 	}{
 		{
 			name:        "valid request",
-			req:         GetSkillRequest{Name: "my-prompt"},
+			req:         GetCommandRequest{Name: "my-prompt"},
 			shouldError: false,
 		},
 		{
 			name:        "empty name",
-			req:         GetSkillRequest{Name: ""},
+			req:         GetCommandRequest{Name: ""},
 			shouldError: true,
 		},
 	}
@@ -73,8 +73,8 @@ func TestGetSkillRequest_Validation(t *testing.T) {
 	}
 }
 
-func TestGetSkillResult_Fields(t *testing.T) {
-	result := GetSkillResult{
+func TestGetCommandResult_Fields(t *testing.T) {
+	result := GetCommandResult{
 		Name:    "code-review",
 		Content: "Review this code:\n{{file}}",
 	}
@@ -95,7 +95,7 @@ func setupPromptTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	// Create a test bundle with prompts
 	bundleContent := `version: "1.0"
 description: Test bundle with prompts
-skills:
+commands:
   code-review:
     description: Review code for issues
     content: |
@@ -118,7 +118,7 @@ skills:
 
 	// Create another bundle with more prompts
 	anotherBundle := `version: "1.0"
-skills:
+commands:
   explain:
     description: Explain code
     content: |
@@ -130,22 +130,22 @@ skills:
 	return fs, loader
 }
 
-func TestListSkills_AllPrompts(t *testing.T) {
+func TestListCommands_AllPrompts(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListSkills(context.Background(), nil, ListSkillsRequest{
+	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
 		Loader: loader,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, 4, result.Count) // code-review, refactor, commit, explain
-	assert.Len(t, result.Skills, 4)
+	assert.Len(t, result.Commands, 4)
 }
 
-func TestListSkills_WithQuery(t *testing.T) {
+func TestListCommands_WithQuery(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListSkills(context.Background(), nil, ListSkillsRequest{
+	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
 		Query:  "code",
 		Loader: loader,
 	})
@@ -155,7 +155,7 @@ func TestListSkills_WithQuery(t *testing.T) {
 	assert.GreaterOrEqual(t, result.Count, 1)
 
 	found := false
-	for _, p := range result.Skills {
+	for _, p := range result.Commands {
 		if strings.Contains(p.Name, "code-review") {
 			found = true
 			break
@@ -164,46 +164,46 @@ func TestListSkills_WithQuery(t *testing.T) {
 	assert.True(t, found, "should find code-review prompt")
 }
 
-func TestListSkills_SortAscending(t *testing.T) {
+func TestListCommands_SortAscending(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListSkills(context.Background(), nil, ListSkillsRequest{
+	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
 		SortOrder: "asc",
 		Loader:    loader,
 	})
 
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(result.Skills), 2)
+	require.GreaterOrEqual(t, len(result.Commands), 2)
 
 	// Verify sorted ascending
-	for i := 1; i < len(result.Skills); i++ {
-		assert.LessOrEqual(t, result.Skills[i-1].Name, result.Skills[i].Name)
+	for i := 1; i < len(result.Commands); i++ {
+		assert.LessOrEqual(t, result.Commands[i-1].Name, result.Commands[i].Name)
 	}
 }
 
-func TestListSkills_SortDescending(t *testing.T) {
+func TestListCommands_SortDescending(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := ListSkills(context.Background(), nil, ListSkillsRequest{
+	result, err := ListCommands(context.Background(), nil, ListCommandsRequest{
 		SortOrder: "desc",
 		Loader:    loader,
 	})
 
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(result.Skills), 2)
+	require.GreaterOrEqual(t, len(result.Commands), 2)
 
 	// Verify sorted descending
-	for i := 1; i < len(result.Skills); i++ {
-		assert.GreaterOrEqual(t, result.Skills[i-1].Name, result.Skills[i].Name)
+	for i := 1; i < len(result.Commands); i++ {
+		assert.GreaterOrEqual(t, result.Commands[i-1].Name, result.Commands[i].Name)
 	}
 }
 
-func TestGetSkill_Success(t *testing.T) {
+func TestGetCommand_Success(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	// Use bundle#skills/name syntax
-	result, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   "dev-tools#skills/code-review",
+	// Use bundle#commands/name syntax
+	result, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   "dev-tools#commands/code-review",
 		Loader: loader,
 	})
 
@@ -212,8 +212,8 @@ func TestGetSkill_Success(t *testing.T) {
 	assert.Contains(t, result.Content, "review")
 }
 
-func TestGetSkill_ValidationError(t *testing.T) {
-	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
+func TestGetCommand_ValidationError(t *testing.T) {
+	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
 		Name: "",
 	})
 
@@ -221,22 +221,22 @@ func TestGetSkill_ValidationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "name is required")
 }
 
-func TestGetSkill_NotFound(t *testing.T) {
+func TestGetCommand_NotFound(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   "nonexistent#skills/nope",
+	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   "nonexistent#commands/nope",
 		Loader: loader,
 	})
 
 	require.Error(t, err)
 }
 
-func TestGetSkill_StripsHeaderLines(t *testing.T) {
+func TestGetCommand_StripsHeaderLines(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
-	result, err := GetSkill(context.Background(), nil, GetSkillRequest{
-		Name:   "dev-tools#skills/code-review",
+	result, err := GetCommand(context.Background(), nil, GetCommandRequest{
+		Name:   "dev-tools#commands/code-review",
 		Loader: loader,
 	})
 

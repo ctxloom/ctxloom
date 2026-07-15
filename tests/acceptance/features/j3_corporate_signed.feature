@@ -1,5 +1,5 @@
 @doc
-Feature: Skills my company has validated
+Feature: Content my company has validated
 
   A company needs to guarantee that the guidance reaching its engineers'
   assistants is guidance the company actually approved — and that nothing else

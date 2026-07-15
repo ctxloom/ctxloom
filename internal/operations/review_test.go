@@ -16,7 +16,7 @@ import (
 const reviewSeedKey = acmeBundle + "toolkit"
 
 // reviewBundle builds the test bundle: two fragments (one with a distilled
-// form), a skill, an MCP server, and a hook — one of every reviewable kind.
+// form), a command, an MCP server, and a hook — one of every reviewable kind.
 func reviewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
 		Version: "1.0",
@@ -24,7 +24,7 @@ func reviewBundle() *bundles.Bundle {
 			"solid": {Content: "solid raw body"},
 			"dual":  {Content: "dual raw body", Distilled: "dual distilled body"},
 		},
-		Skills: map[string]bundles.BundleSkill{
+		Commands: map[string]bundles.BundleCommand{
 			"greet": {Content: "greet body"},
 		},
 		MCP: map[string]bundles.BundleMCP{
@@ -76,7 +76,7 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 	for _, want := range []string{
 		reviewSeedKey + "#fragments/solid",
 		reviewSeedKey + "#fragments/dual",
-		reviewSeedKey + "#skills/greet",
+		reviewSeedKey + "#commands/greet",
 		reviewSeedKey + "#mcp/pg",
 		reviewSeedKey + "#hooks/pre_tool/0",
 	} {
@@ -84,7 +84,7 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 	}
 }
 
-// TestPendingReview_ContentAndRendering: fragments/skills carry the effective
+// TestPendingReview_ContentAndRendering: fragments/commands carry the effective
 // content that would be exposed (distilled when one exists); executables carry
 // the rendered what-it-runs surface.
 func TestPendingReview_ContentAndRendering(t *testing.T) {
@@ -145,7 +145,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(reviewBundle()), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
-		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#skills/greet")
+		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#commands/greet")
 	})
 
 	t.Run("content-rejected is excluded even under a fresh ref", func(t *testing.T) {

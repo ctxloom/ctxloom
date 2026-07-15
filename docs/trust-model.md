@@ -35,7 +35,7 @@ rejected bundle succeeds; its content is withheld when it would be exposed.
 
 ## Item states
 
-Every remote item — fragment, skill, MCP server, hook — is in exactly one of
+Every remote item — fragment, command, MCP server, hook — is in exactly one of
 three states:
 
 - **pending** — never reviewed, or its content changed since a human approved
@@ -290,10 +290,10 @@ context.
 
 | Choke | Covers | On deny |
 |-------|--------|---------|
-| Content gate | fragments, skills (text) — including builtin fragments | absent from assembled context |
+| Content gate | fragments, commands (text) — including builtin fragments | absent from assembled context |
 | Executable gate — MCP | bundle MCP servers — including builtin servers | omitted from backend settings |
 | Executable gate — hooks | bundle hooks — including builtin hooks | omitted from backend settings |
-| Executable gate — command export | skill slash-commands | not exported |
+| Executable gate — command export | command slash-commands | not exported |
 | Tooling collection (`CollectTooling`) | `tooling` declarations | withheld from Containerfile proposals |
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
 
@@ -355,7 +355,7 @@ Addressed:
 - **Malicious bundle update** — changed remote content no longer verifies
   against any prior approval and re-gates to pending; review shows the diff
   against what was approved before it is exposed.
-- **Prompt injection via shared text** — cloned fragments and skills gate exactly
+- **Prompt injection via shared text** — cloned fragments and commands gate exactly
   like executables (a fragment is instructions to an LLM); the countersignature
   covers the pre-substitution bytes.
 - **Arbitrary execution via MCP/hooks** — per-item gating at the exec chokes,

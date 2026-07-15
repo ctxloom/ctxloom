@@ -35,8 +35,8 @@ const (
 
 // Fragment is one piece of context — a bundle fragment — with its metadata. It
 // is the unit of context an agent injects into the model (via SetupRequest.
-// Fragments); it has nothing to do with slash commands/skills, which travel
-// separately as ManagedConfig.Skills ([]CommandExport).
+// Fragments); it has nothing to do with slash commands, which travel
+// separately as ManagedConfig.Commands ([]CommandExport).
 type Fragment struct {
 	Name         string
 	Version      string
@@ -58,7 +58,7 @@ type ModelInfo struct {
 // the agent, declare its modes, run the Setup→Execute→Cleanup lifecycle, and
 // expose session history (read by the host for /clear recovery and compaction).
 //
-// It deliberately does NOT carry the hook/skill/context/MCP capability
+// It deliberately does NOT carry the hook/command/context/MCP capability
 // accessors: those are an agent's internal setup wiring, not something the runner
 // calls, so forcing them onto every backend was a nil-returning contract nobody
 // consumed.
@@ -217,10 +217,10 @@ type SetupRequest struct {
 // plugin never imports ctxloom config/bundles. Hooks is the
 // config+default-profile+bundle hook set WITHOUT context-injection; the agent
 // appends its own context-injection hook from its plugin-side context hash. The
-// command exports in Skills already have the target agent's enablement +
+// command exports in Commands already have the target agent's enablement +
 // metadata resolved host-side.
 type ManagedConfig struct {
-	Skills           []CommandExport           // per-target-agent skill (slash-command) exports
+	Commands         []CommandExport           // per-target-agent command (slash-command) exports
 	Hooks            *wire.HooksConfig         // config + default-profile + bundle hooks (no context-injection)
 	MCP              *wire.MCPConfig           // merged config + default-profile MCP servers
 	BundleMCP        map[string]wire.MCPServer // MCP servers shipped by profile + builtin bundles (parallel to Hooks' bundle set)
@@ -244,7 +244,7 @@ type ExecuteRequest struct {
 	DryRun      bool
 	Permissions PermissionMode
 	Temperature float32
-	SkipSetup   bool // Minimal mode - skip hooks/skills/context in backend
+	SkipSetup   bool // Minimal mode - skip hooks/commands/context in backend
 	// CellKind is the resolved isolation cell this run executes in, decided
 	// host-side (isolation.Prepare) and carried over the wire alongside SetupRequest.
 	// buildArgs does not consume it yet (plan S4b); it is plumbed here so a later

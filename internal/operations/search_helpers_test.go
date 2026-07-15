@@ -109,9 +109,9 @@ func TestSortResults(t *testing.T) {
 	})
 
 	t.Run("by type ascending", func(t *testing.T) {
-		r := []SearchResult{{Type: "skill"}, {Type: "fragment"}, {Type: "mcp_server"}}
+		r := []SearchResult{{Type: "fragment"}, {Type: "mcp_server"}, {Type: "command"}}
 		sortResults(r, "type", false)
-		if r[0].Type != "fragment" || r[1].Type != "mcp_server" || r[2].Type != "skill" {
+		if r[0].Type != "command" || r[1].Type != "fragment" || r[2].Type != "mcp_server" {
 			t.Fatalf("got %v", types(r))
 		}
 	})

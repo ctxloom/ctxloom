@@ -288,6 +288,66 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 	})
 }
 
+// TestChainFor_AntigravityHostWorktree_FatalUnlessDegraded pins task
+// sweet-fruit's host-mode fail-loud: antigravity has no config-home env lever
+// (worktreeWorkspace.Env() contributes nothing for it — see
+// credentialSeedSpecs' doc, auth.go), so a host+worktree antigravity agent
+// would otherwise run UN-isolated with no signal. The choke fires both for a
+// bare {worktree, host} request and for a {worktree, container} request that
+// degraded to host (the container axis dropped, worktree stays) — either way
+// the agent ends up unisolated on the host. It must NOT fire for any other
+// backend, and must NOT fire for the worktree-in-container composition (a
+// real container boundary already contains the blast radius there).
+func TestChainFor_AntigravityHostWorktree_FatalUnlessDegraded(t *testing.T) {
+	t.Run("strict {worktree,host}: antigravity gets exactly one fatal isolation finding", func(t *testing.T) {
+		resetStrictness(t)
+
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeHost}, "antigravity", ImageConfig{})
+		require.NotEmpty(t, chain)
+		assert.IsType(t, Worktree{}, chain[0], "the run still gets a worktree — this is a loud degrade, not a block")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1)
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "agy cannot be isolated on the host")
+		assert.Contains(t, findings[0].FixIt, "runtime:container", "the fix-it must name the escape hatch")
+		assert.Contains(t, findings[0].FixIt, "--degraded")
+	})
+
+	t.Run("strict {worktree,host}: no finding for a backend WITH a config-home lever", func(t *testing.T) {
+		resetStrictness(t)
+
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeHost}, "claude-code", ImageConfig{})
+		require.NotEmpty(t, chain)
+		assert.Empty(t, strictness.All(), "claude has a config-home lever — no antigravity-specific finding")
+	})
+
+	t.Run("strict {worktree,container} degraded to host: antigravity still gets its finding", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeProbe(t, Host{})
+
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "antigravity", ImageConfig{})
+		require.NotEmpty(t, chain)
+		assert.IsType(t, Worktree{}, chain[0])
+
+		findings := strictness.All()
+		require.Len(t, findings, 2, "the generic no-runtime finding plus the antigravity-specific one")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "keeping the worktree")
+		assert.Equal(t, strictness.ClassIsolation, findings[1].Class)
+		assert.Contains(t, findings[1].Message, "agy cannot be isolated on the host")
+	})
+
+	t.Run("degraded: no finding — the host degrade is the accepted outcome", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeHost}, "antigravity", ImageConfig{})
+		require.NotEmpty(t, chain)
+		assert.Empty(t, strictness.All())
+	})
+}
+
 // TestApprovals_String renders the approvals axis for diagnostics.
 func TestApprovals_String(t *testing.T) {
 	assert.Equal(t, "prompt", ApprovalsPrompt.String())

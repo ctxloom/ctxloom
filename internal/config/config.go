@@ -117,9 +117,9 @@ type Config struct {
 	IsolationDevcontainerService string `mapstructure:"isolation_devcontainer_service" yaml:"isolation_devcontainer_service,omitempty"`
 	// IsolationEngines selects which engine fragments compose into the
 	// shared multi-engine agent image (stark-wheat locked decision 3: "all
-	// engines CAN be present, composition is per build") — claude-code,
-	// codex, kiro, opencode today (each via its OWN official installer, one
-	// independently-cacheable Containerfile RUN layer). Empty/unset = every
+	// engines CAN be present, composition is per build") — antigravity,
+	// claude-code, codex, kiro, opencode today (each via its OWN official
+	// installer, one independently-cacheable Containerfile RUN layer). Empty/unset = every
 	// known engine (the biggest image, "one instance runs any engine"); an
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".

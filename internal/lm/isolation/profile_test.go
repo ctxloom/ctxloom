@@ -145,13 +145,16 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 }
 
 // TestContainerProfileFor_Antigravity pins the paced-even fix for
-// antigravity: its real image/auth build-out is deferred (stark-wheat/
-// bare-goes), but it must NOT silently reuse claude's auth/overlay — its
-// resolver always degrades honestly instead.
+// antigravity plus task sweet-fruit's image-half landing: antigravity is now
+// COMPOSABLE (its own official-installer fragment, live-verified against
+// https://antigravity.google/cli/install.sh), but its AUTH half of
+// bare-goes is still open — it must NOT silently reuse claude's
+// auth/overlay; its resolver always degrades honestly instead.
 func TestContainerProfileFor_Antigravity(t *testing.T) {
 	p := containerProfileFor("antigravity")
-	assert.Equal(t, defaultContainerImage, p.image, "no dedicated antigravity image yet")
-	assert.Nil(t, p.engineInstall, "antigravity has no known official-installer fragment yet")
+	assert.Equal(t, defaultContainerImage, p.image, "fallback tag only — the real tag is the composed multi-engine one")
+	assert.NotNil(t, p.engineInstall, "antigravity is composable as of task sweet-fruit")
+	assert.Equal(t, "agy --version", p.validate)
 	assert.Nil(t, p.overlayDirs, "no known project-relative managed-config surface for antigravity yet")
 	require.NotNil(t, p.resolveAuth)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")

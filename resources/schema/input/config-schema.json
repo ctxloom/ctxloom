@@ -277,7 +277,7 @@
     "isolation_engines": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Selects which engine fragments compose into the shared multi-engine agent image (claude-code, codex, kiro, opencode today — each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
+      "description": "Selects which engine fragments compose into the shared multi-engine agent image (antigravity, claude-code, codex, kiro, opencode today — each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
     },
     "agents": {
       "type": "object",

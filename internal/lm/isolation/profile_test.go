@@ -86,6 +86,7 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 // containerized codex/opencode/antigravity run would silently authenticate
 // with (or overlay) the user's Anthropic credentials into a foreign engine.
 func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
+	withFakeHome(t) // no real ~/.codex or ~/.local/share/opencode creds to fall back onto
 	claudeDefault := containerProfileFor("")
 	for _, name := range []string{"codex", "opencode", "antigravity"} {
 		p := containerProfileFor(name)
@@ -93,7 +94,9 @@ func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T
 		// Behavioral check: feed the resolver an ANTHROPIC_API_KEY only and
 		// confirm it does NOT authenticate via it — a func value can't be
 		// compared for equality, so this proves it is not
-		// resolveClaudeContainerAuth by behavior rather than identity.
+		// resolveClaudeContainerAuth by behavior rather than identity. The
+		// fake (creds-free) home means the ONLY way any resolver could
+		// return ok=true here is misreading ANTHROPIC_API_KEY.
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("OPENAI_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "")

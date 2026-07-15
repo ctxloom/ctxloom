@@ -460,7 +460,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return runOK(w, "remote", "pull")
 	})
 
-	// --- GAP D: a corrupted approvals store — see doc.md, @wip in the .feature -
+	// --- GAP D: a corrupted approvals store denies everything (FIXED) --------
 
 	ctx.Step(`^her approvals store is corrupted, a file where a directory should be$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -476,8 +476,35 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteHomeFile(".ctxloom/approvals", "not a directory\n")
 	})
 
-	ctx.Step(`^the fragment is present in her assistant's delivered surface, a confirmed product gap$`, func(c context.Context) error {
-		return tsAssertPresence(worldFrom(c), "fragment", true)
+	// the skill, the MCP server, and the hook were all ALLOWED before the
+	// corruption (trusted-signer, step 5) — proving they too go dark once the
+	// store proves unreadable is what shows this is genuine DENY-EVERYTHING,
+	// not merely "the one item with reject history stays denied".
+	ctx.Step(`^the skill, the MCP server, and the hook are also absent, because the approvals store cannot be trusted$`, func(c context.Context) error {
+		w := worldFrom(c)
+		var evidence []string
+		for _, element := range []string{"skill", "MCP server", "hook"} {
+			if err := tsAssertPresence(w, element, false); err != nil {
+				return err
+			}
+			evidence = append(evidence, fmt.Sprintf("%s: %s", element, w.docStepMaterialized))
+		}
+		w.docStepMaterialized = strings.Join(evidence, "\n")
+		return nil
+	})
+
+	ctx.Step(`^Alice is told her approvals store is corrupted$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// The preceding "Alice starts a session" already ran the materialize
+		// command that produced this warning — re-attach the actual terminal
+		// text this Then is checking (mirrors "Alice is told the content is
+		// held for her review" in steps_j1_setup.go).
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		if !strings.Contains(out, "approvals store unreadable") {
+			return fmt.Errorf("materialize output does not tell Alice her approvals store is corrupted; output:\n%s", out)
+		}
+		return nil
 	})
 
 	// --- GAP C: the decision that was RECORDED, not just the payload served ----

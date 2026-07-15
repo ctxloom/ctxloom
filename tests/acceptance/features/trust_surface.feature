@@ -193,30 +193,32 @@ Feature: The trust surface — what "review" actually controls
     When Alice tries to review an item whose source reference is malformed
     Then ctxloom refuses, rather than treating an unrecognized source as local
 
-  # GAP D — @wip: a CONFIRMED VULNERABILITY, not a coverage gap.
-  # internal/operations/trust.go:230-246's "approvals store unreadable -> deny
-  # EVERYTHING" guard only runs when EffectiveTrustRequest.Records is nil — and
-  # NO real caller ever leaves it nil. TrustStamper, the content/executable
-  # gates (trust_gate.go), and PendingReview (`ctxloom review`) each build their
-  # OWN non-nil ReviewRecords before calling EffectiveTrust, so this guard is
-  # unreachable dead code from every real CLI path. What actually happens on a
-  # corrupted store instead: countersign.Store.candidates (internal/signing/
-  # countersign/store.go) swallows the afero.Glob error and returns "no
-  # candidates" — indistinguishable from "nothing was ever rejected". Verified
-  # empirically this session: a rejected local fragment REAPPEARED in
-  # materialized output, exit 0, no warning, the moment its user approvals
-  # store was replaced with a plain file. This scenario documents the REAL
-  # (bad) behavior — it is expected to PASS today, proving the bug, not the
-  # guarantee — and is excluded from the default green run until fixed, per
-  # this suite's own @wip convention (see j5_multi_engine.feature's codex
-  # scenario). Filed as a taskloom task per this project's standing
-  # workaround-discipline rule; not fixed here — that is a product change.
-  @wip
-  Scenario: A corrupted approvals store silently un-rejects previously withheld content, instead of denying everything
+  # GAP D — WAS a confirmed vulnerability (taskloom rocky-motto), NOW FIXED.
+  # internal/operations/trust.go's "approvals store unreadable -> deny
+  # EVERYTHING" guard used to only run when EffectiveTrustRequest.Records was
+  # nil — and NO real caller ever left it nil. TrustStamper, the
+  # content/executable gates (trust_gate.go), and PendingReview (`ctxloom
+  # review`) each build their OWN non-nil ReviewRecords before calling
+  # EffectiveTrust, so the guard was unreachable dead code from every real CLI
+  # path: a rejected local fragment REAPPEARED in materialized output, exit 0,
+  # no warning, the moment its user approvals store was replaced with a plain
+  # file. Fixed by checking readability via an optional capability
+  # (readableRecords) unconditionally — whichever way records was obtained,
+  # not only the records-built-fresh branch — so the fail-closed gate now
+  # covers every production call site (internal/operations/trust_test.go and
+  # trust_approvals_readable_test.go carry the unit-level proof, including
+  # the boundary that a fresh/never-created store must NOT trip it).
+  # This scenario proves the fix end to end: the previously-rejected fragment
+  # stays withheld, and everything else goes dark too (deny-all, not merely
+  # "this one item"), with Alice told plainly that her approvals store is the
+  # problem.
+  Scenario: A corrupted approvals store denies everything, rather than silently un-rejecting previously withheld content
     Given a trusted publisher's signed bundle ships one of each: a fragment, a skill, an MCP server, and a hook
     When Alice rejects the fragment
     And Alice starts a session
     Then the fragment is absent from her assistant's delivered surface
     When her approvals store is corrupted, a file where a directory should be
     And Alice starts a session
-    Then the fragment is present in her assistant's delivered surface, a confirmed product gap
+    Then the fragment is absent from her assistant's delivered surface
+    And the skill, the MCP server, and the hook are also absent, because the approvals store cannot be trusted
+    And Alice is told her approvals store is corrupted

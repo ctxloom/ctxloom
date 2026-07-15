@@ -14,8 +14,10 @@
 // Later slices layer native config onto the model key: MCP servers, a read-only
 // `permission` for plan mode, and assembled context via `instructions` (slice 2),
 // plus custom commands (bundle prompt/skill exports -> .opencode/command/, slice
-// 3). On the live path all of it rides transiently in Chat and is reverted after
-// the run; the persistent `profile materialize` path uses the descriptor surfaces.
+// 3), plus Agent Skill packages (bundle skill exports -> .opencode/skill/ +
+// `skills.paths`, Part B4). On the live path all of it rides transiently in Chat
+// and is reverted after the run; the persistent `profile materialize` path uses
+// the descriptor surfaces.
 // The session-history reader (capabilities.go) drives opencode's own `session
 // list`/`export` commands; interactive PTY launch is still a later slice.
 package opencode
@@ -55,6 +57,11 @@ type Opencode struct {
 	// the interactive TUI launch (interactive.go) can materialize it transiently as
 	// the .opencode/ctxloom-context.md that opencode.json's `instructions` points at.
 	pendingContext string
+	// pendingSkills mirrors pendingCommands for the Agent Skills surface: the
+	// host-assembled skill package exports captured during Setup, materialized
+	// transiently by the LIVE chat path (chat.go) via the SAME
+	// reconcileSkillsSurface function the persistent surfaces.go path binds.
+	pendingSkills []agent.SkillExport
 }
 
 // NewOpencode creates a new opencode backend with default settings.
@@ -81,6 +88,7 @@ func NewOpencode() *Opencode {
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
 			b.pendingCommands = in.Commands
 			b.pendingContext = in.Context
+			b.pendingSkills = in.Skills
 			return agent.EmptySurfaceSet{}
 		}},
 	)

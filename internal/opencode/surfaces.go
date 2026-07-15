@@ -18,13 +18,13 @@ import (
 //	---------|-----------------------------------------|--------------------------
 //	context  | instructions[] -> .opencode/ctxloom-context.md | ❌ no out-of-cwd flag
 //	settings | mcp{}                                     | ❌ no out-of-cwd flag
+//	skills   | .opencode/skill/<name>/SKILL.md + skills.paths | ❌ no out-of-cwd flag
 //
 // MCP folds into the settings surface (SurfaceMCP is ABSENT from the approach
 // table, exactly as codex does). opencode has no ctxloom-managed hook mechanism and
 // no per-invocation config redirect, so every surface is a WELL-KNOWN write with no
-// SharedRealization. Commands (command exports) and read-only permission are NOT
-// here: permission is a per-RUN posture delivered transiently by the chat path
-// (chat.go), and command exports are a later slice.
+// SharedRealization. read-only permission is NOT here: it is a per-RUN posture
+// delivered transiently by the chat path (chat.go).
 //
 // NOTE (live vs static): the LIVE run/oneshot path does NOT use these surfaces — it
 // writes opencode.json transiently in Chat and restores it afterward, so a live run
@@ -91,24 +91,34 @@ func (f deliveredFunc) Cleanup() error { return f() }
 // write-then-revert-with-nil shape is identical across engines, so it lives in
 // internal/shared/agent, not here. (On the LIVE chat/oneshot path opencode
 // materializes these transiently in Chat, not via this surface — see chat.go.)
+//
+// opencode's skills surface — the Agent Skill packages under .opencode/skill/
+// — is the shared agent.ManagedSkillPackagesDelivery bound to
+// reconcileSkillsSurface (skillfiles.go), which ALSO reconciles the
+// opencode.json `skills.paths` registration alongside the package tree (built
+// in NewSurfaces). Like commands, the LIVE chat/oneshot path materializes
+// skills transiently in Chat via the SAME reconcileSkillsSurface function, so
+// the two paths can't diverge on what "materializing skills" means.
 
 // Surfaces is opencode's set of delivery surfaces for one run — context
 // (instructions) and config (mcp), both folded into opencode.json, plus commands
-// (the custom-command dir). The commands surface serves the persistent
-// `profile materialize` path; a live run delivers commands transiently in Chat.
+// (the custom-command dir) and skills (the Agent Skills dir + skills.paths). The
+// commands/skills surfaces serve the persistent `profile materialize` path; a
+// live run delivers both transiently in Chat.
 type Surfaces struct {
 	Context  *contextSurface
 	Config   *configSurface
 	Commands *agent.ManagedCommandsDelivery
+	Skills   *agent.ManagedSkillPackagesDelivery
 
 	// dispatch is the per-kind lookup SurfaceFor resolves against, built once here.
 	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds opencode's surfaces from a run's shared inputs (the assembled
-// context string, the merged MCP + bundle servers, and the command exports).
-// A nil fs defaults to the OS filesystem. No surface is race-safe (opencode exposes
-// no out-of-cwd flag).
+// context string, the merged MCP + bundle servers, the command exports, and the
+// skill exports). A nil fs defaults to the OS filesystem. No surface is race-safe
+// (opencode exposes no out-of-cwd flag).
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	ctx := &contextSurface{context: in.Context, fs: fs}
@@ -116,14 +126,19 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	commands := agent.NewManagedCommandsDelivery("opencode/commands", in.Commands, func(dir string, commands []agent.CommandExport) error {
 		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
 	})
+	skills := agent.NewManagedSkillPackagesDelivery("opencode/skills", in.Skills, func(dir string, skills []agent.SkillExport) error {
+		return reconcileSkillsSurface(fs, dir, skills)
+	})
 	return Surfaces{
 		Context:  ctx,
 		Config:   config,
 		Commands: commands,
+		Skills:   skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  ctx,
 			agent.SurfaceSettings: config,
 			agent.SurfaceCommands: commands,
+			agent.SurfaceSkills:   skills,
 		},
 	}
 }
@@ -131,7 +146,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // Deliveries returns every surface as a plain agent.Delivery, in a stable order,
 // for iteration by an isolated cell (worktree / container / materialize target).
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.Config, s.Commands}
+	return []agent.Delivery{s.Context, s.Config, s.Commands, s.Skills}
 }
 
 // opencodeApproaches is opencode's DECLARED per-surface approach table: context,
@@ -142,6 +157,7 @@ var opencodeApproaches = agent.ApproachTable{
 	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
 // SupportedApproaches reports opencode's declared approach table for kind.

@@ -18,11 +18,12 @@ func modeFromPOSIX(mode uint32) os.FileMode {
 
 // This file is the skills analog of commands.go/commandfiles.go: the
 // single skill-export assembly (LoadSkillExports) and the per-engine mapping
-// from a resolved bundle skill to that engine's agent.SkillExport. Only claude
-// is wired today (Part B3-seam, the reference engine) — codex/opencode/kiro/agy
-// are the next parallel wave (skill-command-split.plan.md §3.5 B4/B5); an
-// engine with no skillExports mapper simply exports no skills (mirrors a nil
-// `exports` meaning no command export).
+// from a resolved bundle skill to that engine's agent.SkillExport. claude
+// (Part B3-seam, the reference engine), codex, opencode, and antigravity
+// (Part B4) are wired; kiro is the collision case, handled separately
+// (skill-command-split.plan.md §3.3/§3.5 B5). An engine with no skillExports
+// mapper simply exports no skills (mirrors a nil `exports` meaning no command
+// export).
 
 // LoadSkillExports loads every Agent Skill package shipped by the SELECTED (or
 // default) profiles' bundles. Unlike LoadCommandExports there are no built-in
@@ -62,4 +63,19 @@ func buildSkillExports(skills []*bundles.LoadedSkill, pick func(*bundles.LoadedS
 // claudeSkillExports resolves claude-code's per-skill enablement.
 func claudeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() })
+}
+
+// codexSkillExports resolves codex's per-skill enablement (Part B4).
+func codexSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Codex.IsEnabled() })
+}
+
+// opencodeSkillExports resolves opencode's per-skill enablement (Part B4).
+func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Opencode.IsEnabled() })
+}
+
+// antigravitySkillExports resolves antigravity's per-skill enablement (Part B4).
+func antigravitySkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Antigravity.IsEnabled() })
 }

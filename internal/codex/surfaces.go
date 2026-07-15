@@ -31,6 +31,7 @@ import (
 //	agentsMD  | AGENTS.md (native, managed markers)     | ❌ no flag
 //	config    | .codex/config.toml (hooks + MCP)        | ❌ no flag
 //	commands  | $CODEX_HOME/prompts/<name>.md           | ❌ no flag
+//	skills    | $CODEX_HOME/skills/<name>/SKILL.md      | ❌ no flag
 //
 // Three codex realities shape the decomposition:
 //
@@ -83,6 +84,12 @@ func cellScopedCodexHome(dir string) string { return filepath.Join(dir, ".codex"
 // $CODEX_HOME — the isolated stand-in for the global codexPromptsDir().
 func cellScopedPromptsDir(dir string) string {
 	return filepath.Join(cellScopedCodexHome(dir), "prompts")
+}
+
+// cellScopedSkillsDir is the Agent Skills directory under the cell-scoped
+// $CODEX_HOME — the isolated stand-in for the global codexSkillsDir().
+func cellScopedSkillsDir(dir string) string {
+	return filepath.Join(cellScopedCodexHome(dir), "skills")
 }
 
 // contextSurface is codex's context surface. codex has no ContextWriter for
@@ -213,6 +220,11 @@ func (s *configSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings 
 // manifest-scoped writer + codexPromptFile mapper — that cell-scoping is what
 // lets a DirectoryIsolatedCell isolate them. The write-then-revert-with-nil shape
 // is identical across engines, so it lives in internal/shared/agent, not here.
+//
+// codex's skills surface is the shared agent.ManagedSkillPackagesDelivery bound
+// to codex's WriteSkillFiles (skillfiles.go), targeting the SAME cell-scoped
+// $CODEX_HOME (cellScopedSkillsDir) as commands — codex skills are global
+// ($CODEX_HOME/skills), exactly like its prompts.
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -221,15 +233,17 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// Surfaces is codex's set of delivery surfaces for one run. codex has four
+// Surfaces is codex's set of delivery surfaces for one run. codex has five
 // surface objects — context (the raw context file, for the SessionStart hook),
 // agentsMD (the native AGENTS.md managed section — the other context route),
-// config (config.toml's folded hooks + MCP), and commands (cell-scoped prompts).
+// config (config.toml's folded hooks + MCP), commands (cell-scoped prompts),
+// and skills (cell-scoped Agent Skills packages).
 type Surfaces struct {
 	Context  *contextSurface
 	AgentsMD *agentsMDSurface
 	Config   *configSurface
 	Commands *agent.ManagedCommandsDelivery
+	Skills   *agent.ManagedSkillPackagesDelivery
 
 	// routes composes Context+AgentsMD into the single Delivery SurfaceFor and
 	// Deliveries() both expose for agent.SurfaceContext (agent.ComposedDelivery)
@@ -263,6 +277,9 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
 		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(dir), codexManifest, commands, codexPromptFile)
 	})
+	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
+		return writeCodexSkillPackages(fs, cellScopedSkillsDir(dir), skills)
+	})
 	routes := agent.ComposedDelivery{
 		Parts:       []agent.Delivery{ctxSurf, mdSurf},
 		Info:        "codex/context",
@@ -273,11 +290,13 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 		AgentsMD: mdSurf,
 		Config:   config,
 		Commands: commands,
+		Skills:   skills,
 		routes:   routes,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext:  routes,
 			agent.SurfaceSettings: config,
 			agent.SurfaceCommands: commands,
+			agent.SurfaceSkills:   skills,
 		},
 	}
 }
@@ -291,7 +310,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // context routes (contextSurface + agentsMDSurface) as one surface, matching
 // what SurfaceFor resolves for the same kind.
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.routes, s.Config, s.Commands}
+	return []agent.Delivery{s.routes, s.Config, s.Commands, s.Skills}
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
@@ -317,6 +336,7 @@ var codexApproaches = agent.ApproachTable{
 	agent.SurfaceContext:  {agent.ApproachHook},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
 // SupportedApproaches reports codex's declared approach table for kind.

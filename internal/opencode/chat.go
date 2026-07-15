@@ -69,6 +69,23 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 		revertCmds = func() error { return WriteCommandFiles(req.WorkDir, nil, agent.WithCommandFS(fs)) }
 	}
 
+	// Materialize the host-assembled Agent Skill packages TRANSIENTLY under
+	// .opencode/skill/ (+ the opencode.json skills.paths registration), mirroring
+	// the commands overlay above: written before the run so opencode discovers
+	// them, reverted after so a live run leaves no debris. reconcileSkillsSurface
+	// is the SAME function the persistent surfaces.go path binds, so the two
+	// paths cannot diverge on what "materializing skills" means.
+	revertSkills := func() error { return nil }
+	if len(b.pendingSkills) > 0 {
+		if err := reconcileSkillsSurface(fs, req.WorkDir, b.pendingSkills); err != nil {
+			_ = revertCmds()
+			_ = restore()
+			close(out)
+			return err
+		}
+		revertSkills = func() error { return reconcileSkillsSurface(fs, req.WorkDir, nil) }
+	}
+
 	// opencode acp takes NO --model flag: it treats the unknown flag as a parse
 	// error, prints usage, and exits WITHOUT starting the ACP server — which would
 	// break the spawn entirely. Model, MCP, and permission all ride opencode.json
@@ -81,6 +98,9 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 
 	drv := acp.NewChatDriver(b.chatACPConfig())
 	chatErr := drv.Chat(ctx, req, in, out)
+	if rerr := revertSkills(); rerr != nil && chatErr == nil {
+		chatErr = rerr
+	}
 	if rerr := revertCmds(); rerr != nil && chatErr == nil {
 		chatErr = rerr
 	}

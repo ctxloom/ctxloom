@@ -53,6 +53,18 @@ func sampleInputs() agent.SurfaceInputs {
 		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review the diff", Enabled: true, Description: "Code review"},
 		},
+		Skills: []agent.SkillExport{
+			{
+				Name:        "humanize",
+				Description: "Removes AI writing tells",
+				Enabled:     true,
+				Files: []agent.PackageFile{
+					{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: Removes AI writing tells\n---\n\nBody.\n"), Mode: 0644},
+					{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\necho hi\n"), Mode: 0755},
+				},
+			},
+			{Name: "disabled-skill", Enabled: false, Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("nope")}}},
+		},
 	}
 }
 
@@ -169,6 +181,41 @@ func TestCommandsSurface_DeliverWritesSkillFiles(t *testing.T) {
 	assert.False(t, exists, "cleanup reverts the manifest-tracked command")
 }
 
+// ---- skills surface (.agents/skills/<name>/SKILL.md) -----------------------
+
+// skills Delivery writes .agents/skills/<name>/SKILL.md (+ sibling files) into
+// the target dir with the exec bit preserved; a disabled skill is not written;
+// Cleanup reverts the manifest-tracked set. The DIRECTORY form coexists with
+// the commands surface's flat <name>.md files in the SAME parent dir.
+func TestSkillsSurface_DeliverWritesSkillFiles(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	s := NewSurfaces(sampleInputs(), fs)
+
+	handle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	skillMD := filepath.Join(dir, AgentsDir, "skills", "humanize", "SKILL.md")
+	exists, _ := afero.Exists(fs, skillMD)
+	assert.True(t, exists, "skill lands under .agents/skills/<name>/SKILL.md")
+
+	data, err := afero.ReadFile(fs, skillMD)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Body.")
+
+	scriptPath := filepath.Join(dir, AgentsDir, "skills", "humanize", "scripts", "run.sh")
+	info, err := fs.Stat(scriptPath)
+	require.NoError(t, err, "scripts/run.sh must be materialized")
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit survives agy's skills surface")
+
+	exists, _ = afero.Exists(fs, filepath.Join(dir, AgentsDir, "skills", "disabled-skill", "SKILL.md"))
+	assert.False(t, exists, "a skill with Enabled == false must not be written")
+
+	require.NoError(t, handle.Cleanup())
+	exists, _ = afero.Exists(fs, skillMD)
+	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
+}
+
 // ---- no SharedRealization (the only path to a shared cwd) ------------------
 
 func TestUnsafe_WarnsAndProceeds(t *testing.T) {
@@ -205,7 +252,7 @@ func TestDirectoryIsolatedCell_AcceptsAllAntigravitySurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, MCP, hooks, commands")
+	require.Len(t, ds, 5, "context, MCP, hooks, commands, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -219,6 +266,7 @@ func TestDirectoryIsolatedCell_AcceptsAllAntigravitySurfaces(t *testing.T) {
 		filepath.Join(AgentsDir, "mcp_config.json"),
 		filepath.Join(AgentsDir, "hooks.json"),
 		filepath.Join(AgentsDir, "skills", "review.md"),
+		filepath.Join(AgentsDir, "skills", "humanize", "SKILL.md"),
 	} {
 		exists, _ := afero.Exists(fs, filepath.Join(dir, rel))
 		assert.True(t, exists, "expected %s", rel)
@@ -239,7 +287,7 @@ func TestSharedCell_AcceptsOnlyUnsafeAntigravitySurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 4)
+	require.Len(t, delivered, 5)
 	assert.Contains(t, stderr, "warning:", "every agy surface warns when DeliverShared delivers it")
 }
 
@@ -249,7 +297,7 @@ func TestSharedCell_AcceptsOnlyUnsafeAntigravitySurfaces(t *testing.T) {
 // native-file-only — agy has no out-of-cwd flag and no SessionStart hook.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(kind), "%s", kind)
 	}
 }
@@ -257,7 +305,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 // DefaultApproach is the native file for every kind agy has.
 func TestSurfaces_DefaultApproach(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, a)
@@ -275,7 +323,7 @@ func TestSurfaceFor_UnsupportedApproachErrors(t *testing.T) {
 // SHARED-cwd delivery always falls back to the loud well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: agy has no out-of-cwd realization", kind)
 	}

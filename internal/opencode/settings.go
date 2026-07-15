@@ -77,6 +77,16 @@ type managedConfig struct {
 	mcpServers   []agent.ChatMCPServer
 	readOnly     bool
 	instructions []string
+	// skillPaths registers opencode's Agent Skills directory (or directories)
+	// in the nested `skills.paths` key. VERIFIED against opencode 1.18.1: the
+	// default project skills dir (opencodeSkillDir, ".opencode/skill") is
+	// ALREADY auto-discovered with no config entry at all (`opencode debug
+	// skill` lists a skill placed there against a config file with no
+	// `skills` key whatsoever) — this registration is therefore
+	// belt-and-suspenders explicitness, not a load-bearing discovery
+	// requirement, kept because it costs nothing and survives a future change
+	// to opencode's default scan set.
+	skillPaths []string
 }
 
 // applyManaged merges ctxloom's managed keys into the parsed opencode.json map,
@@ -159,6 +169,36 @@ func applyManaged(cfg map[string]json.RawMessage, m managedConfig) (mcpNames []s
 			return nil, fmt.Errorf("encode opencode instructions: %w", e)
 		}
 		cfg["instructions"] = raw
+	}
+
+	if len(m.skillPaths) > 0 {
+		skills := map[string]json.RawMessage{}
+		if existing, ok := cfg["skills"]; ok {
+			if e := json.Unmarshal(existing, &skills); e != nil {
+				return nil, fmt.Errorf("existing opencode.json skills is malformed (refusing to overwrite): %w", e)
+			}
+		}
+		var paths []string
+		if existing, ok := skills["paths"]; ok {
+			if e := json.Unmarshal(existing, &paths); e != nil {
+				return nil, fmt.Errorf("existing opencode.json skills.paths is malformed (refusing to overwrite): %w", e)
+			}
+		}
+		for _, p := range m.skillPaths {
+			if !slices.Contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+		rawPaths, e := json.Marshal(paths)
+		if e != nil {
+			return nil, fmt.Errorf("encode opencode skills.paths: %w", e)
+		}
+		skills["paths"] = rawPaths
+		rawSkills, e := json.Marshal(skills)
+		if e != nil {
+			return nil, fmt.Errorf("encode opencode skills: %w", e)
+		}
+		cfg["skills"] = rawSkills
 	}
 
 	return mcpNames, nil
@@ -287,6 +327,85 @@ func stripManagedInstructions(cfg map[string]json.RawMessage) bool {
 		cfg["instructions"] = b
 	}
 	return true
+}
+
+// stripManagedSkillPath removes exactly path from cfg's `skills.paths` array,
+// preserving any other registered path and any sibling `skills` key (e.g.
+// `urls`); an emptied `paths` drops just that key, and a `skills` object left
+// with no keys at all is dropped entirely. It reports whether it changed
+// anything, mirroring stripManagedInstructions one level deeper.
+func stripManagedSkillPath(cfg map[string]json.RawMessage, path string) bool {
+	raw, ok := cfg["skills"]
+	if !ok {
+		return false
+	}
+	skills := map[string]json.RawMessage{}
+	if json.Unmarshal(raw, &skills) != nil {
+		return false
+	}
+	pathsRaw, ok := skills["paths"]
+	if !ok {
+		return false
+	}
+	var paths []string
+	if json.Unmarshal(pathsRaw, &paths) != nil {
+		return false
+	}
+	kept := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p != path {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == len(paths) {
+		return false
+	}
+	if len(kept) == 0 {
+		delete(skills, "paths")
+	} else if b, err := json.Marshal(kept); err == nil {
+		skills["paths"] = b
+	}
+	if len(skills) == 0 {
+		delete(cfg, "skills")
+	} else if b, err := json.Marshal(skills); err == nil {
+		cfg["skills"] = b
+	}
+	return true
+}
+
+// registerSkillsPath ensures opencodeSkillDir is registered in opencode.json's
+// `skills.paths`, preserving every foreign key. See managedConfig.skillPaths
+// for why this is explicitness rather than a load-bearing discovery
+// requirement.
+func registerSkillsPath(fs afero.Fs, projectDir string) error {
+	path := filepath.Join(projectDir, opencodeConfigFile)
+	cfg, err := loadOpencodeConfig(fs, path)
+	if err != nil {
+		return err
+	}
+	if _, err := applyManaged(cfg, managedConfig{skillPaths: []string{opencodeSkillDir}}); err != nil {
+		return err
+	}
+	return saveOpencodeConfig(fs, path, cfg)
+}
+
+// unregisterSkillsPath removes ctxloom's opencodeSkillDir entry from
+// opencode.json's `skills.paths`, leaving any other registered path (and any
+// absent config file) untouched.
+func unregisterSkillsPath(fs afero.Fs, projectDir string) error {
+	path := filepath.Join(projectDir, opencodeConfigFile)
+	exists, _ := afero.Exists(fs, path)
+	if !exists {
+		return nil
+	}
+	cfg, err := loadOpencodeConfig(fs, path)
+	if err != nil {
+		return err
+	}
+	if stripManagedSkillPath(cfg, opencodeSkillDir) {
+		return saveOpencodeConfig(fs, path, cfg)
+	}
+	return nil
 }
 
 // composeManagedServers builds the materializable server set the settings writer
@@ -450,9 +569,10 @@ func (w *OpencodeWriter) removeMCP(projectDir string) error {
 	return w.writeLedger(projectDir, nil)
 }
 
-// RemoveSettings strips every managed entry from opencode.json (mcp + the
-// instructions reference), removes the ctxloom context file, and clears the
-// ledger, preserving user-defined keys. An absent config file is left absent.
+// RemoveSettings strips every managed entry from opencode.json (mcp, the
+// instructions reference, and the skills.paths registration), removes the
+// ctxloom context file, and clears the ledger, preserving user-defined keys.
+// An absent config file is left absent.
 func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 	fs := w.getFS()
 	path := w.SettingsPath(projectDir)
@@ -463,6 +583,7 @@ func (w *OpencodeWriter) RemoveSettings(projectDir string) error {
 		}
 		stripManagedMCP(cfg, w.readLedger(projectDir))
 		stripManagedInstructions(cfg)
+		stripManagedSkillPath(cfg, opencodeSkillDir)
 		if err := saveOpencodeConfig(fs, path, cfg); err != nil {
 			return err
 		}

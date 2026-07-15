@@ -233,9 +233,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &antigravity.AntigravityConfig{})
 		},
-		newWriter:   antigravity.NewWriter,
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
-		exports:     antigravityExports,
+		newWriter:    antigravity.NewWriter,
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
+		exports:      antigravityExports,
+		skillExports: antigravitySkillExports,
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -254,6 +255,7 @@ func init() {
 		newWriter:            codex.NewWriter,
 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return codex.NewSurfaces(in, fs) },
 		exports:              codexExports,
+		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 	})
 
@@ -328,6 +330,7 @@ func init() {
 		newWriter:            opencode.NewWriter,
 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
 		exports:              opencodeExports,
+		skillExports:         opencodeSkillExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 	})
 

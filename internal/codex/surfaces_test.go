@@ -57,6 +57,18 @@ func sampleInputs() agent.SurfaceInputs {
 		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
 		},
+		Skills: []agent.SkillExport{
+			{
+				Name:        "humanize",
+				Description: "Removes AI writing tells",
+				Enabled:     true,
+				Files: []agent.PackageFile{
+					{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: Removes AI writing tells\n---\n\nBody.\n"), Mode: 0644},
+					{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\necho hi\n"), Mode: 0755},
+				},
+			},
+			{Name: "disabled-skill", Enabled: false, Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("nope")}}},
+		},
 	}
 }
 
@@ -254,6 +266,42 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	assert.False(t, exists, "cleanup reverts the manifest-tracked prompt")
 }
 
+// ---- skills surface (cell-scoped $CODEX_HOME) ------------------------------
+
+// skills Delivery writes Agent Skill packages under the CELL-SCOPED $CODEX_HOME
+// derived from dir (<dir>/.codex/skills) — NOT the global ~/.codex/skills — so a
+// DirectoryIsolatedCell isolates them, mirroring the commands surface. Cleanup
+// reverts the manifest-tracked set.
+func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	s := NewSurfaces(sampleInputs(), fs)
+
+	handle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	skillMD := filepath.Join(dir, ".codex", "skills", "humanize", "SKILL.md")
+	exists, _ := afero.Exists(fs, skillMD)
+	assert.True(t, exists, "the skill lands under the cell-scoped $CODEX_HOME (<dir>/.codex/skills)")
+	assert.Equal(t, filepath.Join(dir, ".codex", "skills"), cellScopedSkillsDir(dir))
+
+	data, err := afero.ReadFile(fs, skillMD)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Body.")
+
+	scriptPath := filepath.Join(dir, ".codex", "skills", "humanize", "scripts", "run.sh")
+	info, err := fs.Stat(scriptPath)
+	require.NoError(t, err, "scripts/run.sh must be materialized")
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit on scripts/run.sh survives codex's skills surface")
+
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "skills", "disabled-skill", "SKILL.md"))
+	assert.False(t, exists, "a skill with Enabled == false must not be written")
+
+	require.NoError(t, handle.Cleanup())
+	exists, _ = afero.Exists(fs, skillMD)
+	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
+}
+
 // ---- no SharedRealization (the only path to a shared cwd) ------------------
 
 // A codex surface has no out-of-cwd flag and no SharedRealization, so
@@ -298,7 +346,7 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 3, "context (composed), config, commands")
+	require.Len(t, ds, 4, "context (composed), config, commands, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -315,13 +363,15 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	assert.True(t, exists)
 	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "prompts", "review.md"))
 	assert.True(t, exists)
+	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "skills", "humanize", "SKILL.md"))
+	assert.True(t, exists)
 }
 
 // DeliverShared falls back to the well-known write for every codex surface (codex
-// has no SharedRealization), and each warns when it delivers. Still 3 resolved
-// surfaces: context (composed: cache file + AGENTS.md), config, and commands —
-// the composition happens INSIDE ComposedDelivery.Deliver, so it is still one
-// resolved surface at the SurfaceKind level.
+// has no SharedRealization), and each warns when it delivers. Still 4 resolved
+// surfaces: context (composed: cache file + AGENTS.md), config, commands, and
+// skills — the composition happens INSIDE ComposedDelivery.Deliver, so it is
+// still one resolved surface at the SurfaceKind level.
 func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cwd := "/live"
@@ -336,7 +386,7 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 3, "context (cache file + AGENTS.md), config, and commands each deliver")
+	require.Len(t, delivered, 4, "context (cache file + AGENTS.md), config, commands, and skills each deliver")
 	assert.Contains(t, stderr, "warning:", "every codex surface warns when DeliverShared delivers it")
 
 	// The composed context route wrote BOTH its cache file and AGENTS.md into
@@ -356,6 +406,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 	assert.Equal(t, []agent.Approach{agent.ApproachHook}, s.SupportedApproaches(agent.SurfaceContext))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceCommands))
+	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSkills))
 	assert.Empty(t, s.SupportedApproaches(agent.SurfaceMCP), "MCP folds into config.toml — no distinct surface")
 }
 
@@ -374,6 +425,10 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 
 	_, ok = s.DefaultApproach(agent.SurfaceMCP)
 	assert.False(t, ok, "MCP is folded/absent for codex")
+
+	a, ok = s.DefaultApproach(agent.SurfaceSkills)
+	require.True(t, ok)
+	assert.Equal(t, agent.ApproachUnsafeFile, a)
 }
 
 // SurfaceFor(context, Hook) resolves to the composed agent.ComposedDelivery, which performs BOTH the
@@ -410,7 +465,7 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 // so a SHARED-cwd delivery always falls back to the loud well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: codex has no out-of-cwd realization", kind)
 	}

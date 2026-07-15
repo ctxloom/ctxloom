@@ -102,14 +102,31 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 		revertCmds = func() error { return WriteCommandFiles(workDir, nil, agent.WithCommandFS(fs)) }
 	}
 
+	// Materialize bundle Agent Skill packages transiently under .opencode/skill/
+	// (+ the opencode.json skills.paths registration), mirroring Chat via the SAME
+	// reconcileSkillsSurface function. SkipSetup delivers none.
+	revertSkills := func() error { return nil }
+	if !req.SkipSetup && len(b.pendingSkills) > 0 {
+		if err := reconcileSkillsSurface(fs, workDir, b.pendingSkills); err != nil {
+			_ = revertCmds()
+			_ = removeContext()
+			_ = restore()
+			return nil, err
+		}
+		revertSkills = func() error { return reconcileSkillsSurface(fs, workDir, nil) }
+	}
+
 	// The launcher builds its LaunchSpec.WorkDir from b.WorkDir(); Setup already set
 	// it, but pin it to the resolved dir so a direct Execute (test/agent) launches in
 	// the right cwd.
 	b.SetWorkDir(workDir)
 	exit, runErr := b.RunInteractive(ctx, b.buildInteractiveArgs(req), req.Env, req.Stdin, stdout, stderr, req.Resize)
 
-	// LIFO teardown: commands, then context, then the opencode.json snapshot — the
-	// user's project is left exactly as it was.
+	// LIFO teardown: skills, then commands, then context, then the opencode.json
+	// snapshot — the user's project is left exactly as it was.
+	if e := revertSkills(); e != nil && runErr == nil {
+		runErr = e
+	}
 	if e := revertCmds(); e != nil && runErr == nil {
 		runErr = e
 	}

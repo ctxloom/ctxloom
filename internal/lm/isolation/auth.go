@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // containerAuthMode names HOW a container run authenticates the engine, for
@@ -56,8 +57,10 @@ type containerAuth struct {
 // claudeAuthEnvVars is the SCOPED set of Anthropic auth/config vars a claude run
 // honors — the ONLY host env allowed to cross into the container for auth,
 // distinct from the handshake-only containerHandshakeEnv (which deliberately
-// DROPS ANTHROPIC_API_KEY). ANTHROPIC_API_KEY presence is the trigger; the rest
-// cross only when also set. NEVER logged.
+// DROPS ANTHROPIC_API_KEY). ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN presence is
+// the trigger (a gateway host authenticates with AUTH_TOKEN+BASE_URL and carries
+// no API key at all — see resolveClaudeContainerAuth); the rest cross only when
+// also set. NEVER logged.
 var claudeAuthEnvVars = []string{
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
@@ -70,31 +73,90 @@ var claudeAuthEnvVars = []string{
 // mounted credentials). Overridable in tests.
 var hostHomeDir = os.UserHomeDir
 
-// resolveClaudeContainerAuth builds the auth plan for a containerized claude run
-// whose fresh HOME is containerHome. It PREFERS env passthrough (an
-// ANTHROPIC_API_KEY in the host env — the user's chosen default) and otherwise
-// falls back to mounting the host's subscription OAuth credentials read-only into
-// the container HOME. It returns ok=false only when NEITHER is available, so the
-// caller errors and degrades down the chain to None rather than launching an
-// unauthenticated engine that would hang or fail — a fatal finding
-// (ClassIsolation) the choke owner aborts on unless --degraded, since the
-// container was EXPLICITLY requested.
-func resolveClaudeContainerAuth(containerHome string) (containerAuth, bool) {
-	if names := presentEnvKeys(os.Getenv, claudeAuthEnvVars); os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return containerAuth{mode: authEnv, envPassthrough: names}, true
+// resolveEnvOrMountAuth is the common shape every per-engine resolver below
+// reduces to: prefer a scoped env passthrough when ANY of triggers is set in
+// the host env, else fall back to a mount lookup (nil = no mount fallback,
+// kiro's case), else degrade (ok=false). Factored out after reprise flagged
+// the codex/opencode resolvers as exact-normalized duplicates of each other;
+// claude and kiro are folded in too rather than leaving three near-identical
+// shapes alongside one shared one.
+func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() ([]Mount, bool)) (containerAuth, bool) {
+	triggered := false
+	for _, t := range triggers {
+		if os.Getenv(t) != "" {
+			triggered = true
+			break
+		}
 	}
-	if mounts, ok := claudeCredentialMounts(containerHome); ok {
-		return containerAuth{mode: authCredentialMount, mounts: mounts}, true
+	if triggered {
+		return containerAuth{mode: authEnv, envPassthrough: presentEnvKeys(os.Getenv, envVars)}, true
+	}
+	if mountFn != nil {
+		if mounts, ok := mountFn(); ok {
+			return containerAuth{mode: authCredentialMount, mounts: mounts}, true
+		}
 	}
 	return containerAuth{mode: authNone}, false
 }
 
+// resolveClaudeContainerAuth builds the auth plan for a containerized claude run
+// whose fresh HOME is containerHome. It PREFERS env passthrough (an
+// ANTHROPIC_API_KEY OR ANTHROPIC_AUTH_TOKEN in the host env — the latter covers a
+// gateway host that authenticates via BASE_URL+AUTH_TOKEN and carries no API key)
+// and otherwise falls back to COPYING the host's subscription OAuth credentials
+// into scratchDir and mounting the copies read-write into the container HOME (see
+// claudeCredentialCopyMounts — a plain read-only mount of the host originals would
+// collide with claude's token-refresh write-back). It returns ok=false only when
+// NEITHER is available, so the caller errors and degrades down the chain to None
+// rather than launching an unauthenticated engine that would hang or fail — a
+// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
+// since the container was EXPLICITLY requested.
+func resolveClaudeContainerAuth(containerHome, scratchDir string) (containerAuth, bool) {
+	return resolveEnvOrMountAuth(
+		[]string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+		claudeAuthEnvVars,
+		func() ([]Mount, bool) { return claudeCredentialCopyMounts(containerHome, scratchDir) },
+	)
+}
+
+// claudeContainerAuthHint is the claude profile's degrade diagnostic —
+// platform-aware because the fallback credential path differs by OS. On
+// darwin, a subscription login keeps its OAuth token in the macOS Keychain,
+// NOT ~/.claude/.credentials.json — that file does not exist there, so naming
+// it (the non-darwin hint below) is unfollowable advice. Extracting the
+// Keychain token into a per-run scratch file is a real fix but needs a real
+// Mac to verify (task sudsy-sip, a separate follow-up); until it lands, the
+// only WORKING container auth on darwin is ANTHROPIC_API_KEY (or
+// ANTHROPIC_AUTH_TOKEN), so the darwin hint names that instead of the file.
+func claudeContainerAuthHint() string {
+	if runtime.GOOS == "darwin" {
+		return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine (a macOS Keychain-held subscription login cannot be mounted — set ANTHROPIC_API_KEY for a containerized run on Mac)"
+	}
+	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"
+}
+
 // kiroAuthEnvVars is the SCOPED set of Kiro auth vars a kiro run honors — the
 // only host env allowed to cross into the container for kiro auth. KIRO_API_KEY
-// presence is the trigger (Kiro's headless mode skips the browser login when it
-// is set). NEVER logged.
+// presence is the TRIGGER (Kiro's headless mode skips the browser login when it
+// is set); the AWS_* vars ride ALONG when present (a Bedrock-backed kiro
+// configuration reads them like any AWS SDK client) but are deliberately NOT a
+// standalone trigger of their own yet — whether AWS credentials alone (no
+// KIRO_API_KEY) authenticate a containerized kiro needs a live kiro verification
+// (task numb-panda) this package cannot run hermetically; treating them as a
+// trigger without that confirmation risks launching a container that starts but
+// never actually authenticates, a NEW silent-no-op. AWS_PROFILE alone is
+// forwarded but is likely insufficient on its own: profile-based auth resolves
+// against ~/.aws/{config,credentials}, which this package does NOT mount —
+// explicit key vars (or KIRO_API_KEY) are the supported path until that's
+// revisited. NEVER logged.
 var kiroAuthEnvVars = []string{
 	"KIRO_API_KEY",
+	"AWS_REGION",
+	"AWS_DEFAULT_REGION",
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"AWS_SESSION_TOKEN",
+	"AWS_PROFILE",
 }
 
 // resolveKiroContainerAuth builds the auth plan for a containerized kiro run:
@@ -114,10 +176,145 @@ var kiroAuthEnvVars = []string{
 // process may have open (WAL mode) read-only into a container is an
 // untested operational risk, not merely an untested path. ok=false → the
 // caller degrades rather than launching an engine stuck at a browser login.
-func resolveKiroContainerAuth(string) (containerAuth, bool) {
-	if names := presentEnvKeys(os.Getenv, kiroAuthEnvVars); os.Getenv("KIRO_API_KEY") != "" {
-		return containerAuth{mode: authEnv, envPassthrough: names}, true
+// KIRO_API_KEY stays the sole trigger (see kiroAuthEnvVars' doc for why AWS_*
+// alone does not yet trigger); when it is set, any present AWS_* vars ride
+// along in the same passthrough for a Bedrock-backed configuration.
+func resolveKiroContainerAuth(string, string) (containerAuth, bool) {
+	return resolveEnvOrMountAuth([]string{"KIRO_API_KEY"}, kiroAuthEnvVars, nil)
+}
+
+// codexAuthEnvVars is the SCOPED set of codex auth vars a codex run honors —
+// the only host env allowed to cross into the container for codex auth.
+// OPENAI_API_KEY is the trigger, live-verified against `codex doctor`
+// (credentialSeedSpecs["codex"]'s envTrigger doc: "codex doctor reports 'auth
+// is provided by environment' with a fresh CODEX_HOME + OPENAI_API_KEY set,
+// no `codex login` needed"). CODEX_API_KEY is NOT a confirmed codex trigger —
+// it appears nowhere in internal/codex's own env handling — so it is
+// deliberately excluded here rather than guessed in. NEVER logged.
+var codexAuthEnvVars = []string{
+	"OPENAI_API_KEY",
+}
+
+// resolveCodexContainerAuth builds the auth plan for a containerized codex run
+// whose fresh HOME is containerHome (bony-spoof). It PREFERS env passthrough
+// (OPENAI_API_KEY) and otherwise falls back to mounting the host's
+// ~/.codex/auth.json READ-ONLY into the container HOME (codexCredentialMounts).
+// Unlike claude's subscription refresh, the read-only mount is SAFE here:
+// `codex exec`/non-interactive mode never refreshes the ChatGPT auth token in
+// place (balmy-comic), so there is no write-back to collide with — codex does
+// not need claude's copy-then-mount-rw treatment. Returns ok=false when
+// neither is available, so the caller degrades rather than launching an
+// unauthenticated engine.
+func resolveCodexContainerAuth(containerHome, _ string) (containerAuth, bool) {
+	return resolveEnvOrMountAuth(
+		[]string{"OPENAI_API_KEY"},
+		codexAuthEnvVars,
+		func() ([]Mount, bool) { return codexCredentialMounts(containerHome) },
+	)
+}
+
+// codexCredentialMounts builds the read-only credential mount that
+// authenticates a subscription codex inside the container:
+// ~/.codex/auth.json mapped into containerHome/.codex/auth.json. It reuses
+// credentialSeedSpecs["codex"]'s sourceFiles descriptor — the SAME host-file
+// location the host+worktree credential seed path (grave-prize,
+// hostCredentialSeed below) already knows — instead of hard-coding the path a
+// second time, per the plan's "one source-discovery, not two"
+// (container-image-auth-delivery.plan.md §2.2). Returns ok=false when the
+// file is absent or the codex spec is missing/has no sourceFiles (defensive;
+// should never happen — codex's spec always sets both).
+func codexCredentialMounts(containerHome string) ([]Mount, bool) {
+	home, err := hostHomeDir()
+	if err != nil || home == "" {
+		return nil, false
 	}
+	spec, ok := credentialSeedSpecs["codex"]
+	if !ok || spec.sourceFiles == nil {
+		return nil, false
+	}
+	var mounts []Mount
+	for _, f := range spec.sourceFiles(home) {
+		if !f.required {
+			continue // codex's spec has one required file (auth.json) today; a future optional entry is account-association residue, not the credential itself
+		}
+		if !fileExists(f.host) {
+			return nil, false
+		}
+		mounts = append(mounts, Mount{
+			Host:      f.host,
+			Container: filepath.Join(containerHome, ".codex", f.destName),
+			ReadOnly:  true,
+		})
+	}
+	if len(mounts) == 0 {
+		return nil, false
+	}
+	return mounts, true
+}
+
+// opencodeAuthEnvVars is the SCOPED set of opencode auth vars a containerized
+// opencode run honors. OPENROUTER_API_KEY is the trigger: OpenRouter is
+// ctxloom's documented default opencode provider. opencode's own provider
+// config can in principle honor other providers' native env vars too, but
+// only OpenRouter is wired here until a broader multi-provider container auth
+// story is designed. NEVER logged.
+var opencodeAuthEnvVars = []string{
+	"OPENROUTER_API_KEY",
+}
+
+// resolveOpencodeContainerAuth builds the auth plan for a containerized
+// opencode run whose fresh HOME is containerHome. It PREFERS env passthrough
+// (OPENROUTER_API_KEY) and otherwise falls back to mounting the host's seeded
+// ~/.local/share/opencode/auth.json (the file `opencode auth login` writes)
+// READ-ONLY into the container HOME. opencode has no credentialSeedSpecs entry
+// (host+worktree isolation does not relocate its creds today — a separate,
+// undecided workstream), so opencodeCredentialMounts mirrors
+// claudeCredentialCopyMounts' host-file discovery shape directly rather than
+// reusing that registry. The mount stays read-only: whether a non-interactive
+// opencode run refreshes auth.json in place is unverified (no live-verified
+// evidence either way, unlike codex's confirmed no-refresh or claude's
+// confirmed refresh), so this does not claim the rw-copy treatment is
+// unnecessary — it is the conservative default pending that verification.
+// Returns ok=false when neither is available.
+func resolveOpencodeContainerAuth(containerHome, _ string) (containerAuth, bool) {
+	return resolveEnvOrMountAuth(
+		[]string{"OPENROUTER_API_KEY"},
+		opencodeAuthEnvVars,
+		func() ([]Mount, bool) { return opencodeCredentialMounts(containerHome) },
+	)
+}
+
+// opencodeCredentialMounts builds the read-only credential mount that
+// authenticates a containerized opencode via its seeded auth.json:
+// ~/.local/share/opencode/auth.json mapped into
+// containerHome/.local/share/opencode/auth.json (matching opencode's own
+// storage layout — see internal/opencode/capabilities.go's doc). Returns
+// ok=false when the file is absent.
+func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
+	home, err := hostHomeDir()
+	if err != nil || home == "" {
+		return nil, false
+	}
+	auth := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	if !fileExists(auth) {
+		return nil, false
+	}
+	return []Mount{{
+		Host:      auth,
+		Container: filepath.Join(containerHome, ".local", "share", "opencode", "auth.json"),
+		ReadOnly:  true,
+	}}, true
+}
+
+// resolveAntigravityContainerAuth always reports no available auth:
+// antigravity has no known container credential source yet — its real
+// image/auth build-out is a separate workstream (stark-wheat/bare-goes; see
+// profile.go's antigravity case). It deliberately does NOT fall back to
+// resolveClaudeContainerAuth: doing so was the paced-even security edge (a
+// containerized antigravity run silently authenticating with the user's
+// ANTHROPIC_* credentials — the wrong provider entirely). Always degrades;
+// the profile's authHint explains why.
+func resolveAntigravityContainerAuth(string, string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }
 
@@ -139,14 +336,22 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	return out
 }
 
-// claudeCredentialMounts builds the read-only credential mounts that authenticate
-// a subscription (OAuth) claude inside the container: the OAuth token file plus
-// the ~/.claude.json account association, mapped into containerHome. Returns
-// ok=false when the OAuth token file is absent (no subscription creds to mount).
-// The mounts are READ-ONLY and scoped to the two credential files — the rest of
-// the host's ~/.claude (transcripts, caches, project state) is NOT mounted, so the
-// container HOME stays fresh except for these creds.
-func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
+// claudeCredentialCopyMounts builds the READ-WRITE credential mounts that
+// authenticate a subscription (OAuth) claude inside the container: the OAuth
+// token file plus the ~/.claude.json account association are COPIED into
+// scratchDir and the COPIES are mapped into containerHome, read-write. A plain
+// read-only bind of the host originals (the prior behaviour) collides with
+// claude's token-refresh write-back to those exact files — the refresh would
+// either fail against the read-only mount or (worse) silently no-op, leaving a
+// long-running container's auth to expire mid-session. Mounting a copy
+// read-write instead lets the refresh land in the EPHEMERAL scratch copy,
+// which is discarded at teardown along with the rest of the scratch root
+// (containerWorkspace.Cleanup removes it recursively) — the host's own
+// credential file is never touched, mirroring the copy-not-symlink rationale
+// the host+worktree seed path already uses (this file's package doc above).
+// Returns ok=false when the host OAuth token file is absent (nothing to
+// copy) or the scratch copy cannot be written.
+func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
@@ -155,20 +360,32 @@ func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
 	if !fileExists(creds) {
 		return nil, false
 	}
+	dir := filepath.Join(scratchDir, "claude-auth")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, false
+	}
+	credsCopy := filepath.Join(dir, ".credentials.json")
+	if err := copyCredentialFile(creds, credsCopy); err != nil {
+		return nil, false
+	}
 	mounts := []Mount{{
-		Host:      creds,
+		Host:      credsCopy,
 		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
-		ReadOnly:  true,
+		ReadOnly:  false,
 	}}
 	// ~/.claude.json carries the OAuth account association claude reads at startup;
-	// mount it read-only when present (it is not strictly required for the token
-	// file alone, so its absence is not fatal).
+	// copy+mount it read-write when present (it is not strictly required for the
+	// token file alone, so its absence is not fatal, and a copy failure here does
+	// not fail the whole plan — the token file alone is enough to authenticate).
 	if dotClaude := filepath.Join(home, ".claude.json"); fileExists(dotClaude) {
-		mounts = append(mounts, Mount{
-			Host:      dotClaude,
-			Container: filepath.Join(containerHome, ".claude.json"),
-			ReadOnly:  true,
-		})
+		dotClaudeCopy := filepath.Join(dir, ".claude.json")
+		if err := copyCredentialFile(dotClaude, dotClaudeCopy); err == nil {
+			mounts = append(mounts, Mount{
+				Host:      dotClaudeCopy,
+				Container: filepath.Join(containerHome, ".claude.json"),
+				ReadOnly:  false,
+			})
+		}
 	}
 	return mounts, true
 }

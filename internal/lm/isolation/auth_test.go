@@ -40,40 +40,45 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 	}
 }
 
-// TestClaudeCredentialMounts_PresentAndAbsent: absent OAuth creds → not ok; when
-// present, the mounts are the two credential files, read-only, mapped into the
-// container HOME.
-func TestClaudeCredentialMounts_PresentAndAbsent(t *testing.T) {
+// TestClaudeCredentialCopyMounts_PresentAndAbsent: absent OAuth creds → not
+// ok; when present, the mounts are COPIES of the two credential files under
+// scratchDir, mounted read-write into the container HOME, byte-identical to
+// the host originals (payload assertion — the copy, not just its presence,
+// is what makes the refresh-safe rw mount correct).
+func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	home := withFakeHome(t)
+	scratch := t.TempDir()
 
-	_, ok := claudeCredentialMounts("/root")
+	_, ok := claudeCredentialCopyMounts("/root", scratch)
 	assert.False(t, ok, "no ~/.claude/.credentials.json → cannot credential-mount")
 
 	writeCreds(t, home, true)
-	mounts, ok := claudeCredentialMounts("/root")
+	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
 	require.True(t, ok)
 	require.Len(t, mounts, 2)
-	assert.Equal(t, Mount{
-		Host:      filepath.Join(home, ".claude", ".credentials.json"),
-		Container: "/root/.claude/.credentials.json",
-		ReadOnly:  true,
-	}, mounts[0])
-	assert.Equal(t, Mount{
-		Host:      filepath.Join(home, ".claude.json"),
-		Container: "/root/.claude.json",
-		ReadOnly:  true,
-	}, mounts[1])
+	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
+	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh can write back into the scratch copy")
+	assert.NotEqual(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the mount targets a SCRATCH COPY, never the host original")
+	gotCreds, err := os.ReadFile(mounts[0].Host)
+	require.NoError(t, err)
+	wantCreds, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	require.NoError(t, err)
+	assert.Equal(t, wantCreds, gotCreds, "the scratch copy is byte-identical to the host source")
+
+	assert.Equal(t, "/root/.claude.json", mounts[1].Container)
+	assert.False(t, mounts[1].ReadOnly)
+	assert.NotEqual(t, filepath.Join(home, ".claude.json"), mounts[1].Host)
 }
 
-// TestClaudeCredentialMounts_OmitsAbsentDotClaude: ~/.claude.json is optional —
-// only the OAuth token file is required.
-func TestClaudeCredentialMounts_OmitsAbsentDotClaude(t *testing.T) {
+// TestClaudeCredentialCopyMounts_OmitsAbsentDotClaude: ~/.claude.json is
+// optional — only the OAuth token file is required.
+func TestClaudeCredentialCopyMounts_OmitsAbsentDotClaude(t *testing.T) {
 	home := withFakeHome(t)
 	writeCreds(t, home, false)
-	mounts, ok := claudeCredentialMounts("/root")
+	mounts, ok := claudeCredentialCopyMounts("/root", t.TempDir())
 	require.True(t, ok)
 	require.Len(t, mounts, 1, "only the OAuth token file is mounted when ~/.claude.json is absent")
-	assert.True(t, mounts[0].ReadOnly)
+	assert.False(t, mounts[0].ReadOnly)
 }
 
 // TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades pins the precedence:
@@ -82,14 +87,15 @@ func TestClaudeCredentialMounts_OmitsAbsentDotClaude(t *testing.T) {
 func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "") // ensure no ambient key
+	scratch := t.TempDir()
 
 	// No key, no creds → degrade (the caller falls back to none).
-	_, ok := resolveClaudeContainerAuth("/root")
+	_, ok := resolveClaudeContainerAuth("/root", scratch)
 	assert.False(t, ok, "no resolvable auth → degrade to none")
 
 	// Creds present, still no key → credential-mount.
 	writeCreds(t, home, false)
-	auth, ok := resolveClaudeContainerAuth("/root")
+	auth, ok := resolveClaudeContainerAuth("/root", scratch)
 	require.True(t, ok)
 	assert.Equal(t, authCredentialMount, auth.mode)
 	assert.NotEmpty(t, auth.mounts)
@@ -99,7 +105,7 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 	// carries the NAME only (never the value): the value is forwarded from the
 	// launcher's env at run time, so it never reaches the world-readable argv.
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok = resolveClaudeContainerAuth("/root")
+	auth, ok = resolveClaudeContainerAuth("/root", scratch)
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the auth var crosses by NAME")
@@ -107,6 +113,27 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 		assert.NotContains(t, e, "sk-test", "the secret VALUE must never be stored in the auth plan")
 	}
 	assert.Empty(t, auth.mounts, "env passthrough does not mount credentials")
+}
+
+// TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers pins the paced-even fix:
+// a gateway host authenticates via ANTHROPIC_BASE_URL+ANTHROPIC_AUTH_TOKEN and
+// carries no ANTHROPIC_API_KEY at all — the resolver must still prefer env
+// passthrough over the credential mount in that case, not degrade to the
+// (possibly absent) on-disk creds.
+func TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers(t *testing.T) {
+	withFakeHome(t) // no ~/.claude credentials on disk
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "gw-token")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+
+	auth, ok := resolveClaudeContainerAuth("/root", t.TempDir())
+	require.True(t, ok, "ANTHROPIC_AUTH_TOKEN alone must trigger env passthrough")
+	assert.Equal(t, authEnv, auth.mode)
+	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_AUTH_TOKEN")
+	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_BASE_URL")
+	for _, e := range auth.envPassthrough {
+		assert.NotContains(t, e, "gw-token", "the secret VALUE must never be stored in the auth plan")
+	}
 }
 
 // TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars pins the
@@ -118,13 +145,14 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 // len(presentEnvKeys) > 0 instead of on the key itself.
 func TestResolveClaudeContainerAuth_TriggersOnApiKeyNotOtherAnthropicVars(t *testing.T) {
 	withFakeHome(t)                             // no ~/.claude credentials on disk
-	t.Setenv("ANTHROPIC_API_KEY", "")           // the trigger var is unset…
+	t.Setenv("ANTHROPIC_API_KEY", "")           // both trigger vars are unset…
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://x") // …but OTHER ANTHROPIC_* vars ARE set
 	t.Setenv("ANTHROPIC_MODEL", "claude-x")
 
-	auth, ok := resolveClaudeContainerAuth("/root")
+	auth, ok := resolveClaudeContainerAuth("/root", t.TempDir())
 	require.False(t, ok,
-		"other ANTHROPIC_* set without ANTHROPIC_API_KEY (and no creds) must NOT env-trigger — it degrades")
+		"other ANTHROPIC_* set without ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN (and no creds) must NOT env-trigger — it degrades")
 	assert.Equal(t, authNone, auth.mode, "no key and no creds resolves to no auth, not env passthrough")
 	assert.Empty(t, auth.envPassthrough, "nothing crosses when the trigger var is absent")
 }

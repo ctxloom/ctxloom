@@ -166,7 +166,7 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	t.Cleanup(func() { sharedFSCheck = prevFS })
 
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img")
-	c.profile.resolveAuth = func(string) (containerAuth, bool) { return containerAuth{}, true }
+	c.profile.resolveAuth = func(string, string) (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()
 	sc, err := c.prepareContainerScratch(context.Background())

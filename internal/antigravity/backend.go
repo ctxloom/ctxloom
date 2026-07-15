@@ -82,12 +82,33 @@ func (b *Antigravity) buildArgs(req *agent.ExecuteRequest, model string) []strin
 		args = append(args, "--model", model)
 	}
 
-	// agy v1.0.7 has no read-only/plan or edit-only approval mode, so only the
-	// blanket bypass maps to a flag; every other posture (and SkipSetup, which
-	// auto-approves baseline tools regardless) leaves agy's defaults.
-	if !req.SkipSetup && req.Permissions == agent.PermissionBypass {
+	// agy 1.1.2 DOES have --mode plan / --mode accept-edits (the stale "v1.0.7
+	// has no plan mode" claim this comment used to make is FALSE — VERIFIED via
+	// `agy --help`, current install is 1.1.2). SkipSetup maps to plan like every
+	// other engine's minimal/distill path (codex SkipSetup -> read-only), not to
+	// agy's own prompting.
+	//
+	// LIVE FINDING (2026-07-15, authenticated agy 1.1.2, real model turns): the
+	// --mode plan flag is NOT enforced in headless `-p` execution. A live
+	// sentinel-write probe under `--mode plan` (and again with `--mode plan
+	// --sandbox`) overwrote the target file exactly like the bypass positive
+	// control, and the model self-reported "I am not currently in plan mode or
+	// read-only mode" when asked directly. So this flag is passed as the best
+	// available, documented mapping (and may still gate agy's INTERACTIVE `-i`
+	// TUI, which was not exercised here), but it must NOT be trusted as a
+	// genuine read-only boundary for headless runs — see
+	// backends.EnforcesReadOnlyPlan, which deliberately does NOT list
+	// "antigravity" so ctxloom's own resolver keeps collapsing plan to a safer
+	// posture rather than trusting a flag proven not to enforce.
+	switch {
+	case req.SkipSetup, req.Permissions == agent.PermissionPlan:
+		args = append(args, "--mode", "plan")
+	case req.Permissions == agent.PermissionAcceptEdits:
+		args = append(args, "--mode", "accept-edits")
+	case req.Permissions == agent.PermissionBypass:
 		args = append(args, "--dangerously-skip-permissions")
 	}
+	// PermissionDefault: no flag — agy's own prompting (unreachable headless).
 
 	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
 		// Oneshot: -p runs headless and exits. Interactive: -i runs the

@@ -63,6 +63,35 @@ func MostRecentSession(sessions []SessionMeta, err error, get func(SessionMeta) 
 	return get(sessions[0])
 }
 
+// GetCurrentSessionViaListSessions is the common GetCurrentSession shape
+// shared by every per-agent SessionHistory: call list(workDir), then load the
+// most recent result via get (MostRecentSession). claude/kiro's ListSessions
+// already scopes to workDir; a backend whose store is workspace-agnostic
+// (codex, or antigravity's global mtime-newest FALLBACK — see
+// AntigravitySessionHistory.GetCurrentSession, which prepends its own
+// workspace-map lookup before falling back to this exact tail) simply ignores
+// workDir inside its own list closure. Factored out because reprise's
+// duplicate-detection gate caught claude/kiro/antigravity's three copies of
+// this shape drifting apart as each grew its own get variant (GetSession vs
+// GetSessionByPath vs parseSessionFile).
+func GetCurrentSessionViaListSessions(workDir string, list func(string) ([]SessionMeta, error), get func(SessionMeta) (*Session, error)) (*Session, error) {
+	sessions, err := list(workDir)
+	return MostRecentSession(sessions, err, get)
+}
+
+// GetCurrentSessionViaGetSession is the common case of
+// GetCurrentSessionViaListSessions where the per-session loader is simply
+// "load this session by id": list(workDir), then getSession(workDir, id) on
+// the newest result. Shared by every SessionHistory whose loader takes
+// (workDir, id string) — claude/codex/opencode's GetSession all do (kiro
+// loads by transcript PATH and antigravity's fallback parses a brain file
+// directly, so those two call GetCurrentSessionViaListSessions instead).
+func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]SessionMeta, error), getSession func(workDir, id string) (*Session, error)) (*Session, error) {
+	return GetCurrentSessionViaListSessions(workDir, list, func(m SessionMeta) (*Session, error) {
+		return getSession(workDir, m.ID)
+	})
+}
+
 // ParseSessionFile reads a JSONL transcript at path into the normalized
 // Session contract. parseLine converts one non-empty line into zero or more
 // entries; malformed/unrecognized lines should yield nil so a session

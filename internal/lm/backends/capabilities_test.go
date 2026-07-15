@@ -14,14 +14,17 @@ func TestMock_History(t *testing.T) {
 }
 
 // TestEnforcesReadOnlyPlan pins which backends map PermissionPlan to a genuine
-// read-only, non-prompting mode. Only claude-code (--permission-mode plan) and
-// codex (--sandbox read-only --ask-for-approval never) do; the rest have no
-// read-only tier, so the run resolver must not treat plan as honored for them.
+// read-only, non-prompting mode. claude-code (--permission-mode plan), codex
+// (--sandbox read-only --ask-for-approval never), and kiro (--trust-tools=
+// fs_read, LIVE VERIFIED 2026-07-15) do; antigravity's --mode plan flag EXISTS
+// but was LIVE VERIFIED (same date) to NOT enforce read-only headlessly, so it
+// stays false deliberately rather than trusting a proven-inert flag; acp only
+// distinguishes bypass.
 func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.True(t, EnforcesReadOnlyPlan("claude-code"), "claude enforces read-only plan")
 	assert.True(t, EnforcesReadOnlyPlan("codex"), "codex enforces read-only plan")
-	assert.False(t, EnforcesReadOnlyPlan("antigravity"), "antigravity has no read-only tier")
-	assert.False(t, EnforcesReadOnlyPlan("kiro"), "kiro has no read-only tier")
+	assert.True(t, EnforcesReadOnlyPlan("kiro"), "kiro --trust-tools=fs_read is a live-verified genuine read-only posture")
+	assert.False(t, EnforcesReadOnlyPlan("antigravity"), "agy's --mode plan is live-verified NOT to enforce read-only headlessly")
 	assert.False(t, EnforcesReadOnlyPlan("acp"), "acp only distinguishes bypass")
 	assert.False(t, EnforcesReadOnlyPlan("unknown"), "unregistered backend cannot enforce anything")
 }

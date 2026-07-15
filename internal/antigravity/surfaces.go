@@ -32,7 +32,7 @@ import (
 //	context  | .agents/AGENTS.md             | ❌ no flag
 //	MCP      | .agents/mcp_config.json       | ❌ no flag
 //	hooks    | .agents/hooks.json            | ❌ no flag
-//	commands | .agents/skills/<name>.md      | ❌ no flag
+//	commands | .agents/skills/<name>/SKILL.md| ❌ no flag
 //	skills   | .agents/skills/<name>/SKILL.md| ❌ no flag
 //
 // Unlike claude (which folds settings + hooks into one .claude/settings.json),
@@ -149,16 +149,23 @@ func (s *hooksSurface) UnsafeInfo() string { return "antigravity/hooks" }
 // agy's hooks file IS its settings, so a caller selecting Settings gets it.
 func (s *hooksSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
-// agy's commands surface — the markdown skill files under .agents/skills/ — is
-// the shared agent.ManagedCommandsDelivery bound to agy's manifest-scoped
-// WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
-// is identical across engines, so it lives in internal/shared/agent, not here.
+// agy's commands surface — Agent Skill directories under .agents/skills/
+// (`<name>/SKILL.md`, generated frontmatter, capabilities.go
+// renderAntigravitySkillFile) — is the shared agent.ManagedCommandsDelivery
+// bound to agy's manifest-scoped WriteCommandFiles (built in NewSurfaces);
+// its write-then-revert-with-nil shape is identical across engines, so it
+// lives in internal/shared/agent, not here.
 //
 // agy's skills surface — the Agent Skill package DIRECTORIES under the SAME
-// .agents/skills/ parent (`<name>/SKILL.md`, distinct filesystem entries from
-// commands' flat `<name>.md` files, so the two coexist) — is the shared
+// .agents/skills/ parent (`<name>/SKILL.md`) — is the shared
 // agent.ManagedSkillPackagesDelivery bound to agy's manifest-scoped
-// WriteSkillFiles (skillfiles.go).
+// WriteSkillFiles (skillfiles.go). Commands and skills now BOTH want
+// `<name>/SKILL.md` under the same parent (G3 fix retired the flat `<name>.md`
+// command shape agy never discovered), so a same-name command and skill would
+// collide; the shared agent.FilterCommandsClaimedBySkills (invoked from
+// NewSurfaces below via agent.NewSkillShapedCommandsAndSkills) resolves it
+// skill-wins, exactly like kiro's identical collision
+// (internal/kiro/surfaces.go).
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -189,17 +196,28 @@ type Surfaces struct {
 // engines). A nil fs defaults to the OS filesystem. Every agy surface's Delivery
 // takes its target dir at call time; none is race-safe (agy exposes no
 // out-of-cwd flag), so there is no isolated placement to bind.
+//
+// Commands are filtered through the shared agent.FilterCommandsClaimedBySkills
+// BEFORE the commands delivery is built (via
+// agent.NewSkillShapedCommandsAndSkills), so the skill-wins collision
+// resolution (G3) is baked in here, once, rather than duplicated at every call
+// site — the SAME shared constructor kiro's NewSurfaces calls, so the two
+// engines' identical assembly sequence lives in ONE place instead of two
+// (reprise's duplicate-detection gate caught the prior inlined copies as a
+// 95%-similar inconsistent update).
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
 	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
 	hooks := &hooksSurface{hooks: in.Hooks, fs: fs}
-	commands := agent.NewManagedCommandsDelivery("antigravity/commands", in.Commands, func(dir string, commands []agent.CommandExport) error {
-		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
-	})
-	skills := agent.NewManagedSkillPackagesDelivery("antigravity/skills", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
-	})
+	commands, skills := agent.NewSkillShapedCommandsAndSkills("antigravity", "antigravity", antigravitySkillsDir, in, fs,
+		func(dir string, cmds []agent.CommandExport, fs afero.Fs) error {
+			return WriteCommandFiles(dir, cmds, agent.WithCommandFS(fs))
+		},
+		func(dir string, skills []agent.SkillExport, fs afero.Fs) error {
+			return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
+		},
+	)
 	return Surfaces{
 		Context:  context,
 		MCP:      mcp,

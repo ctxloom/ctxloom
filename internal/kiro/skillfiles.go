@@ -14,8 +14,8 @@ import (
 // "two manifests" half of the skill/command split plan's D6: kiro is the
 // COLLISION engine (both kinds share .kiro/skills/), so keeping each writer's
 // tracked-file set independent is what makes cleanup safe (see the
-// name-claiming note on filterClaimedCommands in surfaces.go for the other
-// half — skill-wins arbitration).
+// name-claiming note above NewSurfaces in surfaces.go for the other half —
+// skill-wins arbitration via the shared agent.FilterCommandsClaimedBySkills).
 const kiroSkillManifest = ".ctxloom-skills-manifest"
 
 // WriteSkillFiles materializes kiro's Agent Skills surface: every enabled

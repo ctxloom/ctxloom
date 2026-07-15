@@ -207,13 +207,27 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// Map the generalized permission posture onto claude's flags. bypass is the
 	// blanket skip; acceptEdits/plan use --permission-mode; default leaves the
 	// engine's normal prompting.
+	//
+	// plan ALSO gets a conservative --disallowedTools belt-and-suspenders
+	// (LIVE VERIFIED 2026-07-15, authenticated claude 2.1.210: `--permission-mode
+	// plan --disallowedTools "Bash,Edit,Write,NotebookEdit"` denied a
+	// sentinel-file overwrite — byte-unchanged, model explicitly cited BOTH
+	// plan mode and the missing write tools). --permission-mode plan is
+	// already a genuine read-only posture on its own (unlike agy/kiro's
+	// collapsed read-only, this is the LESS broken of the under-mapped
+	// engines), so this is defense-in-depth, not the fix itself: if a future
+	// claude release ever narrows plan's own semantics, the explicit deny
+	// list still holds. tangy-fox has no per-tool policy input yet, so the
+	// set is a fixed, conservative write/exec list — Bash (arbitrary exec,
+	// including file writes via shell), Edit, Write, NotebookEdit (every
+	// built-in mutating tool this codebase's own tool vocabulary names).
 	switch req.Permissions {
 	case agent.PermissionBypass:
 		args = append(args, "--dangerously-skip-permissions")
 	case agent.PermissionAcceptEdits:
 		args = append(args, "--permission-mode", "acceptEdits")
 	case agent.PermissionPlan:
-		args = append(args, "--permission-mode", "plan")
+		args = append(args, "--permission-mode", "plan", "--disallowedTools", "Bash,Edit,Write,NotebookEdit")
 	}
 
 	// The model is resolved by the caller (the fast role's labeled config for

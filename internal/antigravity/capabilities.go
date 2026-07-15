@@ -17,14 +17,14 @@ import (
 // to the workspace root.
 const antigravitySkillsDir = AgentsDir + "/skills"
 
-// antigravityManifest tracks ctxloom-written skill files for clean removal
-// (agy's skill discovery semantics for subdirectories are unverified, so
-// skills are written flat with a manifest rather than into a ctxloom-owned
-// subdirectory).
+// antigravityManifest tracks ctxloom-written COMMAND files for clean removal,
+// distinct from antigravitySkillManifest (skillfiles.go) so the two surfaces'
+// cleanup never collides — mirrors kiro's kiroManifest / kiroSkillManifest
+// split (kiro/surfaces.go, kiro/skillfiles.go).
 const antigravityManifest = ".ctxloom-manifest"
 
-// AntigravityCommands writes commands for Antigravity CLI as markdown skill
-// files under .agents/skills/.
+// AntigravityCommands writes commands for Antigravity CLI as Agent Skill
+// directories under .agents/skills/.
 type AntigravityCommands struct{}
 
 // RegisterFromContent writes skill files from host-resolved command exports.
@@ -34,26 +34,43 @@ func (s *AntigravityCommands) RegisterFromContent(workDir string, cmds []agent.C
 	return WriteCommandFiles(workDir, cmds)
 }
 
-// WriteCommandFiles writes enabled command exports as markdown skill files
-// under .agents/skills/ and records them in the manifest. Previously
-// manifest-listed files are removed first, so the written set always mirrors
-// the current exports (see agent.WriteManagedCommandFiles for the shared
-// mechanics; the directory is shared with user-authored skills, never wiped
-// wholesale).
+// WriteCommandFiles writes enabled command exports as agy Agent Skill
+// directories (.agents/skills/<name>/SKILL.md, generated YAML frontmatter) and
+// records them in the manifest. Previously manifest-listed files are removed
+// first, so the written set always mirrors the current exports (see
+// agent.WriteManagedCommandFiles for the shared mechanics; the directory is
+// shared with user-authored skills, never wiped wholesale).
+//
+// G3 FIX (was the silent no-op): this writer used to emit flat `<name>.md`
+// files, which agy's skill scanner NEVER discovers — agy only walks
+// `.agents/skills/<name>/SKILL.md` DIRECTORIES (VERIFIED against agy's own
+// bundled docs, see skillfiles.go's doc comment; every builtin skill is a
+// dir). ctxloom slash-command exports landed on disk but were invisible to
+// agy. Fixed by rendering the SAME `<name>/SKILL.md` shape kiro already used —
+// agent.RenderCommandAsSkillFile is the shared renderer both engines' writers
+// call (reprise flagged the two as byte-for-byte duplicates when this was a
+// local copy), so the two engines' generated frontmatter can't silently drift
+// apart.
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(antigravitySkillsDir))
 	return agent.WriteManagedCommandFiles(fs, skillsDir, antigravityManifest, cmds,
-		func(c agent.CommandExport) (string, []byte, error) {
-			// OPEN QUESTION: agy's skill-argument syntax is unverified, so the
-			// content is written RAW — no {{var}} → $N transform like the
-			// claude/codex renderers apply — keeping emitted bytes identical
-			// to the verified behavior. Subdirectory names ("group/cmd") are
-			// preserved as subdirectories, not flattened.
-			return c.Name + ".md", []byte(c.Content), nil
-		},
+		agent.RenderCommandAsSkillFile,
 		agent.WithManifestTrailingNewline())
 }
+
+// agy's command/skill name-collision guard: agy has ONE native directory,
+// .agents/skills/<name>/, that would serve BOTH a command rendered as
+// SKILL.md (this file) and a true Agent Skill package (skillfiles.go) of the
+// same name — both now want .agents/skills/<name>/SKILL.md. Resolved as
+// SKILL-WINS by the shared agent.FilterCommandsClaimedBySkills (invoked from
+// surfaces.go's NewSurfaces via agent.NewSkillShapedCommandsAndSkills — kiro's
+// identical D6 resolution uses the same helper): a name claimed by an enabled
+// skill is dropped from the commands set before WriteCommandFiles ever sees
+// it, so antigravityManifest (commands) and antigravitySkillManifest (skills)
+// never both claim the same path — a later re-materialize (skill
+// disabled/removed) lets the command reclaim the name cleanly, and neither
+// writer's cleanup can strand the other's live file.
 
 // AntigravitySessionHistory implements SessionHistory for Antigravity CLI.
 // Reads from ~/.gemini/antigravity-cli/brain/<conversation-uuid>/
@@ -105,14 +122,72 @@ func transcriptPathFor(brainDir, conversationID string) string {
 	return filepath.Join(brainDir, conversationID, ".system_generated", "logs", "transcript_full.jsonl")
 }
 
-// GetCurrentSession returns the most recent session transcript.
+// lastConversationsPath returns agy's workspace -> conversation-UUID map file
+// (VERIFIED shape: ~/.gemini/antigravity-cli/cache/last_conversations.json, a
+// flat JSON object keyed by the ABSOLUTE workspace path agy was invoked
+// against). Sibling cache/projects.json maps workspace -> PROJECT uuid — a
+// different id, not the conversation the transcript path needs.
+func (h *AntigravitySessionHistory) lastConversationsPath() (string, error) {
+	homeDir, err := h.ResolveHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".gemini", "antigravity-cli", "cache", "last_conversations.json"), nil
+}
+
+// lastConversations reads agy's workspace -> conversation-UUID map. Returns a
+// nil map (not an error) when the file is simply absent — a fresh install, or
+// a workspace agy has never been invoked against, which callers treat as "no
+// entry" and fall back to the global mtime-newest heuristic. A file that
+// EXISTS but fails to parse is a real problem (agy changed the format, or the
+// file is corrupt) and is surfaced as an error rather than silently
+// discarded — proceeding on the mtime-newest fallback there could hand back
+// the WRONG workspace's transcript with no indication anything was amiss.
+func (h *AntigravitySessionHistory) lastConversations() (map[string]string, error) {
+	path, err := h.lastConversationsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := afero.ReadFile(agent.GetFS(h.FS), path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read last_conversations.json: %w", err)
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("failed to parse last_conversations.json: %w", err)
+	}
+	return m, nil
+}
+
+// GetCurrentSession returns workDir's current session transcript.
 //
-// agy's brain store is global (not keyed by workspace), so workDir cannot
-// narrow the listing; the most recently modified conversation wins — same
-// trade-off as codex's global session store.
+// G-session fix: agy's brain store is global (not itself keyed by
+// workspace), but agy separately maintains cache/last_conversations.json — an
+// exact workDir -> conversation-UUID index (VERIFIED shape, see
+// lastConversationsPath) — which this now prefers. Any OTHER agy run in a
+// different workspace can no longer win just by having a newer mtime, the bug
+// this fix closes. Only when workDir is empty or absent from the map does
+// GetCurrentSession fall back to the previous global mtime-newest behavior
+// (the same trade-off codex's global session store makes), so an unmapped
+// workspace still gets a best-effort answer instead of an error.
 func (h *AntigravitySessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
-	sessions, err := h.ListSessions(workDir)
-	return agent.MostRecentSession(sessions, err, func(m agent.SessionMeta) (*agent.Session, error) {
+	if workDir != "" {
+		m, err := h.lastConversations()
+		if err != nil {
+			return nil, err
+		}
+		if id, ok := m[filepath.Clean(workDir)]; ok {
+			return h.GetSession(workDir, id)
+		}
+	}
+	// Unmapped workDir: fall back to the shared ListSessions+MostRecentSession
+	// tail every SessionHistory uses (agent.GetCurrentSessionViaListSessions;
+	// claude's and kiro's GetCurrentSession are a bare call to it — antigravity
+	// only differs by the workspace-map lookup above it).
+	return agent.GetCurrentSessionViaListSessions(workDir, h.ListSessions, func(m agent.SessionMeta) (*agent.Session, error) {
 		return h.parseSessionFile(m.Path, m.ID)
 	})
 }

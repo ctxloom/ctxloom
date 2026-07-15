@@ -1,9 +1,11 @@
 package antigravity
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -82,6 +84,100 @@ func TestAntigravitySessionHistory_GetCurrentSession(t *testing.T) {
 	h := newTestHistory(fs)
 
 	session, err := h.GetCurrentSession("/anywhere")
+	require.NoError(t, err)
+	assert.Equal(t, sampleConversationID, session.ID)
+}
+
+// writeBrainConversation writes a minimal one-entry transcript for
+// conversationID and returns its path, for the G-session workspace-map tests
+// below (writeSampleBrain always uses the fixed sampleConversationID, so a
+// two-workspace test needs a second helper that takes an id).
+func writeBrainConversation(t *testing.T, fs afero.Fs, home, conversationID, content string) string {
+	t.Helper()
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "brain", conversationID,
+		".system_generated", "logs", "transcript_full.jsonl")
+	require.NoError(t, fs.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0644))
+	return path
+}
+
+// writeLastConversations writes agy's workDir -> conversation-UUID map
+// (cache/last_conversations.json, VERIFIED shape) for the G-session tests.
+func writeLastConversations(t *testing.T, fs afero.Fs, home string, m map[string]string) {
+	t.Helper()
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "cache", "last_conversations.json")
+	require.NoError(t, fs.MkdirAll(filepath.Dir(path), 0755))
+	data, err := json.Marshal(m)
+	require.NoError(t, err)
+	require.NoError(t, afero.WriteFile(fs, path, data, 0644))
+}
+
+// TestGetCurrentSession_PrefersWorkspaceMapOverGlobalMtime is the G-session
+// payload test (plan §8 item 4): two workspaces are mapped to two distinct
+// conversations, and wsB's transcript is deliberately made NEWER by mtime
+// than wsA's. Before the fix, GetCurrentSession picked the global
+// mtime-newest transcript regardless of workDir — so wsA's request would
+// silently return wsB's (unrelated) conversation. The fix must return wsA's
+// mapped conversation even though it is NOT the most recently modified.
+func TestGetCurrentSession_PrefersWorkspaceMapOverGlobalMtime(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	home := "/home/u"
+	const wsA, wsB = "/proj/a", "/proj/b"
+	const idA, idB = "aaaaaaaa-0000-0000-0000-000000000001", "bbbbbbbb-0000-0000-0000-000000000002"
+
+	pathA := writeBrainConversation(t, fs, home, idA,
+		`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-10T20:05:07Z","content":"<USER_REQUEST>from A</USER_REQUEST>"}`+"\n")
+	pathB := writeBrainConversation(t, fs, home, idB,
+		`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-10T20:05:07Z","content":"<USER_REQUEST>from B</USER_REQUEST>"}`+"\n")
+	writeLastConversations(t, fs, home, map[string]string{wsA: idA, wsB: idB})
+
+	// wsB's transcript is newer by mtime than wsA's — the exact condition that
+	// used to make the global mtime-newest picker return the WRONG workspace.
+	older := time.Date(2026, 6, 10, 20, 5, 7, 0, time.UTC)
+	newer := time.Date(2026, 6, 10, 21, 0, 0, 0, time.UTC)
+	require.NoError(t, fs.Chtimes(pathA, older, older))
+	require.NoError(t, fs.Chtimes(pathB, newer, newer))
+
+	h := NewAntigravitySessionHistory(nil, WithAntigravitySessionFS(fs), WithAntigravitySessionHomeDir(home))
+
+	session, err := h.GetCurrentSession(wsA)
+	require.NoError(t, err)
+	assert.Equal(t, idA, session.ID, "wsA's mapped conversation must win over wsB's newer-mtime one")
+	require.Len(t, session.Entries, 1)
+	assert.Equal(t, "from A", session.Entries[0].Content)
+
+	session, err = h.GetCurrentSession(wsB)
+	require.NoError(t, err)
+	assert.Equal(t, idB, session.ID)
+	assert.Equal(t, "from B", session.Entries[0].Content)
+}
+
+// TestGetCurrentSession_UnmappedWorkspaceFallsBackToMtimeNewest proves an
+// unmapped workDir (absent from last_conversations.json) still gets a
+// best-effort answer via the pre-fix global mtime-newest behavior, rather
+// than erroring — matching codex's global-store trade-off.
+func TestGetCurrentSession_UnmappedWorkspaceFallsBackToMtimeNewest(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	home := "/home/u"
+	writeSampleBrain(t, fs, home)
+	writeLastConversations(t, fs, home, map[string]string{"/some/other/workspace": "not-this-one"})
+
+	h := NewAntigravitySessionHistory(nil, WithAntigravitySessionFS(fs), WithAntigravitySessionHomeDir(home))
+	session, err := h.GetCurrentSession("/proj/unmapped")
+	require.NoError(t, err)
+	assert.Equal(t, sampleConversationID, session.ID, "unmapped workDir falls back to mtime-newest")
+}
+
+// TestGetCurrentSession_NoLastConversationsFile proves a fresh install (no
+// cache/last_conversations.json at all) degrades to the mtime-newest
+// fallback rather than erroring.
+func TestGetCurrentSession_NoLastConversationsFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	home := "/home/u"
+	writeSampleBrain(t, fs, home)
+
+	h := NewAntigravitySessionHistory(nil, WithAntigravitySessionFS(fs), WithAntigravitySessionHomeDir(home))
+	session, err := h.GetCurrentSession("/proj/whatever")
 	require.NoError(t, err)
 	assert.Equal(t, sampleConversationID, session.ID)
 }

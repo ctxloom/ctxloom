@@ -99,11 +99,19 @@ func TestWriteSkillFiles_CleanupPreservesForeignSkill(t *testing.T) {
 	assert.Equal(t, "hand authored", string(content))
 }
 
-// TestWriteSkillFiles_CommandAndSkillCoexistSameName proves a command file
-// (flat `<name>.md`) and a skill directory (`<name>/SKILL.md`) with the SAME
-// name coexist under the shared .agents/skills/ parent without collision —
-// they are distinct filesystem entries (a file vs. a directory).
-func TestWriteSkillFiles_CommandAndSkillCoexistSameName(t *testing.T) {
+// TestWriteSkillFiles_CommandAndSkillCollideOnSameNameAtRawWriterLevel proves
+// the RAW writers (called directly, bypassing NewSurfaces) both target the
+// IDENTICAL path .agents/skills/<name>/SKILL.md post-G3 (the commands writer
+// used to render a flat `<name>.md`, distinct from a skill's `<name>/SKILL.md`
+// dir; both now render the same shape agy actually discovers). Calling them
+// directly in sequence therefore collides — last writer wins on the identical
+// path — which is exactly why NewSurfaces (surfaces.go) applies
+// the shared agent.FilterCommandsClaimedBySkills BEFORE ever calling
+// WriteCommandFiles, so a real run
+// never depends on call order. See surfaces_test.go's
+// TestClash_SkillWinsOverSameNamedCommand for that collision-SAFE proof; this
+// test documents the raw writers' behavior in isolation.
+func TestWriteSkillFiles_CommandAndSkillCollideOnSameNameAtRawWriterLevel(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
 
@@ -114,12 +122,8 @@ func TestWriteSkillFiles_CommandAndSkillCoexistSameName(t *testing.T) {
 		{Name: "humanize", Enabled: true, Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("skill body"), Mode: 0644}}},
 	}, agent.WithCommandFS(fs)))
 
-	cmdPath := filepath.Join(dir, AgentsDir, "skills", "humanize.md")
 	skillPath := filepath.Join(dir, AgentsDir, "skills", "humanize", "SKILL.md")
-	cmdData, err := afero.ReadFile(fs, cmdPath)
-	require.NoError(t, err, "the command file survives alongside the skill directory")
-	assert.Equal(t, "command body", string(cmdData))
-	skillData, err := afero.ReadFile(fs, skillPath)
-	require.NoError(t, err, "the skill directory survives alongside the command file")
-	assert.Contains(t, string(skillData), "skill body")
+	data, err := afero.ReadFile(fs, skillPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "skill body", "the writer called SECOND wins on the identical path")
 }

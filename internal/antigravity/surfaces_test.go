@@ -172,9 +172,11 @@ func TestCommandsSurface_DeliverWritesSkillFiles(t *testing.T) {
 	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
 
-	commandPath := filepath.Join(dir, AgentsDir, "skills", "review.md")
+	// G3: commands render as `<name>/SKILL.md` DIRECTORIES (the shape agy's
+	// skill scanner actually discovers), not the old flat `<name>.md`.
+	commandPath := filepath.Join(dir, AgentsDir, "skills", "review", "SKILL.md")
 	exists, _ := afero.Exists(fs, commandPath)
-	assert.True(t, exists, "the command file lands under .agents/skills/")
+	assert.True(t, exists, "the command file lands under .agents/skills/<name>/SKILL.md")
 
 	require.NoError(t, handle.Cleanup())
 	exists, _ = afero.Exists(fs, commandPath)
@@ -185,8 +187,12 @@ func TestCommandsSurface_DeliverWritesSkillFiles(t *testing.T) {
 
 // skills Delivery writes .agents/skills/<name>/SKILL.md (+ sibling files) into
 // the target dir with the exec bit preserved; a disabled skill is not written;
-// Cleanup reverts the manifest-tracked set. The DIRECTORY form coexists with
-// the commands surface's flat <name>.md files in the SAME parent dir.
+// Cleanup reverts the manifest-tracked set. Post-G3 the commands surface
+// renders the SAME `<name>/SKILL.md` shape (capabilities.go), so a same-name
+// command and skill now collide on the identical path — resolved skill-wins
+// by the shared agent.FilterCommandsClaimedBySkills
+// (TestClash_SkillWinsOverSameNamedCommand below),
+// not by the two surfaces writing distinct filesystem entries as before.
 func TestSkillsSurface_DeliverWritesSkillFiles(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -239,7 +245,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
-	exists, _ := afero.Exists(fs, filepath.Join(cwd, AgentsDir, "skills", "review.md"))
+	exists, _ := afero.Exists(fs, filepath.Join(cwd, AgentsDir, "skills", "review", "SKILL.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd")
 	require.NoError(t, delivered[0].Cleanup())
 }
@@ -265,7 +271,7 @@ func TestDirectoryIsolatedCell_AcceptsAllAntigravitySurfaces(t *testing.T) {
 		filepath.Join(AgentsDir, "AGENTS.md"),
 		filepath.Join(AgentsDir, "mcp_config.json"),
 		filepath.Join(AgentsDir, "hooks.json"),
-		filepath.Join(AgentsDir, "skills", "review.md"),
+		filepath.Join(AgentsDir, "skills", "review", "SKILL.md"),
 		filepath.Join(AgentsDir, "skills", "humanize", "SKILL.md"),
 	} {
 		exists, _ := afero.Exists(fs, filepath.Join(dir, rel))
@@ -327,4 +333,91 @@ func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: agy has no out-of-cwd realization", kind)
 	}
+}
+
+// ---- G3 command/skill name-collision guard (mirrors kiro's D6 tests) ------
+
+// sampleAntigravitySkill builds a minimal enabled SkillExport with SKILL.md
+// content distinguishable from a command's rendered content, for the clash
+// tests below.
+func sampleAntigravitySkill(name, body string) agent.SkillExport {
+	return agent.SkillExport{
+		Name:        name,
+		Description: "skill: " + name,
+		Enabled:     true,
+		Files: []agent.PackageFile{
+			{RelPath: "SKILL.md", Content: []byte(body), Mode: 0644},
+			{RelPath: "assets/note.txt", Content: []byte("sibling file"), Mode: 0644},
+		},
+	}
+}
+
+// TestClash_SkillWinsOverSameNamedCommand is the G3 crux test: a command
+// "gamma" and a skill "gamma" collide on the identical path
+// .agents/skills/gamma/SKILL.md (both surfaces now emit `<name>/SKILL.md`
+// dirs post-G3-fix). Materializing agy's full surface set must leave the
+// SKILL's content (and its sibling files) at that path, never the command's,
+// and the command's manifest (antigravityManifest) must not claim the path
+// the skill wrote — no double-ownership, proven by cleaning up the COMMANDS
+// surface alone and observing the skill's file survives untouched.
+func TestClash_SkillWinsOverSameNamedCommand(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "gamma", Content: "COMMAND VERSION", Enabled: true}},
+		Skills:   []agent.SkillExport{sampleAntigravitySkill("gamma", "SKILL VERSION")},
+	}
+	s := NewSurfaces(in, fs)
+
+	// Deliver in the same order Deliveries() uses: commands then skills.
+	cmdHandle, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	skillHandle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	path := filepath.Join(dir, ".agents", "skills", "gamma", "SKILL.md")
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, "SKILL VERSION", string(data), "the skill package wins; the command's content must not be present")
+
+	exists, _ := afero.Exists(fs, filepath.Join(dir, ".agents", "skills", "gamma", "assets", "note.txt"))
+	assert.True(t, exists, "the skill's sibling files are present too")
+
+	// The commands writer never saw "gamma" (agent.FilterCommandsClaimedBySkills dropped it
+	// before WriteCommandFiles ran), so its manifest must not list the path
+	// the skill owns — proven by cleaning up ONLY the commands surface and
+	// observing the skill's file is untouched.
+	require.NoError(t, cmdHandle.Cleanup())
+	data, err = afero.ReadFile(fs, path)
+	require.NoError(t, err, "the commands cleanup must not have deleted the skill's file")
+	assert.Equal(t, "SKILL VERSION", string(data), "no double-ownership: commands cleanup left the skill's winning file intact")
+
+	require.NoError(t, skillHandle.Cleanup())
+	exists, _ = afero.Exists(fs, path)
+	assert.False(t, exists, "skills cleanup removes the file it owns")
+}
+
+// TestClash_DisabledSkillDoesNotShadowCommand proves the collision rule is
+// scoped to skills ENABLED for agy: a skill named "delta" disabled for this
+// engine must not claim the name, so the command "delta" still writes its
+// SKILL.md.
+func TestClash_DisabledSkillDoesNotShadowCommand(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	disabledSkill := sampleAntigravitySkill("delta", "SKILL VERSION")
+	disabledSkill.Enabled = false
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "delta", Content: "COMMAND VERSION", Enabled: true}},
+		Skills:   []agent.SkillExport{disabledSkill},
+	}
+	s := NewSurfaces(in, fs)
+
+	_, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	_, err = s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, filepath.Join(dir, ".agents", "skills", "delta", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "COMMAND VERSION", "a skill disabled for agy must not shadow the same-named command")
 }

@@ -290,7 +290,7 @@ func TestClash_SkillWinsOverSameNamedCommand(t *testing.T) {
 	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "gamma", "assets", "note.txt"))
 	assert.True(t, exists, "the skill's sibling files are present too")
 
-	// The commands writer never saw "gamma" (filterClaimedCommands dropped
+	// The commands writer never saw "gamma" (agent.FilterCommandsClaimedBySkills dropped
 	// it before WriteCommandFiles ran), so its manifest must not list the
 	// path the skill owns — proven by cleaning up ONLY the commands surface
 	// and observing the skill's file is untouched.

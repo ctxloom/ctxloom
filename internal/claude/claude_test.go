@@ -727,31 +727,85 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 		t.Errorf("expected 2 MCP servers, got %d", len(mcpServers))
 	}
 }
-func TestClaudeCodeHookWriter_ResilienceToMalformedJSON(t *testing.T) {
+// TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp is a
+// regression test for taskloom lone-taste: loadSettings used to swallow a
+// top-level unmarshal failure and return an empty-but-valid settings object,
+// which WriteSettings then persisted OVER the user's real settings.json —
+// destroying their permissions/env. It must now (a) leave the original file
+// untouched, (b) back up the corrupt bytes to a sibling .corrupt-<ts> file,
+// and (c) return an error so the caller aborts instead of overwriting.
+func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
 
-	// Create malformed settings.json
 	settingsPath := "/project/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
-	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte("{ invalid json }"), 0644))
+	corruptContent := "{ invalid json }"
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(corruptContent), 0644))
 
-	// WriteSettings should NOT fail - it should warn and continue
 	cfg := &wire.HooksConfig{
 		Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
 	err := writer.WriteSettings(cfg, nil, nil, "/project")
-	require.NoError(t, err, "should not fail on malformed existing settings.json")
+	require.Error(t, err, "should refuse to write when existing settings.json fails to parse")
 
-	// Verify hooks were still written
-	data, err := afero.ReadFile(fs, settingsPath)
+	// Original file must be left exactly as-is, not overwritten with an
+	// empty (or hooks-only) settings object.
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, corruptContent, string(data), "original corrupt settings.json must not be overwritten")
+
+	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
+		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
+}
+
+// TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp covers the
+// second half of taskloom lone-taste: the top-level JSON parses fine but the
+// "hooks" field itself doesn't unmarshal into the expected shape. This must
+// fail the same way as a fully corrupt file, not silently drop the user's
+// existing hooks.
+func TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	settingsPath := "/project/.claude/settings.json"
+	require.NoError(t, fs.MkdirAll("/project/.claude", 0755))
+	corruptContent := `{"hooks": "not-an-object", "permissions": {"allow": ["Bash"]}}`
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(corruptContent), 0644))
+
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "./test.sh"}},
+		},
+	}
+	err := writer.WriteSettings(cfg, nil, nil, "/project")
+	require.Error(t, err, "should refuse to write when hooks in settings.json fail to parse")
+
+	data, readErr := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, corruptContent, string(data), "original settings.json with unparseable hooks must not be overwritten")
+
+	assert.True(t, hasCorruptBackup(t, fs, "/project/.claude", "settings.json", corruptContent),
+		"expected a settings.json.corrupt-<timestamp> backup of the original bytes")
+}
+
+// hasCorruptBackup reports whether dir contains a "<name>.corrupt-<ts>" file
+// whose contents equal want.
+func hasCorruptBackup(t *testing.T, fs afero.Fs, dir, name, want string) bool {
+	t.Helper()
+	entries, err := afero.ReadDir(fs, dir)
 	require.NoError(t, err)
-
-	var settings map[string]interface{}
-	require.NoError(t, json.Unmarshal(data, &settings))
-	assert.Contains(t, settings, "hooks", "should have hooks after writing")
+	prefix := name + ".corrupt-"
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), prefix) {
+			data, err := afero.ReadFile(fs, filepath.Join(dir, e.Name()))
+			require.NoError(t, err)
+			return string(data) == want
+		}
+	}
+	return false
 }
 func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	fs := afero.NewMemMapFs()

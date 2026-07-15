@@ -63,6 +63,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
+* [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, trust)
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom harp](/reference/cli/ctxloom_harp/)	 - Generate harp IDs (human-appropriate random phraselets)
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory

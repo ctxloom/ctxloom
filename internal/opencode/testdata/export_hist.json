@@ -1,0 +1,176 @@
+{
+  "info": {
+    "id": "ses_09c585b01ffeH3APdv6yZvEHv4",
+    "slug": "curious-tiger",
+    "projectID": "global",
+    "directory": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/4b080b4d-5212-4de1-845b-5a4968fe259f/scratchpad/ocprobe",
+    "path": "",
+    "title": "Token HIST-8842 request",
+    "agent": "build",
+    "model": {
+      "id": "openai/gpt-oss-20b:free",
+      "providerID": "openrouter",
+      "variant": "default"
+    },
+    "version": "1.18.1",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 6242,
+      "output": 15,
+      "reasoning": 51,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "permission": [
+      {
+        "permission": "question",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_enter",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_exit",
+        "pattern": "*",
+        "action": "deny"
+      }
+    ],
+    "time": {
+      "created": 1784083358974,
+      "updated": 1784083369955
+    }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1784083359018
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "openrouter",
+          "modelID": "openai/gpt-oss-20b:free"
+        },
+        "summary": {
+          "diffs": []
+        },
+        "id": "msg_f63a7a52a001626kM5Zqu8F2ab",
+        "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "\"Reply with exactly this token and nothing else: HIST-8842\"",
+          "id": "prt_f63a7a54b001cP53FeGXKtFs3L",
+          "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4",
+          "messageID": "msg_f63a7a52a001626kM5Zqu8F2ab"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_f63a7a52a001626kM5Zqu8F2ab",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/4b080b4d-5212-4de1-845b-5a4968fe259f/scratchpad/ocprobe",
+          "root": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/4b080b4d-5212-4de1-845b-5a4968fe259f/scratchpad/ocprobe"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 6308,
+          "input": 6242,
+          "output": 15,
+          "reasoning": 51,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "openai/gpt-oss-20b:free",
+        "providerID": "openrouter",
+        "time": {
+          "created": 1784083359393,
+          "completed": 1784083369946
+        },
+        "finish": "stop",
+        "id": "msg_f63a7a6a1001ukeZRSwkMrlbe0",
+        "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4"
+      },
+      "parts": [
+        {
+          "snapshot": "faf01ab00189e7b45e9bf4950ee8f0b1b0185d45",
+          "type": "step-start",
+          "id": "prt_f63a7ca8c001XOAQyFGh7C3FKM",
+          "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4",
+          "messageID": "msg_f63a7a6a1001ukeZRSwkMrlbe0"
+        },
+        {
+          "type": "reasoning",
+          "text": "The user asks: \"Reply with exactly this token and nothing else: HIST-8842\". They want the assistant to output exactly that string. No other content. Just \"HIST-8842\". In reply, I should respond with that string.",
+          "time": {
+            "start": 1784083368591,
+            "end": 1784083369759
+          },
+          "metadata": {
+            "openrouter": {
+              "reasoning_details": [
+                {
+                  "type": "reasoning.text",
+                  "text": "The user asks: \"Reply with exactly this token and nothing else: HIST-8842\". They want the assistant to output exactly that string. No other content. Just \"HIST-8842\". In reply, I should respond with that string.",
+                  "format": "unknown",
+                  "index": 0
+                }
+              ]
+            }
+          },
+          "id": "prt_f63a7ca8f0012UQMkcd5DF2WZc",
+          "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4",
+          "messageID": "msg_f63a7a6a1001ukeZRSwkMrlbe0"
+        },
+        {
+          "type": "text",
+          "text": "HIST-8842",
+          "time": {
+            "start": 1784083369762,
+            "end": 1784083369893
+          },
+          "id": "prt_f63a7cf210015F64yksAcrcEfF",
+          "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4",
+          "messageID": "msg_f63a7a6a1001ukeZRSwkMrlbe0"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "faf01ab00189e7b45e9bf4950ee8f0b1b0185d45",
+          "type": "step-finish",
+          "tokens": {
+            "total": 6308,
+            "input": 6242,
+            "output": 15,
+            "reasoning": 51,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0,
+          "id": "prt_f63a7cfb2001LPaBH9zd7lzYcW",
+          "sessionID": "ses_09c585b01ffeH3APdv6yZvEHv4",
+          "messageID": "msg_f63a7a6a1001ukeZRSwkMrlbe0"
+        }
+      ]
+    }
+  ]
+}

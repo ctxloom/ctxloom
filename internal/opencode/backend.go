@@ -16,7 +16,8 @@
 // plus custom commands (bundle prompt/skill exports -> .opencode/command/, slice
 // 3). On the live path all of it rides transiently in Chat and is reverted after
 // the run; the persistent `profile materialize` path uses the descriptor surfaces.
-// A session-history reader and interactive PTY launch are still later slices.
+// The session-history reader (capabilities.go) drives opencode's own `session
+// list`/`export` commands; interactive PTY launch is still a later slice.
 package opencode
 
 import (
@@ -72,7 +73,7 @@ func NewOpencode() *Opencode {
 		agent.NewBaseLifecycle("opencode"),
 		&opencodeSkills{},
 		agent.NewBaseContextProvider(),
-		&opencodeSessionHistory{},
+		newOpencodeSessionHistory(b),
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
 			b.pendingSkills = in.Skills
 			return agent.EmptySurfaceSet{}

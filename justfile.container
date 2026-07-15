@@ -187,10 +187,13 @@ test:
     # (the no-race path is what gremlins/`just cover` actually run, and it was
     # gating nothing). `set -e` aborts here on either failure.
     go test ./...
-    go test -race -coverprofile=coverage.raw.out ./...
+    # Unique per-invocation raw profile — see the host justfile's `test`
+    # recipe for why a fixed coverage.raw.out name races concurrent runs.
+    raw="$(mktemp coverage.raw.XXXXXX.out)"
+    trap 'rm -f "$raw"' EXIT
+    go test -race -coverprofile="$raw" ./...
     just -f justfile.container _check-no-ctxloom-leak
-    just -f justfile.container _filter_coverage coverage.raw.out coverage.out
-    rm -f coverage.raw.out
+    just -f justfile.container _filter_coverage "$raw" coverage.out
 
 # Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
 # source tree instead of isolating through t.TempDir() — see the host

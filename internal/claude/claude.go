@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/afero"
 
@@ -212,9 +213,17 @@ func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agen
 	return agent.WriteManagedContext(w.getFS(), path, "CLAUDE.md", req.Context, "CLAUDE.md")
 }
 
-// loadSettings loads existing settings.json or returns empty settings.
-// This function is fault-tolerant: on parse errors, it logs a warning and
-// returns empty settings rather than failing, allowing ctxloom to continue.
+// loadSettings loads existing settings.json or returns empty settings for a
+// missing file.
+//
+// On a PARSE failure it does NOT fabricate an empty settings object: the
+// caller (writeSettingsFile) persists whatever loadSettings returns, so
+// returning empty-but-valid settings here used to make ctxloom overwrite a
+// user's corrupt-but-recoverable settings.json (permissions, env, hooks) with
+// an empty one — silent data loss (taskloom lone-taste). Instead, on a parse
+// failure the raw bytes are backed up to <path>.corrupt-<unix-timestamp> and
+// a real error is returned so writeSettingsFile aborts before touching the
+// file, pointing the user at the backup to fix by hand.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -233,19 +242,21 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	// First unmarshal to get all fields
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		// Claude Code's settings.json format is undocumented and may change.
-		// If we can't parse it, warn but continue with empty settings.
-		// This ensures ctxloom doesn't block startup due to schema changes.
-		w.warn("failed to parse settings.json (schema may have changed): %v - ctxloom hooks will be added but existing settings may not be preserved", err)
-		return settings, nil
+		backupPath, backupErr := w.backupCorrupt(path, data)
+		if backupErr != nil {
+			return nil, fmt.Errorf("failed to parse settings.json (schema may have changed): %w; additionally failed to back up the corrupt file: %v - refusing to write settings.json to avoid overwriting it", err, backupErr)
+		}
+		return nil, fmt.Errorf("failed to parse settings.json (schema may have changed): %w - original backed up to %s; fix the JSON and re-run (refusing to write settings.json to avoid overwriting it)", err, backupPath)
 	}
 
 	// Extract hooks separately
 	if hooksRaw, ok := raw["hooks"]; ok {
 		if err := json.Unmarshal(hooksRaw, &settings.Hooks); err != nil {
-			// Hooks format may have changed - warn but continue
-			w.warn("failed to parse hooks in settings.json: %v - existing hooks may not be preserved", err)
-			// Don't fail - just skip preserving existing hooks
+			backupPath, backupErr := w.backupCorrupt(path, data)
+			if backupErr != nil {
+				return nil, fmt.Errorf("failed to parse hooks in settings.json: %w; additionally failed to back up the corrupt file: %v - refusing to write settings.json to avoid dropping existing hooks", err, backupErr)
+			}
+			return nil, fmt.Errorf("failed to parse hooks in settings.json: %w - original backed up to %s; fix the JSON and re-run (refusing to write settings.json to avoid dropping existing hooks)", err, backupPath)
 		}
 		delete(raw, "hooks")
 	}
@@ -273,6 +284,18 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 // warn outputs a warning message to stderr.
 func (w *ClaudeCodeHookWriter) warn(format string, args ...interface{}) {
 	agent.Warn(format, args...)
+}
+
+// backupCorrupt copies the raw, unparseable bytes of a settings file aside to
+// <path>.corrupt-<unix-timestamp> so a caller that fails loud on a parse
+// error doesn't also lose the user's original file content — the backup is
+// the recovery path pointed to by the returned error.
+func (w *ClaudeCodeHookWriter) backupCorrupt(path string, data []byte) (string, error) {
+	backupPath := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	if err := afero.WriteFile(w.getFS(), backupPath, data, 0600); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
 
 // saveSettings writes settings back to settings.json.

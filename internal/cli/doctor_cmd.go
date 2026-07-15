@@ -188,6 +188,7 @@ func doctorCheckHooksTrust(cfg *config.Config, cfgErr error) DoctorCheck {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
 	var parts []string
+	status := "ok"
 	if len(cfg.AppPaths) > 0 {
 		root := filepath.Dir(cfg.AppPaths[0])
 		var present, absent []string
@@ -209,6 +210,7 @@ func doctorCheckHooksTrust(cfg *config.Config, cfgErr error) DoctorCheck {
 			parts = append(parts, "hooks: installed for "+strings.Join(present, ", "))
 		default:
 			parts = append(parts, "hooks: NOT installed for "+strings.Join(absent, ", ")+" (run `ctxloom manage install`)")
+			status = "warn"
 		}
 	}
 	signers, err := operations.ListSigners(cfg, nil)
@@ -222,15 +224,6 @@ func doctorCheckHooksTrust(cfg *config.Config, cfgErr error) DoctorCheck {
 			}
 		}
 		parts = append(parts, fmt.Sprintf("trust store: %d active signer(s)", active))
-	}
-	status := "ok"
-	for _, engine := range doctorConfiguredEngines(cfg) {
-		if _, ok := doctorHookSurface[engine]; !ok {
-			continue
-		}
-		if !fileExists(filepath.Join(filepath.Dir(cfg.AppPaths[0]), doctorHookSurface[engine])) {
-			status = "warn"
-		}
 	}
 	return DoctorCheck{Marker: "DOCTOR-CHECK-HOOKS-TRUST-d4", Status: status, Detail: strings.Join(parts, "; ")}
 }

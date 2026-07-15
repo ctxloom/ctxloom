@@ -349,6 +349,14 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	bundle.Path = path
 	bundle.Name = ExtractBundleName(path)
 
+	// Skills are a PACKAGE (a directory tree: SKILL.md + optional sibling
+	// files), which a single-file bundle ("<name>.yaml") has no filesystem
+	// room to hold alongside it. Fail loud here rather than let a skill entry
+	// silently resolve against a directory that doesn't exist.
+	if len(bundle.Skills) > 0 && filepath.Base(path) != "bundle.yaml" {
+		return nil, fmt.Errorf("bundle %s: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s)", bundle.Name, filepath.Base(path))
+	}
+
 	// Cache for future loads (write lock)
 	l.mu.Lock()
 	// Double-check in case another goroutine cached it while we were loading

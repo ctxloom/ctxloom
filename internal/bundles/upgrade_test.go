@@ -57,14 +57,41 @@ func TestParseBundle_LegacySkillsKeyErrsLoud(t *testing.T) {
 	assert.Contains(t, err.Error(), "review")
 }
 
-// TestParseBundle_FutureShapedSkillsKeyStillErrs guards the non-legacy-shape
-// branch of the same guard: even an entry under `skills:` that does NOT carry
-// `content:` (i.e. does not match the legacy shape) must still fail loud —
-// Part B's real skill item-kind isn't implemented yet, so there is no shape
-// under `skills:` that ctxloom can honor today. Never a silent drop.
-func TestParseBundle_FutureShapedSkillsKeyStillErrs(t *testing.T) {
-	future := []byte("name: future\nversion: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n")
-	_, err := ParseBundle(future)
+// TestParseBundle_NewShapeSkillsKeyParsesAsSkill is the other half of the D1
+// guard, now that Part B's real skill item-kind exists: an entry under
+// `skills:` that does NOT carry `content:` (the legacy command shape) is a
+// genuine Agent Skill package reference and must parse cleanly into
+// Bundle.Skills, never error. Shape alone (presence/absence of `content:`)
+// is what detectLegacySkillsKey uses to tell the two apart deterministically.
+func TestParseBundle_NewShapeSkillsKeyParsesAsSkill(t *testing.T) {
+	future := []byte("name: future\nversion: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n    tags: [writing]\n")
+	b, err := ParseBundle(future)
+	require.NoError(t, err)
+	require.Contains(t, b.Skills, "humanize")
+	assert.Equal(t, "skills/humanize", b.Skills["humanize"].Path)
+	assert.Equal(t, []string{"writing"}, b.Skills["humanize"].Tags)
+}
+
+// TestParseBundle_NewShapeSkillsKeyDefaultsPath confirms a skill entry with no
+// explicit `path:` still parses (the default skills/<name> resolution is a
+// loader-time concern via ResolveSkillDir, not a parse-time requirement).
+func TestParseBundle_NewShapeSkillsKeyDefaultsPath(t *testing.T) {
+	minimal := []byte("name: minimal\nversion: \"1.0\"\nskills:\n  humanize:\n    notes: a note\n")
+	b, err := ParseBundle(minimal)
+	require.NoError(t, err)
+	require.Contains(t, b.Skills, "humanize")
+	assert.Empty(t, b.Skills["humanize"].Path)
+	assert.Equal(t, "a note", b.Skills["humanize"].Notes)
+}
+
+// TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs guards the mixed
+// case: a `skills:` block with one legacy (content-bearing) entry alongside a
+// new-shape one must still fail loud on the legacy entry specifically — the
+// new-shape sibling does not "vote" the legacy entry into being accepted.
+func TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs(t *testing.T) {
+	mixed := []byte("name: mixed\nversion: \"1.0\"\nskills:\n  humanize:\n    path: skills/humanize\n  oldcmd:\n    content: c\n")
+	_, err := ParseBundle(mixed)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "skills:")
+	assert.Contains(t, err.Error(), "oldcmd")
+	assert.Contains(t, err.Error(), "commands:")
 }

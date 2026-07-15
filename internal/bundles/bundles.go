@@ -39,6 +39,14 @@ type Bundle struct {
 	Commands  map[string]BundleCommand  `yaml:"commands,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
 
+	// Skills are Agent Skill packages (SKILL.md dir + optional scripts/assets),
+	// model-invoked via progressive disclosure — a different concept from
+	// Commands (user-invoked slash templates). The `skills:` key was freed for
+	// this meaning by the skill->command rename (Part A of the skill/command
+	// split); see detectLegacySkillsKey for the migration guard that keeps a
+	// leftover legacy (command-shaped) entry from being silently misread.
+	Skills map[string]BundleSkill `yaml:"skills,omitempty"`
+
 	// Profiles shipped with this bundle, keyed by name. A profile is an
 	// ungated, COMPOUND item — it composes leaves (fragments/commands/mcp/hooks/
 	// llm/parents/variables) into a runnable context unit — so a bundle that
@@ -280,6 +288,39 @@ type BundleCommand struct {
 	DistilledBy  string     `yaml:"distilled_by,omitempty"`
 	NoDistill    bool       `yaml:"no_distill,omitempty"`
 	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
+}
+
+// BundleSkill defines an Agent Skill package within a bundle: a directory
+// (default "skills/<name>", overridable via Path) containing a required
+// SKILL.md — YAML frontmatter name+description, instructions body — plus
+// arbitrary sibling files (scripts/, assets, references). Unlike
+// BundleFragment/BundleCommand, a skill carries NO inline `content:` and NO
+// distillation: SKILL.md's description IS the progressive-disclosure
+// mechanism a model reads before deciding to load the rest of the package, and
+// distilling a model-facing capability description would defeat that. This
+// shape difference (no `content:`) is exactly what lets detectLegacySkillsKey
+// tell a real skill entry apart from a legacy command entry still sitting
+// under the reserved `skills:` key.
+//
+// Files is the GENERATED per-file manifest (populated by `ctxloom skill sync`/
+// `sign`, not hand-authored): relative path -> {sha256, mode}. It is what B2's
+// signing covers and B1b's archive codec packs; ParseSkillPackage computes the
+// authoritative version of it fresh from the source tree.
+type BundleSkill struct {
+	Path  string                   `yaml:"path,omitempty"`  // dir relative to bundle dir; default "skills/<name>"
+	Tags  []string                 `yaml:"tags,omitempty"`  // Additional tags (merged with bundle tags)
+	Notes string                   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
+	Files map[string]SkillFileMeta `yaml:"files,omitempty"` // GENERATED per-file manifest
+	LLM   SkillLLMExports          `yaml:"llm,omitempty"`   // Per-engine enablement only (name/description live in SKILL.md)
+}
+
+// SkillFileMeta is one manifest entry as recorded in bundle.yaml: a file's
+// content hash and POSIX permission mode. The exec bit in Mode is
+// load-bearing for scripts/ entries — it must survive tree -> archive ->
+// extract -> materialize (see the skill/command split plan §3.1).
+type SkillFileMeta struct {
+	SHA256 string `yaml:"sha256"`
+	Mode   string `yaml:"mode"` // e.g. "0644", "0755" (octal POSIX perm bits, no "0o" prefix)
 }
 
 // BundleProfile is the shape of a profile shipped inside a bundle. It is the
@@ -651,20 +692,26 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	if bundle.Profiles == nil {
 		bundle.Profiles = make(map[string]BundleProfile)
 	}
+	if bundle.Skills == nil {
+		bundle.Skills = make(map[string]BundleSkill)
+	}
 
 	return &bundle, nil
 }
 
 // detectLegacySkillsKey inspects the raw bundle YAML for a top-level
-// `skills:` key and, if present, fails loud rather than letting the default
-// YAML unmarshal silently drop it (Bundle no longer has a field bound to
-// `skills`). `skills:` used to be this codebase's name for the command
-// item-kind; it is now reserved for a future, different item-kind (Agent
-// Skills / SKILL.md packages, which never carry an inline `content:` field).
-// A legacy-shaped entry (one with a scalar `content:`) gets a precise,
-// actionable message; any other shape under `skills:` still errors — Part B's
-// real skill item-kind isn't implemented yet, so nothing under `skills:` can
-// be honored today.
+// `skills:` key and fails loud on any entry still shaped like the legacy
+// command item (a scalar `content:` field) rather than letting the default
+// YAML unmarshal silently misparse it into a BundleSkill with a stray
+// content-shaped map dropped. `skills:` used to be this codebase's name for
+// the command item-kind; it now means a real Agent Skill package (BundleSkill:
+// Path/Tags/Notes/Files/LLM), which never carries an inline `content:` field —
+// that shape difference is the deterministic discriminator this function uses.
+//
+// An entry under `skills:` that is NOT content-shaped is a genuine new-shape
+// skill reference and is left alone here; the normal unmarshal below parses it
+// into Bundle.Skills. Only a content-shaped (legacy) entry errors, with a
+// precise, actionable message naming the offending entries.
 func detectLegacySkillsKey(data []byte) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -712,10 +759,7 @@ func detectLegacySkillsKey(data []byte) error {
 			bundleName, legacyNames)
 	}
 
-	return fmt.Errorf(
-		"bundle %s: `skills:` key found but Agent Skills are not supported in this version; "+
-			"if these entries are slash commands, rename the `skills:` key to `commands:`",
-		bundleName)
+	return nil
 }
 
 // ValidateBundleName rejects bundle names that would escape the bundles

@@ -67,6 +67,16 @@ type childRt struct {
 	wake        chan struct{}
 	turnOutput  []string // oneshot bridging: this turn's entries
 	turnErrored bool     // oneshot bridging: this turn's Entry.IsError was set (Result.status)
+
+	// attached closes once THIS attempt's launch decision is final: the
+	// engine is up (legacy: attachLaunch ran, right before the driveChild
+	// loop starts; migrated: the StartRun round-trip completed) or the
+	// attempt failed (failChild). It backs awaitChildUp/armLaunch (S3,
+	// flaky-agentcoord) — a test-facing deterministic quiesce seam over the
+	// launch/resume pipeline, replacing a wall-clock Eventually poll with a
+	// wait keyed on the actual goroutine's own progress. Set once at
+	// creation (enqueueRun); markAttached closes it exactly once.
+	attached chan struct{}
 }
 
 // newRunID mints a run attempt id (UUID-shaped; retries get a fresh one).
@@ -134,7 +144,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}
 	c.audit("agent_run", caller.Harp, map[string]string{"agent": agentName, "harp": harp, "run_id": rt.runID})
 
-	go c.runChild(rt, prompt, token, url)
+	c.goTracked(func() { c.runChild(rt, prompt, token, url) })
 
 	runtime := plan.Runtime
 	if runtime == "" {
@@ -204,6 +214,12 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		parentRunID: caller.RunID,
 		plan:        plan,
 		wake:        make(chan struct{}, 1),
+		// takeArmedLaunch adopts the dispatcher's pre-armed channel when this
+		// is a resumeChild attempt (driveQueued/terminateRun arm it
+		// synchronously BEFORE dispatching the async goroutine that reaches
+		// here); a fresh channel otherwise (AgentRun's own synchronous path,
+		// which never arms — enqueueRun IS the synchronous point).
+		attached: c.takeArmedLaunch(harp),
 	}
 	// Claim a free slot now when one exists so `queued` is truthful at
 	// return. Claimed BEFORE publication — after it, slotHeld belongs to
@@ -219,6 +235,102 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 // errResumeLost reports a resume claim lost to a concurrent resume — benign,
 // the winner delivers.
 var errResumeLost = errors.New("coord: resume already claimed")
+
+// armLaunch pre-registers harp's NEXT launch attempt's "attached" signal,
+// synchronously, in the CALLER's own goroutine — before that caller
+// dispatches the async resumeChild goroutine (driveQueued's StateEnded case,
+// terminateRun's leftover-mail resume tail). enqueueRun's takeArmedLaunch
+// adopts the returned channel once the resumed childRt exists (on the async
+// goroutine, after Resolve). This ordering is what makes awaitChildUp
+// race-free: a caller synchronously after the dispatch (AgentSend, in a
+// test) is guaranteed the map already reflects the attempt it just
+// triggered — armLaunch never itself runs on the async goroutine.
+func (c *Coordinator) armLaunch(harp string) {
+	ch := make(chan struct{})
+	c.mu.Lock()
+	c.launchArmed[harp] = ch
+	c.mu.Unlock()
+}
+
+// takeArmedLaunch claims harp's pre-armed "attached" channel for a just-built
+// childRt (resumeChild's own call, on the async goroutine), falling back to a
+// fresh channel when nothing was armed (AgentRun's own synchronous path,
+// which creates its childRt before any goroutine dispatch and so never needs
+// to arm ahead of time).
+func (c *Coordinator) takeArmedLaunch(harp string) chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ch, ok := c.launchArmed[harp]; ok {
+		delete(c.launchArmed, harp)
+		return ch
+	}
+	return make(chan struct{})
+}
+
+// markAttached closes rt's attached signal exactly once (idempotent: a
+// launch failure path and a success path never both fire for the same
+// attempt, but the nil-out makes a stray double-call harmless regardless).
+func (c *Coordinator) markAttached(rt *childRt) {
+	c.mu.Lock()
+	ch := rt.attached
+	rt.attached = nil
+	c.mu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+// settleArmedLaunch closes and clears any leftover pre-armed "attached"
+// channel for harp that a dispatched resumeChild attempt never claimed (an
+// early return before enqueueRun — see resumeChild's defer) — otherwise a
+// caller awaiting it (awaitChildUp) would hang on an attempt that silently
+// never happened. LIMITATION: if two resume attempts for the SAME harp are
+// armed concurrently (a rare race; the journal's own resume claim already
+// makes only one of them actually launch — errResumeLost), the loser's
+// settle can close the WINNER's channel if it re-arms in between; harmless
+// in production (nothing there awaits it) and not exercised by the
+// deterministic single-sequential-send tests this seam targets.
+func (c *Coordinator) settleArmedLaunch(harp string) {
+	c.mu.Lock()
+	ch, ok := c.launchArmed[harp]
+	if ok {
+		delete(c.launchArmed, harp)
+	}
+	c.mu.Unlock()
+	if ok {
+		close(ch)
+	}
+}
+
+// awaitChildUp blocks until harp's most recently dispatched (or currently
+// live) launch attempt has settled — attached (legacy: engine attached and
+// about to start driving turns; migrated: StartRun round-tripped) or failed
+// (failChild). It is the flaky-agentcoord S3 seam: a test replaces the FIRST
+// require.Eventually poll in a spawn/resume-gated chain with this, keying the
+// wait on the tracked goroutine's own progress instead of a wall-clock guess
+// — any Eventually further down the SAME chain (e.g. a durable-fold fsync)
+// now resolves in µs-ms, not seconds, because its precondition is already
+// true. A harp with no live/armed attempt (never spawned, or already settled
+// with nothing newly armed) returns immediately.
+func (c *Coordinator) awaitChildUp(ctx context.Context, harp string) error {
+	c.mu.Lock()
+	var ch chan struct{}
+	if armed, ok := c.launchArmed[harp]; ok {
+		ch = armed
+	} else if rt := c.byHarp[harp]; rt != nil {
+		ch = rt.attached
+	}
+	c.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // childEnv builds the child ENGINE's extra environment: ambient identity
 // only. The coordinator reach-back trio no longer rides here — the RUNNER
@@ -320,6 +432,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 	c.attachLaunch(rt, launch)
 	c.sendTurn(rt, prompt)
+	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the launch
 	c.driveChild(rt, launch)
 }
 
@@ -414,6 +527,7 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	if c.pendingCount(rt.harp) > 0 {
 		c.pushMail(rt.harp)
 	}
+	c.markAttached(rt) // StartRun round-tripped: the migrated child is up
 }
 
 // recordHarnessSession journals the run's harness-native session id (the
@@ -495,6 +609,27 @@ func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch
 			c.handleChildEvent(rt, ev)
 		case <-rt.wake:
 			c.wakeChild(rt)
+		case <-c.baseCtx.Done():
+			// Coordinator shutdown (flaky-agentcoord S1): this is the ONE
+			// loop in the package with no baseCtx case — normally Close()'s
+			// attachment-snapshot loop already closed the launch (rt.close),
+			// which makes Events close and the branch above fire, but a
+			// shutdown that races attachLaunch (closeFn still nil at that
+			// snapshot) would otherwise leave this goroutine parked forever.
+			// Force the launch down directly rather than routing through
+			// endChild, which drains launch.Errs to completion — that only
+			// resolves once Events/Errs close on their own, exactly what we
+			// cannot wait for mid-shutdown.
+			c.mu.Lock()
+			in := rt.in
+			rt.in = nil
+			c.mu.Unlock()
+			if in != nil {
+				close(in)
+			}
+			launch.Close()
+			c.terminateRun(rt.runID, CauseChatClose, "coordinator shutdown")
+			return
 		}
 	}
 }
@@ -645,6 +780,7 @@ func (c *Coordinator) endChild(rt *childRt, launch *operations.AgentChatLaunch) 
 func (c *Coordinator) failChild(rt *childRt, err error) {
 	clidiag.Warn("ctxloom", "agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
 	c.terminateRun(rt.runID, CauseLaunchFailed, err.Error())
+	c.markAttached(rt) // the attempt settled (failed): unblock any awaitChildUp
 }
 
 // setState journals a §6a state transition (the folds are the single owner
@@ -783,7 +919,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// A message that raced the death (queued after the last boundary drain)
 	// must not strand: the ended-child delivery rule is resume (§6a).
 	if cause != CauseStopped && c.pendingCount(rec.Harp) > 0 {
-		go c.resumeChild(rec.Harp)
+		c.armLaunch(rec.Harp)
+		c.goTracked(func() { c.resumeChild(rec.Harp) })
 	}
 }
 
@@ -792,6 +929,13 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 // session-load machinery primes the fresh engine with the recorded history
 // when the transcript is bound.
 func (c *Coordinator) resumeChild(harp string) {
+	// Every exit path below must settle harp's "attached" signal so
+	// awaitChildUp never hangs on an attempt that silently never reached
+	// enqueueRun (the harp turned out not to be ended anymore, Resolve
+	// failed, or a concurrent resume already won the claim). Once enqueueRun
+	// DOES run, it claims the armed channel onto rt.attached and this becomes
+	// a no-op (S3, flaky-agentcoord).
+	defer c.settleArmedLaunch(harp)
 	var rec RunRecord
 	found := false
 	c.runs.View(func() {
@@ -843,6 +987,7 @@ func (c *Coordinator) resumeChild(harp string) {
 
 	if !rt.slotHeld {
 		if err := c.slots.acquire(c.baseCtx); err != nil {
+			c.failChild(rt, err)
 			return
 		}
 		c.mu.Lock()
@@ -886,6 +1031,7 @@ func (c *Coordinator) resumeChild(harp string) {
 	if msg, ok := c.takeNextMail(harp); ok {
 		c.sendTurn(rt, msg.Body)
 	}
+	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the relaunch
 	c.driveChild(rt, launch)
 }
 
@@ -902,7 +1048,8 @@ func (c *Coordinator) driveQueued(harp string) string {
 	})
 	switch state {
 	case StateEnded:
-		go c.resumeChild(harp)
+		c.armLaunch(harp)
+		c.goTracked(func() { c.resumeChild(harp) })
 	case StateIdle:
 		c.mu.Lock()
 		rt := c.byHarp[harp]

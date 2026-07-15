@@ -71,6 +71,17 @@ type Home struct {
 
 	link     *RunnerLink
 	linkDone chan struct{} // closed when Close ran (stops the redial loops)
+
+	// wg tracks Home's own background loops (runnerChannelLoop,
+	// runChannelLoop, and one turnPump per hosted engine) — see goTracked.
+	// Close/crash join it (waitTracked, bounded) so a runner-side teardown
+	// leaves no goroutine still touching h's state (flaky-agentcoord S2: the
+	// coordinator-side S1 fix alone does not cover Home, which dispatches its
+	// own untracked `go`s independent of Coordinator.wg — fakeSpawner.
+	// StartEngine's in-process Home/EngineHost pair in the coord test suite
+	// is exactly this shape, and unblocked kill/crash is what the
+	// crash-redelivery test's determinism depends on).
+	wg sync.WaitGroup
 }
 
 // HomeConfig carries the spawn-injected coordinator trio plus the runner's
@@ -162,9 +173,39 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		turnPending: make(map[string]bool),
 		linkDone:    make(chan struct{}),
 	}
-	go h.runnerChannelLoop()
-	go h.runChannelLoop()
+	h.goTracked(h.runnerChannelLoop)
+	h.goTracked(h.runChannelLoop)
 	return h, nil
+}
+
+// goTracked runs fn on a new goroutine tracked by h.wg — see the wg field's
+// doc and waitTracked (flaky-agentcoord S2).
+func (h *Home) goTracked(fn func()) {
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		fn()
+	}()
+}
+
+// homeCloseJoinBudget bounds Close/crash's wait for Home's tracked
+// goroutines — see Coordinator's closeJoinBudget for the identical reasoning
+// (every tracked loop here selects on h.ctx, already cancelled by the time
+// waitTracked runs).
+const homeCloseJoinBudget = 3 * time.Second
+
+// waitTracked joins every h.goTracked goroutine, with a bounded escape.
+func (h *Home) waitTracked() {
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(homeCloseJoinBudget):
+		clidiag.Warn("ctxloom", "runner home close: tracked goroutines did not finish within %s; proceeding", homeCloseJoinBudget)
+	}
 }
 
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
@@ -417,7 +458,7 @@ func (h *Home) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
 	h.buffer = nil
 	h.turnQ = q
 	h.mu.Unlock()
-	go h.turnPump(q, sink)
+	h.goTracked(func() { h.turnPump(q, sink) })
 }
 
 // turnPump serializes turn deliveries (one at a time, arrival order) and
@@ -682,16 +723,22 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 
 // crash tears the home down WITHOUT the clean-shutdown acknowledgements —
 // the test seam simulating a runner crash (conformance: crash-before-ack
-// re-delivers).
+// re-delivers). Joins Home's own tracked loops (bounded) before returning —
+// flaky-agentcoord S2 — so a caller (fakeSpawner.StartEngine's kill, wired
+// as childRt.close) can rely on crash() actually being done, not merely
+// dispatched, before it proceeds (Coordinator.Close's attachment loop calls
+// closeFn synchronously for exactly this reason).
 func (h *Home) crash() {
 	h.cancel()
 	_ = h.conn.Close()
+	h.waitTracked()
 }
 
 // Close tears the home down: best-effort final cursor-ack (a CLEAN exit
 // acknowledges what the harness already received — a crash skips this and
 // re-delivers, the safe direction), best-effort RunExited on the lifecycle
-// link, then both loops stop and the conn closes.
+// link, then both loops stop and the conn closes — joined (bounded) before
+// returning, mirroring crash() (flaky-agentcoord S2).
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
 	h.mu.Lock()
@@ -703,4 +750,5 @@ func (h *Home) Close(exitCode int, harnessSessionID string) {
 	}
 	h.cancel()
 	_ = h.conn.Close()
+	h.waitTracked()
 }

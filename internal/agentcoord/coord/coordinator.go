@@ -113,6 +113,25 @@ type Coordinator struct {
 	approvals map[string]*pendingApproval
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
+	// launchArmed pre-registers the "attached" signal for a harp's NEXT
+	// (re)launch attempt, synchronously, before the caller dispatches the
+	// async runChild/resumeChild goroutine (see armLaunch/takeArmedLaunch,
+	// children.go). This is the flaky-agentcoord S3 seam: a caller
+	// synchronously after the dispatch (a test, via awaitChildUp) can look
+	// the current attempt's channel up race-free instead of polling a
+	// wall-clock Eventually over the pipeline it fronts.
+	launchArmed map[string]chan struct{}
+
+	// wg tracks every goroutine this coordinator dispatches beyond its
+	// spawning call's own return (delegation launches/resumes, the runner
+	// watchdog, adopt's runner-loss grace timers, and the RunChannel/
+	// RunnerChannel pumps) — see goTracked. Close() joins it (waitTracked,
+	// bounded) BEFORE closing the journals and removing an ephemeral state
+	// dir: flaky-agentcoord's root cause was exactly a fire-and-forget `go`
+	// with no owner racing that teardown (a prior test's t.Cleanup(c.Close)
+	// firing c.cancel() while its launch goroutine was still touching the
+	// state dir/journals it had just closed).
+	wg sync.WaitGroup
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -184,6 +203,7 @@ func New(opts Options) (*Coordinator, error) {
 		runners:       make(map[string]*runnerSession),
 		runnerReady:   make(map[string]chan struct{}),
 		chans:         make(map[string]*runChan),
+		launchArmed:   make(map[string]chan struct{}),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -238,8 +258,45 @@ func New(opts Options) (*Coordinator, error) {
 	c.artifacts = artifacts
 
 	c.adopt()
-	go c.runnerWatchdog()
+	c.goTracked(c.runnerWatchdog)
 	return c, nil
+}
+
+// goTracked runs fn on a new goroutine tracked by c.wg, so Close() can join
+// it (waitTracked) before tearing the journals and state dir down. EVERY
+// bare `go` in this package whose goroutine can outlive the call that
+// spawned it must ride this — flaky-agentcoord (S1): an unjoined launch/
+// resume/channel-pump goroutine racing a closed journal or a t.TempDir
+// RemoveAll was the flake cluster's root cause, not any one test's own
+// synchronization.
+func (c *Coordinator) goTracked(fn func()) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		fn()
+	}()
+}
+
+// closeJoinBudget bounds Close's wait for tracked goroutines: generous
+// headroom above the ctx-aware waits every tracked loop selects on (slot
+// acquisition, runner awaits, request round-trips all key off c.baseCtx,
+// already cancelled by the time waitTracked runs), short enough that one
+// genuinely wedged handler cannot hang shutdown forever — a leaked-goroutine
+// diagnostic is logged and Close proceeds rather than deadlocking.
+const closeJoinBudget = 5 * time.Second
+
+// waitTracked joins every c.goTracked goroutine, with a bounded escape.
+func (c *Coordinator) waitTracked() {
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(closeJoinBudget):
+		clidiag.Warn("ctxloom", "coordinator close: tracked goroutines did not finish within %s; proceeding (a leaked goroutine may still touch the state dir)", closeJoinBudget)
+	}
 }
 
 // adopt reconciles state read from disk with the fresh process (acceptance
@@ -272,7 +329,8 @@ func (c *Coordinator) adopt() {
 		// Container run: its runner may still be alive. Give it one
 		// runner-loss window to re-Hello; terminate as runner loss if it
 		// never does.
-		go func(runID, credHash string) {
+		runID, credHash := p.runID, p.credHash
+		c.goTracked(func() {
 			select {
 			case <-time.After(runnerLossTimeout):
 			case <-c.baseCtx.Done():
@@ -284,13 +342,23 @@ func (c *Coordinator) adopt() {
 			if !connected {
 				c.terminateRun(runID, CauseRunnerLoss, "no runner re-Hello after coordinator relaunch")
 			}
-		}(p.runID, p.credHash)
+		})
 	}
 }
 
 // Close tears the coordinator down: listeners, journals, owner lock. Live
 // children are killed via their launch close (the run process is their
 // lifetime).
+//
+// Order (flaky-agentcoord S1): cancel baseCtx (every ctx-aware tracked
+// goroutine starts unwinding) → kill live attachments (best-effort; a
+// goroutine still mid-launch may not have published rt.close yet — that is
+// exactly what the wg join below catches) → srv.close (GracefulStop the gRPC
+// server, bounded, then a hard Stop — this is what actually unblocks the
+// RunChannel/RunnerChannel pump goroutines, which key off the STREAM's own
+// context, not baseCtx) → wg.Wait (bounded escape) → close journals → remove
+// an ephemeral state dir. This guarantees no tracked goroutine touches the
+// state dir after Close() returns (barring the logged bounded-escape case).
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.cancel()
@@ -311,6 +379,7 @@ func (c *Coordinator) Close() {
 		if c.srv != nil {
 			c.srv.close()
 		}
+		c.waitTracked()
 		c.closePartial()
 		if c.ephemeral {
 			_ = os.RemoveAll(c.stateDir)

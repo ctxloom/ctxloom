@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -34,6 +36,7 @@ type coordServing struct {
 	c       *Coordinator
 	handler http.Handler
 	httpSrv *http.Server
+	grpcSrv *grpc.Server
 
 	mu       sync.Mutex
 	loopback net.Listener
@@ -65,6 +68,7 @@ func (c *Coordinator) Serve() error {
 	s := &coordServing{c: c}
 
 	grpcSrv := c.grpcServer()
+	s.grpcSrv = grpcSrv
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc
 		// content-type. Nothing else is served here since the B1.6 surface
@@ -226,8 +230,30 @@ func (s *coordServing) ensureWide() (string, error) {
 	return s.wideURL, nil
 }
 
-// close shuts every listener down.
+// close shuts every listener down. Order: Stop the gRPC server FIRST — it is
+// served via ServeHTTP (h2c, no separate net.Listener of its own; see
+// grpcServer/Serve), so httpSrv.Shutdown's own listener-close does not touch
+// it, and it is the ONLY thing that actually signals an in-flight
+// RunChannel/RunnerChannel/artifact-transfer handler to stop — those streams
+// key off their own gRPC-transport context, not c.baseCtx (Coordinator.
+// Close's cancel does not reach them). Without this, srv.close previously
+// just closed the listeners and left every live streaming handler running
+// until its client side happened to disconnect — exactly the "in-flight
+// streaming handlers keep running" gap flaky-agentcoord's plan diagnosed.
+//
+// Stop(), not GracefulStop(): grpc-go's ServeHTTP path (the only path this
+// server ever runs — see grpcServer's doc) wraps each connection in a
+// serverHandlerTransport, whose Drain() is UNCONDITIONALLY
+// `panic("Drain() is not implemented")` (internal/transport/handler_server.
+// go) — GracefulStop calls exactly that and crashes the process (confirmed
+// live: `just test-pkg` panicked here before this was pinned to Stop()).
+// RunChannel/RunnerChannel are perpetual streams anyway (they never
+// "finish" on their own), so a graceful drain would never resolve even if it
+// didn't panic — a hard Stop is the only correct choice for this transport.
 func (s *coordServing) close() {
+	if s.grpcSrv != nil {
+		s.grpcSrv.Stop()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = s.httpSrv.Shutdown(ctx)

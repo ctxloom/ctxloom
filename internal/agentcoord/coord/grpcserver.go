@@ -226,8 +226,11 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 
 	// Single writer pump: coordinator-initiated RunnerRequests (StartRun
 	// foremost) funnel through rs.send — the same discipline runChan uses
-	// on RunChannel, reversed.
-	go func() {
+	// on RunChannel, reversed. goTracked (flaky-agentcoord S1): see
+	// RunChannel's identical pump in runchannel.go for why this only
+	// terminates once the underlying gRPC transport is actually cut
+	// (srv.close()'s GracefulStop/Stop), not on c.baseCtx cancellation alone.
+	c.goTracked(func() {
 		for {
 			select {
 			case frame := <-rs.send:
@@ -239,10 +242,10 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 				return
 			}
 		}
-	}()
+	})
 
 	recvErr := make(chan error, 1)
-	go func() {
+	c.goTracked(func() {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {
@@ -272,7 +275,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 				c.mu.Unlock()
 			}
 		}
-	}()
+	})
 
 	select {
 	case err := <-recvErr:

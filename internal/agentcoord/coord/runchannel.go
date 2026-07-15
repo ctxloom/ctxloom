@@ -202,7 +202,13 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	}()
 
 	// Single writer pump: everything outbound funnels through ch.send.
-	go func() {
+	// goTracked (flaky-agentcoord S1): terminates once streamCtx is
+	// cancelled — either locally (a newer reconnect, or this func's own
+	// deferred cancel()) or when srv.close()'s GracefulStop/Stop tears the
+	// underlying gRPC transport down (streamCtx derives from the STREAM's
+	// context, not c.baseCtx, so only the server actually cutting the
+	// transport unblocks a still-live channel — see Coordinator.Close's doc).
+	c.goTracked(func() {
 		for {
 			select {
 			case frame := <-ch.send:
@@ -214,10 +220,10 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 				return
 			}
 		}
-	}()
+	})
 
 	recvErr := make(chan error, 1)
-	go func() {
+	c.goTracked(func() {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {
@@ -226,7 +232,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			}
 			c.handleAgentFrame(ch, frame)
 		}
-	}()
+	})
 
 	select {
 	case err := <-recvErr:
@@ -536,7 +542,7 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 	ch.inflight[reqID] = true
 	c.mu.Unlock()
 
-	go func() {
+	c.goTracked(func() {
 		resp := c.serveAgentRequest(ch.id, req)
 		resp.RequestId = reqID
 		c.mu.Lock()
@@ -544,7 +550,7 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 		ch.reqCache[reqID] = resp
 		c.mu.Unlock()
 		c.respond(ch, resp)
-	}()
+	})
 }
 
 // respond queues one response frame on the channel's writer pump.

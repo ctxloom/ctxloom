@@ -2,9 +2,6 @@ package opencode
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -16,34 +13,62 @@ import (
 var _ agent.StructuredChat = (*Opencode)(nil)
 
 // opencodeConfigFile is the project-local config opencode reads (and strictly
-// validates) from its cwd. ctxloom writes only the `model` key into it.
+// validates) from its cwd. ctxloom merges its managed keys into it (settings.go).
 const opencodeConfigFile = "opencode.json"
 
 // Chat implements structured chat by delegating to the generic ACP driver over
 // `opencode acp`. opencode speaks ACP natively (first-party subcommand), so no
-// third-party adapter is needed. Before delegating, the requested model is
-// written into a project-local opencode.json in the run's cwd — the ONLY way to
-// select the model, since `opencode acp` has no --model flag (see chatACPConfig).
+// third-party adapter is needed.
+//
+// Before delegating, ctxloom's managed keys are merged into a project-local
+// opencode.json in the run's cwd — the ONLY delivery vehicle opencode resolves for
+// this run:
+//   - model: `opencode acp` has no --model flag, so the model rides opencode.json.
+//   - mcp: the managed MCP servers, so `opencode debug config` resolves them (the
+//     ACP wire's session/new mcpServers has no bearing on opencode's own config).
+//   - permission: the read-only posture in plan mode — enforced by opencode's own
+//     permission layer, which the ACP protocol has no field to carry.
+//
+// The write is a TRANSIENT overlay: opencode.json is snapshotted first and restored
+// after the run, so the user's project file is left exactly as it was (a plan run
+// never leaves its read-only `permission` behind).
 func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
+	fs := afero.NewOsFs()
 	model := req.Model
 	if model == "" {
 		model = b.model
 	}
-	if model != "" {
-		if err := writeModelConfig(afero.NewOsFs(), req.WorkDir, model); err != nil {
-			close(out) // honor the StructuredChat contract: producer closes out exactly once
-			return err
-		}
+
+	restore, err := snapshotOpencodeConfig(fs, req.WorkDir)
+	if err != nil {
+		close(out) // honor the StructuredChat contract: producer closes out exactly once
+		return err
 	}
+	if err := writeOpencodeConfig(fs, req.WorkDir, managedConfig{
+		model:      model,
+		mcpServers: req.MCPServers,
+		readOnly:   req.Permissions == agent.PermissionPlan,
+	}); err != nil {
+		close(out)
+		return err
+	}
+
 	// opencode acp takes NO --model flag: it treats the unknown flag as a parse
 	// error, prints usage, and exits WITHOUT starting the ACP server — which would
-	// break the spawn entirely. The model rides opencode.json (written above), so
-	// clear it from the request the driver builds argv from. DO NOT reintroduce a
-	// --model flag here.
+	// break the spawn entirely. Model, MCP, and permission all ride opencode.json
+	// (written above), so clear them from the request the driver builds its
+	// argv/session-frame from: DO NOT reintroduce a --model flag, and do not ALSO
+	// inject the servers over the wire (session/new mcpServers) or opencode would
+	// see them twice.
 	req.Model = ""
+	req.MCPServers = nil
 
 	drv := acp.NewChatDriver(b.chatACPConfig())
-	return drv.Chat(ctx, req, in, out)
+	chatErr := drv.Chat(ctx, req, in, out)
+	if rerr := restore(); rerr != nil && chatErr == nil {
+		chatErr = rerr
+	}
+	return chatErr
 }
 
 // chatACPConfig is the adapter config for one opencode structured-chat spawn.
@@ -62,41 +87,10 @@ func (b *Opencode) chatACPConfig() acp.ACPConfig {
 }
 
 // writeModelConfig sets ONLY the `model` key in the project-local opencode.json,
-// preserving every other key verbatim. It is strictly read-modify-write:
-//   - a missing file is created with just the model key;
-//   - an existing file is parsed and re-emitted with only model changed, so
-//     unrelated keys survive;
-//   - a MALFORMED existing file FAILS LOUDLY rather than being clobbered —
-//     opencode validates this file strictly, and silently replacing a user's
-//     hand-edited config would lose their settings.
-//
-// The write is atomic (backup + temp + rename) via the shared AtomicWriteFile.
+// preserving every other key verbatim. It is the model-only projection of the
+// single opencode.json merge engine (writeOpencodeConfig, settings.go): a missing
+// file is created with just the model key, an existing file keeps its other keys,
+// and a MALFORMED existing file FAILS LOUDLY rather than being clobbered.
 func writeModelConfig(fs afero.Fs, workDir, model string) error {
-	path := filepath.Join(workDir, opencodeConfigFile)
-
-	// json.RawMessage preserves each non-model value's content verbatim; a
-	// string-keyed map re-emits deterministically (MarshalIndent sorts keys).
-	cfg := map[string]json.RawMessage{}
-	if exists, _ := afero.Exists(fs, path); exists {
-		data, err := afero.ReadFile(fs, path)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
-		}
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("existing %s is malformed (refusing to overwrite): %w", path, err)
-		}
-	}
-
-	modelJSON, err := json.Marshal(model)
-	if err != nil {
-		return fmt.Errorf("encode opencode model: %w", err)
-	}
-	cfg["model"] = modelJSON
-
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", path, err)
-	}
-	out = append(out, '\n')
-	return agent.AtomicWriteFile(fs, path, out, opencodeConfigFile)
+	return writeOpencodeConfig(fs, workDir, managedConfig{model: model})
 }

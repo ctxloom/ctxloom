@@ -141,14 +141,19 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			// delegates to the acp driver), so materialization stays with the
 			// target's writer, never this descriptor. (acp still registers a
 			// newSurfaces that yields an EmptySurfaceSet so BuildSurfaces is total.)
-			// opencode is the slice-1 HOST-only chat spine: it materializes no
-			// native config yet (opencode reads .claude/skills/ and CLAUDE.md
-			// natively, and the model rides a project-local opencode.json written
-			// on the chat path) — its settings writer / command exports arrive in a
-			// later slice, at which point this exemption is removed.
-			if name == "mock" || name == "acp" || name == "opencode" {
+			if name == "mock" || name == "acp" {
 				assert.Nil(t, d.newWriter, "%s must not gain settings support silently", name)
 				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
+				return
+			}
+			// opencode (slice 2) has the settings/materialization seam — a settings
+			// writer and a surface set (opencode.json's mcp + instructions) — but its
+			// command-export mapper (skills materialization) is a later slice, so
+			// exports is still deliberately nil.
+			if name == "opencode" {
+				assert.NotNil(t, d.newWriter, "opencode must have a settings writer")
+				assert.NotNil(t, d.newSurfaces, "opencode must build a surface set")
+				assert.Nil(t, d.exports, "opencode command export is a later slice")
 				return
 			}
 			assert.NotNil(t, d.newWriter, "backend must have a settings writer")

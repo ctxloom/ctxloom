@@ -118,10 +118,10 @@ func Exists(name string) bool {
 
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
-// --permission-mode plan, codex --sandbox read-only). Backends that don't
-// (antigravity, kiro, acp) would run plan unrestrained and can't be trusted to
-// be headless-safe for it, so the run resolver collapses plan to default for
-// them. An unregistered name reports false.
+// --permission-mode plan, codex --sandbox read-only, opencode.json permission
+// {edit:deny, bash:deny}). Backends that don't (antigravity, kiro, acp) would run
+// plan unrestrained and can't be trusted to be headless-safe for it, so the run
+// resolver collapses plan to default for them. An unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := descriptors[name]
 	return ok && d.enforcesReadOnlyPlan
@@ -290,12 +290,19 @@ func init() {
 		newSurfaces: func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
 	})
 
-	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 1:
-	// structured chat + its headless oneshot projection, model delivered via a
-	// project-local opencode.json (opencode acp has no --model flag). No settings
-	// writer / command exports yet — opencode reads .claude/skills/ and CLAUDE.md
-	// natively, and MCP/permission/session-history/interactive/read-only-plan are
-	// later slices. enforcesReadOnlyPlan stays FALSE until a slice earns it.
+	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
+	// settings/materialization seam: ctxloom's managed keys are merged into a
+	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
+	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
+	// live chat path only, a GENUINE read-only `permission` for plan mode. The
+	// newSurfaces builder serves the static `profile materialize` path (mcp +
+	// context); the LIVE run delivers the same keys transiently in Chat and restores
+	// opencode.json afterward, so a live run leaves no debris.
+	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
+	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
+	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
+	// Command exports (skills), session-history, and interactive PTY launch are
+	// later slices — hence no `exports` mapper yet.
 	registerDescriptor(agentDescriptor{
 		name: "opencode",
 		newBackend: func() agent.Backend {
@@ -306,6 +313,9 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &opencode.OpencodeConfig{})
 		},
+		newWriter:            opencode.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
+		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

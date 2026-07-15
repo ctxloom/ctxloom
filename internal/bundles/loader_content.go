@@ -104,6 +104,19 @@ func (c KiroConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
+// OpencodeConfig holds configuration for exporting prompts as opencode CLI
+// custom commands (.opencode/command/<name>.md files, invocable as /<name>
+// slash commands).
+type OpencodeConfig struct {
+	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
+	Description string `yaml:"description"` // Shown in opencode's command palette / resolved config
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c OpencodeConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
@@ -111,6 +124,7 @@ type LLMExports struct {
 	Antigravity AntigravityConfig `yaml:"antigravity"`
 	Codex       CodexConfig       `yaml:"codex"`
 	Kiro        KiroConfig        `yaml:"kiro"`
+	Opencode    OpencodeConfig    `yaml:"opencode"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

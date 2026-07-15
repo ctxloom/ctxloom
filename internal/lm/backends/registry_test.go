@@ -146,16 +146,6 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 				assert.Nil(t, d.exports, "%s must not gain command export silently", name)
 				return
 			}
-			// opencode (slice 2) has the settings/materialization seam — a settings
-			// writer and a surface set (opencode.json's mcp + instructions) — but its
-			// command-export mapper (skills materialization) is a later slice, so
-			// exports is still deliberately nil.
-			if name == "opencode" {
-				assert.NotNil(t, d.newWriter, "opencode must have a settings writer")
-				assert.NotNil(t, d.newSurfaces, "opencode must build a surface set")
-				assert.Nil(t, d.exports, "opencode command export is a later slice")
-				return
-			}
 			assert.NotNil(t, d.newWriter, "backend must have a settings writer")
 			assert.NotNil(t, d.newSurfaces, "backend must build a surface set")
 			assert.NotNil(t, d.exports, "backend must have a command-export mapper")

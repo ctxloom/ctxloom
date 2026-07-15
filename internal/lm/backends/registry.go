@@ -294,15 +294,17 @@ func init() {
 	// settings/materialization seam: ctxloom's managed keys are merged into a
 	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
 	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
-	// live chat path only, a GENUINE read-only `permission` for plan mode. The
-	// newSurfaces builder serves the static `profile materialize` path (mcp +
-	// context); the LIVE run delivers the same keys transiently in Chat and restores
-	// opencode.json afterward, so a live run leaves no debris.
+	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
+	// adds command (skills) materialization: enabled bundle prompts become opencode
+	// custom commands (.opencode/command/<name>.md), delivered by the skills surface
+	// on the static `profile materialize` path and transiently in Chat on the LIVE
+	// path (written before the run, reverted after — same no-debris shape as the
+	// opencode.json overlay). The newSurfaces builder serves materialize (mcp +
+	// context + skills).
 	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
 	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
 	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
-	// Command exports (skills), session-history, and interactive PTY launch are
-	// later slices — hence no `exports` mapper yet.
+	// Session-history and interactive PTY launch are later slices.
 	registerDescriptor(agentDescriptor{
 		name: "opencode",
 		newBackend: func() agent.Backend {
@@ -315,6 +317,7 @@ func init() {
 		},
 		newWriter:            opencode.NewWriter,
 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
+		exports:              opencodeExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 	})
 

@@ -11,10 +11,12 @@
 // meta-llama/llama-3.3-70b-instruct:free, proving model delivery via
 // opencode.json reaches real model resolution.
 //
-// Slice 1 deliberately materializes NO native config beyond the model key:
-// opencode reads .claude/skills/ and CLAUDE.md natively, so context/skills need
-// no writer here. MCP/permission/instructions writers, a session-history reader,
-// interactive PTY launch, and read-only plan mode are later slices.
+// Later slices layer native config onto the model key: MCP servers, a read-only
+// `permission` for plan mode, and assembled context via `instructions` (slice 2),
+// plus custom commands (bundle prompt/skill exports -> .opencode/command/, slice
+// 3). On the live path all of it rides transiently in Chat and is reverted after
+// the run; the persistent `profile materialize` path uses the descriptor surfaces.
+// A session-history reader and interactive PTY launch are still later slices.
 package opencode
 
 import (
@@ -41,6 +43,13 @@ func (OpencodeConfig) BackendType() string { return "opencode" }
 type Opencode struct {
 	agent.LaunchBackend
 	model string
+	// pendingSkills holds the host-assembled command (skill) exports captured
+	// during Setup's surface build, so the LIVE chat path can materialize them
+	// transiently. opencode's live delivery does not use the cell/surface path
+	// (Setup writes no persistent surfaces — see NewOpencode); the CellDelivery
+	// Build closure is the only place these host-resolved exports reach the
+	// backend, so it stashes them here for Chat rather than delivering a surface.
+	pendingSkills []agent.CommandExport
 }
 
 // NewOpencode creates a new opencode backend with default settings.
@@ -50,17 +59,22 @@ func NewOpencode() *Opencode {
 	// Default binary name; a configured binary_path (this host's opencode is not
 	// on PATH) overrides it via Configure/ApplyLocalCLIConfig.
 	b.BinaryPath = "opencode"
-	// Slice 1 materializes no files: opencode reads .claude/skills/ and CLAUDE.md
-	// natively, and the model rides opencode.json written on the chat path. The
-	// launch capabilities are the minimal stubs the embedded LaunchBackend
-	// requires; the empty CellDelivery still runs the lifecycle merge but writes
-	// nothing.
+	// The live run/oneshot path delivers everything (model, MCP, read-only
+	// permission, and now commands/skills) TRANSIENTLY in Chat, not via persistent
+	// Setup surfaces — so the empty CellDelivery still runs the lifecycle merge but
+	// writes no files. Its Build closure is, however, the seam where the
+	// host-assembled command exports (inputs.Skills) reach this backend: it stashes
+	// them for Chat to materialize transiently, then returns an empty surface set so
+	// Setup itself writes nothing. (The persistent `profile materialize` path is
+	// separate — it uses the descriptor's newSurfaces builder, which DOES carry a
+	// skills surface; see surfaces.go.)
 	b.InitLaunch(
 		agent.NewBaseLifecycle("opencode"),
 		&opencodeSkills{},
 		agent.NewBaseContextProvider(),
 		&opencodeSessionHistory{},
-		&agent.CellDelivery{Build: func(agent.SurfaceInputs, string) agent.SurfaceSet {
+		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
+			b.pendingSkills = in.Skills
 			return agent.EmptySurfaceSet{}
 		}},
 	)

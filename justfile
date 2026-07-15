@@ -192,10 +192,16 @@ test: build _ensure-covdata vet-integration
     # -e` means either run failing aborts here with a nonzero exit, before the
     # leak check / coverage filtering below ever runs.
     go test ./...
-    go test -race -coverprofile=coverage.raw.out ./...
+    # Unique per-invocation raw profile (not a fixed repo-root name): two
+    # concurrent `just test`/`just cover` runs used to share coverage.raw.out,
+    # so one run's `rm -f` could delete the file the other was still reading,
+    # and the loser died with "missing coverage.raw.out". The EXIT trap covers
+    # both the happy path and `set -e` aborting mid-recipe.
+    raw="$(mktemp coverage.raw.XXXXXX.out)"
+    trap 'rm -f "$raw"' EXIT
+    go test -race -coverprofile="$raw" ./...
     just _check-no-ctxloom-leak
-    just _filter_coverage coverage.raw.out coverage.out
-    rm -f coverage.raw.out
+    just _filter_coverage "$raw" coverage.out
 
 # Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the
 # source tree instead of isolating through t.TempDir(). internal/operations'
@@ -258,9 +264,10 @@ cover:
     #!/usr/bin/env bash
     set -e
     echo "Running tests with coverage..."
-    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
-    just _filter_coverage coverage.raw.out coverage.out
-    rm -f coverage.raw.out
+    raw="$(mktemp coverage.raw.XXXXXX.out)"
+    trap 'rm -f "$raw"' EXIT
+    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    just _filter_coverage "$raw" coverage.out
     echo "Coverage (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out | tail -1
 
@@ -268,9 +275,10 @@ cover:
 cover-func:
     #!/usr/bin/env bash
     set -e
-    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
-    just _filter_coverage coverage.raw.out coverage.out
-    rm -f coverage.raw.out
+    raw="$(mktemp coverage.raw.XXXXXX.out)"
+    trap 'rm -f "$raw"' EXIT
+    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    just _filter_coverage "$raw" coverage.out
     echo "Coverage by function (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out
 
@@ -278,9 +286,10 @@ cover-func:
 cover-html:
     #!/usr/bin/env bash
     set -e
-    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
-    just _filter_coverage coverage.raw.out coverage.out
-    rm -f coverage.raw.out
+    raw="$(mktemp coverage.raw.XXXXXX.out)"
+    trap 'rm -f "$raw"' EXIT
+    go test -coverprofile="$raw" ./... > /dev/null 2>&1
+    just _filter_coverage "$raw" coverage.out
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report generated: coverage.html"
 

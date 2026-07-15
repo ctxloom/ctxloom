@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -29,6 +31,13 @@ type ApplyHooksRequest struct {
 	ConfigLoader      ConfigLoaderFunc `json:"-"`                  // Optional config loader for testing (defaults to config.Load)
 	WorkDir           string           `json:"-"`                  // Optional work directory for testing (defaults to git root)
 	BundleLoaderFS    afero.Fs         `json:"-"`                  // Optional FS for bundle loader (for testing regenerateContext)
+	// Force overrides the refusal in checkHookTargetScope when the resolved
+	// workDir would write Claude Code's user-global settings.json (the $HOME
+	// collision — see MEMORY: prim-guy). Without it, that collision aborts the
+	// whole apply; with it, the collision is downgraded to a loud warning and
+	// the apply proceeds — the escape hatch for a genuine intentional global
+	// install.
+	Force bool `json:"force"`
 }
 
 // ApplyHooksResult contains the result of applying hooks.
@@ -71,6 +80,21 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// applyHooksToBackend from freshCfg.Settings.ShouldManageStatusline().
 
 	workDir := resolveHookWorkDir(req)
+
+	// Refuse (or, with --force, loudly warn) when workDir resolves onto
+	// Claude Code's user-global settings path — see checkHookTargetScope.
+	if err := checkHookTargetScope(workDir, req.Force); err != nil {
+		return nil, err
+	}
+
+	// The general "not in a project" advisory: only meaningful when THIS call
+	// resolved workDir itself via the cwd/CTXLOOM_ROOT fallback chain
+	// (req.WorkDir empty) — an explicitly injected WorkDir (tests, or a future
+	// caller with its own override) didn't come from that resolution, so
+	// checking the real process cwd against it would be a non sequitur.
+	if req.WorkDir == "" && projectroot.RootFromFallback() {
+		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", workDir)
+	}
 
 	// Gate the executable surfaces about to be written to backend settings —
 	// bundle MCP servers, bundle hooks, and prompt command-file exports (trust
@@ -178,6 +202,60 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 		return req.WorkDir
 	}
 	return projectroot.WorkDir()
+}
+
+// checkHookTargetScope refuses to apply hooks when the resolved workDir would
+// write Claude Code's user-global settings.json — claude.GlobalSettingsPath(),
+// Claude Code's per-USER scope — instead of a project's per-PROJECT scope. It
+// keys on the resolved PATH the write would land at
+// (claude.ProjectSettingsPath(workDir) == claude.GlobalSettingsPath()), not on
+// cwd == $HOME, so it also catches CTXLOOM_ROOT=$HOME and any other
+// resolution that happens to land on the global file. (MEMORY: prim-guy —
+// found live 2026-07-14: `manage hooks install` run from $HOME silently went
+// global, injecting context into every project and duplicating the /clear
+// banner; home entries were removed by hand as a stopgap.)
+//
+// The whole apply is refused, not just the settings write, because MCP,
+// commands, and the context cache all key off the same workDir too — every
+// one of them would go global alongside settings if this only guarded the
+// settings write.
+//
+// force downgrades the refusal to a loud warning and proceeds — the
+// deliberate escape hatch for a genuine intentional global install.
+//
+// Scope: this collision check is Claude-specific (its user scope is
+// $HOME/.claude/settings.json). Other backends (codex/antigravity/kiro) may
+// have the same $HOME==global conflation for their own settings surfaces —
+// tracked separately (task comfy-lion) rather than folded in here. The
+// function takes just the one path pair today so a future per-backend
+// variant (iterate backends, ask each for its own global path) can slot in
+// beside this call rather than needing a rewrite.
+func checkHookTargetScope(workDir string, force bool) error {
+	globalPath, err := claude.GlobalSettingsPath()
+	if err != nil {
+		// No resolvable home directory: nothing to collide with.
+		return nil
+	}
+	projectPath := claude.ProjectSettingsPath(workDir)
+	if cleanAbsPath(projectPath) != cleanAbsPath(globalPath) {
+		return nil
+	}
+	if force {
+		clidiag.Warn("ctxloom", "hooks target %s resolves to Claude Code's user-global settings file (%s); proceeding because --force was given — this applies ctxloom to EVERY project, not just this one.", workDir, globalPath)
+		return nil
+	}
+	return fmt.Errorf("refusing to install hooks: %s resolves to Claude Code's user-global settings (%s), which would apply ctxloom to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, globalPath)
+}
+
+// cleanAbsPath returns p's cleaned absolute form for path comparison, falling
+// back to just Clean if it cannot be made absolute (e.g. a synthetic test
+// path with no real filesystem behind it — filepath.Abs only fails when the
+// process cwd itself cannot be determined).
+func cleanAbsPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(p)
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,

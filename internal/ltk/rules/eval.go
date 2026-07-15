@@ -42,7 +42,10 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 			if r.Match.isPathRule() {
 				continue // path rules are evaluated against file edits, not commands
 			}
-			if !r.Match.matches(script.Shell, c) {
+			// Allow rules match positionals with a strict, position-anchored
+			// prefix; deny rules keep the permissive ordered-subsequence match.
+			// See Match.Command ("Allow vs. deny: matching discipline").
+			if !r.Match.matches(script.Shell, c, r.action() == ActionAllow) {
 				continue
 			}
 			if r.action() == ActionDeny {

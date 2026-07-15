@@ -173,26 +173,92 @@ type Match struct {
 	// still match. Remaining tokens are classified per the command's shell into:
 	//
 	//   - positional args (e.g. subcommands like `test`, `commit`): order
-	//     matters; they must appear in order (an ordered subsequence) among the
-	//     command's non-option arguments. Subsequence — not strict prefix — so a
-	//     value-taking option whose value lands among the operands (the matcher
-	//     can't know `-C`/`--context`/`--prefix` consume a word) cannot push the
-	//     subcommand out of position: `git -C /repo push`, `docker --context prod
-	//     build`, and `npm --prefix /x run …` still match. The trade-off is that a
-	//     positional may match a non-leading operand of the same spelling; that
-	//     only ever widens what a deny rule catches (fail-safe).
+	//     matters, but HOW they must line up against the command's non-option
+	//     arguments (its operands) depends on the rule's action — see "Allow
+	//     vs. deny: matching discipline" below. This is the load-bearing
+	//     asymmetry in the whole model; read that section before changing
+	//     anything here.
 	//   - options (any flag: `-c`, `-x`, `--no-cache`, and `/c` under cmd): no
 	//     implied order; each must appear somewhere in the command's arguments,
 	//     and they never consume a positional slot.
 	//
 	// Trailing arguments are always allowed. Examples: `go` matches any `go …`;
-	// `[go, test]` matches `go test …` (and `go --mod=mod test …`); `sh -c`
-	// matches `sh -c …` and `sh -e -c …`; `[git, push, --force, --no-verify]`
-	// matches those flags in any order after `push`.
+	// `[go, test]` matches `go test …` (and, for a deny rule, `go --mod=mod
+	// test …`); `sh -c` matches `sh -c …` and `sh -e -c …`; `[git, push,
+	// --force, --no-verify]` matches those flags in any order after `push`.
 	//
 	// Bundled short options expand for matching: under a POSIX shell `-rf` is
 	// treated as also carrying `-r` and `-f`, so `[rm, -r, -f]` matches `rm -rf`,
 	// `rm -fr`, and `rm -r -f` alike. See expandShortClusters.
+	//
+	// # Allow vs. deny: matching discipline (the firewall-rule model)
+	//
+	// ltk's rule list is evaluated the way a packet-filter ruleset is (iptables/
+	// nftables `-j ACCEPT/DROP` chains, OpenBSD pf, cloud security groups):
+	// rules are walked IN ORDER and the first one that matches wins (see
+	// Evaluate) — there is no "most specific rule wins" reranking. That
+	// ordering discipline was already correct here; what was missing is the
+	// other firewall-rule principle: a firewall matches on STRUCTURED fields
+	// (source IP, port, protocol) with an EXPLICIT operator per field — exact
+	// equality, CIDR/set membership, an anchored range — never "does this byte
+	// sequence appear anywhere in the packet." `iptables --dport 22` cannot
+	// match a packet merely because the byte `22` occurs somewhere in its
+	// payload. Applying that discipline here means a rule's positional tokens
+	// must be matched against a specific, named field (an argv POSITION) with
+	// an operator appropriate to the rule's consequence, not a fuzzy
+	// pattern-appears-somewhere scan.
+	//
+	// The two rule actions carry opposite consequences, so they get different
+	// operators — this is also standard firewall practice: a narrow allow
+	// carve-out in an otherwise default-deny chain is written tight (exact
+	// match), while the surrounding deny/catch-all can safely be broad, because
+	// broadening a DENY only widens what gets blocked (safe), while broadening
+	// an ALLOW widens what gets let through (unsafe):
+	//
+	//   - deny rules keep ORDERED SUBSEQUENCE matching: positionals must appear
+	//     in the given order among the operands, but not contiguously or
+	//     leading. A value-taking option whose value lands among the operands
+	//     (the matcher can't know `-C`/`--context`/`--prefix` consumes a word)
+	//     cannot push the subcommand out of match position: `git -C /repo push`,
+	//     `docker --context prod build`, and `npm --prefix /x run …` still
+	//     match `[git, push]` / `[docker, build]` / `[npm, run]`. A positional
+	//     may thus match a non-leading operand of the same spelling — that only
+	//     ever widens what a deny rule catches, which is fail-safe for a guard.
+	//   - allow rules use POSITION-ANCHORED STRICT PREFIX matching: every
+	//     positional must equal the operand at the SAME index, starting at
+	//     operand[0]. This is the fix for the fail-open bug an ordered-
+	//     subsequence allow rule had: `allow: [git, status]` used to match
+	//     `git commit -m status --no-verify`, because `status` — the VALUE of
+	//     `-m`, not a subcommand — is an operand and or an ordered subsequence
+	//     of one element ["status"] is trivially satisfied by ANY operand list
+	//     containing "status" anywhere after the start. On `action: allow` that
+	//     widened match doesn't just widen what's caught, it widens what's
+	//     PERMITTED — the exact inverse of the deny case, so it needed the
+	//     opposite (stricter) operator, not a shared one.
+	//
+	// A too-strict allow rule fails safe: the command just isn't allowed by
+	// that rule, and falls through to the next rule / the default policy. A
+	// too-loose allow rule fails open: it can clear a command a deny rule would
+	// otherwise have caught. That asymmetry is why the operators differ by
+	// action rather than there being one "positional matching" rule for both.
+	//
+	// Consequence: an allow rule whose real subcommand is pushed out of
+	// operand[0] by a value-taking option (`docker --context prod build`) no
+	// longer matches `command: [docker, build]` — strict prefix rejects it,
+	// same as it rejects the smuggling case, because no fixed-index anchor can
+	// tell the two apart without per-program argument-arity knowledge ltk
+	// deliberately doesn't have. The documented escape hatch is `args_all` /
+	// `args_any` (see below), which are program-agnostic set-membership checks
+	// over the whole (short-cluster-expanded) argument list, not
+	// position-sensitive: write `command: [docker], args_all: [build]` instead
+	// of `command: [docker, build]` for an allow rule that must tolerate a
+	// leading value-option.
+	//
+	// (ltk's overall DEFAULT policy is still allow-by-default when nothing
+	// matches — unlike a network firewall's usual default-deny posture. That is
+	// a separate, deliberate design choice ["a guardrail against reflexive
+	// mistakes, not a security boundary" — see docs/ltk] and is unchanged here;
+	// only the PER-RULE matching operator adopts firewall discipline.)
 	Command CommandPattern `yaml:"command"`
 	// ArgsAny / ArgsAll are program-agnostic refinements on the arguments
 	// (beyond the Command prefix); bundled short options are expanded first.
@@ -315,14 +381,19 @@ func (c *Config) ExpandSubmodules(submodulePaths []string) {
 	}
 }
 
-func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
+// strictPrefix selects the operand-matching operator per the allow/deny
+// discipline documented on Match.Command: true for an allow rule (position-
+// anchored strict prefix), false for a deny rule (ordered subsequence, the
+// permissive default). The caller (Evaluate) derives it from the rule's
+// action; matches itself has no notion of "rule".
+func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bool {
 	if !m.hasConstraint() {
 		return false
 	}
 	if len(m.Shells) > 0 && !slices.Contains(m.Shells, shell) {
 		return false
 	}
-	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, shell) {
+	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, shell, strictPrefix) {
 		return false
 	}
 	args := expandShortClusters(c.Args(), shell)
@@ -344,14 +415,17 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand) bool {
 }
 
 // matchCommand reports whether a command pattern matches a command's argv,
-// using the command's shell to classify flags. See Match.Command for the model.
+// using the command's shell to classify flags. See Match.Command for the full
+// model, including why the positional operator depends on strictPrefix.
 //
 //   - pattern[0] (the program) matches argv[0] exactly or by basename.
-//   - positional pattern tokens (non-options) must appear in order among the
-//     command's non-option arguments (an ordered subsequence).
+//   - positional pattern tokens (non-options) must appear among the command's
+//     non-option arguments (operands), in order: as a position-anchored
+//     strict prefix when strictPrefix is true (allow rules), or as an ordered
+//     subsequence when false (deny rules, the permissive default).
 //   - option pattern tokens (flags) must each appear somewhere in args, in any
 //     order (with bundled short options expanded, e.g. -rf ⇒ -r, -f).
-func matchCommand(pattern, argv []string, shell ir.Shell) bool {
+func matchCommand(pattern, argv []string, shell ir.Shell, strictPrefix bool) bool {
 	if len(pattern) == 0 || len(argv) == 0 {
 		return false
 	}
@@ -366,7 +440,11 @@ func matchCommand(pattern, argv []string, shell ir.Shell) bool {
 			return false
 		}
 	}
-	return isSubsequence(positionals, classifyOperands(args, shell))
+	operands := classifyOperands(args, shell)
+	if strictPrefix {
+		return isPrefix(positionals, operands)
+	}
+	return isSubsequence(positionals, operands)
 }
 
 // classifyArgs splits pattern tokens into positionals (operands) and options.
@@ -393,16 +471,11 @@ func classifyOperands(args []string, shell ir.Shell) []string {
 }
 
 // isSubsequence reports whether every element of sub appears in s in the same
-// order, with any other elements allowed in between. Positionals match as an
-// ordered subsequence (not a strict prefix) of the command's operands so that a
-// value-taking option whose VALUE lands among the operands cannot shift the real
-// subcommand out of match position: the matcher has no per-program knowledge of
-// which options consume a word, so `git -C /repo push`, `docker --context prod
-// build`, and `npm --prefix /x run …` still match `[git, push]`, `[docker,
-// build]`, and `[npm, run]`. Order is still required (a reversed operand
-// sequence does not match). The trade-off — a positional may match a non-leading
-// operand of the same spelling — fails safe (it widens, never narrows, what a
-// deny rule catches); see Match.Command.
+// order, with any other elements allowed in between. This is the DENY-rule
+// operand operator: permissive by design, so a value-taking option's value
+// among the operands cannot shift the real subcommand out of match position.
+// See Match.Command ("Allow vs. deny: matching discipline") for the full
+// model and why allow rules use the strict isPrefix operator instead.
 func isSubsequence(sub, s []string) bool {
 	i := 0
 	for _, w := range s {
@@ -414,6 +487,25 @@ func isSubsequence(sub, s []string) bool {
 		}
 	}
 	return i == len(sub)
+}
+
+// isPrefix reports whether sub matches, element for element, a leading run of
+// s starting at s[0] (a position-anchored strict prefix — not "sub appears as
+// a contiguous substring somewhere in s"). This is the ALLOW-rule operand
+// operator: an empty sub is vacuously a prefix of anything (a pattern with no
+// positionals, e.g. bare options/program only, imposes no positional
+// constraint). See Match.Command for why allow rules need this stricter
+// operator than deny's isSubsequence.
+func isPrefix(sub, s []string) bool {
+	if len(sub) > len(s) {
+		return false
+	}
+	for i, w := range sub {
+		if s[i] != w {
+			return false
+		}
+	}
+	return true
 }
 
 // isOption reports whether a token is an option (a flag) for the given shell, as

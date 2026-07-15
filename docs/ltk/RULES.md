@@ -66,14 +66,36 @@ A subcommand's position is meaningful: `go test` and `go help test` are differen
 operations, so `test` is matched **positionally** (positionals must appear in the
 given order among the non-option arguments). An option's position is not
 meaningful: `sh -e -c …` and `sh -c -e …` are the same, so options are matched as
-an **unordered set**. Options are skipped when locating positionals, and matching
-is an ordered *subsequence* rather than a strict prefix, so a leading option
-never hides a subcommand — including a **value-taking** one whose value lands
-among the operands (the matcher can't know which flags consume a word):
-`go --mod=mod test`, `git -C /repo push`, and `docker --context prod build` all
-still match `[go, test]` / `[git, push]` / `[docker, build]`. The trade-off is
-that a positional can match a non-leading operand of the same spelling, which
-only ever *widens* what a deny rule catches (fail-safe for a guard).
+an **unordered set**. Options are skipped when locating positionals.
+
+### Allow rules match more strictly than deny rules
+
+This is the one place `action: allow` and `action: deny` (the default) behave
+differently, and it matters: **deny** rules match positionals as an ordered
+*subsequence*, so a leading option never hides a subcommand — including a
+**value-taking** one whose value lands among the operands (the matcher can't
+know which flags consume a word): `go --mod=mod test`, `git -C /repo push`,
+and `docker --context prod build` all still match `[go, test]` / `[git,
+push]` / `[docker, build]` as a **deny**. The trade-off is that a positional
+can match a non-leading operand of the same spelling, which only ever
+*widens* what a deny rule catches — fail-safe for a guard.
+
+**Allow** rules instead match positionals as a **strict, position-anchored
+prefix**: every positional must equal the operand at the same index, starting
+at operand 0. Subsequence matching on an allow rule is fail-*open*, not
+fail-safe — the exact inverse of the deny case — because it widens what gets
+let through rather than what gets caught: `allow: [git, status]` would
+otherwise match `git commit -m status --no-verify` (`status` is `-m`'s VALUE,
+not the `git status` subcommand), silently clearing a command a `deny` rule
+was there to catch. So an allow rule with a value-taking option ahead of its
+subcommand — `docker --context prod build` — does **not** match
+`command: [docker, build]` with `action: allow`; write it with `args_all`
+instead, which is program-agnostic and position-insensitive:
+
+```yaml
+match: { command: [docker], args_all: [build] }
+action: allow
+```
 
 ### Examples
 

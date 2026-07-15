@@ -260,6 +260,132 @@ func TestBareCommandMatchesAnyInvocation(t *testing.T) {
 	}
 }
 
+// aloof-fog: an allow rule used to match its positionals as an ordered
+// SUBSEQUENCE of a command's operands, the same permissive operator used for
+// deny rules. That let an allowlisted spelling smuggled into an OPTION'S
+// VALUE (not a real subcommand) short-circuit a later deny — fail-open. Allow
+// rules now use a position-anchored strict prefix instead (see Match.Command,
+// "Allow vs. deny: matching discipline"). These tests pin the fix.
+
+// TestAllowRuleCannotBeSmuggledPastDeny is the canonical red case: with
+// `allow: [git, status]` present ahead of a `[git, commit, --no-verify]` deny,
+// `git commit -m status --no-verify` used to be Allowed:true because `status`
+// (the VALUE of `-m`) counts as an operand and satisfies a one-element
+// subsequence. It must now be denied.
+func TestAllowRuleCannotBeSmuggledPastDeny(t *testing.T) {
+	y := `
+version: 1
+rules:
+  - id: allow-git-status
+    match: { command: [git, status] }
+    action: allow
+  - id: no-force-commit
+    match: { command: [git, commit, --no-verify] }
+    action: deny
+    message: "no --no-verify commits"
+`
+	cfg := mustParse(t, y)
+	d := Evaluate(cfg, cmd(ir.ShellBash, "git", "commit", "-m", "status", "--no-verify"))
+	if d.Allowed {
+		t.Fatal("`git commit -m status --no-verify` must be denied: `status` is -m's VALUE, not the allowlisted `git status` subcommand")
+	}
+	if d.Rule == nil || d.Rule.ID != "no-force-commit" {
+		t.Fatalf("wrong rule fired: %+v", d.Rule)
+	}
+}
+
+// TestAllowRuleCannotBeSmuggledPastDeny_WithoutAllowRule is the control: with
+// the allow rule absent, the same command is denied regardless (proves the
+// deny rule alone already catches it, isolating what the allow rule changes).
+func TestAllowRuleCannotBeSmuggledPastDeny_WithoutAllowRule(t *testing.T) {
+	y := `
+version: 1
+rules:
+  - id: no-force-commit
+    match: { command: [git, commit, --no-verify] }
+    action: deny
+    message: "no --no-verify commits"
+`
+	cfg := mustParse(t, y)
+	if Evaluate(cfg, cmd(ir.ShellBash, "git", "commit", "-m", "status", "--no-verify")).Allowed {
+		t.Fatal("without the allow rule, `git commit -m status --no-verify` should already be denied")
+	}
+}
+
+// TestAllowRuleStillMatchesPositionally proves the strict-prefix tightening
+// didn't break the ordinary case: a genuine `git status` still matches the
+// allow rule.
+func TestAllowRuleStillMatchesPositionally(t *testing.T) {
+	y := `
+version: 1
+rules:
+  - id: allow-git-status
+    match: { command: [git, status] }
+    action: allow
+  - id: deny-git
+    match: { command: [git] }
+    action: deny
+    message: "git is denied by default"
+`
+	cfg := mustParse(t, y)
+	if d := Evaluate(cfg, cmd(ir.ShellBash, "git", "status")); !d.Allowed {
+		t.Errorf("`git status` should match the allow rule and clear before the deny-git catch-all, got %+v", d)
+	}
+}
+
+// TestDenySubsequenceStillPermissive is a regression guard: deny rules must
+// keep the permissive ordered-subsequence operand match after allow rules
+// switched to strict prefix — the two operators are independent per rule
+// action, not a single shared one.
+func TestDenySubsequenceStillPermissive(t *testing.T) {
+	y := "version: 1\nrules:\n  - id: no-push\n    match: { command: [git, push] }\n    action: deny\n    message: x\n"
+	cfg := mustParse(t, y)
+	if Evaluate(cfg, cmd(ir.ShellBash, "git", "-C", "/repo", "push")).Allowed {
+		t.Error("`git -C /repo push` should still match the [git, push] deny rule (subsequence, not prefix)")
+	}
+}
+
+// TestAllowRuleValueOptionEscapeHatch documents the recommended authoring for
+// an allow rule that must tolerate a leading value-taking option: use
+// args_all (program-agnostic, position-insensitive) instead of a positional
+// command pattern, since strict prefix on `command: [docker, build]` would
+// reject `docker --context prod build` (the option's value `prod` occupies
+// operand[0], not `build`).
+func TestAllowRuleValueOptionEscapeHatch(t *testing.T) {
+	y := `
+version: 1
+rules:
+  - id: allow-docker-build
+    match: { command: [docker], args_all: [build] }
+    action: allow
+  - id: deny-docker
+    match: { command: [docker] }
+    action: deny
+    message: "docker is denied by default"
+`
+	cfg := mustParse(t, y)
+	if d := Evaluate(cfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build")); !d.Allowed {
+		t.Errorf("`docker --context prod build` should match the args_all allow rule, got %+v", d)
+	}
+	// And the strict-prefix positional form would NOT have matched (documents
+	// why args_all is the recommended escape hatch, not a positional pattern).
+	strictY := `
+version: 1
+rules:
+  - id: allow-docker-build-positional
+    match: { command: [docker, build] }
+    action: allow
+  - id: deny-docker
+    match: { command: [docker] }
+    action: deny
+    message: "docker is denied by default"
+`
+	strictCfg := mustParse(t, strictY)
+	if Evaluate(strictCfg, cmd(ir.ShellBash, "docker", "--context", "prod", "build")).Allowed {
+		t.Error("a strict-prefix positional allow rule should NOT match `docker --context prod build`; that's why args_all is the documented escape hatch")
+	}
+}
+
 func TestValidationErrors(t *testing.T) {
 	cases := map[string]string{
 		"missing id":          "version: 1\nrules:\n  - match: { command: go }\n",

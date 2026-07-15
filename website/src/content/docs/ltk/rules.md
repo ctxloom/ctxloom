@@ -75,12 +75,33 @@ are the same rule.
 A subcommand's position carries meaning (`go test` and `go help test` are
 different operations), so positionals must appear in order. An option's position
 does not, so options match as an unordered set. Options are skipped when locating
-positionals, and the match is a subsequence rather than a strict prefix, which
-means a value-taking flag whose value lands among the operands cannot push the
-subcommand out of position. `go --mod=mod test`, `git -C /repo push`, and
-`docker --context prod build` all still match `[go, test]`, `[git, push]`, and
-`[docker, build]`. The trade-off is that a positional can match a non-leading
-operand of the same spelling, which only ever widens what a deny rule catches.
+positionals.
+
+**This is the one place `action: allow` and `action: deny` (the default) match
+differently.** For a **deny** rule the positional match is a subsequence rather
+than a strict prefix, which means a value-taking flag whose value lands among
+the operands cannot push the subcommand out of position: `go --mod=mod test`,
+`git -C /repo push`, and `docker --context prod build` all still match
+`[go, test]`, `[git, push]`, and `[docker, build]` as a **deny**. The trade-off
+is that a positional can match a non-leading operand of the same spelling,
+which only ever widens what a deny rule catches — fail-safe for a guard.
+
+For an **allow** rule that same looseness is fail-*open*, not fail-safe: it
+widens what gets let through, not just what gets caught. `allow: [git, status]`
+would otherwise match `git commit -m status --no-verify` (`status` is `-m`'s
+value, not the `git status` subcommand), silently clearing a command a deny
+rule was there to catch. So allow rules match positionals as a strict,
+position-anchored prefix instead — every positional must equal the operand at
+the same index, starting at operand 0. One consequence: `docker --context prod
+build` does **not** match `command: [docker, build]` with `action: allow`
+(the anchor at operand 0 rejects it, same as it rejects the smuggling case).
+Write it with `args_all` instead, which is program-agnostic and
+position-insensitive:
+
+```yaml
+match: { command: [docker], args_all: [build] }
+action: allow
+```
 
 ```yaml
 match: { command: go }                                # any `go …`

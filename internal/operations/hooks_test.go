@@ -46,12 +46,14 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ==========================================================================
@@ -540,6 +542,124 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "test-server")
 	assert.Contains(t, string(content), "test-cmd")
+}
+
+// ==========================================================================
+// checkHookTargetScope / prim-guy tests
+// ==========================================================================
+//
+// `manage hooks install` run from $HOME (no git root, no CTXLOOM_ROOT) used to
+// silently write Claude Code's user-GLOBAL settings.json instead of a
+// project's: workDir fell back to bare cwd == $HOME, and
+// claude.ProjectSettingsPath(workDir) == claude.GlobalSettingsPath() in that
+// case. That duplicated ctxloom's injected context (and the /clear banner)
+// into every project. These tests pin the fix: ApplyHooks now refuses that
+// collision unless Force is set, and separately warns (but proceeds) when
+// workDir resolved via the bare-cwd fallback for any other reason.
+//
+// All four use testsupport.Isolate/ProjectDir so HOME is a fresh temp dir and
+// the real ~/.claude is never at risk, on top of the injected memFS.
+
+// TestApplyHooks_RefusesHomeCollision is the canonical red case: WorkDir set
+// to HOME itself makes claude.ProjectSettingsPath(WorkDir) resolve onto
+// claude.GlobalSettingsPath(). Before the fix this silently succeeded and
+// wrote to $HOME/.claude/settings.json; it must now error and write nothing.
+func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "claude-code",
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      home, // == the resolved Claude Code GLOBAL settings scope
+	})
+	require.Error(t, err, "installing hooks with WorkDir==HOME must be refused")
+	assert.Contains(t, err.Error(), "user-global settings")
+
+	exists, existsErr := afero.Exists(fs, claude.ProjectSettingsPath(home))
+	require.NoError(t, existsErr)
+	assert.False(t, exists, "a refused apply must not write settings under HOME")
+}
+
+// TestApplyHooks_ForceOverridesHomeCollision proves --force (Force:true) is
+// the deliberate escape hatch: the same collision now warns loudly instead of
+// erroring, and the apply proceeds and writes.
+func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	var result *ApplyHooksResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:      "claude-code",
+			FS:           fs,
+			ExecPath:     "/usr/bin/ctxloom",
+			ConfigLoader: mockConfigLoader,
+			WorkDir:      home,
+			Force:        true,
+		})
+		require.NoError(t, err, "Force:true must let the collision proceed")
+	})
+	require.NotNil(t, result)
+	assert.Equal(t, "applied", result.Status)
+	assert.Contains(t, stderr, "user-global settings", "Force must still warn loudly, not silently proceed")
+
+	exists, err := afero.Exists(fs, claude.ProjectSettingsPath(home))
+	require.NoError(t, err)
+	assert.True(t, exists, "--force must actually write the settings file")
+}
+
+// TestApplyHooks_SubdirOfHomeIsNotACollision is the negative control: a real
+// project living under HOME (e.g. ~/code/myproject) is not the global-scope
+// collision — only WorkDir==HOME itself is.
+func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	projectDir := filepath.Join(home, "project")
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "claude-code",
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      projectDir,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "applied", result.Status)
+
+	exists, err := afero.Exists(fs, claude.ProjectSettingsPath(projectDir))
+	require.NoError(t, err)
+	assert.True(t, exists, "a project subdirectory of HOME must apply normally")
+}
+
+// TestApplyHooks_WarnsWhenNotInAGitRepository pins the general (non-$HOME)
+// case: installing from any non-repo, non-CTXLOOM_ROOT directory now fires
+// the same "not in a git repository" advisory `ctxloom run` already prints —
+// the acute $HOME collision above is just the sharpest instance of this
+// broader silent-scope problem. WorkDir is left unset so ApplyHooks resolves
+// it itself (the branch RootFromFallback actually gates); an explicitly
+// injected WorkDir wouldn't exercise this path.
+func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
+	testsupport.ProjectDir(t) // isolates HOME/env and chdirs to a fresh non-git temp dir
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	stderr := captureStderr(t, func() {
+		_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:      "claude-code",
+			FS:           fs,
+			ExecPath:     "/usr/bin/ctxloom",
+			ConfigLoader: mockConfigLoader,
+		})
+		require.NoError(t, err)
+	})
+	assert.Contains(t, stderr, "not in a git repository")
 }
 
 // ==========================================================================

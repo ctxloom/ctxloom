@@ -98,9 +98,14 @@ func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
 		return engine.Response{Allow: true}
 	}
 
-	// Understand trivial wrappers (bash -c "…", eval "…", …) by re-parsing their
-	// inner command, so a denied command can't be smuggled past a rule.
-	a.Registry.ExpandWrappers(ctx, script)
+	// Understand trivial wrappers (bash -c "…", eval "…", env …, timeout N …,
+	// …) by unwrapping their inner command, so a denied command can't be
+	// smuggled past a rule. A truncated expansion means the nesting ran deeper
+	// than ltk verified — fail CLOSED (deny) rather than evaluate rules
+	// against a possibly-incomplete view of what the command actually runs.
+	if truncated := a.Registry.ExpandWrappers(ctx, script); truncated {
+		return engine.Response{Allow: false, Reason: "nested command-wrapper depth exceeded (possible evasion)"}
+	}
 
 	d := rules.Evaluate(a.Config, script)
 	return engine.Response{

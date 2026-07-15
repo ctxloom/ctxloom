@@ -20,7 +20,7 @@ func TestBundledShortFlagsMatchSeparate(t *testing.T) {
 	}
 	for cmd, want := range cases {
 		sc := ir.SimpleCommand{Argv: strings.Fields(cmd)}
-		if got := m.matches(ir.ShellBash, sc); got != want {
+		if got := m.matches(ir.ShellBash, sc, false); got != want {
 			t.Errorf("%q: matches=%v want %v", cmd, got, want)
 		}
 	}
@@ -32,10 +32,10 @@ func TestBundledShortFlagsMatchSeparate(t *testing.T) {
 func TestBundlingIsPosixOnly(t *testing.T) {
 	m := Match{Command: CommandPattern{"x"}, ArgsAny: []string{"-R"}}
 	sc := ir.SimpleCommand{Argv: []string{"x", "-Recurse"}}
-	if m.matches(ir.ShellPwsh, sc) {
+	if m.matches(ir.ShellPwsh, sc, false) {
 		t.Error("pwsh: -Recurse must not expand into -R")
 	}
-	if !m.matches(ir.ShellBash, sc) {
+	if !m.matches(ir.ShellBash, sc, false) {
 		t.Error("bash: -Recurse is treated as a short cluster containing -R")
 	}
 }

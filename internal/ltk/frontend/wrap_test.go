@@ -216,14 +216,31 @@ func TestExpandWrappers_NotAWrapper(t *testing.T) {
 	}
 }
 
+// TestExpandWrappers_DepthCap pins the fail-CLOSED depth cap (lusty-probe,
+// second finding): a frontend that always reports a nested wrapper would
+// recurse forever without the cap, so first ensure it terminates, then assert
+// the cap is reported as truncated=true — the signal app.Decide uses to deny
+// the command rather than silently evaluating an incomplete expansion.
 func TestExpandWrappers_DepthCap(t *testing.T) {
-	// A frontend that always reports a nested wrapper would recurse forever
-	// without the cap; ensure it terminates.
 	f := &recursiveWrapper{}
 	r := NewRegistry()
 	r.Register(f)
 	s := cmdScript(ir.ShellBash, "bash", "-c", "bash -c x")
-	r.ExpandWrappers(context.Background(), s) // must return (depth-capped)
+	truncated := r.ExpandWrappers(context.Background(), s) // must return (depth-capped)
+	if !truncated {
+		t.Error("hitting maxWrapDepth must report truncated=true (fail closed), not silently stop")
+	}
+}
+
+// TestExpandWrappers_NotTruncatedWhenShallow is the negative control: normal,
+// shallow wrapping must NOT report truncated.
+func TestExpandWrappers_NotTruncatedWhenShallow(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "bash", "-c", "go test")
+	if truncated := r.ExpandWrappers(context.Background(), s); truncated {
+		t.Error("ordinary shallow wrapping must not report truncated")
+	}
 }
 
 // recursiveWrapper always returns `bash -c x`, to exercise the depth cap.
@@ -234,6 +251,155 @@ func (recursiveWrapper) Shells() []ir.Shell {
 }
 func (recursiveWrapper) Parse(_ context.Context, shell ir.Shell, _ string) (*ir.Script, error) {
 	return cmdScript(shell, "bash", "-c", "bash -c x"), nil
+}
+
+// ---- argv-prepending wrappers (lusty-probe) --------------------------------
+//
+// Unlike the interpreter wrappers above (whose inner command is a STRING that
+// must be re-parsed), these wrap by PREPENDING themselves to an otherwise
+// intact argv: `env git commit --no-verify` really runs `git commit
+// --no-verify`. Before the fix, ExpandWrappers had no handling for this
+// class at all, so a rule targeting `git commit --no-verify` never saw past
+// the outer `env`/`timeout`/`command` program — a demonstrated, empirically
+// confirmed deny-rule bypass (`allowed=true` for all three).
+
+// TestExpandWrappers_EnvPrefix is the first demonstrated bypass: `env git
+// commit --no-verify` must surface `git` (with its full argv) as a nested
+// command so a `[git, commit, --no-verify]` deny rule can match it.
+func TestExpandWrappers_EnvPrefix(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "env", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Fatalf("`env git commit --no-verify` must surface inner `git`; programs=%v", got)
+	}
+}
+
+// TestExpandWrappers_TimeoutPrefix is the second demonstrated bypass:
+// `timeout 5 git commit --no-verify` must skip the mandatory DURATION operand
+// and surface `git`.
+func TestExpandWrappers_TimeoutPrefix(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "timeout", "5", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Fatalf("`timeout 5 git commit --no-verify` must surface inner `git`; programs=%v", got)
+	}
+}
+
+// TestExpandWrappers_CommandPrefix is the third demonstrated bypass:
+// `command git commit --no-verify` must surface `git`.
+func TestExpandWrappers_CommandPrefix(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "command", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Fatalf("`command git commit --no-verify` must surface inner `git`; programs=%v", got)
+	}
+}
+
+// TestExpandWrappers_EnvAssignmentsAndOptions exercises the harder env case:
+// leading KEY=VAL assignments plus an argument-taking option (-u NAME) before
+// the real command, both of which must be stepped over (not mistaken for the
+// inner program).
+func TestExpandWrappers_EnvAssignmentsAndOptions(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "env", "FOO=bar", "-u", "X", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Fatalf("`env FOO=bar -u X git commit --no-verify` must surface inner `git`; programs=%v", got)
+	}
+}
+
+// TestExpandWrappers_PrefixWrapperSet covers the remaining wrappers in the
+// Claude-Code-aligned set (setsid, nice, nohup, stdbuf, time, xargs), each
+// with a representative option form that must be skipped en route to the
+// inner command.
+func TestExpandWrappers_PrefixWrapperSet(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"setsid plain", []string{"setsid", "git", "push"}, "git"},
+		{"setsid -w", []string{"setsid", "-w", "git", "push"}, "git"},
+		{"nice plain", []string{"nice", "git", "push"}, "git"},
+		{"nice -n ADJ", []string{"nice", "-n", "10", "git", "push"}, "git"},
+		{"nice bare -N", []string{"nice", "-10", "git", "push"}, "git"},
+		{"nohup plain", []string{"nohup", "git", "push"}, "git"},
+		{"stdbuf -o", []string{"stdbuf", "-o0", "git", "push"}, ""}, // -o0 combined form not modeled; best-effort, no crash
+		{"stdbuf -o L", []string{"stdbuf", "-o", "L", "git", "push"}, "git"},
+		{"time plain", []string{"time", "git", "push"}, "git"},
+		{"time -p", []string{"time", "-p", "git", "push"}, "git"},
+		{"xargs plain", []string{"xargs", "git", "push"}, "git"},
+		{"xargs -n 1", []string{"xargs", "-n", "1", "git", "push"}, "git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, tt.argv...)
+			r.ExpandWrappers(context.Background(), s)
+			got := nestedPrograms(s)
+			if tt.want == "" {
+				if contains(got, "git") {
+					t.Errorf("unexpected surfacing of `git`; programs=%v", got)
+				}
+				return
+			}
+			if !contains(got, tt.want) {
+				t.Errorf("inner %q not surfaced; programs=%v", tt.want, got)
+			}
+		})
+	}
+}
+
+// TestExpandWrappers_PrefixWrapperTargetableItself is a regression guard for
+// the "keep both surfaces evaluable" design: appending the inner command as
+// Nested (rather than rewriting Argv in place) must leave the OUTER wrapper
+// command itself still visible too, so a rule targeting e.g. `timeout` still
+// fires on its own.
+func TestExpandWrappers_PrefixWrapperTargetableItself(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "timeout", "5", "git", "push")
+	r.ExpandWrappers(context.Background(), s)
+	got := nestedPrograms(s)
+	if !contains(got, "timeout") {
+		t.Errorf("outer `timeout` must still be visible after expansion; programs=%v", got)
+	}
+	if !contains(got, "git") {
+		t.Errorf("inner `git` must also be visible after expansion; programs=%v", got)
+	}
+}
+
+// TestExpandWrappers_PrefixWrapperNoInnerCommand is a bounds check: a
+// wrapper invocation with nothing left after its options must not crash or
+// fabricate an inner command.
+func TestExpandWrappers_PrefixWrapperNoInnerCommand(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "env", "-i")
+	r.ExpandWrappers(context.Background(), s)
+	if len(f.seen) != 0 || len(nestedPrograms(s)) != 1 {
+		t.Errorf("`env -i` with nothing after it must not surface a fabricated inner command; programs=%v seen=%v", nestedPrograms(s), f.seen)
+	}
+}
+
+// TestExpandWrappers_PrefixNotAWrapper is a regression guard: an ordinary,
+// non-wrapper program must not be touched by the prefix-strip pass.
+func TestExpandWrappers_PrefixNotAWrapper(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "git", "push")
+	r.ExpandWrappers(context.Background(), s)
+	if got := nestedPrograms(s); len(got) != 1 || got[0] != "git" {
+		t.Errorf("non-wrapper command must not gain a nested surface; programs=%v", got)
+	}
 }
 
 func contains(xs []string, want string) bool {

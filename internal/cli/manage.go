@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -244,7 +245,10 @@ var manageHooksCmd = &cobra.Command{
 	Short: "Install, uninstall, or inspect ctxloom backend hooks",
 }
 
-var manageHooksBackend string
+var (
+	manageHooksBackend string
+	manageHooksForce   bool
+)
 
 var manageHooksInstallCmd = &cobra.Command{
 	Use:   "install",
@@ -255,14 +259,16 @@ var manageHooksInstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		workDir := projectroot.WorkDir()
 		result, err := operations.ApplyHooks(cmd.Context(), cfg, operations.ApplyHooksRequest{
 			Backend:           manageHooksBackend,
 			RegenerateContext: true,
+			Force:             manageHooksForce,
 		})
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
+		fmt.Printf("Hooks %s for: %v (project root: %s)\n", result.Status, result.Backends, workDir)
 		for _, e := range result.Errors {
 			clidiag.Warn("ctxloom", "%s", e)
 		}
@@ -432,6 +438,7 @@ func init() {
 	manageHooksCmd.AddCommand(manageHooksInstallCmd)
 	manageHooksCmd.AddCommand(manageHooksUninstallCmd)
 	manageHooksCmd.AddCommand(manageHooksStatusCmd)
+	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")
 	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
 		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, antigravity, or all)")
 	}

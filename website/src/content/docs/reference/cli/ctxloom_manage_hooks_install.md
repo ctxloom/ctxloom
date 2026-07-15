@@ -19,6 +19,7 @@ ctxloom manage hooks install [flags]
 
 ```
       --backend string   Backend to target (claude-code, antigravity, or all) (default "all")
+      --force            Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)
   -h, --help             help for install
 ```
 

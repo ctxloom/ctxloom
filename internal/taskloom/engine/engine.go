@@ -1,8 +1,8 @@
 // Package engine is taskloom's registry of agent MCP registrars, so
 // `taskloom manage` can register the `taskloom mcp` server without ctxloom.
 // The implementations are the agent modules' own agent.MCPRegistrar types
-// (claude/antigravity/codex) — engine-specific details (config paths, on-disk
-// format) live entirely in each agent's module, never here.
+// (claude/antigravity/codex/kiro) — engine-specific details (config paths,
+// on-disk format) live entirely in each agent's module, never here.
 package engine
 
 import (
@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -31,7 +32,7 @@ func TaskloomServer() wire.MCPServer {
 
 // engines is the registry of known engines.
 func engines() []Engine {
-	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}}
+	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
 }
 
 // All returns every known engine, for "register wherever present" flows.

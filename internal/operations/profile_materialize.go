@@ -45,6 +45,8 @@ type MaterializeProfileResult struct {
 //   - mcp     → the backend MCP config (.mcp.json / settings)
 //   - hooks   → the backend settings hooks (config + profile + bundle hooks, gated)
 //   - commands → the backend slash-command dir
+//   - skills   → the backend's Agent Skills dir (claude only today — Part
+//     B3-seam; codex/opencode/kiro/agy are the next parallel wave)
 //
 // Fail-loudly (CLAUDE.md philosophy): a surface-write failure is a fatal-class
 // finding recorded through strictness — the `profile materialize` choke owner
@@ -109,6 +111,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
+	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
 
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
 		Context:          asm.Context,
@@ -124,6 +127,8 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		// happens to already exist here — wrong, since the launch environment
 		// won't have it. So materialize alone opts out of that dedup (sour-feed).
 		SelfContainedCommands: true,
+		Skills:                skills,
+		SelfContainedSkills:   true,
 	}, fs)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail

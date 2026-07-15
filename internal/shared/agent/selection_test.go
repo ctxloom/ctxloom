@@ -120,15 +120,16 @@ func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.
 	stderr := captureStderr(t, func() {
 		delivered, _, errs := r.DeliverShared(sharedCwd)
 		require.Empty(t, errs)
-		assert.Len(t, delivered, 4, "context, mcp, settings, and commands (Unsafe) all deliver")
+		assert.Len(t, delivered, 5, "context, mcp, settings, commands, and skills (Unsafe) all deliver")
 	})
 
 	exists, _ := afero.Exists(fs, filepath.Join(sharedCwd, "CLAUDE.md"))
 	assert.False(t, exists, "context must NEVER land as a native file in the shared cwd")
 	assert.Equal(t, isolated, filepath.Dir(set.Context.Path()), "context converted to the out-of-cwd system-prompt scratch")
 	assert.Contains(t, stderr, "commands", "commands has no realization and must warn")
-	assert.Equal(t, 1, strings.Count(stderr, "warning:"),
-		"only commands (no SharedRealization) warns — context/mcp/settings convert silently via SharedRealization")
+	assert.Contains(t, stderr, "skills", "skills has no realization and must warn")
+	assert.Equal(t, 2, strings.Count(stderr, "warning:"),
+		"only commands and skills (no SharedRealization) warn — context/mcp/settings convert silently via SharedRealization")
 }
 
 // A backend with NO SharedRealization for any surface (codex, antigravity, kiro —

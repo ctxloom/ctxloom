@@ -48,6 +48,7 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
 		Commands:         commandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
+		Skills:           skillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
 		MCP:              assembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
@@ -66,6 +67,18 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 		return nil
 	}
 	return d.exports(prompts)
+}
+
+// skillExportsFor maps loaded bundle skills to the named backend's Agent
+// Skill package exports (resolving that backend's per-skill enablement), or
+// nil for a backend without skill export. Reads the descriptor table's
+// skillExports field — the skills-surface analog of commandExportsFor.
+func skillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
+	d, ok := descriptors[backendName]
+	if !ok || d.skillExports == nil {
+		return nil
+	}
+	return d.skillExports(skills)
 }
 
 // AssembleManagedMCP is the exported seam over assembleManagedMCP for callers

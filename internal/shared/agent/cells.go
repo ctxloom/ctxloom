@@ -56,6 +56,13 @@ const (
 	SurfaceSettings
 	// SurfaceCommands is the engine's slash-command / skill / prompt files.
 	SurfaceCommands
+	// SurfaceSkills is the engine's Agent Skills surface — SKILL.md package
+	// directories (claude .claude/skills/, kiro .kiro/skills/, …). Distinct
+	// from SurfaceCommands: a command is a user-invoked slash-command template,
+	// a skill is a model-invoked capability package (SKILL.md + optional
+	// scripts/assets), loaded by the engine via progressive disclosure. See
+	// the skill/command split plan (skill-command-split.plan.md §3.4).
+	SurfaceSkills
 )
 
 // String renders the kind as the stable lowercase label used in delivery reports.
@@ -69,6 +76,8 @@ func (k SurfaceKind) String() string {
 		return "settings"
 	case SurfaceCommands:
 		return "commands"
+	case SurfaceSkills:
+		return "skills"
 	default:
 		return "unknown"
 	}
@@ -147,6 +156,14 @@ type SurfaceInputs struct {
 	// delivery all share their process/home with the launch environment, so they
 	// leave this false (the default) and keep self-resolving dedup ON.
 	SelfContainedCommands bool
+	// Skills carries the per-target-agent Agent Skill package exports — the
+	// skills surface's analog of Commands. Each SkillExport is a whole package
+	// (SKILL.md + optional sibling files), not a single file.
+	Skills []SkillExport
+	// SelfContainedSkills mirrors SelfContainedCommands for the skills surface:
+	// true for a portable `profile materialize --target` artifact, false (the
+	// default) for a live/apply/container delivery that shares this host.
+	SelfContainedSkills bool
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A
@@ -283,7 +300,7 @@ func NewDirectoryIsolatedCell(dir string) DirectoryIsolatedCell {
 // settings, commands — matching every backend's Deliveries() order, so a Build()ed
 // selection's report and LIFO teardown are deterministic regardless of the order
 // a caller chained the WithX() calls in.
-var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands}
+var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills}
 
 // SurfaceSelection is an OPT-IN builder over a SurfaceSet: the default selects
 // NOTHING, and each chainable .WithX(approach) opts one SurfaceKind in AT A NAMED
@@ -328,6 +345,13 @@ func (s *SurfaceSelection) WithSettings(w SettingsWrite) *SurfaceSelection {
 // the named approach.
 func (s *SurfaceSelection) WithCommands(w CommandsWrite) *SurfaceSelection {
 	s.approaches[SurfaceCommands] = w.approach()
+	return s
+}
+
+// WithSkills opts the Agent Skills surface into the selection at the named
+// approach.
+func (s *SurfaceSelection) WithSkills(w SkillsWrite) *SurfaceSelection {
+	s.approaches[SurfaceSkills] = w.approach()
 	return s
 }
 

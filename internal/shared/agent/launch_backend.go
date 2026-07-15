@@ -239,6 +239,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		Hooks:            hooks,
 		ManageStatusline: req.Managed.ManageStatusline,
 		Commands:         req.Managed.Commands,
+		Skills:           req.Managed.Skills,
 	}
 
 	// A SharedCell's race-safe surfaces land in the session's PRIVATE ephemeral dir

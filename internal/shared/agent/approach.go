@@ -133,6 +133,23 @@ func (w CommandsWrite) String() string { return w.approach().String() }
 // approach converts the caller-facing enum to the shared dispatch key.
 func (w CommandsWrite) approach() Approach { return ApproachUnsafeFile }
 
+// SkillsWrite names HOW the Agent Skills surface (SKILL.md packages) is
+// delivered. Like commands, every engine that supports it has exactly one
+// approach today (the native skills dir) — no out-of-cwd flag exists for a
+// skill package, so a SHARED-cwd delivery always falls back to the loud
+// well-known write, same as commands.
+type SkillsWrite int
+
+// SkillsWriteUnsafeFile writes the engine's native skills dir (claude
+// .claude/skills/<name>/, kiro .kiro/skills/<name>/, …).
+const SkillsWriteUnsafeFile SkillsWrite = iota
+
+// String renders the skills-write approach for diagnostics.
+func (w SkillsWrite) String() string { return w.approach().String() }
+
+// approach converts the caller-facing enum to the shared dispatch key.
+func (w SkillsWrite) approach() Approach { return ApproachUnsafeFile }
+
 // ApproachTable is a backend's DECLARED per-surface approach support — the data
 // half of the per-provider dispatch. Each backend declares one as a literal in
 // its own surfaces.go (the design's "backend advertises its support"): the

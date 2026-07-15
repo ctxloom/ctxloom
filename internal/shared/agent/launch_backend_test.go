@@ -51,18 +51,19 @@ type recordSet struct {
 	deliverDirs []string
 }
 
-// surfaces returns the four fake surfaces in a stable order (context first).
+// surfaces returns the five fake surfaces in a stable order (context first).
 func (s *recordSet) surfaces() []*recordSurface {
 	return []*recordSurface{
 		{set: s, label: "context"},
 		{set: s, label: "mcp"},
 		{set: s, label: "settings"},
 		{set: s, label: "commands"},
+		{set: s, label: "skills"},
 	}
 }
 
 func (s *recordSet) Deliveries() []Delivery {
-	out := make([]Delivery, 0, 4)
+	out := make([]Delivery, 0, 5)
 	for _, sf := range s.surfaces() {
 		out = append(out, sf)
 	}
@@ -141,6 +142,8 @@ func (s *recordSurface) Kind() SurfaceKind {
 		return SurfaceMCP
 	case "settings":
 		return SurfaceSettings
+	case "skills":
+		return SurfaceSkills
 	default:
 		return SurfaceCommands
 	}
@@ -273,7 +276,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 		assert.Empty(t, h.ContextHash,
 			"no context-injection hook: MergeManaged was fed an empty hash")
 	}
-	require.Len(t, b.delivered, 4, "all four surfaces collected via the seam")
+	require.Len(t, b.delivered, 5, "all five surfaces collected via the seam")
 }
 
 // ---- cell path: isolated cell -----------------------------------------------
@@ -299,7 +302,7 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	for _, dir := range set.deliverDirs {
 		assert.Equal(t, work, dir, "each well-known surface lands in the private working dir")
 	}
-	require.Len(t, b.delivered, 4, "all four surfaces collected")
+	require.Len(t, b.delivered, 5, "all five surfaces collected")
 }
 
 // ---- cell path: RawContext (codex/agy/kiro) ---------------------------------
@@ -397,7 +400,7 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	}
 	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
 	// The failed context handle is not recorded, but the remaining surfaces are.
-	assert.Len(t, b.delivered, 3, "context handle skipped; mcp/settings/commands still delivered")
+	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
 }
 
 // ---- cleanup ----------------------------------------------------------------
@@ -417,8 +420,8 @@ func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	}))
 
 	require.NoError(t, b.Cleanup(context.Background()))
-	// Delivery order was context, mcp, settings, commands → LIFO reverses it.
-	assert.Equal(t, []string{"commands", "settings", "mcp", "context"}, order, "Cleanup runs handles LIFO")
+	// Delivery order was context, mcp, settings, commands, skills → LIFO reverses it.
+	assert.Equal(t, []string{"skills", "commands", "settings", "mcp", "context"}, order, "Cleanup runs handles LIFO")
 	assert.Empty(t, b.delivered, "Cleanup clears the handle set")
 }
 

@@ -58,6 +58,18 @@ func sampleInputs() SurfaceInputs {
 		Commands: []agent.CommandExport{
 			{Name: "review", Content: "Review {{file}}", Enabled: true, Description: "Code review"},
 		},
+		Skills: []agent.SkillExport{
+			{
+				Name:        "humanize",
+				Description: "Removes AI writing tells",
+				Enabled:     true,
+				Files: []agent.PackageFile{
+					{RelPath: "SKILL.md", Content: []byte("---\nname: humanize\ndescription: Removes AI writing tells\n---\n\nBody.\n"), Mode: 0644},
+					{RelPath: "scripts/run.sh", Content: []byte("#!/bin/sh\necho hi\n"), Mode: 0755},
+				},
+			},
+			{Name: "disabled-skill", Enabled: false, Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("nope")}}},
+		},
 	}
 }
 
@@ -281,6 +293,65 @@ func TestCommandsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
 	require.NoError(t, delivered[0].Cleanup())
 }
 
+// ---- skills surface ----------------------------------------------------------
+
+// skills Delivery writes .claude/skills/<name>/SKILL.md (+ sibling files) into
+// the target dir with the exec bit preserved; a disabled skill is not written;
+// Cleanup reverts the manifest-tracked set. This exercises the same NewSurfaces
+// construction the LIVE launch path drives (claudecode.go's buildSurfaces
+// forwards SurfaceInputs.Skills straight into this Surfaces value).
+func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
+	dir := t.TempDir()
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	handle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	skillMD := filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md")
+	require.FileExists(t, skillMD)
+	content, err := os.ReadFile(skillMD)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "Body.")
+
+	scriptPath := filepath.Join(dir, ".claude", "skills", "humanize", "scripts", "run.sh")
+	info, err := os.Stat(scriptPath)
+	require.NoError(t, err, "scripts/run.sh must be materialized")
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit on scripts/run.sh survives claude's skills surface")
+
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "disabled-skill", "SKILL.md"),
+		"a skill with Enabled == false must not be written")
+
+	require.NoError(t, handle.Cleanup())
+	assert.NoFileExists(t, skillMD, "cleanup reverts the skill export")
+	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "humanize"), "cleanup prunes the now-empty skill directory")
+}
+
+// skills has no out-of-cwd flag and no SharedRealization (mirrors commands),
+// so DeliverShared falls back to the well-known write — WARNING to stderr AND
+// PROCEEDING.
+func TestSkillsSurface_Unsafe_WarnsAndProceeds(t *testing.T) {
+	cwd := t.TempDir()
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	r, err := agent.Select(s).WithSkills(agent.SkillsWriteUnsafeFile).Build()
+	require.NoError(t, err)
+
+	var delivered []agent.Delivered
+	stderr := captureStderr(t, func() {
+		var errs []error
+		delivered, _, errs = r.DeliverShared(cwd)
+		require.Empty(t, errs)
+	})
+	require.Len(t, delivered, 1)
+
+	assert.Contains(t, stderr, "warning:", "the fallback streams a loud WARN")
+	assert.Contains(t, stderr, "skills")
+	assert.Contains(t, stderr, "shared cwd")
+	assert.FileExists(t, filepath.Join(cwd, ".claude", "skills", "humanize", "SKILL.md"),
+		"the well-known write proceeded into the shared cwd")
+	require.NoError(t, delivered[0].Cleanup())
+}
+
 // ---- cells wiring (the vertical slice) -------------------------------------
 
 // DeliverShared converts claude's flag-backed surfaces (context/MCP/settings) via
@@ -301,7 +372,7 @@ func TestSharedCell_AcceptsClaudeRaceSafeSurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 4, "context, MCP, settings, and commands all deliver")
+	require.Len(t, delivered, 5, "context, MCP, settings, commands, and skills all deliver")
 	assert.Contains(t, stderr, "warning:", "the commands fallback warns when DeliverShared delivers it")
 }
 
@@ -312,7 +383,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, MCP, settings, commands")
+	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {

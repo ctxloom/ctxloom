@@ -371,6 +371,48 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 	return out
 }
 
+// ResolveBundleSkills aggregates the Agent Skill packages shipped by every
+// bundle referenced in the caller's selected profiles (or the configured
+// defaults when none are passed) — the skills analog of ResolveBundleCommands.
+// Mirrors ONLY its UNCURATED path: every profile-referenced bundle's skills
+// export by default (each still gated by its own per-engine enablement flag
+// downstream, mirroring the mcp/hooks/commands resolvers). A profile's
+// `skills:` CURATED list (opt-in, mirroring `commands:`) and companion-shipped
+// skills are both Part B6 (skill-command-split.plan.md §3.2 notes companion
+// skill emission explicitly out of the first slices) — not implemented here.
+// Deduped by skill item name (first occurrence wins), matching
+// ResolveBundleCommands' dedup key.
+func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedSkill {
+	bundleLoader := c.SeededBundleLoader(false, opts...)
+
+	seen := make(map[string]bool)
+	var out []*bundles.LoadedSkill
+	add := func(skill *bundles.LoadedSkill) {
+		if seen[skill.Item] {
+			return
+		}
+		seen[skill.Item] = true
+		out = append(out, skill)
+	}
+
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) > 0 && len(c.AppPaths) > 0 {
+		profileLoader := c.GetProfileLoader()
+		for _, profileName := range profiles {
+			resolved, err := profileLoader.ResolveProfile(profileName, nil)
+			if err != nil {
+				continue
+			}
+			for _, bundleRef := range resolved.Bundles {
+				for _, skill := range bundleLoader.SkillsFromBundleRef(bundleRef) {
+					add(skill)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // ResolveCompanionCommands returns the commands shipped by every discovered
 // companion's loadout (S8 — companionBundleSeed / sortedCompanionRefs),
 // unconditionally whenever the companion binary is on PATH, in deterministic

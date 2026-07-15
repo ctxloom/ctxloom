@@ -221,6 +221,7 @@ type SetupRequest struct {
 // metadata resolved host-side.
 type ManagedConfig struct {
 	Commands         []CommandExport           // per-target-agent command (slash-command) exports
+	Skills           []SkillExport             // per-target-agent Agent Skill package exports (SurfaceSkills)
 	Hooks            *wire.HooksConfig         // config + default-profile + bundle hooks (no context-injection)
 	MCP              *wire.MCPConfig           // merged config + default-profile MCP servers
 	BundleMCP        map[string]wire.MCPServer // MCP servers shipped by profile + builtin bundles (parallel to Hooks' bundle set)

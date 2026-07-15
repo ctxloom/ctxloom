@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -146,99 +145,26 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 // manifest is only (re)written when at least one file was written; with
 // nothing to write the previous manifest-tracked set and manifest are simply
 // removed.
+//
+// A command is the degenerate case of a package with exactly one file, so this
+// is now a THIN ADAPTER over WriteManagedPackageFiles (packagefiles.go) — the
+// general tree writer a skill package delivery reuses. Every command file is
+// written at mode 0644 (PackageFile{}.Mode's zero-value default), matching
+// this function's historical hardcoded mode, so existing callers see
+// byte-identical output.
 func WriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
-	o := &managedWriteOptions{}
-	for _, opt := range opts {
-		opt(o)
-	}
-	manifestPath := filepath.Join(dir, manifestName)
-
-	// Remove the previous ctxloom-written set (manifest-tracked only).
-	// Manifest lines are data, not trusted paths: a doctored line ("../x",
-	// absolute) must not delete outside the managed tree.
-	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
-		for _, name := range strings.Split(string(data), "\n") {
-			if name = strings.TrimSpace(name); name != "" {
-				path, ok := SafeCommandRelPath(dir, name)
-				if !ok {
-					Warn("skipping unsafe command manifest entry %q: not a relative path inside %s", name, dir)
-					continue
-				}
-				_ = fs.Remove(path)
+	return WriteManagedPackageFiles(fs, dir, manifestName, cmds,
+		func(c CommandExport) bool { return c.Enabled },
+		func(c CommandExport) string { return c.Name },
+		func(c CommandExport) ([]PackageFile, error) {
+			relPath, content, err := render(c)
+			if err != nil {
+				return nil, err
 			}
-		}
-		_ = fs.Remove(manifestPath)
-	}
-
-	var written []string
-	for _, c := range cmds {
-		if !c.Enabled {
-			continue
-		}
-		// Reject absolute/traversal names outright before any path is derived
-		// from them. Nested names without traversal ("group/cmd") remain
-		// allowed; how they map to a path is the renderer's choice.
-		if _, ok := SafeCommandRelPath(dir, c.Name); !ok {
-			Warn("skipping command %q: name is not a relative path inside %s", c.Name, dir)
-			continue
-		}
-		// One malformed command must not abort writing the others nor destroy
-		// the previously-good set: warn and skip per-command (the project's
-		// warn-and-continue fault-tolerance philosophy). The manifest is then
-		// (re)written from whatever was actually written below, so the on-disk
-		// set always stays tracked and no file is orphaned.
-		relPath, content, err := render(c)
-		if err != nil {
-			Warn("skipping command %q: render failed: %v", c.Name, err)
-			continue
-		}
-		path, ok := SafeCommandRelPath(dir, relPath)
-		if !ok {
-			Warn("skipping command %q: rendered path %q is not a relative path inside %s", c.Name, relPath, dir)
-			continue
-		}
-		// Cross-scope dedup ("home/global wins"): when writing into a NON-home
-		// commands dir, skip a file byte-identical to the same-named one already in
-		// the global dir — the agent loads both, so a project copy would surface a
-		// duplicate slash-command. Conservative: ONLY a byte-identical match skips;
-		// a divergent file (version skew/drift) is still written so a difference is
-		// never silently hidden. A skip is normal behavior, so it is omitted from
-		// `written` (and thus the manifest) to keep manifest-scoped cleanup correct
-		// — no fault, no strictness. Writing into the home dir itself never dedups.
-		if o.dedupHomeDir != "" && filepath.Clean(dir) != filepath.Clean(o.dedupHomeDir) {
-			if homePath, ok := SafeCommandRelPath(o.dedupHomeDir, relPath); ok {
-				if existing, rerr := afero.ReadFile(fs, homePath); rerr == nil && bytes.Equal(existing, content) {
-					continue
-				}
-			}
-		}
-		if len(written) == 0 {
-			if err := fs.MkdirAll(dir, 0755); err != nil {
-				Warn("skipping command %q: create command dir %s: %v", c.Name, dir, err)
-				continue
-			}
-		}
-		if parent := filepath.Dir(path); parent != filepath.Clean(dir) {
-			if err := fs.MkdirAll(parent, 0755); err != nil {
-				Warn("skipping command %q: create command subdir %s: %v", c.Name, parent, err)
-				continue
-			}
-		}
-		if err := afero.WriteFile(fs, path, content, 0644); err != nil {
-			Warn("skipping command %q: write failed: %v", c.Name, err)
-			continue
-		}
-		written = append(written, relPath)
-	}
-
-	if len(written) == 0 {
-		return nil
-	}
-	manifest := strings.Join(written, "\n")
-	if o.manifestTrailingNewline {
-		manifest += "\n"
-	}
-	return afero.WriteFile(fs, manifestPath, []byte(manifest), 0644)
+			return []PackageFile{{RelPath: relPath, Content: content}}, nil
+		},
+		opts...,
+	)
 }
 
 // mustacheVarRe matches {{variable}} placeholders in command bodies.

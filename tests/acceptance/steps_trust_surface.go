@@ -476,35 +476,38 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteHomeFile(".ctxloom/approvals", "not a directory\n")
 	})
 
-	// the skill, the MCP server, and the hook were all ALLOWED before the
-	// corruption (trusted-signer, step 5) — proving they too go dark once the
-	// store proves unreadable is what shows this is genuine DENY-EVERYTHING,
-	// not merely "the one item with reject history stays denied".
-	ctx.Step(`^the skill, the MCP server, and the hook are also absent, because the approvals store cannot be trusted$`, func(c context.Context) error {
+	// Fixed behavior is deny-EVERYTHING at its strongest: the corrupt store
+	// records a fatal trust finding for the session, so `profile materialize`
+	// ABORTS pre-write (strict mode) rather than emitting a surface with the
+	// items quietly withheld — nothing is delivered at all, and Alice is told
+	// exactly why. "Alice starts a session" runs materialize ignoring its
+	// error, so LastExitCode / LastOutput carry the abort.
+	ctx.Step(`^her session refuses to start, telling her the approvals store is corrupted$`, func(c context.Context) error {
 		w := worldFrom(c)
-		var evidence []string
-		for _, element := range []string{"skill", "MCP server", "hook"} {
-			if err := tsAssertPresence(w, element, false); err != nil {
-				return err
-			}
-			evidence = append(evidence, fmt.Sprintf("%s: %s", element, w.docStepMaterialized))
-		}
-		w.docStepMaterialized = strings.Join(evidence, "\n")
-		return nil
-	})
-
-	ctx.Step(`^Alice is told her approvals store is corrupted$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// The preceding "Alice starts a session" already ran the materialize
-		// command that produced this warning — re-attach the actual terminal
-		// text this Then is checking (mirrors "Alice is told the content is
-		// held for her review" in steps_j1_setup.go).
 		out := w.env.LastOutput()
-		w.docStepMaterialized = strings.TrimSpace(out)
+		w.docStepMaterialized = tsAbortExcerpt(out)
+		if code := w.env.LastExitCode(); code == 0 {
+			return fmt.Errorf("materialize exited 0 on a corrupted approvals store; it must refuse to start. output:\n%s", out)
+		}
 		if !strings.Contains(out, "approvals store unreadable") {
 			return fmt.Errorf("materialize output does not tell Alice her approvals store is corrupted; output:\n%s", out)
 		}
 		return nil
+	})
+
+	// The exact refutation of the vulnerability (taskloom rocky-motto): the
+	// bug was "reject the fragment -> corrupt the store -> the rejected
+	// fragment REAPPEARS in the assembled context, exit 0, no warning". Post
+	// -fix, the assembled context (out/CLAUDE.md, rewritten every run) is
+	// never regenerated at all — the session aborted — so the rejected
+	// fragment's bytes stay gone. A missing/empty CLAUDE.md is the cleanest
+	// pass: the refused session assembled nothing, so nothing rejected came
+	// back. (The skill/MCP/hook were legitimately delivered by the PRIOR,
+	// healthy session and its files linger untouched by the aborted run —
+	// that stale surface is not the rejected content reappearing, so this
+	// step deliberately asserts only on the fragment that was rejected.)
+	ctx.Step(`^the previously-rejected fragment has still not reappeared in her assistant's context$`, func(c context.Context) error {
+		return tsFragmentNotReappeared(worldFrom(c))
 	})
 
 	// --- GAP C: the decision that was RECORDED, not just the payload served ----
@@ -635,6 +638,51 @@ func tsFragmentListState(w *World, name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("fragment %q not found in `fragment list --format json` output:\n%s", name, out)
+}
+
+// tsAbortExcerpt pulls the strict-mode abort banner and its first finding out
+// of a materialize run's (heavily repeated) warning stream, for the living-doc
+// evidence pane — the whole stream is one identical "approvals store
+// unreadable" line per resolved item plus the abort listing, so a focused
+// excerpt reads far better than dumping all of it.
+func tsAbortExcerpt(out string) string {
+	var keep []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "aborting startup") ||
+			strings.Contains(line, "[trust-store]") ||
+			strings.Contains(line, "fix or remove the corrupted approvals store") {
+			keep = append(keep, strings.TrimSpace(line))
+		}
+		if len(keep) >= 3 {
+			break
+		}
+	}
+	if len(keep) == 0 {
+		return strings.TrimSpace(out)
+	}
+	return strings.Join(keep, "\n")
+}
+
+// tsFragmentNotReappeared asserts the previously-rejected fragment's marker is
+// NOT present in the assembled context (out/CLAUDE.md). It is missing-file
+// tolerant on purpose: the corrupt-store session ABORTS before regenerating
+// CLAUDE.md, so an absent (or present-but-markerless) context both mean the
+// same thing — the rejected fragment did not come back. This is the direct
+// inverse of the vulnerability, which saw the marker REAPPEAR here.
+func tsFragmentNotReappeared(w *World) error {
+	rel := filepath.Join("out", "CLAUDE.md")
+	body, err := w.env.ReadFile(rel)
+	if err != nil {
+		// No assembled context at all — the aborted session produced none, so
+		// the rejected fragment certainly did not reappear.
+		w.docStepMaterialized = fmt.Sprintf("%s: not present — the refused session assembled no context, so the rejected fragment did not reappear", rel)
+		return nil
+	}
+	if strings.Contains(body, tsFragmentMarker) {
+		return fmt.Errorf("the rejected fragment's marker %q REAPPEARED in %s after the store was corrupted — the fail-open bug is back; content:\n%s", tsFragmentMarker, rel, body)
+	}
+	w.docStepMaterialized = fmt.Sprintf("%s: %d bytes assembled, and it does NOT contain the rejected fragment's marker %q — the rejection held through the corruption", rel, len(body), tsFragmentMarker)
+	return nil
 }
 
 // tsAssertPresence dispatches to the right generated-surface parser per

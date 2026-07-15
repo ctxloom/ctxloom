@@ -267,7 +267,16 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 			// exemptions below). Fatal-class in strict mode (a deny-all
 			// session is not the session the user set up) — mirrors the
 			// deleted ledger's own store-open check (getTrustStore, pre-S6).
-			strictness.Fail(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
+			//
+			// FailOnce, not Fail: this gate now runs on EVERY item (it moved
+			// out of the records==nil preamble, which fired at most once per
+			// build, onto the per-item production path). A whole session's
+			// worth of items hits the SAME unreadable store, so the finding
+			// and its warning line are identical every time — FailOnce
+			// collapses them to a single abort-listing entry per checkpoint
+			// window instead of one per item (a 13-item materialize would
+			// otherwise print the same fatal line 13 times).
+			strictness.FailOnce(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
 				"approvals store unreadable, denying all items: %v", err)
 			return decide(trust.Deny, trust.SourcePending), nil
 		}

@@ -219,6 +219,5 @@ Feature: The trust surface — what "review" actually controls
     Then the fragment is absent from her assistant's delivered surface
     When her approvals store is corrupted, a file where a directory should be
     And Alice starts a session
-    Then the fragment is absent from her assistant's delivered surface
-    And the skill, the MCP server, and the hook are also absent, because the approvals store cannot be trusted
-    And Alice is told her approvals store is corrupted
+    Then her session refuses to start, telling her the approvals store is corrupted
+    And the previously-rejected fragment has still not reappeared in her assistant's context

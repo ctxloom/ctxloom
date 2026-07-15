@@ -82,6 +82,12 @@ type Home struct {
 	// is exactly this shape, and unblocked kill/crash is what the
 	// crash-redelivery test's determinism depends on).
 	wg sync.WaitGroup
+	// closing mirrors Coordinator.closing — see goTracked's doc there for
+	// why an Add() that races an in-progress Wait() is a genuine
+	// sync.WaitGroup misuse (caught live by -race), not just a theoretical
+	// concern: SetTurnSink can dispatch a fresh turnPump concurrently with
+	// crash()/Close() joining h.wg.
+	closing bool
 }
 
 // HomeConfig carries the spawn-injected coordinator trio plus the runner's
@@ -179,9 +185,18 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 }
 
 // goTracked runs fn on a new goroutine tracked by h.wg — see the wg field's
-// doc and waitTracked (flaky-agentcoord S2).
+// doc and waitTracked (flaky-agentcoord S2). Refuses to Add() once h.closing
+// is set (mirrors Coordinator.goTracked — see its doc for why this matters,
+// not just defensive).
 func (h *Home) goTracked(fn func()) {
+	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		go fn()
+		return
+	}
 	h.wg.Add(1)
+	h.mu.Unlock()
 	go func() {
 		defer h.wg.Done()
 		fn()
@@ -729,6 +744,9 @@ func (h *Home) Report(ctx context.Context, summary *agentcoordpb.Summary, artifa
 // dispatched, before it proceeds (Coordinator.Close's attachment loop calls
 // closeFn synchronously for exactly this reason).
 func (h *Home) crash() {
+	h.mu.Lock()
+	h.closing = true
+	h.mu.Unlock()
 	h.cancel()
 	_ = h.conn.Close()
 	h.waitTracked()
@@ -742,6 +760,7 @@ func (h *Home) crash() {
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
 	h.mu.Lock()
+	h.closing = true
 	link := h.link
 	h.link = nil
 	h.mu.Unlock()

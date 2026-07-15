@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -138,7 +139,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 
-	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false)
+	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}))
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +169,15 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 // before return — the durability-asserting response is agent_run's), and
 // publishes the runtime attachment. resume marks a re-attempt for an ended
 // harp; the claim (current run still ended) is checked inside the journal's
-// serialized window so concurrent resumes cannot double-launch.
-func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool) (*childRt, string, error) {
+// serialized window so concurrent resumes cannot double-launch. attached is
+// the childRt's "settled" signal (S3, flaky-agentcoord): AgentRun's own
+// synchronous call passes a fresh channel; resumeChild passes the ONE
+// channel its own dispatcher (armLaunch) created for THIS specific attempt
+// — never looked up by harp here, so a concurrent second dispatch for the
+// same harp (driveQueued's StateEnded case racing terminateRun's
+// leftover-mail tail — both legitimate, "the winner delivers") can never
+// cross-close another attempt's channel.
+func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}) (*childRt, string, error) {
 	runID := newRunID()
 	token, credHash, err := mintToken()
 	if err != nil {
@@ -214,12 +222,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		parentRunID: caller.RunID,
 		plan:        plan,
 		wake:        make(chan struct{}, 1),
-		// takeArmedLaunch adopts the dispatcher's pre-armed channel when this
-		// is a resumeChild attempt (driveQueued/terminateRun arm it
-		// synchronously BEFORE dispatching the async goroutine that reaches
-		// here); a fresh channel otherwise (AgentRun's own synchronous path,
-		// which never arms — enqueueRun IS the synchronous point).
-		attached: c.takeArmedLaunch(harp),
+		attached:    attached,
 	}
 	// Claim a free slot now when one exists so `queued` is truthful at
 	// return. Claimed BEFORE publication — after it, slotHeld belongs to
@@ -236,35 +239,34 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 // the winner delivers.
 var errResumeLost = errors.New("coord: resume already claimed")
 
-// armLaunch pre-registers harp's NEXT launch attempt's "attached" signal,
-// synchronously, in the CALLER's own goroutine — before that caller
-// dispatches the async resumeChild goroutine (driveQueued's StateEnded case,
-// terminateRun's leftover-mail resume tail). enqueueRun's takeArmedLaunch
-// adopts the returned channel once the resumed childRt exists (on the async
-// goroutine, after Resolve). This ordering is what makes awaitChildUp
+// armLaunch synchronously mints and registers a FRESH "attached" channel for
+// harp's next launch attempt — called by a dispatcher (driveQueued's
+// StateEnded case, terminateRun's leftover-mail resume tail) in ITS OWN
+// goroutine, BEFORE spawning the async resumeChild goroutine that owns the
+// returned channel end-to-end (passed straight through to enqueueRun, never
+// looked up again by harp). This ordering is what makes awaitChildUp
 // race-free: a caller synchronously after the dispatch (AgentSend, in a
-// test) is guaranteed the map already reflects the attempt it just
-// triggered — armLaunch never itself runs on the async goroutine.
-func (c *Coordinator) armLaunch(harp string) {
+// test) is guaranteed c.launchArmed already reflects the attempt it just
+// triggered.
+//
+// APPENDS, never overwrites: two dispatchers can legitimately race to arm
+// the SAME harp (driveQueued's own StateEnded case racing terminateRun's
+// leftover-mail tail for the SAME queued message — both correct, "the
+// winner delivers" per errResumeLost's doc). An earlier overwrite-slot
+// design lost track of an in-flight attempt entirely the moment a SECOND
+// dispatch armed the same harp: awaitChildUp then watched only the newest
+// one, and if THAT one happened to be the loser (settling near-instantly
+// via errResumeLost) while the FIRST was the actual winner (still working
+// through StartEngine), it returned before the real outcome even existed.
+// Keeping every not-yet-settled channel in the slice is what lets
+// awaitChildUp wait on all of them at once (waitAnyClosed) instead of
+// assuming "whichever armed last" is the one that will win enqueueRun.
+func (c *Coordinator) armLaunch(harp string) chan struct{} {
 	ch := make(chan struct{})
 	c.mu.Lock()
-	c.launchArmed[harp] = ch
+	c.launchArmed[harp] = append(c.launchArmed[harp], ch)
 	c.mu.Unlock()
-}
-
-// takeArmedLaunch claims harp's pre-armed "attached" channel for a just-built
-// childRt (resumeChild's own call, on the async goroutine), falling back to a
-// fresh channel when nothing was armed (AgentRun's own synchronous path,
-// which creates its childRt before any goroutine dispatch and so never needs
-// to arm ahead of time).
-func (c *Coordinator) takeArmedLaunch(harp string) chan struct{} {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if ch, ok := c.launchArmed[harp]; ok {
-		delete(c.launchArmed, harp)
-		return ch
-	}
-	return make(chan struct{})
+	return ch
 }
 
 // markAttached closes rt's attached signal exactly once (idempotent: a
@@ -280,56 +282,89 @@ func (c *Coordinator) markAttached(rt *childRt) {
 	}
 }
 
-// settleArmedLaunch closes and clears any leftover pre-armed "attached"
-// channel for harp that a dispatched resumeChild attempt never claimed (an
-// early return before enqueueRun — see resumeChild's defer) — otherwise a
-// caller awaiting it (awaitChildUp) would hang on an attempt that silently
-// never happened. LIMITATION: if two resume attempts for the SAME harp are
-// armed concurrently (a rare race; the journal's own resume claim already
-// makes only one of them actually launch — errResumeLost), the loser's
-// settle can close the WINNER's channel if it re-arms in between; harmless
-// in production (nothing there awaits it) and not exercised by the
-// deterministic single-sequential-send tests this seam targets.
-func (c *Coordinator) settleArmedLaunch(harp string) {
-	c.mu.Lock()
-	ch, ok := c.launchArmed[harp]
-	if ok {
-		delete(c.launchArmed, harp)
-	}
-	c.mu.Unlock()
-	if ok {
-		close(ch)
+// awaitChildUp blocks until harp's launch/resume activity has settled to a
+// REAL outcome — attached (legacy: engine attached and about to start
+// driving turns; migrated: StartRun round-tripped) or failed (failChild) —
+// never merely a benign "lost the race" no-op (errResumeLost / resumeChild's
+// !found). It is the flaky-agentcoord S3 seam: a test replaces the FIRST
+// require.Eventually poll in a spawn/resume-gated chain with this, keying
+// the wait on the tracked goroutine's own progress instead of a wall-clock
+// guess — any Eventually further down the SAME chain (e.g. a durable-fold
+// fsync) now resolves in µs-ms, not seconds, because its precondition is
+// already true.
+//
+// Two independent signals matter, and NEITHER alone is reliable:
+//   - c.byHarp[harp].attached is authoritative once it exists (enqueueRun
+//     only ever sets c.byHarp[harp] on a WINNING attempt) but does not exist
+//     yet during the window between a dispatch and its resumeChild goroutine
+//     actually reaching enqueueRun.
+//   - c.launchArmed[harp] covers that window (armLaunch appends to it
+//     SYNCHRONOUSLY in the dispatcher, before the async goroutine starts).
+//     Two dispatchers can race to arm the SAME harp — armLaunch's doc — so
+//     this call waits on EVERY currently-armed, not-yet-settled channel at
+//     once (waitAnyClosed), pruning settled ones as it notices them; it
+//     never assumes "whichever armed most recently" is the one that will
+//     actually win enqueueRun.
+//
+// Loop: prefer c.byHarp[harp].attached whenever it is live (covers AgentRun's
+// own fresh, never-armed channel, and is simply the fastest path once a
+// resume's rt exists too); otherwise prune c.launchArmed[harp] to the
+// channels still open and wait for the first of them to close, then
+// re-evaluate — a resume's rt may now exist, or more may have been armed.
+// Bounded by ctx throughout — a genuinely pathological retry storm still
+// respects the caller's deadline. A harp with no history at all (or nothing
+// currently pending) returns immediately.
+func (c *Coordinator) awaitChildUp(ctx context.Context, harp string) error {
+	for {
+		c.mu.Lock()
+		rt := c.byHarp[harp]
+		if rt != nil && rt.attached != nil {
+			ch := rt.attached
+			c.mu.Unlock()
+			select {
+			case <-ch:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		var pending []chan struct{}
+		for _, ch := range c.launchArmed[harp] {
+			select {
+			case <-ch:
+				// Already closed (a settled no-op, or a real outcome we
+				// simply have not visited yet via rt.attached) — drop it.
+			default:
+				pending = append(pending, ch)
+			}
+		}
+		c.launchArmed[harp] = pending
+		if len(pending) == 0 {
+			c.mu.Unlock()
+			return nil
+		}
+		c.mu.Unlock()
+		if err := waitAnyClosed(ctx, pending); err != nil {
+			return err
+		}
 	}
 }
 
-// awaitChildUp blocks until harp's most recently dispatched (or currently
-// live) launch attempt has settled — attached (legacy: engine attached and
-// about to start driving turns; migrated: StartRun round-tripped) or failed
-// (failChild). It is the flaky-agentcoord S3 seam: a test replaces the FIRST
-// require.Eventually poll in a spawn/resume-gated chain with this, keying the
-// wait on the tracked goroutine's own progress instead of a wall-clock guess
-// — any Eventually further down the SAME chain (e.g. a durable-fold fsync)
-// now resolves in µs-ms, not seconds, because its precondition is already
-// true. A harp with no live/armed attempt (never spawned, or already settled
-// with nothing newly armed) returns immediately.
-func (c *Coordinator) awaitChildUp(ctx context.Context, harp string) error {
-	c.mu.Lock()
-	var ch chan struct{}
-	if armed, ok := c.launchArmed[harp]; ok {
-		ch = armed
-	} else if rt := c.byHarp[harp]; rt != nil {
-		ch = rt.attached
+// waitAnyClosed blocks until any channel in chs closes, or ctx ends.
+// Test-only fan-in over a dynamic channel count (reflect.Select is the
+// standard idiom for this — no production path ever calls awaitChildUp, so
+// the reflection cost is immaterial).
+func waitAnyClosed(ctx context.Context, chs []chan struct{}) error {
+	cases := make([]reflect.SelectCase, 0, len(chs)+1)
+	for _, ch := range chs {
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ch)})
 	}
-	c.mu.Unlock()
-	if ch == nil {
-		return nil
-	}
-	select {
-	case <-ch:
-		return nil
-	case <-ctx.Done():
+	cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())})
+	chosen, _, _ := reflect.Select(cases)
+	if chosen == len(cases)-1 {
 		return ctx.Err()
 	}
+	return nil
 }
 
 // childEnv builds the child ENGINE's extra environment: ambient identity
@@ -919,23 +954,33 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// A message that raced the death (queued after the last boundary drain)
 	// must not strand: the ended-child delivery rule is resume (§6a).
 	if cause != CauseStopped && c.pendingCount(rec.Harp) > 0 {
-		c.armLaunch(rec.Harp)
-		c.goTracked(func() { c.resumeChild(rec.Harp) })
+		attached := c.armLaunch(rec.Harp)
+		c.goTracked(func() { c.resumeChild(rec.Harp, attached) })
 	}
 }
 
 // resumeChild relaunches an ended harp as a FRESH run attempt (new run id,
 // new credential) so queued mail can be delivered as its next turn. The
 // session-load machinery primes the fresh engine with the recorded history
-// when the transcript is bound.
-func (c *Coordinator) resumeChild(harp string) {
-	// Every exit path below must settle harp's "attached" signal so
-	// awaitChildUp never hangs on an attempt that silently never reached
-	// enqueueRun (the harp turned out not to be ended anymore, Resolve
-	// failed, or a concurrent resume already won the claim). Once enqueueRun
-	// DOES run, it claims the armed channel onto rt.attached and this becomes
-	// a no-op (S3, flaky-agentcoord).
-	defer c.settleArmedLaunch(harp)
+// when the transcript is bound. attached is THIS call's own "settled"
+// signal, minted by its dispatcher's armLaunch — resumeChild owns closing it
+// end-to-end: every early-return path below (before enqueueRun hands
+// ownership to the new childRt) closes it directly via the defer/settled
+// guard, so awaitChildUp never hangs on an attempt that silently never
+// reached enqueueRun (S3, flaky-agentcoord).
+func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
+	settled := false
+	defer func() {
+		// Only close here if enqueueRun never ran (found=false, Resolve
+		// failed, or a concurrent resume already won the claim —
+		// errResumeLost). Once enqueueRun succeeds, `attached` becomes
+		// rt.attached and every downstream path (failChild, the legacy/
+		// StartRun attach-success points) closes it exactly once via
+		// markAttached — closing it again here would panic.
+		if !settled {
+			close(attached)
+		}
+	}()
 	var rec RunRecord
 	found := false
 	c.runs.View(func() {
@@ -975,7 +1020,7 @@ func (c *Coordinator) resumeChild(harp string) {
 		})
 	}
 	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Depth: rec.Depth - 1, Project: c.projectDir}
-	rt, token, err := c.enqueueRun(caller, plan, harp, "", true)
+	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
 	}
@@ -983,6 +1028,7 @@ func (c *Coordinator) resumeChild(harp string) {
 		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
 		return
 	}
+	settled = true // rt now owns `attached`'s lifecycle (see the defer above)
 	c.audit("agent_resume", rec.ParentHarp, map[string]string{"harp": harp, "run_id": rt.runID})
 
 	if !rt.slotHeld {
@@ -1048,8 +1094,8 @@ func (c *Coordinator) driveQueued(harp string) string {
 	})
 	switch state {
 	case StateEnded:
-		c.armLaunch(harp)
-		c.goTracked(func() { c.resumeChild(harp) })
+		attached := c.armLaunch(harp)
+		c.goTracked(func() { c.resumeChild(harp, attached) })
 	case StateIdle:
 		c.mu.Lock()
 		rt := c.byHarp[harp]

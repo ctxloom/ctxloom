@@ -50,14 +50,25 @@ func uploadRaw(t *testing.T, client agentcoordpb.ArtifactTransferServiceClient, 
 	t.Helper()
 	stream, err := client.UploadArtifact(context.Background())
 	require.NoError(t, err)
-	require.NoError(t, stream.Send(&agentcoordpb.ArtifactUploadRequest{Kind: &agentcoordpb.ArtifactUploadRequest_Header{Header: &agentcoordpb.ArtifactUploadHeader{
+	// A gRPC client-stream Send can legitimately return io.EOF when the
+	// server has ALREADY closed the stream before this Send lands — e.g. the
+	// auth interceptor rejecting a consumer credential's UploadArtifact
+	// under load, server-close winning the race against the client's first
+	// frame (flaky-agentcoord S3, hoary-amigo: a require.NoError here was
+	// asserting on a race outcome, not a real client bug). The authoritative
+	// status always rides CloseAndRecv, never a Send error — so a header
+	// Send failure here is tolerated, not fatal: fall straight through to
+	// CloseAndRecv to surface the real rejection reason.
+	if serr := stream.Send(&agentcoordpb.ArtifactUploadRequest{Kind: &agentcoordpb.ArtifactUploadRequest_Header{Header: &agentcoordpb.ArtifactUploadHeader{
 		RunId:      runID,
 		ArtifactId: artifactID,
 		Name:       artifactID,
 		MediaType:  "application/octet-stream",
 		SizeBytes:  uint64(len(data)),
 		Sha256:     declaredSHA,
-	}}}))
+	}}}); serr != nil {
+		return stream.CloseAndRecv()
+	}
 	if chunkSize <= 0 {
 		chunkSize = len(data)
 		if chunkSize == 0 {

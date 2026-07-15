@@ -114,13 +114,15 @@ type Coordinator struct {
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 	// launchArmed pre-registers the "attached" signal for a harp's NEXT
-	// (re)launch attempt, synchronously, before the caller dispatches the
-	// async runChild/resumeChild goroutine (see armLaunch/takeArmedLaunch,
-	// children.go). This is the flaky-agentcoord S3 seam: a caller
-	// synchronously after the dispatch (a test, via awaitChildUp) can look
-	// the current attempt's channel up race-free instead of polling a
-	// wall-clock Eventually over the pipeline it fronts.
-	launchArmed map[string]chan struct{}
+	// (re)launch attempt(s), synchronously, before the caller dispatches the
+	// async runChild/resumeChild goroutine (see armLaunch, children.go).
+	// This is the flaky-agentcoord S3 seam: a caller synchronously after the
+	// dispatch (a test, via awaitChildUp) can look the current attempt(s)
+	// up race-free instead of polling a wall-clock Eventually over the
+	// pipeline it fronts. A slice, not a single channel: two dispatchers can
+	// race to arm the SAME harp (armLaunch's doc), and awaitChildUp must be
+	// able to wait on every not-yet-settled attempt, not just the latest.
+	launchArmed map[string][]chan struct{}
 
 	// wg tracks every goroutine this coordinator dispatches beyond its
 	// spawning call's own return (delegation launches/resumes, the runner
@@ -132,6 +134,13 @@ type Coordinator struct {
 	// firing c.cancel() while its launch goroutine was still touching the
 	// state dir/journals it had just closed).
 	wg sync.WaitGroup
+	// closing, once true (set by Close() before its own wg.Wait()), makes
+	// goTracked stop calling wg.Add — see goTracked's doc: a still-live
+	// RunnerChannel/RunChannel handler's deferred cleanup can dispatch new
+	// work even after srv.close() has torn the transport down, and an Add()
+	// racing an in-progress Wait() is a sync.WaitGroup misuse (caught live
+	// by -race). Guarded by mu, same as wg.Add's call site.
+	closing bool
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
@@ -203,7 +212,7 @@ func New(opts Options) (*Coordinator, error) {
 		runners:       make(map[string]*runnerSession),
 		runnerReady:   make(map[string]chan struct{}),
 		chans:         make(map[string]*runChan),
-		launchArmed:   make(map[string]chan struct{}),
+		launchArmed:   make(map[string][]chan struct{}),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -269,8 +278,25 @@ func New(opts Options) (*Coordinator, error) {
 // resume/channel-pump goroutine racing a closed journal or a t.TempDir
 // RemoveAll was the flake cluster's root cause, not any one test's own
 // synchronization.
+//
+// Refuses to Add() once c.closing is set (Close() flips it before its own
+// wg.Wait() begins): a still-live RunnerChannel/RunChannel handler's
+// deferred cleanup (runnerLost → terminateRun → a leftover-mail resume
+// re-dispatch) can fire even after srv.close() has torn the gRPC transport
+// down, genuinely concurrently with Close()'s own wg.Wait() — an Add()
+// racing an in-progress Wait() is a sync.WaitGroup misuse (caught live by
+// -race: flaky-agentcoord). Past that point fn still runs (untracked,
+// best-effort) — every tracked loop already respects c.baseCtx.Done() on its
+// own, so it is not left to run wild, just no longer joined.
 func (c *Coordinator) goTracked(fn func()) {
+	c.mu.Lock()
+	if c.closing {
+		c.mu.Unlock()
+		go fn()
+		return
+	}
 	c.wg.Add(1)
+	c.mu.Unlock()
 	go func() {
 		defer c.wg.Done()
 		fn()
@@ -350,17 +376,21 @@ func (c *Coordinator) adopt() {
 // children are killed via their launch close (the run process is their
 // lifetime).
 //
-// Order (flaky-agentcoord S1): cancel baseCtx (every ctx-aware tracked
-// goroutine starts unwinding) → kill live attachments (best-effort; a
-// goroutine still mid-launch may not have published rt.close yet — that is
-// exactly what the wg join below catches) → srv.close (GracefulStop the gRPC
-// server, bounded, then a hard Stop — this is what actually unblocks the
-// RunChannel/RunnerChannel pump goroutines, which key off the STREAM's own
-// context, not baseCtx) → wg.Wait (bounded escape) → close journals → remove
-// an ephemeral state dir. This guarantees no tracked goroutine touches the
-// state dir after Close() returns (barring the logged bounded-escape case).
+// Order (flaky-agentcoord S1): mark closing (goTracked stops Add()ing, so
+// nothing can race the wg.Wait() below) → cancel baseCtx (every ctx-aware
+// tracked goroutine starts unwinding) → kill live attachments (best-effort;
+// a goroutine still mid-launch may not have published rt.close yet — that is
+// exactly what the wg join below catches) → srv.close (Stop the gRPC server
+// — this is what actually unblocks the RunChannel/RunnerChannel pump
+// goroutines, which key off the STREAM's own context, not baseCtx) →
+// wg.Wait (bounded escape) → close journals → remove an ephemeral state
+// dir. This guarantees no tracked goroutine touches the state dir after
+// Close() returns (barring the logged bounded-escape case).
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closing = true
+		c.mu.Unlock()
 		c.cancel()
 		c.mu.Lock()
 		attachments := make([]*childRt, 0, len(c.attach))

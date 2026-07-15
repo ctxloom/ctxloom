@@ -226,6 +226,16 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
 	require.NoError(t, err)
+	// S3 (flaky-agentcoord): awaitChildUp deterministically waits for THIS
+	// attempt's StartRun round-trip (the engine is up) — replacing what used
+	// to be the FIRST poll in this chain. The harness_session_id itself still
+	// arrives async (the engine's own ev.Session, emitted once its Chat()
+	// goroutine actually starts, strictly AFTER the StartRun response this
+	// awaits) — a truly async fold update the plan's S3 says to leave as
+	// Eventually, now resolving in µs-ms instead of racing the full 5s bound.
+	spawnCtx, spawnCancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer spawnCancel()
+	require.NoError(t, c.awaitChildUp(spawnCtx, out.Harp))
 	// Wait for the session id to journal BEFORE killing (the acceptance's
 	// premise: the resume handle must already be durable).
 	require.Eventually(t, func() bool {
@@ -241,12 +251,19 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 	sp.killEngine(0)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 
-	// A later send resumes the harp as a fresh run...
+	// A later send resumes the harp as a fresh run... deterministically: S3
+	// (flaky-agentcoord) replaces the wall-clock poll this used to be with
+	// awaitChildUp, which blocks on the SAME tracked resumeChild goroutine
+	// AgentSend's driveQueued dispatches (armLaunch pre-registers the signal
+	// synchronously before that dispatch, so this call cannot race it) —
+	// keyed on the goroutine's own progress, not a 5s guess that flakes
+	// under CPU starvation.
 	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "carry on", nil, "")
 	require.NoError(t, err)
-
-	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 10*time.Millisecond,
-		"the send to an ended harp must respawn it")
+	awaitCtx, awaitCancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer awaitCancel()
+	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp), "the send to an ended harp must respawn it")
+	require.Equal(t, 2, sp.chatCount(), "the respawned attempt must have reached StartEngine")
 	// ...whose StartRun carried the journaled resume handle.
 	require.Eventually(t, func() bool {
 		sc := sp.chat(1)

@@ -116,6 +116,15 @@ because we cannot locate what it reads.**
 
 **You cannot isolate what you cannot locate.**
 
+Given that, ctxloom does not pretend to negotiate with this one. Asking it to run under
+host-mode worktree isolation is now a **loud, refuse-by-default failure** — the same posture as
+every other choke on this page, not a silent no-op — because there is, by design, nothing that
+request could actually do. The only isolation this engine gets is the boundary from the
+"Containers don't ask" section below: it does not need to locate anything the engine reads, so
+it is the one answer that still works here. That does not make the credential mystery above go
+away — a containerized run of this engine still has to authenticate somehow, and this page's
+"we could not find it" stands regardless of which boundary wraps the process.
+
 ## The ecosystem converged — on the parts that don't matter
 
 It would be easy, and wrong, to call this ecosystem uniformly chaotic. It isn't. It has

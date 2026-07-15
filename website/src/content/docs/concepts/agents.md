@@ -97,7 +97,9 @@ ctxloom container build          # build/refresh the image for the default backe
 ctxloom container scaffold       # materialize an editable base Containerfile
 ```
 
-Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. `run`/`map`/`weave` build the image automatically when it's absent.
+Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (antigravity, claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. `run`/`map`/`weave` build the image automatically when it's absent.
+
+Antigravity is the one engine where `runtime: container` is not just the recommended isolation — it is the *only* one available. It has no config-home environment variable at all, so `workspace: worktree` on `runtime: host` has nothing to point at; ctxloom refuses that combination as a fatal finding (escapable with `--degraded`, which then runs it on your shared, un-isolated global antigravity config) rather than silently reporting the agent as isolated when it isn't. Containerizing it works — its CLI installs into the composed image like any other engine — but ctxloom does not yet know how to authenticate it inside the container (no scoped env passthrough, no credential mount), so a containerized antigravity agent still needs to log in itself once the container starts.
 
 You control the base, in this order (first one present wins):
 

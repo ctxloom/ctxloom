@@ -27,7 +27,7 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
 	require.NotNil(t, p.resolveAuth, "the claude profile wires an auth resolver")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok := p.resolveAuth("/root")
+	auth, ok := p.resolveAuth("/root", t.TempDir())
 	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
@@ -53,46 +53,111 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	assert.Contains(t, p.authHint, "KIRO_API_KEY", "the degrade hint names kiro's trigger var")
 	require.NotNil(t, p.resolveAuth, "the kiro profile wires an auth resolver")
 	t.Setenv("KIRO_API_KEY", "kiro-test")
-	auth, ok := p.resolveAuth("/root")
+	auth, ok := p.resolveAuth("/root", t.TempDir())
 	require.True(t, ok, "with KIRO_API_KEY set the wired resolver authenticates")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the wired resolver is the kiro (KIRO_API_KEY) resolver")
 }
 
-// TestContainerProfileFor_UnknownIsDefault: engines without a profile (and
-// antigravity, which has no known official installer) keep the pre-profile
-// semantics — the generic image, claude auth, NO local build (run if the
-// image is present, degrade if not).
+// TestContainerProfileFor_UnknownIsDefault: a genuinely unknown/unregistered
+// backend name keeps the pre-profile semantics — the generic image, claude
+// auth, NO local build (run if the image is present, degrade if not). This is
+// now the ONLY door into the default profile — every REGISTERED backend
+// (claude-code/kiro/codex/opencode/antigravity) has its own case with its
+// own auth, asserted by the tests below (the paced-even regression guard).
 func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
-	for _, name := range []string{"", "mock", "antigravity"} {
+	for _, name := range []string{"", "mock"} {
 		p := containerProfileFor(name)
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Empty(t, p.containerfile, "backend %q has no local-build recipe", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
-		// The default profile is claude-oriented throughout, including auth.
+		// The default profile is claude-oriented throughout, including auth —
+		// legitimate ONLY for a truly unrecognized backend name.
 		require.NotNil(t, p.resolveAuth, "backend %q wires the default (claude) auth resolver", name)
 		assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q inherits claude's degrade hint", name)
 	}
 }
 
-// TestContainerProfileFor_CodexAndOpencode_ComposableBuildOnlyAuthUnchanged:
-// codex and opencode are now COMPOSABLE (their own official-installer
-// fragment for BUILD purposes), but still inherit the default (claude-
-// oriented) auth/overlay set exactly as the pre-existing default fallback
-// did — isolation AUTH for these two engines is a separate workstream
-// (bony-spoof / container-image-auth), out of scope here.
-func TestContainerProfileFor_CodexAndOpencode_ComposableBuildOnlyAuthUnchanged(t *testing.T) {
-	deflt := containerProfileFor("")
-	for name, wantValidate := range map[string]string{"codex": "codex --version", "opencode": "opencode --version"} {
+// TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault is the
+// paced-even regression guard: every REGISTERED backend (the composable set
+// plus antigravity) must resolve its OWN auth — none of them may reach
+// resolveClaudeContainerAuth/defaultOverlayDirs, the security edge where a
+// containerized codex/opencode/antigravity run would silently authenticate
+// with (or overlay) the user's Anthropic credentials into a foreign engine.
+func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
+	withFakeHome(t) // no real ~/.codex or ~/.local/share/opencode creds to fall back onto
+	claudeDefault := containerProfileFor("")
+	for _, name := range []string{"codex", "opencode", "antigravity"} {
 		p := containerProfileFor(name)
-		assert.NotNil(t, p.engineInstall, "backend %q is now composable", name)
-		assert.Equal(t, wantValidate, p.validate, "backend %q", name)
-		assert.Equal(t, defaultContainerImage, p.image, "backend %q keeps the default image (no dedicated one yet)", name)
-		assert.Equal(t, deflt.overlayDirs, p.overlayDirs, "backend %q auth/overlay unchanged from the default", name)
-		assert.Equal(t, deflt.authHint, p.authHint, "backend %q auth/overlay unchanged from the default", name)
-		assert.NotEqual(t, deflt.transcriptStoreRel, p.transcriptStoreRel, "backend %q maps its OWN transcript store", name)
+		require.NotNil(t, p.resolveAuth, "backend %q must wire its own auth resolver", name)
+		// Behavioral check: feed the resolver an ANTHROPIC_API_KEY only and
+		// confirm it does NOT authenticate via it — a func value can't be
+		// compared for equality, so this proves it is not
+		// resolveClaudeContainerAuth by behavior rather than identity. The
+		// fake (creds-free) home means the ONLY way any resolver could
+		// return ok=true here is misreading ANTHROPIC_API_KEY.
+		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("KIRO_API_KEY", "")
+		_, ok := p.resolveAuth("/root", t.TempDir())
+		assert.False(t, ok, "backend %q must NOT authenticate off ANTHROPIC_API_KEY (that would be the claude-shaped security edge)", name)
+		assert.NotEqual(t, claudeDefault.authHint, p.authHint, "backend %q must not inherit claude's degrade hint verbatim", name)
 	}
+}
+
+// TestContainerProfileFor_Codex pins bony-spoof: codex is composable (its own
+// official-installer fragment) AND has its own auth/overlay set — no longer
+// inheriting the default (claude) profile's auth axis.
+func TestContainerProfileFor_Codex(t *testing.T) {
+	p := containerProfileFor("codex")
+	assert.NotNil(t, p.engineInstall, "codex is composable")
+	assert.Equal(t, "codex --version", p.validate)
+	assert.Contains(t, p.overlayDirs, ".codex")
+	assert.NotContains(t, p.overlayDirs, ".claude", "codex writes no .claude config")
+	assert.Contains(t, p.authHint, "OPENAI_API_KEY")
+	require.NotNil(t, p.resolveAuth)
+
+	t.Setenv("OPENAI_API_KEY", "sk-codex-test")
+	auth, ok := p.resolveAuth("/root", t.TempDir())
+	require.True(t, ok, "with OPENAI_API_KEY set the wired resolver authenticates")
+	assert.Equal(t, authEnv, auth.mode)
+	assert.Contains(t, auth.envPassthrough, "OPENAI_API_KEY")
+}
+
+// TestContainerProfileFor_Opencode pins opencode's own auth/overlay set — no
+// longer inheriting the default (claude) profile's auth axis.
+func TestContainerProfileFor_Opencode(t *testing.T) {
+	p := containerProfileFor("opencode")
+	assert.NotNil(t, p.engineInstall, "opencode is composable")
+	assert.Equal(t, "opencode --version", p.validate)
+	assert.Contains(t, p.overlayDirs, ".opencode")
+	assert.NotContains(t, p.overlayDirs, ".claude", "opencode writes no .claude config")
+	assert.Contains(t, p.authHint, "OPENROUTER_API_KEY")
+	require.NotNil(t, p.resolveAuth)
+
+	t.Setenv("OPENROUTER_API_KEY", "or-test")
+	auth, ok := p.resolveAuth("/root", t.TempDir())
+	require.True(t, ok, "with OPENROUTER_API_KEY set the wired resolver authenticates")
+	assert.Equal(t, authEnv, auth.mode)
+	assert.Contains(t, auth.envPassthrough, "OPENROUTER_API_KEY")
+}
+
+// TestContainerProfileFor_Antigravity pins the paced-even fix for
+// antigravity: its real image/auth build-out is deferred (stark-wheat/
+// bare-goes), but it must NOT silently reuse claude's auth/overlay — its
+// resolver always degrades honestly instead.
+func TestContainerProfileFor_Antigravity(t *testing.T) {
+	p := containerProfileFor("antigravity")
+	assert.Equal(t, defaultContainerImage, p.image, "no dedicated antigravity image yet")
+	assert.Nil(t, p.engineInstall, "antigravity has no known official-installer fragment yet")
+	assert.Nil(t, p.overlayDirs, "no known project-relative managed-config surface for antigravity yet")
+	require.NotNil(t, p.resolveAuth)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	_, ok := p.resolveAuth("/root", t.TempDir())
+	assert.False(t, ok, "antigravity has no container auth resolver yet — it must degrade, never silently borrow claude's ANTHROPIC_API_KEY")
+	assert.Contains(t, p.authHint, "antigravity")
 }
 
 // TestNewContainerFor_UsesProfileImage / TestNewContainer_ExplicitImageWins pin
@@ -112,14 +177,34 @@ func TestNewContainerFor_UsesProfileImage(t *testing.T) {
 // ~/.kiro layout is verified live.
 func TestResolveKiroContainerAuth(t *testing.T) {
 	t.Setenv("KIRO_API_KEY", "")
-	_, ok := resolveKiroContainerAuth("/root")
+	_, ok := resolveKiroContainerAuth("/root", t.TempDir())
 	assert.False(t, ok, "no KIRO_API_KEY → degrade (never launch an engine stuck at browser login)")
 
 	t.Setenv("KIRO_API_KEY", "kiro-test")
-	auth, ok := resolveKiroContainerAuth("/root")
+	auth, ok := resolveKiroContainerAuth("/root", t.TempDir())
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the auth var crosses by NAME only")
 	assert.NotContains(t, auth.envPassthrough, "KIRO_API_KEY=kiro-test", "the secret value must not be stored in the plan")
 	assert.Empty(t, auth.mounts, "kiro env passthrough mounts nothing")
+}
+
+// TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered pins wired-unit's
+// AWS/Bedrock passthrough: AWS_* vars ride ALONG in the passthrough when
+// KIRO_API_KEY is the trigger, but do NOT stand alone as a trigger of their
+// own (that combination needs a live kiro check before it can be trusted —
+// see kiroAuthEnvVars' doc).
+func TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered(t *testing.T) {
+	t.Setenv("KIRO_API_KEY", "")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+	_, ok := resolveKiroContainerAuth("/root", t.TempDir())
+	assert.False(t, ok, "AWS_* alone (no KIRO_API_KEY) must NOT trigger — unverified live combination")
+
+	t.Setenv("KIRO_API_KEY", "kiro-test")
+	auth, ok := resolveKiroContainerAuth("/root", t.TempDir())
+	require.True(t, ok)
+	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY")
+	assert.Contains(t, auth.envPassthrough, "AWS_REGION", "AWS_* rides along once KIRO_API_KEY triggers")
+	assert.Contains(t, auth.envPassthrough, "AWS_ACCESS_KEY_ID")
 }

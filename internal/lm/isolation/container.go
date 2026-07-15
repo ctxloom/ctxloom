@@ -464,18 +464,12 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		}
 		return containerScratch{}, fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(c.runtime), hint, perr)
 	}
-	auth, ok := c.profile.resolveAuth(c.home)
-	if !ok {
-		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
-	}
-	// Session-state persistence is part of the container gate: a run whose
-	// state dirs cannot be prepared errors here so the caller's degrade chain
-	// raises the fatal-unless-degraded ClassIsolation finding, exactly like an
-	// absent image or unresolvable auth — never a silent state-losing launch.
-	stateMounts, err := c.sessionStateMounts()
-	if err != nil {
-		return containerScratch{}, err
-	}
+	// The host-side scratch root is created BEFORE auth resolution (not after,
+	// as before this comment) because a resolver may need to WRITE into it — a
+	// credential COPY a resolver mounts read-write (claude's token-refresh
+	// case, auth.go's claudeCredentialCopyMounts) has to land somewhere the
+	// container run can bind-mount from and that gets discarded at teardown;
+	// the scratch root already serves exactly that role for the socket dir.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive
@@ -484,6 +478,20 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		// already does this).
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
+	}
+	auth, ok := c.profile.resolveAuth(c.home, root)
+	if !ok {
+		_ = os.RemoveAll(root)
+		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
+	}
+	// Session-state persistence is part of the container gate: a run whose
+	// state dirs cannot be prepared errors here so the caller's degrade chain
+	// raises the fatal-unless-degraded ClassIsolation finding, exactly like an
+	// absent image or unresolvable auth — never a silent state-losing launch.
+	stateMounts, err := c.sessionStateMounts()
+	if err != nil {
+		_ = os.RemoveAll(root)
+		return containerScratch{}, err
 	}
 	socketDir := filepath.Join(root, "sock")
 	if err := os.MkdirAll(socketDir, 0o755); err != nil {

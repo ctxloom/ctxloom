@@ -206,7 +206,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		image:   "ctxloom-agent-state-test:latest",
 		profile: containerProfile{
 			officialImage: "example/client:1", // buildable → the run-as-is identity inspect is skipped
-			resolveAuth: func(string) (containerAuth, bool) {
+			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
 			overlayDirs:        []string{".claude"},
@@ -262,7 +262,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		image:   "ctxloom-agent-state-test:latest",
 		profile: containerProfile{
 			officialImage: "example/client:1",
-			resolveAuth: func(string) (containerAuth, bool) {
+			resolveAuth: func(string, string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv}, true
 			},
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),

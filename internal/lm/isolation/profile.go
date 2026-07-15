@@ -42,7 +42,12 @@ import (
 //     overlay escape hatch (overlayContainerfile) — composition uses
 //     engineInstall's OWN embedded validate step instead.
 //   - resolveAuth: how the in-container engine authenticates (scoped env
-//     passthrough and/or read-only credential mounts into the fresh HOME).
+//     passthrough and/or credential mounts into the fresh HOME). Takes the
+//     run's host-side scratch dir too (a resolver that needs to COPY a host
+//     credential before mounting it read-write — claude's token-refresh case,
+//     auth.go's claudeCredentialCopyMounts — writes the copy under there; it
+//     is removed at teardown with the rest of the scratch root). Resolvers
+//     that only need read-only mounts or env passthrough ignore it.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
 //   - overlayDirs: the project-relative managed-config DIRECTORIES ctxloom's
@@ -69,7 +74,7 @@ type containerProfile struct {
 	containerfile      []byte
 	engineInstall      []byte
 	validate           string
-	resolveAuth        func(containerHome string) (containerAuth, bool)
+	resolveAuth        func(containerHome, scratchDir string) (containerAuth, bool)
 	authHint           string
 	overlayDirs        []string
 	transcriptStoreRel string
@@ -93,6 +98,29 @@ var kiroOverlayDirs = []string{
 	filepath.FromSlash(".ctxloom/cache"),
 }
 
+// codexOverlayDirs shadows codex's managed-config surface: everything ctxloom
+// writes for codex (config.toml, prompts/, skills/ — internal/codex's
+// commandfiles.go/skillfiles.go/settings.go) lives under .codex, project-
+// relative, plus the shared .ctxloom/cache. No project-root single-file
+// residue (unlike claude's .mcp.json) — codex's own config.toml already sits
+// inside .codex.
+var codexOverlayDirs = []string{
+	".codex",
+	filepath.FromSlash(".ctxloom/cache"),
+}
+
+// opencodeOverlayDirs shadows opencode's managed-config surface: ctxloom's
+// custom commands/skills/context land under .opencode (command/, skill/,
+// ctxloom-context.md — internal/opencode's commandfiles.go/skillfiles.go/
+// settings.go) plus the shared .ctxloom/cache. Like claude's .mcp.json,
+// opencode's project-ROOT opencode.json (opencodeConfigFile) is a single-file
+// residue NOT covered here — see defaultOverlayDirs' doc (single-file
+// overlays would break the writers' atomic write+rename).
+var opencodeOverlayDirs = []string{
+	".opencode",
+	filepath.FromSlash(".ctxloom/cache"),
+}
+
 // claudeCodeInstallFragment installs claude via its OFFICIAL npm package plus
 // the claude-code-acp adapter ctxloom's structured chat needs, on an
 // ARBITRARY base: node/npm ensured best-effort (the embedded default base and
@@ -110,10 +138,8 @@ var claudeCodeInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (
 // codexInstallFragment installs the codex CLI via its npm package (the
 // official installer table also lists the chatgpt.com/codex/install.sh shell
 // script; npm is used here to mirror claude's prereq/validate shape and keep
-// the fragment self-contained). BUILD-ONLY: codex's isolation AUTH resolver
-// does not exist yet (task bony-spoof, a separate workstream) — a
-// containerized codex run stays auth-degraded until that lands, exactly as
-// before this fragment existed.
+// the fragment self-contained). Its own auth resolver is
+// resolveCodexContainerAuth (auth.go, bony-spoof) — see the codex case below.
 var codexInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*) || true) \
     && npm install -g @openai/codex \
     && codex --version
@@ -134,10 +160,9 @@ var kiroInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-g
 // opencodeInstallFragment installs opencode via its official install script.
 // The installer lands the binary under $HOME/.opencode/bin (per the opencode
 // backend's own binary_path finding — it is NOT put on PATH), so it is
-// relocated the same way kiro's is. BUILD-ONLY: opencode's isolation AUTH
-// resolver (OpenRouter key / seeded auth.json) is a separate workstream
-// (item container-image-auth / grave-prize) — see resolveAuth below, still
-// inherited from the default (claude) profile.
+// relocated the same way kiro's is. Its own auth resolver is
+// resolveOpencodeContainerAuth (auth.go: OpenRouter env / seeded
+// ~/.local/share/opencode/auth.json) — see the opencode case below.
 var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://opencode.ai/install | bash \
     && { command -v opencode >/dev/null 2>&1 \
@@ -209,7 +234,7 @@ func containerProfileFor(backend string) containerProfile {
 			engineInstall:      claudeCodeInstallFragment,
 			validate:           "claude --version",
 			resolveAuth:        resolveClaudeContainerAuth,
-			authHint:           "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
+			authHint:           claudeContainerAuthHint(),
 			overlayDirs:        defaultOverlayDirs,
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		}
@@ -222,7 +247,7 @@ func containerProfileFor(backend string) containerProfile {
 			engineInstall: kiroInstallFragment,
 			validate:      "kiro-cli --version",
 			resolveAuth:   resolveKiroContainerAuth,
-			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (subscription credential mounts pend live verification)",
+			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (AWS_* creds ride along when present but are not yet a standalone trigger, pending live kiro verification; subscription credential mounts pend live verification too)",
 			overlayDirs:   kiroOverlayDirs,
 			// ".kiro" is the ROOT of kiro's engine-home state (agents/,
 			// settings/, skills/, steering/, sessions/), not the transcript
@@ -238,42 +263,61 @@ func containerProfileFor(backend string) containerProfile {
 			transcriptStoreRel: ".kiro",
 		}
 	case "codex":
-		// codex is now COMPOSABLE (its own official-installer fragment), but
-		// still inherits the default (claude-oriented) auth/overlay set —
-		// codex's isolation AUTH resolver does not exist yet (task
-		// bony-spoof, a separate workstream); this is a BUILD-only addition.
+		// codex is now COMPOSABLE (its own official-installer fragment) AND
+		// has its OWN auth/overlay set (bony-spoof) — it no longer inherits
+		// the default (claude) profile's resolveAuth/authHint/overlayDirs,
+		// which was the paced-even security edge (a containerized codex run
+		// silently mounting/passing the user's ANTHROPIC_* credentials into a
+		// foreign, non-Anthropic engine). image stays the default fallback
+		// tag: the REAL image a codex run gets is the composed multi-engine
+		// tag computed from engineInstall by composedIdentity
+		// (imagebuild.go), which already carries the codex CLI — this field
+		// is only the name used when that composition cannot be computed.
 		p := containerProfileFor("")
 		p.engineInstall = codexInstallFragment
 		p.validate = "codex --version"
+		p.resolveAuth = resolveCodexContainerAuth
+		p.authHint = "no OPENAI_API_KEY and no ~/.codex/auth.json to authenticate the in-container engine"
+		p.overlayDirs = codexOverlayDirs
 		p.transcriptStoreRel = filepath.FromSlash(".codex/sessions")
 		return p
 	case "opencode":
-		// opencode is now COMPOSABLE (its own official-installer fragment),
-		// still inheriting the default (claude-oriented) auth/overlay set —
-		// opencode's isolation AUTH resolver (OpenRouter key / seeded
-		// auth.json) is a separate workstream (container-image-auth /
-		// grave-prize); this is a BUILD-only addition. Before this case
-		// existed opencode fell through to the identical default profile, so
-		// this is not a regression on the auth axis — only the transcript
-		// store mapping and the build recipe are new.
+		// opencode is now COMPOSABLE (its own official-installer fragment)
+		// AND has its OWN auth/overlay set — see codex's case comment above
+		// for why inheriting the default (claude) auth was wrong for a
+		// non-Anthropic engine; the same fix applies here.
 		p := containerProfileFor("")
 		p.engineInstall = opencodeInstallFragment
 		p.validate = "opencode --version"
+		p.resolveAuth = resolveOpencodeContainerAuth
+		p.authHint = "no OPENROUTER_API_KEY and no seeded ~/.local/share/opencode/auth.json to authenticate the in-container engine"
+		p.overlayDirs = opencodeOverlayDirs
 		p.transcriptStoreRel = filepath.FromSlash(".local/share/opencode")
 		return p
-	// antigravity has no dedicated agent image/auth/installer yet (task
-	// bare-goes: the official install path is unverified) — it inherits the
-	// default (claude-oriented) profile exactly as it did before, mapping
-	// only its native transcript store.
+	// antigravity has no dedicated agent image/installer yet (task
+	// bare-goes: the official install path is unverified) — its real
+	// image/auth build-out folds into that separate workstream. It keeps
+	// mapping its own native transcript store, but — per the same
+	// paced-even fix as codex/opencode above — it does NOT inherit the
+	// default (claude) profile's auth/overlay: silently mounting the user's
+	// ANTHROPIC_* credentials into an antigravity container is exactly the
+	// wrong-provider security edge this fix closes. Until bare-goes lands a
+	// real resolver, antigravity honestly degrades instead.
 	case "antigravity":
 		p := containerProfileFor("")
+		p.resolveAuth = resolveAntigravityContainerAuth
+		p.authHint = "antigravity has no container auth resolver yet (its image/auth build-out is a separate workstream); the in-container engine cannot authenticate"
+		// No known project-relative managed-config surface to shadow yet:
+		// antigravity's writers (internal/antigravity) all target GLOBAL
+		// ~/.gemini/* paths, not anything under the project dir (vast-rut).
+		p.overlayDirs = nil
 		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
 		return p
 	default:
 		return containerProfile{
 			image:       defaultContainerImage,
 			resolveAuth: resolveClaudeContainerAuth,
-			authHint:    "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
+			authHint:    claudeContainerAuthHint(),
 			overlayDirs: defaultOverlayDirs,
 			// The default profile is claude-oriented throughout (image, auth),
 			// including the store map.

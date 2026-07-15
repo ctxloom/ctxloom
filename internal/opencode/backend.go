@@ -51,6 +51,10 @@ type Opencode struct {
 	// Build closure is the only place these host-resolved exports reach the
 	// backend, so it stashes them here for Chat rather than delivering a surface.
 	pendingSkills []agent.CommandExport
+	// pendingContext is the assembled context string stashed at the same seam, so
+	// the interactive TUI launch (interactive.go) can materialize it transiently as
+	// the .opencode/ctxloom-context.md that opencode.json's `instructions` points at.
+	pendingContext string
 }
 
 // NewOpencode creates a new opencode backend with default settings.
@@ -76,6 +80,7 @@ func NewOpencode() *Opencode {
 		newOpencodeSessionHistory(b),
 		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
 			b.pendingSkills = in.Skills
+			b.pendingContext = in.Context
 			return agent.EmptySurfaceSet{}
 		}},
 	)
@@ -94,11 +99,11 @@ func (b *Opencode) Configure(cfg agent.BackendConfig) {
 	}
 }
 
-// SupportedModes narrows the BaseBackend default: like the generic ACP backend,
-// opencode's slice-1 path has no TUI, so only oneshot is supported. Interactive
-// opencode is a later slice.
+// SupportedModes reports both modes: oneshot rides the `opencode acp` structured
+// turn (chat.go), interactive launches opencode's TUI through the pty launcher
+// (interactive.go). This is the BaseBackend default, spelled out here for clarity.
 func (b *Opencode) SupportedModes() []agent.ExecutionMode {
-	return []agent.ExecutionMode{agent.ModeOneshot}
+	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
 }
 
 // Execute runs a ONESHOT prompt as a single structured ACP turn: one Chat
@@ -113,8 +118,11 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 	if req.DryRun {
 		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
+	// Interactive launches opencode's TUI (interactive.go): model, MCP, context, and
+	// the read-only permission ride a transient opencode.json overlay; bypass adds
+	// --auto. Oneshot below is the `opencode acp` structured turn.
 	if req.Mode == agent.ModeInteractive {
-		return nil, fmt.Errorf("the opencode backend is structured/headless only in this build; interactive opencode is a later slice")
+		return b.launchInteractive(ctx, req, modelInfo, stdout, stderr)
 	}
 
 	workDir := req.WorkDir

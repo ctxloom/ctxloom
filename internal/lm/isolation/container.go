@@ -557,10 +557,31 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 // whose common dir lives OUTSIDE the mounted checkout) resolves inside the
 // container. Read-write by design: the per-checkout admin files (index, HEAD)
 // under <common>/worktrees/<name> are written there, exactly as a host-native
-// checkout writes to the shared .git — no new blast radius. Shared by the
-// worktree base (whose worktree .git is ALWAYS a pointer file) and the host base
-// (only when the live project is itself a linked worktree — see
-// gitdirMirrorMount).
+// checkout writes to the shared .git. Shared by the worktree base (whose
+// worktree .git is ALWAYS a pointer file) and the host base (only when the
+// live project is itself a linked worktree — see gitdirMirrorMount).
+//
+// Over-mount blast radius (live-gag, ACCEPTED): the key property that makes
+// this mount SUFFICIENT is that the per-worktree admin dir
+// <common>/worktrees/<name> — the ONE thing a linked checkout actually needs
+// — is a SUBDIRECTORY of <common>. Mounting the whole common dir identical-
+// path is therefore the simplest mount that covers it, but it ALSO exposes
+// every OTHER worktree's admin dir (and the main checkout's own index/refs)
+// to this container — real blast radius, not merely "no new" one. A surgical
+// mount (worktree dir + just its own <common>/worktrees/<name> + read-only
+// objects/refs) is possible in principle, but git needs write access to
+// refs/logs and the packed-refs/objects layout in ways that make a partial
+// mount fragile and easy to get subtly wrong. DECISION: keep the whole-
+// common-dir mount (correct, simple, RW-justified above) and accept the
+// wider exposure; revisit only if per-agent git isolation becomes a
+// requirement (already flagged a "later concern" — container_worktree.go's
+// worktreeBase doc). Every ctxloom-managed worktree is out-of-repo by the
+// standing layout (~/workspace/worktrees/<proj>--<branch>), so the worktree
+// base relies on this mount set in production already; the host base needs
+// it only when the user's OWN project dir happens to be a linked worktree —
+// proven end-to-end (real git, real container, payload-asserted) by
+// container_hostworktree_integration_test.go, alongside
+// container_worktree_integration_test.go's worktree-base proof.
 func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (Mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {

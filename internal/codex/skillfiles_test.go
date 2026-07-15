@@ -53,6 +53,29 @@ func TestWriteSkillFiles_EnabledSkillLandsInGlobalCodexHomeWithModes(t *testing.
 	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
 }
 
+// TestWriteSkillFiles_NoCodexHome_ProjectScoped is comfy-lion's PAYLOAD test:
+// with NO $CODEX_HOME set (the collision case prim-guy's claude guard already
+// catches, generalized to codex — operations/hooks.go's
+// checkCodexHookTargetScope) and a real workDir, WriteSkillFiles must land
+// under the WORKDIR-scoped cellScopedSkillsDir, never the bare TRUE-global
+// codexSkillsDir() (~/.codex/skills) — the direct fix for the residue this
+// task found live on this box (~/.codex/{prompts,config.toml} carrying
+// ctxloom-managed entries from exactly this collision).
+func TestWriteSkillFiles_NoCodexHome_ProjectScoped(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
+	fs := afero.NewMemMapFs()
+	skills := []agent.SkillExport{{
+		Name:    "humanize",
+		Enabled: true,
+		Files:   []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("Body"), Mode: 0644}},
+	}}
+
+	require.NoError(t, WriteSkillFiles("/some/project", skills, agent.WithCommandFS(fs)))
+
+	exists, _ := afero.Exists(fs, "/some/project/.codex/skills/humanize/SKILL.md")
+	assert.True(t, exists, "project-scoped, not the bare global ~/.codex")
+}
+
 // TestWriteSkillFiles_DisabledSkillNotWritten proves a disabled skill is
 // never written to disk and never manifest-tracked.
 func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {

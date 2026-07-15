@@ -83,11 +83,22 @@ resources/schema/gen/
 # Codex runtime state. ctxloom points CODEX_HOME at <project>/.codex to keep
 # prompts cell-local (internal/codex/surfaces.go), but codex uses ONE home for
 # both its config surface AND all of its runtime state — so it also writes its
-# session store, conversation memories, logs, goals and temp files here. Only
-# the ctxloom-generated config surface (config.toml, prompts/) belongs in git;
-# the rest is engine state and must never be committed.
+# session store, conversation memories, logs, goals, temp files, AND ITS OWN
+# bundled system skills (.codex/skills/.system/*) here. config.toml is now
+# EXCLUDED from the tracked exceptions below (white-dawn §2.2B): codex itself
+# appends a machine-specific `[projects."<abs-path>"] trust_level` entry into
+# it on first run, so a file codex mutates every run should not be tracked —
+# matches internal/gitignore/gitignore.go's TransientArtifactPatterns, which
+# already ignores .codex/config.toml for every OTHER project's generated
+# .gitignore; this repo's own hand-authored block had drifted from that
+# policy (it used to un-ignore config.toml) and a `[projects...]` entry for
+# this very repo had already leaked into git history before this fix — see
+# the task's final report. skills/ stays fully ignored too (unlike prompts/,
+# it is NOT ctxloom-exclusive — codex ships its own .system/ skills there, so
+# there is no clean "ctxloom-owned" subset to un-ignore). Only the
+# ctxloom-generated prompts (never codex-mutated) stay tracked; everything
+# else is engine state that must never be committed.
 .codex/*
-!.codex/config.toml
 !.codex/prompts/
 
 # ctxloom private working state (synced bundles, session/context, project id)

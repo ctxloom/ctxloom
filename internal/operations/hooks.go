@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -81,9 +82,12 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	workDir := resolveHookWorkDir(req)
 
-	// Refuse (or, with --force, loudly warn) when workDir resolves onto
-	// Claude Code's user-global settings path — see checkHookTargetScope.
-	if err := checkHookTargetScope(workDir, req.Force); err != nil {
+	// Refuse (or, with --force, loudly warn) when workDir resolves onto a
+	// TARGET backend's user-global scope — see checkHookTargetScope. Scoped to
+	// `backend` (not every backend unconditionally) so a codex-only apply is
+	// never blocked on a claude collision neither of them is asking about,
+	// and vice versa.
+	if err := checkHookTargetScope(workDir, backend, req.Force); err != nil {
 		return nil, err
 	}
 
@@ -205,7 +209,33 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 }
 
 // checkHookTargetScope refuses to apply hooks when the resolved workDir would
-// write Claude Code's user-global settings.json — claude.GlobalSettingsPath(),
+// write a TARGET backend's user-GLOBAL scope instead of a project's
+// per-PROJECT scope — claude's settings.json (prim-guy) and codex's whole
+// config.toml/prompts/skills home (comfy-lion, the SAME collision class:
+// codex's cell-scoped home IS a project-dir join, so it collapses onto the
+// bare global exactly when workDir == $HOME too). Scoped to backend
+// ("all" runs both checks; "claude-code"/"codex" run only their own) so a
+// single-backend apply is never blocked on a collision for a DIFFERENT
+// backend it never touches. See checkClaudeHookTargetScope's doc for why the
+// whole apply is refused, not just one surface's write. force downgrades
+// every collision to a loud warning and proceeds — the deliberate escape
+// hatch for a genuine intentional global install.
+func checkHookTargetScope(workDir, backend string, force bool) error {
+	if backend == "all" || backend == "claude-code" {
+		if err := checkClaudeHookTargetScope(workDir, force); err != nil {
+			return err
+		}
+	}
+	if backend == "all" || backend == "codex" {
+		if err := checkCodexHookTargetScope(workDir, force); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkClaudeHookTargetScope refuses to apply hooks when the resolved workDir
+// would write Claude Code's user-global settings.json — claude.GlobalSettingsPath(),
 // Claude Code's per-USER scope — instead of a project's per-PROJECT scope. It
 // keys on the resolved PATH the write would land at
 // (claude.ProjectSettingsPath(workDir) == claude.GlobalSettingsPath()), not on
@@ -222,15 +252,7 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 //
 // force downgrades the refusal to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
-//
-// Scope: this collision check is Claude-specific (its user scope is
-// $HOME/.claude/settings.json). Other backends (codex/antigravity/kiro) may
-// have the same $HOME==global conflation for their own settings surfaces —
-// tracked separately (task comfy-lion) rather than folded in here. The
-// function takes just the one path pair today so a future per-backend
-// variant (iterate backends, ask each for its own global path) can slot in
-// beside this call rather than needing a rewrite.
-func checkHookTargetScope(workDir string, force bool) error {
+func checkClaudeHookTargetScope(workDir string, force bool) error {
 	globalPath, err := claude.GlobalSettingsPath()
 	if err != nil {
 		// No resolvable home directory: nothing to collide with.
@@ -245,6 +267,34 @@ func checkHookTargetScope(workDir string, force bool) error {
 		return nil
 	}
 	return fmt.Errorf("refusing to install hooks: %s resolves to Claude Code's user-global settings (%s), which would apply ctxloom to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, globalPath)
+}
+
+// checkCodexHookTargetScope is checkClaudeHookTargetScope's codex analog
+// (comfy-lion — completing the audit prim-guy's own doc deferred: "other
+// backends may have the same $HOME==global conflation... tracked separately").
+// codex's "project" config-home (codex.ProjectHome(workDir),
+// cellScopedCodexHome's project-dir join) collapses onto its bare GLOBAL home
+// (codex.GlobalHome(), $CODEX_HOME if already set else ~/.codex) exactly when
+// workDir == $HOME — the same bare-cwd-fallback collision prim-guy found for
+// claude's settings.json, but for codex's WHOLE config.toml/prompts/skills
+// home. LIVE EVIDENCE this collision actually fires: this repo's own
+// ~/.codex/{config.toml,prompts/*} carries ctxloom-managed hooks/prompts from
+// exactly this scenario (a prior `manage hooks install`-class run resolving
+// workDir to $HOME), found during this task.
+func checkCodexHookTargetScope(workDir string, force bool) error {
+	globalPath, err := codex.GlobalHome()
+	if err != nil {
+		return nil
+	}
+	projectPath := codex.ProjectHome(workDir)
+	if cleanAbsPath(projectPath) != cleanAbsPath(globalPath) {
+		return nil
+	}
+	if force {
+		clidiag.Warn("ctxloom", "hooks target %s resolves to codex's global home (%s); proceeding because --force was given — this applies ctxloom's codex config/prompts/skills to EVERY project, not just this one.", workDir, globalPath)
+		return nil
+	}
+	return fmt.Errorf("refusing to install hooks: %s resolves to codex's global home (%s), which would apply ctxloom's codex config/prompts/skills to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, globalPath)
 }
 
 // cleanAbsPath returns p's cleaned absolute form for path comparison, falling

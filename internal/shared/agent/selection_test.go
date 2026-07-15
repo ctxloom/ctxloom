@@ -60,7 +60,7 @@ func TestBuild_RejectsSystemPrompt_OnKiroAndCodex(t *testing.T) {
 	_, err := agent.Select(kiroSet).WithContext(agent.ContextWriteSystemPrompt).Build()
 	assert.Error(t, err, "kiro's context is native-file-only; system-prompt is unsupported")
 
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, nil)
+	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
 	_, err = agent.Select(codexSet).WithContext(agent.ContextWriteSystemPrompt).WithSettings(agent.SettingsWriteUnsafeFile).Build()
 	assert.Error(t, err, "codex's context is hook-only; system-prompt is unsupported")
 }
@@ -68,7 +68,7 @@ func TestBuild_RejectsSystemPrompt_OnKiroAndCodex(t *testing.T) {
 // codex has no CLAUDE.md-style native context file — naming UnsafeFile for its
 // context is an unsupported combo the builder rejects loudly.
 func TestBuild_RejectsUnsafeFileContext_OnCodex(t *testing.T) {
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, nil)
+	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
 	_, err := agent.Select(codexSet).WithContext(agent.ContextWriteUnsafeFile).WithSettings(agent.SettingsWriteUnsafeFile).Build()
 	assert.Error(t, err, "codex's context is hook-only; unsafe-file is unsupported")
 }
@@ -77,7 +77,7 @@ func TestBuild_RejectsUnsafeFileContext_OnCodex(t *testing.T) {
 // also selecting settings in the SAME Build() is rejected (there is no hook to
 // carry the injection — an unread cache file, or nothing at all).
 func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, nil)
+	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
 	_, err := agent.Select(codexSet).WithContext(agent.ContextWriteHook).Build()
 	assert.Error(t, err, "Hook without Settings selected in the same Build() must fail")
 

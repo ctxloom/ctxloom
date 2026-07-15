@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"os"
 	"path"
 	"path/filepath"
 
@@ -26,18 +27,30 @@ func codexSkillsDir() string {
 	return filepath.Join(home, "skills")
 }
 
-// WriteSkillFiles generates Codex Agent Skill packages from exported skills.
-// Files are written to the GLOBAL $CODEX_HOME/skills/<name>/SKILL.md (+
-// sibling files), since Codex scans only its own top-level skills dir.
-// workDir is unused (codex skills are global, not project-scoped — see
-// codexSkillsDir), mirroring WriteCommandFiles. ctxloom tracks its writes via
-// a manifest distinct from commands' so the two surfaces' cleanup never
-// collides. Only exports with Enabled == true are written. The cell-scoped
-// commands surface (surfaces.go) targets cellScopedSkillsDir directly instead
-// of calling this function, exactly as its commands counterpart does.
+// skillsDirFor mirrors promptsDirFor for the skills surface: an explicit
+// $CODEX_HOME wins, else a real workDir resolves project-scoped
+// (cellScopedSkillsDir), else the last-resort global codexSkillsDir()
+// (comfy-lion).
+func skillsDirFor(workDir string) string {
+	if os.Getenv("CODEX_HOME") != "" || workDir == "" {
+		return codexSkillsDir()
+	}
+	return cellScopedSkillsDir(workDir)
+}
+
+// WriteSkillFiles generates Codex Agent Skill packages from exported skills,
+// targeting skillsDirFor(workDir) — $CODEX_HOME/skills/<name>/SKILL.md (+
+// sibling files) since Codex scans only its own top-level skills dir, but
+// project-scoped when a real workDir is given and no $CODEX_HOME already
+// overrides it — see skillsDirFor's doc, mirroring WriteCommandFiles. ctxloom
+// tracks its writes via a manifest distinct from commands' so the two
+// surfaces' cleanup never collides. Only exports with Enabled == true are
+// written. The cell-scoped commands surface (surfaces.go) targets
+// cellScopedSkillsDir directly instead of calling this function, exactly as
+// its commands counterpart does.
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
-	return writeCodexSkillPackages(fs, codexSkillsDir(), skills)
+	return writeCodexSkillPackages(fs, skillsDirFor(workDir), skills)
 }
 
 // writeCodexSkillPackages is the shared manifest-scoped skill-package write,

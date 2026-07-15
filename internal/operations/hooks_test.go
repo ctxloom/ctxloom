@@ -614,6 +614,60 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write the settings file")
 }
 
+// TestApplyHooks_RefusesCodexHomeCollision is checkCodexHookTargetScope's
+// (comfy-lion) canonical red case, the codex sibling of
+// TestApplyHooks_RefusesHomeCollision: WorkDir set to HOME makes
+// codex.ProjectHome(WorkDir) resolve onto codex.GlobalHome() too — codex's
+// whole config.toml/prompts/skills home, not just claude's settings.json.
+func TestApplyHooks_RefusesCodexHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "codex",
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      home,
+	})
+	require.Error(t, err, "installing hooks with WorkDir==HOME must be refused for codex too")
+	assert.Contains(t, err.Error(), "codex's global home")
+
+	exists, existsErr := afero.Exists(fs, filepath.Join(home, ".codex", "config.toml"))
+	require.NoError(t, existsErr)
+	assert.False(t, exists, "a refused apply must not write codex's config.toml under HOME")
+}
+
+// TestApplyHooks_ForceOverridesCodexHomeCollision proves --force also covers
+// the codex collision, writing anyway with a loud warning.
+func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	var result *ApplyHooksResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:      "codex",
+			FS:           fs,
+			ExecPath:     "/usr/bin/ctxloom",
+			ConfigLoader: mockConfigLoader,
+			WorkDir:      home,
+			Force:        true,
+		})
+		require.NoError(t, err, "Force:true must let the codex collision proceed")
+	})
+	require.NotNil(t, result)
+	assert.Equal(t, "applied", result.Status)
+	assert.Contains(t, stderr, "codex's global home", "Force must still warn loudly, not silently proceed")
+
+	exists, err := afero.Exists(fs, filepath.Join(home, ".codex", "config.toml"))
+	require.NoError(t, err)
+	assert.True(t, exists, "--force must actually write codex's config.toml")
+}
+
 // TestApplyHooks_SubdirOfHomeIsNotACollision is the negative control: a real
 // project living under HOME (e.g. ~/code/myproject) is not the global-scope
 // collision — only WorkDir==HOME itself is.

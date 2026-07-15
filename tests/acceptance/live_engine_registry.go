@@ -189,8 +189,10 @@ profiles:
 	// auth.json (confirmed: `~/.codex/auth.json`, holds auth_mode +
 	// id/access/refresh tokens) — copyCodexCredentials copies only that file,
 	// never the tree, the same principle copyClaudeCredentials states
-	// explicitly and internal/codex/backend.go's own linkUserCodexAuth
-	// already applies to the run-time cell home.
+	// explicitly and internal/lm/isolation/auth.go's
+	// credentialSeedSpecs["codex"] now applies to a worktree-isolated run's
+	// config-home (balmy-comic — a COPY, replacing the former
+	// linkUserCodexAuth symlink).
 	//
 	// PRODUCT BUG FOUND while proving this live (2026-07-14, direct
 	// `ctxloom run --print` against a real authenticated codex, NOT via this
@@ -542,13 +544,14 @@ func copyKiroCredentials(realHome, fakeHome string) {
 // lookup (confirmed: pointing CODEX_HOME at a project dir once made codex
 // dump 91MB of sqlite/temp state there). This is the identical "never the
 // whole tree" principle copyClaudeCredentials states explicitly, and the
-// identical file internal/codex/backend.go's own linkUserCodexAuth
-// symlinks into a run's cell-scoped $CODEX_HOME — applied here to the
-// isolated test HOME instead. codexHome() (internal/codex/commandfiles.go)
-// resolves $CODEX_HOME if set, else $HOME/.codex, so once the acceptance
-// harness overrides HOME to the isolated fakeHome, writing auth.json under
-// fakeHome/.codex is exactly where codex (and ctxloom's own
-// linkUserCodexAuth, when a real run follows) will find it.
+// identical file internal/lm/isolation/auth.go's credentialSeedSpecs["codex"]
+// COPIES (balmy-comic — replacing the former linkUserCodexAuth symlink) into
+// a worktree-isolated run's config-home — applied here to the isolated test
+// HOME instead. codexHome() (internal/codex/commandfiles.go) resolves
+// $CODEX_HOME if set, else $HOME/.codex, so once the acceptance harness
+// overrides HOME to the isolated fakeHome, writing auth.json under
+// fakeHome/.codex is exactly where codex (and ctxloom's own credential-seed
+// copy, when a real isolated run follows) will find it.
 func copyCodexCredentials(realHome, fakeHome string) {
 	srcDir := filepath.Join(realHome, ".codex")
 	dstDir := filepath.Join(fakeHome, ".codex")

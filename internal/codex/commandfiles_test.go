@@ -36,6 +36,25 @@ func TestWriteCommandFiles_GlobalPromptsDir(t *testing.T) {
 	assert.Contains(t, string(man), "review.md")
 }
 
+// TestWriteCommandFiles_NoCodexHome_ProjectScoped is comfy-lion's PAYLOAD
+// test (the commands-surface sibling of skillfiles_test.go's identical
+// case): with NO $CODEX_HOME set and a real workDir, WriteCommandFiles must
+// land under the workDir-scoped cellScopedPromptsDir, never the bare
+// TRUE-global codexPromptsDir() (~/.codex/prompts) — this is exactly the
+// residue this task found live on this box (~/.codex/prompts carrying
+// ctxloom-managed check-triggers.md/discover.md/recover.md from a prior
+// bare-cwd-fallback-to-$HOME run).
+func TestWriteCommandFiles_NoCodexHome_ProjectScoped(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
+	fs := afero.NewMemMapFs()
+
+	cmds := []agent.CommandExport{{Name: "review", Content: "review", Enabled: true}}
+	require.NoError(t, WriteCommandFiles("/some/project", cmds, agent.WithCommandFS(fs)))
+
+	exists, _ := afero.Exists(fs, "/some/project/.codex/prompts/review.md")
+	assert.True(t, exists, "project-scoped, not the bare global ~/.codex")
+}
+
 // TestTransformToCodexPrompt_Frontmatter verifies description + argument-hint are
 // emitted as YAML frontmatter (the keys codex supports) and {{var}} becomes $N.
 func TestTransformToCodexPrompt_Frontmatter(t *testing.T) {

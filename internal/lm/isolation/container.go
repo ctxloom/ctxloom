@@ -587,7 +587,11 @@ func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (
 	if err != nil {
 		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	return rt.Expose(common, common, false), nil
+	// ExposeIdentical (not Expose(common, common, ...)) routes through the
+	// runtime's pathMapper (lanky-pod's seam) — identity today, so this is
+	// unchanged; a non-identity mapper would need the SAME translation the
+	// project mount gets, which is exactly ExposeIdentical's contract.
+	return rt.ExposeIdentical(common, false), nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

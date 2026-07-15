@@ -541,6 +541,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 		}
 	}
 }
+
 // TestClaudeCodeHookWriter_MCPCommandOverride pins dire-five's fix at claude's
 // own writer (which does NOT ride the shared agent.MCPFileConfig reconciler —
 // claude has its own .mcp.json shape): a zero-value writer (mcpCommandOverride
@@ -763,6 +764,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 		t.Errorf("expected 2 MCP servers, got %d", len(mcpServers))
 	}
 }
+
 // TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp is a
 // regression test for taskloom lone-taste: loadSettings used to swallow a
 // top-level unmarshal failure and return an empty-but-valid settings object,

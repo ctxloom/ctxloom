@@ -32,7 +32,7 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 	spec := buildRunSpec("img", "name", "/proj", "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claudecode"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123",
-		hostEnv, extraEnv, []Mount{credMount, overlayMount}, 0)
+		hostEnv, extraEnv, []Mount{credMount, overlayMount}, 0, nil)
 
 	assert.Equal(t, "/proj", spec.WorkDir)
 	assert.Equal(t, "/root", spec.Home)
@@ -72,7 +72,7 @@ func TestBuildRunSpec_LoopbackPortPublishesLoopbackTCP(t *testing.T) {
 	spec := buildRunSpec("img", "name", "/proj", "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, port)
+		nil, nil, nil, port, nil)
 
 	assert.Equal(t, port, spec.PublishPort, "a non-zero loopback port is carried into the run spec")
 	assert.Contains(t, spec.Env, "PLUGIN_LISTEN_TCP=1", "a loopback port forces the container plugin onto TCP")
@@ -85,7 +85,7 @@ func TestBuildRunSpec_LoopbackPortPublishesLoopbackTCP(t *testing.T) {
 	unixSpec := buildRunSpec("img", "name", "/proj", "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, 0)
+		nil, nil, nil, 0, nil)
 	assert.Equal(t, 0, unixSpec.PublishPort, "the Linux unix-socket transport publishes no port")
 	assert.NotContains(t, strings.Join(Docker{rootless: true}.RunArgs(unixSpec), " "), "-p ",
 		"no -p publish under the unix-socket transport")

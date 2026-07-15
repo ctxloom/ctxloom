@@ -42,6 +42,17 @@ func (fakeRuntime) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
+// ExposeIdentical mirrors ociRuntime's default (identityMapper): fakeRuntime
+// carries no pathMapper, so this is Expose(hostPath, hostPath, readOnly).
+func (fakeRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
+	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
+}
+
+// mapper is always identity — fakeRuntime never carries a lanky-pod mapper;
+// tests that need to exercise a non-identity mapper inject one directly at
+// buildRunSpec (see runner_test.go), not through this fake.
+func (fakeRuntime) mapper() pathMapper { return identityMapper{} }
+
 // TestContainer_Axes pins the policy's identity: name "container", approvals
 // BYPASS (the container is the boundary that replaces the in-engine prompt).
 func TestContainer_Axes(t *testing.T) {

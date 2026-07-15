@@ -581,4 +581,3 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (De
 func NewProcessIsolatedCell(dir string) ProcessIsolatedCell {
 	return ProcessIsolatedCell{isolatedCell{dir: dir}}
 }
-

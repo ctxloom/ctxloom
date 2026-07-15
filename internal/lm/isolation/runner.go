@@ -197,6 +197,23 @@ func (t containerAddrTranslator) HostToPlugin(network, addr string) (string, str
 // swapPrefix replaces a leading directory prefix, preserving the socket basename.
 // A path outside the mounted dir is returned unchanged (defensive: only the
 // plugin's own socket paths live under the mount).
+//
+// Windows correctness gap (lanky-pod, DOCUMENTED not fixed here — see the
+// container-runtime-bugs plan §4/§5; UNVERIFIABLE without Windows hardware):
+// this function uses path/filepath (OS-native separators) on BOTH sides, which
+// is correct today because both directions swap between two paths that are
+// EITHER both host-native (this process's GOOS) — never the case here — or
+// (the real case) hostSocketDir (OS-native, a go-plugin-created host temp
+// dir) against containerSocketDir (a FIXED POSIX string,
+// defaultContainerSocketDir). On Linux/macOS filepath.Join's separator matches
+// POSIX, so containerSocketDir renders correctly by coincidence. On a WINDOWS
+// BUILD, filepath.Join(containerSocketDir, rel) would render `\`-separated
+// segments onto a POSIX prefix — WRONG (the container never sees a `\`). A
+// correct fix needs to know WHICH side of the swap is host-native vs.
+// container-POSIX (not just "from" vs "to") and join accordingly — pure
+// path/filepath is insufficient. Deferred to sudsy-sip Tier C alongside the
+// project-mount translation (lanky-pod's pathMapper seam, runtime.go) this
+// same swap must eventually route through.
 func swapPrefix(path, from, to string) string {
 	if from == "" || to == "" {
 		return path
@@ -225,7 +242,7 @@ func swapPrefix(path, from, to string) string {
 // to host loopback. 0 keeps the default unix-socket transport (Linux).
 func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, spawnEnv map[string]string, loopbackPort int) pb.ContainerRunnerFunc {
 	return func(_ hclog.Logger, cmd *exec.Cmd, hostSocketDir string) (runner.Runner, error) {
-		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts, loopbackPort)
+		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts, loopbackPort, rt.mapper())
 		// The per-spawn runner env crosses as bare names (renderRunSpec's
 		// `-e <name>` form); the values ride the run-process env
 		// (newContainerRunner), never this argv.
@@ -251,25 +268,40 @@ var containerBaseEnv = []string{"IS_SANDBOX=1"}
 // buildRunSpec assembles the RunSpec for one plugin container from the launch
 // parameters. Env = the fixed container base env + the curated go-plugin handshake
 // vars (from hostEnv, socket dir overridden to the container path) + the scoped
-// auth extraEnv. Mounts = the identical-path project mount (cwd + .git resolve
-// unchanged) + the socket-dir mount + extraMounts (auth credential mounts + config
-// overlays). Pure and deterministic so the mount/env wiring is unit-testable
+// auth extraEnv. Mounts = the project mount (cwd + .git resolve unchanged on the
+// identity mapper) + the socket-dir mount + extraMounts (auth credential mounts +
+// config overlays). Pure and deterministic so the mount/env wiring is unit-testable
 // without a container.
-func buildRunSpec(image, name, projectDir, home string, command []string, containerSocketDir, hostSocketDir string, hostEnv, extraEnv []string, extraMounts []Mount, loopbackPort int) RunSpec {
+//
+// mapper (lanky-pod's seam, container-runtime-bugs.plan.md §5) translates
+// projectDir into the WorkDir + project-mount CONTAINER path: identityMapper
+// (every caller today — see containerRunnerFunc, which reads it off rt.mapper())
+// makes this byte-for-byte the identical-path mount buildRunSpec always built,
+// so the seam changes NOTHING for the supported (Linux host-native / true DinD)
+// topology. A future Windows mapper (drive-letter host path → POSIX in-
+// container target) or DooD mapper (mountinfo-derived) plugs in HERE without
+// touching this function's callers.
+func buildRunSpec(image, name, projectDir, home string, command []string, containerSocketDir, hostSocketDir string, hostEnv, extraEnv []string, extraMounts []Mount, loopbackPort int, mapper pathMapper) RunSpec {
+	mapper = runtimeMapper(mapper)
+	containerWorkDir := mapper.toContainer(projectDir)
 	env := append(append([]string(nil), containerBaseEnv...), containerHandshakeEnv(hostEnv, containerSocketDir, loopbackPort)...)
 	env = append(env, extraEnv...)
 	mounts := append([]Mount{
-		// Identical-path project mount: cwd + .git gitdir resolve unchanged.
-		{Host: projectDir, Container: projectDir},
+		// Project mount: cwd + .git gitdir resolve unchanged UNDER THE IDENTITY
+		// MAPPER; a non-identity mapper renders the container target through
+		// the SAME translation WorkDir below uses, so the two never disagree.
+		{Host: projectDir, Container: containerWorkDir},
 		// The unix-socket dir go-plugin created, mounted to the container path.
 		// Inert under the loopback (TCP) transport — the plugin listens on TCP
 		// and creates no socket here — but harmless, so the mount is unconditional.
+		// containerSocketDir is already a FIXED in-container convention (not a
+		// host-derived path), so it does not route through the mapper.
 		{Host: hostSocketDir, Container: containerSocketDir},
 	}, extraMounts...)
 	return RunSpec{
 		Image:       image,
 		Name:        name,
-		WorkDir:     projectDir,
+		WorkDir:     containerWorkDir,
 		Home:        home,
 		Command:     command,
 		Env:         env,

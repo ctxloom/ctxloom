@@ -103,7 +103,13 @@ func (b worktreeBase) prepareBase(ctx context.Context, rt Runtime, projectDir, a
 // worktree base injected.
 func NewContainerWorktree(rt Runtime, image string, g git.Git) Container {
 	c := NewContainer(rt, image)
-	c.base = worktreeBase{wt: NewWorktree(g)}
+	// backend "": this generic constructor carries no backend context (only
+	// callers today are tests fixing an explicit image). Harmless — the
+	// wrapped Worktree's Env()/credential-seeding never runs here anyway (see
+	// the package doc above: the unified containerWorkspace never implements
+	// EnvWorkspace), but passing "" keeps NewWorktree's contract explicit at
+	// every call site rather than special-casing this one.
+	c.base = worktreeBase{wt: NewWorktree(g, "")}
 	return c
 }
 
@@ -114,6 +120,12 @@ func NewContainerWorktree(rt Runtime, image string, g git.Git) Container {
 // builds), the worktree half from the Git seam.
 func NewContainerWorktreeFor(rt Runtime, backend string, img ImageConfig, g git.Git) Container {
 	c := containerFor(rt, backend, img)
-	c.base = worktreeBase{wt: NewWorktree(g)}
+	// backend threaded for consistency with the pure host+worktree
+	// construction site (chainFor); harmless here specifically because the
+	// unified containerWorkspace never implements EnvWorkspace (see the
+	// package doc above), so the wrapped Worktree's Env()/credential-seeding
+	// is dead code in this composition — auth flows through the surrounding
+	// Container's resolveContainerAuth mounts instead.
+	c.base = worktreeBase{wt: NewWorktree(g, backend)}
 	return c
 }

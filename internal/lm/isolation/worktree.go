@@ -14,7 +14,15 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// credentialSeedFixIt is the fix-it hint attached to a worktree credential-seed
+// fail-loud finding (see Worktree.seedCredentials): unlike the container path's
+// isolationFixIt (which points at installing/starting a runtime), the escape
+// hatch here is authenticating the engine or supplying its API key — there is no
+// runtime to start.
+const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var, or pass --degraded (env CTXLOOM_DEGRADED=1) to run this member on the shared host config instead of an isolated one"
 
 // worktreeBaseRef is the ref each per-agent worktree is checked out to: HEAD,
 // DETACHED (T0.2). Ephemeral per-agent checkouts are never branch-per-agent in
@@ -46,19 +54,32 @@ type Worktree struct {
 	// dir — one place to inspect a session's regenerable state (§6d). Zero on
 	// paths without session accounting → the OS temp dir, exactly as before.
 	state SessionState
+	// backend is the REGISTERED backend name (e.g. "claude-code") this
+	// policy's config-home is provisioned for. provisionConfigHome uses it
+	// to look up a credentialSeedSpec (auth.go) and seed subscription
+	// credentials into the isolated config-home — without it, an isolated
+	// engine that honours its config-home var for creds too (claude) starts
+	// logged out (grave-prize). Empty is valid (a bare Worktree{}, or a
+	// caller with no backend context, e.g. the worktree-in-container base's
+	// generic test constructor): no spec matches, so no seeding is
+	// attempted — the pre-fix behavior.
+	backend string
 }
 
 // Ensure Worktree satisfies the Policy interface.
 var _ Policy = Worktree{}
 
-// NewWorktree builds a worktree policy over the given Git seam. A nil Git uses the
-// default git-binary implementation; tests pass a git.Fake to drive the lifecycle
-// and the WIP-safe teardown without a real repo.
-func NewWorktree(g git.Git) Worktree {
+// NewWorktree builds a worktree policy over the given Git seam for the given
+// backend. A nil Git uses the default git-binary implementation; tests pass a
+// git.Fake to drive the lifecycle and the WIP-safe teardown without a real repo.
+// backend is the registered backend name (e.g. "claude-code"); pass "" when no
+// backend context is available (config-home credential seeding is then skipped —
+// see the Worktree.backend field doc).
+func NewWorktree(g git.Git, backend string) Worktree {
 	if g == nil {
 		g = git.NewExec()
 	}
-	return Worktree{git: g, baseRef: worktreeBaseRef}
+	return Worktree{git: g, baseRef: worktreeBaseRef, backend: backend}
 }
 
 // Name identifies the policy.
@@ -130,10 +151,12 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspa
 	return None{}.SpawnClient(backendName, label, verbosity, ws, spawnEnv)
 }
 
-// provisionConfigHome creates the per-agent config-home root (P2, T0.6). Returns
-// "" on failure — the run still proceeds against the shared global config (warn),
-// never blocking. The scoped envs are preferred over a per-session HOME, which
-// would strip ~/.gitconfig/ssh identity the worktree still needs.
+// provisionConfigHome creates the per-agent config-home root (P2, T0.6) and, when
+// this policy carries a backend with a registered credentialSeedSpec, seeds it
+// with the backend's host subscription credentials (grave-prize). Returns "" on
+// the MkdirAll failure — the run still proceeds against the shared global config
+// (warn), never blocking. The scoped envs are preferred over a per-session HOME,
+// which would strip ~/.gitconfig/ssh identity the worktree still needs.
 func (w Worktree) provisionConfigHome(agentID string) string {
 	home := worktreeScratchPath(w.scratchBase(), "ctxloom-cfg", agentID)
 	// 0700 like every MkdirTemp sibling in this package: the dir holds engine
@@ -149,7 +172,40 @@ func (w Worktree) provisionConfigHome(agentID string) string {
 		_ = os.RemoveAll(home)
 		return ""
 	}
+	w.seedCredentials(home, agentID)
 	return home
+}
+
+// seedCredentials seeds w.backend's subscription credentials into the per-agent
+// config-home when the backend has a registered credentialSeedSpec (auth.go) —
+// an engine whose isolation env var relocates CREDENTIALS, not just config. No
+// spec (w.backend == "", or a backend deliberately left out of the registry —
+// see credentialSeedSpecs' doc) is a silent no-op: the pre-fix, config-only
+// provisioning.
+//
+// The copy mechanics (I/O failure) stay best-effort like the rest of this
+// provisioning step — a warn, not a block. But "nothing seedable" is NOT
+// best-effort: no envTrigger (e.g. ANTHROPIC_API_KEY) set AND no host
+// credential file present is exactly the silent-logged-out-agent failure mode
+// fail-loudly exists to catch (the original grave-prize bug), so it records a
+// ClassIsolation finding the choke owner aborts on in strict mode (default)
+// unless --degraded — matching how the container path treats unresolvable auth
+// (resolveClaudeContainerAuth / container.go).
+func (w Worktree) seedCredentials(configHome, agentID string) {
+	spec, ok := credentialSeedSpecs[w.backend]
+	if !ok {
+		return
+	}
+	result, err := hostCredentialSeed(spec, configHome)
+	if err != nil {
+		clidiag.Warn("ctxloom", "worktree: could not seed %s credentials for %q (using an unseeded config-home): %v", spec.engine, agentID, err)
+		return
+	}
+	if result == seedNoSource {
+		strictness.Fail(strictness.ClassIsolation, credentialSeedFixIt,
+			"worktree isolation for agent %q: no %s and no host %s credentials found to seed the per-agent config-home — the agent would start logged out",
+			agentID, spec.envTrigger, spec.engine)
+	}
 }
 
 // excludeConfigFromMerge writes the broadened ctxloom-config exclude block to the

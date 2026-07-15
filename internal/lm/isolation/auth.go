@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -176,4 +177,202 @@ func claudeCredentialMounts(containerHome string) ([]Mount, bool) {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// --- Host+worktree credential seeding -------------------------------------
+//
+// The container path above authenticates a fresh, isolated HOME by BIND-
+// MOUNTING host credential files into it (claudeCredentialMounts). A
+// host+worktree run has no fresh HOME to mount into — it relocates the
+// engine's config lookup via an env var (CLAUDE_CONFIG_DIR/CODEX_HOME/
+// KIRO_HOME, see worktree.go's Env()) pointing at a per-agent scratch dir
+// that starts EMPTY. An engine that honours the var for CREDENTIALS too
+// (not just config) then finds no creds there and starts logged out — silent
+// unless something seeds the dir. That "something" is this section: a COPY
+// (never a symlink — the destination must stay WRITABLE so a token refresh
+// lands in the per-agent copy, not back on the host's shared credential;
+// see worktree.go's provisionConfigHome doc) of the same host credential
+// material claudeCredentialMounts already knows how to find, gated on the
+// SAME envTrigger precedence resolveClaudeContainerAuth uses.
+//
+// credentialSeedSpec is a per-engine descriptor answering the three
+// questions worktree config-home provisioning needs: (1) does an env var
+// already carry usable auth, bypassing seeding entirely (envTrigger); (2)
+// what host file(s) hold the credential material, in copy order, and is each
+// one REQUIRED (its absence means "nothing to seed") or best-effort/optional
+// (e.g. an account-association file); (3) which config-home subdirectory the
+// engine's isolation var points at (destSubdir — must match worktree.go's
+// Env()). Only engines that (a) honour their isolation home-var for
+// CREDENTIALS and (b) keep those credentials in copyable file(s) belong in
+// credentialSeedSpecs below — see the registry doc for the engines
+// deliberately left out and why.
+type credentialSeedSpec struct {
+	// engine names the backend for fail-loud messages (e.g. "claude") —
+	// deliberately not the registered backend name (which is "claude-code"),
+	// so messages read naturally.
+	engine string
+	// destSubdir is the config-home subdirectory the engine's isolation env
+	// var is pointed at by worktree.go's Env() (e.g. "claude" for
+	// CLAUDE_CONFIG_DIR). The seed lands here so Env()'s existing wiring picks
+	// it up unchanged.
+	destSubdir string
+	// envTrigger is the env var whose presence means the engine already has
+	// usable auth riding the process env (e.g. ANTHROPIC_API_KEY) — seeding
+	// is skipped (not an error), mirroring resolveClaudeContainerAuth's
+	// authEnv precedence (auth.go:82-83). "" if the engine has no such
+	// bypass.
+	envTrigger string
+	// sourceFiles returns the host credential file(s) to copy, given the
+	// host home directory, in copy order.
+	sourceFiles func(hostHome string) []seedFile
+}
+
+// seedFile is one host file a credentialSeedSpec copies into the seeded
+// config-home. required=true means its absence makes the WHOLE seed
+// "nothing to seed" (the fail-loud case); required=false is copied
+// best-effort when present (its absence alone is not fatal).
+type seedFile struct {
+	host     string // absolute host source path
+	destName string // filename under the destination directory
+	required bool
+}
+
+// credentialSeedSpecs is the registry provisionConfigHome (worktree.go)
+// consults, keyed by the REGISTERED backend name (internal/lm/backends:
+// "claude-code", "codex", "kiro" — see profile.go's containerProfileFor,
+// which the same keys already drive). An engine with NO entry is not seeded
+// at THIS layer:
+//
+//   - kiro: KIRO_HOME does not relocate credentials — subscription auth lives
+//     in a GLOBAL sqlite under $XDG_DATA_HOME regardless of KIRO_HOME (see
+//     resolveKiroContainerAuth's doc, verified live against kiro-cli 2.12.1).
+//     A host+worktree kiro agent already shares the host's auth through that
+//     global store; seeding would be both unnecessary and wrong (there is no
+//     per-KIRO_HOME credential file to copy).
+//   - codex: honours CODEX_HOME for credentials (auth.json), but ALREADY
+//     seeds it through a SEPARATE, already-shipped mechanism —
+//     internal/codex/backend.go's cellCodexHomeEnv + linkUserCodexAuth, which
+//     redirect CODEX_HOME to <WorkDir>/.codex (not this package's configHome
+//     — the two are different directories) and SYMLINK (not copy)
+//     ~/.codex/auth.json in, because `codex exec` does not refresh tokens
+//     (unlike claude, so the write-back hazard a symlink poses for claude
+//     does not apply to codex the same way). That mechanism runs in
+//     agent.LaunchBackend.ExecuteEnv AFTER this package's env and
+//     unconditionally wins on the CODEX_HOME key for every isolated,
+//     non-container run (ExecuteEnv: "later entries win on a key clash"; see
+//     launch_backend.go), so registering codex here would seed a copy this
+//     package's own Env() ships that the engine never reads — dead code.
+//     Reconciling the two mechanisms (unify codex onto this copy-based
+//     framework vs keep it on its own symlink path) is a real design
+//     decision (deletes/relocates linkUserCodexAuth and decouples
+//     CODEX_HOME from the cell-delivery dir that also carries codex's
+//     config.toml/hooks/prompts) — NOT made in this registry; see the
+//     grave-prize task notes.
+var credentialSeedSpecs = map[string]credentialSeedSpec{
+	"claude-code": {
+		engine:     "claude",
+		destSubdir: "claude",
+		envTrigger: "ANTHROPIC_API_KEY",
+		sourceFiles: func(hostHome string) []seedFile {
+			return []seedFile{
+				{
+					host:     filepath.Join(hostHome, ".claude", ".credentials.json"),
+					destName: ".credentials.json",
+					required: true,
+				},
+				// ~/.claude.json carries the OAuth account association claude
+				// reads at startup — optional. Live-verified (2026-07, claude
+				// 2.1.210): claude auto-creates its own .claude.json inside
+				// CLAUDE_CONFIG_DIR when the var is set and none exists there
+				// yet (a fresh onboarding record), so its absence does NOT
+				// block auth — .credentials.json alone was sufficient for a
+				// `claude -p` run to authenticate and answer. Seeding it when
+				// present just carries over the existing account
+				// association/trust-dialog state instead of re-onboarding.
+				{
+					host:     filepath.Join(hostHome, ".claude.json"),
+					destName: ".claude.json",
+					required: false,
+				},
+			}
+		},
+	},
+}
+
+// seedResult is hostCredentialSeed's decision, returned instead of a bare
+// bool so the caller (worktree.go) can tell "nothing to do" (seedSkippedEnv,
+// seedNotApplicable) apart from "nothing WAS seedable" (seedNoSource) — only
+// the latter is the fail-loud case.
+type seedResult int
+
+const (
+	// seedSkippedEnv: the engine's envTrigger is set — auth rides the env,
+	// nothing to seed. Not an error.
+	seedSkippedEnv seedResult = iota
+	// seedOK: at least the primary (required) credential file was copied.
+	seedOK
+	// seedNoSource: the engine DOES honour its isolation var for credentials,
+	// no envTrigger is set, and the primary host credential file is absent —
+	// nothing seedable. The caller fails loud (ClassIsolation).
+	seedNoSource
+)
+
+// hostCredentialSeed seeds configHome/<spec.destSubdir> with spec's host
+// credential material, gated on spec.envTrigger exactly as
+// resolveClaudeContainerAuth gates the container mount. It copies (never
+// symlinks — see the package doc above) each present file at 0600, owner-
+// only: the destination holds live credential bytes and must not be group/
+// world-readable even though the source file's own mode may differ. NEVER
+// logs a secret value — only paths, and only the caller (worktree.go) logs
+// even those, via clidiag.Warn/strictness.Fail on the DECISION, not the
+// content.
+func hostCredentialSeed(spec credentialSeedSpec, configHome string) (seedResult, error) {
+	if spec.envTrigger != "" && os.Getenv(spec.envTrigger) != "" {
+		return seedSkippedEnv, nil
+	}
+	home, err := hostHomeDir()
+	if err != nil || home == "" {
+		return seedNoSource, nil
+	}
+	files := spec.sourceFiles(home)
+	for _, f := range files {
+		if f.required && !fileExists(f.host) {
+			return seedNoSource, nil
+		}
+	}
+	destDir := filepath.Join(configHome, spec.destSubdir)
+	if err := os.MkdirAll(destDir, 0o700); err != nil {
+		return seedNoSource, fmt.Errorf("create %s credential seed dir: %w", spec.engine, err)
+	}
+	seededAny := false
+	for _, f := range files {
+		if !fileExists(f.host) {
+			continue // optional file absent — already checked required above
+		}
+		if err := copyCredentialFile(f.host, filepath.Join(destDir, f.destName)); err != nil {
+			return seedNoSource, fmt.Errorf("seed %s credential %q: %w", spec.engine, f.destName, err)
+		}
+		seededAny = true
+	}
+	if !seededAny {
+		// Defensive: a spec with no required files and nothing present. No
+		// current spec hits this (claude's primary file is required), but a
+		// future all-optional spec should not report seedOK having copied
+		// nothing.
+		return seedNoSource, nil
+	}
+	return seedOK, nil
+}
+
+// copyCredentialFile copies src to dst at 0600 (owner-only). Reads the whole
+// file into memory rather than streaming: credential files are tiny (a JSON
+// token/account record, never a large blob), so the simplicity of
+// read-then-write outweighs any streaming benefit, and it keeps the write
+// atomic-enough for this use (no partial dst on a read failure).
+func copyCredentialFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o600)
 }

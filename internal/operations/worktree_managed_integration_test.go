@@ -33,7 +33,7 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	repo := initManagedTestRepo(t)
 
 	// The worktree policy provisions the isolated cwd + writes info/exclude.
-	ws, err := isolation.NewWorktree(git.NewExec()).PrepareWorkspace(ctx, repo, "member-managed")
+	ws, err := isolation.NewWorktree(git.NewExec(), "").PrepareWorkspace(ctx, repo, "member-managed")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
 	wtDir := ws.Dir()
 	t.Cleanup(func() {

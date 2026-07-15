@@ -183,7 +183,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktree(fakeRuntime{name: "docker", available: false}, "img",
 		&git.Fake{CommonDirValue: common})
-	working := NewWorktree(&git.Fake{CommonDirValue: common})
+	working := NewWorktree(&git.Fake{CommonDirValue: common}, "")
 	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
@@ -199,7 +199,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	pol2, ws2 := prepareChain(ctx,
 		[]Policy{
 			NewContainerWorktree(fakeRuntime{name: "docker", available: false}, "img", nonRepo),
-			NewWorktree(nonRepo),
+			NewWorktree(nonRepo, ""),
 			None{},
 		}, "/proj", "m")
 	require.NotNil(t, ws2)

@@ -26,7 +26,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := NewWorktree(git.NewExec(), "")
 	ws, err := pol.PrepareWorkspace(ctx, repo, "member-int")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
 	wtDir := ws.Dir()
@@ -79,7 +79,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	ctx := context.Background()
 	repo := initRealRepo(t)
 
-	pol := NewWorktree(git.NewExec())
+	pol := NewWorktree(git.NewExec(), "")
 	ws, err := pol.PrepareWorkspace(ctx, repo, "member-nest")
 	require.NoError(t, err)
 	outer := ws.Dir()

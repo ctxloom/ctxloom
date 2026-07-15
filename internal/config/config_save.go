@@ -195,6 +195,13 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)
 	setOrDelete(existing, "isolation_base_containerfile", c.IsolationBaseContainerfile != "", c.IsolationBaseContainerfile)
+	if c.IsolationDevcontainerBase != nil {
+		setOrDelete(existing, "isolation_devcontainer_base", true, *c.IsolationDevcontainerBase)
+	} else {
+		delete(existing, "isolation_devcontainer_base")
+	}
+	setOrDelete(existing, "isolation_devcontainer_service", c.IsolationDevcontainerService != "", c.IsolationDevcontainerService)
+	setOrDelete(existing, "isolation_engines", len(c.IsolationEngines) > 0, c.IsolationEngines)
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)

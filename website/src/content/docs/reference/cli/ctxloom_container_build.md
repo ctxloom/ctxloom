@@ -29,12 +29,28 @@ your tools, your certs, your mirrors — and the same agent stage layers on top.
 Alternatively --base-image skips the client install entirely and overlays
 ctxloom onto an image that ALREADY ships the client CLI.
 
+Absent an explicit base, the project's own .devcontainer/devcontainer.json (or
+.devcontainer.json) is auto-detected and used as the base instead of the
+embedded default — "an isolated agent should run in the environment the human
+develops in". --no-devcontainer-base (or config isolation_devcontainer_base:
+false) opts out. A devcontainer.json declaring "features" is NOT honored
+(pre1 does not depend on the devcontainer CLI) — a loud warning names what is
+skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
+service pick (--devcontainer-service, or config isolation_devcontainer_service)
+since a multi-service compose project does not map to one agent container.
+
+The engine set (claude-code, codex, kiro, opencode — each via its OWN
+official installer, one independently-cacheable Containerfile layer) composes
+into ONE shared image by default; --engines (or config isolation_engines)
+trims it. antigravity has no known official installer yet and is never
+composed in.
+
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
 `ctxloom run`/`map`/`weave` also build this image automatically when it
-is absent (honoring isolation_base_containerfile); this command is the explicit
-path (refresh, custom base). To run a fully user-provided image instead, set
-isolation_images in config — those are run as-is and never built.
+is absent (honoring the same base/engine resolution); this command is the
+explicit path (refresh, custom base). To run a fully user-provided image
+instead, set isolation_images in config — those are run as-is and never built.
 
 ```
 ctxloom container build [backend] [flags]
@@ -43,11 +59,14 @@ ctxloom container build [backend] [flags]
 ### Options
 
 ```
-      --base-containerfile string   build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of the embedded default
-      --base-image string           overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
-  -h, --help                        help for build
-      --keep-cache                  reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
-      --runtime string              container runtime to build with (docker|podman); auto-detected when empty
+      --base-containerfile string     build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default
+      --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
+      --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
+      --engines strings               engines to compose into the agent image (claude-code,codex,kiro,opencode); empty = every known engine
+  -h, --help                          help for build
+      --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
+      --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
+      --runtime string                container runtime to build with (docker|podman); auto-detected when empty
 ```
 
 ### Options inherited from parent commands

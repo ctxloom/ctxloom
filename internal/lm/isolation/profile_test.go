@@ -13,8 +13,10 @@ import (
 func TestContainerProfileFor_Claude(t *testing.T) {
 	p := containerProfileFor("claude-code")
 	assert.Equal(t, defaultContainerImage, p.image)
-	assert.Empty(t, p.officialImage, "no publicly-resolvable official claude-code image (verified live); the npm install recipe builds")
-	assert.NotEmpty(t, p.containerfile, "claude is locally buildable (embedded Containerfile)")
+	assert.Empty(t, p.officialImage, "no publicly-resolvable official claude-code image (verified live); the composed engine fragment builds")
+	assert.Empty(t, p.containerfile, "composable via engineInstall, not the retired embedded monolithic Containerfile")
+	assert.NotEmpty(t, p.engineInstall, "claude is composable (official npm installer fragment)")
+	assert.Contains(t, string(p.engineInstall), "npm install -g @anthropic-ai/claude-code")
 	assert.Equal(t, "claude --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".claude")
 	assert.NotContains(t, p.overlayDirs, ".kiro")
@@ -38,7 +40,9 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	p := containerProfileFor("kiro")
 	assert.Equal(t, "ctxloom-agent-kiro:latest", p.image)
 	assert.Empty(t, p.officialImage, "kiro ships no official container image (community images are not a trustworthy base)")
-	assert.NotEmpty(t, p.containerfile, "kiro is locally buildable (embedded Containerfile)")
+	assert.Empty(t, p.containerfile, "composable via engineInstall, not the retired embedded monolithic Containerfile")
+	assert.NotEmpty(t, p.engineInstall, "kiro is composable (official installer fragment)")
+	assert.Contains(t, string(p.engineInstall), "cli.kiro.dev/install")
 	assert.Equal(t, "kiro-cli --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".kiro")
 	assert.NotContains(t, p.overlayDirs, ".claude", "kiro writes no .claude config")
@@ -55,18 +59,39 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "KIRO_API_KEY", "the wired resolver is the kiro (KIRO_API_KEY) resolver")
 }
 
-// TestContainerProfileFor_UnknownIsDefault: engines without a profile keep the
-// pre-profile semantics — the generic image, claude auth, NO local build (run if
-// the image is present, degrade if not).
+// TestContainerProfileFor_UnknownIsDefault: engines without a profile (and
+// antigravity, which has no known official installer) keep the pre-profile
+// semantics — the generic image, claude auth, NO local build (run if the
+// image is present, degrade if not).
 func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
-	for _, name := range []string{"", "codex", "mock"} {
+	for _, name := range []string{"", "mock", "antigravity"} {
 		p := containerProfileFor(name)
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Empty(t, p.containerfile, "backend %q has no local-build recipe", name)
+		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Contains(t, p.overlayDirs, ".claude", "backend %q", name)
 		// The default profile is claude-oriented throughout, including auth.
 		require.NotNil(t, p.resolveAuth, "backend %q wires the default (claude) auth resolver", name)
 		assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q inherits claude's degrade hint", name)
+	}
+}
+
+// TestContainerProfileFor_CodexAndOpencode_ComposableBuildOnlyAuthUnchanged:
+// codex and opencode are now COMPOSABLE (their own official-installer
+// fragment for BUILD purposes), but still inherit the default (claude-
+// oriented) auth/overlay set exactly as the pre-existing default fallback
+// did — isolation AUTH for these two engines is a separate workstream
+// (bony-spoof / container-image-auth), out of scope here.
+func TestContainerProfileFor_CodexAndOpencode_ComposableBuildOnlyAuthUnchanged(t *testing.T) {
+	deflt := containerProfileFor("")
+	for name, wantValidate := range map[string]string{"codex": "codex --version", "opencode": "opencode --version"} {
+		p := containerProfileFor(name)
+		assert.NotNil(t, p.engineInstall, "backend %q is now composable", name)
+		assert.Equal(t, wantValidate, p.validate, "backend %q", name)
+		assert.Equal(t, defaultContainerImage, p.image, "backend %q keeps the default image (no dedicated one yet)", name)
+		assert.Equal(t, deflt.overlayDirs, p.overlayDirs, "backend %q auth/overlay unchanged from the default", name)
+		assert.Equal(t, deflt.authHint, p.authHint, "backend %q auth/overlay unchanged from the default", name)
+		assert.NotEqual(t, deflt.transcriptStoreRel, p.transcriptStoreRel, "backend %q maps its OWN transcript store", name)
 	}
 }
 

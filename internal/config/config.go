@@ -95,9 +95,35 @@ type Config struct {
 	// IsolationBaseContainerfile is a USER-PROVIDED base Containerfile for
 	// locally-built agent images: the on-the-fly build (and `ctxloom container
 	// build`) layers the engine's agent stage onto a base built from this file
-	// instead of the embedded default base (container/base/Containerfile).
-	// Relative paths resolve against the project root.
+	// instead of an auto-detected devcontainer / the embedded default base
+	// (container/base/Containerfile). Relative paths resolve against the
+	// project root. Beats devcontainer auto-detection (locked decision 8).
 	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
+	// IsolationDevcontainerBase toggles auto-detecting the project's
+	// .devcontainer/devcontainer.json (or .devcontainer.json) as the
+	// locally-built agent image's BASE (stark-wheat): "an isolated agent
+	// should run in the environment the human develops in". Default true
+	// (nil = enabled); set false to opt out and keep the embedded default
+	// base (or an explicit isolation_base_containerfile) instead. A tri-state
+	// pointer like UI.Surround — a plain bool's zero value would default to
+	// disabled.
+	IsolationDevcontainerBase *bool `mapstructure:"isolation_devcontainer_base" yaml:"isolation_devcontainer_base,omitempty"`
+	// IsolationDevcontainerService names the docker-compose service to adopt
+	// as the agent image's base when the detected devcontainer.json declares
+	// dockerComposeFile — a multi-service compose project does not map to
+	// ONE agent container, so this (or the devcontainer.json's own "service"
+	// key) is required to resolve one; its absence is a fail-loud finding,
+	// never a silent fallback to the default base.
+	IsolationDevcontainerService string `mapstructure:"isolation_devcontainer_service" yaml:"isolation_devcontainer_service,omitempty"`
+	// IsolationEngines selects which engine fragments compose into the
+	// shared multi-engine agent image (stark-wheat locked decision 3: "all
+	// engines CAN be present, composition is per build") — claude-code,
+	// codex, kiro, opencode today (each via its OWN official installer, one
+	// independently-cacheable Containerfile RUN layer). Empty/unset = every
+	// known engine (the biggest image, "one instance runs any engine"); an
+	// unrecognized name is dropped with a warning, never silently promoted to
+	// "use everything".
+	IsolationEngines []string `mapstructure:"isolation_engines" yaml:"isolation_engines,omitempty"`
 	// UI configures the interactive-run terminal layer (the prefix-key viewer
 	// and the persistent surround bar). Flag/env never lives here — only
 	// presentation preferences; `run --plain-terminal` disables the layer
@@ -250,6 +276,13 @@ func (c *Config) IsolationBaseContainerfilePath() string {
 		p = filepath.Join(c.AppRoot, p)
 	}
 	return p
+}
+
+// IsolationDevcontainerBaseEnabled reports whether devcontainer auto-detection
+// is enabled for locally-built agent images (default true — nil means unset;
+// nil-safe).
+func (c *Config) IsolationDevcontainerBaseEnabled() bool {
+	return c == nil || c.IsolationDevcontainerBase == nil || *c.IsolationDevcontainerBase
 }
 
 func (c *Config) GetEditorCommand() (string, []string) {

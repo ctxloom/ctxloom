@@ -260,11 +260,30 @@ func warnUnknownAxes(a Axes) {
 // isolation: Image is the optional prebuilt agent-image override (config
 // isolation_images), run AS-IS and never built; BaseContainerfile is the
 // optional user base Containerfile (config isolation_base_containerfile) an
-// on-the-fly local build layers the engine's agent stage onto instead of the
-// embedded default base. Zero value = the backend profile's defaults.
+// on-the-fly local build layers the engine's agent stage onto instead of an
+// auto-detected devcontainer / the embedded default base. AppRoot +
+// NoDevcontainerBase + DevcontainerService drive the auto-detected project
+// devcontainer base (stark-wheat); Engines selects a COMPOSABLE backend's
+// engine set. Zero value = the backend profile's defaults (devcontainer
+// auto-detect ON, engines = every known official-installer fragment).
 type ImageConfig struct {
 	Image             string
 	BaseContainerfile string
+	// AppRoot is the project root devcontainer auto-detection resolves
+	// .devcontainer/devcontainer.json (or .devcontainer.json) against; ""
+	// disables auto-detection (same effect as NoDevcontainerBase).
+	AppRoot string
+	// NoDevcontainerBase opts out of devcontainer auto-detection (config
+	// isolation_devcontainer_base: false / --no-devcontainer-base).
+	NoDevcontainerBase bool
+	// DevcontainerService names the docker-compose service to use as the base
+	// when the detected devcontainer.json declares dockerComposeFile (config
+	// isolation_devcontainer_service).
+	DevcontainerService string
+	// Engines selects which engine fragments compose into a COMPOSABLE
+	// backend's shared agent image (config isolation_engines); empty = every
+	// engine with a known official-installer fragment (composableEngines()).
+	Engines []string
 }
 
 // Resolve maps the requested axes to the LEAD policy for a run of the named

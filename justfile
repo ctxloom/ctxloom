@@ -779,46 +779,13 @@ container-build-minimal:
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
 
-# Build the PRODUCTION claude agent image: the locally-built static linux ctxloom
-# PLUS a real claude CLI (npm @anthropic-ai/claude-code on node:22-slim), tagged
-# ctxloom-agent:latest (the default image the container isolation policy looks for)
-# AND ctxloom-agent-claude:latest. Unlike container-build-minimal (transport only),
-# this runs a REAL engine in-container for a top-level isolated `ctxloom run`. Auth
-# is NOT baked in — it crosses at run time (ANTHROPIC_* passthrough, or a read-only
-# ~/.claude credential mount). Follows the self-contained container-build-minimal
-# pattern (docker, static binary, no base-image dependency); the Go test gate never
-# depends on this image (the build is slow/network-bound).
-container-build-claude: container-build-base
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ctx=$(mktemp -d)
-    trap 'rm -rf "$ctx"' EXIT
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
-        -o "$ctx/ctxloom" ./cmd/ctxloom
-    # Companions mirrored from the host (the agent stage's COPY companions/
-    # requires the dir even when empty; a missing companion just warns).
-    mkdir -p "$ctx/companions"
-    for b in taskloom ltk reprise; do
-        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
-        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
-    done
-    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
-    cp container/production/Containerfile-claude-code "$ctx/Containerfile"
-    # Stamp the provenance digest computed by the very binary being baked, so a
-    # later `ctxloom run` with that same binary sees the image as current.
-    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
-    {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
-        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
-        --build-arg CTXLOOM_VERSION={{version}} \
-        --build-arg CTXLOOM_PROVENANCE="$prov" \
-        -f "$ctx/Containerfile" "$ctx"
-
 # Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
 # plus the coding-agent tool layer (git, ripgrep, curl, certs, unzip, jq). The
-# per-engine recipes layer their agent stage on top via --build-arg BASE_IMAGE.
-# To bring your own base instead, use `ctxloom container build
-# --base-containerfile <file>` (or config isolation_base_containerfile).
+# composed multi-engine agent stage (isolation.composeAgentContainerfile) layers
+# onto it via --build-arg BASE_IMAGE. To bring your own base instead, use
+# `ctxloom container build --base-containerfile <file>` (or config
+# isolation_base_containerfile) — or a project .devcontainer/devcontainer.json
+# auto-detects (isolation_devcontainer_base).
 container-build-base:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -827,37 +794,37 @@ container-build-base:
     cp container/base/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent-base:latest -f "$ctx/Containerfile" "$ctx"
 
-# Build the PRODUCTION kiro agent image: the locally-built static linux ctxloom
-# PLUS a real kiro-cli (official installer on debian slim), tagged
-# ctxloom-agent-kiro:latest (the image the kiro container profile looks for).
-# Auth is NOT baked in — KIRO_API_KEY crosses at run time (headless mode). The
-# isolation policy can also build this image ON THE FLY from the embedded
-# Containerfile when the tag is absent; this recipe is the ahead-of-time path.
-container-build-kiro: container-build-base
+# Build a locally-built ctxloom binary, then delegate to `ctxloom container
+# build <backend> [--engines ...]` — the SAME composed multi-engine
+# Containerfile generator (base resolution + per-engine official-installer
+# fragments) the on-the-fly build uses, so this ahead-of-time path and a
+# `ctxloom run` build byte-identical images for the same config. Passes
+# --no-devcontainer-base: THIS recipe is a fast local smoke-build of the
+# composed-engine mechanism, not "what a real run in this checkout would use"
+# — ctxloom's OWN .devcontainer/ (a heavy CGO/ONNX toolchain image, and one
+# that declares `features:`) would otherwise become the base here. A real
+# `ctxloom run --runtime container` (or an explicit `ctxloom container build`)
+# still auto-detects normally; this recipe opts out deliberately.
+_container-build-via-cli backend *engines:
     #!/usr/bin/env bash
     set -euo pipefail
-    ctx=$(mktemp -d)
-    trap 'rm -rf "$ctx"' EXIT
+    bin="./ctxloom-build-tmp-$$"
+    trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
         -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
-        -o "$ctx/ctxloom" ./cmd/ctxloom
-    # Companions mirrored from the host (the agent stage's COPY companions/
-    # requires the dir even when empty; a missing companion just warns).
-    mkdir -p "$ctx/companions"
-    for b in taskloom ltk reprise; do
-        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
-        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
-    done
-    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
-    cp container/production/Containerfile-kiro "$ctx/Containerfile"
-    # Stamp the provenance digest computed by the very binary being baked, so a
-    # later `ctxloom run` with that same binary sees the image as current.
-    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
-    {{container_cmd}} build -t ctxloom-agent-kiro:latest \
-        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
-        --build-arg CTXLOOM_VERSION={{version}} \
-        --build-arg CTXLOOM_PROVENANCE="$prov" \
-        -f "$ctx/Containerfile" "$ctx"
+        -o "$bin" ./cmd/ctxloom
+    args=(container build {{backend}} --no-devcontainer-base)
+    if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
+    "$bin" "${args[@]}"
+
+# Build the claude-code agent image (the composed multi-engine image, tagged
+# by its resolved content — see `ctxloom container check claude-code` for the
+# resolved tag).
+container-build-claude: (_container-build-via-cli "claude-code")
+
+# Build the kiro agent image (the composed multi-engine image; see
+# container-build-claude).
+container-build-kiro: (_container-build-via-cli "kiro")
 
 # List all ctxloom container images
 container-list:

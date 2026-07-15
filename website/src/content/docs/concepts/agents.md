@@ -97,13 +97,20 @@ ctxloom container build          # build/refresh the image for the default backe
 ctxloom container scaffold       # materialize an editable base Containerfile
 ```
 
-Images build in two stages: a shared **base** (distro plus the coding-agent tool layer — git, ripgrep, curl, certs, jq) and the engine's **agent stage** (the client CLI plus the running ctxloom binary) layered on top. `run`/`map`/`weave` build the image automatically when it's absent.
+Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. `run`/`map`/`weave` build the image automatically when it's absent.
 
-You control the base:
+You control the base, in this order (first one present wins):
 
-- `ctxloom container scaffold` writes the default base Containerfile to `.ctxloom/base.Containerfile` and sets `isolation_base_containerfile`, so your tools, certs, and mirrors layer under every locally-built agent image.
-- `--base-image` overlays ctxloom onto an image that already ships the client CLI.
-- `isolation_images` in config names fully user-provided images that run as-is and are never built. An override must honor the **identity contract**: it runs the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install `ctxloom-entrypoint` as its `ENTRYPOINT`) and bakes no `USER` — otherwise the container would start with the image's own identity and root-own the files it writes into your mounted project. A violating image is a fatal startup finding; `--degraded` launches it anyway with the image's own identity.
+1. `--base-image` overlays ctxloom onto an image that already ships the client CLI (skips the install entirely; single-engine).
+2. `isolation_base_containerfile` / `--base-containerfile` builds the base from your own Containerfile.
+3. **Your project's own `.devcontainer/devcontainer.json`** (or `.devcontainer.json`) is auto-detected as the base — "an isolated agent should run in the environment you develop in". Set `isolation_devcontainer_base: false` (or pass `--no-devcontainer-base` to `container build`) to opt out. `image:` and `build:` shapes are supported; `dockerComposeFile` needs `isolation_devcontainer_service` (or the devcontainer.json's own `service` key) to pick one service, since a multi-service compose project doesn't map to one agent container. Declared `features` are **not** honored (ctxloom does not depend on the devcontainer CLI) — a loud warning names what's skipped, and the build still proceeds from `image`/`build`.
+4. The embedded default base (distro plus the coding-agent tool layer — git, ripgrep, curl, certs, jq).
+
+An explicit base always beats auto-detection, and a devcontainer or user base that turns out unbuildable is a **fatal finding**, never a silent fallback to the default — the whole point is running in the environment you actually develop in, not a quietly different one.
+
+`isolation_engines` selects which engine fragments compose into the image (default: every engine with a known official installer — "one instance can run any engine"); trim it to shrink the image. `ctxloom container scaffold` still writes an editable copy of the embedded default base and wires it into `isolation_base_containerfile` when you want to hand-edit the base itself.
+
+`isolation_images` in config names fully user-provided images that run as-is and are never built. An override must honor the **identity contract**: it runs the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install `ctxloom-entrypoint` as its `ENTRYPOINT`) and bakes no `USER` — otherwise the container would start with the image's own identity and root-own the files it writes into your mounted project. A violating image is a fatal startup finding; `--degraded` launches it anyway with the image's own identity.
 
 `ctxloom container check` diagnoses the environment before you commit to containerized agents: whether this process is itself inside a container, which runtime (docker/podman) is reachable, whether the image exists, and whether the runtime's daemon shares your filesystem — the probe that catches docker-outside-of-docker setups where bind mounts silently resolve against the wrong filesystem. Run it inside a dev container to learn whether to enable docker-in-docker or keep agents on `runtime: host`.
 

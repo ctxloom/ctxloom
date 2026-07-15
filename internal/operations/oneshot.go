@@ -169,12 +169,21 @@ type resolvedRunRequest struct {
 
 // IsolationImageConfig assembles the user's container-image configuration for
 // a backend's isolated runs: the per-backend prebuilt-image override (config
-// isolation_images) plus the base Containerfile local builds layer the agent
-// stage onto (config isolation_base_containerfile).
+// isolation_images), the base Containerfile local builds layer the agent
+// stage onto (config isolation_base_containerfile), the project root
+// devcontainer auto-detection resolves against + its opt-out/service pick
+// (stark-wheat), and the composable engine set (isolation_engines).
 func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageConfig {
+	if cfg == nil {
+		return isolation.ImageConfig{}
+	}
 	return isolation.ImageConfig{
-		Image:             cfg.IsolationImageFor(backend),
-		BaseContainerfile: cfg.IsolationBaseContainerfilePath(),
+		Image:               cfg.IsolationImageFor(backend),
+		BaseContainerfile:   cfg.IsolationBaseContainerfilePath(),
+		AppRoot:             cfg.AppRoot,
+		NoDevcontainerBase:  !cfg.IsolationDevcontainerBaseEnabled(),
+		DevcontainerService: cfg.IsolationDevcontainerService,
+		Engines:             cfg.IsolationEngines,
 	}
 }
 

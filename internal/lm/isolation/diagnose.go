@@ -61,14 +61,20 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	d.Image = c.image
 	d.ImagePresent = c.imagePresent(ctx)
 
+	sources, devBase, devErr := c.containerBuildSources("")
+	if devErr != nil {
+		d.Guidance = append(d.Guidance,
+			fmt.Sprintf("project devcontainer auto-detection failed (%v); a containerized run builds without it (or set isolation_devcontainer_service, or opt out with isolation_devcontainer_base: false)", devErr))
+	}
+
 	if d.ImagePresent {
 		// Staleness is meaningful only for a locally-buildable image; a
 		// user-owned isolation_images override (no build sources) is run as-is
 		// and never flagged stale.
-		if len(buildSources(c.profile, "", c.baseContainerfile)) > 0 && imageStale(c.imageLabels(ctx), HostProvenanceDigest(c.baseContainerfile)) {
+		if len(sources) > 0 && imageStale(c.imageLabels(ctx), c.provenanceFor(devBase)) {
 			d.ImageStale = true
 			d.Guidance = append(d.Guidance,
-				fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
+				fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
 		}
 		diagnoseProbe(ctx, rt, c.image, &d)
 	} else {

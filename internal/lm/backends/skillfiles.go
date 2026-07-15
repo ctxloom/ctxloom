@@ -19,9 +19,12 @@ func modeFromPOSIX(mode uint32) os.FileMode {
 // This file is the skills analog of commands.go/commandfiles.go: the
 // single skill-export assembly (LoadSkillExports) and the per-engine mapping
 // from a resolved bundle skill to that engine's agent.SkillExport. claude
-// (Part B3-seam, the reference engine), codex, opencode, and antigravity
-// (Part B4) are wired; kiro is the collision case, handled separately
-// (skill-command-split.plan.md §3.3/§3.5 B5). An engine with no skillExports
+// (Part B3-seam, the reference engine), codex, opencode, antigravity (Part
+// B4), and kiro (Part B5, the collision case) are wired. kiro's mapping here
+// is ordinary — its distinctiveness (sharing .kiro/skills/ with the renamed
+// command surface, and the D6 skill-wins collision rule) lives entirely in
+// internal/kiro/surfaces.go's filterClaimedCommands
+// (skill-command-split.plan.md §3.3/§3.5). An engine with no skillExports
 // mapper simply exports no skills (mirrors a nil `exports` meaning no command
 // export).
 
@@ -78,4 +81,13 @@ func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 // antigravitySkillExports resolves antigravity's per-skill enablement (Part B4).
 func antigravitySkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Antigravity.IsEnabled() })
+}
+
+// kiroSkillExports resolves kiro's per-skill enablement (Part B5 — the
+// collision engine). This mapping is identical in shape to every other
+// engine's; kiro's distinctiveness (sharing .kiro/skills/ with the renamed
+// command surface, and the resulting D6 skill-wins collision rule) lives
+// entirely in internal/kiro/surfaces.go's filterClaimedCommands, not here.
+func kiroSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
+	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Kiro.IsEnabled() })
 }

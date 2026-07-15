@@ -56,6 +56,20 @@ func sampleInputs() agent.SurfaceInputs {
 	}
 }
 
+// sampleSkill builds a minimal enabled SkillExport with SKILL.md content
+// distinguishable from a command's rendered content, for the D6 clash tests.
+func sampleSkill(name, body string) agent.SkillExport {
+	return agent.SkillExport{
+		Name:        name,
+		Description: "skill: " + name,
+		Enabled:     true,
+		Files: []agent.PackageFile{
+			{RelPath: "SKILL.md", Content: []byte(body), Mode: 0644},
+			{RelPath: "assets/note.txt", Content: []byte("sibling file"), Mode: 0644},
+		},
+	}
+}
+
 // ---- compile-time capability guarantees -----------------------------------
 //
 // Every kiro surface is Delivery-ONLY at this layer (the --agent name lever is an
@@ -173,6 +187,149 @@ func TestCommandsSurface_DeliverWritesSkillMd(t *testing.T) {
 	assert.False(t, exists, "cleanup reverts the manifest-tracked command")
 }
 
+// ---- skills surface (.kiro/skills/, D6 collision with commands) -----------
+
+// TestSkillsSurface_DeliverWritesSkillPackage proves the skills surface lands
+// a full package (SKILL.md + sibling files) under .kiro/skills/<name>/ and
+// that Cleanup reverts exactly that set.
+func TestSkillsSurface_DeliverWritesSkillPackage(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	in := sampleInputs()
+	in.Skills = []agent.SkillExport{sampleSkill("humanize", "skill body")}
+	s := NewSurfaces(in, fs)
+
+	handle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "skill body", string(data))
+	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "assets", "note.txt"))
+	assert.True(t, exists, "sibling files travel with the skill package")
+
+	require.NoError(t, handle.Cleanup())
+	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "humanize", "SKILL.md"))
+	assert.False(t, exists, "cleanup reverts the manifest-tracked skill")
+}
+
+// TestCoexistence_DifferentNamedCommandAndSkillBothSurvive proves a command
+// "alpha" and a skill "beta" (DIFFERENT names) both materialize under
+// .kiro/skills/ and each survives the OTHER surface's cleanup — the
+// non-collision half of D6, proving the two-manifest split doesn't step on
+// unrelated files.
+func TestCoexistence_DifferentNamedCommandAndSkillBothSurvive(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "alpha", Content: "command alpha body", Enabled: true}},
+		Skills:   []agent.SkillExport{sampleSkill("beta", "skill beta body")},
+	}
+	s := NewSurfaces(in, fs)
+
+	cmdHandle, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	skillHandle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	cmdData, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(cmdData), "command alpha body")
+
+	skillData, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "skill beta body", string(skillData))
+
+	// Cleaning up the SKILLS surface must not touch the command's file.
+	require.NoError(t, skillHandle.Cleanup())
+	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	assert.True(t, exists, "cleaning up skills leaves the unrelated command file alone")
+	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	assert.False(t, exists, "the skill itself is gone")
+
+	// Re-deliver the skill, then clean up the COMMANDS surface — must not
+	// touch the skill's file.
+	skillHandle, err = s.Skills.Deliver(dir)
+	require.NoError(t, err)
+	require.NoError(t, cmdHandle.Cleanup())
+	exists, _ = afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "alpha", "SKILL.md"))
+	assert.False(t, exists, "the command itself is gone")
+	skillData, err = afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "beta", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "skill beta body", string(skillData), "cleaning up commands leaves the unrelated skill file alone")
+	require.NoError(t, skillHandle.Cleanup())
+}
+
+// TestClash_SkillWinsOverSameNamedCommand is the D6 crux test: a command
+// "gamma" and a skill "gamma" collide on the identical path
+// .kiro/skills/gamma/SKILL.md. Materializing kiro's full surface set must
+// leave the SKILL's content (and its sibling files) at that path, never the
+// command's, and the command's manifest (kiroManifest) must not claim the
+// path the skill wrote — no double-ownership, proven by cleaning up the
+// COMMANDS surface alone and observing the skill's file survives untouched.
+func TestClash_SkillWinsOverSameNamedCommand(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "gamma", Content: "COMMAND VERSION", Enabled: true}},
+		Skills:   []agent.SkillExport{sampleSkill("gamma", "SKILL VERSION")},
+	}
+	s := NewSurfaces(in, fs)
+
+	// Deliver in the same order Deliveries() uses: commands then skills.
+	cmdHandle, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	skillHandle, err := s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	path := filepath.Join(dir, kiroDir, "skills", "gamma", "SKILL.md")
+	data, err := afero.ReadFile(fs, path)
+	require.NoError(t, err)
+	assert.Equal(t, "SKILL VERSION", string(data), "the skill package wins; the command's content must not be present")
+
+	exists, _ := afero.Exists(fs, filepath.Join(dir, kiroDir, "skills", "gamma", "assets", "note.txt"))
+	assert.True(t, exists, "the skill's sibling files are present too")
+
+	// The commands writer never saw "gamma" (filterClaimedCommands dropped
+	// it before WriteCommandFiles ran), so its manifest must not list the
+	// path the skill owns — proven by cleaning up ONLY the commands surface
+	// and observing the skill's file is untouched.
+	require.NoError(t, cmdHandle.Cleanup())
+	data, err = afero.ReadFile(fs, path)
+	require.NoError(t, err, "the commands cleanup must not have deleted the skill's file")
+	assert.Equal(t, "SKILL VERSION", string(data), "no double-ownership: commands cleanup left the skill's winning file intact")
+
+	// Now clean up the skills surface: the path is finally removed.
+	require.NoError(t, skillHandle.Cleanup())
+	exists, _ = afero.Exists(fs, path)
+	assert.False(t, exists, "skills cleanup removes the file it owns")
+}
+
+// TestClash_DisabledSkillDoesNotShadowCommand proves the collision rule is
+// scoped to skills ENABLED for kiro: a skill named "delta" disabled for this
+// engine must not claim the name, so the command "delta" still writes its
+// SKILL.md.
+func TestClash_DisabledSkillDoesNotShadowCommand(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/proj"
+	disabledSkill := sampleSkill("delta", "SKILL VERSION")
+	disabledSkill.Enabled = false
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "delta", Content: "COMMAND VERSION", Enabled: true}},
+		Skills:   []agent.SkillExport{disabledSkill},
+	}
+	s := NewSurfaces(in, fs)
+
+	_, err := s.Commands.Deliver(dir)
+	require.NoError(t, err)
+	_, err = s.Skills.Deliver(dir)
+	require.NoError(t, err)
+
+	data, err := afero.ReadFile(fs, filepath.Join(dir, kiroDir, "skills", "delta", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "COMMAND VERSION", "a skill disabled for kiro must not shadow the same-named command")
+}
+
 // ---- no SharedRealization (the only path to a shared cwd) ------------------
 
 func TestUnsafe_WarnsAndProceeds(t *testing.T) {
@@ -206,10 +363,12 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/worktree"
-	s := NewSurfaces(sampleInputs(), fs)
+	in := sampleInputs()
+	in.Skills = []agent.SkillExport{sampleSkill("humanize", "skill body")}
+	s := NewSurfaces(in, fs)
 
 	ds := s.Deliveries()
-	require.Len(t, ds, 4, "context, MCP, settings, commands")
+	require.Len(t, ds, 5, "context, MCP, settings, commands, skills")
 
 	cell := agent.NewDirectoryIsolatedCell(dir)
 	for _, surface := range ds {
@@ -223,6 +382,7 @@ func TestDirectoryIsolatedCell_AcceptsAllKiroSurfaces(t *testing.T) {
 		filepath.Join(kiroDir, "settings", "mcp.json"),
 		filepath.Join(kiroDir, "agents", defaultAgentName+".json"),
 		filepath.Join(kiroDir, "skills", "review", "SKILL.md"),
+		filepath.Join(kiroDir, "skills", "humanize", "SKILL.md"),
 	} {
 		exists, _ := afero.Exists(fs, filepath.Join(dir, rel))
 		assert.True(t, exists, "expected %s", rel)
@@ -243,7 +403,7 @@ func TestSharedCell_AcceptsOnlyUnsafeKiroSurfaces(t *testing.T) {
 		delivered, _, errs = r.DeliverShared(cwd)
 		require.Empty(t, errs)
 	})
-	require.Len(t, delivered, 4)
+	require.Len(t, delivered, 5)
 	assert.Contains(t, stderr, "warning:", "every kiro surface warns when DeliverShared delivers it")
 }
 
@@ -253,7 +413,7 @@ func TestSharedCell_AcceptsOnlyUnsafeKiroSurfaces(t *testing.T) {
 // native-file-only — kiro reads steering directly, no hook, no out-of-cwd flag.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(kind), "%s", kind)
 	}
 }
@@ -261,7 +421,7 @@ func TestSurfaces_SupportedApproaches(t *testing.T) {
 // DefaultApproach is the native file for every kind kiro has.
 func TestSurfaces_DefaultApproach(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		a, ok := s.DefaultApproach(kind)
 		require.True(t, ok, "%s", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, a)
@@ -280,7 +440,7 @@ func TestSurfaceFor_ContextHookUnsupported(t *testing.T) {
 // a SHARED-cwd delivery always falls back to the loud well-known write.
 func TestSurfaces_SharedRealization_Absent(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), afero.NewMemMapFs())
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		_, ok := s.SharedRealization(kind)
 		assert.False(t, ok, "%s: kiro has no out-of-cwd realization", kind)
 	}

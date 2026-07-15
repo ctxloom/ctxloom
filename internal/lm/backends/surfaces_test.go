@@ -32,6 +32,15 @@ func TestBuildSurfaces_Claude(t *testing.T) {
 	assert.Len(t, set.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
 }
 
+// TestBuildSurfaces_Kiro proves the kiro descriptor closure routes through
+// kiro.NewSurfaces and now includes the skills surface (Part B5) alongside
+// context/MCP/settings/commands — kiro is the collision engine where commands
+// and skills share one native directory, reconciled inside kiro.NewSurfaces.
+func TestBuildSurfaces_Kiro(t *testing.T) {
+	set := BuildSurfaces("kiro", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
+	assert.Len(t, set.Deliveries(), 5, "kiro has context + MCP + settings + commands + skills surfaces")
+}
+
 // TestBuildSurfaces_CodexNoNativeContextFile pins the codex opt-out invariant
 // through the delivery seam: materializing codex writes only its config/cache
 // surfaces — never a native context file (no CLAUDE.md, no AGENTS.md), which is

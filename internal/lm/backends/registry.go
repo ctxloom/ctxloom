@@ -262,7 +262,9 @@ func init() {
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
 	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
 	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
-	// commands (.kiro/skills/<n>/SKILL.md).
+	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
+	// engine where those two surfaces collide (D6 skill-wins, see
+	// kiro.filterClaimedCommands in kiro/surfaces.go).
 	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
 	// (see the package doc in internal/kiro for what's proven vs unverified;
 	// taskloom numb-panda / bold-smirk track the revive).
@@ -276,9 +278,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &kiro.KiroConfig{})
 		},
-		newWriter:   kiro.NewWriter,
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-		exports:     kiroExports,
+		newWriter:    kiro.NewWriter,
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:      kiroExports,
+		skillExports: kiroSkillExports,
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent

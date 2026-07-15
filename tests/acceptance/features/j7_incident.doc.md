@@ -56,43 +56,51 @@ when the mechanism is disabled — a security test that has never been seen to
 fail is not a security test.
 <!-- /doc:scenario -->
 
-<!-- doc:scenario: Nothing can revoke ctxloom's own publisher key — not even the signer command aimed straight at it -->
-Now the honest part.
+<!-- doc:scenario: ctxloom's own publisher key is visible, and can be locally distrusted even though it cannot be deleted -->
+Now the honest part — updated, because the dishonest part got fixed.
 
 During an incident, the reflex is to revoke every key that might be involved.
 For a company's own signing key, ctxloom supports that fully — J3 proves it, and
-one revocation withdraws everything that key ever signed. But there is one key
-that reflex cannot touch: **ctxloom's own publisher key**.
+one revocation withdraws everything that key ever signed. **ctxloom's own
+publisher key** used to be the one key that reflex could not touch at all, in
+two separate ways: nothing revoked it, and — worse — nothing even showed it to
+you. `signer show`/`signer list` never surfaced the embedded principal, and the
+one comment that tried to explain why claimed the embedded root was "empty
+today" — written the day before a release key was actually embedded into it,
+and never updated since. An operator auditing "whom do I trust to publish?"
+didn't just find a key they couldn't remove; they never learned it was there
+to worry about.
 
-That key is compiled into the ctxloom binary, and the trust root unconditionally
-includes it alongside your on-disk stores. `ctxloom signer remove` only ever
-edits those on-disk stores. Aim it directly at the embedded principal and it
-does exactly what this scenario shows: reports that no such entry existed, and
-changes nothing. Content signed by that key remains trusted afterward. **There
-is no CLI path that revokes it. Revoking it for real requires shipping a new
-ctxloom binary.**
+Both halves are fixed now. Visibility first: `signer show`/`signer list`
+enumerate the embedded root like any other trust-root location, tagged
+`embedded` so it reads honestly as "compiled into this binary," not as an
+ordinary on-disk entry. Then revocation: this key's bytes are still compiled
+into the ctxloom binary, and nothing this CLI does can delete them — shipping
+a new binary remains the only way to change what's actually IN it, and that
+has not changed. But `signer remove` aimed at the embedded principal is no
+longer a no-op that reports "no entry for" and walks away. It now writes a
+real, local record — this machine (or this project, with `--project`) no
+longer trusts that key — and every subsequent trust decision honors it. The
+listing keeps showing the key (visibility doesn't regress just because you
+acted on it) but now tags it **locally distrusted**, and content signed only
+by that key from here on is withheld, exactly as if the key had never been
+embedded in the first place.
 
-It gets one degree worse. `signer show` and `signer list` never surface that
-key at all — the embedded root is deliberately not listed. So an operator
-auditing "whom do I trust to publish?" does not merely find a key they cannot
-remove; they never see that it is there. The `signer list` implementation still
-carries a comment saying the embedded root is "empty today," which was true the
-day it was written and stopped being true when the release key was embedded.
-
-We are not fixing that here and we are not going to imply it is smaller than it
-is. This is what trusting the ctxloom binary actually means, stated plainly:
-**you are trusting whatever that key signs, for as long as you run that binary.**
-If that is not a trade you want to make, the honest remedy is not a flag — it is
-building ctxloom yourself with a trust root you control. A reviewer would find
-this on their own within an hour. Better that they find we said it first.
+This is the honest shape of the guarantee: you cannot un-ship a compiled-in
+key, but you are no longer stuck trusting whatever it signs just because you
+run the binary that ships with it. If you don't want to trust ctxloom's release
+key at all, you no longer have to find that out by accident — you can see it,
+and you can turn it off.
 <!-- /doc:scenario -->
 
 <!-- doc:outro -->
 Two scenarios, and that is the right number. The first proves the guarantee that
 actually matters in an incident: a retraction reaches everyone who already has
-the content, on their own next routine sync, with a reason. The second names the
-one place that guarantee does not reach, in our own documentation, before anyone
-else gets to name it for us.
+the content, on their own next routine sync, with a reason. The second proves
+the guarantee that used to be missing from ctxloom's own documentation: the
+embedded release key is visible, and — while it can never be deleted from the
+binary — it can be locally distrusted, with real effect, the moment you decide
+you don't want it.
 
 For the rest of the trust model — signing, review, tampering, key revocation, and
 what ctxloom explicitly does not defend against — see

@@ -43,23 +43,34 @@ Feature: An incident — a bad command ships and must be pulled
     Then Carol is told the bundle was retracted, and her assistant no longer receives it
     And Bob is told the bundle was retracted too, and his assistant no longer receives it either
 
-  # LOCKED — THE IRREVOCABLE KEY, documented rather than tested away. ctxloom's
-  # own publish key (internal/config/trustroot.go:14-19) is compiled INTO the
-  # binary via go:embed, and TrustRoot() (trustroot.go:47-57) unconditionally
-  # unions it in alongside the on-disk user/project stores. signer remove
-  # (operations/signer.go:317-370) only ever edits those two on-disk files —
-  # there is no code path that reaches the embedded one. Revoking it for real
-  # means shipping a new ctxloom binary; nothing this CLI does can. This
-  # scenario asserts the CURRENT, HONEST behaviour, not a hoped-for one — we
-  # are NOT fixing this here, we are saying it plainly before a reviewer finds
-  # it unsaid. It also surfaces a sharper, unplanned-for fact: `signer
-  # show`/`signer list` never reveal this principal as trusted at all (see
-  # operations/signer.go:245-251's own comment, now stale — it says the
-  # embedded root is "empty today", written the day BEFORE the release key was
-  # actually embedded), so an operator has no CLI surface that would even show
-  # them this key exists to worry about.
-  Scenario: Nothing can revoke ctxloom's own publisher key — not even the signer command aimed straight at it
+  # UPDATED — the key is now VISIBLE, and CAN be locally distrusted. This
+  # scenario used to assert the opposite of both halves below: `signer
+  # show`/`signer list` never revealed ctxloom's own embedded publisher
+  # principal at all (justified by a comment at operations/signer.go:245-251
+  # claiming the embedded root was "empty today" — false the moment a release
+  # key was actually embedded), and `signer remove` aimed at it reported a
+  # bare "no entry for", indistinguishable from a typo'd principal that never
+  # existed. Both were dishonest, not merely incomplete: an operator auditing
+  # "whom do I trust to publish?" had no surface that would even show them
+  # this key existed to worry about.
+  #
+  # The fix is two-part. Visibility: ListSigners (operations/signer.go) now
+  # enumerates config.EmbeddedSigners() alongside the on-disk user/project
+  # stores, tagged "embedded" and not-removable. Local revocation: `signer
+  # remove <embedded-principal>` still cannot delete the compiled-in bytes —
+  # nothing this CLI does can; shipping a new binary remains the only way to
+  # change what's IN the binary — but it now writes a REAL local suppression
+  # record (a new distrusted_signers store) that config.TrustRoot() subtracts
+  # from the embedded root on every subsequent trust decision. This is not
+  # cosmetic: TestVerifyPublisher_SuppressedPrincipal_NoLongerVerifies and
+  # TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted
+  # (internal/config) prove content genuinely signed by a suppressed key stops
+  # verifying as trusted-publisher — this repo can never forge a signature
+  # from ctxloom's actual production key, so those unit tests prove the
+  # SUBTRACTION mechanism with a real generated key standing in for it, and
+  # this acceptance scenario proves the CLI surface that drives it for real.
+  Scenario: ctxloom's own publisher key is visible, and can be locally distrusted even though it cannot be deleted
     Given Alice's project exists
-    When Trent tries to remove ctxloom's own publisher key from the project's trust store
-    Then ctxloom reports that no entry existed for that key
-    And ctxloom's own signer listing never showed that key as trusted to begin with
+    When Trent removes ctxloom's own publisher key from the project's trust store
+    Then ctxloom reports the key cannot be deleted but is now distrusted locally
+    And ctxloom's own signer listing shows that key, tagged embedded and locally distrusted

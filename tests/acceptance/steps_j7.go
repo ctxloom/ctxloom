@@ -5,8 +5,12 @@
 // already has LOCKED, green scenarios for single-developer retraction and
 // company-key revocation, so this journey keeps only the two things J3
 // cannot express — retraction propagating across MORE THAN ONE
-// already-installed developer, and the irrevocable go:embed'd ctxloom
-// publisher key, documented honestly rather than tested away (see the
+// already-installed developer, and ctxloom's own go:embed'd publisher key:
+// UPDATED 2026-07-15 (oozy-plod) from "irrevocable and invisible" to
+// "visible, and locally revocable" — the key is now surfaced by `signer
+// list`/`show` (tagged embedded/not-removable) and `signer remove` aimed at
+// it persists a real local suppression TrustRoot() honors, though the
+// compiled-in bytes themselves still only change via a new binary (see the
 // feature file's own comments for the full rationale).
 //
 // Cast: Carol (team lead, reused from steps_j2_team.go's persona — this is
@@ -288,18 +292,19 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		return ensureProjectWithEngine(worldFrom(c), "claude-code", "claude-code")
 	})
 
-	ctx.Step(`^Trent tries to remove ctxloom's own publisher key from the project's trust store$`, func(c context.Context) error {
+	ctx.Step(`^Trent removes ctxloom's own publisher key from the project's trust store$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j7 := j7Of(w)
-		// "before" listing: does ctxloom's own signer surface ever reveal
-		// this principal as trusted, prior to any removal attempt?
+		// "before" listing: the embedded principal must already be visible
+		// (oozy-plod (a)) — tagged embedded, not yet distrusted.
 		_ = w.env.Run("signer", "show", j7EmbeddedPrincipal)
 		j7.embeddedShowBefore = w.env.LastOutput()
 		// The removal attempt, aimed straight at the REAL embedded
-		// principal — not a stand-in for it.
+		// principal — not a stand-in for it. It cannot delete the compiled-in
+		// bytes, but it DOES now persist a local suppression (oozy-plod (b)).
 		_ = w.env.Run("signer", "remove", j7EmbeddedPrincipal, "--project")
 		j7.embeddedRemoveOutput = w.env.LastOutput()
-		// "after" listing.
+		// "after" listing: still visible, now tagged locally distrusted.
 		_ = w.env.Run("signer", "show", j7EmbeddedPrincipal)
 		j7.embeddedShowAfter = w.env.LastOutput()
 		w.docStepMaterialized = "$ ctxloom signer show " + j7EmbeddedPrincipal + "\n" + j7.embeddedShowBefore +
@@ -308,31 +313,47 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^ctxloom reports that no entry existed for that key$`, func(c context.Context) error {
+	ctx.Step(`^ctxloom reports the key cannot be deleted but is now distrusted locally$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j7 := j7Of(w)
 		// This Then's OWN evidence: the removal attempt's actual reply. A Then
 		// with an empty evidence pane proves nothing to a reader of the
 		// published page, however green it is in the suite.
 		w.docStepMaterialized = "$ ctxloom signer remove " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput
-		if !strings.Contains(j7.embeddedRemoveOutput, "no entry for") {
-			return fmt.Errorf("expected 'signer remove' to report no entry for the embedded principal; output:\n%s", j7.embeddedRemoveOutput)
+		if strings.Contains(j7.embeddedRemoveOutput, "no entry for") {
+			return fmt.Errorf("'signer remove' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j7.embeddedRemoveOutput)
+		}
+		if !strings.Contains(j7.embeddedRemoveOutput, "cannot be deleted") {
+			return fmt.Errorf("expected 'signer remove' to say the embedded key cannot be deleted; output:\n%s", j7.embeddedRemoveOutput)
+		}
+		if !strings.Contains(j7.embeddedRemoveOutput, "DISTRUSTED") {
+			return fmt.Errorf("expected 'signer remove' to report the embedded key is now DISTRUSTED locally; output:\n%s", j7.embeddedRemoveOutput)
 		}
 		return nil
 	})
 
-	ctx.Step(`^ctxloom's own signer listing never showed that key as trusted to begin with$`, func(c context.Context) error {
+	ctx.Step(`^ctxloom's own signer listing shows that key, tagged embedded and locally distrusted$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j7 := j7Of(w)
 		// This Then's OWN evidence: the signer listing before AND after the
-		// removal attempt — identical, and in neither case naming the embedded
-		// principal at all. That absence IS the finding.
+		// removal attempt — both name the embedded principal (visibility never
+		// regresses), and only the AFTER listing carries the "locally
+		// distrusted" tag.
 		w.docStepMaterialized = "$ ctxloom signer show " + j7EmbeddedPrincipal + "   # before the removal attempt\n" + j7.embeddedShowBefore +
 			"\n$ ctxloom signer show " + j7EmbeddedPrincipal + "   # after the removal attempt\n" + j7.embeddedShowAfter
 		for _, out := range []string{j7.embeddedShowBefore, j7.embeddedShowAfter} {
-			if strings.Contains(out, j7EmbeddedPrincipal) {
-				return fmt.Errorf("expected 'signer show' to never list the embedded principal; output:\n%s", out)
+			if !strings.Contains(out, j7EmbeddedPrincipal) {
+				return fmt.Errorf("expected 'signer show' to list the embedded principal; output:\n%s", out)
 			}
+			if !strings.Contains(out, "embedded") {
+				return fmt.Errorf("expected 'signer show' to tag the entry \"embedded\"; output:\n%s", out)
+			}
+		}
+		if strings.Contains(j7.embeddedShowBefore, "DISTRUSTED") {
+			return fmt.Errorf("the BEFORE listing must not already show the key as locally distrusted; output:\n%s", j7.embeddedShowBefore)
+		}
+		if !strings.Contains(j7.embeddedShowAfter, "DISTRUSTED") {
+			return fmt.Errorf("the AFTER listing must show the key as locally distrusted; output:\n%s", j7.embeddedShowAfter)
 		}
 		return nil
 	})

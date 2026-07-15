@@ -86,11 +86,25 @@ var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 // recordMockInput writes the assembled request to recordFile when one is set
 // (via CTXLOOM_MOCK_RECORD_FILE), warning to stderr on failure.
 //
-// Records the process's actual cwd (os.Getwd, not req.WorkDir) and whichever
-// config-home env vars are set, so a hermetic test can prove WHERE the engine
-// actually ran and WHAT isolation env it received — the workdir/env plumbing
-// used to be received (Setup calls SetWorkDir) and then silently discarded,
-// so no test could assert on either.
+// Records BOTH the process's actual cwd (os.Getwd) and req.WorkDir, plus
+// whichever config-home env vars are set, so a hermetic test can prove WHERE
+// the engine actually ran and WHAT isolation env it received.
+//
+// These are two DIFFERENT signals and only one of them moves with the
+// isolation workspace axis. On the Host runtime, isolation.Prepare's Worktree
+// policy never os.Chdir's the plugin subprocess itself (SpawnClient spawns
+// `ctxloom llm serve <backend>` with no Cmd.Dir — see
+// internal/lm/isolation/none.go / worktree.go's SpawnClient and
+// internal/lm/grpc/client.go's dialLLMConnection) — real engines honor
+// isolation by having THEIR OWN Execute spawn a grandchild process with
+// Cmd.Dir = req.WorkDir (agent.ExecuteRequest.WorkDir's own doc: "the passed
+// workspace always reaches the child instead of defaulting to the plugin's
+// inherited '.'"). Mock never spawns a grandchild, so os.Getwd() here is
+// always the plugin subprocess's OWN inherited cwd — identical across every
+// workspace axis (confirmed live: a --workspace worktree run's mock record
+// showed the SAME cwd as --workspace none). req.WorkDir is the actually
+// resolved isolation workspace and is what a hermetic test must read to
+// observe the workspace boundary; cwd is kept alongside it for diagnostics.
 func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
 	if recordFile == "" {
 		return
@@ -104,6 +118,7 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, p
 	} else {
 		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
 	}
+	_, _ = fmt.Fprintf(&input, "workdir=%s\n", req.WorkDir)
 	input.WriteString("=== Env ===\n")
 	for _, key := range configHomeEnvKeys {
 		if v := getEnvFromMap(req.Env, key); v != "" {

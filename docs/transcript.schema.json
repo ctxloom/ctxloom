@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxloom.dev/schema/transcript.schema.json",
+  "title": "ctxloom canonical transcript record",
+  "description": "One line of ~/.ctxloom/sessions/<harp>/persist/transcript.acp.jsonl. See docs/transcript-schema.md for the full design rationale (tough-cloud). Generated/maintained by hand alongside internal/transcript/record.go — the two must be kept in sync (see internal/transcript/schema_test.go).",
+  "type": "object",
+  "required": ["v", "harp", "engine", "seq", "ts", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. A reader encountering an unrecognized v must fail loud, never guess at the shape."
+    },
+    "harp": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The ctxloom session id — the authoritative key."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Engine-native ACP session id (agent.ChatSessionInfo.SessionID) — the resume handle. Absent until the session line has been observed."
+    },
+    "engine": {
+      "type": "string",
+      "enum": ["codex", "kiro", "claude", "opencode", "acp", "antigravity"],
+      "description": "The backend driving this conversation."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic per-transcript ordering key, starting at 0, no gaps."
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 UTC recorder receipt time (not an engine-reported timestamp)."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["entry", "session", "complete", "permission"],
+      "description": "Discriminates which payload field is populated."
+    },
+    "entry": { "$ref": "#/$defs/entryPayload" },
+    "session": { "$ref": "#/$defs/sessionPayload" },
+    "complete": { "$ref": "#/$defs/completePayload" },
+    "permission": { "$ref": "#/$defs/permissionPayload" },
+    "raw": {
+      "description": "OPTIONAL escape hatch: the original engine frame, when a capture path holds one and the ChatEvent mapping is lossy for it. The ChatEvent-driven Recorder never populates this; reserved for importers (plan S6) and future richer capture paths."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "entry" } } },
+      "then": { "required": ["entry"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "session" } } },
+      "then": { "required": ["session"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "complete" } } },
+      "then": { "required": ["complete"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "permission" } } },
+      "then": { "required": ["permission"] }
+    }
+  ],
+  "$defs": {
+    "entryPayload": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "One agent.SessionEntry, field for field (minus Timestamp, which is the envelope's ts).",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user", "assistant", "thinking", "tool_use", "tool_result", "system"]
+        },
+        "content": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "tool_input": {},
+        "tool_output": { "type": "string" },
+        "is_error": { "type": "boolean" },
+        "sidechain": { "type": "boolean" }
+      }
+    },
+    "sessionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One-time session metadata (agent.ChatSessionInfo minus SessionID, which is hoisted to the envelope).",
+      "properties": {
+        "model": { "type": "string" },
+        "permission_mode": { "type": "string" },
+        "context_window": { "type": "integer", "minimum": 0 },
+        "mcp_servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "status": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "completePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Turn-completion accounting (agent.TurnMeta), carried in FULL — a lossless superset, not a trimmed projection.",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "cache_read_tokens": { "type": "integer", "minimum": 0 },
+        "cache_creation_tokens": { "type": "integer", "minimum": 0 },
+        "context_window": { "type": "integer", "minimum": 0 },
+        "max_output_tokens": { "type": "integer", "minimum": 0 },
+        "cost_usd": { "type": "number", "minimum": 0 },
+        "model": { "type": "string" },
+        "stop_reason": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "num_turns": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "permissionPayload": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "description": "A forwarded engine permission request (agent.PermissionRequest), field for field.",
+      "properties": {
+        "id": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "tool_input": {},
+        "kind": {
+          "type": "string",
+          "description": "ACP ToolCallKind vocabulary (execute|edit|delete|move|read|search|fetch|think|other). Advisory; distinct from the envelope's Record.kind."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

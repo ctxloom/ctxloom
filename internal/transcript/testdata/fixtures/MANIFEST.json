@@ -1,0 +1,40 @@
+{
+  "_comment": "Provenance for each canonical-transcript fixture: which fields come from a REAL captured engine session on this box vs are SYNTHETIC (schema-accurate but fabricated), and why. recorder_test.go asserts on the REAL fields specifically, per the project's payload-assertion discipline (memory 'silent-no-op-failure-mode') — never a mere entry count.",
+  "fixtures": {
+    "codex.transcript.acp.jsonl": {
+      "real_source": "~/.codex/sessions/2026/07/14/rollout-2026-07-14T14-42-24-019f6226-e5d2-75f3-b8bb-667866092679.jsonl (live codex CLI session on this box)",
+      "real_fields": "session_id, model (gpt-5.4-mini), context_window (258400), the user prompt 'Reply with exactly this token and nothing else: RAWNONCE-7Q4Z', the assistant reply 'RAWNONCE-7Q4Z', and the token_count accounting (input_tokens 20240, cached/cache_read_tokens 4480, output_tokens 27)",
+      "synthetic": "thinking entry (codex's reasoning.summary was empty in every rollout on this box — no visible reasoning text to capture at the configured effort level) and the tool_use/tool_result pair (no rollout on this box contains a function_call)",
+      "why_not_fully_real": "S1 has no capture wiring yet (that lands in S2); this fixture's real fields are hand-extracted from the engine's own native rollout file, not tee'd through a live ACP stream."
+    },
+    "kiro.transcript.acp.jsonl": {
+      "real_source": "~/.kiro/sessions/cli/3808ae21-1a82-4c80-83f1-132256adce36.jsonl (live kiro CLI session on this box, a prior tool-call capture probe)",
+      "real_fields": "session_id, the user prompt, the real tool_use (name 'read', input targeting probe6.txt), the real tool_result ('sixth probe file contents for tool-call capture'), and the real final assistant text quoting it back",
+      "synthetic": "the session/complete accounting lines (kiro's v1 jsonl carries no token/cost footer) and model/permission_mode labels",
+      "why_not_fully_real": "kiro speaks ACP structured (internal/kiro/chat.go delegates to `kiro-cli acp`), so this fixture's content is genuinely what such a stream carries, but it was captured via kiro's native v1 file (mapped in by hand using the internal/acp/mapping.go rules), not a live ACP session/update dump — a live-authenticated kiro ACP capture is deferred on auth (memory 'kiro-ctxloom-target')."
+    },
+    "claude.transcript.acp.jsonl": {
+      "real_source": "~/.claude/projects/-tmp-TestACPLive-ClaudeBackendDelegation1132179987-001/eeacb0c6-c962-40f8-8322-c8615ea00631.jsonl — an ACTUAL claude-code-acp structured session (internal/acp live-acceptance test fixture) recorded on this box",
+      "real_fields": "session_id, model (claude-opus-4-6), the user prompt 'Reply with exactly the single word: ping', and the assistant reply 'ping' — genuinely driven over the same ACP seam this schema targets",
+      "synthetic": "thinking entry, tool_use/tool_result pair, and the complete/token accounting (the real fixture was a minimal ping/pong with no tool call and no token footer recorded in the jsonl line captured)",
+      "why_not_fully_real": "the available real ACP-driven claude session was a bare connectivity probe; no real tool-calling claude-code-acp transcript was found on this box in this slice"
+    },
+    "opencode.transcript.acp.jsonl": {
+      "real_source": null,
+      "real_fields": "none",
+      "synthetic": "entire fixture",
+      "why_not_fully_real": "opencode is installed on this box (~/.opencode/bin/opencode 1.18.1) and has its own store (~/.local/share/opencode/opencode.db), but `opencode session list` returns zero sessions on this box — nothing has been driven through it here, so no real opencode conversation was capturable in this slice. The shape is schema-accurate: opencode also drives structured chat through internal/acp's mapSessionUpdate (internal/opencode/chat.go delegates to `opencode acp`), so a real capture would look exactly like this once S2 wires the tee."
+    },
+    "acp.transcript.acp.jsonl": {
+      "real_source": null,
+      "real_fields": "none",
+      "synthetic": "entire fixture",
+      "why_not_fully_real": "generic ACP has no standalone installed engine distinct from the four above on this box. This fixture exists specifically to exercise KindPermission (a forwarded ChatEvent.Permission), which none of the other fixtures happened to exercise."
+    },
+    "antigravity.transcript.acp.jsonl": {
+      "real_source": "~/.gemini/antigravity-cli/brain/29a3edd2-aa5f-4228-8bb7-ecae010306c6/.system_generated/logs/transcript_full.jsonl (live antigravity session on this box)",
+      "real_fields": "the user prompt 'Reply with just: ok' and the assistant reply 'ok'",
+      "synthetic": "none — but the REGIME modeled is synthetic in the sense that antigravity has no StructuredChat capability (internal/antigravity has no chat.go), so this fixture models the plan's §2d ONESHOT two-entry capture (a user entry from the request prompt + one assistant entry from captured stdout), not a tee'd ACP stream. No thinking/tool_use/tool_result lines exist for antigravity by design — the oneshot regime is honestly low-fidelity."
+    }
+  }
+}

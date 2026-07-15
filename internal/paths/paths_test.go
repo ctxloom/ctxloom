@@ -172,4 +172,9 @@ func TestHarpStateDirs_Layout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "persist", "transcripts"), store,
 		"the transcript store nests under persist/: it must survive teardown")
+
+	canonical, err := HarpCanonicalTranscriptPath("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "persist", "transcript.acp.jsonl"), canonical,
+		"the canonical transcript is a FILE under persist/, distinct from the transcripts/ bind-mount dir")
 }

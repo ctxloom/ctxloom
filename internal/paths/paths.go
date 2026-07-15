@@ -126,6 +126,15 @@ const (
 	// whatever leaf the engine creates lands here, harp-addressable by
 	// location after teardown.
 	TranscriptStoreDirName = "transcripts"
+
+	// CanonicalTranscriptFileName is the persist/ leaf holding ctxloom's OWN
+	// captured transcript (internal/transcript.Recorder's output): one JSONL
+	// line per agent.ChatEvent, engine-agnostic. Deliberately a DIFFERENT name
+	// from TranscriptStoreDirName so the two never collide — that one is a
+	// bind-mount DIRECTORY holding an engine's native file(s); this one is a
+	// single file ctxloom itself writes. This is authored session memory, not
+	// derived cache: it persists under persist/, never gitignored.
+	CanonicalTranscriptFileName = "transcript.acp.jsonl"
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
@@ -199,6 +208,21 @@ func HarpTranscriptStoreDir(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, TranscriptStoreDirName), nil
+}
+
+// HarpCanonicalTranscriptPath returns
+// ~/.ctxloom/sessions/<harp>/persist/transcript.acp.jsonl — the canonical,
+// engine-agnostic transcript ctxloom captures itself (see
+// CanonicalTranscriptFileName). This is the file internal/transcript.Recorder
+// appends to and internal/transcript.CanonicalHistory (a later slice) reads
+// from; it is distinct from HarpTranscriptStoreDir, which bind-mounts an
+// engine's own native store.
+func HarpCanonicalTranscriptPath(harp string) (string, error) {
+	dir, err := HarpPersistDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, CanonicalTranscriptFileName), nil
 }
 
 // ProjectSessionsDir returns the project-rooted directory holding distilled

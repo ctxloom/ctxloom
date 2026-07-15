@@ -214,13 +214,20 @@ var isolationGateMu sync.Mutex
 
 // isolationGateErr is the fail-loudly member gate over the strictness findings
 // collected during one member's isolation.Prepare: a ClassIsolation finding
-// means an EXPLICITLY-requested container could not be satisfied and the
-// prepared workspace silently degraded toward the bare host — running the
-// member there (headless, floored to bypass) would silently unsandbox it. In
-// strict mode that fails THE MEMBER (an error Part in the fan; other members
-// continue — partial success is still success), never the whole call. Returns
-// nil in degraded mode (recording is disabled there, so found is empty anyway)
-// or when no ClassIsolation finding was collected.
+// means an explicitly-requested isolation guarantee could not be satisfied AS
+// REQUESTED and the prepared workspace silently degraded toward a WEAKER
+// posture than asked for. Two distinct cases share this class today: (1) a
+// requested CONTAINER couldn't start and the run fell back to the bare,
+// unsandboxed host; (2) a requested WORKTREE's per-agent config-home has no
+// credentials to seed and no API-key env, so the engine would launch logged
+// out (grave-prize). Either way, running the member as-is would silently
+// deliver less than what was asked for. In strict mode that fails THE MEMBER
+// (an error Part in the fan; other members continue — partial success is
+// still success), never the whole call. Returns nil in degraded mode
+// (recording is disabled there, so found is empty anyway) or when no
+// ClassIsolation finding was collected. The finding's own Message fully
+// describes WHICH case fired — this wrapper adds no case-specific wording, so
+// it never misdescribes one case using the other's vocabulary.
 func isolationGateErr(found []strictness.Finding) error {
 	if strictness.Degraded() {
 		return nil
@@ -235,7 +242,7 @@ func isolationGateErr(found []strictness.Finding) error {
 		return nil
 	}
 	var b strings.Builder
-	b.WriteString("isolation: requested container could not be satisfied; refusing to run this member UNSANDBOXED on the host")
+	b.WriteString("isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied")
 	for _, f := range iso {
 		fmt.Fprintf(&b, ": %s", f.Message)
 	}

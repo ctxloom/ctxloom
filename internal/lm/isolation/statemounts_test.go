@@ -271,7 +271,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
 		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
-		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
+		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()}, "")},
 	}
 
 	ws, err := cw.PrepareWorkspace(context.Background(), "/proj", "member-x")

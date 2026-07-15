@@ -311,7 +311,7 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		rt := selectRuntimeProbe("")
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
-				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
+				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil, backend), None{}}
 			}
 			return []Policy{containerFor(rt, backend, img), None{}}
 		}
@@ -331,8 +331,11 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	if axes.WantsWorktree() {
 		// Workspace-only isolation, no runtime dependency — the git-repo check
 		// and the worktree-add both degrade to None inside PrepareWorkspace
-		// (prepareChain warns).
-		return []Policy{NewWorktree(nil), None{}}
+		// (prepareChain warns). This is the PURE host+worktree path
+		// (grave-prize): NewWorktree carries backend so provisionConfigHome
+		// can seed the engine's subscription credentials into the per-agent
+		// config-home.
+		return []Policy{NewWorktree(nil, backend), None{}}
 	}
 	return []Policy{None{}}
 }

@@ -111,7 +111,12 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 			WorkDir:  t.TempDir(),
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "UNSANDBOXED")
+		// "NOT sandboxed" comes from the FINDING's own message (prepareChain,
+		// isolation.go), not the gate's wrapper text — isolationGateErr's
+		// wrapper is deliberately neutral so it never misdescribes a
+		// non-container ClassIsolation finding (e.g. grave-prize's worktree
+		// credential-seed gate) using container-specific vocabulary.
+		assert.Contains(t, err.Error(), "NOT sandboxed")
 		assert.Contains(t, err.Error(), "container isolation was requested but could not start")
 	})
 

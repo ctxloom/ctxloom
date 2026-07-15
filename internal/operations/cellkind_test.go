@@ -24,7 +24,7 @@ func TestCellKindForPolicy(t *testing.T) {
 		wantProto pb.CellKind
 	}{
 		{"none→shared", isolation.None{}, agent.CellKindShared, pb.CellKind_CELL_KIND_SHARED},
-		{"worktree→directory-isolated", isolation.NewWorktree(nil), agent.CellKindDirectoryIsolated, pb.CellKind_CELL_KIND_DIRECTORY_ISOLATED},
+		{"worktree→directory-isolated", isolation.NewWorktree(nil, ""), agent.CellKindDirectoryIsolated, pb.CellKind_CELL_KIND_DIRECTORY_ISOLATED},
 		{"container→process-isolated", isolation.NewContainer(nil, "img"), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
 		{"container-worktree→process-isolated", isolation.NewContainerWorktree(nil, "img", nil), agent.CellKindProcessIsolated, pb.CellKind_CELL_KIND_PROCESS_ISOLATED},
 	}

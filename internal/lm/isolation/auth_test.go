@@ -135,3 +135,126 @@ func TestContainerAuthMode_String(t *testing.T) {
 	assert.Equal(t, "credential-mount", authCredentialMount.String())
 	assert.Equal(t, "none", authNone.String())
 }
+
+// --- Host+worktree credential seeding (grave-prize) -------------------------
+
+// TestCredentialSeedSpecs_ClaudeCodeRegistered pins the registry entry claude
+// needs: keyed by the REGISTERED backend name "claude-code" (not "claude" —
+// see profile.go's containerProfileFor using the same key), the ANTHROPIC_API_KEY
+// trigger, and the "claude" destSubdir that worktree.go's Env() already points
+// CLAUDE_CONFIG_DIR at.
+func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
+	spec, ok := credentialSeedSpecs["claude-code"]
+	require.True(t, ok, "claude-code must have a credentialSeedSpec")
+	assert.Equal(t, "claude", spec.engine)
+	assert.Equal(t, "claude", spec.destSubdir)
+	assert.Equal(t, "ANTHROPIC_API_KEY", spec.envTrigger)
+}
+
+// TestCredentialSeedSpecs_CodexAndKiroNotRegistered documents the deliberate
+// exclusions (see credentialSeedSpecs' doc): kiro's creds live in a global
+// sqlite KIRO_HOME doesn't relocate, and codex ALREADY seeds itself through a
+// separate mechanism (internal/codex/backend.go) that wins over anything this
+// package's Env() would ship — registering either here would be inert or wrong.
+func TestCredentialSeedSpecs_CodexAndKiroNotRegistered(t *testing.T) {
+	_, codexOK := credentialSeedSpecs["codex"]
+	assert.False(t, codexOK, "codex seeds its own CODEX_HOME via backend.go's linkUserCodexAuth, not this registry")
+	_, kiroOK := credentialSeedSpecs["kiro"]
+	assert.False(t, kiroOK, "kiro's KIRO_HOME does not relocate credentials (global sqlite) — nothing to seed")
+}
+
+// TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
+// seeding is skipped entirely (auth rides the env, mirroring
+// resolveClaudeContainerAuth's authEnv precedence) — even when no host creds
+// exist, this is NOT the fail-loud case, and the destination dir is never
+// created.
+func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
+	withFakeHome(t) // no ~/.claude/.credentials.json on disk
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedSkippedEnv, result)
+	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no seed dir is created when the env trigger covers auth")
+}
+
+// TestHostCredentialSeed_CopiesBothFilesWhenPresent is the PAYLOAD-asserting
+// test that would have caught the original grave-prize bug: it does not just
+// check for a nil error, it reads the seeded bytes back and proves they are
+// byte-identical to the host source, owner-only (0600), and land at the exact
+// paths worktree.go's Env() (CLAUDE_CONFIG_DIR = <configHome>/claude) expects.
+func TestHostCredentialSeed_CopiesBothFilesWhenPresent(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, true)
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+
+	wantCreds, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	require.NoError(t, err)
+	gotCreds, err := os.ReadFile(filepath.Join(dest, "claude", ".credentials.json"))
+	require.NoError(t, err, "the seeded credential file must exist at <configHome>/claude/.credentials.json")
+	assert.Equal(t, wantCreds, gotCreds, "seeded bytes must be byte-identical to the host source")
+
+	info, err := os.Stat(filepath.Join(dest, "claude", ".credentials.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
+
+	wantDotClaude, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	require.NoError(t, err)
+	gotDotClaude, err := os.ReadFile(filepath.Join(dest, "claude", ".claude.json"))
+	require.NoError(t, err, "the seeded account-association file must exist too")
+	assert.Equal(t, wantDotClaude, gotDotClaude)
+}
+
+// TestHostCredentialSeed_OptionalDotClaudeAbsentStillSeedsOK: ~/.claude.json is
+// optional (live-verified: claude auto-creates its own inside
+// CLAUDE_CONFIG_DIR when absent) — only the OAuth token file is required, and
+// its presence alone is sufficient for seedOK.
+func TestHostCredentialSeed_OptionalDotClaudeAbsentStillSeedsOK(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	writeCreds(t, home, false)
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+	assert.FileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
+	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"), "never fabricated when absent on the host")
+}
+
+// TestHostCredentialSeed_NoSourceReturnsNoSourceNotError: no ANTHROPIC_API_KEY
+// AND no host ~/.claude/.credentials.json → seedNoSource (the fail-loud case
+// the CALLER — worktree.go's seedCredentials — turns into a strictness.Fail),
+// never a Go error and never a silently-created empty seed dir.
+func TestHostCredentialSeed_NoSourceReturnsNoSourceNotError(t *testing.T) {
+	withFakeHome(t) // empty fake home — no .claude at all
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
+	assert.Equal(t, seedNoSource, result)
+	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no half-built seed dir is left behind")
+}
+
+// TestHostCredentialSeed_UnresolvableHostHome: hostHomeDir failing (the seam
+// tests point elsewhere, but production would see this if os.UserHomeDir
+// errors) degrades to seedNoSource exactly like an absent source file — never
+// a hard error that would abort provisioning outright.
+func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
+	orig := hostHomeDir
+	hostHomeDir = func() (string, error) { return "", assertErr("no home") }
+	t.Cleanup(func() { hostHomeDir = orig })
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedNoSource, result)
+}

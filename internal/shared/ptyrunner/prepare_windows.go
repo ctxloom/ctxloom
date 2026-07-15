@@ -51,3 +51,11 @@ func adjustPtyCommand(c *pty.Cmd, original *exec.Cmd) {
 	}
 	c.SysProcAttr.CmdLine = `/c "` + innerCmdLine + `"`
 }
+
+// pendingPTYBytes has no ConPTY equivalent of FIONREAD wired up here, so
+// RunInteractive's drainPTY always falls back to its bounded wait on
+// Windows (see prepare_other.go's Unix implementation, which this mirrors
+// the signature of).
+func pendingPTYBytes(_ pty.Pty) (int, bool) {
+	return 0, false
+}

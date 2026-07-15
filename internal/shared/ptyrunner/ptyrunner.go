@@ -31,6 +31,59 @@ import (
 // default-size behavior instead of hanging.
 const initialResizeWait = 300 * time.Millisecond
 
+// ptyDrainGrace bounds drainPTY's wait for the output-copy goroutine to
+// drain whatever the child wrote before RunInteractive forces the pty
+// master closed. Closing is ALWAYS eventually required to unblock the
+// copier — this process keeps its own reference to the pty's slave side
+// open for the whole run (go-pty's design: cmd_unix.go wires the child's
+// stdio directly to pty.slave without ever closing it here), so the master
+// never sees a natural EOF on its own, with or without a wait. This bound
+// is only a safety net for the case drainPTY's FIONREAD poll cannot make
+// progress on: a genuine hang (an orphaned subprocess — an MCP server the
+// child spawned — still holding the pty open) or a platform where the byte
+// count probe is unavailable (pendingPTYBytes, prepare_windows.go). The
+// common case (the copier already kept pace, or nothing was buffered at
+// exit) returns via drainPTY almost immediately — see its doc.
+const ptyDrainGrace = 2 * time.Second
+
+// ptyDrainPollInterval paces drainPTY's FIONREAD poll: short enough that
+// draining already-buffered-and-available output adds negligible latency,
+// long enough not to spin uselessly while the copy goroutine is merely
+// waiting its turn to be scheduled under load.
+const ptyDrainPollInterval = 2 * time.Millisecond
+
+// drainPTY waits for the copy goroutine to actually drain whatever the
+// child already wrote into the pty before RunInteractive forces the master
+// closed (deaf-rut S5): forcing ptty.Close() immediately after c.Wait(),
+// with zero grace (the historical behavior), raced the as-yet-unscheduled
+// copy goroutine — under CPU load the reader may simply not have run yet,
+// so the forced close truncated or entirely dropped output the child had
+// already fully written and flushed before exiting.
+// TestRunInteractive_CapturesOutput reproduced this on essentially every
+// run once contended enough. Rather than a blind sleep, this polls the
+// pty's actual buffered byte count (pendingPTYBytes) so the common case —
+// the copier already kept pace, nothing left buffered — returns with
+// ~zero added latency; only a genuine race (output landed right as the
+// child exited) or hang burns real wall-clock time, and even then only
+// until the copier is next scheduled, bounded by ptyDrainGrace.
+func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
+	deadline := time.Now().Add(ptyDrainGrace)
+	for {
+		select {
+		case <-copyDone:
+			return
+		default:
+		}
+		if n, ok := pendingPTYBytes(ptty); ok && n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(ptyDrainPollInterval)
+	}
+}
+
 // Result contains the exit code from running a command. The session's output
 // is NOT captured here: an interactive TUI redraws constantly for hours, so
 // buffering the whole stream would grow without bound — callers that want the
@@ -171,8 +224,13 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	// Wait for command to finish first
 	err = c.Wait()
 
-	// Close PTY to unblock the copy goroutine
-	// (subprocess MCP servers may still have it open, causing io.Copy to block)
+	// Close PTY to unblock the copy goroutine (subprocess MCP servers may
+	// still have it open, causing io.Copy to block) — but only after
+	// drainPTY confirms there is nothing left of the child's own output
+	// still sitting unread in the pty (see drainPTY's doc for why this
+	// matters and why an unconditional immediate close here used to lose
+	// output under load).
+	drainPTY(ptty, copyDone)
 	_ = ptty.Close()
 
 	// Wait for copy to finish

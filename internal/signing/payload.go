@@ -73,9 +73,23 @@ type ItemKind string
 
 const (
 	KindFragments ItemKind = "fragments"
-	KindSkills    ItemKind = "skills"
-	KindMCP       ItemKind = "mcp"
-	KindHooks     ItemKind = "hooks"
+	// KindSkills is a LEGACY stored value: it is the historical item-kind for
+	// what is now called a "command" (the skill->command rename, Part A of
+	// the skill/command split). It is baked into persisted countersignature
+	// payloads (see signingKindOf in internal/operations/countersign_records.go)
+	// and MUST NOT be renamed or reused for anything else — doing so would
+	// change the preimage bytes of every existing command approval/rejection
+	// and silently invalidate them. The TRUE Agent Skill kind is
+	// KindAgentSkills, below; it is a deliberately different string so the two
+	// can never collide.
+	KindSkills ItemKind = "skills"
+	KindMCP    ItemKind = "mcp"
+	KindHooks  ItemKind = "hooks"
+	// KindAgentSkills is the Agent Skills item-kind (Part B2 of the
+	// skill/command split): a true SKILL.md package (directory tree), never
+	// the legacy KindSkills value above. Fresh stored value, no prior
+	// signatures to protect.
+	KindAgentSkills ItemKind = "agentskills"
 )
 
 // Form identifies which materialization of an item's content the payload
@@ -109,7 +123,7 @@ type CountersignHeader struct {
 //
 //	"ctxloom-countersign/1\n"
 //	"assertion: " <approve|reject> "\n"
-//	"kind: " <fragments|skills|mcp|hooks> "\n"
+//	"kind: " <fragments|skills|mcp|hooks|agentskills> "\n"
 //	"ref: " <canonical item ref, or empty> "\n"
 //	"form: " <raw|distilled|exec, or empty> "\n"
 //	"len: " <decimal length of payloadBytes> "\n"

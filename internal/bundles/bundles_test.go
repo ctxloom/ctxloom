@@ -451,6 +451,91 @@ func TestBundleHook_ContentPayload_IsHashPreimage(t *testing.T) {
 	assert.Equal(t, hashContent(payload), hook.ComputeContentHash())
 }
 
+// TestBundleSkill_ToManifest proves the bundle.yaml `files:` map (BundleSkill.
+// Files) converts into the canonical, sorted SkillManifest shape — the same
+// shape ParseSkillPackage computes fresh from a source tree — regardless of
+// the map's iteration order.
+func TestBundleSkill_ToManifest(t *testing.T) {
+	skill := BundleSkill{Files: map[string]SkillFileMeta{
+		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"assets/logo.png": {SHA256: "sha256:asset1", Mode: "0644"},
+	}}
+	got := skill.ToManifest()
+	assert.Equal(t, SkillManifest{
+		{Path: "SKILL.md", SHA256: "sha256:skillmd1", Mode: "0644"},
+		{Path: "assets/logo.png", SHA256: "sha256:asset1", Mode: "0644"},
+		{Path: "scripts/run.sh", SHA256: "sha256:script1", Mode: "0755"},
+	}, got, "entries must be sorted by path, independent of map iteration order")
+}
+
+// TestBundleSkill_ContentPayload_IsHashPreimage proves ComputeContentHash
+// hashes EXACTLY ContentPayload's output — the single-preimage-builder
+// contract every other kind's ContentPayload/ComputeContentHash pair holds
+// (see BundleFragment/BundleMCP/BundleHook above) — and that the payload is a
+// canonical encoding of the manifest, versioned like the other exec-shaped
+// preimages.
+func TestBundleSkill_ContentPayload_IsHashPreimage(t *testing.T) {
+	skill := BundleSkill{Files: map[string]SkillFileMeta{
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
+	}}
+
+	payload, err := skill.ContentPayload()
+	require.NoError(t, err)
+	assert.JSONEq(t,
+		`{"preimage":"ctxloom-exec/1","manifest":[`+
+			`{"path":"SKILL.md","sha256":"sha256:skillmd1","mode":"0644"},`+
+			`{"path":"scripts/run.sh","sha256":"sha256:script1","mode":"0755"}]}`,
+		string(payload))
+
+	assert.Equal(t, hashContent(payload), skill.ComputeContentHash())
+}
+
+// TestBundleSkill_ComputeContentHash proves editing ANY single file in the
+// manifest — content, path, or MODE (the scripts/ exec bit) — changes the
+// hash, which is what re-triggers review/sign on a script edit (skill/command
+// split plan §3.1).
+func TestBundleSkill_ComputeContentHash(t *testing.T) {
+	base := BundleSkill{Files: map[string]SkillFileMeta{
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
+	}}
+	baseHash := base.ComputeContentHash()
+	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
+	assert.Equal(t, baseHash, base.ComputeContentHash(), "deterministic across calls")
+
+	// Map iteration order must not affect the hash (Serialize sorts by path).
+	reordered := BundleSkill{Files: map[string]SkillFileMeta{
+		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+	}}
+	assert.Equal(t, baseHash, reordered.ComputeContentHash())
+
+	// A script's content hash changing (a tampered/edited scripts/run.sh)
+	// changes the whole-package hash.
+	contentChanged := BundleSkill{Files: map[string]SkillFileMeta{
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh": {SHA256: "sha256:different", Mode: "0755"},
+	}}
+	assert.NotEqual(t, baseHash, contentChanged.ComputeContentHash(), "editing a file's content must change the package hash")
+
+	// A mode flip alone (e.g. an exec bit added/removed) also changes the hash.
+	modeChanged := BundleSkill{Files: map[string]SkillFileMeta{
+		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0644"},
+	}}
+	assert.NotEqual(t, baseHash, modeChanged.ComputeContentHash(), "a mode-only change (e.g. losing the exec bit) must change the package hash")
+
+	// Adding or removing a file changes the hash.
+	fileAdded := BundleSkill{Files: map[string]SkillFileMeta{
+		"SKILL.md":         {SHA256: "sha256:skillmd1", Mode: "0644"},
+		"scripts/run.sh":   {SHA256: "sha256:script1", Mode: "0755"},
+		"assets/README.md": {SHA256: "sha256:extra", Mode: "0644"},
+	}}
+	assert.NotEqual(t, baseHash, fileAdded.ComputeContentHash(), "adding a file must change the package hash")
+}
+
 // =============================================================================
 // Bundle Tests
 // =============================================================================

@@ -493,7 +493,8 @@ func resolveSignerOrUnsigned(injected ssh.Signer, project bool) (signer ssh.Sign
 type SetItemTrustRequest struct {
 	// Ref is the item reference, "<bundle-ref>#<kind>/<name>" where bundle-ref
 	// is a canonical URL ref, a ctxloom:local ref, or a plain local bundle name,
-	// kind is fragments|commands|mcp|hooks (legacy "skills"/"prompts" still accepted). A
+	// kind is fragments|commands|mcp|hooks|skills (legacy "prompts" still
+	// accepted as an alias for commands). A
 	// trailing "@<commit>" on the bundle ref is accepted for resolution;
 	// approval pins by content BYTES (a countersignature), not commit.
 	Ref string
@@ -812,21 +813,29 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 	switch kindDir {
 	case "fragments":
 		return trust.KindFragment, name, nil
-	case "commands", "skills", "prompts":
+	case "commands", "prompts":
 		// "commands" is the current spelling (the CLI list emits #commands/<name>);
-		// "skills" and "prompts" are legacy aliases (skill→command rename, and the
-		// prompt→skill rename before it). All three map to trust.KindPrompt so the
-		// stored key (KindPrompt.Dir() == "prompts"), the assembly-time content
-		// gate, and existing acceptances stay valid — the content lives in
-		// bundle.Commands, which the hash helpers read under KindPrompt.
+		// "prompts" is the legacy alias from the prompt→skill rename before it.
+		// Both map to trust.KindPrompt so the stored key (KindPrompt.Dir() ==
+		// "prompts"), the assembly-time content gate, and existing acceptances
+		// stay valid — the content lives in bundle.Commands, which the hash
+		// helpers read under KindPrompt.
+		//
+		// NOTE: "skills" is deliberately NOT an alias here. Before the Part A
+		// skill→command rename, "skills" meant this same command kind; Part B2
+		// frees it for the TRUE Agent Skill kind (trust.KindSkill, below) instead
+		// — Part A already moved the CLI/review surface off "#skills/" entirely,
+		// so nothing production still relies on the old meaning.
 		return trust.KindPrompt, name, nil
 	case "mcp":
 		return trust.KindMCP, name, nil
 	case "hooks":
 		// name is the hook's "<event>/<index>" identity (carries an inner slash).
 		return trust.KindHook, name, nil
+	case "skills":
+		return trust.KindSkill, name, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks)", kindDir)
+		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks|skills)", kindDir)
 	}
 }
 
@@ -897,6 +906,19 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		payload, perr := entry.Hook.ContentPayload()
 		if perr != nil {
 			return nil, nil, "", fmt.Errorf("hook %q payload: %w", tRef.Name, perr)
+		}
+		return payload, nil, signer, nil
+	case trust.KindSkill:
+		skill, ok := bundle.Skills[tRef.Name]
+		if !ok {
+			return nil, nil, "", fmt.Errorf("skill %q not found in bundle %q", tRef.Name, loadRef)
+		}
+		// A skill has no distilled form (SKILL.md's description IS the
+		// progressive-disclosure mechanism; distilling it would defeat that) —
+		// one payload, mirroring KindMCP/KindHook.
+		payload, perr := skill.ContentPayload()
+		if perr != nil {
+			return nil, nil, "", fmt.Errorf("skill %q payload: %w", tRef.Name, perr)
 		}
 		return payload, nil, signer, nil
 	default:

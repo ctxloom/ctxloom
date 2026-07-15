@@ -38,7 +38,7 @@ const (
 type ReviewItem struct {
 	Bundle string `json:"bundle"` // the bundle's source ref (canonical for remote, name for local)
 	Ref    string `json:"ref"`    // full item ref, directly usable by trust/blacklist
-	Kind   string `json:"kind"`   // display selector dir: fragments|commands|mcp|hooks
+	Kind   string `json:"kind"`   // display selector dir: fragments|commands|mcp|hooks|skills
 	Name   string `json:"name"`   // item name (hooks: "<event>/<index>")
 	Status string `json:"status"` // ReviewStatusNew | ReviewStatusUpdate
 
@@ -220,6 +220,26 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		item.CurrentContent = renderHookSurface(entry)
 		out = append(out, item)
 	}
+	for _, name := range bundle.SkillNames() {
+		skill := bundle.Skills[name]
+		payload, perr := skill.ContentPayload()
+		if perr != nil {
+			continue
+		}
+		// executable=false: unlike mcp/hooks, a skill IS a reviewable TREE —
+		// that is the entire reason it is stored as a directory of files
+		// rather than a blob. Marking it non-executable routes it through the
+		// same content-snapshot path as fragments/commands (see
+		// review_snapshots.go's itemContentPair), so editing any one file in
+		// the tree — SKILL.md or a scripts/ script — shows up as a per-file
+		// diff against what was previously accepted, not a bare "changed".
+		item, ok := e.classify(bundleRef, "skills", name, payload, string(bundles.FormRaw), signer, false)
+		if !ok {
+			continue
+		}
+		item.CurrentContent = renderSkillSurface(skill)
+		out = append(out, item)
+	}
 	return out
 }
 
@@ -357,6 +377,21 @@ func renderHookSurface(entry bundles.HookEntry) string {
 	}
 	if entry.Hook.Prompt != "" {
 		fmt.Fprintf(&b, "prompt:  %s\n", strings.TrimSpace(entry.Hook.Prompt))
+	}
+	return b.String()
+}
+
+// renderSkillSurface renders a skill package as a per-file TREE listing —
+// path, content hash, and POSIX mode, one line per file, sorted — rather than
+// a single blob. This is what makes the package reviewable file-by-file: when
+// review shows this as an UPDATE, the unified diff against the previous
+// listing (readTrustSnapshot / unifiedReviewDiff) surfaces exactly which
+// file(s) changed, added, or were removed, including a mode flip on a
+// scripts/ entry (0644 -> 0755), not merely "the skill changed".
+func renderSkillSurface(skill bundles.BundleSkill) string {
+	var b strings.Builder
+	for _, entry := range skill.ToManifest() {
+		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)
 	}
 	return b.String()
 }

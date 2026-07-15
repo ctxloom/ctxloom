@@ -16,7 +16,8 @@ import (
 const reviewSeedKey = acmeBundle + "toolkit"
 
 // reviewBundle builds the test bundle: two fragments (one with a distilled
-// form), a command, an MCP server, and a hook — one of every reviewable kind.
+// form), a command, an MCP server, a hook, and a skill package — one of every
+// reviewable kind.
 func reviewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
 		Version: "1.0",
@@ -32,6 +33,12 @@ func reviewBundle() *bundles.Bundle {
 		},
 		Hooks: bundles.BundleHooks{
 			PreTool: []bundles.BundleHook{{Type: "command", Command: "echo hi", Matcher: "Bash"}},
+		},
+		Skills: map[string]bundles.BundleSkill{
+			"humanize": {Files: map[string]bundles.SkillFileMeta{
+				"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
+				"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
+			}},
 		},
 	}
 }
@@ -66,7 +73,7 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, 5, res.Total)
+	assert.Equal(t, 6, res.Total)
 	assert.Equal(t, 0, res.Updates)
 	require.Len(t, res.Bundles, 1)
 	assert.Equal(t, reviewSeedKey, res.Bundles[0].Ref)
@@ -79,6 +86,7 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 		reviewSeedKey + "#commands/greet",
 		reviewSeedKey + "#mcp/pg",
 		reviewSeedKey + "#hooks/pre_tool/0",
+		reviewSeedKey + "#skills/humanize",
 	} {
 		assert.Equalf(t, ReviewStatusNew, refs[want], "%s must be pending NEW", want)
 	}
@@ -120,6 +128,20 @@ func TestPendingReview_ContentAndRendering(t *testing.T) {
 	assert.Contains(t, hook.CurrentContent, "event:   pre_tool")
 	assert.Contains(t, hook.CurrentContent, "matcher: Bash")
 	assert.Contains(t, hook.CurrentContent, "command: echo hi")
+
+	// A skill renders as a per-file TREE listing (path, hash, mode), NOT
+	// a single blob — the entire reason it is stored as a directory rather
+	// than inline content. It is deliberately non-executable (Executable ==
+	// false) so it flows through the same content-snapshot/diff machinery as
+	// fragments/commands, unlike mcp/hooks.
+	skill := byRef[reviewSeedKey+"#skills/humanize"]
+	assert.False(t, skill.Executable, "a skill is a reviewable TREE, not an opaque executable surface")
+	assert.Contains(t, skill.CurrentContent, "SKILL.md")
+	assert.Contains(t, skill.CurrentContent, "sha256:skillmd1")
+	assert.Contains(t, skill.CurrentContent, "mode:0644")
+	assert.Contains(t, skill.CurrentContent, "scripts/run.sh")
+	assert.Contains(t, skill.CurrentContent, "sha256:script1")
+	assert.Contains(t, skill.CurrentContent, "mode:0755")
 }
 
 // TestPendingReview_DecidedAndExemptExcluded: approved-at-current-bytes,
@@ -136,7 +158,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
 		require.NoError(t, err)
 		assert.NotContains(t, pendingRefs(res), reviewSeedKey+"#fragments/solid")
-		assert.Equal(t, 4, res.Total)
+		assert.Equal(t, 5, res.Total)
 	})
 
 	t.Run("rejected is excluded (already decided, not pending)", func(t *testing.T) {
@@ -253,6 +275,48 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		}
 	})
 
+	t.Run("skill package diffs per-file — editing one script re-triggers review as a tree diff", func(t *testing.T) {
+		// This is the entire reason a skill is stored as a directory of
+		// files rather than a single blob (skill/command split plan §3.1):
+		// changing ONE file — here, scripts/run.sh's hash and mode both flip
+		// — must show up as exactly that one line changing in the rendered
+		// tree listing, with every untouched file's line unchanged.
+		fx := newTrustFixture(t)
+		fs := afero.NewMemMapFs()
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: reviewSeedKey + "#skills/humanize", UserStore: fx.user, Signer: fx.signer, Loader: reviewLoader(reviewBundle()), FS: fs})
+		require.NoError(t, err)
+
+		edited := reviewBundle()
+		humanize := edited.Skills["humanize"]
+		humanize.Files = map[string]bundles.SkillFileMeta{
+			"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"}, // unchanged
+			"scripts/run.sh": {SHA256: "sha256:script2-tampered", Mode: "0644"},
+		}
+		edited.Skills["humanize"] = humanize
+
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(edited), FS: fs})
+		require.NoError(t, err)
+
+		var item ReviewItem
+		for _, b := range res.Bundles {
+			for _, it := range b.Items {
+				if it.Ref == reviewSeedKey+"#skills/humanize" {
+					item = it
+				}
+			}
+		}
+		assert.Equal(t, ReviewStatusUpdate, item.Status, "editing any one file in the tree must re-trigger review")
+		assert.Contains(t, item.PreviousContent, "sha256:script1")
+		assert.Contains(t, item.PreviousContent, "mode:0755")
+		assert.Contains(t, item.CurrentContent, "sha256:script2-tampered")
+		assert.Contains(t, item.CurrentContent, "mode:0644")
+		// The untouched SKILL.md line is identical in both — a per-file diff
+		// (not a "the whole skill changed" bookkeeping bit) is what lets a
+		// human see exactly which file moved.
+		assert.Contains(t, item.PreviousContent, "SKILL.md  sha256:skillmd1  mode:0644")
+		assert.Contains(t, item.CurrentContent, "SKILL.md  sha256:skillmd1  mode:0644")
+	})
+
 	t.Run("missing snapshot degrades to full content, never an error", func(t *testing.T) {
 		// A prior approval was recorded (index + snapshot), but the snapshot
 		// object was subsequently lost (e.g. cache pruning) while the index
@@ -351,7 +415,7 @@ func TestAcceptReviewItems_BundleAcceptAll(t *testing.T) {
 
 	res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: registry, Loader: loader, FS: fs})
 	require.NoError(t, err)
-	require.Equal(t, 5, res.Total)
+	require.Equal(t, 6, res.Total)
 
 	var refs []string
 	for _, b := range res.Bundles {
@@ -362,7 +426,7 @@ func TestAcceptReviewItems_BundleAcceptAll(t *testing.T) {
 	refs = append(refs, reviewSeedKey+"#fragments/does-not-exist") // one bad ref must not sink the batch
 
 	applied := AcceptReviewItems(nil, AcceptReviewItemsRequest{Refs: refs, Signer: fx.signer, UserStore: fx.user, Loader: loader, FS: fs})
-	assert.Len(t, applied.Accepted, 5)
+	assert.Len(t, applied.Accepted, 6)
 	require.Len(t, applied.Failed, 1)
 	assert.Contains(t, applied.Failed, reviewSeedKey+"#fragments/does-not-exist")
 

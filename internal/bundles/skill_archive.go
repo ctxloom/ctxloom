@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // This file holds Part B, slice B1b of the skill/command split: the ARCHIVE
@@ -544,19 +546,91 @@ type NoopSkillSignatureVerifier struct{}
 // that skills don't need signing.
 func (NoopSkillSignatureVerifier) VerifyManifestSignature(SkillManifest) error { return nil }
 
-// InstallSkillPackage is the fixed install seam from the skill/command split
-// plan §3.1b: verify(sig) -> extract -> verify(hashes), in that order, never
-// reordered.
+// PublisherSkillSignatureVerifier is the PRODUCTION SkillSignatureVerifier
+// (Part B2): it verifies a detached armored signature over the expected
+// manifest's canonical bytes (SkillManifest.Serialize()) using the EXACT same
+// signature envelope and trust-root machinery every other ctxloom signature
+// check uses (signing.VerifyPublisher against the publish namespace, resolved
+// through the allowed_signers TrustRoot) — no new crypto, no parallel scheme.
+//
+// Unlike VerifyPublisher's ordinary three-outcome contract (unsigned-to-you
+// is not an error — spec §10.1), an INSTALL is a production-safety gate: a
+// skill with no signature, or one by a key this machine does not trust to
+// publish, must not install silently. Both cases here return an error —
+// "withhold and tell the human", never "install anyway, unsigned". A skill
+// installed via the ordinary git-clone bundle tree (not this archive path)
+// still goes through the review/accept flow instead; this verifier only
+// gates the archive-sourced install path (skill/command split plan §3.1b).
+type PublisherSkillSignatureVerifier struct {
+	// ArmoredSignature is the detached publish-namespace signature over
+	// manifest.Serialize() (e.g. a `.sig` sidecar shipped alongside a stored
+	// skill archive/manifest, or an imported archive's ctxloom-namespaced
+	// signature entry). Empty means "no signature at all" — always rejected.
+	ArmoredSignature []byte
+	// Root resolves which keys are trusted to publish. A nil Root trusts no
+	// key — fails closed, like every other TrustRoot consumer in this
+	// codebase.
+	Root signing.TrustRoot
+	// Now is a seam for tests to pin time; nil means time.Now.
+	Now func() time.Time
+}
+
+// VerifyManifestSignature implements SkillSignatureVerifier: it verifies
+// v.ArmoredSignature covers manifest.Serialize() exactly, signed by a key
+// v.Root trusts for the publish namespace. manifest is always the expected
+// (previously-signed) manifest InstallSkillPackage was called with — it is
+// never recomputed from the archive here; that is VerifyExtractedManifest's
+// job, which runs AFTER extraction against the same manifest value.
+func (v PublisherSkillSignatureVerifier) VerifyManifestSignature(manifest SkillManifest) error {
+	if len(v.ArmoredSignature) == 0 {
+		return fmt.Errorf("no signature present for this skill package — an unsigned skill must go through ctxloom review, not install")
+	}
+	now := time.Now
+	if v.Now != nil {
+		now = v.Now
+	}
+	principal, err := signing.VerifyPublisher(manifest.Serialize(), v.ArmoredSignature, v.Root, now())
+	if err != nil {
+		// ErrSignatureTampered: a present signature that does not honestly
+		// cover these bytes. Never benign — propagate as-is.
+		return err
+	}
+	if principal == "" {
+		// VerifyPublisher's "unsigned to you" outcome: the signature is
+		// well-formed but by a key this machine does not trust to publish.
+		// Ordinarily that takes the review path; for an install it is a hard
+		// stop — an untrusted publisher's skill must not land on disk.
+		return fmt.Errorf("signature is not by a publisher this machine trusts for %s — withholding", signing.NamespacePublish)
+	}
+	return nil
+}
+
+// InstallSkillPackage is the fixed, ATOMIC install seam from the skill/command
+// split plan §3.1b.
+//
+// INVARIANT (load-bearing — read before touching this function): the order is
+// verify(SIGNATURE) -> extract(STAGING) -> verify(HASHES) -> rename(staging
+// -> destDir), and it is never reordered:
 //
 //   - verify(sig) runs FIRST, against the expected manifest bytes alone, and
-//     GATES extraction outright: nothing is written to destDir if it fails.
+//     GATES extraction outright: nothing is written to disk at all if it
+//     fails, not even to a staging directory.
 //   - extract runs through HardenedExtract (see its doc comment for the full
-//     rejection list).
+//     rejection list) into a STAGING directory — NEVER directly into destDir.
+//     This is what makes the install atomic: HardenedExtract validates each
+//     entry as it goes, so a hostile archive can fail partway through, after
+//     some earlier entries (e.g. SKILL.md, then an executable scripts/
+//     entry) already landed on disk. Extracting to staging means that partial
+//     write poisons only a throwaway directory, never destDir.
 //   - verify(hashes) necessarily runs AFTER extraction — it checks the actual
-//     bytes on disk, which only exist once written. On any mismatch the
-//     extracted tree at destDir is removed before returning, so a caller
-//     never observes a partially-written, poisoned install (no partial tree
-//     survives a failed verification, by construction).
+//     bytes on disk, which only exist once written — against staging, not
+//     destDir.
+//   - ONLY once both verifications pass does destDir get replaced by staging
+//     in one rename. Every failure path above returns with destDir untouched
+//     (deferred staging cleanup runs regardless, mirroring
+//     ImportSkillArchive's RemoveAll-on-every-failure pattern) — a rejected
+//     install never leaves a partial, poisoned tree, executable scripts
+//     included, at destDir.
 //
 // manifest may be nil (no known-good manifest to verify against, e.g. a
 // brand-new untrusted import with no prior signed state) — in that case only
@@ -571,17 +645,27 @@ func InstallSkillPackage(fsys afero.Fs, archive []byte, format ArchiveFormat, de
 		return fmt.Errorf("skill install: signature verification failed, withholding: %w", err)
 	}
 
-	if _, err := HardenedExtract(fsys, archive, format, destDir, opts); err != nil {
+	staging := filepath.Join(filepath.Dir(destDir), ".ctxloom-install-staging-"+filepath.Base(destDir))
+	if err := fsys.RemoveAll(staging); err != nil {
+		return fmt.Errorf("skill install: clearing staging directory %q: %w", staging, err)
+	}
+	defer fsys.RemoveAll(staging) //nolint:errcheck // best-effort: no-op once renamed away; cleans up on every failure return below
+
+	if _, err := HardenedExtract(fsys, archive, format, staging, opts); err != nil {
 		return err
 	}
 
 	if manifest != nil {
-		if err := VerifyExtractedManifest(fsys, destDir, manifest); err != nil {
-			if rmErr := fsys.RemoveAll(destDir); rmErr != nil {
-				return fmt.Errorf("%w (also failed to clean up %q: %v)", err, destDir, rmErr)
-			}
+		if err := VerifyExtractedManifest(fsys, staging, manifest); err != nil {
 			return err
 		}
+	}
+
+	if err := fsys.RemoveAll(destDir); err != nil {
+		return fmt.Errorf("skill install: clearing destination %q: %w", destDir, err)
+	}
+	if err := fsys.Rename(staging, destDir); err != nil {
+		return fmt.Errorf("skill install: moving verified tree into place: %w", err)
 	}
 	return nil
 }

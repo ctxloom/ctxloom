@@ -471,6 +471,72 @@ func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, Cont
 	return hashContent(payload), form
 }
 
+// ToManifest converts a BundleSkill's authored `files:` map (bundle.yaml's
+// GENERATED per-file manifest — see BundleSkill.Files) into the canonical
+// SkillManifest shape (a sorted slice) that ParseSkillPackage computes fresh
+// from a skill's source tree. Both representations hold the same entries,
+// keyed the same way; this is the one conversion between the two so nothing
+// else in the codebase re-derives it.
+func (s *BundleSkill) ToManifest() SkillManifest {
+	m := make(SkillManifest, 0, len(s.Files))
+	for path, meta := range s.Files {
+		m = append(m, SkillManifestEntry{Path: path, SHA256: meta.SHA256, Mode: meta.Mode})
+	}
+	return m.sorted()
+}
+
+// skillContentPayload is the canonical encoding BundleSkill.ContentPayload
+// shares — see mcpContentPayload below for the field-order/versioning
+// contract this mirrors exactly. A skill has no raw bytes to sign the way a
+// fragment/command does (it is a directory tree, not a blob); its manifest —
+// every file's path, sha256, and mode, SKILL.md included — already covers the
+// whole package (skill/command split plan §3.1), so the manifest IS this
+// preimage. Editing any file in the tree, including a scripts/ script,
+// changes the manifest and therefore this payload, re-triggering review/sign.
+type skillContentPayload struct {
+	Preimage string        `json:"preimage"`
+	Manifest SkillManifest `json:"manifest"`
+}
+
+// ContentPayload returns the canonical JSON encoding of the skill's manifest —
+// the SINGLE preimage builder for a skill, exactly as mcpContentPayload/
+// hookContentPayload are for MCP servers and hooks. This is a canonicalization
+// (a skill's "content" is structured per-file metadata, not raw bytes), which
+// is why it carries the same versioned first field those two use: any change
+// to this field set requires bumping signing.ExecPreimageContract, turning a
+// silent mass re-review of every skill approval into an announced one.
+func (s *BundleSkill) ContentPayload() ([]byte, error) {
+	canonical := skillContentPayload{
+		Preimage: signing.ExecPreimageContract,
+		Manifest: s.ToManifest(),
+	}
+	return json.Marshal(canonical)
+}
+
+// ComputeContentHash hashes a skill's canonical manifest payload. This is the
+// hash a skill trust grant binds to (trust.KindSkill); like MCP/hooks, a skill
+// has no distilled form, so there is one hash.
+func (s *BundleSkill) ComputeContentHash() string {
+	data, err := s.ContentPayload()
+	if err != nil {
+		// Unreachable: SkillManifest holds only strings. Fail closed to a
+		// stable digest rather than panic, matching BundleMCP/BundleHook
+		// precedent.
+		return hashContent([]byte("ctxloom:skill-content-hash-error"))
+	}
+	return hashContent(data)
+}
+
+// SkillCount returns the number of Agent Skill packages in the bundle.
+func (b *Bundle) SkillCount() int {
+	return len(b.Skills)
+}
+
+// SkillNames returns sorted skill names.
+func (b *Bundle) SkillNames() []string {
+	return slices.Sorted(maps.Keys(b.Skills))
+}
+
 // mcpContentPayload is the canonical encoding shared by ContentPayload; it
 // is factored out so the "unreachable JSON error" fallback below can still
 // report a stable digest through hashContent without duplicating the struct.

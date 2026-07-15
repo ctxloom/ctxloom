@@ -74,17 +74,20 @@ func readTrustSnapshot(fs afero.Fs, baseDir, hash string) (string, bool) {
 
 // snapshotAcceptedItemContent writes the accepted-content snapshots for an
 // acceptance that was just recorded: the raw and (when one exists) distilled
-// bytes of a fragment/command, each stored under the hash the acceptance
-// recorded for that form (rawHash / distilledHash — never recomputed here, so
-// snapshot keys cannot drift from the store). It is the one shared snapshot
-// writer under BOTH acceptance surfaces — the `ctxloom review` porcelain and
-// the `ctxloom trust` plumbing route through SetItemTrust, which calls this
-// after the store write succeeds.
+// bytes of a fragment/command, or a skill's rendered per-file tree listing
+// (renderSkillSurface — a skill has no distilled form), each stored under the
+// hash the acceptance recorded for that form (rawHash / distilledHash — never
+// recomputed here, so snapshot keys cannot drift from the store). It is the
+// one shared snapshot writer under BOTH acceptance surfaces — the `ctxloom
+// review` porcelain and the `ctxloom trust` plumbing route through
+// SetItemTrust, which calls this after the store write succeeds.
 //
 // Executable kinds (mcp, hooks) are deliberately not snapshotted: their
 // recorded hash covers a canonical JSON encoding, and review always renders
 // their full executable surface (command/args/env) rather than a diff — the
-// surface is small enough that a diff adds nothing.
+// surface is small enough that a diff adds nothing. A skill is different: it
+// is a tree of files precisely so it CAN be diffed file-by-file, so it is
+// snapshotted like fragments/commands (IsContent() includes trust.KindSkill).
 //
 // Best-effort by construction (every write path warns instead of failing).
 func snapshotAcceptedItemContent(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref, loadRef string, fs afero.Fs, rawHash, distilledHash string) {
@@ -129,6 +132,17 @@ func itemContentPair(bundle *bundles.Bundle, tRef trust.Ref) (raw, distilled str
 		}
 		raw, distilled = formPair(command.EffectiveContent)
 		return raw, distilled, true
+	case trust.KindSkill:
+		skill, found := bundle.Skills[tRef.Name]
+		if !found {
+			return "", "", false
+		}
+		// A skill has no distilled form: the snapshot is always the same
+		// rendered tree-listing text `ctxloom review` itself displays
+		// (renderSkillSurface), so a later diff shows exactly which file(s)
+		// changed — the per-file-diff contract skills are stored as a tree
+		// to get.
+		return renderSkillSurface(skill), "", true
 	default:
 		return "", "", false
 	}

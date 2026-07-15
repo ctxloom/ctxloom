@@ -3,9 +3,11 @@ package operations
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -100,6 +102,62 @@ func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
 		t.Errorf("trusted-signer stamp = {trusted=%v, %s, state=%s}, want {true, trusted-signer, accepted}",
 			res.Trusted(), res.Source, res.State())
 	}
+}
+
+// TestTrustStamper_ForRef_DistilledFormSelection closes GAP4 (oval-stamp):
+// the trust model's own comment on EffectiveTrustRequest.Form ("an approval
+// only allows when it covers THIS form") had never been exercised against
+// TrustStamper.ForRef/computeItemPayload — the code that actually backs
+// `ctxloom review` and `fragment list --format json`'s trust stamp (see
+// internal/cli/item_helpers.go's stampItemTrust, which builds exactly one
+// NewTrustStamper per listing and calls ForRef per row).
+//
+// This is a DISTINCT code path from the one trust_surface.feature's GAP-B
+// scenarios exercise: materialize serves content through
+// cfg.SeededBundleLoader(cfg.ShouldUseDistilled())/contentGate.allow, while
+// ForRef selects the form through computeItemPayload's OWN
+// cfg.ShouldUseDistilled() read — a second, independent implementation of
+// "prefer distilled" that nothing distilled through before. Confirmed by a
+// targeted mutation check: forcing computeItemPayload to always prefer
+// distilled (ignoring cfg) left every trust_surface.feature scenario green,
+// because none of them ever call `fragment list --format json` on an item
+// whose ONLY recorded approval covers a form other than the one config
+// currently prefers.
+//
+// The fixture reproduces the one real-world way an approval can cover
+// exactly one form when the item currently has two: approve while it only
+// shipped raw (a low-level fixture write, since SetItemTrust itself always
+// countersigns BOTH forms atomically when both exist — see
+// TestSetItemTrust_ApprovesBothForms), then the item gains a distilled form.
+func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
+	const acme = "https://github.com/acme/repo@bundles/"
+	dual := &bundles.Bundle{Name: acme + "dual", Fragments: map[string]bundles.BundleFragment{
+		"pf": {Content: "raw body", Distilled: "distilled body"},
+	}}
+	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{acme + "dual": dual}))
+	ref := trust.Ref{RepoURL: trustRepo, Bundle: "dual", Kind: trust.KindFragment, Name: "pf"}
+	refStr := "https://github.com/acme/repo@bundles/dual#fragments/pf"
+
+	fx := newTrustFixture(t)
+	// Approve ONLY the raw form's bytes — the item had no distilled form at
+	// review time.
+	fx.approve(ref, signing.FormRaw, []byte("raw body"))
+
+	preferDistilled := true
+	cfgDistilled := &config.Config{Settings: config.SettingsConfig{UseDistilled: &preferDistilled}}
+	stamperDistilled := NewTrustStamper(cfgDistilled, WithStampLoader(loader), WithStampRecords(fx.records()))
+
+	res := stamperDistilled.ForRef(refStr)
+	assert.False(t, res.Trusted(), "an approval covering only the raw form must NOT stamp trusted when the stamper selects the distilled form")
+	assert.Equal(t, trust.SourcePending, res.Source, "the distilled form was never reviewed, so it must resolve pending — not silently inherit the raw approval")
+
+	preferRaw := false
+	cfgRaw := &config.Config{Settings: config.SettingsConfig{UseDistilled: &preferRaw}}
+	stamperRaw := NewTrustStamper(cfgRaw, WithStampLoader(loader), WithStampRecords(fx.records()))
+
+	resRaw := stamperRaw.ForRef(refStr)
+	assert.True(t, resRaw.Trusted(), "an approval covering the raw form must stamp trusted when the stamper selects raw")
+	assert.Equal(t, trust.SourceAccepted, resRaw.Source)
 }
 
 // TestTrustStamper_ForLocalMCP covers the configured (project-local) MCP server

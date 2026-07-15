@@ -51,7 +51,9 @@ ctxloom review
 
 Accepting countersigns the item's exact bytes with your SSH key; if that content
 later changes, it goes back to pending and you review the diff. Content you
-authored in this project is exempt and never appears here.
+authored in this project is exempt and never appears here. No SSH key yet? See
+[Prerequisites → Signing and publishing](/getting-started/installation/#signing-and-publishing-needs-ssh) —
+review still works with no key, recorded as an explicit unsigned decision.
 
 ## Browse Available Content
 

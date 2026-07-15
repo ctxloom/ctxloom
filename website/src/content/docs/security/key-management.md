@@ -14,7 +14,9 @@ importantly — **what revocation does not reach**.
 
 ctxloom never reads, generates, or stores private key material. Every signature is produced by
 your existing `ssh-agent`. If you already sign git commits with SSH, there is nothing to set
-up:
+up. If you don't have a key or an agent yet, see [Installation → Signing and
+publishing](/getting-started/installation/#signing-and-publishing-needs-ssh) for what to
+install:
 
 ```bash
 ctxloom sign my-tools     # writes a detached my-tools.yaml.sig sibling

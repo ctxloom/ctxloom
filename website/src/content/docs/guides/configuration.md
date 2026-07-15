@@ -152,9 +152,15 @@ Registered LLM backends:
 | `antigravity` | [Antigravity CLI](https://antigravity.google) (`agy`) | Google's Antigravity |
 | `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI Codex |
 | `kiro` | Kiro | AWS Kiro (chat rides its ACP adapter) |
+| `opencode` | [opencode](https://opencode.ai) | First-party `opencode acp` mode (host-only chat spine) |
 | `acp` | any ACP agent | Generic Agent Client Protocol backend descriptor |
 
 **Status:** `codex` and `kiro` are implemented and hermetically tested; live operation is untested (requires a codex/kiro account, which the maintainers do not currently have). Model selection is accepted by kiro-cli but its honoring is unverified.
+
+Each backend launches the vendor's own CLI as a child process — ctxloom holds no model API
+client of its own, so the backend's binary must be installed and on `PATH` before you can run
+it. See [Installation → Prerequisites](/getting-started/installation/#running-an-ai-engine) for
+the binary each backend needs.
 
 A **config label** is an arbitrary name for a fully-specified backend config; the backend is chosen by the entry's `type`. Two labels can point at the same backend with different models (e.g. a `big` and a `quick` claude-code). Set the interactive default with `llm.defaults.primary` (or per-run with `--llm <label>`), and the compression role with `llm.defaults.fast`:
 

@@ -256,6 +256,64 @@ Expected output:
 ctxloom version {{VERSION}}
 ```
 
+## Prerequisites for Specific Features
+
+The `ctxloom` binary itself has no run-time dependencies — installing it (any method above) is
+enough to run `ctxloom init` and assemble/browse local context. A few features shell out to
+tools you install separately, and you only need them for the feature you actually use. This
+section exists so a missing one is a documented prerequisite, not a confusing failure.
+
+### Running an AI engine
+
+`ctxloom run` (and `agent run`, `weave`) launches the **vendor's own CLI** as a child process —
+ctxloom holds no model API client of its own (this is a licensing requirement, not a choice; see
+[Architecture](/concepts/architecture/)). Each backend needs its own binary installed and on
+`PATH`:
+
+| Backend | Binary | Install |
+|---|---|---|
+| `claude-code` | `claude` | [claude.ai/code](https://claude.ai/code) |
+| `antigravity` | `agy` | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
+| `codex` | `codex` | [github.com/openai/codex](https://github.com/openai/codex) |
+| `kiro` | `kiro-cli` | AWS Kiro |
+| `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
+
+If the backend you launch (the configured default, or `--llm <label>`) has no binary on `PATH`,
+`ctxloom run` fails immediately with an error naming which backends **are** currently usable —
+it never silently substitutes a different engine. Install (and authenticate) the CLI for the
+backend you configured, or point `llm.defaults.primary` at one you already have. See
+[Configuration → LLMs](/guides/configuration/#llms) for the config shape.
+
+### Signing and publishing (needs SSH)
+
+Verifying a signature (accepting a remote bundle, trusting a publisher) is pure Go and needs no
+external binary at all — it runs the same inside a minimal container with no SSH tooling
+present. **Producing** one does need SSH tooling, because ctxloom never generates, stores, or
+reads private key material itself (see [Key management](/security/key-management/)) — it always
+signs through your existing `ssh-agent`. `ctxloom sign`, `ctxloom review --project`, and
+countersigning a `ctxloom review` decision all need:
+
+- The OpenSSH client tools (`ssh-keygen`, `ssh-add`) — to create a key, if you don't already have
+  one. These ship with the OS on macOS/Linux and with Git for Windows; nothing extra to install
+  on those platforms.
+- A running `ssh-agent` with a key loaded (`ssh-add ~/.ssh/id_ed25519`), or `git config
+  user.signingkey` naming one — either satisfies ctxloom's key-discovery chain.
+
+If you already sign git commits over SSH, there is nothing extra to set up — ctxloom reuses that
+key. If you have neither, `ctxloom sign` and `ctxloom review --project` fail with an actionable
+error (the exact `ssh-add`/`ssh-keygen` commands to run) rather than a silent no-op. Reviewing
+content for yourself only — `ctxloom review` without `--project` — never requires a key: with
+none found, it offers an explicit, confirmed **unsigned** path instead.
+
+### Container isolation (`runtime: container`)
+
+Only needed if you opt into `runtime: container` (or run `ctxloom container build`) — the
+default `runtime: host` needs no container runtime at all. Container-isolated agents need
+**docker or podman** installed, on `PATH`, with the daemon reachable (`docker info` / `podman
+info` succeeding). Run `ctxloom container check` to diagnose whether the current host can launch
+one — see [`ctxloom container`](/reference/cli/ctxloom_container/) and [The engine you don't
+control](/security/isolation/#containers-dont-ask).
+
 ## Shell Completion
 
 Generate shell completion scripts for better CLI experience:

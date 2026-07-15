@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	_ "embed"
 	"strings"
 
@@ -33,11 +34,26 @@ func embeddedSigners() *allowedsigners.Store {
 	return store
 }
 
+// EmbeddedSigners returns ctxloom's own compiled-in trust root as a READ view
+// — every entry, unfiltered, including any this machine has locally
+// suppressed (see SuppressedEmbeddedPrincipals). It exists so callers outside
+// this package (operations.ListSigners/ShowSigner — the oozy-plod (a)
+// visibility fix) can enumerate the compiled-in entries without duplicating
+// the //go:embed. embeddedSigners() itself stays unexported by design (a
+// trust root nobody controls would be worse than none): this returns a
+// Store VALUE, never a handle anything could write through, so the embedded
+// root is now VISIBLE without ever becoming editable via this accessor.
+func EmbeddedSigners() *allowedsigners.Store {
+	return embeddedSigners()
+}
+
 // TrustRoot returns the union of every allowed_signers location: ctxloom's
-// embedded defaults, the user store (~/.ctxloom/allowed_signers), and the
-// project store (.ctxloom/allowed_signers). All locations are unioned — a key
-// counts for the namespaces it lists wherever it is listed — because precedence
-// lives in the DECISION FUNCTION, never in the filesystem (spec §7, §9.2).
+// embedded defaults (MINUS any locally suppressed entry — oozy-plod (b), see
+// SuppressedEmbeddedPrincipals/filterSuppressedPrincipals below), the user
+// store (~/.ctxloom/allowed_signers), and the project store
+// (.ctxloom/allowed_signers). All locations are unioned — a key counts for
+// the namespaces it lists wherever it is listed — because precedence lives in
+// the DECISION FUNCTION, never in the filesystem (spec §7, §9.2).
 //
 // It never fails. A missing store is simply no keys; an unreadable or malformed
 // one warns and contributes whatever lines did parse. Every one of those
@@ -49,11 +65,120 @@ func (c *Config) TrustRoot() *allowedsigners.Store {
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
-	stores := []*allowedsigners.Store{embeddedSigners()}
+	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}
 	for _, path := range c.allowedSignersPaths() {
 		stores = append(stores, c.parseAllowedSigners(fs, path))
 	}
 	return allowedsigners.Union(stores...)
+}
+
+// embeddedSignersTrusted returns the embedded trust root minus any entry
+// whose principal this machine has locally distrusted (oozy-plod (b)). The
+// compiled-in bytes never change — nothing here edits
+// embedded_signers.allowed_signers or the binary — this filters the STORE
+// value fresh on every call, so a suppression written mid-session (`signer
+// remove <embedded-principal>`) takes effect on the very next trust decision
+// with nothing to invalidate.
+func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
+	store := embeddedSigners()
+	suppressed := c.SuppressedEmbeddedPrincipals()
+	if len(suppressed) == 0 {
+		return store
+	}
+	return filterSuppressedPrincipals(store, suppressed)
+}
+
+// filterSuppressedPrincipals returns a copy of store with every entry whose
+// Principals list contains a suppressed principal removed. This is the actual
+// SUBTRACTION primitive oozy-plod (b) needed: allowedsigners.Store.decide()
+// (store.go:100) is purely additive with no negative-entry concept, and
+// Union (store.go:35) only ever concatenates — so this is new machinery, not
+// a reuse of the existing content-item REJECTION mechanism (that beats a
+// trusted publisher at the per-item decision, EffectiveTrust step 1; this
+// instead removes a KEY from the trust root itself, upstream of every
+// decision that would otherwise consult it).
+func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[string]bool) *allowedsigners.Store {
+	if store == nil || len(suppressed) == 0 {
+		return store
+	}
+	var kept []allowedsigners.Entry
+	for _, e := range store.Entries() {
+		if e.MatchesAnyPrincipal(suppressed) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return allowedsigners.NewStore(kept...)
+}
+
+// SuppressedEmbeddedPrincipals returns the set of embedded-signer principals
+// this machine has locally DISTRUSTED — the union of the user and project
+// distrusted_signers files (paths.HomeDistrustedSignersPath /
+// paths.DistrustedSignersPath), one principal per line, blank/`#`-comment
+// lines skipped. This is the SAME two-location shape as allowed_signers, so a
+// team can commit a project-wide distrust decision exactly like they commit a
+// project-wide trust decision (`signer remove <embedded-principal>
+// --project`).
+//
+// Never fails: a missing or unreadable file simply contributes nothing.
+// Read/write of this store is written by operations.RemoveSigner (the only
+// production mutator — see docs/trust-model.md's CLI-only signer-management
+// boundary, ADR 0024); this method is the READ side TrustRoot() and
+// ListSigners/ShowSigner both consult.
+func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
+	fs := c.fs
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+	out := map[string]bool{}
+	for _, path := range c.distrustedSignersPaths() {
+		for principal := range readPrincipalLines(fs, path) {
+			out[principal] = true
+		}
+	}
+	return out
+}
+
+// distrustedSignersPaths lists the on-disk suppression files in union order
+// (user, then project), skipping the project path when it resolves to the
+// same file as the user one — the exact mirror of allowedSignersPaths.
+func (c *Config) distrustedSignersPaths() []string {
+	var out []string
+	if home, err := paths.HomeDistrustedSignersPath(); err == nil {
+		out = append(out, home)
+	}
+	if len(c.AppPaths) > 0 {
+		project := paths.DistrustedSignersPath(c.AppPaths[0])
+		if len(out) == 0 || out[0] != project {
+			out = append(out, project)
+		}
+	}
+	return out
+}
+
+// readPrincipalLines parses one distrusted_signers file: one principal per
+// non-empty, non-`#`-comment line. An absent or unreadable file simply
+// contributes nothing (mirrors parseAllowedSigners' degrade-toward-fewer-keys
+// default — here, degrading toward FEWER suppressions, i.e. MORE embedded
+// keys trusted, which is the pre-A2 status quo, never a new exposure this
+// mechanism itself introduces).
+func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
+	f, err := fs.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+
+	out := map[string]bool{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out[line] = true
+	}
+	return out
 }
 
 // allowedSignersPaths lists the on-disk trust-root files in union order (user,

@@ -507,6 +507,14 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 			// Sentinel path marks the profile read-only (Save/Delete refuse): like a
 			// remote profile, a bundle profile is edited at its source, not locally.
 			p.Path = profiles.SeededProfilePathPrefix + key
+			// The VERIFIED publisher identity of the bundle this profile ships
+			// inside (bundle.Signer() — stamped only by a load path that already
+			// checked a signature against the trust root; "" for unsigned/
+			// untrusted). resolveProfileRecursive threads this into
+			// ResolvedProfile.Signer so a trusted-publisher profile's directly-
+			// declared hooks/mcp are trusted-signer-allowed exactly like
+			// bundle-declared ones (B2, gateProfileExec parity).
+			p.Signer = bundle.Signer()
 			loaded[key] = &p
 		}
 	}

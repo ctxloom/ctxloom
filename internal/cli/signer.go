@@ -200,12 +200,30 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 				ns = "no namespaces (untrusted for everything)"
 			}
 		}
-		if _, err := fmt.Fprintf(w, "%-40s %-10s %-45s %s\n",
-			principal, l.Source, ns, sshFingerprintOf(l)); err != nil {
+		if _, err := fmt.Fprintf(w, "%-40s %-10s %-45s %s%s\n",
+			principal, l.Source, ns, sshFingerprintOf(l), embeddedAnnotation(l)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// embeddedAnnotation renders the trailing note for an "embedded" trust-root
+// entry (oozy-plod (a)): always not-removable via this CLI, and — when a
+// local suppression record exists (oozy-plod (b), `signer remove
+// <embedded-principal>`) — that it is DISTRUSTED and no longer actually
+// trusted despite still being listed. Visibility never regresses just
+// because an entry was suppressed: an operator must be able to see both that
+// the key exists and that they already acted on it. Empty for any
+// non-embedded entry.
+func embeddedAnnotation(l operations.SignerListing) string {
+	if l.Source != "embedded" {
+		return ""
+	}
+	if l.Suppressed {
+		return "  (embedded, not removable — LOCALLY DISTRUSTED, no longer trusted)"
+	}
+	return "  (embedded, not removable)"
 }
 
 func sshFingerprintOf(l operations.SignerListing) string {
@@ -241,7 +259,13 @@ var signerRemoveCmd = &cobra.Command{
 store by default; --project for the committable project store). This does
 NOT reject any content that signer already published or approved — it
 means "I will review this myself from now on", not "deny". Use
-'ctxloom trust'/'ctxloom review --reject' to actually reject content.`,
+'ctxloom trust'/'ctxloom review --reject' to actually reject content.
+
+<principal> naming ctxloom's OWN embedded release key is a special case: that
+key is compiled into the binary and cannot be deleted by this command. Instead
+this records a LOCAL distrust decision (only a new binary changes the
+compiled-in bytes themselves) — content signed only by that key is withheld
+from here on, on this machine or project.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -256,13 +280,21 @@ means "I will review this myself from now on", not "deny". Use
 			return err
 		}
 		return emit(cmd, res, func() error {
-			if res.Removed == 0 {
+			switch {
+			case res.EmbeddedSuppressed:
+				_, err := fmt.Fprintf(cmd.OutOrStdout(),
+					"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
+						"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
+					args[0], res.SuppressionPath)
+				return err
+			case res.Removed == 0:
 				_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", args[0], res.Path)
 				return err
+			default:
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
+					res.Removed, plural(res.Removed, "y", "ies"), args[0], res.Path)
+				return err
 			}
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
-				res.Removed, plural(res.Removed, "y", "ies"), args[0], res.Path)
-			return err
 		})
 	},
 }

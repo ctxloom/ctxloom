@@ -43,6 +43,13 @@ const (
 	// that format (signature-envelope spec §7).
 	AllowedSignersFileName = "allowed_signers"
 
+	// DistrustedSignersFileName is the name of the LOCAL embedded-key
+	// suppression record (without extension) — see DistrustedSignersPath. A
+	// plain one-principal-per-line list, deliberately NOT the OpenSSH
+	// allowed_signers format: this store asserts no trust of its own, only a
+	// negative record TrustRoot() subtracts from the embedded root.
+	DistrustedSignersFileName = "distrusted_signers"
+
 	// ApprovalsDirName is the name of the countersignature store directory
 	// (signature-envelope spec §9.2): one armored .sig file per approve/reject
 	// countersignature. It replaces trust.yaml as the review-decision record —
@@ -291,6 +298,31 @@ func HomeAllowedSignersPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, AppDirName, AllowedSignersFileName), nil
+}
+
+// DistrustedSignersPath returns the path to the LOCAL embedded-key suppression
+// record (at appPath root, next to allowed_signers): the negative counterpart
+// to it (oozy-plod (b)). allowed_signers is purely additive — there is no way
+// to write a "no longer trust this key" entry into it — so a distrusted
+// embedded principal is recorded HERE instead, one principal per line, and
+// Config.TrustRoot() (trustroot.go) subtracts any embedded entry matching a
+// line in this file before unioning the trust root. It never edits
+// allowed_signers itself, and it can never remove a key that isn't ctxloom's
+// own compiled-in one — `signer remove` only writes here when the principal
+// named matches an embedded entry (see operations.RemoveSigner).
+func DistrustedSignersPath(appPath string) string {
+	return filepath.Join(appPath, DistrustedSignersFileName)
+}
+
+// HomeDistrustedSignersPath returns ~/.ctxloom/distrusted_signers — the
+// user-scoped counterpart to DistrustedSignersPath, mirroring
+// HomeAllowedSignersPath (follows the developer across every project).
+func HomeDistrustedSignersPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, DistrustedSignersFileName), nil
 }
 
 // LockPath returns the path to the lock file (at appPath root).

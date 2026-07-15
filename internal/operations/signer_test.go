@@ -263,3 +263,115 @@ func mustAllowedSignersProjectPath(t *testing.T, cfg *config.Config) string {
 	require.NoError(t, err)
 	return path
 }
+
+// --- oozy-plod (a): embedded-key visibility --------------------------------
+
+// testEmbeddedPrincipal is ctxloom's REAL compiled-in publisher principal
+// (internal/config/embedded_signers.allowed_signers) — these tests target the
+// actual production identity, not a stand-in, mirroring
+// tests/acceptance/steps_j7.go's j7EmbeddedPrincipal.
+const testEmbeddedPrincipal = "ben+ctxloom@abbitt.me"
+
+func TestListSigners_IncludesEmbeddedEntry(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	listings, err := ListSigners(cfg, fs)
+	require.NoError(t, err)
+
+	var found *SignerListing
+	for i, l := range listings {
+		if l.Source == "embedded" && l.Entry.MatchesPrincipal(testEmbeddedPrincipal) {
+			found = &listings[i]
+		}
+	}
+	require.NotNil(t, found, "the embedded release key must be surfaced in `signer list` — the oozy-plod (a) visibility fix")
+	assert.Equal(t, "(compiled-in)", found.Path)
+	assert.False(t, found.Suppressed, "the embedded entry starts out NOT locally suppressed")
+}
+
+func TestShowSigner_ShowsEmbeddedPrincipal(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	found, err := ShowSigner(cfg, testEmbeddedPrincipal, fs)
+	require.NoError(t, err)
+	require.Len(t, found, 1, "signer show <embedded principal> must find exactly the embedded entry")
+	assert.Equal(t, "embedded", found[0].Source)
+}
+
+// --- oozy-plod (b): embedded-key local suppression -------------------------
+
+func TestRemoveSigner_EmbeddedPrincipal_SuppressesRatherThanNoEntry(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.Removed, "the embedded key's compiled-in bytes are never deleted")
+	assert.True(t, res.EmbeddedSuppressed, "removing the embedded principal must record a local suppression, not just report \"no entry\"")
+	require.NotEmpty(t, res.SuppressionPath)
+
+	data, rerr := afero.ReadFile(fs, res.SuppressionPath)
+	require.NoError(t, rerr)
+	assert.Contains(t, string(data), testEmbeddedPrincipal)
+}
+
+func TestRemoveSigner_EmbeddedPrincipal_IsIdempotent(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	_, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err)
+	res2, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err)
+	assert.True(t, res2.EmbeddedSuppressed)
+
+	data, rerr := afero.ReadFile(fs, res2.SuppressionPath)
+	require.NoError(t, rerr)
+	// Exactly one line naming the principal — the second call must not
+	// duplicate it.
+	count := strings.Count(string(data), testEmbeddedPrincipal)
+	assert.Equal(t, 1, count, "suppressing an already-suppressed principal must not duplicate the record")
+}
+
+// TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot proves the
+// suppression is a REAL effect, not just a message: after `signer remove
+// <embedded-principal> --project`, a FRESH config pointed at the same project
+// no longer trusts that principal's key for publish — content signed only by
+// it is withheld (operations.EffectiveTrust step 5 no longer allows, falling
+// through to step 7, pending review).
+func TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+
+	key := embeddedTestPublicKey(t)
+	now := time.Now()
+	before := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	require.True(t, before.Trusted, "sanity: the embedded key starts out trusted for publish")
+
+	_, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
+	require.NoError(t, err)
+
+	after := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	assert.False(t, after.Trusted, "after `signer remove` suppresses the embedded principal, TrustRoot() must no longer trust its key")
+}
+
+// embeddedTestPublicKey parses ctxloom's real embedded public key straight out
+// of the compiled-in trust root, for a test that needs the actual key object
+// (not just its principal string) to query TrustRoot() directly.
+func embeddedTestPublicKey(t *testing.T) ssh.PublicKey {
+	t.Helper()
+	for _, e := range config.EmbeddedSigners().Entries() {
+		if e.MatchesPrincipal(testEmbeddedPrincipal) {
+			return e.PublicKey
+		}
+	}
+	t.Fatalf("embedded trust root carries no entry for %s", testEmbeddedPrincipal)
+	return nil
+}

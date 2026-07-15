@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -129,7 +130,7 @@ func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 			clidiag.Warn("ctxloom", "default profile %q unresolved; its MCP servers omitted: %v", profileName, err)
 			continue
 		}
-		gated := gateProfileMCP(profileName, excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
+		gated := gateProfileMCP(profileGateRefFor(resolved, profileName), excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
 		wire.MergeMCPConfig(mcp, &gated)
 	}
 	return mcp
@@ -189,7 +190,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)
 			continue
 		}
-		gated := gateProfileHooks(profileName, resolved.Hooks, gate)
+		gated := gateProfileHooks(profileGateRefFor(resolved, profileName), resolved.Hooks, gate)
 		agent.MergeHooksConfig(hooks, &gated)
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
@@ -237,14 +238,43 @@ func excludeMCPServers(mcp wire.MCPConfig, exclude []string) wire.MCPConfig {
 	return out
 }
 
+// profileGateRef is the identity gateProfileMCP/gateProfileHooks key the
+// executable trust gate by — the profile's own SOURCE, never its display
+// name (the shared root cause of ugly-sake and uncut-grub: a display name is
+// neither honestly local nor a parseable trust ref). Base is the ref the gate
+// composes "#<kind>/<name>" onto; Signer is the origin bundle's verified
+// publisher identity when known (B2, gateProfileExec parity with
+// bundle-declared execs) — empty falls through to local (a genuinely local
+// profile) or pending review, never auto-allow.
+type profileGateRef struct {
+	Base   string
+	Signer string
+}
+
+// profileGateRefFor derives a directory profile's gate identity from its
+// resolved provenance: resolved.SourceRef (profiles.ResolvedProfile) when the
+// profile is bundle-shipped — the origin bundle's canonical ref, WITHOUT the
+// "#profiles/<name>" selector, so the composed "<SourceRef>#hooks/..." ref
+// carries exactly one '#' and parses (uncut-grub fixed) — and never keys
+// IsLocal for a remote origin (ugly-sake fixed). A genuinely local/
+// project-authored profile has an empty SourceRef, so Base falls back to the
+// bare profileName — exactly what parseTrustItemRef's bare-token fallback
+// resolves to IsLocal, honestly, because it IS local.
+func profileGateRefFor(resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
+	if resolved == nil || resolved.SourceRef == "" {
+		return profileGateRef{Base: profileName}
+	}
+	return profileGateRef{Base: resolved.SourceRef, Signer: resolved.Signer}
+}
+
 // gateProfileMCP returns the MCP servers of a directory-resolved profile that the
 // executable trust gate allows. A directory profile may be remote-sourced, so its
 // directly-declared MCP servers — unlike a trusted-local config.yaml inline
 // profile's — pass the SAME per-item executable gate as bundle MCP servers
-// (config.extractMCPFromBundle), keyed "<profile>#mcp/<name>" with the server's
+// (config.extractMCPFromBundle), keyed "<ref.Base>#mcp/<name>" with the server's
 // executable-surface hash. A DENY omits the server (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.ContentGate) wire.MCPConfig {
+func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.ContentGate) wire.MCPConfig {
 	if gate == nil {
 		return mcp
 	}
@@ -252,19 +282,19 @@ func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.Content
 	if len(mcp.Servers) > 0 {
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
-			if gateProfileExec(gate, profileName+"#mcp/"+name, mcpExecPayload(srv)) {
+			if gateProfileExec(gate, ref.Base+"#mcp/"+name, mcpExecPayload(srv), ref.Signer) {
 				out.Servers[name] = srv
 			}
 		}
 	}
 	// Plugin-specific (backend-passthrough) servers gate too — an arbitrary-command
-	// executable must never bypass the gate; keyed "<profile>#mcp/<backend>/<name>".
+	// executable must never bypass the gate; keyed "<ref.Base>#mcp/<backend>/<name>".
 	if len(mcp.Plugins) > 0 {
 		out.Plugins = make(map[string]map[string]wire.MCPServer, len(mcp.Plugins))
 		for backend, servers := range mcp.Plugins {
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
-				if gateProfileExec(gate, profileName+"#mcp/"+backend+"/"+name, mcpExecPayload(srv)) {
+				if gateProfileExec(gate, ref.Base+"#mcp/"+backend+"/"+name, mcpExecPayload(srv), ref.Signer) {
 					gated[name] = srv
 				}
 			}
@@ -277,19 +307,19 @@ func gateProfileMCP(profileName string, mcp wire.MCPConfig, gate bundles.Content
 }
 
 // gateProfileHooks returns the hooks of a directory-resolved profile that the
-// executable trust gate allows. Each hook is keyed "<profile>#hooks/<event>/
+// executable trust gate allows. Each hook is keyed "<ref.Base>#hooks/<event>/
 // <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
 // its executable-surface hash; a DENY omits it (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.ContentGate) wire.HooksConfig {
+func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.ContentGate) wire.HooksConfig {
 	if gate == nil {
 		return h
 	}
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {
-			ref := profileName + "#hooks/" + event + "/" + strconv.Itoa(i)
-			if gateProfileExec(gate, ref, hookExecPayload(hook)) {
+			hookRef := ref.Base + "#hooks/" + event + "/" + strconv.Itoa(i)
+			if gateProfileExec(gate, hookRef, hookExecPayload(hook), ref.Signer) {
 				out = append(out, hook)
 			}
 		}
@@ -306,7 +336,7 @@ func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.Conte
 		},
 	}
 	// Plugin-specific (backend-native) hooks gate too; keyed
-	// "<profile>#hooks/<plugin>/<event>/<index>".
+	// "<ref.Base>#hooks/<plugin>/<event>/<index>".
 	if len(h.Plugins) > 0 {
 		out.Plugins = make(map[string]wire.BackendHooks, len(h.Plugins))
 		for plugin, backend := range h.Plugins {
@@ -328,17 +358,23 @@ func gateProfileHooks(profileName string, h wire.HooksConfig, gate bundles.Conte
 // profile executable, binding the raw form (no distilled variant for executables,
 // matching config.extractMCPFromBundle / extractHooksFromBundle).
 //
-// The signer is always empty: these executables are declared by a PROFILE, not
-// by a signed bundle document, so there are no publisher-signed bytes to
-// attribute them to. They are therefore judged as local (step 2, when
-// project-authored) or by review (steps 1/5) — never as a trusted publisher.
+// signer is the origin bundle's VERIFIED publisher identity when the profile
+// is bundle-shipped and that bundle is signed by a trusted key
+// (profiles.ResolvedProfile.Signer, B2) — empty for a genuinely local profile
+// (judged local at step 3) or an unsigned/untrusted bundle (falls through to
+// pending review at step 7). This is parity with bundle-declared execs, which
+// DO carry their document's verified signer: without it, fixing ugly-sake
+// would send every trusted-publisher profile's inline hooks/mcp to manual
+// review even when the publisher key is already trusted — a usability
+// regression the ref-keying fix alone would otherwise cause.
+//
 // A nil payload (the preimage could not be built) withholds: an executable we
 // cannot even describe is one we certainly cannot justify running.
-func gateProfileExec(gate bundles.ContentGate, ref string, payload []byte) bool {
+func gateProfileExec(gate bundles.ContentGate, ref string, payload []byte, signer string) bool {
 	if payload == nil {
 		return false
 	}
-	return gate(ref, payload, string(bundles.FormRaw), "")
+	return gate(ref, payload, string(bundles.FormRaw), signer)
 }
 
 // mcpExecPayload builds a profile MCP server's executable-surface preimage via

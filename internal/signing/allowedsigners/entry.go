@@ -69,6 +69,23 @@ func (e Entry) MatchesPrincipal(identity string) bool {
 	return matchPatternList(e.Principals, identity)
 }
 
+// MatchesAnyPrincipal reports whether any of e's OWN Principals (an exact,
+// literal string, never a glob expansion) is present in principals — the
+// set-membership counterpart to MatchesPrincipal's single-identity pattern
+// match. Shared by config.filterSuppressedPrincipals (TrustRoot()'s
+// subtraction of a locally-distrusted embedded principal) and
+// operations.entrySuppressed (the `signer list`/`show` Suppressed tag), so
+// the "does this entry name a principal in this set" check has one
+// implementation instead of two copies drifting apart.
+func (e Entry) MatchesAnyPrincipal(principals map[string]bool) bool {
+	for _, p := range e.Principals {
+		if principals[p] {
+			return true
+		}
+	}
+	return false
+}
+
 // MatchesNamespace reports whether ns is accepted by this entry's
 // Namespaces option. See the Namespaces field doc for the nil-vs-empty
 // distinction.

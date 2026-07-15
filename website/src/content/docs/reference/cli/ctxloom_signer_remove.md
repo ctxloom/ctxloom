@@ -19,6 +19,12 @@ NOT reject any content that signer already published or approved — it
 means "I will review this myself from now on", not "deny". Use
 'ctxloom trust'/'ctxloom review --reject' to actually reject content.
 
+<principal> naming ctxloom's OWN embedded release key is a special case: that
+key is compiled into the binary and cannot be deleted by this command. Instead
+this records a LOCAL distrust decision (only a new binary changes the
+compiled-in bytes themselves) — content signed only by that key is withheld
+from here on, on this machine or project.
+
 ```
 ctxloom signer remove <principal> [flags]
 ```

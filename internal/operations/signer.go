@@ -229,6 +229,17 @@ type SignerListing struct {
 	// Source is "embedded" | "user" | "project".
 	Source string
 	Path   string
+	// Suppressed marks an "embedded" entry this machine has locally
+	// DISTRUSTED (oozy-plod (b) — see config.SuppressedEmbeddedPrincipals /
+	// RemoveSigner's embedded-suppression path below). Always false for
+	// "user"/"project" entries — removing one of those deletes the line
+	// outright, there is nothing left to tag. A suppressed embedded entry is
+	// still LISTED (visibility never regresses just because it was acted on)
+	// but config.TrustRoot() excludes it from the union, so it grants no
+	// trust even though `signer list`/`show` still shows it — the exact
+	// parallel to a removed user/project entry, which also stays visible in
+	// nothing but git history, never hidden.
+	Suppressed bool
 }
 
 // ListSigners returns every entry across all three trust-root locations
@@ -238,17 +249,36 @@ type SignerListing struct {
 // config load time — cfg.TrustRoot() is the load-bearing union; this
 // function is display-only and re-parses the same files to retain
 // per-entry Source tagging that Union collapses).
+//
+// The embedded trust root (ctxloom's own compiled-in release/bundle key(s) —
+// spec §7, location 1) IS surfaced here as individual entries, tagged
+// "embedded": an operator auditing "whom do I trust to publish?" must be able
+// to see every key that grants trust, including the one compiled into the
+// binary — hiding it here was itself the oozy-plod defect (this function
+// used to omit it entirely, justified by a comment claiming the embedded root
+// was "empty today"; that stopped being true the moment a release key was
+// actually embedded). config.EmbeddedSigners() returns a READ view (never a
+// writable handle — embeddedSigners() itself stays unexported by design) so
+// this enumerates entries with no mutation path opening up. An embedded entry
+// is NOT removable via this CLI (only a new binary changes the compiled-in
+// bytes) — RemoveSigner reports that honestly, and can instead persist a
+// local suppression (Suppressed above) that TrustRoot() subtracts.
 func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	fs = getFS(fs)
 	var out []SignerListing
 
-	// The embedded trust root (ctxloom's own compiled-in release/bundle
-	// keys — spec §7, location 1) is intentionally not surfaced here as
-	// individual entries: config.embeddedSigners() is unexported by design
-	// (a trust root nobody controls would be worse than none — see
-	// trustroot.go) and is empty today regardless (no release/bundle key
-	// exists yet). Every entry `signer list` can meaningfully show today
-	// lives in the on-disk user/project stores read below.
+	suppressed := map[string]bool{}
+	if cfg != nil {
+		suppressed = cfg.SuppressedEmbeddedPrincipals()
+	}
+	for _, e := range config.EmbeddedSigners().Entries() {
+		out = append(out, SignerListing{
+			Entry:      e,
+			Source:     "embedded",
+			Path:       "(compiled-in)",
+			Suppressed: e.MatchesAnyPrincipal(suppressed),
+		})
+	}
 
 	if home, err := paths.HomeAllowedSignersPath(); err == nil {
 		out = append(out, listFromPath(fs, home, "user")...)
@@ -305,15 +335,35 @@ type RemoveSignerRequest struct {
 type RemoveSignerResult struct {
 	Path    string
 	Removed int
+	// EmbeddedSuppressed is true when Principal matched ctxloom's EMBEDDED
+	// trust root (spec §7, location 1) and this call persisted a local
+	// suppression record instead (oozy-plod (b)): distinct from Removed,
+	// which counts on-disk allowed_signers lines actually deleted. The
+	// embedded key's compiled-in bytes are never touched — only a new binary
+	// changes those — but the suppression is REAL: config.TrustRoot()
+	// subtracts the matching embedded entry from the trust root on every
+	// subsequent decision, so content signed only by that key is withheld
+	// from here on (this machine, or this project with --project).
+	EmbeddedSuppressed bool
+	// SuppressionPath is the distrusted_signers file EmbeddedSuppressed was
+	// recorded in, when applicable ("" otherwise).
+	SuppressionPath string
 }
 
 // RemoveSigner deletes every line in the target store (user or project)
 // whose principals list contains exactly req.Principal (a literal match,
 // not a glob — removing "*@example.com" removes only that literal pattern
 // entry, never every entry it happens to match, so this can never silently
-// drop more trust than asked). Entries in OTHER stores (embedded, or the
-// other of user/project) are untouched: removing a signer only ever
-// narrows the store it was written to.
+// drop more trust than asked). Entries in the OTHER of user/project are
+// untouched: removing a signer only ever narrows the store it was written to.
+//
+// The embedded trust root is a separate case: this command can never delete
+// its compiled-in bytes, but when Principal names an embedded entry and
+// nothing on-disk matched, RemoveSigner persists a LOCAL distrust record
+// instead (oozy-plod (b) — see EmbeddedSuppressed/suppressEmbeddedPrincipal).
+// That is the practical equivalent of removal for a root nothing can
+// literally edit, and it is a REAL effect, not a message: TrustRoot() (spec
+// §7, §9.2) honors it on every subsequent decision.
 func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerResult, error) {
 	if req.Principal == "" {
 		return nil, fmt.Errorf("a principal is required")
@@ -324,31 +374,56 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 	}
 	fs := getFS(req.FS)
 
+	removed, err := removeFromAllowedSignersFile(fs, path, req.Principal)
+	if err != nil {
+		return nil, err
+	}
+	if removed > 0 {
+		return &RemoveSignerResult{Path: path, Removed: removed}, nil
+	}
+
+	if matchesEmbeddedPrincipal(req.Principal) {
+		suppressionPath, serr := suppressEmbeddedPrincipal(fs, cfg, req.Principal, req.Project)
+		if serr != nil {
+			return nil, serr
+		}
+		return &RemoveSignerResult{Path: path, Removed: 0, EmbeddedSuppressed: true, SuppressionPath: suppressionPath}, nil
+	}
+
+	return &RemoveSignerResult{Path: path, Removed: 0}, nil
+}
+
+// removeFromAllowedSignersFile deletes every line in path whose principals
+// list contains exactly principal (literal match, see RemoveSigner's doc),
+// returning how many entries were removed. An absent file removes nothing
+// (not an error) — the ordinary case when no on-disk store has this
+// principal at all, including every embedded-only principal.
+func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, error) {
 	f, err := fs.Open(path)
 	if err != nil {
-		return &RemoveSignerResult{Path: path, Removed: 0}, nil // nothing to remove
+		return 0, nil // nothing to remove
 	}
 	lines, err := readLines(f)
 	_ = f.Close()
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return 0, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	store, _, err := allowedsigners.Parse(strings.NewReader(strings.Join(lines, "\n")))
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return 0, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	toDrop := map[int]bool{}
 	removed := 0
 	for _, e := range store.Entries() {
-		if principalsContain(e.Principals, req.Principal) {
+		if principalsContain(e.Principals, principal) {
 			toDrop[e.Line] = true
 			removed++
 		}
 	}
 	if removed == 0 {
-		return &RemoveSignerResult{Path: path, Removed: 0}, nil
+		return 0, nil
 	}
 
 	var kept []string
@@ -364,9 +439,56 @@ func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerRes
 		out += "\n"
 	}
 	if err := afero.WriteFile(fs, path, []byte(out), 0o600); err != nil {
-		return nil, fmt.Errorf("write %s: %w", path, err)
+		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
-	return &RemoveSignerResult{Path: path, Removed: removed}, nil
+	return removed, nil
+}
+
+// matchesEmbeddedPrincipal reports whether principal names an entry in
+// ctxloom's compiled-in trust root (config.EmbeddedSigners()).
+func matchesEmbeddedPrincipal(principal string) bool {
+	for _, e := range config.EmbeddedSigners().Entries() {
+		if e.MatchesPrincipal(principal) {
+			return true
+		}
+	}
+	return false
+}
+
+// distrustedSignersStorePath resolves which distrusted_signers file A2's
+// embedded-suppression write targets — the SAME user/project choice
+// signerStorePath makes for allowed_signers, so a team distributes "we no
+// longer trust the embedded key" via --project exactly like they distribute
+// a trust decision.
+func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error) {
+	if project {
+		if cfg == nil || len(cfg.AppPaths) == 0 {
+			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project distrusted_signers path")
+		}
+		return paths.DistrustedSignersPath(cfg.AppPaths[0]), nil
+	}
+	return paths.HomeDistrustedSignersPath()
+}
+
+// suppressEmbeddedPrincipal persists a LOCAL record that principal's embedded
+// entry is no longer trusted — the subtraction config.TrustRoot() (via
+// filterSuppressedPrincipals) honors on every future decision. Idempotent: a
+// principal already recorded is left as-is, never duplicated.
+func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, principal string, project bool) (string, error) {
+	path, err := distrustedSignersStorePath(cfg, project)
+	if err != nil {
+		return "", err
+	}
+	existing, _ := afero.ReadFile(fs, path) // absent is fine: existing stays nil
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == principal {
+			return path, nil // already suppressed
+		}
+	}
+	if err := appendAllowedSignersLine(fs, path, principal); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func principalsContain(principals []string, want string) bool {

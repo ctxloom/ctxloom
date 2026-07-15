@@ -372,8 +372,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceAccepted,
 		},
 		{
-			name:    "approved allows the exact distilled bytes",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("D")) && f == distilledForm }},
+			name: "approved allows the exact distilled bytes",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool {
+				return string(p) == string(pbytes("D")) && f == distilledForm
+			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("D"),
 			form:    distilledForm,
@@ -710,6 +712,58 @@ func TestParseTrustItemRef(t *testing.T) {
 		{name: "missing selector", ref: "tooling", wantErr: true},
 		{name: "unknown kind", ref: "tooling#widgets/x", wantErr: true},
 		{name: "empty name", ref: "tooling#fragments/", wantErr: true},
+		// uncut-grub regression lock: internal/lm/backends/managed.go's
+		// gateProfileMCP/gateProfileHooks used to compose the gate ref as
+		// "<profile-display-name>#<kind>/<name>". For a bundle-shipped
+		// profile the display name is itself "<bundle>#profiles/<name>", so
+		// the composed ref carried a SECOND '#' ("<bundle>#profiles/<name>
+		// #hooks/<event>/<i>") and parseTrustItemRef — which cuts at the
+		// FIRST '#' — mis-split it into base="<bundle>" and
+		// sel="profiles/<name>#hooks/...", which parseTrustSelector then
+		// rejected (kind "profiles" is not a recognized selector directory):
+		// a permanent, un-reviewable withhold with no valid trust.Ref to
+		// approve. The fix keys the gate off the profile's SOURCE ref
+		// (profiles.ResolvedProfile.SourceRef — the origin bundle's
+		// canonical ref, WITHOUT the "#profiles/<name>" selector) instead of
+		// its display name, so the composed ref below — exactly what
+		// gateProfileHooks now produces for a remote bundle-shipped profile
+		// — carries exactly one '#' and parses cleanly: reviewable, not
+		// dead.
+		{
+			name:     "bundle-shipped profile hook ref (uncut-grub fixed shape)",
+			ref:      "https://github.com/acme/tools@bundles/kit#hooks/pre_tool/0",
+			wantRepo: "https://github.com/acme/tools", wantBundle: "kit", wantKind: trust.KindHook, wantName: "pre_tool/0",
+		},
+		// The MCP twin of the same fixed shape.
+		{
+			name:     "bundle-shipped profile mcp ref (uncut-grub fixed shape)",
+			ref:      "https://github.com/acme/tools@bundles/kit#mcp/server-a",
+			wantRepo: "https://github.com/acme/tools", wantBundle: "kit", wantKind: trust.KindMCP, wantName: "server-a",
+		},
+		// A LOCAL bundle-shipped profile's composed ref (ctxloom:local — a
+		// local bundle's own directly-declared hook stays honestly
+		// IsLocal:true, not the buggy always-local-via-bare-name shape).
+		{
+			name:       "local bundle-shipped profile hook ref (uncut-grub fixed shape, local)",
+			ref:        "ctxloom:local@bundles/kit#hooks/session_start/0",
+			wantBundle: "kit", wantKind: trust.KindHook, wantName: "session_start/0", wantLocal: true,
+		},
+		// ugly-sake regression lock: the OLD buggy ref shape for a REMOTE
+		// profile's hook was just the bare display name
+		// ("my-remote-profile#hooks/pre_tool/0") — parseTrustItemRef's
+		// bare-token fallback resolves that IsLocal:true unconditionally,
+		// which is exactly the "gate is a no-op, remote content auto-allowed"
+		// bug. This case documents that the bare-token fallback itself is
+		// unchanged (it is still correct for a GENUINELY local profile,
+		// which the fix continues to key this way — see
+		// profileGateRefFor) — the fix is that a REMOTE profile no longer
+		// PRODUCES this shape (it produces the canonical-URL shape above
+		// instead).
+		{
+			name:       "bare profile display name still resolves local (correct ONLY for a genuinely local profile)",
+			ref:        "my-remote-profile#hooks/pre_tool/0",
+			wantBundle: "my-remote-profile", wantKind: trust.KindHook, wantName: "pre_tool/0", wantLocal: true,
+		},
 		// Fail-closed: an unrecognized source ref that LOOKS like an attempted
 		// canonical/local ref must error, never silently resolve local (the
 		// fail-open bug — see TestContentGate_UnrecognizedSourceRef_FailsClosed

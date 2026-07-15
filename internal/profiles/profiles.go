@@ -142,8 +142,16 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 //
 //	fragment-name                    # Standalone fragment file
 type Profile struct {
-	Name        string   `yaml:"-"` // Derived from filename
-	Path        string   `yaml:"-"` // Full path to the file
+	Name string `yaml:"-"` // Derived from filename
+	Path string `yaml:"-"` // Full path to the file
+	// Signer is the VERIFIED publisher identity of the bundle this profile
+	// was shipped inside (bundles.Bundle.Signer(), copied at seed time by
+	// config.loadBundleProfileSeed) — empty for a genuinely local/
+	// project-authored profile, or for a bundle-shipped profile whose bundle
+	// is unsigned/untrusted. Read-only derived data (yaml:"-"), the
+	// profile-side mirror of Name/Path: a profile file can never set its own
+	// Signer, exactly like a bundle file can never set Bundle.signer.
+	Signer      string   `yaml:"-"`
 	Description string   `yaml:"description,omitempty"`
 	Parents     []string `yaml:"parents,omitempty"`     // Parent profiles to inherit from
 	Tags        []string `yaml:"tags,omitempty"`        // Descriptive tags (listing/discovery only; NOT content-selecting)
@@ -737,6 +745,18 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	resolved := &ResolvedProfile{
 		Variables: make(map[string]string),
 	}
+	// SourceRef/Signer are THIS profile's own provenance — never inherited
+	// from (or overwritten by) a parent's Merge below (ugly-sake/uncut-grub
+	// fix): a profile's directly-declared hooks/mcp must key the executable
+	// trust gate by ITS OWN origin, not a parent's. profile.Name is already
+	// the canonical identity here — a bare local name for a genuinely local
+	// profile, or the "<bundle>#profiles/<name>" seed key
+	// (config.loadBundleProfileSeed) for a bundle-shipped one — so deriving
+	// from it needs no re-canonicalization.
+	if bundle, _, ok := remote.SplitBundleProfileRef(profile.Name); ok {
+		resolved.SourceRef = remote.CanonicalBundleRef(bundle)
+		resolved.Signer = profile.Signer
+	}
 
 	// Resolve parents first (depth-first)
 	// Clone visited map for each parent to handle diamond inheritance correctly.
@@ -856,6 +876,31 @@ type ResolvedProfile struct {
 	MCP         wire.MCPConfig   // Directly-declared MCP servers (executable; gated downstream)
 	Variables   map[string]string
 	LLM         string // Preferred config label/backend (empty = inherit primary)
+
+	// SourceRef is this profile's OWN canonical origin ref, for keying the
+	// executable trust gate on its directly-declared hooks/mcp
+	// (internal/lm/backends/managed.go's gateProfileMCP/gateProfileHooks) by
+	// SOURCE rather than display name — the ugly-sake/uncut-grub fix. It is
+	// the origin bundle's canonical ref ("<url>@bundles/<bundle>", WITHOUT
+	// the "#profiles/<name>" selector — carrying that selector into the gate
+	// ref is exactly what produced uncut-grub's double-'#') for a
+	// bundle-shipped profile, or "" for a genuinely local/project-authored
+	// profile — which then keys the gate honestly IsLocal via
+	// parseTrustItemRef's bare-token fallback, never auto-allowing a
+	// remote-sourced profile's inline executables (ugly-sake). Populated by
+	// resolveProfileRecursive from THIS profile's own load name; Merge below
+	// deliberately never touches it, so a parent's SourceRef can never leak
+	// onto a child's directly-declared execs.
+	SourceRef string
+	// Signer is the verified publisher identity of the bundle this profile
+	// was shipped inside (Profile.Signer) — "" for a local profile or an
+	// unsigned/untrusted bundle. Threaded to gateProfileExec so a
+	// trusted-publisher profile's inline hooks/mcp are trusted-signer-allowed
+	// exactly like bundle-declared ones, rather than every one of them
+	// falling to manual review the moment ugly-sake is fixed. Like
+	// SourceRef, this is the profile's OWN signer and is never inherited
+	// from a parent by Merge.
+	Signer string
 
 	// Exclusions accumulated through the parent chain (a child cannot
 	// un-exclude what a parent excluded), matching the inline config-map

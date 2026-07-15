@@ -694,7 +694,7 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 	}
 	defer client.Kill()
 
-	// SkipSetup=true keeps distillation minimal (no hooks/skills/context), but
+	// SkipSetup=true keeps distillation minimal (no hooks/commands/context), but
 	// the server delivers req.Fragments to the backend only via Setup — which
 	// SkipSetup bypasses. So the instructions must travel in the prompt itself,
 	// ahead of the transcript; sent as a Fragment they'd be silently dropped and

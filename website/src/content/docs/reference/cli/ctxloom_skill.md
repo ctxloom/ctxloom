@@ -9,21 +9,25 @@ This page is generated from `ctxloom skill --help`.
 
 ## ctxloom skill
 
-Manage skills
+Manage Agent Skills (SKILL.md packages)
 
 ### Synopsis
 
-Manage skills - reusable prompt/skill templates for AI coding assistants.
+Manage Agent Skills — model-invoked SKILL.md packages (instructions plus
+optional scripts/assets) that an engine loads via progressive disclosure,
+distinct from a user-invoked slash "command" (ctxloom command).
 
-Skills live inside bundles — local bundle YAML files in .ctxloom/content/bundles/
-or lockfile-pinned remote bundles — and are referenced using the syntax:
+Skills live inside directory-form bundles — .ctxloom/content/bundles/<bundle>/
+(bundle.yaml + skills/<name>/) — and are referenced using the syntax:
 bundle#skills/name
 
 Examples:
-  ctxloom skill list                              # List all skills
-  ctxloom skill show core#skills/code-review      # Show skill content
-  ctxloom skill edit core#skills/code-review      # Edit skill content
-  ctxloom skill create my-bundle code-review      # Create new skill
+  ctxloom skill list                                   # List all skills
+  ctxloom skill show core#skills/code-reviewer          # Show frontmatter + manifest
+  ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
+  ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
+  ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
+  ctxloom skill import ./code-reviewer.zip --bundle my-bundle
 
 ### Options
 
@@ -36,17 +40,16 @@ Examples:
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom skill create](/reference/cli/ctxloom_skill_create/)	 - Create a new skill
-* [ctxloom skill delete](/reference/cli/ctxloom_skill_delete/)	 - Delete a skill
-* [ctxloom skill distill](/reference/cli/ctxloom_skill_distill/)	 - Distill a skill
-* [ctxloom skill edit](/reference/cli/ctxloom_skill_edit/)	 - Edit a skill
-* [ctxloom skill list](/reference/cli/ctxloom_skill_list/)	 - List all skills
-* [ctxloom skill push](/reference/cli/ctxloom_skill_push/)	 - Push a bundle to remote
-* [ctxloom skill show](/reference/cli/ctxloom_skill_show/)	 - Show skill content
+* [ctxloom skill create](/reference/cli/ctxloom_skill_create/)	 - Scaffold a new Agent Skill package
+* [ctxloom skill export](/reference/cli/ctxloom_skill_export/)	 - Pack a skill to an Anthropic-shaped .zip
+* [ctxloom skill import](/reference/cli/ctxloom_skill_import/)	 - Import a skill archive (.zip/.tar.gz) into a bundle
+* [ctxloom skill list](/reference/cli/ctxloom_skill_list/)	 - List all Agent Skill packages
+* [ctxloom skill show](/reference/cli/ctxloom_skill_show/)	 - Show a skill's frontmatter and file manifest
+* [ctxloom skill sync](/reference/cli/ctxloom_skill_sync/)	 - Recompute and write a skill's per-file manifest
 

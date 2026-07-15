@@ -13,7 +13,7 @@ the entry-point tests in `internal/profiles/grammar_test.go` and
                   ctxloom:local@bundles/<bundle>       canonical local bundle
                   <bundle>                             plain local bundle name
                   <alias>/<bundle>                     bundle via a configured remote
-<selector>        #fragments/<name> | #skills/<name> | #mcp/<name>
+<selector>        #fragments/<name> | #commands/<name> | #skills/<name> | #mcp/<name>
                   | #hooks/<event>/<n> | #profiles/<name>
 <version>         @<sha> | @<tag> | @<semver-range> | @<branch>
 ```
@@ -71,10 +71,21 @@ the lockfile records the resolved SHA.
 
 ## Item references
 
-`fragment`/`skill` CLI commands and `-f` accept `<bundle-ref>#<kind>/<name>`.
-A bare fragment name in `-f` is searched across installed bundles
-(deterministic pick with a warning on collision). `trust`/`blacklist` refs use
-the same shape and additionally accept `@<commit>` as provenance.
+`fragment`/`command`/`skill` CLI commands and `-f` accept
+`<bundle-ref>#<kind>/<name>`. A bare fragment name in `-f` is searched across
+installed bundles (deterministic pick with a warning on collision).
+`trust`/`blacklist` refs use the same shape and additionally accept
+`@<commit>` as provenance.
+
+`#commands/<name>` and `#skills/<name>` name two DIFFERENT item kinds that
+happen to sit side by side in a bundle: a command is a user-invoked
+slash-command template (plain text); a skill is a model-invoked Agent Skill
+package (a `SKILL.md` directory, optionally with bundled scripts/assets) —
+see GLOSSARY.md. A profile's `commands:`/`skills:` curation lists use the
+same two selectors to opt into a non-default export set, mirroring each
+other's shape (each entry a `<bundle>#<kind>/<name>` ref; `commands:` entries
+additionally accept a trailing `@<commit>` content-version pin, which a skill
+has no equivalent of).
 
 ## Where each spelling is normalized
 

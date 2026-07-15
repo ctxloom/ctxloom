@@ -53,7 +53,7 @@ type ProfileEntry struct {
 	// Bundle is the canonical bundle ref a bundle-shipped profile came from
 	// ("<bundle>" of a "<bundle>#profiles/<name>" identity), empty for top-level
 	// or local profiles. It attributes the profile to its owning bundle, the way
-	// fragment/skill listings carry their source bundle.
+	// fragment/command listings carry their source bundle.
 	Bundle string `json:"bundle,omitempty"`
 }
 

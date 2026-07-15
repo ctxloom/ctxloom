@@ -44,7 +44,9 @@ type MaterializeProfileResult struct {
 //     SessionStart hook injects, but STATIC, so no context-injection hook is added)
 //   - mcp     → the backend MCP config (.mcp.json / settings)
 //   - hooks   → the backend settings hooks (config + profile + bundle hooks, gated)
-//   - skills  → the backend slash-command dir
+//   - commands → the backend slash-command dir
+//   - skills   → the backend's Agent Skills dir (claude only today — Part
+//     B3-seam; codex/opencode/kiro/agy are the next parallel wave)
 //
 // Fail-loudly (CLAUDE.md philosophy): a surface-write failure is a fatal-class
 // finding recorded through strictness — the `profile materialize` choke owner
@@ -78,7 +80,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	}
 	res := &MaterializeProfileResult{Target: req.Target, Backend: backend, Profiles: req.Profiles}
 
-	// Gate the executable surfaces (bundle MCP / hooks / skill exports) at their
+	// Gate the executable surfaces (bundle MCP / hooks / command exports) at their
 	// own choke, exactly as ApplyHooks does. Set before resolving any of them.
 	execGate := NewExecutableTrustGate(cfg)
 	cfg.SetExecutableTrustGate(execGate.Gate())
@@ -108,7 +110,8 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles)
 	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
-	skills := backends.CommandExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
+	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
+	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
 
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
 		Context:          asm.Context,
@@ -116,14 +119,16 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		BundleMCP:        bundleMCP,
 		Hooks:            hooks,
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
-		Skills:           skills,
+		Commands:         commands,
 		// The --target tree is a PORTABLE, self-contained artifact meant to be
 		// launched on a DIFFERENT machine (an externally-launched agent, CI) with
-		// ctxloom out of the loop. Deduping skills against THIS (materializing)
-		// machine's ~/.claude/commands would silently drop any skill that happens
-		// to already exist here — wrong, since the launch environment won't have
-		// it. So materialize alone opts out of that dedup (sour-feed).
-		SelfContainedSkills: true,
+		// ctxloom out of the loop. Deduping commands against THIS (materializing)
+		// machine's ~/.claude/commands would silently drop any command that
+		// happens to already exist here — wrong, since the launch environment
+		// won't have it. So materialize alone opts out of that dedup (sour-feed).
+		SelfContainedCommands: true,
+		Skills:                skills,
+		SelfContainedSkills:   true,
 	}, fs)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail
@@ -133,7 +138,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// no-ops) and keeps the partial target. Collecting ALL failures (not stopping at
 	// the first) is what lets degraded mode produce maximal output. res.Wrote lists
 	// the kinds that ACTUALLY delivered — codex's context surface is a no-op here (no
-	// fragments → no native context file), so codex reports settings + skills only.
+	// fragments → no native context file), so codex reports settings + commands only.
 	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(req.Target)
 	for _, e := range errs {
 		strictness.Fail(strictness.ClassApply,

@@ -7,17 +7,18 @@ import (
 )
 
 // This file carries the placeholder launch capabilities the embedded
-// agent.LaunchBackend requires (skills + session history). The generic ACP
+// agent.LaunchBackend requires (commands + session history). The generic ACP
 // backend's job in this increment is the StructuredChat driver (session.go); the
 // setup-side capabilities are stubs until config-materialization delegation to
 // the target agent is designed (see doc.go's registration TODO).
 
-// acpSkills is a no-op ContentSkills: a generic ACP client has no native skill
-// (slash-command) format of its own — that belongs to the target agent, so skill
-// materialization will delegate there once registration is wired.
-type acpSkills struct{}
+// acpCommands is a no-op ContentCommands: a generic ACP client has no native
+// command (slash-command) format of its own — that belongs to the target
+// agent, so command materialization will delegate there once registration is
+// wired.
+type acpCommands struct{}
 
-func (s *acpSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *acpCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return nil
 }
 

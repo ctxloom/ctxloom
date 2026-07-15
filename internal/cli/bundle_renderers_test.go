@@ -37,7 +37,7 @@ func TestRenderBundleList_SingleBundleAllFields(t *testing.T) {
 		Description:   "Coding standards",
 		Tags:          []string{"go", "best-practices"},
 		FragmentCount: 3,
-		SkillCount:    2,
+		CommandCount:  2,
 		MCPCount:      1,
 	}}
 
@@ -48,7 +48,7 @@ func TestRenderBundleList_SingleBundleAllFields(t *testing.T) {
 	assert.Contains(t, out, "Installed bundles (1):")
 	assert.Contains(t, out, "  alice/coding (v1.2.3)")
 	assert.Contains(t, out, "    Coding standards")
-	assert.Contains(t, out, "Contains: 3 fragments, 2 prompts, 1 MCP server",
+	assert.Contains(t, out, "Contains: 3 fragments, 2 commands, 1 MCP server",
 		"singular MCP server uses the 1-server form")
 	assert.Contains(t, out, "Tags: go, best-practices")
 }
@@ -81,7 +81,7 @@ func TestRenderBundleList_OmitsOptionalSections(t *testing.T) {
 func TestRenderBundleList_ZeroCountsSuppressContainsLine(t *testing.T) {
 	// A bundle with all three counts at zero should not emit a Contains
 	// line at all (rather than emitting "Contains: " with no parts).
-	infos := []*bundles.BundleInfo{{Name: "empty", FragmentCount: 0, SkillCount: 0, MCPCount: 0}}
+	infos := []*bundles.BundleInfo{{Name: "empty", FragmentCount: 0, CommandCount: 0, MCPCount: 0}}
 	var buf bytes.Buffer
 	assert.NoError(t, renderBundleList(&buf, infos))
 	assert.NotContains(t, buf.String(), "Contains:")
@@ -107,7 +107,7 @@ func TestRenderBundleShow_FullBundle(t *testing.T) {
 				Content:   "First line\nrest of the content",
 			},
 		},
-		Skills: map[string]bundles.BundleSkill{
+		Commands: map[string]bundles.BundleCommand{
 			"review": {
 				Tags:        []string{"review"},
 				Description: "Run a code review",
@@ -155,7 +155,7 @@ func TestRenderBundleShow_FullBundle(t *testing.T) {
 
 	// Prompt entry: tag list, no_distill marker (precedence: Distilled
 	// is empty, so NoDistill wins), description line.
-	assert.Contains(t, out, "Skills (1):")
+	assert.Contains(t, out, "Commands (1):")
 	assert.Contains(t, out, "  - review [review] (no_distill)")
 	assert.Contains(t, out, "Run a code review")
 
@@ -170,7 +170,7 @@ func TestRenderBundleShow_OmitsEmptySections(t *testing.T) {
 	out := buf.String()
 
 	for _, banned := range []string{"Version:", "Author:", "Description:", "Tags:",
-		"MCP Servers", "Fragments", "Skills", "Notes:"} {
+		"MCP Servers", "Fragments", "Commands", "Notes:"} {
 		assert.NotContains(t, out, banned, "empty bundle must not emit %q", banned)
 	}
 	assert.Contains(t, out, "Bundle: minimal")
@@ -226,28 +226,28 @@ func TestRenderBundleFragmentEntry_NoTagBracketsWhenEmpty(t *testing.T) {
 }
 
 // =============================================================================
-// renderBundleSkillEntry — description optional, marker precedence
+// renderBundleCommandEntry — description optional, marker precedence
 // =============================================================================
 
-func TestRenderBundleSkillEntry_DistilledMarker(t *testing.T) {
-	prompt := bundles.BundleSkill{Distilled: "X", Description: "desc"}
+func TestRenderBundleCommandEntry_DistilledMarker(t *testing.T) {
+	prompt := bundles.BundleCommand{Distilled: "X", Description: "desc"}
 	var buf bytes.Buffer
-	renderBundleSkillEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(distilled)")
 }
 
-func TestRenderBundleSkillEntry_NoDistillMarker(t *testing.T) {
-	prompt := bundles.BundleSkill{NoDistill: true}
+func TestRenderBundleCommandEntry_NoDistillMarker(t *testing.T) {
+	prompt := bundles.BundleCommand{NoDistill: true}
 	var buf bytes.Buffer
-	renderBundleSkillEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
 	assert.Contains(t, buf.String(), "(no_distill)")
 }
 
-func TestRenderBundleSkillEntry_DescriptionOptional(t *testing.T) {
+func TestRenderBundleCommandEntry_DescriptionOptional(t *testing.T) {
 	// No description means no second line. Just the name line.
-	prompt := bundles.BundleSkill{}
+	prompt := bundles.BundleCommand{}
 	var buf bytes.Buffer
-	renderBundleSkillEntry(iox.NewErrWriter(&buf), "p", prompt)
+	renderBundleCommandEntry(iox.NewErrWriter(&buf), "p", prompt)
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	assert.Len(t, lines, 1, "no description → single line (name only)")
 }
@@ -305,7 +305,7 @@ func viewBundle() *bundles.Bundle {
 			"distill":  {Content: "raw body", Distilled: "compressed body"},
 			"trailing": {Content: "already ends\n"},
 		},
-		Skills: map[string]bundles.BundleSkill{
+		Commands: map[string]bundles.BundleCommand{
 			"review":  {Content: "do a review"},
 			"distill": {Content: "raw prompt", Distilled: "compressed prompt"},
 		},
@@ -370,15 +370,15 @@ func TestRenderBundleViewItem_FragmentNotFound(t *testing.T) {
 func TestRenderBundleViewItem_Prompt_Distilled(t *testing.T) {
 	var buf bytes.Buffer
 	require := assert.New(t)
-	require.NoError(renderBundleViewItem(&buf, viewBundle(), "skills/distill", true))
+	require.NoError(renderBundleViewItem(&buf, viewBundle(), "commands/distill", true))
 	got := buf.String()
 	require.Contains(got, "compressed prompt")
 	require.Contains(got, "# (distilled version)")
 }
 
 func TestRenderBundleViewItem_PromptNotFound(t *testing.T) {
-	err := renderBundleViewItem(&bytes.Buffer{}, viewBundle(), "skills/missing", false)
-	assert.ErrorContains(t, err, "skill not found")
+	err := renderBundleViewItem(&bytes.Buffer{}, viewBundle(), "commands/missing", false)
+	assert.ErrorContains(t, err, "command not found")
 }
 
 func TestRenderBundleViewItem_MCP_YAMLOutput(t *testing.T) {

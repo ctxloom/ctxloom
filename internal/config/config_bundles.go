@@ -21,7 +21,7 @@ var lookPath = exec.LookPath
 // SetExecutableTrustGate injects the trust gate consulted when resolving the
 // bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
 // bundle hooks (ResolveBundleHooks), and prompt command-file exports
-// (backends.LoadSkillExports). The operations/run consumers set it before
+// (backends.LoadCommandExports). The operations/run consumers set it before
 // writing backend settings (trust rework, TR5) so an untrusted bundle's
 // executables are omitted; management/listing paths leave it nil (no gating).
 // Builtin bundles are always exempt regardless of the gate.
@@ -308,7 +308,7 @@ func sortedCompanionRefs(c *Config) []string {
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
 // use: the caller's explicit selection (e.g. `run -p`) when non-empty, else the
-// configured defaults. This is the seam that makes mcp/skills/hooks follow the
+// configured defaults. This is the seam that makes mcp/commands/hooks follow the
 // SELECTED profile (the same set AssembleContext scopes context to) instead of
 // always the defaults, while preserving the default-scoped behavior for the
 // `manage`/apply-hooks path that passes nothing.
@@ -319,23 +319,24 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 	return c.DefaultAgentProfiles()
 }
 
-// ResolveBundleSkills aggregates the prompts (slash-command/skill exports)
-// shipped by every bundle referenced in the caller's selected profiles (or the
-// configured defaults when none are passed), PLUS the skills shipped by every
-// discovered COMPANION's loadout (S8 — unconditional whenever the companion
-// binary is on PATH, e.g. ltk's task-runner skill, but NEVER exempt like a
-// builtin: routed through bundleLoader.SkillsFromBundleRef, the identical
-// extraction+gate path a profile-referenced bundle's skills use — see
-// ResolveCompanionSkills). Deduped by prompt name; profile-sourced skills are
-// resolved FIRST so an explicit profile curation of the same name wins over
-// the companion's (ADDING companion skills to the set, never replacing
-// curation). Mirrors ResolveBundleMCPServers / ResolveBundleHooks — the
-// profile-scoped replacement for the global ListAllSkills sweep, so a session
-// only carries the skills its profile pulls in (plus its companions'). Built-in
-// embedded commands are added by the caller (LoadSkillExports), not here, since
-// they are not bundle-shipped. The opts thread the executable trust gate
-// (WithTrustGate) so a withheld skill is not exported.
-func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+// ResolveBundleCommands aggregates the prompts (slash-command exports) shipped
+// by every bundle referenced in the caller's selected profiles (or the
+// configured defaults when none are passed), PLUS the commands shipped by
+// every discovered COMPANION's loadout (S8 — unconditional whenever the
+// companion binary is on PATH, e.g. ltk's task-runner command, but NEVER
+// exempt like a builtin: routed through bundleLoader.CommandsFromBundleRef,
+// the identical extraction+gate path a profile-referenced bundle's commands
+// use — see ResolveCompanionCommands). Deduped by prompt name; profile-sourced
+// commands are resolved FIRST so an explicit profile curation of the same
+// name wins over the companion's (ADDING companion commands to the set, never
+// replacing curation). Mirrors ResolveBundleMCPServers / ResolveBundleHooks —
+// the profile-scoped replacement for the global ListAllCommands sweep, so a
+// session only carries the commands its profile pulls in (plus its
+// companions'). Built-in embedded commands are added by the caller
+// (LoadCommandExports), not here, since they are not bundle-shipped. The opts
+// thread the executable trust gate (WithTrustGate) so a withheld command is
+// not exported.
+func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
 	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
 
 	seen := make(map[string]bool)
@@ -357,44 +358,86 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.Load
 				continue
 			}
 			for _, bundleRef := range resolved.Bundles {
-				for _, prompt := range bundleLoader.SkillsFromBundleRef(bundleRef) {
+				for _, prompt := range bundleLoader.CommandsFromBundleRef(bundleRef) {
 					add(prompt)
 				}
 			}
 		}
 	}
 
-	for _, skill := range c.resolveCompanionSkillsWith(bundleLoader) {
-		add(skill)
+	for _, command := range c.resolveCompanionCommandsWith(bundleLoader) {
+		add(command)
 	}
 	return out
 }
 
-// ResolveCompanionSkills returns the skills shipped by every discovered
+// ResolveBundleSkills aggregates the Agent Skill packages shipped by every
+// bundle referenced in the caller's selected profiles (or the configured
+// defaults when none are passed) — the skills analog of ResolveBundleCommands.
+// Mirrors ONLY its UNCURATED path: every profile-referenced bundle's skills
+// export by default (each still gated by its own per-engine enablement flag
+// downstream, mirroring the mcp/hooks/commands resolvers). A profile's
+// `skills:` CURATED list (opt-in, mirroring `commands:`) and companion-shipped
+// skills are both Part B6 (skill-command-split.plan.md §3.2 notes companion
+// skill emission explicitly out of the first slices) — not implemented here.
+// Deduped by skill item name (first occurrence wins), matching
+// ResolveBundleCommands' dedup key.
+func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedSkill {
+	bundleLoader := c.SeededBundleLoader(false, opts...)
+
+	seen := make(map[string]bool)
+	var out []*bundles.LoadedSkill
+	add := func(skill *bundles.LoadedSkill) {
+		if seen[skill.Item] {
+			return
+		}
+		seen[skill.Item] = true
+		out = append(out, skill)
+	}
+
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) > 0 && len(c.AppPaths) > 0 {
+		profileLoader := c.GetProfileLoader()
+		for _, profileName := range profiles {
+			resolved, err := profileLoader.ResolveProfile(profileName, nil)
+			if err != nil {
+				continue
+			}
+			for _, bundleRef := range resolved.Bundles {
+				for _, skill := range bundleLoader.SkillsFromBundleRef(bundleRef) {
+					add(skill)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// ResolveCompanionCommands returns the commands shipped by every discovered
 // companion's loadout (S8 — companionBundleSeed / sortedCompanionRefs),
 // unconditionally whenever the companion binary is on PATH, in deterministic
 // (companion-ref-sorted, then name-sorted within a loadout) order. Routed
-// through bundleLoader.SkillsFromBundleRef — the SAME extraction+gate path a
-// profile-referenced bundle's skills use, keyed and signed by the companion's
-// OWN bundle — never the builtin nil-gate exemption; opts threads the
-// executable trust gate (WithTrustGate) exactly like ResolveBundleSkills, so
-// an unsigned/withheld companion loadout's skills do not export.
+// through bundleLoader.CommandsFromBundleRef — the SAME extraction+gate path a
+// profile-referenced bundle's commands use, keyed and signed by the
+// companion's OWN bundle — never the builtin nil-gate exemption; opts threads
+// the executable trust gate (WithTrustGate) exactly like ResolveBundleCommands,
+// so an unsigned/withheld companion loadout's commands do not export.
 //
-// This is the piece LoadSkillExports adds on BOTH its curated and uncurated
-// paths (ResolveBundleSkills only covers the uncurated one, since a profile's
-// prompts: curation bypasses it entirely) — see prompts.go.
-func (c *Config) ResolveCompanionSkills(opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+// This is the piece LoadCommandExports adds on BOTH its curated and uncurated
+// paths (ResolveBundleCommands only covers the uncurated one, since a
+// profile's commands: curation bypasses it entirely) — see prompts.go.
+func (c *Config) ResolveCompanionCommands(opts ...bundles.LoaderOption) []*bundles.LoadedContent {
 	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
-	return c.resolveCompanionSkillsWith(bundleLoader)
+	return c.resolveCompanionCommandsWith(bundleLoader)
 }
 
-// resolveCompanionSkillsWith is the shared companion-skill extraction loop,
-// taking an already-built loader so ResolveBundleSkills (which needs its
-// loader for the profile-scoped pass too) doesn't construct a second one.
-func (c *Config) resolveCompanionSkillsWith(bundleLoader *bundles.Loader) []*bundles.LoadedContent {
+// resolveCompanionCommandsWith is the shared companion-command extraction
+// loop, taking an already-built loader so ResolveBundleCommands (which needs
+// its loader for the profile-scoped pass too) doesn't construct a second one.
+func (c *Config) resolveCompanionCommandsWith(bundleLoader *bundles.Loader) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
 	for _, ref := range sortedCompanionRefs(c) {
-		out = append(out, bundleLoader.SkillsFromBundleRef(ref)...)
+		out = append(out, bundleLoader.CommandsFromBundleRef(ref)...)
 	}
 	return out
 }

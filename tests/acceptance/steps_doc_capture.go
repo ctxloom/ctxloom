@@ -59,7 +59,7 @@ type docCaptureStep struct {
 	CLIOutput    string `json:"cli_output,omitempty"`
 	MockRecorded string `json:"mock_recorded,omitempty"`
 	// Materialized is evidence a step observed that never flowed through
-	// w.env.LastOutput(): a file it read (J2 teammate's materialized skill,
+	// w.env.LastOutput(): a file it read (J2 teammate's materialized command,
 	// J3's assembled CLAUDE.md / generated .mcp.json / settings.json), a
 	// captured PTY session (J3 forgery refusal), or a sync notice that a later
 	// materialize overwrote (J3 retraction). Marker-bearing proof no CLI stdout
@@ -96,6 +96,63 @@ func scenarioFileName(sc *godog.Scenario) string {
 	// text, not in sc.Name, so disambiguate multiple rows with the pickle Id
 	// (unique per row) rather than colliding on one file.
 	return slug + "-" + sc.Id + ".json"
+}
+
+// tempRandomSuffixRe strips a leftover MkdirTemp random-number suffix (e.g.
+// "fake-companion-238940123" -> "fake-companion") from any fixture directory
+// this scrub doesn't otherwise know the shape of, once its enclosing temp
+// root has already been collapsed to a stable placeholder below. Without
+// this, an unanticipated fixture dir would still churn a random digit string
+// into the published page on every regeneration.
+var tempRandomSuffixRe = regexp.MustCompile(`-\d{4,}\b`)
+
+// scrubTempPaths replaces every throwaway hermetic path this scenario's
+// TestEnvironment created — the project checkout, Bob's separate clone, and
+// any bare-git remote/team-origin fixture root, all of which live under one
+// freshly-random-named /tmp/ctxloom-integration-<N> per run — with stable
+// placeholders in captured evidence text, so the published page reads the
+// same on every regeneration instead of leaking a throwaway absolute path.
+//
+// Order matters: the two-level fixture shapes (remote/team-origin) are
+// collapsed FIRST, to a placeholder that keeps the meaningful item-ref suffix
+// intact (e.g. "<remote>.git@bundles/secure-coding#fragments/guidance" — the
+// ref itself, not just the path, is the evidence on the trust pages). Named
+// single-purpose dirs (project, Bob's checkout, home) go next. Only then does
+// the scenario's whole temp root collapse to a generic "<tmp>" placeholder,
+// as a safety net for any fixture dir this function doesn't yet know by
+// shape — never the reverse, or the specific patterns above would no longer
+// match once their shared root prefix was already gone.
+//
+// Capture-time only: it runs after a step's assertions have already passed or
+// failed, so it can never change what was checked — only how the
+// already-decided evidence is displayed on the published page.
+func scrubTempPaths(w *World, s string) string {
+	if s == "" || w == nil || w.env == nil || w.env.Root == "" {
+		return s
+	}
+	root := regexp.QuoteMeta(w.env.Root)
+
+	// Anchored to THIS scenario's root, and consuming it whole, so no bare
+	// "<tmp>" fragment is left dangling in front of the placeholder below —
+	// the two-level fixture shapes collapse to a single, clean token.
+	s = regexp.MustCompile(root+`/remote-\d+/remote\.git`).ReplaceAllString(s, "<remote>.git")
+	s = regexp.MustCompile(root+`/j2-origin-\d+/team\.git`).ReplaceAllString(s, "<team-origin>.git")
+
+	if w.j2s != nil && w.j2s.bobDir != "" {
+		s = strings.ReplaceAll(s, w.j2s.bobDir, "<bob-checkout>")
+	}
+	if w.env.ProjectDir != "" {
+		s = strings.ReplaceAll(s, w.env.ProjectDir, "/project")
+	}
+	if w.env.HomeDir != "" {
+		s = strings.ReplaceAll(s, w.env.HomeDir, "<home>")
+	}
+
+	if strings.Contains(s, w.env.Root) {
+		s = strings.ReplaceAll(s, w.env.Root, "<tmp>")
+		s = tempRandomSuffixRe.ReplaceAllString(s, "")
+	}
+	return s
 }
 
 func hasDocTag(sc *godog.Scenario) bool {
@@ -201,6 +258,18 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 			step.MockRecorded = w.j1bRecorded
 			w.docLastMockRecorded = w.j1bRecorded
 		}
+		// Scrub every throwaway hermetic path this scenario's TestEnvironment
+		// created (project checkout, Bob's separate clone, bare-git remote/
+		// team-origin fixture roots, the whole temp root as a fallback) to
+		// stable placeholders, so the published page reads the same on every
+		// regeneration instead of leaking a random /tmp path. Applied to all
+		// three evidence streams — CLI output, materialized-file evidence, and
+		// the mock engine's recorded prompt all carry the temp root verbatim.
+		// Capture-time only: never touches assertion logic or the real
+		// directory ctxloom actually wrote to.
+		step.CLIOutput = scrubTempPaths(w, step.CLIOutput)
+		step.Materialized = scrubTempPaths(w, step.Materialized)
+		step.MockRecorded = scrubTempPaths(w, step.MockRecorded)
 		w.docCapture.Steps = append(w.docCapture.Steps, step)
 
 		// Native channel: godog's own cucumber-message attachments, so a run

@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// J2: "a team lead shares a skill with the team" journey
+// J2: "a team lead shares a command with the team" journey
 // (j2_team_authoring.feature). Carol and Bob are two team members with
 // separate local checkouts of the SAME project's git history — modeled here
 // as two directories cloned from a common bare "origin" this file creates.
@@ -12,8 +12,8 @@
 // worktree brief's request to keep shared-file churn tight).
 //
 // Authoring goes straight to the bundle's YAML content field (mirroring
-// steps_j1_common.go's fragmentSourceYAML/skillSourceYAML) rather than
-// through the interactive `skill create`+`edit` round trip: the mechanism
+// steps_j1_common.go's fragmentSourceYAML/commandSourceYAML) rather than
+// through the interactive `command create`+`edit` round trip: the mechanism
 // under test is trust/propagation/distillation, not the editor UX, and direct
 // YAML authorship gives exact, reproducible marker content across the
 // "before" and "after" states scenario 3 needs. `bundle create`/`profile
@@ -37,11 +37,11 @@ const (
 	j2Bundle  = "team-standards"
 	j2Profile = "default"
 
-	// j2SkillMarkerV1/V2 are the "before"/"after" content of the
-	// conventional-commits skill scenarios 1 and 3 author/edit — distinct so a
+	// j2CommandMarkerV1/V2 are the "before"/"after" content of the
+	// conventional-commits command scenarios 1 and 3 author/edit — distinct so a
 	// materialized command file can be checked for exactly one of them.
-	j2SkillMarkerV1 = "J2-CONVENTIONAL-COMMITS-V1-USE-IMPERATIVE-MOOD-IN-THE-SUBJECT-LINE"
-	j2SkillMarkerV2 = "J2-CONVENTIONAL-COMMITS-V2-INCLUDE-A-SCOPE-IN-THE-SUBJECT-LINE"
+	j2CommandMarkerV1 = "J2-CONVENTIONAL-COMMITS-V1-USE-IMPERATIVE-MOOD-IN-THE-SUBJECT-LINE"
+	j2CommandMarkerV2 = "J2-CONVENTIONAL-COMMITS-V2-INCLUDE-A-SCOPE-IN-THE-SUBJECT-LINE"
 
 	// j2FragVerboseMarker/DistilledMarker are scenario 2's original/compact
 	// fragment content. The distilled form is what the mock LLM backend is
@@ -59,7 +59,7 @@ type j2State struct {
 	bobDir     string // Bob's separate clone directory (empty until his first pull)
 	bobOutput  string // last command's combined stdout+stderr run in Bob's checkout
 	bobExit    int
-	skillName  string // the skill name scenarios 1/3 authored/edited (default "conventional-commits")
+	commandName string // the command name scenarios 1/3 authored/edited (default "conventional-commits")
 }
 
 // j2 returns (lazily allocating) this scenario's J2 state.
@@ -77,30 +77,30 @@ func registerJ2Steps(ctx *godog.ScenarioContext) {
 		return j2SetupTeamProject(worldFrom(c))
 	})
 
-	ctx.Step(`^Carol authors a "([^"]*)" skill$`, func(c context.Context, name string) error {
-		return j2AuthorSkill(worldFrom(c), name, j2SkillMarkerV1)
+	ctx.Step(`^Carol authors a "([^"]*)" command$`, func(c context.Context, name string) error {
+		return j2AuthorCommand(worldFrom(c), name, j2CommandMarkerV1)
 	})
 
 	ctx.Step(`^she commits it to the project$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j2CommitAndPush(w, "author "+w.j2().skillName+" skill")
+		return j2CommitAndPush(w, "author "+w.j2().commandName+" command")
 	})
 
 	ctx.Step(`^Bob pulls the project$`, func(c context.Context) error {
 		return j2BobPull(worldFrom(c))
 	})
 
-	ctx.Step(`^Bob's assistant can invoke the conventional-commits skill$`, func(c context.Context) error {
+	ctx.Step(`^Bob's assistant can invoke the conventional-commits command$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := runBob(w, "profile", "materialize", j2Profile, "--target", "out"); err != nil {
 			return err
 		}
-		body, err := findBobCommandFile(w, w.j2().skillNameOrDefault())
+		body, err := findBobCommandFile(w, w.j2().commandNameOrDefault())
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(body, j2SkillMarkerV1) {
-			return fmt.Errorf("materialized command file does not contain the skill's content; content:\n%s", body)
+		if !strings.Contains(body, j2CommandMarkerV1) {
+			return fmt.Errorf("materialized command file does not contain the command's content; content:\n%s", body)
 		}
 		return nil
 	})
@@ -168,15 +168,15 @@ func registerJ2Steps(ctx *godog.ScenarioContext) {
 
 	// --- Scenario 3: an edit propagates, the stale version does not ---------
 
-	ctx.Step(`^Bob's assistant already has Carol's conventional-commits skill$`, func(c context.Context) error {
+	ctx.Step(`^Bob's assistant already has Carol's conventional-commits command$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j2SetupTeamProject(w); err != nil {
 			return err
 		}
-		if err := j2AuthorSkill(w, "conventional-commits", j2SkillMarkerV1); err != nil {
+		if err := j2AuthorCommand(w, "conventional-commits", j2CommandMarkerV1); err != nil {
 			return err
 		}
-		if err := j2CommitAndPush(w, "author conventional-commits skill"); err != nil {
+		if err := j2CommitAndPush(w, "author conventional-commits command"); err != nil {
 			return err
 		}
 		if err := j2BobPull(w); err != nil {
@@ -185,63 +185,63 @@ func registerJ2Steps(ctx *godog.ScenarioContext) {
 		return runBob(w, "profile", "materialize", j2Profile, "--target", "out")
 	})
 
-	ctx.Step(`^Carol edits the skill$`, func(c context.Context) error {
+	ctx.Step(`^Carol edits the command$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return j2AuthorSkill(w, w.j2().skillNameOrDefault(), j2SkillMarkerV2)
+		return j2AuthorCommand(w, w.j2().commandNameOrDefault(), j2CommandMarkerV2)
 	})
 
 	ctx.Step(`^she commits the change$`, func(c context.Context) error {
-		return j2CommitAndPush(worldFrom(c), "edit conventional-commits skill")
+		return j2CommitAndPush(worldFrom(c), "edit conventional-commits command")
 	})
 
 	ctx.Step(`^Bob pulls the project again$`, func(c context.Context) error {
 		return j2BobPull(worldFrom(c))
 	})
 
-	ctx.Step(`^Bob's assistant has the updated skill$`, func(c context.Context) error {
+	ctx.Step(`^Bob's assistant has the updated command$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := runBob(w, "profile", "materialize", j2Profile, "--target", "out"); err != nil {
 			return err
 		}
-		body, err := findBobCommandFile(w, w.j2().skillNameOrDefault())
+		body, err := findBobCommandFile(w, w.j2().commandNameOrDefault())
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(body, j2SkillMarkerV2) {
-			return fmt.Errorf("materialized command file does not contain the updated skill marker; content:\n%s", body)
+		if !strings.Contains(body, j2CommandMarkerV2) {
+			return fmt.Errorf("materialized command file does not contain the updated command marker; content:\n%s", body)
 		}
 		return nil
 	})
 
 	ctx.Step(`^it no longer has the previous version$`, func(c context.Context) error {
 		w := worldFrom(c)
-		body, err := findBobCommandFile(w, w.j2().skillNameOrDefault())
+		body, err := findBobCommandFile(w, w.j2().commandNameOrDefault())
 		if err != nil {
 			return err
 		}
-		if strings.Contains(body, j2SkillMarkerV1) {
-			return fmt.Errorf("materialized command file unexpectedly still contains the previous skill version marker; content:\n%s", body)
+		if strings.Contains(body, j2CommandMarkerV1) {
+			return fmt.Errorf("materialized command file unexpectedly still contains the previous command version marker; content:\n%s", body)
 		}
 		return nil
 	})
 }
 
-// skillNameOrDefault returns the skill name scenario 1/3's author step
+// commandNameOrDefault returns the command name scenario 1/3's author step
 // recorded, defaulting to "conventional-commits" — the only name the LOCKED
 // Gherkin ever actually uses, but steps read this rather than the literal so
-// a future scenario naming a different skill does not silently pass by
+// a future scenario naming a different command does not silently pass by
 // checking the wrong file.
-func (s *j2State) skillNameOrDefault() string {
-	if s.skillName == "" {
+func (s *j2State) commandNameOrDefault() string {
+	if s.commandName == "" {
 		return "conventional-commits"
 	}
-	return s.skillName
+	return s.commandName
 }
 
 // j2SetupTeamProject scaffolds Carol's checkout (w.env.ProjectDir) as the
 // team's shared project with the minimal fixture config (no LLM needed:
 // `bundle`/`profile create` and `profile materialize` all work against it,
-// exactly as review.feature/skill.feature/fragment.feature already rely on).
+// exactly as review.feature/command.feature/fragment.feature already rely on).
 func j2SetupTeamProject(w *World) error {
 	return j2SetupProject(w, minimalConfig)
 }
@@ -309,19 +309,19 @@ func j2SetupProject(w *World, configYAML string) error {
 	return err
 }
 
-// j2AuthorSkill overwrites the team bundle's YAML file so it carries exactly
-// one skill (name, content) — both the initial "authors a skill" act and a
-// later "edits the skill" act (a full overwrite, not an append, so an edit
-// genuinely REPLACES the previous content rather than merely adding to it,
-// which is what scenario 3's "no longer has the previous version" needs to be
-// meaningful). Records the name on World's J2 state for later steps.
-func j2AuthorSkill(w *World, name, content string) error {
-	w.j2().skillName = name
-	body := fmt.Sprintf("version: \"1.0.0\"\nskills:\n  %s:\n    content: %q\n", name, content)
+// j2AuthorCommand overwrites the team bundle's YAML file so it carries exactly
+// one command (name, content) — both the initial "authors a command" act and
+// a later "edits the command" act (a full overwrite, not an append, so an
+// edit genuinely REPLACES the previous content rather than merely adding to
+// it, which is what scenario 3's "no longer has the previous version" needs
+// to be meaningful). Records the name on World's J2 state for later steps.
+func j2AuthorCommand(w *World, name, content string) error {
+	w.j2().commandName = name
+	body := fmt.Sprintf("version: \"1.0.0\"\ncommands:\n  %s:\n    content: %q\n", name, content)
 	return w.env.WriteFile(".ctxloom/content/bundles/"+j2Bundle+".yaml", body)
 }
 
-// j2FragmentBundleYAML is j2AuthorSkill's fragment analogue for scenario 2 —
+// j2FragmentBundleYAML is j2AuthorCommand's fragment analogue for scenario 2 —
 // a single fragment named "guidance" carrying content.
 func j2FragmentBundleYAML(content string) string {
 	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  guidance:\n    content: %q\n", content)
@@ -407,12 +407,12 @@ func readBobFile(w *World, rel string) (string, error) {
 }
 
 // findBobCommandFile globs for the materialized slash-command file backing
-// skillName under Bob's "out" materialize target and reads the first match.
+// commandName under Bob's "out" materialize target and reads the first match.
 // The exact basename is an internal naming detail (bundle-prefixed on any
 // export-name collision, see internal/lm/backends/commandfiles.go's
 // exportNames), so this asserts on CONTENT rather than an exact path.
-func findBobCommandFile(w *World, skillName string) (string, error) {
-	glob := filepath.Join(w.j2().bobDir, "out", ".claude", "commands", "*"+skillName+"*.md")
+func findBobCommandFile(w *World, commandName string) (string, error) {
+	glob := filepath.Join(w.j2().bobDir, "out", ".claude", "commands", "*"+commandName+"*.md")
 	matches, err := filepath.Glob(glob)
 	if err != nil {
 		return "", err

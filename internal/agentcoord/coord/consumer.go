@@ -219,6 +219,12 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 				Phase:         e.State,
 				LatestSummary: c.reportsF.latestSummary(e.Harp),
 				ParentRunId:   rec.ParentRunID,
+				// F1: the run's resolved permission mode and MCP server
+				// NAMES ONLY (rec.Permission/MCPServers, fixed at enqueue) —
+				// the roster consumer's only black-box view onto the
+				// delegation privilege-scoping guarantee.
+				PermissionMode: rec.Permission,
+				McpServers:     rec.MCPServers,
 			})
 		}
 	})

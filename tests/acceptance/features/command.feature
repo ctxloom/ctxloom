@@ -1,0 +1,31 @@
+Feature: Commands
+  Commands live in bundles alongside fragments. A command created on the
+  CLI is listed there and exposed to the agent through the commands resource.
+
+  Scenario: Create a command and see it listed and exposed
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    When I run "ctxloom command create demo review"
+    Then the command succeeds
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "review"
+    When I run "ctxloom command list"
+    Then the command succeeds
+    And the output contains "review"
+    When the agent reads resource "ctxloom://commands"
+    Then the resource contains "review"
+
+  Scenario: Read a single command over MCP
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    And a command "review" in bundle "demo" exists
+    When the agent reads resource "ctxloom://commands/review"
+    Then the resource MIME type is "text/markdown"
+
+  Scenario: Delete a command removes it from listing
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    And a command "review" in bundle "demo" exists
+    When I run "ctxloom command delete demo#commands/review"
+    Then the command succeeds
+    When I run "ctxloom command list"
+    Then the output does not contain "review"

@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -29,9 +30,27 @@ func TestMain(m *testing.M) {
 }
 
 // TestAcceptance runs the full-stack godog suite. The hermetic suite is the
-// default; @live scenarios (real Claude agent) are opt-in via ACCEPTANCE_TAGS
+// default; @live scenarios (real engine agents) are opt-in via ACCEPTANCE_TAGS
 // and self-skip when no credentials are present.
 func TestAcceptance(t *testing.T) {
+	// The availability report prints on EVERY run — hermetic or live — so a
+	// credential expiry (or a binary going missing) shows up as a loud line
+	// instead of silently dropping live coverage to zero while the suite
+	// still reports green. See live_engine_registry.go.
+	report := computeLiveEngineReport(realHomeDir, resolveOptIn())
+	fmt.Println(formatLiveEngineReport(report))
+
+	// THE FLOOR: CTXLOOM_LIVE_REQUIRE names engines that MUST be available —
+	// unset (a dev box), a missing engine just skips; set (CI, or a dev who
+	// wants the guarantee), a missing/unauthenticated engine is a hard
+	// failure, named explicitly, checked before the (possibly long) suite
+	// run rather than after.
+	if required := parseRequiredEngines(os.Getenv("CTXLOOM_LIVE_REQUIRE")); len(required) > 0 {
+		if err := checkRequiredEngines(report, required); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	tags := os.Getenv("ACCEPTANCE_TAGS")
 	if tags == "" {
 		// out (real init clones the default remote). Both are opt-in.

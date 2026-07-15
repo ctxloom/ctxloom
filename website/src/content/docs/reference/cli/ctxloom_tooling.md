@@ -13,7 +13,7 @@ Emit trusted bundles' agent-image tooling declarations for the LLM to apply
 
 ### Synopsis
 
-Collect every trusted bundle's 'tooling' skill — the tools its
+Collect every trusted bundle's 'tooling' command — the tools its
 content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
@@ -38,7 +38,7 @@ ctxloom tooling [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

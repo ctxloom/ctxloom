@@ -184,7 +184,7 @@ type ImportBundleResult struct {
 	Dest      string `json:"dest"`
 	Version   string `json:"version"`
 	Fragments int    `json:"fragments"`
-	Skills    int    `json:"skills"`
+	Commands  int    `json:"commands"`
 	MCP       int    `json:"mcp"`
 	// SigDest is where the imported bundle's detached publisher signature
 	// landed, or "" when the source carried none. Import PLACES the signature
@@ -247,7 +247,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		Dest:      destPath,
 		Version:   bundle.Version,
 		Fragments: len(bundle.Fragments),
-		Skills:    len(bundle.Skills),
+		Commands:  len(bundle.Commands),
 		MCP:       len(bundle.MCP),
 		SigDest:   sigDest,
 	}, nil

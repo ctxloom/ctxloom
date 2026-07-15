@@ -1,6 +1,6 @@
 // This file is the trusted-bundle → agent-image tooling pipeline. A bundle
 // whose content needs tools inside the agent container (linters, language
-// runtimes, build helpers) ships a well-known `tooling` skill
+// runtimes, build helpers) ships a well-known `tooling` command
 // describing them; `ctxloom tooling` collects those texts THROUGH
 // THE TRUST GATE and emits them with instructions for the LLM to fold — with
 // explicit per-change user permission — into the local base Containerfile
@@ -22,25 +22,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// ToolingSkillName is the well-known skill name a bundle ships to declare
+// ToolingCommandName is the well-known command name a bundle ships to declare
 // the tools its content needs available where agents run — today that means
 // the agent container image. Matching mirrors the agent-setup override
 // contract: the bare name, or the last path/# segment
-// (`<bundle>#skills/tooling`).
-const ToolingSkillName = "tooling"
+// (`<bundle>#commands/tooling`).
+const ToolingCommandName = "tooling"
 
 // ToolingDeclaration is one bundle's collected tooling declaration.
 type ToolingDeclaration struct {
-	// Source is the bundle-qualified skill name the text came from, so the
+	// Source is the bundle-qualified command name the text came from, so the
 	// user can trace every proposed Containerfile change to its bundle.
 	Source  string `json:"source"`
 	Content string `json:"content"`
 }
 
 // CollectTooling gathers every trusted bundle's `tooling`
-// skill. SECURITY: collection goes through the TRUST-GATED loader — a skill
-// from an unreviewed/untrusted bundle is withheld exactly like any other
-// gated content (bundle-supplied text driving Containerfile edits is a
+// command. SECURITY: collection goes through the TRUST-GATED loader — a
+// command from an unreviewed/untrusted bundle is withheld exactly like any
+// other gated content (bundle-supplied text driving Containerfile edits is a
 // code-execution vector), and the withholding is surfaced content-free.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
 // loader is a test seam; nil uses the gated exposure loader.
@@ -55,21 +55,21 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 	if loader == nil {
 		return nil
 	}
-	infos, err := loader.ListAllSkills()
+	infos, err := loader.ListAllCommands()
 	if err != nil {
 		return nil
 	}
 	var out []ToolingDeclaration
 	for _, info := range infos {
-		if !setupSkillNameMatches(info.Name, ToolingSkillName) {
+		if !setupCommandNameMatches(info.Name, ToolingCommandName) {
 			continue
 		}
-		// Fetch by BUNDLE-QUALIFIED ref: many bundles ship a skill with this
+		// Fetch by BUNDLE-QUALIFIED ref: many bundles ship a command with this
 		// same well-known name, and a bare-name fetch would resolve every one
 		// of them to the first match. The ref also gives the user a traceable
 		// source per declaration.
-		ref := info.Bundle + "#skills/" + info.Name
-		content, gerr := loader.GetSkill(ref)
+		ref := info.Bundle + "#commands/" + info.Name
+		content, gerr := loader.GetCommand(ref)
 		if gerr != nil || strings.TrimSpace(content.Content) == "" {
 			continue // withheld by the gate, or empty — skip, never block
 		}

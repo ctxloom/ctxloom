@@ -1,4 +1,18 @@
-// coordination.proto — agentcoord.v1 (rev 10 — ctxloom Wave E1)
+// coordination.proto — agentcoord.v1 (rev 11 — ctxloom Wave F1)
+//
+// Changelog rev 10 -> rev 11 (pre-release, additive):
+//   - F1 (taskloom spare-chevy): ListRunsResult.RunInfo gains permission_mode
+//     and mcp_servers so the roster — a real operator's ONLY black-box view
+//     of a live delegation — can audit the central delegation security
+//     claim ("a child only ever gets its own tools"), which until now was
+//     provable solely by an in-process Go unit test. Both are resolved once
+//     at enqueue (facts.go's runEnqueued.Permission/MCPServers) for the same
+//     reason Ladder already is (rev 9's D1/D5 note below): a later config
+//     edit must not retroactively change what a live run's privileges were.
+//     mcp_servers is NAMES ONLY — never command/args/env, which can carry a
+//     secret (mirrors cred_hash: this journal records identity, never the
+//     credential). Additive; empty/absent on any run journaled before this
+//     revision.
 //
 // Changelog rev 9 -> rev 10 (pre-release, additive):
 //   - E1a: the deferred artifact-transfer surface (UploadArtifact/
@@ -720,6 +734,19 @@ message ListRunsResult {
     // (D5) — the SPAWNING run's run_id, so a roster consumer can render the
     // delegation tree without re-deriving it from the event log.
     string parent_run_id = 7;
+    // permission_mode is the child's resolved permission mode's kind name
+    // (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
+    // "acceptEdits"), fixed at enqueue (F1). Empty for a run journaled
+    // before F1.
+    string permission_mode = 8;
+    // mcp_servers are the child's resolved MCP server NAMES ONLY (F1) —
+    // never command, args, or env, which can carry a secret. Composed
+    // strictly from the child's OWN resolved profile set
+    // (prodSpawner.childMCPServers), so this is the privilege-scoping audit
+    // trail: a real operator can confirm a run received exactly these
+    // servers, never a sibling's or the parent's. Empty for a run journaled
+    // before F1.
+    repeated string mcp_servers = 9;
   }
   repeated RunInfo runs = 1;
 }

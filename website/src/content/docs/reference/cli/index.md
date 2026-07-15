@@ -13,7 +13,7 @@ Every command accepts the global `--format text|json` flag; `json` emits machine
 ## Command groups
 
 - **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/), [`map`](/reference/cli/ctxloom_map/), [`weave`](/reference/cli/ctxloom_weave/)
-- **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`skill`](/reference/cli/ctxloom_skill/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
+- **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`command`](/reference/cli/ctxloom_command/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
 - **Agents** — [`agent`](/reference/cli/ctxloom_agent/), [`container`](/reference/cli/ctxloom_container/), [`acp`](/reference/cli/ctxloom_acp/)
 - **Remotes & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`bundle`](/reference/cli/ctxloom_bundle/), [`trust`](/reference/cli/ctxloom_trust/), [`blacklist`](/reference/cli/ctxloom_blacklist/), [`tooling`](/reference/cli/ctxloom_tooling/)
 - **Infrastructure** — [`manage`](/reference/cli/ctxloom_manage/), [`mcp`](/reference/cli/ctxloom_mcp/)
@@ -47,7 +47,7 @@ Bundle-item references follow one grammar everywhere:
 
 ```
 bundle#fragments/name     # Fragment in bundle
-bundle#skills/name        # Skill in bundle
+bundle#commands/name      # Command in bundle
 bundle#mcp/name           # MCP config in bundle
 bundle#profiles/name      # Profile shipped by bundle (local bundle short form;
                           # remote bundles use the canonical URL)

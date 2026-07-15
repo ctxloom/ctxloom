@@ -29,11 +29,20 @@ func BuildSurfaces(name string, inputs agent.SurfaceInputs, fs afero.Fs) agent.S
 
 // CommandExportsFor maps loaded bundle content to the named backend's command
 // exports (its per-prompt enablement + metadata), for a caller assembling
-// agent.SurfaceInputs.Skills. It is the exported seam over commandExportsFor
-// (managed.go) — the same mapper the descriptor's skills surface uses — so the
-// materialize skills surface can't diverge from a run's.
+// agent.SurfaceInputs.Commands. It is the exported seam over commandExportsFor
+// (managed.go) — the same mapper the descriptor's commands surface uses — so
+// the materialize commands surface can't diverge from a run's.
 func CommandExportsFor(name string, prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return commandExportsFor(name, prompts)
+}
+
+// SkillExportsFor maps loaded bundle skills to the named backend's Agent
+// Skill package exports (its per-skill enablement), for a caller assembling
+// agent.SurfaceInputs.Skills. It is the exported seam over skillExportsFor
+// (managed.go) — the same mapper the descriptor's skills surface uses — so
+// the materialize skills surface can't diverge from a run's.
+func SkillExportsFor(name string, skills []*bundles.LoadedSkill) []agent.SkillExport {
+	return skillExportsFor(name, skills)
 }
 
 // wellKnownPlacement is a placeholder agent.Placement for building a SurfaceSet

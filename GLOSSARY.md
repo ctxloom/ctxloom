@@ -14,7 +14,7 @@ control-plane  ──wire──►  runner  ──drives──►  engine ──
 ```
 
 *The **control-plane** assembles a user's configuration into a **loadout** (the
-**context**, **MCP**, **hooks**, **skills**, and **settings** surfaces) for a
+**context**, **MCP**, **hooks**, **commands**, **skills**, and **settings** surfaces) for a
 **session** and, over the **wire**, hands it to a **runner**, which composes its
 isolation/containerization objects, **injects each surface** into the environment,
 and drives the **engine** (whose own **engine agents** we merely pass through).*
@@ -30,7 +30,9 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / kiro / antigravity backends |
 | **provider** / **model** | Standard sub-terms *beneath* an engine, for the model/API layer: `provider` = the vendor (Anthropic/OpenAI), `model` = the specific LLM. Industry-standard pair (Vercel AI SDK, opencode, Goose, Cline, LiteLLM, OpenRouter) — do not coin here. | (config for API-backed engines) |
 | **loadout** | The full set of **surfaces** the control-plane assembles and the runner injects for a session — the composed delivery payload transmitted over the wire. | context assembly + `internal/lm/backends` (`AssembleManagedConfig`) |
-| **surface** | One managed deliverable within a loadout. Five: the **context**, **MCP**, **hooks**, **skills**, and **settings** surfaces. Each is delivered by a mechanism strategy into a runner-side isolation placement. | `ManagedConfig` fields + framed context + `.mcp.json` / `.claude/*` |
+| **surface** | One managed deliverable within a loadout. Six: the **context**, **MCP**, **hooks**, **commands**, **skills**, and **settings** surfaces. Each is delivered by a mechanism strategy into a runner-side isolation placement. | `ManagedConfig` fields + framed context + `.mcp.json` / `.claude/*` |
+| **command** | A **user-invoked** slash-command template (`/name`): the engine substitutes a prompt. Every engine has this under its own name (claude `.claude/commands/`, codex `$CODEX_HOME/prompts/`, opencode `.opencode/command/`, kiro `/name`). ctxloom's `command` item-kind and CLI group. | `ctxloom command`; `agent.CommandExport`; bundle `commands:` |
+| **skill** | A **model-invoked** Agent Skill package: a directory containing `SKILL.md` (YAML frontmatter `name`+`description`, instructions body) plus optional bundled `scripts/`/assets, loaded by the engine via progressive disclosure when the description matches the task at hand — never typed by the user. Distinct item-kind from **command**; the two collide in the ecosystem word "skill" only for kiro (§3.3 of the skill/command split plan), reconciled by materializing both into `.kiro/skills/` under two separate manifests. | `ctxloom skill`; `bundles.BundleSkill`/`SkillPackage`; bundle `skills:`; `agent.SkillExport` |
 | **context** | The model-facing instructions **surface** (the sysprompt / `CLAUDE.md` text). **Narrow** — one surface, never the umbrella (that's the loadout). Matches industry "context" = what's in the model's context window. | assembled context; framed sysprompt; `CLAUDE.md` |
 | **agent** | A **ctxloom actor**: a profile-in-action — the primary you launch *and* each delegated worker (coordinator, finder, programmer, reviewer). What `run --agent` selects and what delegation spawns. **Reserved** — bare "agent" always means this. | the `subagent→agent` rename; `run --agent` |
 | **engine agent** | The engine's *own* internal subagent (claude `--agent`, "agent family", the ACP `agent` field). Always qualified; never bare "agent." | claude `--agent`, ACP descriptor `agent` |

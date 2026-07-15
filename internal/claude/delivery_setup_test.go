@@ -139,12 +139,13 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 // TestSetup_SharedCell_MCPOutOfCwd proves the approved SharedCell change for MCP:
 // the managed .mcp.json rides an OUT-OF-CWD --mcp-config file, not the live cwd,
 // and WITHOUT --strict-mcp-config so claude LAYERS ctxloom's servers on top of the
-// user's project .mcp.json (merge, not replace). skills — which have no out-of-cwd
-// flag — still land in the well-known .claude/commands via the loud Unsafe hatch.
+// user's project .mcp.json (merge, not replace). commands — which have no
+// out-of-cwd flag — still land in the well-known .claude/commands via the loud
+// Unsafe hatch.
 func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
-		Skills: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
+		Commands: []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
 		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{
 			"srv": {Command: "run-srv"},
 		}},
@@ -162,10 +163,10 @@ func TestSetup_SharedCell_MCPOutOfCwd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(mcpData), "srv", "the managed MCP server must be written")
 
-	// skills stay in-cwd (no out-of-cwd flag → warned Unsafe well-known write).
+	// commands stay in-cwd (no out-of-cwd flag → warned Unsafe well-known write).
 	entries, err := os.ReadDir(filepath.Join(work, ".claude", "commands"))
-	require.NoError(t, err, "Setup must write skill exports into .claude/commands")
-	assert.NotEmpty(t, entries, "the demo skill must be materialized")
+	require.NoError(t, err, "Setup must write command exports into .claude/commands")
+	assert.NotEmpty(t, entries, "the demo command must be materialized")
 
 	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
 	assert.True(t, argPair(args, "--mcp-config", mcpPath),
@@ -182,7 +183,7 @@ func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
 	work := t.TempDir()
 	managed := &agent.ManagedConfig{
 		ManageStatusline: true,
-		Skills:           []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
+		Commands:         []agent.CommandExport{{Name: "demo", Content: "do a thing", Enabled: true}},
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 		}},

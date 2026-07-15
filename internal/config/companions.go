@@ -296,7 +296,7 @@ func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func()
 //
 // Deliberately NO config key: turning companions off is a per-invocation or CI
 // decision, not project state someone can leave set and later wonder why their
-// ltk skills vanished.
+// ltk commands vanished.
 var (
 	companionsMu       sync.Mutex
 	companionsDisabled bool
@@ -304,7 +304,7 @@ var (
 
 // SetCompanionsDisabled turns companion-loadout discovery off (or back on) for
 // the process. When off, no companion binary is executed and no companion
-// skills/hooks/MCP/context are contributed.
+// commands/hooks/MCP/context are contributed.
 func SetCompanionsDisabled(v bool) {
 	companionsMu.Lock()
 	defer companionsMu.Unlock()

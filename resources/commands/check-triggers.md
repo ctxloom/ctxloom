@@ -51,7 +51,7 @@ list until that condition is met.
 ## Notes
 
 - `evaluate_triggers` proposes; it never changes a task's status itself —
-  this skill is what turns a confirmed fired verdict into an actual status
+  this command is what turns a confirmed fired verdict into an actual status
   change, and only after the user confirms.
 - Verdicts are cached against the evidence that produced them, so a repeat run
   with nothing changed makes no further model calls. Pass `refresh: true` to

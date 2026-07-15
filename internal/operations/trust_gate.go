@@ -13,7 +13,7 @@ import (
 )
 
 // contentGate is the per-item trust gate bound into a bundle loader's content
-// choke (bundles.fragmentContent/skillContent). It owns a review-records store
+// choke (bundles.fragmentContent/commandContent). It owns a review-records store
 // built ONCE so the decision function resolves without per-item file I/O, and
 // resolves each item fail-closed: any parse/evaluation error withholds
 // (returns false), matching the security mandate that "couldn't evaluate" must
@@ -175,10 +175,10 @@ func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *c
 // bundle hooks written to backend settings, plus prompt command-file exports —
 // through the same per-item decision function as content. These surfaces bypass
 // the content loader (they resolve via config.ResolveBundle* → WriteSettings,
-// and backends.LoadSkillExports), so a rejection at the loader would be a
+// and backends.LoadCommandExports), so a rejection at the loader would be a
 // no-op; each is gated at its OWN choke. The gate is injected into
 // config.SetExecutableTrustGate (consulted by ResolveBundleMCPServers /
-// ResolveBundleHooks / LoadSkillExports); a DENY omits the executable from
+// ResolveBundleHooks / LoadCommandExports); a DENY omits the executable from
 // settings (fail-closed). It tallies withheld refs so the caller can surface a
 // content-free advisory.
 //
@@ -236,7 +236,7 @@ func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.L
 // bare ref list. Use this over exposureLoader whenever the caller goes on to
 // call warnWithheld; callers that only load content (fragments.go, prompts.go
 // — a single-item resource fetch that already returns a distinct withheld
-// sentinel error, errs.ErrFragmentWithheld/ErrSkillWithheld) have no reasoned
+// sentinel error, errs.ErrFragmentWithheld/ErrCommandWithheld) have no reasoned
 // advisory to print and keep using the simpler exposureLoader.
 func exposureLoaderGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Loader, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))

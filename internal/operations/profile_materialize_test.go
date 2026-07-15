@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -58,25 +59,25 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 		"the assembled fragment block is the CLAUDE.md payload")
 }
 
-// TestMaterializeProfile_KeepsHomeShadowedSkill is the end-to-end regression for
-// sour-feed: `profile materialize --target` must produce a PORTABLE,
-// self-contained tree, so a builtin skill (e.g. "recover") that happens to be
-// byte-identical to a file already sitting in the MATERIALIZING machine's own
-// ~/.claude/commands must still land in --target. Pre-fix, claude's
-// DeliverSkills unconditionally deduped against GlobalCommandsDir(), silently
+// TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end regression
+// for sour-feed: `profile materialize --target` must produce a PORTABLE,
+// self-contained tree, so a builtin command (e.g. "recover") that happens to
+// be byte-identical to a file already sitting in the MATERIALIZING machine's
+// own ~/.claude/commands must still land in --target. Pre-fix, claude's
+// DeliverCommands unconditionally deduped against GlobalCommandsDir(), silently
 // dropping it — exactly the observed cr-correctness bug (3 built-ins missing
 // for claude-code only, present for antigravity/kiro/codex, because this host
 // happened to already have them installed under ~/.claude/commands).
-func TestMaterializeProfile_KeepsHomeShadowedSkill(t *testing.T) {
+func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 
-	// Render the "recover" builtin skill exactly as materialize itself will (same
-	// LoadSkillExports/CommandExportsFor pipeline profile_materialize.go drives),
+	// Render the "recover" builtin command exactly as materialize itself will (same
+	// LoadCommandExports/CommandExportsFor pipeline profile_materialize.go drives),
 	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
 	// a materializing host that has already installed its own commands (e.g. via
 	// `manage hooks install`), which the --target launch environment does NOT
 	// share.
-	exports := backends.CommandExportsFor("claude-code", backends.LoadSkillExports(cfg, []string{"reviewer"}))
+	exports := backends.CommandExportsFor("claude-code", backends.LoadCommandExports(cfg, []string{"reviewer"}))
 	var seeded bool
 	for _, e := range exports {
 		if e.Name != "recover" {
@@ -89,16 +90,16 @@ func TestMaterializeProfile_KeepsHomeShadowedSkill(t *testing.T) {
 		seeded = true
 		break
 	}
-	require.True(t, seeded, "precondition: the recover builtin skill must be among the exports")
+	require.True(t, seeded, "precondition: the recover builtin command must be among the exports")
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, res.Wrote, "skills")
+	assert.Contains(t, res.Wrote, "commands")
 
 	assert.FileExists(t, filepath.Join(target, ".claude", "commands", "recover.md"),
-		"a skill byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
+		"a command byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 
 // TestMaterializeProfile_BackendAlias proves `claude` maps to claude-code.
@@ -154,6 +155,53 @@ func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 	require.NoError(t, err, "the backend MCP config must be written")
 	assert.Contains(t, string(data), "prof-srv",
 		"the profile's inline mcp: server must be folded into the exported .mcp.json")
+}
+
+// TestMaterializeProfile_WritesSkills is the PERSISTENT-path proof of the
+// skill/command split's Part B3-seam: a directory profile's bundle-shipped
+// Agent Skill package lands at <target>/.claude/skills/<name>/SKILL.md (+
+// sibling files, exec bit preserved) — the same materialize call that writes
+// CLAUDE.md/.mcp.json/settings/commands (TestMaterializeProfile_WritesClaudeMd)
+// now also reports and writes the skills surface. This exercises
+// backends.SkillExportsFor + backends.LoadSkillExports end to end through a
+// REAL bundle-shipped skill (config.ResolveBundleSkills), unlike the claude
+// package's unit tests, which drive Surfaces.Skills directly against a
+// synthetic agent.SkillExport fixture — together they cover both the live
+// (claude package) and persistent (here) delivery paths the plan calls for.
+func TestMaterializeProfile_WritesSkills(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir, _ := regenTestApp(t)
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	bundlesDir := paths.LocalBundlesPath(appDir)
+	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "humanize")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
+		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
+		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize:\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions body.\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
+		[]byte("#!/bin/sh\necho hi\n"), 0755))
+
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	target := t.TempDir()
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"skilled"}, Target: target,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Wrote, "skills", "the skills surface is reported as written")
+
+	data, err := os.ReadFile(filepath.Join(target, ".claude", "skills", "humanize", "SKILL.md"))
+	require.NoError(t, err, "the bundle-shipped skill's SKILL.md must land in the portable --target tree")
+	assert.Contains(t, string(data), "Instructions body.")
+
+	info, err := os.Stat(filepath.Join(target, ".claude", "skills", "humanize", "scripts", "run.sh"))
+	require.NoError(t, err, "the skill's scripts/run.sh must be materialized")
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit survives the persistent materialize path")
 }
 
 // TestMaterializeProfile_Validation covers the guard rails.

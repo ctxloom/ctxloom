@@ -9,11 +9,11 @@ This page is generated from `ctxloom skill list --help`.
 
 ## ctxloom skill list
 
-List all skills
+List all Agent Skill packages
 
 ### Synopsis
 
-List all skills from all installed bundles.
+List all Agent Skill packages from all installed bundles.
 
 Use --bundle to filter by a specific bundle.
 
@@ -33,10 +33,10 @@ ctxloom skill list [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
-* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage skills
+* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
 

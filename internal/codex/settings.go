@@ -63,6 +63,40 @@ func (w *CodexHookWriter) SettingsPath(projectDir string) string {
 	return filepath.Join(projectDir, ".codex", "config.toml")
 }
 
+// AgentsMDFile is the workspace-fixed file codex reads NATIVELY at session
+// start for repo-level instructions (see internal/codex/backend.go /
+// surfaces.go: codex "natively reads a workspace-fixed AGENTS.md"). ctxloom
+// historically did not write it: an unmanaged whole-file write would have
+// clobbered hand-authored content the same way claude's CLAUDE.md was
+// (taskloom lanky-plop). Managed-section markers make it safe — see
+// agentsMDPath / WriteContext below.
+const AgentsMDFile = "AGENTS.md"
+
+// agentsMDPath returns the path to the workspace AGENTS.md file.
+func (w *CodexHookWriter) agentsMDPath(projectDir string) string {
+	return filepath.Join(projectDir, AgentsMDFile)
+}
+
+// WriteContext implements agent.ContextWriter for Codex CLI: it merges the
+// assembled context into the ctxloom-managed section of the workspace
+// AGENTS.md, which codex reads NATIVELY at session start — no hook required.
+// This is ADDITIVE to the existing SessionStart-hook + content-addressed
+// cache-file route (contextSurface in surfaces.go, wired through
+// configSurface's hooks): that route remains necessary for the RUN/LAUNCH
+// path, which delivers a per-invocation content hash out-of-band of any
+// workspace-fixed file (see BaseContextProvider.Provide / setupViaCells).
+// AGENTS.md gives the STATIC materialize/init path (`ctxloom profile
+// materialize`, no active run) a real context surface it never had — that
+// path only ever had the assembled Context STRING (SurfaceInputs.Context), not
+// resolved Fragment objects, so the fragments-only cache-file route silently
+// delivered nothing there (taskloom tiny-ooze). Preserves hand-authored
+// content outside the markers byte-for-byte; empty content removes the managed
+// section (and the file, when it was wholly ctxloom's).
+func (w *CodexHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
+	path := w.agentsMDPath(req.ProjectDir)
+	return agent.WriteManagedContext(w.getFS(), path, AgentsMDFile, req.Context, AgentsMDFile)
+}
+
 // WriteSettings implements SettingsWriter for Codex CLI. Hooks and MCP servers
 // are written to .codex/config.toml as the [hooks] and [mcp_servers] tables.
 func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {

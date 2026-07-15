@@ -24,7 +24,7 @@ type SearchResult struct {
 // SearchContentRequest contains parameters for searching content.
 type SearchContentRequest struct {
 	Query     string   `json:"query"`
-	Types     []string `json:"types"`      // fragment, prompt, profile, mcp_server, bundle
+	Types     []string `json:"types"`      // fragment, command, profile, mcp_server, bundle
 	Tags      []string `json:"tags"`       // Filter by tags (for fragments)
 	SortBy    string   `json:"sort_by"`    // name, type, relevance
 	SortOrder string   `json:"sort_order"` // asc, desc
@@ -57,7 +57,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Determine which types to search
-	searchTypes := collections.NewSetFrom("fragment", "skill", "profile", "mcp_server")
+	searchTypes := collections.NewSetFrom("fragment", "command", "skill", "profile", "mcp_server")
 	if len(req.Types) > 0 {
 		searchTypes = collections.NewSetFrom(req.Types...)
 	}
@@ -81,6 +81,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 			run func() []SearchResult
 		}{
 			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
+			{"command", func() []SearchResult { return searchCommands(loader, query) }},
 			{"skill", func() []SearchResult { return searchSkills(loader, query) }},
 			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
 			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
@@ -161,10 +162,10 @@ func searchFragments(loader *bundles.Loader, query string, tags []string) []Sear
 	return results
 }
 
-// searchSkills returns prompts whose name matches query. Loader errors yield no
-// results.
-func searchSkills(loader *bundles.Loader, query string) []SearchResult {
-	prompts, err := loader.ListAllSkills()
+// searchCommands returns prompts whose name matches query. Loader errors
+// yield no results.
+func searchCommands(loader *bundles.Loader, query string) []SearchResult {
+	prompts, err := loader.ListAllCommands()
 	if err != nil {
 		return nil
 	}
@@ -172,10 +173,41 @@ func searchSkills(loader *bundles.Loader, query string) []SearchResult {
 	for _, p := range prompts {
 		if strings.Contains(strings.ToLower(p.Name), query) {
 			results = append(results, SearchResult{
-				Type:   "skill",
+				Type:   "command",
 				Name:   p.Name,
 				Source: p.Source,
 				Match:  "name",
+			})
+		}
+	}
+	return results
+}
+
+// searchSkills returns Agent Skill packages whose name or description matches
+// query. Loader errors yield no results — mirrors searchCommands.
+func searchSkills(loader *bundles.Loader, query string) []SearchResult {
+	infos, err := loader.ListAllSkills()
+	if err != nil {
+		return nil
+	}
+	var results []SearchResult
+	for _, info := range infos {
+		matchType := ""
+		switch {
+		case strings.Contains(strings.ToLower(info.Name), query):
+			matchType = "name"
+		case strings.Contains(strings.ToLower(info.Description), query):
+			matchType = "description"
+		case containsTag(info.Tags, query):
+			matchType = "tag"
+		}
+		if matchType != "" {
+			results = append(results, SearchResult{
+				Type:   "skill",
+				Name:   info.Name,
+				Tags:   info.Tags,
+				Source: info.Bundle,
+				Match:  matchType,
 			})
 		}
 	}

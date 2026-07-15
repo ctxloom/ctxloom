@@ -28,9 +28,9 @@ func (r *recordLifecycle) MergeManaged(_ *ManagedConfig, _ string, contextHash s
 	r.contextHash = contextHash
 }
 
-type noopSkills struct{}
+type noopCommands struct{}
 
-func (noopSkills) RegisterFromContent(string, []CommandExport) error { return nil }
+func (noopCommands) RegisterFromContent(string, []CommandExport) error { return nil }
 
 // ---- cell-seam test doubles --------------------------------------------------
 
@@ -51,18 +51,19 @@ type recordSet struct {
 	deliverDirs []string
 }
 
-// surfaces returns the four fake surfaces in a stable order (context first).
+// surfaces returns the five fake surfaces in a stable order (context first).
 func (s *recordSet) surfaces() []*recordSurface {
 	return []*recordSurface{
 		{set: s, label: "context"},
 		{set: s, label: "mcp"},
 		{set: s, label: "settings"},
+		{set: s, label: "commands"},
 		{set: s, label: "skills"},
 	}
 }
 
 func (s *recordSet) Deliveries() []Delivery {
-	out := make([]Delivery, 0, 4)
+	out := make([]Delivery, 0, 5)
 	for _, sf := range s.surfaces() {
 		out = append(out, sf)
 	}
@@ -141,8 +142,10 @@ func (s *recordSurface) Kind() SurfaceKind {
 		return SurfaceMCP
 	case "settings":
 		return SurfaceSettings
-	default:
+	case "skills":
 		return SurfaceSkills
+	default:
+		return SurfaceCommands
 	}
 }
 
@@ -164,7 +167,7 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, nil)
+	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, nil)
 	return b, rec
 }
 
@@ -175,7 +178,7 @@ func newLegacyBackend() (*LaunchBackend, *recordLifecycle) {
 func newCellBackend(set *recordSet, rawContext, contextHook bool) *LaunchBackend {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(NewBaseLifecycle("test"), noopSkills{}, NewBaseContextProvider(), nil,
+	b.InitLaunch(NewBaseLifecycle("test"), noopCommands{}, NewBaseContextProvider(), nil,
 		&CellDelivery{
 			Build: func(in SurfaceInputs, isolatedDir string) SurfaceSet {
 				set.inputs = in
@@ -198,7 +201,7 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, &CellDelivery{
+	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, &CellDelivery{
 		Build: func(SurfaceInputs, string) SurfaceSet { return EmptySurfaceSet{} },
 	})
 
@@ -249,7 +252,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 		CellKind:  CellKindShared,
 		Managed: &ManagedConfig{
 			ManageStatusline: true,
-			Skills:           []CommandExport{{Name: "demo"}},
+			Commands:         []CommandExport{{Name: "demo"}},
 			Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
 				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 			}},
@@ -261,7 +264,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 	assert.Equal(t, "project rules", set.inputs.Context, "assembled context string routed to Build")
 	assert.Equal(t, ephem, set.isolatedDir, "the out-of-cwd dir is the harp's PRIVATE ephemeral dir")
 	assert.True(t, set.usedShared, "a SharedCell delivers via the shared-cwd (race-safe) set")
-	assert.Equal(t, []CommandExport{{Name: "demo"}}, set.inputs.Skills, "skills routed through inputs")
+	assert.Equal(t, []CommandExport{{Name: "demo"}}, set.inputs.Commands, "commands routed through inputs")
 	require.NotNil(t, set.inputs.Hooks, "merged hooks routed through inputs")
 	assert.NotEmpty(t, set.inputs.Hooks.Unified.SessionStart, "merged hooks carry the session-bind hook")
 	assert.True(t, set.inputs.ManageStatusline, "manageStatusline mirrors the managed config")
@@ -273,7 +276,7 @@ func TestSetup_SharedCell_SuppressesHookRoutesMergedInputs(t *testing.T) {
 		assert.Empty(t, h.ContextHash,
 			"no context-injection hook: MergeManaged was fed an empty hash")
 	}
-	require.Len(t, b.delivered, 4, "all four surfaces collected via the seam")
+	require.Len(t, b.delivered, 5, "all five surfaces collected via the seam")
 }
 
 // ---- cell path: isolated cell -----------------------------------------------
@@ -299,7 +302,7 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	for _, dir := range set.deliverDirs {
 		assert.Equal(t, work, dir, "each well-known surface lands in the private working dir")
 	}
-	require.Len(t, b.delivered, 4, "all four surfaces collected")
+	require.Len(t, b.delivered, 5, "all five surfaces collected")
 }
 
 // ---- cell path: RawContext (codex/agy/kiro) ---------------------------------
@@ -315,7 +318,7 @@ func TestSetup_RawContext_WritesCacheFileAndKeysHook(t *testing.T) {
 	rec := &recordLifecycle{}
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")
-	b.InitLaunch(rec, noopSkills{}, NewBaseContextProvider(), nil, &CellDelivery{
+	b.InitLaunch(rec, noopCommands{}, NewBaseContextProvider(), nil, &CellDelivery{
 		Build:       func(in SurfaceInputs, _ string) SurfaceSet { set.inputs = in; return set },
 		RawContext:  true,
 		ContextHook: true,
@@ -397,7 +400,7 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	}
 	assert.True(t, injected, "the SessionStart injection hook is re-appended to the merged hooks")
 	// The failed context handle is not recorded, but the remaining surfaces are.
-	assert.Len(t, b.delivered, 3, "context handle skipped; mcp/settings/skills still delivered")
+	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
 }
 
 // ---- cleanup ----------------------------------------------------------------
@@ -417,8 +420,8 @@ func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	}))
 
 	require.NoError(t, b.Cleanup(context.Background()))
-	// Delivery order was context, mcp, settings, skills → LIFO reverses it.
-	assert.Equal(t, []string{"skills", "settings", "mcp", "context"}, order, "Cleanup runs handles LIFO")
+	// Delivery order was context, mcp, settings, commands, skills → LIFO reverses it.
+	assert.Equal(t, []string{"skills", "commands", "settings", "mcp", "context"}, order, "Cleanup runs handles LIFO")
 	assert.Empty(t, b.delivered, "Cleanup clears the handle set")
 }
 

@@ -41,6 +41,13 @@ type RunRecord struct {
 	// Ladder is the run's resolved escalation ladder (Wave C2), fixed at
 	// enqueue.
 	Ladder Ladder
+	// Permission is the run's resolved permission mode's kind name (Wave
+	// F1), fixed at enqueue — mirrors Ladder; see runEnqueued.Permission.
+	Permission string
+	// MCPServers is the run's resolved MCP server NAMES ONLY (Wave F1),
+	// fixed at enqueue — mirrors Ladder; see runEnqueued.MCPServers. Never
+	// command/args/env.
+	MCPServers []string
 }
 
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
@@ -87,6 +94,8 @@ func (f *runsFold) apply(fact Fact) {
 			EnqueuedAt:   fact.At,
 			LastActivity: fact.At,
 			Ladder:       ladderFromFact(p.Ladder),
+			Permission:   p.Permission,
+			MCPServers:   p.MCPServers,
 		}
 		f.byHarp[p.Harp] = p.RunID
 		if p.CredHash != "" {

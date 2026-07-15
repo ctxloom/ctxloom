@@ -42,6 +42,14 @@ type SpawnPlan struct {
 	// policy — enqueueRun journals it onto the run record.
 	Ladder   Ladder
 	Degraded []string
+	// MCPServers is the child's fully composed MCP server set (Wave F1),
+	// resolved once at Resolve time — the SAME rationale as Ladder: a later
+	// config edit must not retroactively change a live run's privileges, and
+	// resolving it exactly once means Launch/StartEngine and the enqueue
+	// journal (children.go's enqueueRun) all read the identical set instead
+	// of each recomposing it (which would also re-fire the executable trust
+	// gate's withheld-item warning per call).
+	MCPServers []agent.ChatMCPServer
 	// ViaStartRun routes this child's engine control over the agentcoord
 	// StartRun path (spawn the runner process, await its dial-home, issue
 	// StartRun on its RunnerChannel) instead of the legacy go-plugin Chat
@@ -194,7 +202,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	if err != nil {
 		return nil, fmt.Errorf("agent_run: %w", err)
 	}
-	return &SpawnPlan{
+	plan := &SpawnPlan{
 		AgentName: agentName,
 		Backend:   rs.Backend,
 		Label:     rs.Label,
@@ -208,7 +216,12 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		// driver moves onto StartRun (see viaStartRunBackends).
 		ViaStartRun: viaStartRunBackends[rs.Backend],
 		resolved:    rs,
-	}, nil
+	}
+	// F1: resolved once here (not per-Launch/StartEngine call) so the
+	// enqueue journal, Launch, and StartEngine all see the IDENTICAL
+	// composed set — see the MCPServers field comment above.
+	plan.MCPServers = s.childMCPServers(plan)
+	return plan, nil
 }
 
 func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) {
@@ -220,7 +233,6 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 }
 
 func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
-	mcpServers := s.childMCPServers(plan)
 	spawnGateMu.Lock()
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
 		Resolved:    plan.resolved,
@@ -229,7 +241,7 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Env:         env,
 		RunnerEnv:   runnerEnv,
 		Permissions: plan.Perm,
-		MCPServers:  mcpServers,
+		MCPServers:  plan.MCPServers,
 		Gate:        s.gate.Gate(),
 		Verbosity:   childVerbosity(),
 		Factory:     s.factory,
@@ -263,7 +275,6 @@ type EngineSpawn struct {
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	mcpServers := s.childMCPServers(plan)
 	spawnGateMu.Lock()
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
 		Resolved:    plan.resolved,
@@ -288,7 +299,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		WorkDir:    eng.WorkDir,
 		Env:        eng.Env,
 		Model:      eng.Model,
-		MCPServers: mcpServers,
+		MCPServers: plan.MCPServers,
 		Kill:       eng.Kill,
 	}, nil
 }
@@ -322,6 +333,23 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 		s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
 	s.gate.WarnWithheld()
 	return servers
+}
+
+// mcpServerNames projects a composed MCP server set onto NAMES ONLY — never
+// command, args, or env, which can carry a secret. This is the shape
+// enqueueRun journals (children.go's runEnqueued.MCPServers) and the roster
+// surfaces (consumer.go's ListRunsResult_RunInfo.McpServers): an operator
+// auditing a live delegation must be able to see WHAT a child can reach
+// without the journal itself becoming a place a credential could leak.
+func mcpServerNames(servers []agent.ChatMCPServer) []string {
+	if len(servers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(servers))
+	for _, srv := range servers {
+		out = append(out, srv.Name)
+	}
+	return out
 }
 
 // childVerbosity gates the child launch's plugin/adapter diagnostics. A dead

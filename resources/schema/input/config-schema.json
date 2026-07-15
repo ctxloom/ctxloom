@@ -77,7 +77,7 @@
         },
         "sign": {
           "type": "object",
-          "description": "Publisher-signing defaults for `fragment push`/`skill push`.",
+          "description": "Publisher-signing defaults for `fragment push`/`command push`.",
           "properties": {
             "default": {
               "type": "boolean",
@@ -199,9 +199,14 @@
             "$ref": "#/$defs/mcpConfig",
             "description": "MCP servers for this profile (inherited)"
           },
-          "prompts": {
+          "commands": {
             "type": "array",
-            "description": "Slash-command prompt exports curated for this profile (each a \"<bundle>#prompts/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these prompts are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
+            "description": "Slash-command exports curated for this profile (each a \"<bundle>#commands/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "skills": {
+            "type": "array",
+            "description": "Agent Skill packages curated for this profile (each a \"<bundle>#skills/<name>\" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement).",
             "items": { "type": "string", "minLength": 1 }
           },
           "variables": {
@@ -400,6 +405,20 @@
             "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
             "agent": { "type": "string", "description": "Kiro custom agent selected via --agent (default \"ctxloom\")." },
             "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "opencode",
+          "description": "opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.",
+          "properties": {
+            "type": { "const": "opencode" },
+            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
+            "model": { "type": "string", "examples": ["openrouter/meta-llama/llama-3.3-70b-instruct:free"], "description": "opencode model string (provider/model); written into the run's opencode.json." },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },
           "additionalProperties": false
         },

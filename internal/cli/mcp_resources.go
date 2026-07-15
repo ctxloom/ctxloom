@@ -26,7 +26,8 @@ const (
 	resourceSessionsRecentURI = "ctxloom://sessions/recent"
 	resourceFragmentsURI      = "ctxloom://fragments"
 	resourceProfilesURI       = "ctxloom://profiles"
-	resourcePromptsURI        = "ctxloom://skills"
+	resourcePromptsURI        = "ctxloom://commands"
+	resourceSkillsURI         = "ctxloom://skills"
 	resourceRemotesURI        = "ctxloom://remotes"
 	resourceMCPServersURI     = "ctxloom://mcp-servers"
 	resourceSessionsURI       = "ctxloom://sessions"
@@ -66,8 +67,15 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourcePromptsURI,
+		Name:        "commands",
+		Description: "All available commands with descriptions. Replaces the list_commands tool.",
+		MIMEType:    "application/yaml",
+	}, listResource(s, operations.ListCommands))
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceSkillsURI,
 		Name:        "skills",
-		Description: "All available skills with descriptions. Replaces the list_skills tool.",
+		Description: "All available Agent Skill packages (model-invoked SKILL.md directories) with descriptions and file counts. Distinct from commands (user-invoked slash commands).",
 		MIMEType:    "application/yaml",
 	}, listResource(s, operations.ListSkills))
 
@@ -109,10 +117,17 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 	}, s.handleResourceProfile)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://commands/{name}",
+		Name:        "command",
+		Description: "A single command's content by name. Replaces the get_command tool.",
+		MIMEType:    "text/markdown",
+	}, s.handleResourceCommand)
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: "ctxloom://skills/{name}",
 		Name:        "skill",
-		Description: "A single skill's content by name. Replaces the get_skill tool.",
-		MIMEType:    "text/markdown",
+		Description: "A single Agent Skill package's frontmatter, instructions body, and file manifest by name.",
+		MIMEType:    "application/yaml",
 	}, s.handleResourceSkill)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
@@ -136,8 +151,10 @@ separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + 
 ## Available URIs
 
 - ` + "`ctxloom://help`" + ` — this file.
-- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://skills`" + `, ` + "`ctxloom://profiles`" + ` — listings;
-  append ` + "`/{name}`" + ` for a single item's content.
+- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://commands`" + `, ` + "`ctxloom://skills`" + `,
+  ` + "`ctxloom://profiles`" + ` — listings; append ` + "`/{name}`" + ` for a single item's content.
+  A command is user-invoked (a slash command); a skill is model-invoked (a
+  SKILL.md package loaded via progressive disclosure).
 - ` + "`ctxloom://remotes`" + ` — configured remotes; ` + "`ctxloom://remotes/{name}/contents`" + `
   lists a remote's bundles and profiles.
 - ` + "`ctxloom://mcp-servers`" + ` — configured MCP servers.
@@ -246,6 +263,18 @@ func (s *ctxServer) handleResourceProfile(ctx context.Context, req *mcp.ReadReso
 	return marshalResourceYAML(req.Params.URI, result)
 }
 
+func (s *ctxServer) handleResourceCommand(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://commands/")
+	if name == "" {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.GetCommand(ctx, s.cfg, operations.GetCommandRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+}
+
 func (s *ctxServer) handleResourceSkill(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	name := extractURIName(req.Params.URI, "ctxloom://skills/")
 	if name == "" {
@@ -255,7 +284,7 @@ func (s *ctxServer) handleResourceSkill(ctx context.Context, req *mcp.ReadResour
 	if err != nil {
 		return nil, err
 	}
-	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+	return marshalResourceYAML(req.Params.URI, result)
 }
 
 func (s *ctxServer) handleResourceRemoteContents(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

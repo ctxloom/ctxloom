@@ -1,0 +1,115 @@
+@doc
+Feature: Coordinator delegates isolated work
+
+  A coordinator that fans work out to delegated children is only as safe as
+  the boundary between them. If a child agent Alice spawns to fix one thing
+  can quietly reach the MCP server she gave to a DIFFERENT child — or the one
+  she reserved for herself — then "delegation" is just a shared blast radius
+  wearing a different name. ctxloom's answer is that each child's privileges
+  are its OWN, resolved from its OWN configured profiles, never a sibling's or
+  the coordinator's — and that grant is not just true in memory, it is
+  journaled at the moment the child is enqueued, so an operator auditing
+  later sees exactly what a live run was actually given, not what today's
+  config now says.
+
+  # NOTE ON WHAT THIS JOURNEY CAN AND CANNOT SEE: tests/acceptance drives a
+  # `ctxloom` SUBPROCESS over MCP stdio — it can only observe what crosses the
+  # wire or lands on disk, never a captured in-process Go struct. There is no
+  # MCP tool reachable from this harness that exposes the roster/ListRuns
+  # projection over the wire (roster's real "runner-terminated" MCP endpoint
+  # is a spawned child's own local socket — internal/cli/mcp_runner.go — which
+  # this harness's plain `ctxloom mcp` subprocess never becomes). So every
+  # assertion below reads the coordinator's own durable journal, runs.jsonl,
+  # directly off disk: the SAME data roster is backed by (consumer.go's
+  # listRunsSnapshot reads this exact fold), and a genuinely external,
+  # disk-durable observable — not a Go struct capture, and not faked.
+  #
+  # For the same reason, three things a NAIVE version of this journey might
+  # have tried to assert are deliberately NOT here: a child's assembled
+  # CONTEXT contents (the mock backend never echoes fragments back, and no
+  # tool here returns a child's raw transcript), child WORKSPACE/filesystem
+  # isolation (the mock engine never touches its WorkDir), and artifact
+  # publish/fetch/tamper-refusal (agent_report/agent_fetch_artifact are
+  # registered only on a spawned session's OWN per-cell runner socket, never
+  # reachable from an external MCP client like this one). All three need a
+  # different harness than this one to prove honestly; faking them here would
+  # be exactly the overclaim this project has already been caught making once.
+
+  Background:
+    Given Alice's coordinator can delegate to two agents, "reviewer" and "fixer", each with its own profile, its own MCP server, and its own permission mode
+
+  # LOCKED — the sharpest claim this journey makes, and the reason it exists.
+  # Verified: prodSpawner.childMCPServers (spawner.go) composes a child's MCP
+  # set strictly from ITS OWN resolved profiles; runEnqueued.MCPServers
+  # (facts.go) journals exactly that set, names only. Break-point verified by
+  # unioning all resolved profiles in childMCPServers: the scenario goes RED
+  # because "reviewer"'s journaled grant then contains "deploy-tool".
+  Scenario: Each child is granted only its own MCP servers, never a sibling's or the coordinator's
+    When the agent calls tool "agent_run" with:
+      | agent  | reviewer |
+      | prompt | go       |
+    Then the tool call succeeds
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And "reviewer"'s journaled grant carries its own MCP server and not "fixer"'s
+    And "fixer"'s journaled grant carries its own MCP server and not "reviewer"'s
+
+  # LOCKED — the grant is auditable, not implicit: an operator reading the
+  # journal sees the ACTUAL resolved permission mode a child ran with, not a
+  # guess. The two children here are given genuinely different modes
+  # (reviewer: plan; fixer: bypass) precisely so this cannot be satisfied by
+  # one hard-coded value showing up twice.
+  Scenario: Each child's permission mode is recorded, not just implied
+    When the agent calls tool "agent_run" with:
+      | agent  | reviewer |
+      | prompt | go       |
+    Then the tool call succeeds
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And "reviewer"'s journaled grant records its own permission mode
+    And "fixer"'s journaled grant records its own permission mode, different from "reviewer"'s
+
+  # LOCKED — DURABILITY. Verified: runEnqueued.Permission/MCPServers are
+  # written once, at enqueue (children.go's enqueueRun), the same journaling
+  # discipline already applied to the escalation Ladder and for the identical
+  # reason: a later config edit must not retroactively rewrite what a LIVE
+  # run was actually granted. This is not a tautology about append-only
+  # files — the second spawn below proves the edit genuinely took effect
+  # (fixer's NEXT run reflects it), while the run already on record does not
+  # move.
+  Scenario: A child's grant is journaled at enqueue and survives a later config edit unchanged
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And "fixer"'s current journaled grant is remembered as "before the edit"
+    When Alice edits "fixer" to use "reviewer"'s profile and permission mode instead
+    And the agent calls tool "agent_run" with:
+      | agent  | fixer    |
+      | prompt | go again |
+    Then the tool call succeeds
+    And "fixer"'s current journaled grant is remembered as "after the edit"
+    And the grant remembered as "before the edit" still shows the original MCP server and permission mode
+    And the grant remembered as "after the edit" shows the newly edited MCP server and permission mode
+
+  # LOCKED — names, never secrets, deliberately. Verified: runEnqueued.MCPServers
+  # (facts.go) carries mcp.ChatMCPServer NAMES only — never command, args, or
+  # env — the same boundary CredHash already draws for the bearer token
+  # (identity recorded, never the credential). Both fixture bundles here ship
+  # an MCP command carrying a plausible secret-shaped argument specifically so
+  # this scenario has something real to prove was never written.
+  Scenario: The audit trail carries a server's name, never the command that can carry a secret
+    When the agent calls tool "agent_run" with:
+      | agent  | reviewer |
+      | prompt | go       |
+    Then the tool call succeeds
+    When the agent calls tool "agent_run" with:
+      | agent  | fixer |
+      | prompt | go    |
+    Then the tool call succeeds
+    And the journal carries both children's MCP server names
+    But the journal never carries the command or arguments that launch them

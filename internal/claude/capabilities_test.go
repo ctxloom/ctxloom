@@ -1,4 +1,4 @@
-// Capability tests for the Claude Code launch backend (lifecycle, skills,
+// Capability tests for the Claude Code launch backend (lifecycle, commands,
 // context, history) plus the shared hook-assembly contract it drives.
 package claude
 
@@ -22,14 +22,14 @@ func newClaudeLifecycle() *agent.BaseLifecycle {
 	return agent.NewBaseLifecycle("claude-code")
 }
 
-// TestClaudeSkills_RegisterFromContent covers the host-resolved export path: the
-// host maps bundle content to agent.CommandExport (enablement + metadata already
-// resolved) and the skill writer just emits the command files.
-func TestClaudeSkills_RegisterFromContent(t *testing.T) {
+// TestClaudeCommands_RegisterFromContent covers the host-resolved export path:
+// the host maps bundle content to agent.CommandExport (enablement + metadata
+// already resolved) and the command writer just emits the command files.
+func TestClaudeCommands_RegisterFromContent(t *testing.T) {
 	workDir := t.TempDir()
-	skills := &ClaudeSkills{}
+	commands := &ClaudeCommands{}
 
-	require.NoError(t, skills.RegisterFromContent(workDir, []agent.CommandExport{
+	require.NoError(t, commands.RegisterFromContent(workDir, []agent.CommandExport{
 		{Name: "from-bundle", Content: "body", Enabled: true, Description: "From a bundle"},
 	}))
 	// Check the manifest tracks it.

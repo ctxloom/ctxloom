@@ -81,7 +81,7 @@ func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(data, &got))
 	assert.Equal(t, "1.0.0", got.Version, "default version")
 	assert.Empty(t, got.Fragments)
-	assert.Empty(t, got.Skills)
+	assert.Empty(t, got.Commands)
 	assert.Empty(t, got.MCP)
 }
 
@@ -141,7 +141,7 @@ func TestCreateBundle_WithPrompts(t *testing.T) {
 
 	result, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
 		Name: "with-prompts",
-		Skills: map[string]BundleSkillInput{
+		Commands: map[string]BundleCommandInput{
 			"review": {
 				Content:     "Review this code for X.",
 				Description: "Code review prompt",
@@ -157,7 +157,7 @@ func TestCreateBundle_WithPrompts(t *testing.T) {
 	var got bundles.Bundle
 	require.NoError(t, yaml.Unmarshal(data, &got))
 
-	prompt, ok := got.Skills["review"]
+	prompt, ok := got.Commands["review"]
 	require.True(t, ok)
 	assert.Equal(t, "Review this code for X.", prompt.Content)
 	assert.Equal(t, "Code review prompt", prompt.Description)
@@ -489,7 +489,7 @@ func TestUpdateBundle_PromptAndMCPMutations(t *testing.T) {
 
 	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
 		Name: "seed",
-		SetPrompts: map[string]BundleSkillInput{
+		SetPrompts: map[string]BundleCommandInput{
 			"p1": {Content: "prompt content", NoDistill: true},
 		},
 		SetMCPServers: map[string]BundleMCPInput{
@@ -511,7 +511,7 @@ func TestUpdateBundle_PromptAndMCPMutations(t *testing.T) {
 	var got bundles.Bundle
 	require.NoError(t, yaml.Unmarshal(data, &got))
 
-	assert.NotContains(t, got.Skills, "p1")
+	assert.NotContains(t, got.Commands, "p1")
 	assert.NotContains(t, got.MCP, "server1")
 }
 
@@ -1040,21 +1040,21 @@ func TestCreateBundle_DistillsPromptsToo(t *testing.T) {
 	result, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
 		Name:      "prompt-distill",
 		Distiller: d,
-		Skills: map[string]BundleSkillInput{
+		Commands: map[string]BundleCommandInput{
 			"review": {Content: "long review prompt"},
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, d.calls, 1)
-	assert.Equal(t, DistillKindSkill, d.calls[0].Kind)
+	assert.Equal(t, DistillKindCommand, d.calls[0].Kind)
 
 	data, err := os.ReadFile(result.Path)
 	require.NoError(t, err)
 	var got bundles.Bundle
 	require.NoError(t, yaml.Unmarshal(data, &got))
-	assert.Equal(t, "P-DISTILLED", got.Skills["review"].Distilled)
-	assert.Equal(t, "m", got.Skills["review"].DistilledBy)
-	assert.NotEmpty(t, got.Skills["review"].ContentHash)
+	assert.Equal(t, "P-DISTILLED", got.Commands["review"].Distilled)
+	assert.Equal(t, "m", got.Commands["review"].DistilledBy)
+	assert.NotEmpty(t, got.Commands["review"].ContentHash)
 }
 
 // TestCreateBundle_NotesAndInstallationRoundTrip — Notes/Installation on
@@ -1067,7 +1067,7 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 		Fragments: map[string]BundleFragmentInput{
 			"f": {Content: "x", Notes: "internal", Installation: "run X", NoDistill: true},
 		},
-		Skills: map[string]BundleSkillInput{
+		Commands: map[string]BundleCommandInput{
 			"p": {Content: "y", Notes: "p-notes", Installation: "install y", NoDistill: true},
 		},
 		MCPServers: map[string]BundleMCPInput{
@@ -1083,8 +1083,8 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 
 	assert.Equal(t, "internal", got.Fragments["f"].Notes)
 	assert.Equal(t, "run X", got.Fragments["f"].Installation)
-	assert.Equal(t, "p-notes", got.Skills["p"].Notes)
-	assert.Equal(t, "install y", got.Skills["p"].Installation)
+	assert.Equal(t, "p-notes", got.Commands["p"].Notes)
+	assert.Equal(t, "install y", got.Commands["p"].Installation)
 	assert.Equal(t, "m-notes", got.MCP["m"].Notes)
 	assert.Equal(t, "install m", got.MCP["m"].Installation)
 }

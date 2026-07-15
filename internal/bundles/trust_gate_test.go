@@ -33,7 +33,7 @@ func demoSeed() map[string]*Bundle {
 				"keep":    {Content: "keep body"},
 				"blocked": {Content: "blocked body"},
 			},
-			Skills: map[string]BundleSkill{
+			Commands: map[string]BundleCommand{
 				"okprompt":  {Content: "ok prompt body"},
 				"badprompt": {Content: "bad prompt body"},
 			},
@@ -67,19 +67,20 @@ func TestLoaderGate_WithholdsFragment_KeepsSibling(t *testing.T) {
 	}
 }
 
-// TestLoaderGate_WithholdsSkill proves the skill choke (skillContent) drops a
-// denied prompt (ErrSkillWithheld) while a trusted one resolves. The trust gate
-// ref keeps the "#prompts/" kind segment (trust.KindPrompt.Dir()) even though
-// the load selector is "#skills/" — the item-kind rename does not re-key trust.
-func TestLoaderGate_WithholdsSkill(t *testing.T) {
+// TestLoaderGate_WithholdsCommand proves the command choke (commandContent)
+// drops a denied prompt (ErrCommandWithheld) while a trusted one resolves. The
+// trust gate ref keeps the "#prompts/" kind segment (trust.KindPrompt.Dir())
+// even though the load selector is "#commands/" — the item-kind rename does
+// not re-key trust.
+func TestLoaderGate_WithholdsCommand(t *testing.T) {
 	l := NewLoader(nil, true, WithSeededBundles(demoSeed()),
 		WithTrustGate(blockingGate(nil, "#prompts/badprompt")))
 
-	if _, err := l.GetSkill("demo#skills/badprompt"); !errors.Is(err, errs.ErrSkillWithheld) {
-		t.Fatalf("GetSkill(badprompt) err = %v, want ErrSkillWithheld", err)
+	if _, err := l.GetCommand("demo#commands/badprompt"); !errors.Is(err, errs.ErrCommandWithheld) {
+		t.Fatalf("GetCommand(badprompt) err = %v, want ErrCommandWithheld", err)
 	}
-	if _, err := l.GetSkill("demo#skills/okprompt"); err != nil {
-		t.Fatalf("GetSkill(okprompt): %v", err)
+	if _, err := l.GetCommand("demo#commands/okprompt"); err != nil {
+		t.Fatalf("GetCommand(okprompt): %v", err)
 	}
 	if w := l.Withheld(); len(w) != 1 || w[0] != "demo#prompts/badprompt" {
 		t.Errorf("Withheld() = %v, want [demo#prompts/badprompt]", w)

@@ -21,7 +21,7 @@ const ProjectContextPreamble = "\n\n_The content below was assembled by ctxloom 
 	"bundles, profiles, fragments, and prompts; `ctxloom remote pull`, `ctxloom remote " +
 	"trust <name>`, `ctxloom review`; `ctxloom manage hooks install`. The ctxloom " +
 	"MCP tools are only for retrieving context during the session — searching and loading " +
-	"fragments, prompts (skills), and prior session history. Task tracking is the " +
+	"fragments, prompts (commands), and prior session history. Task tracking is the " +
 	"separate `taskloom` MCP server and `taskloom` CLI._"
 
 // FrameProjectContext wraps assembled context in the single-shot ctxloom

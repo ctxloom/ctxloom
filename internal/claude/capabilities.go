@@ -13,13 +13,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// ClaudeSkills registers slash commands for Claude Code.
-type ClaudeSkills struct{}
+// ClaudeCommands registers slash commands for Claude Code.
+type ClaudeCommands struct{}
 
 // RegisterFromContent writes slash commands from host-resolved command exports.
 // The host maps bundle content (with claude-code enablement + metadata) to these
 // agent-agnostic exports, so this stays config/bundle-free.
-func (s *ClaudeSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *ClaudeCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

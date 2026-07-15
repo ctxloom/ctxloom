@@ -1,6 +1,6 @@
 //go:build acceptance
 
-// J3: the "skills my company has validated" journey (j3_corporate_signed.feature)
+// J3: the "content my company has validated" journey (j3_corporate_signed.feature)
 // — signing/trust as the product's value proposition. Cast: Trent (the
 // company/trusted publisher), Alice (the developer), Mallory (the attacker who
 // wants to change what reaches Alice's assistant, not read it).
@@ -292,6 +292,10 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice is warned that the content's signature does not verify$`, func(c context.Context) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
+		// "Alice syncs her project" (the preceding When) is the step that
+		// actually ran the materialize whose output this checks, so it — not
+		// this Then — got the automatic CLIOutput attribution.
+		w.docStepMaterialized = strings.TrimSpace(out)
 		if !strings.Contains(out, "does not verify") {
 			return fmt.Errorf("materialize output does not warn that the signature does not verify; output:\n%s", out)
 		}
@@ -518,7 +522,14 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^ctxloom refuses, because a team decision must be signed$`, func(c context.Context) error {
-		j3 := j3Of(worldFrom(c))
+		w := worldFrom(c)
+		j3 := j3Of(w)
+		// j3.reviewPTYOutput was already attached to "Alice tries to record a
+		// review decision..." via the set-and-consume docStepMaterialized
+		// field, which that step already spent — this Then re-checks the same
+		// PTY transcript, so re-attach it (plus the exit code the assertion is
+		// actually keyed on) rather than leave this step's pane empty.
+		w.docStepMaterialized = fmt.Sprintf("'ctxloom review --project' exit=%d:\n%s", j3.reviewPTYExit, strings.TrimSpace(j3.reviewPTYOutput))
 		if j3.reviewPTYExit == 0 {
 			return fmt.Errorf("expected 'ctxloom review --project' to refuse (non-zero exit) with no signing key available, got exit 0; output:\n%s", j3.reviewPTYOutput)
 		}
@@ -530,6 +541,15 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^nothing is written to the team store$`, func(c context.Context) error {
 		w := worldFrom(c)
+		// A negative assertion (no file was written) has no file content to
+		// show — the real, observed evidence for it is the directory listing
+		// that .ctxloom/approvals is absent from.
+		entries, _ := os.ReadDir(filepath.Join(w.env.ProjectDir, ".ctxloom"))
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		w.docStepMaterialized = fmt.Sprintf(".ctxloom/ contents after the refused review (no \"approvals\"): %s", strings.Join(names, ", "))
 		if w.env.FileExists(".ctxloom/approvals") {
 			return fmt.Errorf("the team store .ctxloom/approvals unexpectedly exists after a refused 'ctxloom review --project'")
 		}

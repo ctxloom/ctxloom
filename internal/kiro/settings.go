@@ -37,11 +37,14 @@ const (
 
 // NewWriter constructs the Kiro CLI settings writer.
 //
-// WARNING: implemented against Kiro's published docs (agent-config,
-// settings/mcp.json, steering, skills), not yet verified live against kiro-cli
-// (agent operations are auth-gated). File shapes and the hook exec/decision
-// protocol may need adjustment once verified — the same doc-first posture the
-// codex writer shipped with.
+// LIVE-VERIFIED for the paths J5's @live "Kiro" row exercises: kiro-cli
+// resolves the materialized WORKSPACE .kiro/agents/<name>.json over any
+// global ~/.kiro/agents copy (its own "Agent conflict ... Using workspace
+// version" precedence, confirmed via `kiro-cli agent list`), the agentSpawn
+// hook fires on session start, and the steering file's assembled context is
+// read by a live turn. NOT exercised live: preToolUse/postToolUse actually
+// firing (no scenario has driven a tool call yet) and mcp.json's tolerance
+// for unknown fields — same doc-first posture as before for those two.
 func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
 	return &KiroWriter{FS: o.FS}
 }

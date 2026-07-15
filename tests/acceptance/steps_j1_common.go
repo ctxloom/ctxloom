@@ -33,7 +33,7 @@ type j1Source struct {
 	url        string // file:// seeded remote URL
 	bundleName string
 	marker     string // the distinctive content this source's item carries
-	itemKind   string // "fragments" or "skills" — for building item refs
+	itemKind   string // "fragments" or "commands" — for building item refs
 	itemName   string
 	signer     *testenv.TestSigner
 	principal  string
@@ -77,10 +77,10 @@ func fragmentSourceYAML(marker string) string {
 	return fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  marker:\n    content: %q\n", marker)
 }
 
-// skillSourceYAML builds a bundle manifest carrying an "agent-setup" skill
+// commandSourceYAML builds a bundle manifest carrying an "agent-setup" command
 // whose content is the marker string — j1b's augmentation payload.
-func skillSourceYAML(marker string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\nskills:\n  agent-setup:\n    content: %q\n", marker)
+func commandSourceYAML(marker string) string {
+	return fmt.Sprintf("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: %q\n", marker)
 }
 
 // seedSource seeds a remote for a named J1 source carrying bundleYAML, whose
@@ -283,7 +283,7 @@ const reviewPromptProbe = 2 * time.Second
 // CTXLOOM_MOCK_RECORD_FILE set (via TestEnvironment.SetEnv), so init.go's
 // launchDiscovery actually spawns the mock and hands it
 // discoverySessionPrompt(cfg) — the composed built-in + every installed
-// agent-setup skill (repo bundle or companion loadout) this harness is
+// agent-setup command (repo bundle or companion loadout) this harness is
 // proving delivery of. Declines both the (possible) inline review offer and
 // the post-discovery relaunch offer (this call proves the INTERVIEW prompt,
 // not the restart — see runFreshMockSession for that). Returns the mock's

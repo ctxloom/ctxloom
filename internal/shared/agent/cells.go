@@ -54,7 +54,14 @@ const (
 	// SurfaceSettings is the engine's settings/hooks surface (.claude/settings.json,
 	// codex config.toml, .agents/hooks.json, kiro agent JSON).
 	SurfaceSettings
-	// SurfaceSkills is the engine's slash-command / skill / prompt files.
+	// SurfaceCommands is the engine's slash-command / skill / prompt files.
+	SurfaceCommands
+	// SurfaceSkills is the engine's Agent Skills surface — SKILL.md package
+	// directories (claude .claude/skills/, kiro .kiro/skills/, …). Distinct
+	// from SurfaceCommands: a command is a user-invoked slash-command template,
+	// a skill is a model-invoked capability package (SKILL.md + optional
+	// scripts/assets), loaded by the engine via progressive disclosure. See
+	// the skill/command split plan (skill-command-split.plan.md §3.4).
 	SurfaceSkills
 )
 
@@ -67,6 +74,8 @@ func (k SurfaceKind) String() string {
 		return "mcp"
 	case SurfaceSettings:
 		return "settings"
+	case SurfaceCommands:
+		return "commands"
 	case SurfaceSkills:
 		return "skills"
 	default:
@@ -116,7 +125,7 @@ type SurfaceSet interface {
 	// SharedRealization reports the backend's out-of-cwd, genuinely race-safe
 	// conversion for kind — claude's --append-system-prompt-file /--mcp-config /
 	// --settings scratch writers. false means the backend has no such conversion
-	// for kind (every kind on codex/antigravity/kiro; claude's skills), so a
+	// for kind (every kind on codex/antigravity/kiro; claude's commands), so a
 	// SHARED-cwd delivery falls back to the loud well-known write. The returned
 	// closure, when non-nil, performs the isolated write and returns its handle.
 	SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool)
@@ -126,7 +135,7 @@ type SurfaceSet interface {
 // surfaces write: the assembled context (as a string for the ContextWriter-core
 // engines, and the raw fragments for codex's file writer), the merged MCP config
 // + profile/builtin bundle servers, the merged hook set + statusline policy, and
-// the skill exports. Setup fills it once (from req + the merged lifecycle state)
+// the command exports. Setup fills it once (from req + the merged lifecycle state)
 // and hands it to a backend's CellDelivery.Build closure, which picks the fields
 // IT needs and calls its own NewSurfaces. It is the cross-backend contract that
 // lets the generic Setup build any backend's SurfaceSet without importing the
@@ -138,14 +147,22 @@ type SurfaceInputs struct {
 	BundleMCP        map[string]wire.MCPServer
 	Hooks            *wire.HooksConfig
 	ManageStatusline bool
-	Skills           []CommandExport
-	// SelfContainedSkills, when true, tells a backend's skills surface to
-	// materialize skills WITHOUT deduping against the delivering machine's own
+	Commands         []CommandExport
+	// SelfContainedCommands, when true, tells a backend's commands surface to
+	// materialize commands WITHOUT deduping against the delivering machine's own
 	// skill/command directories (e.g. claude's ~/.claude/commands) — for portable
 	// `profile materialize --target` artifacts whose launch environment is not
 	// this host. Live launch, `manage hooks install` apply, and container
 	// delivery all share their process/home with the launch environment, so they
 	// leave this false (the default) and keep self-resolving dedup ON.
+	SelfContainedCommands bool
+	// Skills carries the per-target-agent Agent Skill package exports — the
+	// skills surface's analog of Commands. Each SkillExport is a whole package
+	// (SKILL.md + optional sibling files), not a single file.
+	Skills []SkillExport
+	// SelfContainedSkills mirrors SelfContainedCommands for the skills surface:
+	// true for a portable `profile materialize --target` artifact, false (the
+	// default) for a live/apply/container delivery that shares this host.
 	SelfContainedSkills bool
 }
 
@@ -280,10 +297,10 @@ func NewDirectoryIsolatedCell(dir string) DirectoryIsolatedCell {
 }
 
 // surfaceOrder is the stable cross-backend delivery order — context, MCP,
-// settings, skills — matching every backend's Deliveries() order, so a Build()ed
+// settings, commands — matching every backend's Deliveries() order, so a Build()ed
 // selection's report and LIFO teardown are deterministic regardless of the order
 // a caller chained the WithX() calls in.
-var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceSkills}
+var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills}
 
 // SurfaceSelection is an OPT-IN builder over a SurfaceSet: the default selects
 // NOTHING, and each chainable .WithX(approach) opts one SurfaceKind in AT A NAMED
@@ -324,8 +341,15 @@ func (s *SurfaceSelection) WithSettings(w SettingsWrite) *SurfaceSelection {
 	return s
 }
 
-// WithSkills opts the skills / slash-command surface into the selection at the
-// named approach.
+// WithCommands opts the commands / slash-command surface into the selection at
+// the named approach.
+func (s *SurfaceSelection) WithCommands(w CommandsWrite) *SurfaceSelection {
+	s.approaches[SurfaceCommands] = w.approach()
+	return s
+}
+
+// WithSkills opts the Agent Skills surface into the selection at the named
+// approach.
 func (s *SurfaceSelection) WithSkills(w SkillsWrite) *SurfaceSelection {
 	s.approaches[SurfaceSkills] = w.approach()
 	return s
@@ -515,8 +539,8 @@ func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, ki
 }
 
 // unsafeNamed is optionally implemented by a concrete surface Delivery to
-// self-describe for the DeliverShared warning (e.g. "claude/skills"). A surface
-// without it (the shared codex/antigravity/kiro ManagedSkillsDelivery) falls back
+// self-describe for the DeliverShared warning (e.g. "claude/commands"). A surface
+// without it (the shared codex/antigravity/kiro ManagedCommandsDelivery) falls back
 // to its cross-backend SurfaceKind label.
 type unsafeNamed interface {
 	UnsafeInfo() string

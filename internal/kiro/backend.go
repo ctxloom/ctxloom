@@ -5,13 +5,17 @@
 // Setup/Cleanup) lives in the embedded agent.LaunchBackend; this type adds only
 // the kiro-specific Configure/Execute/buildArgs.
 //
-// LIVE-UNTESTED (2026-07-10): never run against a logged-in kiro-cli — no
-// account on any dev host. Proven: hermetic backend parity
-// (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (kiro-cli acp
-// accepts --agent/--model/--agent-engine at parse). NOT proven: a live echo,
-// and whether kiro-cli acp actually HONORS --model — parse-acceptance is not
-// honor (cf. claude-code-acp's silent-ignore). Revive once kiro-cli
-// credentials exist (taskloom numb-panda / bold-smirk).
+// LIVE-VERIFIED against an authenticated kiro-cli: hermetic backend parity
+// (TestStartRun_BackendParity), a real oneshot `kiro-cli chat` echoing a
+// sentinel planted in the materialized steering context back through a live
+// model (J5's @live "Kiro" row), and --model HONOR — confirmed two
+// independent ways: self-report matches the requested model across every
+// model kiro-cli lists (auto, claude-*, deepseek, minimax, glm, qwen), and an
+// unrecognized --model value is REJECTED before any chat runs ("Model '<x>'
+// does not exist"), proving the flag reaches real model resolution rather
+// than being accepted and ignored (cf. claude-code-acp's silent-ignore). NOT
+// proven: the session history reader — internal/kiro/session.go is CONFIRMED
+// BROKEN against real session files, see its own comment.
 package kiro
 
 import (
@@ -63,7 +67,7 @@ func NewKiro() *Kiro {
 	// .kiro/steering/ctxloom-context.md directly, and the merge hash is "".
 	b.InitLaunch(
 		agent.NewBaseLifecycle("kiro"),
-		&KiroSkills{},
+		&KiroCommands{},
 		agent.NewBaseContextProvider(),
 		newKiroSessionHistory(),
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},

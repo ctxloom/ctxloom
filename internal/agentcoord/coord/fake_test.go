@@ -154,6 +154,10 @@ type fakeAgent struct {
 	// call), so tests that don't care about approvals see prod-shaped
 	// defaults.
 	ladder Ladder
+	// mcpServers is the child's resolved MCP server set (mirrors
+	// prodSpawner.Resolve composing plan.MCPServers via childMCPServers) —
+	// nil for tests that don't care what a child's privilege journal shows.
+	mcpServers []agent.ChatMCPServer
 }
 
 func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
@@ -203,6 +207,7 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 		Ladder:      ladder,
 		Degraded:    degraded,
 		ViaStartRun: a.viaStartRun,
+		MCPServers:  a.mcpServers,
 	}, nil
 }
 

@@ -9,17 +9,21 @@ This page is generated from `ctxloom skill create --help`.
 
 ## ctxloom skill create
 
-Create a new skill
+Scaffold a new Agent Skill package
 
 ### Synopsis
 
-Create a new skill in an existing bundle.
+Scaffold a new Agent Skill package (skills/<name>/SKILL.md) in an existing,
+directory-form bundle, and register it in bundle.yaml.
 
-The skill will be created with placeholder content that you can edit.
+The scaffolded SKILL.md has valid frontmatter (name matching the directory,
+a placeholder description) that passes validation immediately — edit
+SKILL.md to describe the skill, add any scripts/assets, then run
+'ctxloom skill sync' before signing.
 
 Examples:
-  ctxloom skill create my-bundle code-review
-  ctxloom skill create go-tools testing-patterns
+  ctxloom skill create my-bundle code-reviewer
+  ctxloom skill create my-bundle code-reviewer --description "Reviews Go diffs for common bugs"
 
 ```
 ctxloom skill create <bundle> <name> [flags]
@@ -28,7 +32,8 @@ ctxloom skill create <bundle> <name> [flags]
 ### Options
 
 ```
-  -h, --help   help for create
+  -d, --description string   SKILL.md frontmatter description (default: a TODO placeholder)
+  -h, --help                 help for create
 ```
 
 ### Options inherited from parent commands
@@ -36,10 +41,10 @@ ctxloom skill create <bundle> <name> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
-* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage skills
+* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
 

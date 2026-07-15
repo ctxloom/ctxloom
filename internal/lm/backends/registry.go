@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -32,7 +33,7 @@ type Configurable interface {
 // no surfaces (BuildSurfaces returns an EmptySurfaceSet); a nil newWriter means it
 // has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
 // returns nil); a nil exports means no slash-command export (CommandExportsFor
-// yields nil, so the skills surface has nothing to write). The mock backend
+// yields nil, so the commands surface has nothing to write). The mock backend
 // registers only backend+config.
 type agentDescriptor struct {
 	// name is the backend's registry key and must match its module's Name().
@@ -54,9 +55,16 @@ type agentDescriptor struct {
 	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
-	// Read by commandExportsFor / CommandExportsFor, which feed the skills surface
-	// (SurfaceInputs.Skills) the enabled exports for the delivery seam.
+	// Read by commandExportsFor / CommandExportsFor, which feed the commands surface
+	// (SurfaceInputs.Commands) the enabled exports for the delivery seam.
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
+	// skillExports maps loaded bundle skills to this backend's Agent Skill
+	// package exports, resolving its per-skill enablement. nil = no skill
+	// export (every backend but claude today — Part B3-seam; the parallel
+	// codex/opencode/kiro/agy wave populates this next). Read by
+	// skillExportsFor / SkillExportsFor, the skills-surface analog of
+	// commandExportsFor / CommandExportsFor.
+	skillExports func([]*bundles.LoadedSkill) []agent.SkillExport
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
 	// branch). false backends have no read-only tier, so plan would run
@@ -117,10 +125,10 @@ func Exists(name string) bool {
 
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
-// --permission-mode plan, codex --sandbox read-only). Backends that don't
-// (antigravity, kiro, acp) would run plan unrestrained and can't be trusted to
-// be headless-safe for it, so the run resolver collapses plan to default for
-// them. An unregistered name reports false.
+// --permission-mode plan, codex --sandbox read-only, opencode.json permission
+// {edit:deny, bash:deny}). Backends that don't (antigravity, kiro, acp) would run
+// plan unrestrained and can't be trusted to be headless-safe for it, so the run
+// resolver collapses plan to default for them. An unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := descriptors[name]
 	return ok && d.enforcesReadOnlyPlan
@@ -155,6 +163,28 @@ func IsAvailable(name string) bool {
 	return err == nil
 }
 
+// Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
+// binary (claude, codex, kiro-cli, agy) or that vendor's ACP adapter. ctxloom holds no
+// provider SDK and makes no direct call to any model API — and must not acquire one on
+// any path that carries subscription credentials.
+//
+// This is a licensing invariant, not a style preference. Anthropic reserves subscription
+// OAuth for "ordinary use of Claude Code and other native Anthropic applications", bars
+// tools that "misrepresent their identity to Anthropic's servers" or "route third-party
+// traffic against subscription limits", and directs anyone building on the Agent SDK to
+// API keys instead (support article 13189465, updated 2026-05-19; code.claude.com
+// legal-and-compliance). Lifting a subscription token into our own HTTP client is the
+// prohibited act — it is precisely the identity misrepresentation named above. Launching
+// the vendor's signed-in binary as a child process is not: the genuine binary makes the
+// call, so there is nothing to misrepresent, and Anthropic names `claude -p` as drawing
+// on subscription limits, i.e. metered rather than banned. Adding anthropic-sdk-go /
+// openai-go / langchaingo "to simplify the launcher" would forfeit that standing.
+//
+// The compliance therefore lives in the SHAPE of this table, not in any one backend.
+//
+// Metered BYO-API-key access through a gateway (OpenRouter, LiteLLM) is fine — but a
+// gateway serves Anthropic *models*, never Claude *Code*, and a subscription-authenticated
+// CLI cannot be pointed at one.
 func init() {
 	// Register all built-in backends — ONE descriptor per agent covering
 	// construction, config decoding, settings writing, and slash-command
@@ -177,16 +207,19 @@ func init() {
 		// a wellKnownPlacement is fine.
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 			return claude.NewSurfaces(claude.SurfaceInputs{
-				Context:             in.Context,
-				MCP:                 in.MCP,
-				BundleMCP:           in.BundleMCP,
-				Hooks:               in.Hooks,
-				ManageStatusline:    in.ManageStatusline,
-				Skills:              in.Skills,
-				SelfContainedSkills: in.SelfContainedSkills,
+				Context:               in.Context,
+				MCP:                   in.MCP,
+				BundleMCP:             in.BundleMCP,
+				Hooks:                 in.Hooks,
+				ManageStatusline:      in.ManageStatusline,
+				Commands:              in.Commands,
+				SelfContainedCommands: in.SelfContainedCommands,
+				Skills:                in.Skills,
+				SelfContainedSkills:   in.SelfContainedSkills,
 			}, wellKnownPlacement{}, fs)
 		},
 		exports:              claudeExports,
+		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
 	})
 
@@ -200,9 +233,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &antigravity.AntigravityConfig{})
 		},
-		newWriter:   antigravity.NewWriter,
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
-		exports:     antigravityExports,
+		newWriter:    antigravity.NewWriter,
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
+		exports:      antigravityExports,
+		skillExports: antigravitySkillExports,
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -221,13 +255,16 @@ func init() {
 		newWriter:            codex.NewWriter,
 		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return codex.NewSurfaces(in, fs) },
 		exports:              codexExports,
-		enforcesReadOnlyPlan: true, // --sandbox read-only --ask-for-approval never
+		skillExports:         codexSkillExports,
+		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
 	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
 	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
-	// skills (.kiro/skills/<n>/SKILL.md).
+	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
+	// engine where those two surfaces collide (D6 skill-wins, see
+	// kiro.filterClaimedCommands in kiro/surfaces.go).
 	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
 	// (see the package doc in internal/kiro for what's proven vs unverified;
 	// taskloom numb-panda / bold-smirk track the revive).
@@ -241,9 +278,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &kiro.KiroConfig{})
 		},
-		newWriter:   kiro.NewWriter,
-		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
-		exports:     kiroExports,
+		newWriter:    kiro.NewWriter,
+		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
+		exports:      kiroExports,
+		skillExports: kiroSkillExports,
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
@@ -265,6 +303,38 @@ func init() {
 		// A GENERIC ACP agent has no known native config format to materialize, so
 		// it opts out with an empty surface set (mirrors its nil settings writer).
 		newSurfaces: func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
+	})
+
+	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
+	// settings/materialization seam: ctxloom's managed keys are merged into a
+	// project-local, strictly-validated opencode.json — MCP servers (`mcp`),
+	// assembled context (`instructions` -> .opencode/ctxloom-context.md), and, on the
+	// live chat path only, a GENUINE read-only `permission` for plan mode. Slice 3
+	// adds command (commands) materialization: enabled bundle prompts become
+	// opencode custom commands (.opencode/command/<name>.md), delivered by the
+	// commands surface on the static `profile materialize` path and transiently
+	// in Chat on the LIVE path (written before the run, reverted after — same
+	// no-debris shape as the opencode.json overlay). The newSurfaces builder
+	// serves materialize (mcp + context + commands).
+	// enforcesReadOnlyPlan is TRUE: the written permission denies edit (which gates
+	// opencode's write tool too) AND bash, so a plan run genuinely cannot mutate —
+	// stricter than opencode's built-in `plan` agent, which leaves bash allowed.
+	// Session-history and interactive PTY launch are later slices.
+	registerDescriptor(agentDescriptor{
+		name: "opencode",
+		newBackend: func() agent.Backend {
+			b := opencode.NewOpencode()
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &opencode.OpencodeConfig{})
+		},
+		newWriter:            opencode.NewWriter,
+		newSurfaces:          func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return opencode.NewSurfaces(in, fs) },
+		exports:              opencodeExports,
+		skillExports:         opencodeSkillExports,
+		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

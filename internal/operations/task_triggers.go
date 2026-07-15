@@ -136,7 +136,7 @@ type EvaluateTriggersResult struct {
 // tasksops.SetTaskStatus itself. Reviving a task on a model's say-so with no
 // human in the loop risks a FALSE REVIVE — worse than leaving a fired
 // trigger parked one cycle longer than necessary — so confirming and moving
-// the task is left entirely to the caller (the check-triggers skill, or
+// the task is left entirely to the caller (the check-triggers command, or
 // whatever calls the evaluate_triggers MCP tool).
 func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTriggersRequest) (*EvaluateTriggersResult, error) {
 	listRes, err := tasksops.ListTasks(req.TaskContext, nil, "", true, false)
@@ -434,7 +434,7 @@ func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, l
 		Options: &pb.RunOptions{
 			Mode:      pb.ExecutionMode_ONESHOT,
 			Model:     model,
-			SkipSetup: true, // headless triage: no hooks/skills/context writes
+			SkipSetup: true, // headless triage: no hooks/commands/context writes
 		},
 	}
 	var stdout, stderr bytes.Buffer

@@ -11,7 +11,7 @@ every later change to it is withheld again. Reviewing is one command —
 
 First-party content reaches the agent without review:
 
-- **Local** — fragments, skills, MCP servers, and hooks you authored in this
+- **Local** — fragments, commands, MCP servers, and hooks you authored in this
   project. A *copy* of a remote item is not local: items are keyed by their true
   source, so cloning a bundle into the cache doesn't manufacture local trust.
 - **Builtin** — bundles shipped inside the binary. Trusting ctxloom trusts them.
@@ -31,7 +31,7 @@ don't trust — is **pending** until you review it.
 
 ## The three states
 
-Every remote item — fragment, skill, MCP server, or hook — is in exactly one
+Every remote item — fragment, command, MCP server, or hook — is in exactly one
 state:
 
 - **pending** — never reviewed, or its content changed since you approved it.
@@ -169,7 +169,7 @@ ctxloom blacklist <ref>   # reject one item everywhere
 
 Both write the same countersignatures `ctxloom review` writes, through the same
 path, so porcelain and plumbing produce identical results on disk. Refs use the
-selector syntax — `<bundle>#fragments/<name>`, `<bundle>#skills/<name>`,
+selector syntax — `<bundle>#fragments/<name>`, `<bundle>#commands/<name>`,
 `<bundle>#mcp/<name>`, or `<bundle>#hooks/<event>/<index>`.
 
 ## How a trust decision is made

@@ -1,6 +1,7 @@
 // Package trust implements the addressing/canonicalization primitives and the
 // data model the trust decision function resolves over: every remote item
-// (fragment, skill, MCP server, hook) is in exactly one of three states —
+// (fragment, command, MCP server, hook, Agent Skill) is in exactly one of
+// three states —
 // pending (never reviewed, or changed since approval — withheld), accepted (a
 // human COUNTERSIGNED this exact content with their own SSH key — see
 // internal/signing/countersign), or rejected (withheld permanently; the
@@ -113,11 +114,20 @@ const (
 	KindPrompt   ItemKind = "prompt"
 	KindMCP      ItemKind = "mcp"
 	KindHook     ItemKind = "hook"
+	// KindSkill is a true Agent Skill package (a SKILL.md directory tree,
+	// Part B2 of the skill/command split) — a different concept from
+	// KindPrompt (the user-invoked slash-command item, historically also
+	// called "skill" before the Part A rename). Its selector directory
+	// "skills" was freed for this meaning by that rename; nothing production
+	// still resolves "#skills/<name>" to KindPrompt (see
+	// operations.parseTrustSelector).
+	KindSkill ItemKind = "skill"
 )
 
 // Dir returns the selector directory segment for the kind, matching the ref
 // grammar: "<bundle>#fragments/<name>", "<bundle>#prompts/<name>",
-// "<bundle>#mcp/<name>", "<bundle>#hooks/<event>/<index>".
+// "<bundle>#mcp/<name>", "<bundle>#hooks/<event>/<index>",
+// "<bundle>#skills/<name>".
 func (k ItemKind) Dir() string {
 	switch k {
 	case KindFragment:
@@ -128,18 +138,24 @@ func (k ItemKind) Dir() string {
 		return "mcp"
 	case KindHook:
 		return "hooks"
+	case KindSkill:
+		return "skills"
 	default:
 		return string(k)
 	}
 }
 
-// IsContent reports whether the kind is project-authorable *content* (fragment
-// or prompt) as opposed to an executable surface (mcp / hook). It classifies the
-// kind for content-vs-executable handling; it does NOT govern the local-tier
-// auto-allow, which the decision function extends to all local kinds (a
-// project-authored local mcp/hook is allowed too — see EffectiveTrust step 2).
+// IsContent reports whether the kind is project-authorable *content*
+// (fragment, prompt, or skill) as opposed to an executable surface (mcp /
+// hook). A skill counts as content here even though its scripts/ files are
+// executable: unlike mcp/hook (which have no bytes worth diffing — review
+// always renders their full surface), a skill IS a reviewable file tree, and
+// this flag is what lets review_snapshots.go cache its rendered tree text for
+// a later diff. It does NOT govern the local-tier auto-allow, which the
+// decision function extends to all local kinds (a project-authored local
+// mcp/hook is allowed too — see EffectiveTrust step 2).
 func (k ItemKind) IsContent() bool {
-	return k == KindFragment || k == KindPrompt
+	return k == KindFragment || k == KindPrompt || k == KindSkill
 }
 
 // Ref addresses a trust-evaluable item: its source repo, the repo-relative

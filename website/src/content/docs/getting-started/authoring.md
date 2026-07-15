@@ -17,7 +17,7 @@ ctxloom bundle create my-standards -d "My coding standards"
 ```
 
 This creates `.ctxloom/content/bundles/my-standards.yaml` with an example
-fragment and skill. That directory is committed — it's your project's own
+fragment and command. That directory is committed — it's your project's own
 authored content, the tree `ctxloom sign --all` signs, and what a publishing
 repo ships:
 
@@ -33,12 +33,12 @@ fragments:
 
             Add your content here.
         no_distill: true
-skills:
+commands:
     example:
-        description: Example prompt
+        description: Example command
         tags:
             - example
-        content: Example prompt content. Describe what this prompt does.
+        content: Example command content. Describe what this command does.
         no_distill: true
 ```
 
@@ -52,7 +52,7 @@ made" and the help text.
 To fill in real content, open `.ctxloom/content/bundles/my-standards.yaml`
 directly in your own editor. (For touching a single existing item in place,
 `ctxloom fragment edit my-standards#fragments/<name>` and
-`ctxloom skill edit my-standards#skills/<name>` do use `$EDITOR`.)
+`ctxloom command edit my-standards#commands/<name>` do use `$EDITOR`.)
 
 Add content to make it useful:
 
@@ -80,7 +80,7 @@ fragments:
       - Wrap errors with context
       - Use sentinel errors sparingly
 
-skills:
+commands:
   code-review:
     description: "Review code for issues"
     tags: [review]
@@ -93,7 +93,7 @@ skills:
 
 ## Bundle Structure
 
-A bundle is a YAML file containing fragments (context), skills (exported as slash commands), MCP servers, profiles, and hooks.
+A bundle is a YAML file containing fragments (context), commands (exported as slash commands), MCP servers, profiles, and hooks.
 
 ```yaml
 version: "1.0.0"                    # Required: semantic version
@@ -116,12 +116,12 @@ fragments:
       # Context Content
       Your markdown content here...
 
-skills:
-  skill-name:
+commands:
+  command-name:
     description: "For /help output"
     tags: [tags]
     content: |
-      # Skill Template
+      # Command Template
       Your prompt here...
 
 mcp:
@@ -151,7 +151,7 @@ hooks:                              # Agent lifecycle hooks
 | `installation` | Setup instructions (NOT sent to AI) |
 | `no_distill` | If true, skip compression |
 
-### Skill Fields
+### Command Fields
 
 | Field | Description |
 |-------|-------------|
@@ -184,17 +184,17 @@ Then edit its content (opens `$EDITOR`):
 ctxloom fragment edit my-standards#fragments/testing
 ```
 
-### Add a Skill
+### Add a Command
 
 ```bash
-ctxloom skill create my-standards code-review
+ctxloom command create my-standards code-review
 ```
 
 ### Delete Content
 
 ```bash
 ctxloom fragment delete my-standards#fragments/old-fragment
-ctxloom skill delete my-standards#skills/old-prompt
+ctxloom command delete my-standards#commands/old-prompt
 ```
 
 ## Test Your Bundle

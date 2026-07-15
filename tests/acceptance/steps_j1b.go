@@ -14,7 +14,7 @@ import (
 )
 
 // Distinctive marker strings j1b_source_augmentation.feature's sources ship as
-// their "agent-setup" skill content, so the composed interview prompt the
+// their "agent-setup" command content, so the composed interview prompt the
 // mock engine (or a real @live assistant) receives can be checked for exactly
 // this source's contribution — never a bare exit-code or file-exists proxy.
 const (
@@ -29,15 +29,15 @@ const (
 func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	// --- repo bundles augment (mock) ----------------------------------------
 
-	ctx.Step(`^her company's repository ships an "agent-setup" skill with the company's onboarding steps$`, func(c context.Context) error {
+	ctx.Step(`^her company's repository ships an "agent-setup" command with the company's onboarding steps$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "company", "skills", "agent-setup", j1bCompanyOnboarding, skillSourceYAML(j1bCompanyOnboarding), true, false)
+		_, err := seedSource(w, "company", "commands", "agent-setup", j1bCompanyOnboarding, commandSourceYAML(j1bCompanyOnboarding), true, false)
 		return err
 	})
 
-	ctx.Step(`^her personal repository ships an "agent-setup" skill with her own setup preferences$`, func(c context.Context) error {
+	ctx.Step(`^her personal repository ships an "agent-setup" command with her own setup preferences$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_, err := seedSource(w, "personal", "skills", "agent-setup", j1bPersonalPreference, skillSourceYAML(j1bPersonalPreference), true, false)
+		_, err := seedSource(w, "personal", "commands", "agent-setup", j1bPersonalPreference, commandSourceYAML(j1bPersonalPreference), true, false)
 		return err
 	})
 
@@ -87,6 +87,12 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the interview prompt the mock engine receives includes ctxloom's built-in setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		// Real evidence: the mock's recorded prompt was already attached to
+		// "it launches a mock engine for the configuration interview" (the
+		// step that actually launched it), so this Then — which re-inspects
+		// the same recorded prompt without running anything new — needs its
+		// own excerpt re-attached, or its evidence pane renders empty.
+		w.docStepMaterialized = j5Excerpt(prompt, j1bBuiltinMarker, 2)
 		if !strings.Contains(prompt, j1bBuiltinMarker) {
 			return fmt.Errorf("interview prompt does not contain the built-in guidance marker %q; prompt:\n%s", j1bBuiltinMarker, prompt)
 		}
@@ -96,6 +102,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes the company's onboarding steps$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanyOnboarding, 2)
 		if !strings.Contains(prompt, j1bCompanyOnboarding) {
 			return fmt.Errorf("interview prompt does not contain the company's onboarding steps; prompt:\n%s", prompt)
 		}
@@ -105,6 +112,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes her personal setup preferences$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bPersonalPreference, 2)
 		if !strings.Contains(prompt, j1bPersonalPreference) {
 			return fmt.Errorf("interview prompt does not contain her personal setup preferences; prompt:\n%s", prompt)
 		}
@@ -126,7 +134,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it outputs its own setup guidance through ctxloom's setup-prompt CLI contract$`, func(c context.Context) error {
 		w := worldFrom(c)
-		bundleYAML := skillSourceYAML(j1bCompanionMarker)
+		bundleYAML := commandSourceYAML(j1bCompanionMarker)
 		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
 		if err != nil {
 			return fmt.Errorf("encode fake companion loadout envelope: %w", err)
@@ -142,6 +150,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^it includes reprise's setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt := promptSection(w.j1bRecorded)
+		w.docStepMaterialized = j5Excerpt(prompt, j1bCompanionMarker, 2)
 		if !strings.Contains(prompt, j1bCompanionMarker) {
 			return fmt.Errorf("interview prompt does not contain reprise's setup guidance; prompt:\n%s", prompt)
 		}
@@ -150,7 +159,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 
 	// --- @live twins ----------------------------------------------------------
 
-	ctx.Step(`^her company's "agent-setup" skill instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
+	ctx.Step(`^her company's "agent-setup" command instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		a, ok := liveAgents["claude"]
 		if !ok || !liveAgentAvailable(a) {
@@ -164,8 +173,8 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
 			a.copyCreds(realHomeDir, w.env.HomeDir)
 		}
-		skill := skillSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanyCodeword))
-		_, err := seedSource(w, "company", "skills", "agent-setup", j1bCompanyCodeword, skill, true, true)
+		command := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanyCodeword))
+		_, err := seedSource(w, "company", "commands", "agent-setup", j1bCompanyCodeword, command, true, true)
 		return err
 	})
 
@@ -182,7 +191,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		if !w.j1Live {
 			return godog.ErrSkip
 		}
-		// The composed agent-setup guidance (built-in + the company skill's
+		// The composed agent-setup guidance (built-in + the company command's
 		// codeword instruction) is exactly what `ctxloom agent setup` emits
 		// (internal/cli/agent.go, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
@@ -221,7 +230,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
 			a.copyCreds(realHomeDir, w.env.HomeDir)
 		}
-		bundleYAML := skillSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanionCodeword))
+		bundleYAML := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanionCodeword))
 		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
 		if err != nil {
 			return err

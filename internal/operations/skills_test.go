@@ -1,0 +1,277 @@
+package operations
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
+)
+
+// This file is Part B6a's TDD suite for `ctxloom skill` core operations:
+// create scaffolds a package ParseSkillPackage/the loader accepts; sync
+// writes a manifest whose hashes match the tree and updates on edit; export
+// then import round-trips byte-identically with the exec bit intact; import
+// rejects a path-traversal archive; and (skill curation itself is covered in
+// internal/lm/backends/skill_curation_test.go, which needs the profile
+// resolver this package's cfg does not wire standalone).
+
+// writeDirFormBundle creates an empty directory-form bundle (bundle.yaml with
+// no items yet) at .ctxloom/content/bundles/<name>/bundle.yaml — the
+// prerequisite CreateSkill/SyncSkill/ExportSkill/ImportSkill all require
+// (skills are unsupported in a single-file bundle).
+func writeDirFormBundle(t *testing.T, appDir, name string) {
+	t.Helper()
+	dir := filepath.Join(paths.LocalBundlesPath(appDir), name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"),
+		[]byte("name: "+name+"\nversion: \"1.0\"\n"), 0o644))
+}
+
+func TestCreateSkill_ScaffoldsValidPackage(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+
+	res, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{
+		Bundle: "b", Name: "reviewer", Description: "Reviews things.",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "created", res.Status)
+	assert.Equal(t, "reviewer", res.Name)
+
+	// The scaffold must independently parse via a fresh ParseSkillPackage
+	// call over the real OS filesystem — the create-time acceptance gate
+	// CreateSkill itself already ran, re-proven here as the test's own
+	// assertion rather than trusting CreateSkill's internal check.
+	realPkg, err := bundles.ParseSkillPackage(afero.NewOsFs(), res.Dir, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "reviewer", realPkg.Frontmatter.Name)
+	assert.Equal(t, "Reviews things.", realPkg.Frontmatter.Description)
+
+	// bundle.yaml must register the new skill so the loader/list surfaces it.
+	loaded, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+	_, ok := loaded.Skills["reviewer"]
+	assert.True(t, ok, "CreateSkill must register the skill in bundle.yaml's skills: map")
+
+	// Re-creating the same name is refused, never silently overwritten.
+	_, err = CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.ErrorIs(t, err, ErrItemExists)
+}
+
+func TestCreateSkill_RefusesSingleFileBundle(t *testing.T) {
+	cfg := newItemTestBundle(t) // "b" is single-file (name.yaml), per CreateBundle
+
+	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "directory-form bundle")
+}
+
+func TestSyncSkill_WritesManifestMatchingTree_AndUpdatesHashOnEdit(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+
+	// A freshly-created skill has no `files:` manifest yet (create doesn't
+	// sync); the first sync populates it and MUST report Changed (empty ->
+	// populated).
+	syncRes, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+	require.Len(t, syncRes.Synced, 1)
+	assert.True(t, syncRes.Synced[0].Changed, "first sync populates an empty manifest, which counts as changed")
+	assert.Equal(t, 1, syncRes.Synced[0].FileCount, "only SKILL.md exists so far")
+
+	skillMDPath := filepath.Join(createRes.Dir, "SKILL.md")
+	data, err := os.ReadFile(skillMDPath)
+	require.NoError(t, err)
+	wantHash := bundles.HashPayload(data)
+
+	loaded, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+	entry := loaded.Skills["reviewer"]
+	require.Contains(t, entry.Files, "SKILL.md")
+	assert.Equal(t, wantHash, entry.Files["SKILL.md"].SHA256, "the recorded manifest hash must match the actual on-disk SKILL.md bytes")
+	assert.Equal(t, "0644", entry.Files["SKILL.md"].Mode)
+
+	// Re-syncing an UNCHANGED tree must report Changed == false (idempotent).
+	syncRes2, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+	require.Len(t, syncRes2.Synced, 1)
+	assert.False(t, syncRes2.Synced[0].Changed, "syncing an unchanged tree must not report a change")
+
+	// Editing SKILL.md and re-syncing MUST update the recorded hash.
+	edited := append(data, []byte("\nMore instructions.\n")...)
+	require.NoError(t, os.WriteFile(skillMDPath, edited, 0o644))
+	syncRes3, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+	require.Len(t, syncRes3.Synced, 1)
+	assert.True(t, syncRes3.Synced[0].Changed, "editing a file must be detected as a manifest change")
+
+	loaded2, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+	entry2 := loaded2.Skills["reviewer"]
+	assert.Equal(t, bundles.HashPayload(edited), entry2.Files["SKILL.md"].SHA256, "the manifest must be updated to the edited content's hash")
+	assert.NotEqual(t, wantHash, entry2.Files["SKILL.md"].SHA256)
+}
+
+func TestSyncSkill_UnknownNameIsNotFound(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+	_, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "nope"})
+	require.ErrorIs(t, err, ErrItemNotFound)
+}
+
+// TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit proves export
+// (tree -> Anthropic-shaped zip) then import (zip -> tree) round-trips every
+// file's exact bytes and the scripts/ exec bit, into a DIFFERENT bundle —
+// the archive interchange guarantee B1b built, now reachable end to end
+// through the live CLI-facing operations.
+func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	writeDirFormBundle(t, appDir, "dst")
+
+	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer", Description: "Reviews Go diffs."})
+	require.NoError(t, err)
+	scriptPath := filepath.Join(createRes.Dir, "scripts", "run.sh")
+	require.NoError(t, os.MkdirAll(filepath.Dir(scriptPath), 0o755))
+	require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho hi\n"), 0o755))
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+
+	origSkillMD, err := os.ReadFile(filepath.Join(createRes.Dir, "SKILL.md"))
+	require.NoError(t, err)
+	origScript, err := os.ReadFile(scriptPath)
+	require.NoError(t, err)
+
+	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	expRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath})
+	require.NoError(t, err)
+	assert.Equal(t, zipPath, expRes.ZipPath)
+	assert.Empty(t, expRes.SigPath, "no --sign requested, so no .sig sibling")
+
+	impRes, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{Bundle: "dst", ArchivePath: zipPath})
+	require.NoError(t, err)
+	assert.Equal(t, "imported", impRes.Status)
+	assert.Equal(t, "reviewer", impRes.Name)
+	assert.Equal(t, "unsigned", impRes.SignatureState, "no signature was supplied")
+	assert.Equal(t, 2, impRes.FileCount, "SKILL.md + scripts/run.sh")
+
+	gotSkillMD, err := os.ReadFile(filepath.Join(impRes.Dir, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, origSkillMD, gotSkillMD, "SKILL.md bytes must round-trip byte-identical")
+
+	gotScriptPath := filepath.Join(impRes.Dir, "scripts", "run.sh")
+	gotScript, err := os.ReadFile(gotScriptPath)
+	require.NoError(t, err)
+	assert.Equal(t, origScript, gotScript, "scripts/run.sh bytes must round-trip byte-identical")
+
+	info, err := os.Stat(gotScriptPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "the exec bit must survive export -> import")
+
+	// The destination bundle must have a fresh, matching manifest recorded.
+	loaded, err := bundleLoader(cfg).Load("dst")
+	require.NoError(t, err)
+	entry, ok := loaded.Skills["reviewer"]
+	require.True(t, ok)
+	assert.Equal(t, bundles.HashPayload(origScript), entry.Files["scripts/run.sh"].SHA256)
+	assert.Equal(t, "0755", entry.Files["scripts/run.sh"].Mode)
+}
+
+// TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher wires
+// PublisherSkillSignatureVerifier end to end: export --sign writes a detached
+// signature over the manifest; import, given that .sig and a trust root that
+// trusts the signing key, reports SignatureState "verified".
+func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	writeDirFormBundle(t, appDir, "dst")
+
+	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+
+	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	expRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{
+		Bundle: "src", Name: "reviewer", OutPath: zipPath, Sign: true, Signer: signer,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, expRes.SigPath)
+
+	trusted := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"reviewer@example.com"},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+
+	impRes, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
+		Bundle: "dst", ArchivePath: zipPath, SigPath: expRes.SigPath, Root: trusted,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "verified", impRes.SignatureState)
+
+	untrusted := allowedsigners.NewStore() // no keys at all
+	// Re-import (over the same name) with a trust root that does NOT trust
+	// the signing key: the import still LANDS (never auto-rejected for lack
+	// of trust) but is reported unverified, never silently "verified".
+	impRes2, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
+		Bundle: "dst", ArchivePath: zipPath, SigPath: expRes.SigPath, Root: untrusted,
+	})
+	require.NoError(t, err, "an untrusted-publisher signature must not block the import")
+	assert.Contains(t, impRes2.SignatureState, "unverified", "a signature by an untrusted key must not be reported as verified")
+}
+
+// maliciousZipBytes builds a zip whose single entry escapes its own
+// directory via a path-traversal segment — the same zip-slip shape B1b's
+// HardenedExtract rejects (bundles/skill_archive_test.go covers the
+// extractor exhaustively; this is the smoke-level proof that ImportSkill
+// actually routes through it and refuses acceptance).
+func maliciousZipBytes(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("evil/../../../etc/passwd-clobber")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("pwned"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestImportSkill_RejectsPathTraversalArchive(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "dst")
+
+	archivePath := filepath.Join(t.TempDir(), "evil.zip")
+	require.NoError(t, os.WriteFile(archivePath, maliciousZipBytes(t), 0o644))
+
+	_, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{Bundle: "dst", ArchivePath: archivePath})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "traversal")
+
+	// Nothing must have landed: the bundle gains no skills entry, and the
+	// skills/ directory (if created at all) holds nothing from the attack.
+	loaded, err := bundleLoader(cfg).Load("dst")
+	require.NoError(t, err)
+	assert.Empty(t, loaded.Skills, "a rejected archive must leave the bundle's skills: map untouched")
+}

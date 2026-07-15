@@ -84,7 +84,7 @@ an engine for each:
 **Then offer the open palette** for anything else the user wants:
 
 - **Code-review agents** — BUILD the review ensemble this project needs NOW and
-  PERSIST it locally, so the `weave-review` skill can fan it later. For each
+  PERSIST it locally, so the `weave-review` command can fan it later. For each
   relevant lens × each language present in the repo, compose a tight, single-lens
   LOCAL review profile from the code-review FRAGMENT bundles —
   `code-review-base#fragments/conduct` + `code-review-base#fragments/thorough` +
@@ -145,7 +145,7 @@ ctxloom agent set finder --engine <cheap> --profiles <finder profile>
 Use names the user understands (e.g. a role name or language+lens). After
 writing, run `ctxloom agent list` to confirm, and tell the user how to use them:
 `ctxloom run --agent coordinator` to drive the coordinator, `ctxloom map`/
-`ctxloom weave` to fan members (the `weave-review` skill fans the review members
+`ctxloom weave` to fan members (the `weave-review` command fans the review members
 for the language(s) present).
 
 If the user wants to stop, that's fine — they can run `ctxloom agent setup`

@@ -9,17 +9,17 @@ This page is generated from `ctxloom skill show --help`.
 
 ## ctxloom skill show
 
-Show skill content
+Show a skill's frontmatter and file manifest
 
 ### Synopsis
 
-Display the content of a specific skill.
+Display a skill's SKILL.md frontmatter (description, license, etc.),
+instructions body, and per-file manifest (path, sha256, mode).
 
 Reference format: bundle#skills/name
 
 Examples:
-  ctxloom skill show core#skills/code-review
-  ctxloom skill show go-tools#skills/testing
+  ctxloom skill show core#skills/code-reviewer
 
 ```
 ctxloom skill show <bundle>#skills/<name> [flags]
@@ -28,9 +28,7 @@ ctxloom skill show <bundle>#skills/<name> [flags]
 ### Options
 
 ```
-  -d, --distilled     Show distilled version
-  -h, --help          help for show
-  -i, --interactive   Review effective trust and offer to trust/blacklist (interactive terminal only)
+  -h, --help   help for show
 ```
 
 ### Options inherited from parent commands
@@ -38,10 +36,10 @@ ctxloom skill show <bundle>#skills/<name> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
-* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage skills
+* [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
 

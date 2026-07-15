@@ -93,7 +93,7 @@ func walkFixture() *operations.PendingReviewResult {
 				Remote: "acme",
 				Items: []operations.ReviewItem{
 					{Ref: "one#fragments/f1", Kind: "fragments", Name: "f1", Status: operations.ReviewStatusNew, CurrentContent: "f1 body"},
-					{Ref: "one#skills/s1", Kind: "skills", Name: "s1", Status: operations.ReviewStatusUpdate, CurrentContent: "s1 v2", PreviousContent: "s1 v1"},
+					{Ref: "one#commands/s1", Kind: "commands", Name: "s1", Status: operations.ReviewStatusUpdate, CurrentContent: "s1 v2", PreviousContent: "s1 v1"},
 					{Ref: "one#mcp/m1", Kind: "mcp", Name: "m1", Status: operations.ReviewStatusNew, Executable: true, CurrentContent: "command: m1\n"},
 				},
 			},
@@ -117,7 +117,7 @@ func TestRunReviewWalk_AcceptRejectSkip(t *testing.T) {
 	sum := runReviewWalk(&out, scriptedPrompt("a", "r", "s", "a", ""), walkFixture(), rec.funcs())
 
 	assert.Equal(t, []string{"one#fragments/f1", "two#fragments/f2"}, rec.accepted)
-	assert.Equal(t, []string{"one#skills/s1"}, rec.rejected)
+	assert.Equal(t, []string{"one#commands/s1"}, rec.rejected)
 	assert.Equal(t, 2, sum.accepted)
 	assert.Equal(t, 1, sum.rejected)
 	assert.Equal(t, 2, sum.skipped)
@@ -139,7 +139,7 @@ func TestRunReviewWalk_AcceptBundle(t *testing.T) {
 	// f1: A (accepts f1, s1, m1 without further prompts), f2: r, f3: s.
 	sum := runReviewWalk(&out, scriptedPrompt("A", "r", "s"), walkFixture(), rec.funcs())
 
-	assert.Equal(t, []string{"one#fragments/f1", "one#skills/s1", "one#mcp/m1"}, rec.accepted)
+	assert.Equal(t, []string{"one#fragments/f1", "one#commands/s1", "one#mcp/m1"}, rec.accepted)
 	assert.Equal(t, []string{"two#fragments/f2"}, rec.rejected)
 	assert.Equal(t, 3, sum.accepted)
 	assert.Equal(t, 1, sum.rejected)
@@ -205,7 +205,7 @@ func TestRenderReviewList(t *testing.T) {
 	assert.Contains(t, text, "5 item(s) pending review (1 update(s))")
 	assert.Contains(t, text, "https://github.com/acme/repo@bundles/one (remote: acme)")
 	assert.Contains(t, text, "new      fragments/f1")
-	assert.Contains(t, text, "update   skills/s1")
+	assert.Contains(t, text, "update   commands/s1")
 	assert.Contains(t, text, "Run 'ctxloom review' in a terminal")
 
 	out.Reset()

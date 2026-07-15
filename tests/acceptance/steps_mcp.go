@@ -28,6 +28,12 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		// Inspect the CallToolResult's isError flag, not just the JSON-RPC
 		// envelope error: the MCP SDK reports handler/validation failures as a
 		// result with isError=true and a nil envelope error.
+		//
+		// Real evidence for the @doc capture sidecar (set-and-consume; no-op
+		// when capture is off): the actual tool result envelope this call
+		// returned, not a restatement of "it succeeded". MCP traffic never
+		// touches w.env's CLI stream, so nothing captures this automatically.
+		w.docStepMaterialized = w.lastTool.JSON()
 		if isErr, msg := w.lastTool.IsError(); isErr {
 			return fmt.Errorf("tool call returned an error: %s\nresult:\n%s", msg, w.lastTool.JSON())
 		}

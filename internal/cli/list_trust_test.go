@@ -71,21 +71,22 @@ func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	assert.Equal(t, "rejected", row.State)
 }
 
-// TestStampItemTrust_LocalSkillJSON is the regression guard for the prompt->skill
-// rename: the CLI list emits #skills/<name> refs, and a project-authored local
-// skill must resolve trusted via the local exemption — not fail-closed to
-// trusted:false/pending because the trust selector didn't know the "skills" kind.
-func TestStampItemTrust_LocalSkillJSON(t *testing.T) {
+// TestStampItemTrust_LocalCommandJSON is the regression guard for the
+// prompt->skill->command rename: the CLI list emits #commands/<name> refs,
+// and a project-authored local command must resolve trusted via the local
+// exemption — not fail-closed to trusted:false/pending because the trust
+// selector didn't know the "commands" kind.
+func TestStampItemTrust_LocalCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
 	cfg := &config.Config{AppPaths: []string{appDir}}
-	seedLocalSkill(t, cfg, "demo", "review", "always-local skill body")
+	seedLocalCommand(t, cfg, "demo", "review", "always-local command body")
 
-	rows, err := listItemRows(cfg, ItemTypeSkill)
+	rows, err := listItemRows(cfg, ItemTypeCommand)
 	require.NoError(t, err)
-	stampItemTrust(cfg, ItemTypeSkill, rows)
+	stampItemTrust(cfg, ItemTypeCommand, rows)
 
-	row, ok := findRow(rows, "demo#skills/review")
-	require.True(t, ok, "seeded local skill must be listed")
+	row, ok := findRow(rows, "demo#commands/review")
+	require.True(t, ok, "seeded local command must be listed")
 	assert.True(t, row.Trusted, "local content is auto-allowed")
 	assert.Equal(t, "local", row.TrustSource)
 
@@ -95,25 +96,25 @@ func TestStampItemTrust_LocalSkillJSON(t *testing.T) {
 	assert.Contains(t, string(b), `"trust_source":"local"`)
 }
 
-// TestStampItemTrust_RejectedSkillJSON proves the #skills/ row reflects a
-// rejected local skill as withheld. The stamp queries the store by the
-// canonical key (Kind.Dir()=="prompts" for a skill), so the rejection is stored
-// under #prompts/ — exactly what operations.SetBlacklist canonicalizes a
-// user's `blacklist demo#skills/review` to.
-func TestStampItemTrust_RejectedSkillJSON(t *testing.T) {
+// TestStampItemTrust_RejectedCommandJSON proves the #commands/ row reflects a
+// rejected local command as withheld. The stamp queries the store by the
+// canonical key (Kind.Dir()=="prompts" for a command), so the rejection is
+// stored under #prompts/ — exactly what operations.SetBlacklist canonicalizes
+// a user's `blacklist demo#commands/review` to.
+func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
-	seedLocalSkill(t, cfg, "demo", "review", "rm -rf danger")
+	seedLocalCommand(t, cfg, "demo", "review", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
 	require.NoError(t, userApprovalsStore(t).WriteUnsignedRefReject(signing.KindSkills, countersignRefFor(ref)))
 
-	rows, err := listItemRows(cfg, ItemTypeSkill)
+	rows, err := listItemRows(cfg, ItemTypeCommand)
 	require.NoError(t, err)
-	stampItemTrust(cfg, ItemTypeSkill, rows)
+	stampItemTrust(cfg, ItemTypeCommand, rows)
 
-	row, ok := findRow(rows, "demo#skills/review")
+	row, ok := findRow(rows, "demo#commands/review")
 	require.True(t, ok)
 	assert.False(t, row.Trusted)
 	assert.Equal(t, "rejected", row.TrustSource)

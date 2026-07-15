@@ -19,7 +19,7 @@ type assembleContextInput struct {
 
 type searchContentInput struct {
 	Query     string   `json:"query" jsonschema:"Search text (matches name, description, tags)"`
-	Types     []string `json:"types,omitempty" jsonschema:"Content types to search (any of: fragment, prompt, profile, mcp_server; default: all)"`
+	Types     []string `json:"types,omitempty" jsonschema:"Content types to search (any of: fragment, command, skill, profile, mcp_server; default: all)"`
 	Tags      []string `json:"tags,omitempty" jsonschema:"Filter by tags (fragments only)"`
 	SortBy    string   `json:"sort_by,omitempty" jsonschema:"Sort field (one of: name, type, relevance; default: relevance)"`
 	SortOrder string   `json:"sort_order,omitempty" jsonschema:"Sort order (one of: asc, desc; default: asc)"`
@@ -49,7 +49,7 @@ func (s *ctxServer) registerContextTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "search_content",
-			Description: "Search across all ctxloom content types (fragments, prompts, profiles, MCP servers)",
+			Description: "Search across all ctxloom content types (fragments, commands, skills, profiles, MCP servers)",
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in searchContentInput) (*mcp.CallToolResult, *operations.SearchContentResult, error) {
 			result, err := operations.SearchContent(ctx, s.cfg, operations.SearchContentRequest{

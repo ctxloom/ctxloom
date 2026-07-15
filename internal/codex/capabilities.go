@@ -13,13 +13,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// CodexSkills registers custom prompts for Codex CLI.
-type CodexSkills struct{}
+// CodexCommands registers custom prompts for Codex CLI.
+type CodexCommands struct{}
 
 // RegisterFromContent writes custom prompts from host-resolved command exports.
 // The host maps bundle content (with codex enablement + metadata) to these
 // agent-agnostic exports, so this stays config/bundle-free.
-func (s *CodexSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
+func (s *CodexCommands) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

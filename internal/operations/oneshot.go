@@ -150,12 +150,12 @@ type resolvedRunRequest struct {
 
 	// Profiles is the member's resolved profile set — the SAME set that scoped its
 	// assembled Context. When the member's workspace is ISOLATED (worktree/
-	// container), it scopes the per-member ManagedConfig (mcp/hooks/skills) written
+	// container), it scopes the per-member ManagedConfig (mcp/hooks/commands) written
 	// natively into the isolated cwd, mirroring the top-level run. Ignored for a
 	// none member (which shares the project cwd and writes no managed config).
 	Profiles []string
 	// Gate is the shared executable trust gate (built ONCE per fan) threaded into
-	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/skill
+	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/command
 	// exports gate at their own choke exactly as the top-level run. nil = no gating
 	// (and none members never consult it).
 	Gate bundles.ContentGate

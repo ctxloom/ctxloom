@@ -98,6 +98,11 @@ func sharedFSProbe(ctx context.Context, rt Runtime, image string) error {
 func runSharedFSProbe(ctx context.Context, rt Runtime, image string) error {
 	dir, err := os.MkdirTemp("", "ctxloom-fsprobe-")
 	if err != nil {
+		// dir is normally "" here (MkdirTemp itself failed) — defensive
+		// against a mutant flipping this check and orphaning a dir MkdirTemp
+		// actually created, since the defer below is registered only after
+		// this point.
+		_ = os.RemoveAll(dir)
 		return fmt.Errorf("fs probe scratch: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()

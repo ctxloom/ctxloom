@@ -156,7 +156,7 @@ bundle's users, and ease of signing is therefore a security property.
 `ctxloom sign <ref>` is a top-level verb over any ref. This mirrors git, where
 signing is a flag on the producing action (`git commit -S`, `git tag -s`) rather
 than a separate ceremony. Publishing commands take `--sign` (`ctxloom fragment
-push <name> --sign`, `ctxloom skill push <name> --sign`), and
+push <name> --sign`, `ctxloom command push <name> --sign`), and
 `ctxloom config set sign.default true` makes it the default for anyone who
 publishes. The best signing ceremony is the one that already happened.
 

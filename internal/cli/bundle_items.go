@@ -110,6 +110,11 @@ func editInEditor(cfg *config.Config, content, filename string) (string, error) 
 	// 0700 + MkdirTemp give isolation and unpredictability.
 	tmpDir, err := os.MkdirTemp("", "ctxloom-edit-*")
 	if err != nil {
+		// tmpDir is normally "" here (MkdirTemp itself failed) — defensive
+		// against a mutant flipping this check and orphaning a dir MkdirTemp
+		// actually created, since the defer below only registers after this
+		// point (see the identical guard in internal/lm/isolation).
+		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()

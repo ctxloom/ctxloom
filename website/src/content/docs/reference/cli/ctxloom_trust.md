@@ -9,7 +9,7 @@ This page is generated from `ctxloom trust --help`.
 
 ## ctxloom trust
 
-Accept an item's current content (fragment, skill, MCP server, or hook)
+Accept an item's current content (fragment, command, MCP server, or hook)
 
 ### Synopsis
 
@@ -19,13 +19,13 @@ The acceptance is bound to the item's current content-hash pair (raw and, when
 one exists, distilled): a later change to either form returns the item to
 pending and forces re-review.
 
-Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#skills/<name>,
+Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 <bundle-ref>#mcp/<name>, or <bundle-ref>#hooks/<event>/<index>. The bundle ref
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
 
 Examples:
   ctxloom trust core#fragments/tdd
-  ctxloom trust ctxloom:local@bundles/dev#skills/review
+  ctxloom trust ctxloom:local@bundles/dev#commands/review
   ctxloom trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
 Reject an item with 'ctxloom blacklist <ref>'.
@@ -45,7 +45,7 @@ ctxloom trust <ref> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

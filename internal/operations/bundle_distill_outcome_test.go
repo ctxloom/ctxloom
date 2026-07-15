@@ -34,7 +34,7 @@ func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
 		t.Fatalf("failed item must carry no model id, got %q", failed.ModelID)
 	}
 
-	ok := distillOutcome(ItemKindSkill, "p", "claude-haiku-4-5", false)
+	ok := distillOutcome(ItemKindCommand, "p", "claude-haiku-4-5", false)
 	if ok.Status != DistillStatusDistilled {
 		t.Fatalf("stamped DistilledBy must be Distilled, got %q", ok.Status)
 	}

@@ -109,7 +109,7 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 	// given. The summary below still folds every task, so completed counts stay
 	// visible. Deferred tasks are parked on a trigger and are likewise hidden
 	// from the active view — surface them with `--status Deferred` (or the
-	// check-triggers skill), or with includeDone.
+	// check-triggers command), or with includeDone.
 	if !includeDone && len(statuses) == 0 {
 		active := make([]tasks.Task, 0, len(list))
 		for _, t := range list {

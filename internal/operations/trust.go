@@ -109,6 +109,20 @@ type RetractionRecords interface {
 	Retracted(ref trust.Ref) (retracted bool, reason string)
 }
 
+// readableRecords is the OPTIONAL capability a ReviewRecords implementation
+// may expose: "can this backing store actually be read". EffectiveTrust
+// checks it via a type assertion (never adds it to the ReviewRecords
+// interface itself) so the fail-closed gate applies to any REAL,
+// disk-backed records value — whether EffectiveTrust built it fresh (the
+// records == nil default) or a caller built one the same way and threaded it
+// in non-nil, which is what every production caller actually does — while a
+// test fake with no physical store to corrupt (fakeRecords) simply doesn't
+// implement it and is assumed readable. countersignRecords.readable (see
+// countersign_records.go) is the sole production implementation.
+type readableRecords interface {
+	readable() error
+}
+
 // EffectiveTrustResult reports the decision outcome and which step decided it.
 type EffectiveTrustResult struct {
 	Decision trust.Decision `json:"decision"`
@@ -230,19 +244,42 @@ func (r EffectiveTrustResult) Reason() string {
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
 	records := req.Records
 	if records == nil {
-		built := buildCountersignRecords(cfg, req.FS, nil, nil, nil)
-		if err := built.readable(); err != nil {
+		records = buildCountersignRecords(cfg, req.FS, nil, nil, nil)
+	}
+	// The unreadable-store fail-closed gate runs HERE, unconditionally — not
+	// only when records was built fresh above. Every production caller
+	// (contentGate.allow, review.go's PendingReview, bundle_distill.go)
+	// builds its ReviewRecords ONCE at construction time and threads it into
+	// EffectiveTrustRequest.Records non-nil on EVERY call; a check gated on
+	// "records == nil" therefore never runs for any of them and is dead code
+	// in production (taskloom rocky-motto — confirmed empirically: reject a
+	// local fragment, corrupt the approvals store, re-materialize, and it
+	// silently un-rejects). readableRecords is an OPTIONAL capability, not
+	// part of the ReviewRecords contract: a test fake that doesn't implement
+	// it (fakeRecords) is assumed readable and skips this gate entirely —
+	// only a REAL countersignRecords (built here or injected by a caller
+	// that built one the same way) is ever asked.
+	if rr, ok := records.(readableRecords); ok {
+		if err := rr.readable(); err != nil {
 			// An approvals store we cannot read may hold REJECTIONS we would
 			// otherwise miss — deny everything rather than silently reopen the
 			// gate, ahead of every other step (including the local/builtin
 			// exemptions below). Fatal-class in strict mode (a deny-all
 			// session is not the session the user set up) — mirrors the
 			// deleted ledger's own store-open check (getTrustStore, pre-S6).
-			strictness.Fail(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
+			//
+			// FailOnce, not Fail: this gate now runs on EVERY item (it moved
+			// out of the records==nil preamble, which fired at most once per
+			// build, onto the per-item production path). A whole session's
+			// worth of items hits the SAME unreadable store, so the finding
+			// and its warning line are identical every time — FailOnce
+			// collapses them to a single abort-listing entry per checkpoint
+			// window instead of one per item (a 13-item materialize would
+			// otherwise print the same fatal line 13 times).
+			strictness.FailOnce(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
 				"approvals store unreadable, denying all items: %v", err)
 			return decide(trust.Deny, trust.SourcePending), nil
 		}
-		records = built
 	}
 	retraction := req.Retraction
 	if retraction == nil {
@@ -456,7 +493,8 @@ func resolveSignerOrUnsigned(injected ssh.Signer, project bool) (signer ssh.Sign
 type SetItemTrustRequest struct {
 	// Ref is the item reference, "<bundle-ref>#<kind>/<name>" where bundle-ref
 	// is a canonical URL ref, a ctxloom:local ref, or a plain local bundle name,
-	// kind is fragments|skills|mcp|hooks (legacy "prompts" still accepted). A
+	// kind is fragments|commands|mcp|hooks|skills (legacy "prompts" still
+	// accepted as an alias for commands). A
 	// trailing "@<commit>" on the bundle ref is accepted for resolution;
 	// approval pins by content BYTES (a countersignature), not commit.
 	Ref string
@@ -775,20 +813,29 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 	switch kindDir {
 	case "fragments":
 		return trust.KindFragment, name, nil
-	case "skills", "prompts":
-		// "skills" is the current spelling (the CLI list emits #skills/<name>);
-		// "prompts" is the legacy alias. Both map to trust.KindPrompt so the
-		// stored key (KindPrompt.Dir() == "prompts"), the assembly-time content
-		// gate, and existing acceptances stay valid — the content lives in
-		// bundle.Skills, which the hash helpers read under KindPrompt.
+	case "commands", "prompts":
+		// "commands" is the current spelling (the CLI list emits #commands/<name>);
+		// "prompts" is the legacy alias from the prompt→skill rename before it.
+		// Both map to trust.KindPrompt so the stored key (KindPrompt.Dir() ==
+		// "prompts"), the assembly-time content gate, and existing acceptances
+		// stay valid — the content lives in bundle.Commands, which the hash
+		// helpers read under KindPrompt.
+		//
+		// NOTE: "skills" is deliberately NOT an alias here. Before the Part A
+		// skill→command rename, "skills" meant this same command kind; Part B2
+		// frees it for the TRUE Agent Skill kind (trust.KindSkill, below) instead
+		// — Part A already moved the CLI/review surface off "#skills/" entirely,
+		// so nothing production still relies on the old meaning.
 		return trust.KindPrompt, name, nil
 	case "mcp":
 		return trust.KindMCP, name, nil
 	case "hooks":
 		// name is the hook's "<event>/<index>" identity (carries an inner slash).
 		return trust.KindHook, name, nil
+	case "skills":
+		return trust.KindSkill, name, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|skills|mcp|hooks)", kindDir)
+		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks|skills)", kindDir)
 	}
 }
 
@@ -834,7 +881,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		rawPayload, distilledPayload = payloadPair(frag.ContentPayload)
 		return rawPayload, distilledPayload, signer, nil
 	case trust.KindPrompt:
-		prompt, ok := bundle.Skills[tRef.Name]
+		prompt, ok := bundle.Commands[tRef.Name]
 		if !ok {
 			return nil, nil, "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
 		}
@@ -859,6 +906,19 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		payload, perr := entry.Hook.ContentPayload()
 		if perr != nil {
 			return nil, nil, "", fmt.Errorf("hook %q payload: %w", tRef.Name, perr)
+		}
+		return payload, nil, signer, nil
+	case trust.KindSkill:
+		skill, ok := bundle.Skills[tRef.Name]
+		if !ok {
+			return nil, nil, "", fmt.Errorf("skill %q not found in bundle %q", tRef.Name, loadRef)
+		}
+		// A skill has no distilled form (SKILL.md's description IS the
+		// progressive-disclosure mechanism; distilling it would defeat that) —
+		// one payload, mirroring KindMCP/KindHook.
+		payload, perr := skill.ContentPayload()
+		if perr != nil {
+			return nil, nil, "", fmt.Errorf("skill %q payload: %w", tRef.Name, perr)
 		}
 		return payload, nil, signer, nil
 	default:

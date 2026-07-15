@@ -108,15 +108,17 @@ func isLeafIdentByte(b byte) bool {
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
 	// Publisher signing surface: zero acceptance scenarios sign a bundle or
-	// list/show the allowed_signers store. Backfill: task outer-water.
+	// list the allowed_signers store. Backfill: task outer-water.
 	// "ctxloom signer add"/"ctxloom signer remove" were here too, but J3
 	// (steps_j3.go, j3_corporate_signed.feature) now legitimately drives both:
 	// the Background's "Alice trusts the company key" step runs `ctxloom
 	// signer add ... --project`, and scenario 6's "Alice revokes her trust in
 	// the company key" runs `ctxloom signer remove ... --project` — pruned.
+	// "ctxloom signer show" was here too, but J7 (steps_j7.go,
+	// j7_incident.feature)'s irrevocable-embedded-key scenario now legitimately
+	// drives it (before/after the removal attempt) — pruned.
 	"ctxloom sign",
 	"ctxloom signer list",
-	"ctxloom signer show",
 	// Relocates an authored bundle to another remote/project; needs a second
 	// project/remote fixture beyond this suite's single seeded remote.
 	// Backfill: task cheap-pug.
@@ -145,9 +147,11 @@ var knownUncoveredCLI = []string{
 // set of registered tools (from a plain, non-forwarding `mcp serve`) this
 // gate accepts as uncovered, checked for exact-set equality the same way.
 var knownUncoveredTools = []string{
-	// Agent-delegation bus + trigger evaluation: no scenario launches/messages/
-	// stops a child agent or evaluates a trigger. Backfill: task spry-niece.
-	"agent_run",
+	// Agent-delegation bus + trigger evaluation: agent_run is now exercised by
+	// J6 (steps_j6_delegation.go, j6_delegation.feature — a coordinator
+	// spawning delegated children and auditing their journaled privilege
+	// grant). send/recv/stop and trigger evaluation remain unexercised.
+	// Backfill: task spry-niece.
 	"agent_send",
 	"agent_recv",
 	"agent_stop",
@@ -209,7 +213,7 @@ var excludedLeaves = map[string]string{
 	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
 	"ctxloom map":                   "fans a task out across parallel LLM sessions; @live-only, no hermetic fixture",
 	"ctxloom weave":                 "map + an LLM synthesis pass over the results; @live-only, no hermetic fixture",
-	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/skill/bundle distill paths cover the distiller",
+	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/command/bundle distill paths cover the distiller",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",
@@ -219,7 +223,7 @@ var excludedLeaves = map[string]string{
 	"ctxloom memory compact":        "@live + external backend session history",
 	"ctxloom bundle push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom fragment push":         "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom skill push":            "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
+	"ctxloom command push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom profile push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom container build":       "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
 	"ctxloom plan watch":            "long-lived file watcher (runs until interrupted); no hermetic exit",

@@ -148,6 +148,26 @@
             }
           },
           "additionalProperties": false
+        },
+        "opencode": {
+          "type": "object",
+          "description": "opencode custom-command export settings. Prompts are exported by default (opt-out model) as .opencode/command/<name>.md files, invocable as /<name> slash commands.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Set to false to disable command export. Default is true (exported).",
+              "default": true
+            },
+            "description": {
+              "type": "string",
+              "description": "Description shown in opencode's command palette / resolved config.",
+              "examples": [
+                "Review code for security issues",
+                "Generate unit tests"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

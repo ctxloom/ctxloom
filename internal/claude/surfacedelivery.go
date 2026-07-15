@@ -8,7 +8,7 @@ import (
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
-// CWD-BOUND surfaces — MCP (.mcp.json), skills (.claude/commands/), and settings
+// CWD-BOUND surfaces — MCP (.mcp.json), commands (.claude/commands/), and settings
 // (.claude/settings.json). Each surface must be materialized where the engine
 // already looks (a project-rooted config file), so this strategy holds a cwd
 // Placement and writes into place.Dir(). Every DeliverX delegates to claude's
@@ -16,20 +16,21 @@ import (
 // Cleanup reverts exactly what that call wrote — ctxloom-owned entries removed,
 // user-authored entries preserved on the marker-merged surfaces.
 //
-// It implements agent.MCPDelivery, agent.SkillsDelivery, and
+// It implements agent.MCPDelivery, agent.CommandsDelivery, and
 // agent.SettingsDelivery; per the delivery-seam design the Delivered handles it
 // returns stay Cleanup-only. Additive only: wiring into Setup/buildArgs is a
 // later slice.
 type fileTemplateDelivery struct {
 	place agent.Placement
 	fs    afero.Fs
-	// selfContainedSkills, when true, makes DeliverSkills skip the
-	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every skill lands in the
-	// target regardless of what happens to exist in the delivering machine's
-	// ~/.claude/commands. Only skillsSurface.Deliver ever sets this (from
-	// agent.SurfaceInputs.SelfContainedSkills, materialize's opt-out) — it is
-	// irrelevant to DeliverMCP/DeliverSettings and left false everywhere else.
-	selfContainedSkills bool
+	// selfContainedCommands, when true, makes DeliverCommands skip the
+	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every command lands in
+	// the target regardless of what happens to exist in the delivering
+	// machine's ~/.claude/commands. Only commandsSurface.Deliver ever sets this
+	// (from agent.SurfaceInputs.SelfContainedCommands, materialize's opt-out)
+	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
+	// everywhere else.
+	selfContainedCommands bool
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
@@ -53,12 +54,13 @@ func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string
 	return deliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
 }
 
-// DeliverSkills materializes the skills surface by delegating to
-// WriteCommandFiles targeted at place.Dir(): it writes the enabled skill exports
-// into .claude/commands/ under a ctxloom manifest, sharing the directory with the
-// user's own commands. Cleanup reverts via the same manifest-scoped writer with
-// no exports (WriteCommandFiles(dir, nil, …)), which removes exactly the
-// manifest-tracked set and the manifest, leaving user commands untouched.
+// DeliverCommands materializes the commands surface by delegating to
+// WriteCommandFiles targeted at place.Dir(): it writes the enabled command
+// exports into .claude/commands/ under a ctxloom manifest, sharing the
+// directory with the user's own commands. Cleanup reverts via the same
+// manifest-scoped writer with no exports (WriteCommandFiles(dir, nil, …)),
+// which removes exactly the manifest-tracked set and the manifest, leaving
+// user commands untouched.
 //
 // Claude Code loads ~/.claude/commands alongside place.Dir()'s project scope, so
 // a project copy byte-identical to the global one would otherwise surface as a
@@ -71,21 +73,21 @@ func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string
 // itself — so no extra guard is needed here. If the home dir can't be resolved
 // (no $HOME), dedup is simply left off, matching "empty disables the dedup".
 //
-// When d.selfContainedSkills is set (materialize's opt-out), the
+// When d.selfContainedCommands is set (materialize's opt-out), the
 // GlobalCommandsDir()/WithHomeCommandsDir step is skipped entirely: the target
 // is a PORTABLE artifact whose launch environment is not this host, so deduping
-// against the delivering machine's home would silently drop skills that only
+// against the delivering machine's home would silently drop commands that only
 // happen to already exist here.
-func (d *fileTemplateDelivery) DeliverSkills(skills []agent.CommandExport) (agent.Delivered, error) {
+func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	fs := d.fs
 	opts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
-	if !d.selfContainedSkills {
+	if !d.selfContainedCommands {
 		if home, err := GlobalCommandsDir(); err == nil && home != "" {
 			opts = append(opts, agent.WithHomeCommandsDir(home))
 		}
 	}
-	if err := WriteCommandFiles(dir, skills, opts...); err != nil {
+	if err := WriteCommandFiles(dir, commands, opts...); err != nil {
 		return nil, err
 	}
 	return deliveredFunc(func() error {
@@ -112,6 +114,6 @@ func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageSt
 
 var (
 	_ agent.MCPDelivery      = (*fileTemplateDelivery)(nil)
-	_ agent.SkillsDelivery   = (*fileTemplateDelivery)(nil)
+	_ agent.CommandsDelivery = (*fileTemplateDelivery)(nil)
 	_ agent.SettingsDelivery = (*fileTemplateDelivery)(nil)
 )

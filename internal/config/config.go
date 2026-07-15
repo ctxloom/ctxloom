@@ -124,7 +124,7 @@ type Config struct {
 
 	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
 	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
-	// command-file exports via LoadSkillExports) when set. nil = no enforcement,
+	// command-file exports via LoadCommandExports) when set. nil = no enforcement,
 	// matching the gate-free management/listing paths. The operations/run
 	// consumers inject it before writing backend settings (trust rework, TR5);
 	// operations can't be imported here, so the gate is a plain bundles.ContentGate
@@ -154,7 +154,7 @@ type Config struct {
 	// happen to be on the HOST's PATH, so any test that sets AppPaths (the only
 	// guard) silently inherits the developer's machine: the same test passes
 	// where ltk is not installed and fails where it is. Tests that assert on an
-	// exact skill/bundle set must pin this (see DisableCompanionProbe) so the
+	// exact command/bundle set must pin this (see DisableCompanionProbe) so the
 	// result depends on the fixture, never the host.
 	companionProbe func(signing.TrustRoot) map[string]*bundles.Bundle
 
@@ -403,7 +403,7 @@ func (c *Config) ShouldUseDistilled() bool {
 }
 
 // ShouldSignByDefault reports whether publish commands (fragment push,
-// skill push) should sign unless --no-sign is given (spec §7A.3,
+// command push) should sign unless --no-sign is given (spec §7A.3,
 // sign.default). Defaults to false.
 func (c *Config) ShouldSignByDefault() bool {
 	return c.Settings.ShouldSignByDefault()
@@ -466,7 +466,7 @@ func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
 // this is the step that surfaces them to the SHARED profile loader, so a bundle
 // profile resolves, lists, and runs exactly like a top-level or local profile.
 // The profile DEFINITION is never trust-gated here (there is no trust.ItemKind
-// for profiles, and nothing is baselined); its constituent fragments/skills
+// for profiles, and nothing is baselined); its constituent fragments/commands
 // still gate at content assembly and any mcp/hooks it pulls in still gate at the
 // exec choke. Returns nil when no visible bundle ships a profile.
 func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
@@ -546,7 +546,8 @@ func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
 	p := bp
 	p.Bundles = append([]string(nil), bp.Bundles...)
 	p.Parents = append([]string(nil), bp.Parents...)
-	p.Prompts = append([]string(nil), bp.Prompts...)
+	p.Commands = append([]string(nil), bp.Commands...)
+	p.Skills = append([]string(nil), bp.Skills...)
 	p.BundleItems = append([]string(nil), bp.BundleItems...)
 	p.Fragments = append([]profiles.FragmentRef(nil), bp.Fragments...)
 	return p
@@ -1238,7 +1239,7 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 
 // DisableCompanionProbe makes companion-loadout discovery a no-op for this
 // Config. Companion probing execs the companion binaries found on the host's
-// PATH, which makes any assertion over an exact skill set depend on what the
+// PATH, which makes any assertion over an exact command set depend on what the
 // developer happens to have installed. Tests that pin such a set call this so
 // the fixture — not the machine — decides the result.
 func (c *Config) DisableCompanionProbe() {

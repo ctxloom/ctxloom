@@ -12,22 +12,26 @@ import (
 // ctxloom upgrades on load rather than silently dropping a renamed key. Append
 // an Upgrader here as the bundle schema evolves; each must be idempotent.
 var bundleUpgrades = upgrade.Pipeline{
-	skillsKeyUpgrade{},
+	commandsKeyUpgrade{},
 }
 
-// skillsKeyUpgrade renames the legacy top-level `prompts:` map key to `skills:`.
-// The bundle item-kind "prompt" was renamed to "skill" (so Bundle now unmarshals
-// its slash-command/skill items from `skills:`); without this migration an older
-// bundle's `prompts:` block would be silently dropped on load.
-type skillsKeyUpgrade struct{}
+// commandsKeyUpgrade renames the legacy top-level `prompts:` map key to
+// `commands:`. The bundle item-kind "prompt" was renamed to "skill" and then
+// to "command" (so Bundle now unmarshals its slash-command items from
+// `commands:`); without this migration an older bundle's `prompts:` block
+// would be silently dropped on load. This is a one-hop rewrite straight from
+// `prompts:` to `commands:` — it never lands on the intermediate `skills:`
+// name, because `skills:` is reserved for a different, future item-kind
+// (Agent Skills) that a permanent rewrite would corrupt.
+type commandsKeyUpgrade struct{}
 
 // Name identifies the upgrade in logs.
-func (skillsKeyUpgrade) Name() string { return "rename bundle prompts to skills" }
+func (commandsKeyUpgrade) Name() string { return "rename bundle prompts to commands" }
 
-// Apply renames the top-level prompts key to skills. Idempotent: a bundle
-// already using `skills:` (or with no prompts) is left untouched.
-func (skillsKeyUpgrade) Apply(root *yaml.Node) bool {
-	return renameMapKey(root, "prompts", "skills")
+// Apply renames the top-level prompts key to commands. Idempotent: a bundle
+// already using `commands:` (or with no prompts) is left untouched.
+func (commandsKeyUpgrade) Apply(root *yaml.Node) bool {
+	return renameMapKey(root, "prompts", "commands")
 }
 
 // renameMapKey renames oldKey to newKey on a mapping node in place (preserving

@@ -147,10 +147,16 @@ func (c countersignRecords) Approved(ref trust.Ref, payload []byte, form string)
 }
 
 // signingKindOf maps trust's item-kind vocabulary onto signing's closed
-// ItemKind vocabulary. The two disagree on ONE spelling — trust.KindPrompt
-// vs signing.KindSkills — because trust.ItemKind predates the "skills"
-// rename and signing.ItemKind was authored after it; this is the single
-// place that reconciles them.
+// ItemKind vocabulary. The two disagree on TWO spellings:
+//   - trust.KindPrompt vs signing.KindSkills, because trust.ItemKind predates
+//     the "skills" (skill->command) rename and signing.ItemKind was authored
+//     after it;
+//   - trust.KindSkill (the TRUE Agent Skill kind, Part B2) vs
+//     signing.KindAgentSkills, because signing.KindSkills was already taken by
+//     the legacy mapping above and must not be reused (it is baked into
+//     existing command approval/rejection payloads).
+//
+// This is the single place that reconciles both.
 func signingKindOf(k trust.ItemKind) signing.ItemKind {
 	switch k {
 	case trust.KindFragment:
@@ -161,6 +167,8 @@ func signingKindOf(k trust.ItemKind) signing.ItemKind {
 		return signing.KindMCP
 	case trust.KindHook:
 		return signing.KindHooks
+	case trust.KindSkill:
+		return signing.KindAgentSkills
 	default:
 		return signing.ItemKind(k)
 	}

@@ -84,6 +84,10 @@ func TestContainerWorktree_PrepareDegradesBeforeWorktree(t *testing.T) {
 func TestContainerWorktreeWorkspace_CleanupOrdering(t *testing.T) {
 	scratch, err := os.MkdirTemp("", "ctxloom-iso-cwt-")
 	require.NoError(t, err)
+	// Safety net: this test's whole point is exercising ws.Cleanup() itself, so
+	// a mutant that breaks its removal logic (or an earlier failure/panic)
+	// must not leak this fixture dir under the OS temp dir.
+	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
 	outer := filepath.Join(os.TempDir(), "ctxloom-wt-cwt")
 	f := &git.Fake{Worktrees: []git.Worktree{{Path: outer}}}
 	wt := &worktreeWorkspace{git: f, repoDir: "/proj", dir: outer}
@@ -182,6 +186,10 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	working := NewWorktree(&git.Fake{CommonDirValue: common})
 	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, "/proj", "m")
 	require.NotNil(t, ws)
+	// Safety net registered BEFORE the assertions below can fail/panic and skip
+	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
+	// requireCleanWorkspace's doc in worktree_integration_test.go).
+	requireCleanWorkspace(t, ws)
 	assert.Equal(t, "worktree", pol.Name(), "container→worktree when the container can't launch")
 	assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()), "the degraded workspace is a bare worktree")
 	_ = ws.Cleanup()
@@ -195,6 +203,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 			None{},
 		}, "/proj", "m")
 	require.NotNil(t, ws2)
+	requireCleanWorkspace(t, ws2)
 	assert.Equal(t, "none", pol2.Name(), "worktree→none on a non-git repo")
 	assert.Equal(t, "/proj", ws2.Dir(), "none keeps the shared project dir")
 	_ = ws2.Cleanup()

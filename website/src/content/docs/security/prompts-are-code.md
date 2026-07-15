@@ -19,7 +19,7 @@ prompts from bad ones. Because nobody can, and pretending otherwise is how you g
 
 ## Three tiers of execution
 
-A bundle carries fragments, skills, profiles, MCP servers, and hooks. The last two are not
+A bundle carries fragments, commands, profiles, MCP servers, and hooks. The last two are not
 metaphorically executable. They are command lines.
 
 ### Tier 1 — direct and immediate: `hooks`
@@ -59,7 +59,7 @@ mcp:
 The command line runs on your machine with your privileges. The agent can invoke its tools
 without you ever seeing what it does.
 
-### Tier 3 — indirect: `fragments` and `skills`
+### Tier 3 — indirect: `fragments` and `commands`
 
 This is the tier everyone dismisses as "just text", and it is the reason ctxloom exists.
 
@@ -78,7 +78,7 @@ The industry treats tier 3 as documentation. That assumption is the opening.
 
 The codebase does not hedge. The trust gate that decides whether an MCP server, a hook, or
 an exported slash-command reaches your harness calls them, in its user-facing advisory,
-**bundle executables**. Fragments and skills go through the same decision function as the
+**bundle executables**. Fragments and commands go through the same decision function as the
 command lines do, because text to an LLM is executable.
 
 Every one of these surfaces is fail-closed. If ctxloom cannot positively justify exposing an

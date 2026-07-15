@@ -11,10 +11,10 @@ Here's what that buys you, then how to get it running in a few minutes.
 | Capability | Description |
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
-| **Slash Commands** | Skills become `/commands` in Claude Code and Antigravity automatically |
+| **Slash Commands** | Commands become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
-| **Token Optimization** | Distill fragments and skills with a cheap, fast LLM |
+| **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
 
 ## Initialize Your Project
 
@@ -102,31 +102,31 @@ ctxloom fragment show 'https://github.com/ctxloom/ctxloom-default@bundles/testin
 ctxloom fragment show 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragments/tdd' --distilled
 ```
 
-### List Skills (Slash Commands)
+### List Commands (Slash Commands)
 
 ```bash
-# List all skills
-ctxloom skill list
+# List all commands
+ctxloom command list
 
 # Filter by bundle (bare name = a local bundle you authored)
-ctxloom skill list --bundle my-tools
+ctxloom command list --bundle my-tools
 ```
 
-Skills group by canonical bundle ref too:
+Commands group by canonical bundle ref too:
 
 ```
-Skills (2):
+Commands (2):
 
   ctxloom:local@bundles/my-tools:
     - code-review [review]
     - refactor [refactoring]
 ```
 
-### View Skill Content
+### View Command Content
 
 ```bash
-# Show a specific skill
-ctxloom skill show 'my-tools#skills/code-review'
+# Show a specific command
+ctxloom command show 'my-tools#commands/code-review'
 ```
 
 ## Run with Context
@@ -164,11 +164,11 @@ returns before it is ever consulted.)
 
 ## Use Slash Commands
 
-Skills in bundles become slash commands in Claude Code and Antigravity CLI:
+Commands in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
 # .ctxloom/content/bundles/my-tools.yaml
-skills:
+commands:
   code-review:
     description: "Review code for issues"
     content: |

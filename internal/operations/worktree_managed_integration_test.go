@@ -35,7 +35,32 @@ func TestWorktreeMember_ManagedConfigLandsInWorktree(t *testing.T) {
 	// The worktree policy provisions the isolated cwd + writes info/exclude.
 	ws, err := isolation.NewWorktree(git.NewExec()).PrepareWorkspace(ctx, repo, "member-managed")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
-	t.Cleanup(func() { _ = ws.Cleanup() })
+	wtDir := ws.Dir()
+	t.Cleanup(func() {
+		_ = ws.Cleanup()
+		// ws.Cleanup() is deliberately WIP-safe: it refuses to remove a dirty
+		// worktree so a real developer's uncommitted work is never destroyed
+		// (internal/lm/isolation/worktree.go's teardown). This test's own Setup
+		// call below writes .mcp.json/.claude/ into the worktree, which makes
+		// `git status --porcelain` non-empty and trips that guard on EVERY run
+		// (not just a panicking one) — so the checkout under the OS temp dir
+		// survives ws.Cleanup() unconditionally. This scratch checkout is
+		// disposable (the repo above is a throwaway t.TempDir()), so force it
+		// away regardless of "dirty" status: this was measured leaking
+		// hundreds of ctxloom-wt-member-managed-* dirs during a single
+		// mutation run.
+		_ = os.RemoveAll(wtDir)
+	})
+	// ws.Cleanup() also removes the per-agent config-home (ctxloom-cfg-*)
+	// unconditionally, but that removal runs through the same production code
+	// gremlins mutates: a mutant that breaks it is "killed" elsewhere while
+	// genuinely leaving this dir on disk too. Derive its path via the exported
+	// env accessor (this package can't reach isolation's unexported fields)
+	// and force it away the same way as wtDir above.
+	if cd, ok := isolation.WorkspaceEnv(ws)["CLAUDE_CONFIG_DIR"]; ok && cd != "" {
+		configHome := filepath.Dir(cd)
+		t.Cleanup(func() { _ = os.RemoveAll(configHome) })
+	}
 
 	// The host-assembled managed payload (an MCP server here) the plugin's Setup
 	// consumes — mirroring backends.AssembleManagedConfig's result, but hand-built

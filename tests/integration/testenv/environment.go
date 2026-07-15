@@ -189,12 +189,26 @@ func (e *TestEnvironment) Setup() error {
 	return nil
 }
 
-// storeAndSetEnv stores the original value and sets a new one.
+// storeAndSetEnv stores the original value and sets a new one. The original
+// is captured FIRST-WRITE-WINS: a key already recorded in originalEnv (a
+// second or third storeAndSetEnv call on the SAME key within one scenario —
+// e.g. a PATH scrub followed by an InstallFakeCompanion prepend, both of
+// which touch "PATH") is left alone, so Cleanup always restores the value
+// that was really there before THIS scenario touched it at all, never an
+// intermediate value this scenario itself produced. Capturing unconditionally
+// on every call was a real bug: the second call would read back the FIRST
+// call's already-modified value and record THAT as "original", so Cleanup
+// restored an already-mutated value — for PATH specifically, a scenario that
+// scrubbed a directory and then prepended a fake-companion directory would
+// permanently lose the scrubbed directory from every LATER scenario in the
+// same test process, since godog runs all scenarios in one binary.
 func (e *TestEnvironment) storeAndSetEnv(key, value string) {
-	if orig, exists := os.LookupEnv(key); exists {
-		e.originalEnv[key] = orig
-	} else {
-		e.originalEnv[key] = "\x00" // Marker for "was not set"
+	if _, already := e.originalEnv[key]; !already {
+		if orig, exists := os.LookupEnv(key); exists {
+			e.originalEnv[key] = orig
+		} else {
+			e.originalEnv[key] = "\x00" // Marker for "was not set"
+		}
 	}
 	_ = os.Setenv(key, value)
 }

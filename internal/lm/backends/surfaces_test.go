@@ -29,7 +29,16 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 // claude.NewSurfaces: a full set of native surfaces is returned.
 func TestBuildSurfaces_Claude(t *testing.T) {
 	set := BuildSurfaces("claude-code", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
-	assert.Len(t, set.Deliveries(), 4, "claude has context + MCP + settings + skills surfaces")
+	assert.Len(t, set.Deliveries(), 5, "claude has context + MCP + settings + commands + skills surfaces")
+}
+
+// TestBuildSurfaces_Kiro proves the kiro descriptor closure routes through
+// kiro.NewSurfaces and now includes the skills surface (Part B5) alongside
+// context/MCP/settings/commands — kiro is the collision engine where commands
+// and skills share one native directory, reconciled inside kiro.NewSurfaces.
+func TestBuildSurfaces_Kiro(t *testing.T) {
+	set := BuildSurfaces("kiro", agent.SurfaceInputs{Context: "hello"}, afero.NewMemMapFs())
+	assert.Len(t, set.Deliveries(), 5, "kiro has context + MCP + settings + commands + skills surfaces")
 }
 
 // TestBuildSurfaces_CodexNoNativeContextFile pins the codex opt-out invariant

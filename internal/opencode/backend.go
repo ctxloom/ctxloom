@@ -1,0 +1,185 @@
+// Package opencode implements the ctxloom Backend for opencode (the `opencode`
+// CLI), driven over its first-party `opencode acp` mode — no third-party ACP
+// adapter. This is the HOST-only chat spine (slice 1): structured chat + the
+// headless oneshot projection of it, both riding the generic ACP driver in
+// internal/acp. opencode has no `--model` flag on its acp subcommand; the model
+// is delivered through a project-local opencode.json in the run's cwd (see
+// chat.go), which opencode reads and validates strictly.
+//
+// LIVE-VERIFIED against opencode 1.18.1 authenticated to OpenRouter: a real
+// oneshot chat over `opencode acp` round-tripped a requested nonce back through
+// meta-llama/llama-3.3-70b-instruct:free, proving model delivery via
+// opencode.json reaches real model resolution.
+//
+// Later slices layer native config onto the model key: MCP servers, a read-only
+// `permission` for plan mode, and assembled context via `instructions` (slice 2),
+// plus custom commands (bundle prompt/skill exports -> .opencode/command/, slice
+// 3), plus Agent Skill packages (bundle skill exports -> .opencode/skill/ +
+// `skills.paths`, Part B4). On the live path all of it rides transiently in Chat
+// and is reverted after the run; the persistent `profile materialize` path uses
+// the descriptor surfaces.
+// The session-history reader (capabilities.go) drives opencode's own `session
+// list`/`export` commands; interactive PTY launch is still a later slice.
+package opencode
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// OpencodeConfig is opencode's typed LLM config. The backend owns this struct;
+// the config package only carries the raw body that decodes into it.
+type OpencodeConfig struct {
+	Model      string            `mapstructure:"model"`
+	BinaryPath string            `mapstructure:"binary_path"`
+	Args       []string          `mapstructure:"args"`
+	Env        map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (OpencodeConfig) BackendType() string { return "opencode" }
+
+// Opencode implements the Backend interface for the opencode CLI over ACP.
+type Opencode struct {
+	agent.LaunchBackend
+	model string
+	// pendingCommands holds the host-assembled command exports captured during
+	// Setup's surface build, so the LIVE chat path can materialize them
+	// transiently. opencode's live delivery does not use the cell/surface path
+	// (Setup writes no persistent surfaces — see NewOpencode); the CellDelivery
+	// Build closure is the only place these host-resolved exports reach the
+	// backend, so it stashes them here for Chat rather than delivering a surface.
+	pendingCommands []agent.CommandExport
+	// pendingContext is the assembled context string stashed at the same seam, so
+	// the interactive TUI launch (interactive.go) can materialize it transiently as
+	// the .opencode/ctxloom-context.md that opencode.json's `instructions` points at.
+	pendingContext string
+	// pendingSkills mirrors pendingCommands for the Agent Skills surface: the
+	// host-assembled skill package exports captured during Setup, materialized
+	// transiently by the LIVE chat path (chat.go) via the SAME
+	// reconcileSkillsSurface function the persistent surfaces.go path binds.
+	pendingSkills []agent.SkillExport
+}
+
+// NewOpencode creates a new opencode backend with default settings.
+func NewOpencode() *Opencode {
+	b := &Opencode{}
+	b.BaseBackend = agent.NewBaseBackend("opencode", "1.0.0")
+	// Default binary name; a configured binary_path (this host's opencode is not
+	// on PATH) overrides it via Configure/ApplyLocalCLIConfig.
+	b.BinaryPath = "opencode"
+	// The live run/oneshot path delivers everything (model, MCP, read-only
+	// permission, and now commands) TRANSIENTLY in Chat, not via persistent
+	// Setup surfaces — so the empty CellDelivery still runs the lifecycle merge but
+	// writes no files. Its Build closure is, however, the seam where the
+	// host-assembled command exports (inputs.Commands) reach this backend: it
+	// stashes them for Chat to materialize transiently, then returns an empty
+	// surface set so Setup itself writes nothing. (The persistent `profile
+	// materialize` path is separate — it uses the descriptor's newSurfaces
+	// builder, which DOES carry a commands surface; see surfaces.go.)
+	b.InitLaunch(
+		agent.NewBaseLifecycle("opencode"),
+		&opencodeCommands{},
+		agent.NewBaseContextProvider(),
+		newOpencodeSessionHistory(b),
+		&agent.CellDelivery{Build: func(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
+			b.pendingCommands = in.Commands
+			b.pendingContext = in.Context
+			b.pendingSkills = in.Skills
+			return agent.EmptySurfaceSet{}
+		}},
+	)
+	return b
+}
+
+// Configure applies a decoded opencode config (binary path, args, env, model).
+func (b *Opencode) Configure(cfg agent.BackendConfig) {
+	c, ok := cfg.(*OpencodeConfig)
+	if !ok {
+		return
+	}
+	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
+	if c.Model != "" {
+		b.model = c.Model
+	}
+}
+
+// SupportedModes reports both modes: oneshot rides the `opencode acp` structured
+// turn (chat.go), interactive launches opencode's TUI through the pty launcher
+// (interactive.go). This is the BaseBackend default, spelled out here for clarity.
+func (b *Opencode) SupportedModes() []agent.ExecutionMode {
+	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
+}
+
+// Execute runs a ONESHOT prompt as a single structured ACP turn: one Chat
+// session, one message, the assistant's streamed text rendered to stdout — a
+// one-message projection of the StructuredChat path (chat.go), so the two paths
+// cannot diverge. Model delivery (opencode.json) happens inside Chat.
+func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	// The provider is decided by opencode's own resolution of the openrouter/...
+	// model string; "opencode" is honest, not a placeholder.
+	modelInfo := &agent.ModelInfo{ModelName: req.Model, Provider: "opencode"}
+
+	if req.DryRun {
+		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+	}
+	// Interactive launches opencode's TUI (interactive.go): model, MCP, context, and
+	// the read-only permission ride a transient opencode.json overlay; bypass adds
+	// --auto. Oneshot below is the `opencode acp` structured turn.
+	if req.Mode == agent.ModeInteractive {
+		return b.launchInteractive(ctx, req, modelInfo, stdout, stderr)
+	}
+
+	workDir := req.WorkDir
+	if workDir == "" {
+		workDir = b.WorkDir()
+	}
+
+	in := make(chan agent.ChatMessage, 1)
+	in <- agent.ChatMessage{Text: agent.GetPromptContent(req.Prompt)}
+	close(in)
+	// Buffered so the drain loop below and the driver never deadlock on the final
+	// events emitted between the last read and the channel close.
+	out := make(chan agent.ChatEvent, 16)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- b.Chat(ctx, agent.ChatRequest{
+			WorkDir:     workDir,
+			Model:       req.Model,
+			Env:         req.Env,
+			Permissions: req.Permissions,
+			MCPServers:  b.ManagedChatMCPServers(),
+		}, in, out)
+	}()
+
+	wroteText := false
+	for ev := range out {
+		if ev.Entry == nil {
+			continue
+		}
+		switch ev.Entry.Type {
+		case agent.EntryTypeAssistant:
+			fmt.Fprint(stdout, ev.Entry.Content)
+			wroteText = true
+		case agent.EntryTypeThinking:
+			if req.Verbosity >= 16 {
+				fmt.Fprintf(stderr, "[thinking] %s\n", ev.Entry.Content)
+			}
+		case agent.EntryTypeToolUse:
+			if req.Verbosity >= 16 {
+				fmt.Fprintf(stderr, "[tool] %s\n", ev.Entry.ToolName)
+			}
+		}
+	}
+	if err := <-done; err != nil {
+		return nil, err
+	}
+	if wroteText {
+		fmt.Fprintln(stdout)
+	}
+	return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+}

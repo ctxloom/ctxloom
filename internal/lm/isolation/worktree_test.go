@@ -29,6 +29,9 @@ func TestWorktree_PrepareCreatesWorktree(t *testing.T) {
 	f := &git.Fake{CommonDirValue: common}
 	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-a")
 	require.NoError(t, err)
+	// Safety net registered BEFORE any assertion below can fail/panic and skip
+	// the ws.Cleanup() call at the end of this test (see requireCleanWorkspace).
+	requireCleanWorkspace(t, ws)
 
 	assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()), "worktree lives under the OS temp dir, not the repo tree")
 	assert.NotContains(t, ws.Dir(), "/proj/", "worktree is not created inside the project tree")
@@ -66,6 +69,7 @@ func TestWorktree_SkipsTrackedConfig(t *testing.T) {
 	ws, err := NewWorktree(f).PrepareWorkspace(context.Background(), "/proj", "member-t")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
+	requireCleanWorkspace(t, ws)
 
 	assert.Contains(t, f.Calls, "skip-worktree(true) .mcp.json")
 	assert.Contains(t, f.Calls, "skip-worktree(true) .claude/settings.json")

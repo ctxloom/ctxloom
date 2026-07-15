@@ -73,6 +73,10 @@ func TestContainer_PrepareDegrades(t *testing.T) {
 func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
 	scratch, err := os.MkdirTemp("", "ctxloom-iso-test-")
 	require.NoError(t, err)
+	// Safety net: this test's whole point is exercising ws.Cleanup() itself, so
+	// a mutant that breaks its removal logic (or an earlier failure/panic)
+	// must not leak this fixture dir under the OS temp dir.
+	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
 	ws := &containerWorkspace{dir: "/proj", scratchRoot: scratch, agentID: "m"}
 
 	assert.Equal(t, "/proj", ws.Dir(), "workspace dir is the identical-path project directory")

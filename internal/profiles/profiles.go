@@ -93,18 +93,25 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	}
 	// A parent is either a bare local-profile name (passes through) or a
 	// <bundle>#profiles/<name> bundle-shipped ref that canonicalizes against the
-	// source repo exactly like Bundles/Prompts (the "#profiles/<name>" selector
+	// source repo exactly like Bundles/Commands (the "#profiles/<name>" selector
 	// rides through ItemTypeBundle's item passthrough). Top-level @profiles/
 	// parent distribution was retired, so ItemTypeProfile is no longer used here.
 	for i, par := range p.Parents {
 		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
-	// Curated prompt refs ("<bundle>#prompts/<name>") carry a bundle reference,
-	// so a remote profile's short prompt refs canonicalize against its source
-	// repo exactly like Bundles (the "#prompts/<name>" selector and any trailing
-	// "@<commit>" pin ride through ResolveRefString's item passthrough).
-	for i, pr := range p.Prompts {
-		p.Prompts[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	// Curated command refs ("<bundle>#commands/<name>") carry a bundle
+	// reference, so a remote profile's short command refs canonicalize against
+	// its source repo exactly like Bundles (the "#commands/<name>" selector and
+	// any trailing "@<commit>" pin ride through ResolveRefString's item
+	// passthrough).
+	for i, pr := range p.Commands {
+		p.Commands[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	// Curated skill refs ("<bundle>#skills/<name>") carry a bundle reference
+	// exactly like Commands, so a remote profile's short skill refs canonicalize
+	// against its source repo the same way.
+	for i, sr := range p.Skills {
+		p.Skills[i] = remote.ResolveRefString(sr, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
 	// Fragment refs and bundle_items cherry-picks both name bundle content, so a
 	// remote profile's short forms canonicalize against its source repo exactly
@@ -125,9 +132,9 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 //
 // Profiles use a standardized path syntax to reference content:
 //
-//	bundle-name                      # Entire bundle (all fragments, prompts, MCP)
+//	bundle-name                      # Entire bundle (all fragments, commands, MCP)
 //	bundle-name:fragments/name       # Specific fragment from bundle
-//	bundle-name:skills/name         # Specific prompt from bundle
+//	bundle-name:commands/name       # Specific command from bundle
 //	bundle-name:mcp                  # MCP server from bundle
 //	remote/bundle-name:fragments/x   # Fragment from remote bundle
 //
@@ -152,16 +159,25 @@ type Profile struct {
 	// Full URLs: "https://github.com/user/repo@bundles/name"
 	Bundles []string `yaml:"bundles,omitempty"`
 
-	// Prompts curates the slash-command prompt exports for this directory
-	// profile, the mirror of config.Profile.Prompts for inline profiles
-	// (b626431). When a resolved active profile declares a NON-EMPTY list, ONLY
-	// these prompts are exported (each optionally version-pinned with a trailing
+	// Commands curates the slash-command exports for this directory profile,
+	// the mirror of config.Profile.Commands for inline profiles (b626431, D2).
+	// When a resolved active profile declares a NON-EMPTY list, ONLY these
+	// commands are exported (each optionally version-pinned with a trailing
 	// "@<commit>"), suppressing the global flag-based auto-export for that
 	// profile; an empty list keeps today's global auto-export (opt-in). Each
-	// entry is a prompt ref ("<bundle>#prompts/<name>") whose version-agnostic
+	// entry is a command ref ("<bundle>#commands/<name>") whose version-agnostic
 	// identity is the stored string — like bundles, any "@<commit>" is parsed
 	// transiently at assembly and the lockfile stays untouched.
-	Prompts []string `yaml:"prompts,omitempty"`
+	Commands []string `yaml:"commands,omitempty"`
+
+	// Skills curates the Agent Skill exports for this directory profile, the
+	// mirror of config.Profile.Skills for inline profiles (B6a). When a
+	// resolved active profile declares a NON-EMPTY list, ONLY these skills are
+	// exported per-engine (force-enabled), suppressing the global bundle-wide
+	// auto-export for that profile; an empty list keeps today's global
+	// auto-export. Each entry is a skill ref ("<bundle>#skills/<name>") — no
+	// version pin (a skill has no historical-content resolution).
+	Skills []string `yaml:"skills,omitempty"`
 
 	// Fragments are direct fragment references with optional priority — the
 	// mirror of config.Profile.Fragments for inline profiles. Each entry may
@@ -788,10 +804,13 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
 	resolved.SelectTags = appendUnique(resolved.SelectTags, profile.SelectTags...)
-	// Curated prompts union with parents in declaration order, deduped by their
-	// version-agnostic stored ref — the directory-profile mirror of how inline
-	// profiles fold Prompts in config_resolve.mergeProfileValues.
-	resolved.Prompts = appendUnique(resolved.Prompts, profile.Prompts...)
+	// Curated commands union with parents in declaration order, deduped by
+	// their version-agnostic stored ref — the directory-profile mirror of how
+	// inline profiles fold Commands in config_resolve.mergeProfileValues.
+	resolved.Commands = appendUnique(resolved.Commands, profile.Commands...)
+	// Curated skills union with parents in declaration order, deduped by their
+	// stored ref — the skill mirror of the Commands fold immediately above.
+	resolved.Skills = appendUnique(resolved.Skills, profile.Skills...)
 	// Direct fragments union (dedup by version-agnostic Name, child raises
 	// priority) and cherry-picked bundle_items union — the directory mirror of
 	// profileBuilder.addFragment / addBundleItem. Applied after parents so a
@@ -829,7 +848,8 @@ type ResolvedProfile struct {
 	Bundles     []string         // All bundle references
 	Tags        []string         // Descriptive (listing/discovery); does NOT select content
 	SelectTags  []string         // Fragment tags to select content by
-	Prompts     []string         // Curated slash-command prompt refs (opt-in; empty = global auto-export)
+	Commands    []string         // Curated slash-command refs (opt-in; empty = global auto-export)
+	Skills      []string         // Curated skill refs (opt-in; empty = global auto-export)
 	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
 	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
 	Hooks       wire.HooksConfig // Directly-declared lifecycle hooks (executable; gated downstream)
@@ -849,7 +869,8 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
 	r.SelectTags = appendUnique(r.SelectTags, other.SelectTags...)
-	r.Prompts = appendUnique(r.Prompts, other.Prompts...)
+	r.Commands = appendUnique(r.Commands, other.Commands...)
+	r.Skills = appendUnique(r.Skills, other.Skills...)
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
 	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
 	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)

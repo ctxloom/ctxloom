@@ -82,6 +82,22 @@ type runEnqueued struct {
 	// jq-legible; ladder.go owns the (Ladder <-> []ladderRungFact)
 	// conversion.
 	Ladder []ladderRungFact `json:"ladder,omitempty"`
+	// Permission is the child's resolved permission mode's kind name
+	// (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
+	// "acceptEdits") — Wave F1 (taskloom spare-chevy), journaled at enqueue
+	// for the SAME reason as Ladder: a later config edit must not
+	// retroactively change what a live run's privileges were. Kind name, not
+	// a wire number, so runs.jsonl stays jq-legible.
+	Permission string `json:"permission,omitempty"`
+	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
+	// never command, args, or env, which can carry a secret (the SAME
+	// boundary CredHash already holds for the bearer token: this journal
+	// records identity, never the credential). Composed strictly from the
+	// child's OWN resolved profile set (prodSpawner.childMCPServers,
+	// spawner.go), so this is the delegation privilege-scoping guarantee's
+	// audit trail — a later reader can confirm this run received exactly
+	// these servers, never a sibling's or the parent's.
+	MCPServers []string `json:"mcp_servers,omitempty"`
 }
 
 // ladderRungFact is LadderRung's durable JSON projection.

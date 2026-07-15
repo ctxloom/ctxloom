@@ -16,7 +16,7 @@ Feature: Review pending items
     When I run "ctxloom review --list"
     Then the command succeeds
     And the output contains "fragments/demo-frag"
-    And the output contains "skills/demo-skill"
+    And the output contains "commands/demo-skill"
     And the output contains "new"
     # …and the content gate withholds them from the materialized context.
     When I run "ctxloom profile materialize dev --target out"
@@ -30,7 +30,7 @@ Feature: Review pending items
     When I run "ctxloom review --list"
     Then the command succeeds
     And the output does not contain "fragments/demo-frag"
-    And the output contains "skills/demo-skill"
+    And the output contains "commands/demo-skill"
     When I run "ctxloom profile materialize dev --target out"
     Then the command succeeds
     And the file "out/CLAUDE.md" contains "Demo fragment content"

@@ -7,8 +7,8 @@ import (
 )
 
 // TestProfileSelector pins the "<bundle>#profiles/<name>" grammar — the profile
-// counterpart to FragmentSelector ("#fragments/") and PromptSelector
-// ("#skills/") — so bundle profiles are addressed consistently with the other
+// counterpart to FragmentSelector ("#fragments/") and CommandSelector
+// ("#commands/") — so bundle profiles are addressed consistently with the other
 // bundle item kinds.
 func TestProfileSelector(t *testing.T) {
 	assert.Equal(t, "#profiles/", ProfileSelector)

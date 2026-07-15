@@ -20,7 +20,7 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 		return nil
 	}
 	return &ManagedConfig{
-		Skills:           commandExportsToProto(m.Skills),
+		Commands:         commandExportsToProto(m.Commands),
 		Hooks:            hooksConfigToProto(m.Hooks),
 		Mcp:              mcpConfigToProto(m.MCP),
 		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
@@ -35,7 +35,7 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 		return nil
 	}
 	return &agent.ManagedConfig{
-		Skills:           commandExportsFromProto(m.GetSkills()),
+		Commands:         commandExportsFromProto(m.GetCommands()),
 		Hooks:            hooksConfigFromProto(m.GetHooks()),
 		MCP:              mcpConfigFromProto(m.GetMcp()),
 		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),

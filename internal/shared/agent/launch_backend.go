@@ -32,15 +32,15 @@ type HashedContext interface {
 	GetContextFilePath() string
 }
 
-// ContentSkills registers host-resolved command exports (slash commands)
+// ContentCommands registers host-resolved command exports (slash commands)
 // directly. The host maps bundle content to engine-agnostic CommandExports and
 // the agent writes them in its native command format.
-type ContentSkills interface {
+type ContentCommands interface {
 	RegisterFromContent(workDir string, cmds []CommandExport) error
 }
 
 // LaunchBackend is the shared core of a local-CLI launch agent (claude/antigravity).
-// It owns the capability wiring (lifecycle/skills/context/history) and the
+// It owns the capability wiring (lifecycle/commands/context/history) and the
 // generic Setup/Cleanup that every launch agent shares. A concrete agent embeds
 // it, calls InitLaunch with its constructed capabilities, and implements only
 // the genuinely engine-specific surface: Configure, Execute, and its config's
@@ -48,7 +48,7 @@ type ContentSkills interface {
 type LaunchBackend struct {
 	BaseBackend
 	lifecycle ManagedLifecycle
-	skills    ContentSkills
+	commands  ContentCommands
 	context   HashedContext
 	history   SessionHistory
 
@@ -74,9 +74,9 @@ type LaunchBackend struct {
 // concrete backend) have been built. delivery configures cell-based surface
 // delivery (claude/codex/antigravity/kiro); pass nil for a backend that keeps
 // the legacy lifecycle path (acp).
-func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, skills ContentSkills, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
+func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, commands ContentCommands, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
 	b.lifecycle = lifecycle
-	b.skills = skills
+	b.commands = commands
 	b.context = ctxProvider
 	b.history = history
 	b.delivery = delivery
@@ -216,7 +216,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		}
 	}
 
-	// Nothing managed → no surfaces to deliver: with no hooks/MCP/skills to write,
+	// Nothing managed → no surfaces to deliver: with no hooks/MCP/commands to write,
 	// there are no settings/config surfaces. The RawContext cache file, when written
 	// above, stands alone.
 	if req.Managed == nil {
@@ -238,6 +238,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		BundleMCP:        req.Managed.BundleMCP,
 		Hooks:            hooks,
 		ManageStatusline: req.Managed.ManageStatusline,
+		Commands:         req.Managed.Commands,
 		Skills:           req.Managed.Skills,
 	}
 

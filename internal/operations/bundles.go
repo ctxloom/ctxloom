@@ -34,7 +34,7 @@ type DistillKind string
 
 const (
 	DistillKindFragment DistillKind = "fragment"
-	DistillKindSkill    DistillKind = "skill"
+	DistillKindCommand  DistillKind = "command"
 )
 
 // DistillRequest carries everything an implementation needs to compress a
@@ -69,7 +69,7 @@ type CreateBundleRequest struct {
 	Tags        []string                       `json:"tags,omitempty"`
 	Author      string                         `json:"author,omitempty"`
 	Fragments   map[string]BundleFragmentInput `json:"fragments,omitempty"`
-	Skills      map[string]BundleSkillInput    `json:"skills,omitempty"`
+	Commands    map[string]BundleCommandInput  `json:"commands,omitempty"`
 	MCPServers  map[string]BundleMCPInput      `json:"mcp_servers,omitempty"`
 
 	// Distiller, when non-nil, is invoked for each new fragment whose
@@ -95,8 +95,8 @@ type BundleFragmentInput struct {
 	NoDistill    bool     `json:"no_distill,omitempty"`
 }
 
-// BundleSkillInput describes a prompt to add or update via operations.
-type BundleSkillInput struct {
+// BundleCommandInput describes a command to add or update via operations.
+type BundleCommandInput struct {
 	Content      string   `json:"content"`
 	Description  string   `json:"description,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
@@ -174,11 +174,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Path:        path,
 	}
 	applyFragmentInputs(bundle, req.Fragments)
-	applyPromptInputs(bundle, req.Skills)
+	applyPromptInputs(bundle, req.Commands)
 	applyMCPInputs(bundle, req.MCPServers)
 
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
-	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Skills), req.Distiller)
+	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
 
 	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
@@ -209,8 +209,8 @@ type UpdateBundleRequest struct {
 	SetFragments    map[string]BundleFragmentInput `json:"set_fragments,omitempty"`
 	RemoveFragments []string                       `json:"remove_fragments,omitempty"`
 
-	AddPrompts    map[string]BundleSkillInput `json:"add_prompts,omitempty"`
-	SetPrompts    map[string]BundleSkillInput `json:"set_prompts,omitempty"`
+	AddPrompts    map[string]BundleCommandInput `json:"add_prompts,omitempty"`
+	SetPrompts    map[string]BundleCommandInput `json:"set_prompts,omitempty"`
 	RemovePrompts []string                    `json:"remove_prompts,omitempty"`
 
 	AddMCPServers    map[string]BundleMCPInput `json:"add_mcp_servers,omitempty"`
@@ -263,7 +263,7 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	changes, addFT := applyFragmentEdits(bundle, onlyNewKeys(req.AddFragments, bundle.Fragments), nil, changes)
 	changes, fragmentDistillTargets = applyFragmentEdits(bundle, req.SetFragments, req.RemoveFragments, changes)
 	fragmentDistillTargets = append(fragmentDistillTargets, addFT...)
-	changes, addPT := applyPromptEdits(bundle, onlyNewKeys(req.AddPrompts, bundle.Skills), nil, changes)
+	changes, addPT := applyPromptEdits(bundle, onlyNewKeys(req.AddPrompts, bundle.Commands), nil, changes)
 	changes, promptDistillTargets = applyPromptEdits(bundle, req.SetPrompts, req.RemovePrompts, changes)
 	promptDistillTargets = append(promptDistillTargets, addPT...)
 	changes = applyMCPEdits(bundle, onlyNewKeys(req.AddMCPServers, bundle.MCP), nil, changes)
@@ -416,12 +416,12 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 
 // applyPromptEdits is the prompt counterpart of applyFragmentEdits, with the
 // same content-aware (re)distillation rule plus a Description field.
-func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleSkillInput, remove []string, changes []string) (newChanges, distillTargets []string) {
+func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleCommandInput, remove []string, changes []string) (newChanges, distillTargets []string) {
 	for name, in := range set {
-		if bundle.Skills == nil {
-			bundle.Skills = make(map[string]bundles.BundleSkill)
+		if bundle.Commands == nil {
+			bundle.Commands = make(map[string]bundles.BundleCommand)
 		}
-		existing, hadExisting := bundle.Skills[name]
+		existing, hadExisting := bundle.Commands[name]
 		merged := existing
 		merged.Description = in.Description
 		merged.Tags = in.Tags
@@ -437,12 +437,12 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleSkillInput, r
 				distillTargets = append(distillTargets, name)
 			}
 		}
-		bundle.Skills[name] = merged
+		bundle.Commands[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
 	for _, name := range remove {
-		if _, ok := bundle.Skills[name]; ok {
-			delete(bundle.Skills, name)
+		if _, ok := bundle.Commands[name]; ok {
+			delete(bundle.Commands, name)
 			changes = append(changes, "removed prompt: "+name)
 		}
 	}
@@ -1008,15 +1008,15 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 	}
 }
 
-func applyPromptInputs(b *bundles.Bundle, in map[string]BundleSkillInput) {
+func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 	if len(in) == 0 {
 		return
 	}
-	if b.Skills == nil {
-		b.Skills = make(map[string]bundles.BundleSkill, len(in))
+	if b.Commands == nil {
+		b.Commands = make(map[string]bundles.BundleCommand, len(in))
 	}
 	for name, p := range in {
-		b.Skills[name] = bundles.BundleSkill{
+		b.Commands[name] = bundles.BundleCommand{
 			Description:  p.Description,
 			Tags:         p.Tags,
 			Notes:        p.Notes,
@@ -1066,7 +1066,7 @@ func namesNeedingFragmentDistill(b *bundles.Bundle, in map[string]BundleFragment
 }
 
 // namesNeedingPromptDistill is the prompt counterpart.
-func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleSkillInput) []string {
+func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleCommandInput) []string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -1075,7 +1075,7 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleSkillInput
 		if p.NoDistill {
 			continue
 		}
-		if _, ok := b.Skills[name]; !ok {
+		if _, ok := b.Commands[name]; !ok {
 			continue
 		}
 		names = append(names, name)
@@ -1123,9 +1123,9 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		return failed
 	}
 	for _, name := range names {
-		p := b.Skills[name]
+		p := b.Commands[name]
 		res, err := d.Distill(ctx, DistillRequest{
-			Kind:    DistillKindSkill,
+			Kind:    DistillKindCommand,
 			Name:    name,
 			Content: p.Content,
 			Bundle:  b,
@@ -1138,7 +1138,7 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		p.Distilled = res.Distilled
 		p.DistilledBy = res.ModelID
 		p.ContentHash = p.ComputeContentHash()
-		b.Skills[name] = p
+		b.Commands[name] = p
 	}
 	return failed
 }

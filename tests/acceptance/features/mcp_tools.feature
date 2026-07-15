@@ -3,7 +3,7 @@ Feature: MCP tools
   tools end to end, plus load_session (below). compact_session, recover_session,
   and get_previous_session are NOT covered here or anywhere else — the live
   distillation suite tagged live in distill_live.feature never touches the
-  session tools, it only exercises fragment/skill/bundle distillation. That is
+  session tools, it only exercises fragment/command/bundle distillation. That is
   a real, tracked gap (see tests/acceptance/completeness_test.go), not
   something to paper over with a false "covered elsewhere" claim.
 

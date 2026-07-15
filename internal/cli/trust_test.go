@@ -79,14 +79,15 @@ func seedLocalFragment(t *testing.T, cfg *config.Config, bundle, name, body stri
 	require.NoError(t, err)
 }
 
-// seedLocalSkill writes a local bundle with one skill to the temp project so the
-// read-path loader can resolve and hash it. The CLI list emits #skills/<name>
-// refs (item-kind renamed prompt->skill), which resolve to trust.KindPrompt.
-func seedLocalSkill(t *testing.T, cfg *config.Config, bundle, name, body string) {
+// seedLocalCommand writes a local bundle with one command to the temp project
+// so the read-path loader can resolve and hash it. The CLI list emits
+// #commands/<name> refs (item-kind renamed prompt->skill->command), which
+// resolve to trust.KindPrompt.
+func seedLocalCommand(t *testing.T, cfg *config.Config, bundle, name, body string) {
 	t.Helper()
 	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
 		Name: bundle,
-		Skills: map[string]operations.BundleSkillInput{
+		Commands: map[string]operations.BundleCommandInput{
 			name: {Content: body, NoDistill: true},
 		},
 	})
@@ -115,22 +116,22 @@ func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 		"approval must be recorded for the canonical ctxloom:local key, over the exact fragment bytes")
 }
 
-// TestRunItemTrust_AcceptsLocalSkill drives `ctxloom trust <bundle>#skills/<name>`:
-// the exact ref the list emits after the prompt->skill rename. It must not
-// error "unknown item kind" and must record an approval keyed by the
-// canonical (#prompts/) key bound to the skill's recomputed content bytes.
-func TestRunItemTrust_AcceptsLocalSkill(t *testing.T) {
+// TestRunItemTrust_AcceptsLocalCommand drives `ctxloom trust <bundle>#commands/<name>`:
+// the exact ref the list emits after the prompt->skill->command rename. It
+// must not error "unknown item kind" and must record an approval keyed by the
+// canonical (#prompts/) key bound to the command's recomputed content bytes.
+func TestRunItemTrust_AcceptsLocalCommand(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
-	seedLocalSkill(t, cfg, "demo", "review", "always-trusted skill body")
+	seedLocalCommand(t, cfg, "demo", "review", "always-trusted command body")
 
 	c, out := testCmd()
-	// Accepting #skills/ is the fix; the echo reports the canonical #prompts/ key
+	// Accepting #commands/ is the fix; the echo reports the canonical #prompts/ key
 	// (res.Ref == tRef.Key(), Kind.Dir()=="prompts") — the store address, not the
 	// input spelling.
-	require.NoError(t, runItemTrust(c, cfg, "demo#skills/review"))
+	require.NoError(t, runItemTrust(c, cfg, "demo#commands/review"))
 	assert.Contains(t, out.String(), "Approved demo#prompts/review")
 
 	// Stored under the canonical #prompts/ key (trust.KindPrompt.Dir()), so the
@@ -138,7 +139,7 @@ func TestRunItemTrust_AcceptsLocalSkill(t *testing.T) {
 	// spelling.
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
 	store := userApprovalsStore(t)
-	assert.True(t, store.HasUnsignedApprove(signing.KindSkills, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted skill body")))
+	assert.True(t, store.HasUnsignedApprove(signing.KindSkills, countersignRefFor(ref), signing.FormRaw, []byte("always-trusted command body")))
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it

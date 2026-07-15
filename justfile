@@ -182,6 +182,16 @@ _ensure-covdata:
 test: build _ensure-covdata vet-integration
     #!/usr/bin/env bash
     set -e
+    # Gate on BOTH configurations, not just -race. gremlins and `just cover`
+    # both run WITHOUT -race, and that no-race path caught a real flake in
+    # internal/lm/grpc that -race's slower goroutine scheduling was masking —
+    # -race made the bug pass, it didn't report it (a genuine data race would
+    # have shown up red under -race, not green). Before this, that config ran
+    # constantly but gated nothing, which is exactly how the flake stayed
+    # invisible to `just test` while breaking mutation testing outright. `set
+    # -e` means either run failing aborts here with a nonzero exit, before the
+    # leak check / coverage filtering below ever runs.
+    go test ./...
     go test -race -coverprofile=coverage.raw.out ./...
     just _check-no-ctxloom-leak
     just _filter_coverage coverage.raw.out coverage.out
@@ -309,8 +319,14 @@ test-integration-run PATTERN: build
 # Run the full-stack acceptance suite (godog): asserts each change across files,
 # CLI, and mock-agent MCP traffic. Hermetic by default (@live scenarios skipped).
 # Build runs in the devcontainer; the suite runs on the host like integration.
+# -v: without it, `go test` on a passing package buffers ALL of the test
+# binary's stdout (including the live-engine availability report printed once
+# up front, AND godog's own "pretty" per-scenario output) and only shows it on
+# failure — which had silently made every green CI run of this suite mute.
+# The report exists specifically so a run tells you what it covered even when
+# it passes; that only works if it is actually visible.
 test-acceptance: build
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the docker-gated container transport integration tests
 # (internal/lm/isolation/*_integration_test.go): builds a minimal image,
@@ -393,6 +409,7 @@ test-acceptance-live-container: container-build-acceptance
         -e HOME=/home/ctxloom \
         -e CTXLOOM_ACCEPTANCE_LIVE=1 \
         -e ACCEPTANCE_TAGS="~@network" \
+        -e CTXLOOM_LIVE_REQUIRE=claude \
         -e GOCACHE=/home/ctxloom/.cache/go-build \
         -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
         -e GOPATH=/home/ctxloom/go \
@@ -402,7 +419,7 @@ test-acceptance-live-container: container-build-acceptance
         {{registry}}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
-            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -tags "acceptance integration" -count=1 ./tests/acceptance/...'
+            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
 # Run a single package's tests under -race (fast local iteration)
 test-pkg PKG *ARGS:
@@ -433,6 +450,40 @@ test-mutation-pkg PKG *ARGS:
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     TMPDIR="{{mutation_tmp}}" gremlins unleash ./{{PKG}} {{ARGS}}
 
+# Run mutation tests against the ACCEPTANCE/journey suite
+# (.gremlins.acceptance.yaml), not the unit suite .gremlins.yaml normally
+# measures. See that config's header comment for why this profile exists and
+# its one load-bearing subtlety: GOFLAGS restricts every `go test` gremlins
+# runs here (both the coverage gather and every per-mutant retest) to the
+# acceptance package's entrypoint (TestAcceptance) only, so a KILLED verdict
+# can only have come from the journeys, never from internal/operations' own
+# (extensive) unit tests riding along on the `./...` scan that
+# unleash.integration:true forces.
+#
+# Builds the ctxloom binary once, up front, at an ABSOLUTE path outside any of
+# gremlins' per-worker scratch copies — the acceptance suite always execs a
+# pre-built binary (tests/integration/testenv's exec.Command), so CTXLOOM_BINARY
+# must resolve regardless of which copy's cwd is active when a worker runs.
+#
+# KNOWN LIMITATION (see the config file's own comment, confirmed empirically
+# before this recipe was written): mutating source under internal/operations
+# can never change what that already-built, frozen binary does when the suite
+# execs it, so a mutant whose only effect is on a subprocess-only code path
+# will report NOT COVERED here even when the journeys genuinely exercise it —
+# Go's coverage instrumentation cannot see across the exec boundary. That is a
+# floor on what this tool can prove, not proof the journeys don't cover it.
+#
+# Pass --dry-run to only count candidate mutants without executing anything
+# (use this first — see the config's scope-narrowing comment on cost).
+test-mutation-acceptance *ARGS: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{mutation_tmp}}"
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    export CTXLOOM_BINARY="$(pwd)/ctxloom"
+    export GOFLAGS="-run=TestAcceptance"
+    TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}}
+
 # Install gremlins
 test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
@@ -457,6 +508,33 @@ test-mutation-container:
         -v "{{mutation_tmp}}:/mutation-tmp" \
         -e TMPDIR=/mutation-tmp \
         -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+
+# Mutate internal/operations/trust.go and drive the CUCUMBER acceptance suite
+# against a binary rebuilt from each mutant (github.com/gtramontina/ooze), not
+# `go test` against source like test-mutation-acceptance above. That is the
+# whole point: test-mutation-acceptance mutates source and runs `go test`,
+# but the acceptance suite execs a PRE-BUILT ctxloom binary
+# (tests/integration/testenv/environment.go) — a gremlins mutant never
+# reaches that already-compiled process (measured: 92 mutants on this same
+# file, 0 runnable, 92 NOT COVERED). ooze's laboratory instead symlinks the
+# repo into a tmpdir, overwrites ONLY the mutated file with real bytes at
+# that path (never the source tree), and runs
+# tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which
+# rebuilds ctxloom FROM the mutant and then runs the cucumber suite scoped
+# (ACCEPTANCE_PATHS) to trust_surface.feature + j3_corporate_signed.feature +
+# j7_incident.feature, the three that claim to cover the EffectiveTrust
+# cascade exhaustively. A survivor here is a mechanism one of those features
+# CLAIMS to cover but does not actually verify.
+#
+# Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
+# ~25-30s/mutant on this machine). Nightly/scoped, never a per-PR gate.
+# Scope is fixed to internal/operations/trust.go inside the test file itself
+# (tests/mutation/trust_cascade_mutation_test.go), built programmatically by
+# walking the repo and ignoring every other .go file — see that file's doc
+# comment for why (RE2 has no lookahead; ooze's own file discovery is as
+# scope-blind as gremlins').
+test-mutation-cucumber *ARGS:
+    go test -tags mutation -count=1 -timeout 120m ./tests/mutation/... {{ARGS}}
 
 # Clean build artifacts
 clean:
@@ -594,6 +672,32 @@ docs-build:
 # Preview production docs build
 docs-preview:
     cd website && npm run preview
+
+# Generate the "living docs" journey pages: run the acceptance suite with
+# per-scenario evidence capture enabled, then render website/src/content/docs/
+# journeys/ from that run's REAL captured output (tests/acceptance/
+# steps_doc_capture.go + scripts/gendocs/livingdocs). The generator refuses
+# (nonzero exit, writes nothing) if any @doc scenario's capture has a
+# non-passed step — a broken feature cannot be documented.
+#
+# Generated pages are gitignored, not checked in (see .gitignore): they are
+# produced fresh from this run's capture, so they can never be stale. Neither
+# `docs` (dev server) nor `docs-build` depends on this — like `gen-docs`
+# (the CLI/MCP/config reference generator), it is a separate, explicit step so
+# a docs preview never forces a full acceptance run. CI's docs deploy workflow
+# (.github/workflows/docs.yml) runs it explicitly before `npm run build`.
+gen-living-docs: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Absolute path: `go test ./tests/acceptance/...` runs with its cwd set to
+    # the package directory (tests/acceptance/), not the repo root, so a
+    # relative CTXLOOM_DOC_CAPTURE_DIR would silently land one level down and
+    # every scenario would render as "not captured" — the generator, run
+    # separately via `go run` from the repo root, would never find it.
+    capture_dir="$(pwd)/.cache/doc-capture"
+    rm -rf "$capture_dir"
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # Initialize .ctxloom directory
 init:
@@ -847,4 +951,4 @@ dev-shell: dev-image
 # TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
 # chain — proto artifacts are already generated on disk. Remove after use.
 test-acceptance-nobuild:
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...

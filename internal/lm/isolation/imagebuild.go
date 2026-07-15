@@ -604,6 +604,13 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 
 	dir, err := os.MkdirTemp("", "ctxloom-imgbase-")
 	if err != nil {
+		// dir is normally "" here (MkdirTemp itself failed) — this is
+		// defensive against a mutation-testing mutant that flips this check
+		// and discards a dir MkdirTemp actually created, which would
+		// otherwise leak it under the OS temp dir with no reference left
+		// anywhere to remove it (see worktree.go's provisionConfigHome and
+		// container.go's prepareContainerScratch for the same hardening).
+		_ = os.RemoveAll(dir)
 		return "", fmt.Errorf("base build context: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
@@ -737,6 +744,10 @@ type buildFlags struct {
 func buildImage(ctx context.Context, rt Runtime, image string, containerfile []byte, selfExe string, flags buildFlags, output io.Writer) error {
 	dir, err := os.MkdirTemp("", "ctxloom-imgbuild-")
 	if err != nil {
+		// See the identical guard in buildBaseImage above: defends against a
+		// mutant flipping this check and orphaning a dir MkdirTemp actually
+		// created.
+		_ = os.RemoveAll(dir)
 		return fmt.Errorf("image build context: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()

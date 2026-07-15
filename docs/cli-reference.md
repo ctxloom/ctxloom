@@ -15,7 +15,7 @@ To change the reference, edit the command's `Short`/`Long`/`Example` fields in
 
 ## Reference syntax
 
-The canonical grammar for bundle/fragment/skill/profile references lives in
+The canonical grammar for bundle/fragment/command/profile references lives in
 [docs/reference-grammar.md](reference-grammar.md).
 
 ## Environment variables

@@ -79,8 +79,8 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 	if info.FragmentCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d fragments", info.FragmentCount))
 	}
-	if info.SkillCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d prompts", info.SkillCount))
+	if info.CommandCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d commands", info.CommandCount))
 	}
 	if info.MCPCount == 1 {
 		parts = append(parts, "1 MCP server")
@@ -122,7 +122,7 @@ var bundleShowCmd = &cobra.Command{
 	Short: "Show bundle contents",
 	Long: `Display detailed information about a bundle.
 
-Shows all fragments, prompts, and MCP server configuration contained in the bundle.`,
+Shows all fragments, commands, and MCP server configuration contained in the bundle.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleShow,
 }
@@ -170,10 +170,10 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 var bundleShowInteractive bool
 
 // renderBundleShow writes the detailed bundle view to out. Sections
-// (MCP/Fragments/Prompts/Notes) are suppressed when empty. Fragment and
-// prompt entries are decorated with their tag list and a `(distilled)`
+// (MCP/Fragments/Commands/Notes) are suppressed when empty. Fragment and
+// command entries are decorated with their tag list and a `(distilled)`
 // or `(no_distill)` marker; fragments also get a 70-char first-line
-// preview, prompts get the optional Description.
+// preview, commands get the optional Description.
 // renderBundleShowHeader writes the bundle metadata header (name, plus optional
 // version/author/description/tags), the path, and a trailing blank line.
 func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
@@ -214,10 +214,10 @@ func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 		w.Println()
 	}
 
-	if len(bundle.Skills) > 0 {
-		w.Printf("Skills (%d):\n", len(bundle.Skills))
+	if len(bundle.Commands) > 0 {
+		w.Printf("Commands (%d):\n", len(bundle.Commands))
 		for _, name := range bundle.PromptNames() {
-			renderBundleSkillEntry(w, name, bundle.Skills[name])
+			renderBundleCommandEntry(w, name, bundle.Commands[name])
 		}
 		w.Println()
 	}
@@ -269,7 +269,7 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	w.Printf("      %s\n", firstLine)
 }
 
-func renderBundleSkillEntry(w *iox.ErrWriter, name string, prompt bundles.BundleSkill) {
+func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.BundleCommand) {
 	w.Printf("  - %s", name)
 	if len(prompt.Tags) > 0 {
 		w.Printf(" [%s]", strings.Join(prompt.Tags, ", "))

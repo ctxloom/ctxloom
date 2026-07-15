@@ -376,25 +376,25 @@ variables:
 	assert.Equal(t, "child-only", resolved.Variables["new_var"])
 }
 
-// TestLoader_ResolveProfile_Prompts verifies a directory profile's curated
-// prompts: list round-trips through resolution and unions with a parent's, the
-// directory-side mirror of config.Profile.Prompts (b626431) that feeds
-// backends.LoadSkillExports' opt-in prompt curation.
-func TestLoader_ResolveProfile_Prompts(t *testing.T) {
+// TestLoader_ResolveProfile_Commands verifies a directory profile's curated
+// commands: list round-trips through resolution and unions with a parent's,
+// the directory-side mirror of config.Profile.Commands (b626431, D2) that
+// feeds backends.LoadCommandExports' opt-in command curation.
+func TestLoader_ResolveProfile_Commands(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	parent := `description: Parent profile
-prompts:
-  - "tools#prompts/review"
+commands:
+  - "tools#commands/review"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
 
 	child := `description: Child profile
 parents:
   - parent
-prompts:
-  - "tools#prompts/explain"
-  - "tools#prompts/review"
+commands:
+  - "tools#commands/explain"
+  - "tools#commands/review"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
 
@@ -402,8 +402,8 @@ prompts:
 	resolved, err := loader.ResolveProfile("child", nil)
 	require.NoError(t, err)
 
-	// Parent prompt first (depth-first), then the child's, deduped by stored ref.
-	assert.Equal(t, []string{"tools#prompts/review", "tools#prompts/explain"}, resolved.Prompts)
+	// Parent command first (depth-first), then the child's, deduped by stored ref.
+	assert.Equal(t, []string{"tools#commands/review", "tools#commands/explain"}, resolved.Commands)
 }
 
 // TestLoader_ResolveProfile_LLM verifies the preferred-LLM field round-trips
@@ -656,7 +656,7 @@ func TestResolvedProfile_Merge(t *testing.T) {
 		Bundles:    []string{"b1"},
 		Tags:       []string{"t1"},
 		SelectTags: []string{"s1"},
-		Prompts:    []string{"p1"},
+		Commands:   []string{"p1"},
 		Variables:  map[string]string{"v1": "value1", "shared": "r1"},
 	}
 
@@ -664,7 +664,7 @@ func TestResolvedProfile_Merge(t *testing.T) {
 		Bundles:    []string{"b2", "b1"}, // b1 is duplicate
 		Tags:       []string{"t2"},
 		SelectTags: []string{"s2"},
-		Prompts:    []string{"p2", "p1"}, // p1 is duplicate
+		Commands:   []string{"p2", "p1"}, // p1 is duplicate
 		Variables:  map[string]string{"v2": "value2", "shared": "r2"},
 	}
 
@@ -676,8 +676,8 @@ func TestResolvedProfile_Merge(t *testing.T) {
 	assert.Equal(t, []string{"t1", "t2"}, r1.Tags)
 	// SelectTags combined (content-selecting tags accumulate through inheritance)
 	assert.Equal(t, []string{"s1", "s2"}, r1.SelectTags)
-	// Curated prompts combined + deduped (union across active profiles).
-	assert.Equal(t, []string{"p1", "p2"}, r1.Prompts)
+	// Curated commands combined + deduped (union across active profiles).
+	assert.Equal(t, []string{"p1", "p2"}, r1.Commands)
 	// Variables: r1 keeps its value for "shared" (first wins for variables during merge)
 	assert.Equal(t, "r1", r1.Variables["shared"])
 	assert.Equal(t, "value1", r1.Variables["v1"])
@@ -906,7 +906,7 @@ mcp:
 // TestResolvedProfile_Merge_InlineFields verifies Merge unions the new
 // directly-declared fields across resolved profiles (the cross-default-profile
 // fold), deduping fragments by Name, unioning bundle_items, appending hooks, and
-// letting a later MCP server name win — parity with how Bundles/Tags/Prompts merge.
+// letting a later MCP server name win — parity with how Bundles/Tags/Commands merge.
 func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
 	r1 := &ResolvedProfile{
 		Fragments:   []FragmentRef{{Name: "f1"}},

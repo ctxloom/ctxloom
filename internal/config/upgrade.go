@@ -11,6 +11,6 @@ var configUpgrades = upgrade.Pipeline{
 	llmRenameUpgrade{},
 	labeledConfigUpgrade{},
 	geminiToAntigravityUpgrade{},
-	profileSkillSelectorUpgrade{},
+	profileCommandSelectorUpgrade{},
 	defaultAgentUpgrade{},
 }

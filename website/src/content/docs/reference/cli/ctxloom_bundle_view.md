@@ -21,14 +21,14 @@ With a path after #, displays just that item's content.
 Path formats:
   bundle-name                     Full bundle YAML
   bundle-name#fragments/name      Fragment content
-  bundle-name#skills/name        Prompt content
+  bundle-name#commands/name      Prompt content
   bundle-name#mcp/name            MCP server config
   bundle-name#profiles/name       Profile definition
 
 Examples:
   ctxloom bundle view core-practices
   ctxloom bundle view core-practices#fragments/tdd
-  ctxloom bundle view mcp-tasks#skills/setup-tasks
+  ctxloom bundle view mcp-tasks#commands/setup-tasks
   ctxloom bundle view sequential-thinking#mcp/default
   ctxloom bundle view code-review#profiles/cr-security-golang
 
@@ -48,7 +48,7 @@ ctxloom bundle view <name[#path]> [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

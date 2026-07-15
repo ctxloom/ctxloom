@@ -3,16 +3,50 @@
 
 silent: false
 
-# Files to exclude from mutation testing
-exclude-files:
-  - ".*_test\\.go$"
-  - ".*\\.pb\\.go$"
-  - ".*/mock_.*\\.go$"
-  - ".*/testdata/.*"
-  - "tests/integration/.*"
-  - ".*/tests/integration/.*"
-
 unleash:
+  # Files to exclude from mutation testing.
+  #
+  # MUST be nested under `unleash:`. gremlins registers this setting at the
+  # viper path "unleash.exclude-files"; a TOP-LEVEL exclude-files key is parsed
+  # as valid YAML, silently ignored, and excludes nothing. It sat at the top
+  # level here and generated protobuf was being mutated the whole time —
+  # internal/agentcoord alone produced 1,261 .pb.go mutants. Generated code is
+  # never tested, so those land NOT COVERED/LIVED and drag both efficacy and
+  # mutant-coverage down, which means every published number was computed over
+  # a file set nobody intended to measure.
+  # SCOPE-BLIND DISCOVERY — why the list below is longer than you'd expect.
+  # gremlins finds mutants by walking the raw filesystem (engine.go's fs.WalkDir
+  # from the module root). It never calls `go list`, never notices a nested
+  # go.mod, and never evaluates //go:build tags — while its COVERAGE step runs an
+  # ordinary `go test ./...` that respects all three. So anything the walker sees
+  # but the compiler never compiled is scored NOT COVERED by construction, and it
+  # lands in the denominator.
+  #
+  # This wrecked the number: two leftover agent worktrees under .claude/ (each a
+  # full nested checkout of this same module) contributed 24,000 phantom mutants
+  # — 66% of the module total — and dragged reported mutant-coverage to 22.90%
+  # when the real figure for buildable first-party code is ~75%.
+  #
+  # PRECONDITION FOR A TRUSTWORTHY RUN: no nested go.mod under the tree, other
+  # than third_party/. Check with:  find . -name go.mod -not -path './go.mod'
+  exclude-files:
+    - ".*_test\\.go$"
+    - ".*\\.pb\\.go$"
+    - ".*/mock_.*\\.go$"
+    - ".*/testdata/.*"
+    - "tests/integration/.*"
+    - ".*/tests/integration/.*"
+    # Parity with tests/integration — the acceptance suite is //go:build
+    # acceptance, so `go test` with no tags never compiles it, yet the walker
+    # still mutates it. Was simply never added alongside its sibling.
+    - "tests/acceptance/.*"
+    - ".*/tests/acceptance/.*"
+    # Agent worktrees: nested checkouts of this module. Harness-created, recur
+    # as part of normal work here, invisible to `go list`.
+    - "^\\.claude/.*"
+    # Vendored fork with its own go.mod — never ours to measure.
+    - "^third_party/.*"
+
   # Don't run integration tests (use unit tests only for speed)
   integration: false
   # Set to true to see what would be mutated without running tests
@@ -34,14 +68,29 @@ unleash:
   # unbearable — a false timeout silently voids a mutant.
   timeout-coefficient: 30
 
-  # Quality gates - fail if scores drop below these thresholds
+  # Quality gates - fail if scores drop below these thresholds (0 = disabled).
+  #
+  # BOTH ARE DISABLED PENDING A REAL MEASUREMENT. They previously read
+  # efficacy:60 / mutant-coverage:45, justified by a comment claiming "current
+  # baseline is ~48%". That 48% was never measured — it was invented. The real
+  # whole-module figure, once exclude-files was fixed so generated code stopped
+  # being counted, is 22.90% mutant coverage: roughly HALF the threshold that
+  # was supposedly set "slightly below" it. The gate passed only because the CI
+  # job is advisory.
+  #
+  # Do not restore a number here from memory, intuition, or a doc. MEASURE, publish
+  # the figure, then set a floor just under it and ratchet. A threshold chosen
+  # before the measurement is how a gate gets tuned into measuring nothing — which
+  # has now happened to this gate four separate times (taskloom urban-depth).
+  #
+  # NOTE: the 22.90% figure is itself under investigation — gremlins reports 22.90%
+  # mutant coverage where `go tool cover` reports 72.5% statement coverage on the
+  # same test set, and that ~50-point gap is not yet explained (see shady-reply for
+  # one known coverage-position-mapping bug). Do not set a threshold off either
+  # number until that contradiction is resolved.
   threshold:
-    # Percentage of mutants killed by tests (0 = disabled)
-    # Start conservative, increase as coverage improves
-    efficacy: 60
-    # Percentage of mutants covered by tests (0 = disabled)
-    # Current baseline is ~48%, set threshold slightly below
-    mutant-coverage: 45
+    efficacy: 0
+    mutant-coverage: 0
 
 # Mutation operators to enable
 # Start with the most valuable ones, add more as test suite matures

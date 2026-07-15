@@ -24,7 +24,7 @@ var degradedFlag bool
 
 // noCompanionsFlag backs the persistent --no-companions flag: skip companion
 // loadout discovery entirely. Discovery EXECUTES the companion binaries found on
-// PATH, so a run's skills/hooks/MCP/context otherwise vary with what the machine
+// PATH, so a run's commands/hooks/MCP/context otherwise vary with what the machine
 // has installed; this makes a run reproducible (and is what CI and hermetic tests
 // want). Env fallback: CTXLOOM_NO_COMPANIONS=1.
 var noCompanionsFlag bool
@@ -101,7 +101,7 @@ QUICK START
 
 CONTENT COMMANDS
   fragment      Manage fragments (list, show, create, delete, edit, search)
-  skill         Manage skills (list, show, create, delete, edit)
+  command       Manage commands (list, show, create, delete, edit)
   profile       Manage profiles (list, show, create, delete, edit, default)
 
 INFRASTRUCTURE
@@ -114,14 +114,14 @@ WORKFLOW
 
 KEY CONCEPTS
   Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Skills      Saved prompt templates, exported as slash commands
+  Commands    Saved prompt templates, exported as slash commands
   Profiles    Named configurations combining bundles and variables
-  Bundles     YAML files containing fragments/skills (internal format)
+  Bundles     YAML files containing fragments/commands (internal format)
   Remotes     Git repositories for sharing content (GitHub or generic git)
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle
-  bundle#skills/name              Specific skill from bundle
+  bundle#commands/name            Specific command from bundle
   remote/bundle                   Bundle from a remote repository
 
 Run 'ctxloom <command> --help' for details on any command.`,
@@ -159,7 +159,7 @@ func init() {
 	// has installed. This turns that off for a reproducible run.
 	// Env fallback: CTXLOOM_NO_COMPANIONS=1.
 	rootCmd.PersistentFlags().BoolVar(&noCompanionsFlag, "no-companions", false,
-		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context")
+		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
 
 	// The isolation layer bakes this stamp into agent images (ctxloom.version
 	// label) and compares it against present images to rebuild stale ones; it

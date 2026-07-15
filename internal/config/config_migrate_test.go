@@ -287,12 +287,12 @@ func TestConfigUpgrades_V3toV4_CleanConfigOnlyGainsVersionStamp(t *testing.T) {
 
 // TestConfigUpgrades_V4toV5_ProfilePromptSelectors pins the inline-profile prompt
 // selector migration: an inline profile cherry-picking a bundle prompt via the
-// legacy "#prompts/" selector is migrated to the skills section and stamped v5.
+// legacy "#prompts/" selector is migrated to the commands section and stamped v5.
 func TestConfigUpgrades_V4toV5_ProfilePromptSelectors(t *testing.T) {
 	in := "version: 4\nprofiles:\n  definitions:\n    dev:\n      bundle_items:\n        - core#prompts/review\n"
 	out, applied := configUpgrades.Run([]byte(in))
-	assert.Contains(t, applied, "rename profile prompt selectors to skills (v4→v5)")
-	assert.Contains(t, string(out), "core#skills/review")
+	assert.Contains(t, applied, "rename profile prompt selectors to commands (v4→v5)")
+	assert.Contains(t, string(out), "core#commands/review")
 	assert.NotContains(t, string(out), "prompts/")
 	assert.Contains(t, string(out), "version: 6")
 }

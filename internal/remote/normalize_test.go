@@ -89,7 +89,7 @@ func TestCanonicalFragmentRef(t *testing.T) {
 		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
 		// No fragment selector → unchanged (bare names, prompt selectors).
 		{"x", "x"},
-		{"dev#skills/x", "dev#skills/x"},
+		{"dev#commands/x", "dev#commands/x"},
 	}
 
 	for _, tt := range tests {
@@ -108,13 +108,13 @@ func TestSplitPromptVersion(t *testing.T) {
 		wantVersion string
 	}{
 		// Trailing "@<commit>" (the name-addressed CLI/resource form).
-		{"dev#skills/x@c1", "ctxloom:local@bundles/dev#skills/x", "c1"},
-		{"https://github.com/o/r@bundles/demo#skills/x@abc123", "https://github.com/o/r@bundles/demo#skills/x", "abc123"},
+		{"dev#commands/x@c1", "ctxloom:local@bundles/dev#commands/x", "c1"},
+		{"https://github.com/o/r@bundles/demo#commands/x@abc123", "https://github.com/o/r@bundles/demo#commands/x", "abc123"},
 		// Version on the bundle part is also honored.
-		{"https://github.com/o/r@bundles/demo@abc123#skills/x", "https://github.com/o/r@bundles/demo#skills/x", "abc123"},
+		{"https://github.com/o/r@bundles/demo@abc123#commands/x", "https://github.com/o/r@bundles/demo#commands/x", "abc123"},
 		// Unversioned qualified ref → canonicalized, empty version.
-		{"dev#skills/x", "ctxloom:local@bundles/dev#skills/x", ""},
-		// No skill selector → unchanged, empty version (bare names, fragment selectors).
+		{"dev#commands/x", "ctxloom:local@bundles/dev#commands/x", ""},
+		// No command selector → unchanged, empty version (bare names, fragment selectors).
 		{"x", "x", ""},
 		{"dev#fragments/x", "dev#fragments/x", ""},
 	}

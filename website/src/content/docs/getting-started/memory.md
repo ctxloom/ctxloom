@@ -53,13 +53,13 @@ When you hit context limits and need to clear:
 /recover
 ```
 
-The `/recover` skill:
+The `/recover` command:
 
 1. Reads the *current* session for this project from disk — the one `/clear` just wiped, which is still live and still growing (read-time — no process tracking)
 2. Distills the raw JSONL transcript using a separate LLM (default: Haiku)
 3. Returns the essence so you can continue working
 
-Behind the skill, `recover_session` does the work. It resolves the active
+Behind the command, `recover_session` does the work. It resolves the active
 session by identity — the harp bound to this session at start — and falls
 back to the most-recently-touched transcript only if that binding is missing
 or its transcript is gone. `get_previous_session` is a different tool, for a

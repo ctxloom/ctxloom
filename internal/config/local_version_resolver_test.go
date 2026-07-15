@@ -66,7 +66,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Loader {
 	require.NotNil(t, resolver, "an app dir must yield a version resolver")
 	def := &bundles.Bundle{
 		Fragments: map[string]bundles.BundleFragment{"fmt": {Content: "WORKTREE-BODY"}},
-		Skills:    map[string]bundles.BundleSkill{"review": {Content: "WORKTREE-PROMPT"}},
+		Commands:  map[string]bundles.BundleCommand{"review": {Content: "WORKTREE-PROMPT"}},
 	}
 	return bundles.NewLoader(nil, false,
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{localGoTools: def}),
@@ -112,7 +112,7 @@ func TestLocalRev_PromptViaNameAddressedPath(t *testing.T) {
 	appDir, rev1, _ := localContentRepo(t)
 	loader := localResolverLoader(t, appDir)
 
-	ref, version := remote.SplitPromptVersion(localGoTools + "#skills/review@" + rev1)
+	ref, version := remote.SplitPromptVersion(localGoTools + "#commands/review@" + rev1)
 	require.Equal(t, rev1, version, "the name-addressed @rev is split off")
 	lc, err := loader.GetPromptAtVersion(ref, version)
 	require.NoError(t, err)

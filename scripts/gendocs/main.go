@@ -69,7 +69,7 @@ const mcpIntro = "Reference for the tools and resources ctxloom exposes to the a
 	"\n" +
 	"The MCP surface is for **working inside a session**: assembling context, searching content, " +
 	"session memory, and delegating to child agents. Everything that *manages* ctxloom " +
-	"(creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing " +
+	"(creating or editing bundles, profiles, fragments, and commands; pulling remotes; reviewing " +
 	"and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, " +
 	"not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server " +
 	"(`taskloom mcp`) serves the `task_*` tools."

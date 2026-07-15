@@ -12,7 +12,10 @@ var (
 	// ErrFragmentNotFound indicates a fragment could not be located.
 	ErrFragmentNotFound = errors.New("fragment not found")
 
-	// ErrSkillNotFound indicates a skill could not be located.
+	// ErrCommandNotFound indicates a command could not be located.
+	ErrCommandNotFound = errors.New("command not found")
+
+	// ErrSkillNotFound indicates an Agent Skill package could not be located.
 	ErrSkillNotFound = errors.New("skill not found")
 
 	// ErrProfileNotFound indicates a profile could not be located.
@@ -25,8 +28,13 @@ var (
 	// caller can tell "missing" from "exists-but-withheld" via errors.Is.
 	ErrFragmentWithheld = errors.New("fragment withheld by trust gate")
 
-	// ErrSkillWithheld indicates a skill resolved but the per-item trust gate
-	// (trust rework, TR5) withheld it. See ErrFragmentWithheld.
+	// ErrCommandWithheld indicates a command resolved but the per-item trust
+	// gate (trust rework, TR5) withheld it. See ErrFragmentWithheld.
+	ErrCommandWithheld = errors.New("command withheld by trust gate")
+
+	// ErrSkillWithheld indicates an Agent Skill package resolved but the
+	// per-item trust gate withheld it (or its on-disk tree failed manifest
+	// verification against a signed bundle.yaml entry). See ErrFragmentWithheld.
 	ErrSkillWithheld = errors.New("skill withheld by trust gate")
 
 	// ErrNoVersionResolver indicates a per-commit-version resolution was

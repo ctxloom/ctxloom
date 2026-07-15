@@ -1,6 +1,6 @@
 # ctxloom - Your context, always in the right thread.
 
-A CLI tool for managing context fragments and skills for AI coding assistants.
+A CLI tool for managing context fragments and commands for AI coding assistants.
 
 **Documentation:** [ctxloom.dev](https://ctxloom.dev)
 
@@ -40,7 +40,7 @@ ctxloom remote pull           # Fetch referenced bundles and update the lockfile
 # Search for content
 ctxloom search -t golang      # Find fragments by tag
 ctxloom fragment list         # List all fragments
-ctxloom skill list            # List all skills
+ctxloom command list          # List all commands
 
 # Run with your context
 ctxloom run -p developer "Help me with this code"
@@ -54,9 +54,9 @@ See the [Quick Start Guide](https://ctxloom.dev/getting-started/quickstart) for 
 
 | Concept | Description |
 |---------|-------------|
-| **Bundle** | A YAML file containing related fragments, skills, and MCP server configs |
+| **Bundle** | A YAML file containing related fragments, commands, and MCP server configs |
 | **Fragment** | A reusable context snippet within a bundle (coding standards, patterns, etc.) |
-| **Skill** | A saved prompt template within a bundle, exported to the engine as a slash command |
+| **Command** | A saved prompt template within a bundle, exported to the engine as a slash command |
 | **Profile** | A named configuration that references bundles, tags, and variables |
 | **Agent** | A named binding of an LLM engine to the profiles it runs with (`ctxloom run --agent`) |
 | **Remote** | A Git repository for sharing bundles and profiles |
@@ -71,14 +71,14 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom init` | Initialize a new .ctxloom directory |
 | `ctxloom search` | Search content across local and remote sources |
 | `ctxloom fragment` | Manage context fragments |
-| `ctxloom skill` | Manage skills |
+| `ctxloom command` | Manage commands |
 | `ctxloom profile` | Manage profiles (named fragment collections) |
 | `ctxloom agent` | Inspect local agents (engine↔profile bindings) |
 | `ctxloom map` | Run multiple agents/profiles in parallel over one task (fan-out) |
 | `ctxloom weave` | Fan a task across agents/profiles in parallel, then synthesize the results |
 | `ctxloom remote` | Manage remotes and discover content |
 | `ctxloom review` | Review pending items: accept or reject what the agent may see |
-| `ctxloom trust` | Accept an item's current content (fragment, skill, MCP server, or hook) |
+| `ctxloom trust` | Accept an item's current content (fragment, command, MCP server, or hook) |
 | `ctxloom blacklist` | Reject an item so it is withheld from the agent |
 | `ctxloom session` | Browse and manage harp-named sessions |
 | `ctxloom memory` | Manage session memory (external compaction) |

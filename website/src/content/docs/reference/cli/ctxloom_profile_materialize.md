@@ -15,7 +15,7 @@ Write a profile's assembled context to a dir as a launchable agent surface
 
 Materialize one or more profiles into --target as a backend's NATIVE on-disk
 agent surface — CLAUDE.md (context) + .mcp.json (MCP) + .claude/settings.json
-(hooks) + .claude/commands (skills) — so an externally-launched agent inherits
+(hooks) + .claude/commands (commands) — so an externally-launched agent inherits
 the profile with ctxloom out of the loop.
 
 Each run OVERWRITES the target's ctxloom-managed surfaces (they are the source
@@ -44,7 +44,7 @@ ctxloom profile materialize <profile>... [flags]
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string   Output format: text or json (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their skills, hooks, MCP servers and context
+      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO

@@ -106,7 +106,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
 			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
 			// through most misconfigurations." Setup now does load-bearing-but-
-			// non-essential work — context provision, skill registration, settings
+			// non-essential work — context provision, command registration, settings
 			// + hook flush — any of which can fail on a bad write without making the
 			// agent unlaunchable. Warn and proceed to Execute rather than aborting,
 			// matching the documented startup sequence ("apply hooks: warn on

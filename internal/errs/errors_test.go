@@ -26,9 +26,9 @@ func TestSentinelErrors_ErrorsIs(t *testing.T) {
 			wrapped:  fmt.Errorf("assembling context: %w", errs.ErrFragmentNotFound),
 		},
 		{
-			name:     "ErrSkillNotFound",
-			sentinel: errs.ErrSkillNotFound,
-			wrapped:  fmt.Errorf("loading prompt: %w", errs.ErrSkillNotFound),
+			name:     "ErrCommandNotFound",
+			sentinel: errs.ErrCommandNotFound,
+			wrapped:  fmt.Errorf("loading command: %w", errs.ErrCommandNotFound),
 		},
 		{
 			name:     "ErrProfileNotFound",
@@ -78,7 +78,7 @@ func TestSentinelErrors_ErrorMessages(t *testing.T) {
 	}{
 		{errs.ErrBundleNotFound, "bundle not found"},
 		{errs.ErrFragmentNotFound, "fragment not found"},
-		{errs.ErrSkillNotFound, "skill not found"},
+		{errs.ErrCommandNotFound, "command not found"},
 		{errs.ErrProfileNotFound, "profile not found"},
 		{errs.ErrRemoteNotFound, "remote not found"},
 		{errs.ErrCircularInheritance, "circular profile inheritance detected"},

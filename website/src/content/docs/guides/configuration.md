@@ -65,7 +65,7 @@ config:
   use_distilled: true         # prefer distilled fragment versions (default true)
   compaction_chunks: 8000     # target tokens per compaction chunk
   statusline: true            # let ctxloom manage the HUD statusline
-  sign:                       # publisher-signing defaults for `fragment push`/`skill push`
+  sign:                       # publisher-signing defaults for `fragment push`/`command push`
     default: false             # sign every push unless --no-sign (default false)
     key: ""                    # explicit key path or SHA256:... fingerprint (default: auto-discover)
 
@@ -97,7 +97,7 @@ profiles:
       parents: []
       bundles: []
       select_tags: []          # fragment tags to pull in (the profile's own `tags:` is descriptive-only)
-      prompts: []               # curate skill/slash-command exports; empty list keeps today's auto-export
+      commands: []               # curate command/slash-command exports; empty list keeps today's auto-export
       variables:
         VARIABLE: "value"
 

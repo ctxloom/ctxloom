@@ -23,19 +23,15 @@ func (b *Kiro) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 
 // chatACPConfig is the adapter config for one kiro structured-chat spawn.
 //
-// Unlike codex-acp, `kiro-cli acp --model <id>` is a real, CLI-parse-accepted
-// flag (verified live, Wave C3: `kiro-cli --help-all` documents it, and an
-// unauthenticated live spawn with an arbitrary --model value fails on the
-// auth check — "not logged in" — never on flag parsing, so the flag reaches
-// argument validation cleanly). No ModelConfigKey/ModelEnvVar override is
+// Unlike codex-acp, `kiro-cli acp --model <id>` is a real, HONORED flag: a
+// live authenticated session both self-reports the requested model and
+// shifts wall-clock turn duration with it, and an unrecognized --model value
+// surfaces as a genuine mid-session RPC error ("model '<x>' is not
+// available") rather than being silently accepted (cf. claude-code-acp's
+// known silent-ignore shape). No ModelConfigKey/ModelEnvVar override is
 // wired: the generic driver's --model argv is kiro's own established
 // mechanism (buildArgs in backend.go already uses it for the oneshot
-// `kiro-cli chat` path). RESIDUAL: whether kiro-cli acp actually HONORS
-// --model (vs. claude-code-acp's known silent-ignore shape) could not be
-// live-confirmed on this host — kiro-cli acp requires an authenticated
-// session before it even opens its JSON-RPC loop (no stdout at all pre-auth,
-// unlike codex-acp/claude-code-acp), so no live turn was possible; flagged
-// for live verification once kiro-cli login is available.
+// `kiro-cli chat` path too).
 func (b *Kiro) chatACPConfig() acp.ACPConfig {
 	return acp.ACPConfig{
 		Command:     b.BinaryPath + " acp",

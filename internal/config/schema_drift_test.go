@@ -153,7 +153,7 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		// is honored by the parser but was absent from the schema, so
 		// additionalProperties:false rejected it — and a validation warning is a
 		// FATAL finding in strict mode. A user of a shipped feature (publisher
-		// signing, tag-selected fragments, curated prompts, permission escalation)
+		// signing, tag-selected fragments, curated commands, permission escalation)
 		// was aborted at startup and told their own valid key was unknown.
 		{
 			"publisher-signing defaults (config.sign)",
@@ -164,8 +164,8 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"profiles:\n  definitions:\n    dev:\n      select_tags: [go, testing]\n",
 		},
 		{
-			"profile curated prompt exports",
-			"profiles:\n  definitions:\n    dev:\n      prompts: [\"bundle#prompts/review\"]\n",
+			"profile curated command exports",
+			"profiles:\n  definitions:\n    dev:\n      commands: [\"bundle#commands/review\"]\n",
 		},
 		{
 			"agent escalation rungs",

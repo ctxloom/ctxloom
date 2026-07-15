@@ -14,15 +14,16 @@ import (
 // (KiroWriter.WriteContext → .kiro/steering/ctxloom-context.md), the shared
 // MCP-file reconciler (mcpFile().WriteServers → .kiro/settings/mcp.json), the
 // agent-config writer (mapHooks + writeAgentConfig → .kiro/agents/<name>.json),
-// and the managed-command writer (WriteCommandFiles → .kiro/skills/).
+// the managed-command writer (WriteCommandFiles → .kiro/skills/), and the
+// managed-skill-package writer (WriteSkillFiles → .kiro/skills/, skillfiles.go).
 //
 // Capability recap (VERIFIED — delivery-factory-unification.plan.md, "Per-engine
-// race-safe coverage"): kiro's context, MCP, and skills surfaces are
+// race-safe coverage"): kiro's context, MCP, commands, and skills surfaces are
 // WELL-KNOWN-ONLY (plain agent.Delivery). kiro DOES have a per-agent lever — the
 // settings + hooks live in .kiro/agents/<name>.json, selected at launch by
 // `--agent <name>` — but that is NAME-based isolation resolved in buildArgs, a
 // launch concern orthogonal to this seam; at the delivery layer every kiro
-// surface is still a well-known write into a project-rooted file, so ALL FOUR are
+// surface is still a well-known write into a project-rooted file, so ALL FIVE are
 // modeled as plain agent.Delivery here (none has a SharedRealization).
 //
 //	surface  | well-known target                       | also a SharedRealization?
@@ -30,12 +31,22 @@ import (
 //	context  | .kiro/steering/ctxloom-context.md       | ❌ (steering, auto-loaded)
 //	MCP      | .kiro/settings/mcp.json                 | ❌ no flag
 //	settings | .kiro/agents/<name>.json (hooks)        | ❌ (--agent is orthogonal)
-//	skills   | .kiro/skills/<name>/SKILL.md            | ❌ no flag
+//	commands | .kiro/skills/<name>/SKILL.md            | ❌ no flag
+//	skills   | .kiro/skills/<name>/SKILL.md (+ files)  | ❌ no flag
 //
 // kiro reads steering rather than firing a SessionStart hook for context (the
 // context surface is a whole-file steering write, not a hook), and its hooks live
 // inside the agent JSON (settings + hooks fold into one surface, as claude folds
 // settings + hooks into settings.json).
+//
+// commands and skills share ONE native directory — kiro's only mechanism is
+// agentskills SKILL.md, auto-discovered via the `skill://.kiro/skills/**/
+// SKILL.md` glob (kiro/settings.go), invocable both as a model-selected skill
+// and as a /<name> slash command. When a command and a skill share a name,
+// filterClaimedCommands (below, invoked from NewSurfaces) resolves the D6
+// collision as skill-wins BEFORE the commands delivery is even built, so the
+// two writers' manifests (kiroManifest / kiroSkillManifest) never both claim
+// the same path.
 
 // contextSurface is kiro's context surface: the ctxloom-owned steering file
 // (.kiro/steering/ctxloom-context.md), written via the reused ContextWriter core
@@ -46,16 +57,11 @@ type contextSurface struct {
 }
 
 // Deliver writes the steering file via WriteContext and returns a handle whose
-// Cleanup removes it (writing empty context).
+// Cleanup removes it (writing empty context). This is the shared
+// agent.DeliverManagedContext shape, the same one antigravity's AGENTS.md,
+// claude's CLAUDE.md, and codex's AGENTS.md context surfaces use.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &KiroWriter{FS: s.fs}
-	if _, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: s.context}); err != nil {
-		return nil, err
-	}
-	return deliveredFunc(func() error {
-		_, err := w.WriteContext(agent.ContextWriteRequest{ProjectDir: dir, Context: ""})
-		return err
-	}), nil
+	return agent.DeliverManagedContext(&KiroWriter{FS: s.fs}, dir, s.context)
 }
 
 // UnsafeInfo returns kiro's context identity for the DeliverShared fallback's
@@ -136,10 +142,51 @@ func (s *settingsSurface) UnsafeInfo() string { return "kiro/settings" }
 // Kind reports kiro's settings surface (.kiro/agents/<name>.json — hooks folded in).
 func (s *settingsSurface) Kind() agent.SurfaceKind { return agent.SurfaceSettings }
 
-// kiro's skills surface — the agentskills SKILL.md files under .kiro/skills/ — is
-// the shared agent.ManagedSkillsDelivery bound to kiro's manifest-scoped
+// kiro's commands surface — the agentskills SKILL.md files under .kiro/skills/ —
+// is the shared agent.ManagedCommandsDelivery bound to kiro's manifest-scoped
 // WriteCommandFiles (built in NewSurfaces); its write-then-revert-with-nil shape
 // is identical across engines, so it lives in internal/shared/agent, not here.
+
+// filterClaimedCommands is kiro's D6 collision resolution (skill-command-split
+// plan §3.3/§3.5 B5): kiro has ONE native directory, .kiro/skills/<name>/, that
+// serves BOTH the renamed command surface (a slash-command rendered as
+// SKILL.md) and the true Agent Skills surface. When a command and a skill
+// share the same name, both would target the identical path
+// .kiro/skills/<name>/SKILL.md — resolved here as SKILL-WINS: the richer
+// native package is materialized and the command's rendering of that name is
+// dropped before it ever reaches WriteCommandFiles.
+//
+// This is arbitrated HERE, at export-assembly time in NewSurfaces, rather
+// than inside either writer, because that is the one place that keeps the
+// TWO MANIFESTS (kiroManifest for commands, kiroSkillManifest for skills)
+// coherent: a claimed name is simply never handed to the commands writer, so
+// it never appears in kiroManifest and the skills writer is the SOLE owner of
+// that path in kiroSkillManifest. No manifest ever claims a file the other
+// wrote, so a later re-materialize (with the skill removed, or disabled) lets
+// the command reclaim the name cleanly, and neither writer's cleanup can ever
+// delete the other's live file. Only skills ENABLED for kiro claim a name —
+// a skill disabled for this engine writes nothing here, so it must not shadow
+// the command with the same name.
+func filterClaimedCommands(cmds []agent.CommandExport, skills []agent.SkillExport) []agent.CommandExport {
+	claimed := make(map[string]bool, len(skills))
+	for _, s := range skills {
+		if s.Enabled {
+			claimed[s.Name] = true
+		}
+	}
+	if len(claimed) == 0 {
+		return cmds
+	}
+	out := make([]agent.CommandExport, 0, len(cmds))
+	for _, c := range cmds {
+		if claimed[c.Name] {
+			agent.Warn("kiro: skill %q wins over command of the same name; command not written to .kiro/skills/%s/SKILL.md", c.Name, c.Name)
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
 
 // deliveredFunc adapts a cleanup closure to agent.Delivered so a surface can
 // return its teardown inline without a bespoke handle type.
@@ -148,30 +195,57 @@ type deliveredFunc func() error
 // Cleanup runs the wrapped cleanup closure.
 func (f deliveredFunc) Cleanup() error { return f() }
 
-// Surfaces is kiro's set of delivery surfaces for one run — four surface objects:
-// context (steering), MCP (settings/mcp.json), settings (agent JSON + hooks), and
-// skills (.kiro/skills/).
+// Surfaces is kiro's set of delivery surfaces for one run — five surface
+// objects: context (steering), MCP (settings/mcp.json), settings (agent JSON +
+// hooks), commands, and skills (both of the latter two share .kiro/skills/,
+// reconciled by filterClaimedCommands above).
 type Surfaces struct {
 	Context  *contextSurface
 	MCP      *mcpSurface
 	Settings *settingsSurface
-	Skills   *agent.ManagedSkillsDelivery
+	Commands *agent.ManagedCommandsDelivery
+	Skills   *agent.ManagedSkillPackagesDelivery
+
+	// dispatch is the per-kind lookup SurfaceFor resolves against, built once
+	// here (not reallocated per SurfaceFor call) since it never changes after
+	// construction.
+	dispatch map[agent.SurfaceKind]agent.Delivery
 }
 
 // NewSurfaces builds kiro's surfaces from a run's shared inputs (kiro uses the
-// assembled context text, merged MCP + bundle servers, the hook set, and the
-// skill exports). A nil fs defaults to the OS filesystem. Every kiro surface's
-// Delivery takes its target dir at call time; none is modeled as race-safe here
-// (the `--agent` lever is Phase 2).
+// assembled context text, merged MCP + bundle servers, the hook set, the
+// command exports, and the skill package exports). A nil fs defaults to the OS
+// filesystem. Every kiro surface's Delivery takes its target dir at call time;
+// none is modeled as race-safe here (the `--agent` lever is Phase 2).
+//
+// Commands are filtered through filterClaimedCommands BEFORE the commands
+// delivery is built, so the skill-wins collision resolution (D6) is baked in
+// here, once, rather than duplicated at every call site.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
+	context := &contextSurface{context: in.Context, fs: fs}
+	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	settings := &settingsSurface{hooks: in.Hooks, fs: fs}
+	cmds := filterClaimedCommands(in.Commands, in.Skills)
+	commands := agent.NewManagedCommandsDelivery("kiro/commands", cmds, func(dir string, commands []agent.CommandExport) error {
+		return WriteCommandFiles(dir, commands, agent.WithCommandFS(fs))
+	})
+	skills := agent.NewManagedSkillPackagesDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.SkillExport) error {
+		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
+	})
 	return Surfaces{
-		Context:  &contextSurface{context: in.Context, fs: fs},
-		MCP:      &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs},
-		Settings: &settingsSurface{hooks: in.Hooks, fs: fs},
-		Skills: agent.NewManagedSkillsDelivery("kiro/skills", in.Skills, func(dir string, skills []agent.CommandExport) error {
-			return WriteCommandFiles(dir, skills, agent.WithCommandFS(fs))
-		}),
+		Context:  context,
+		MCP:      mcp,
+		Settings: settings,
+		Commands: commands,
+		Skills:   skills,
+		dispatch: map[agent.SurfaceKind]agent.Delivery{
+			agent.SurfaceContext:  context,
+			agent.SurfaceMCP:      mcp,
+			agent.SurfaceSettings: settings,
+			agent.SurfaceCommands: commands,
+			agent.SurfaceSkills:   skills,
+		},
 	}
 }
 
@@ -181,9 +255,12 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 // kiro's surfaces reach a cell directly: none has a SharedRealization, so a
 // SHARED-cwd delivery falls back to the loud well-known write (see
 // Surfaces.SharedRealization below). (The `--agent` name lever isolates
-// CONCURRENT agents at launch, orthogonally to this seam.)
+// CONCURRENT agents at launch, orthogonally to this seam.) Commands is
+// delivered BEFORE Skills, but the order is not what makes collisions safe —
+// filterClaimedCommands already removed any claimed name from Commands, so
+// Skills never overwrites a file Commands just wrote.
 func (s Surfaces) Deliveries() []agent.Delivery {
-	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Skills}
+	return []agent.Delivery{s.Context, s.MCP, s.Settings, s.Commands, s.Skills}
 }
 
 // kiroApproaches is kiro's DECLARED per-surface approach table (vital-tiger v2
@@ -195,6 +272,7 @@ var kiroApproaches = agent.ApproachTable{
 	agent.SurfaceContext:  {agent.ApproachUnsafeFile},
 	agent.SurfaceMCP:      {agent.ApproachUnsafeFile},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
+	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
 }
 
@@ -209,17 +287,13 @@ func (Surfaces) DefaultApproach(kind agent.SurfaceKind) (agent.Approach, bool) {
 	return kiroApproaches.Default(kind)
 }
 
-// SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via the
-// shared table lookup (kiro's agent JSON IS its settings surface, hooks folded
-// in). Any other approach is unsupported — WithContext(Hook) on kiro fails
-// loudly, matching kiro's steering (not hook) context.
+// SurfaceFor resolves one (kind, UnsafeFile) to the concrete kiro surface via
+// the shared table lookup against s.dispatch (built once in NewSurfaces, not
+// reallocated per call). kiro's agent JSON IS its settings surface, hooks
+// folded in. Any other approach is unsupported — WithContext(Hook) on kiro
+// fails loudly, matching kiro's steering (not hook) context.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
-	return kiroApproaches.SurfaceFor("kiro", map[agent.SurfaceKind]agent.Delivery{
-		agent.SurfaceContext:  s.Context,
-		agent.SurfaceMCP:      s.MCP,
-		agent.SurfaceSettings: s.Settings,
-		agent.SurfaceSkills:   s.Skills,
-	}, kind, a)
+	return kiroApproaches.SurfaceFor("kiro", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no realization for any kind: kiro has no out-of-cwd

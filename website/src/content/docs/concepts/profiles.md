@@ -69,14 +69,14 @@ a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
 ## Content Reference Syntax
 
 These `bundle#kind/name` forms address one item and work everywhere ctxloom
-takes an item reference on the command line — `ctxloom skill show`,
+takes an item reference on the command line — `ctxloom command show`,
 `ctxloom fragment edit`, `ctxloom trust`, and so on:
 
 | Format | Description |
 |--------|-------------|
 | `bundle-name` | Entire bundle (all content) |
 | `bundle#fragments/name` | Specific fragment |
-| `bundle#skills/name` | Specific skill |
+| `bundle#commands/name` | Specific command |
 | `bundle#profiles/name` | Profile shipped by the bundle |
 | `bundle#mcp` | All MCP servers from bundle |
 | `bundle#mcp/name` | Specific MCP server |
@@ -95,13 +95,13 @@ A profile's `bundles:` list is narrower: only a whole-bundle ref or a
 | `bundle#fragments/name` | One fragment, cherry-picked |
 | `remote/bundle#fragments/name` | One fragment from a remote bundle |
 
-`bundle#skills/name` and `bundle#mcp/name` are valid for CLI addressing but
+`bundle#commands/name` and `bundle#mcp/name` are valid for CLI addressing but
 **not** here: a profile's bundle-expansion logic only recognizes the
 `fragments/` selector, so anything else either silently pulls in the entire
-bundle (every skill and every MCP server, not just the one named) or silently
+bundle (every command and every MCP server, not just the one named) or silently
 loads nothing, depending on whether the ref is local or a canonical URL — with
-no error either way. To curate which skills a profile exports, use the
-profile's `prompts:` list instead (see the skill/prompt docs), not a `#skills/`
+no error either way. To curate which commands a profile exports, use the
+profile's `commands:` list instead (see the [Commands](/concepts/commands/) doc), not a `#commands/`
 ref inside `bundles:`.
 
 ### Extended Formats
@@ -225,12 +225,12 @@ exclude_mcp:
   - slow-server             # Don't include this MCP server
 ```
 
-Skills are deliberately not excludable. Exclusion exists for content that is
+Commands are deliberately not excludable. Exclusion exists for content that is
 *pushed* on the session — fragments are ingested into the context window and
 MCP servers run and consume resources, so an unwanted one has a real cost. A
-skill is only a slash command: it does nothing until you invoke it, so an
-unwanted skill just sits unused in the menu. Bundle authors can still scope
-where a skill surfaces per backend with the skill's `llm.<backend>.enabled`
+command is only a slash command: it does nothing until you invoke it, so an
+unwanted command just sits unused in the menu. Bundle authors can still scope
+where a command surfaces per backend with the command's `llm.<backend>.enabled`
 flag.
 
 ### Managing Exclusions

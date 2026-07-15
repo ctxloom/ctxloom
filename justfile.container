@@ -182,6 +182,11 @@ release: build-all compress-all
 test:
     #!/usr/bin/env bash
     set -e
+    # Mirrors the host justfile's `test`: gate on BOTH the plain (no-race) and
+    # -race suites, not just -race — see the host recipe's comment for why
+    # (the no-race path is what gremlins/`just cover` actually run, and it was
+    # gating nothing). `set -e` aborts here on either failure.
+    go test ./...
     go test -race -coverprofile=coverage.raw.out ./...
     just -f justfile.container _check-no-ctxloom-leak
     just -f justfile.container _filter_coverage coverage.raw.out coverage.out
@@ -231,8 +236,29 @@ test-integration: build
 
 # Run the full-stack acceptance suite (godog) inside the container. Hermetic by
 # default; @live scenarios are opt-in and self-skip without credentials.
+# -v: this is what CI actually invokes (ci.yml: `just -f justfile.container
+# test-acceptance`) — without it, a passing `go test` run buffers ALL of the
+# test binary's stdout (the live-engine availability report printed once up
+# front, and godog's own "pretty" per-scenario output) and only shows it on
+# failure, which had silently made every green CI run of this suite mute.
 test-acceptance: build
-    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
+# Generate the "living docs" journey pages inside the container: same as the
+# host justfile's gen-living-docs, but via this file's own `build` (no
+# docker-in-docker) — this is how the docs deploy workflow
+# (.github/workflows/docs.yml) runs it, mirroring how the acceptance job
+# invokes `just -f justfile.container test-acceptance`.
+gen-living-docs: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Absolute path: see the host justfile's gen-living-docs for why a
+    # relative CTXLOOM_DOC_CAPTURE_DIR silently breaks (go test's cwd is the
+    # package dir, not the repo root).
+    capture_dir="$(pwd)/.cache/doc-capture"
+    rm -rf "$capture_dir"
+    CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
 # Run the docker-gated container transport integration tests (see the host
 # justfile's test-docker-integration for the full explanation). Requires the

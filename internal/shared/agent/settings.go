@@ -43,7 +43,7 @@ type ContextWriter interface {
 // ContextWriteRequest carries the assembled context payload for a WriteContext
 // call. Context is the fully assembled string; each backend chooses its own
 // framing/markers. It is a struct (not a bare string) so the request can grow
-// without a signature churn — MCP/skills/hooks stay on their own delivery paths.
+// without a signature churn — MCP/commands/hooks stay on their own delivery paths.
 type ContextWriteRequest struct {
 	ProjectDir string
 	Context    string

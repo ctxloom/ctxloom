@@ -513,9 +513,12 @@ func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 // agent-JSON `--agent`), antigravity has NO redirection lever, so per-agent
 // CONCURRENT isolation requires a per-agent cwd (git worktree) or container.
 // See taskloom loyal-eel / memory per-agent-config-delivery (ISOLATION AXIS).
+// managedContextBegin/End alias the shared markers (internal/shared/agent) so
+// this package's existing references (including its tests) keep working
+// unchanged after the marker-merge logic moved to the shared core.
 const (
-	managedContextBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
-	managedContextEnd   = "<!-- ctxloom:context:end -->"
+	managedContextBegin = agent.ManagedContextBegin
+	managedContextEnd   = agent.ManagedContextEnd
 )
 
 // agentsMDPath returns the path to the workspace .agents/AGENTS.md file.
@@ -558,78 +561,14 @@ func (w *AntigravityHookWriter) reconcileManagedContext(projectDir, hash string)
 // non-empty), preserving user content outside the markers; empty content strips
 // the section, removing the file when nothing user-authored remains. It reports
 // the workspace-relative path written or removed.
+//
+// The merge itself is the shared core (agent.WriteManagedContext) — the same
+// implementation claude's CLAUDE.md and codex's AGENTS.md now use, ported from
+// here (this was the ORIGINAL and only implementation before the extraction).
 func (w *AntigravityHookWriter) writeManagedContext(projectDir, content string) (agent.ContextReport, error) {
-	fs := w.getFS()
 	path := w.agentsMDPath(projectDir)
 	rel := filepath.Join(AgentsDir, "AGENTS.md")
-	existing, err := afero.ReadFile(fs, path)
-	if err != nil && !os.IsNotExist(err) {
-		return agent.ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)
-	}
-
-	userContent := stripManagedSection(string(existing))
-
-	var section string
-	if content != "" {
-		section = managedContextBegin + "\n" + content + "\n" + managedContextEnd + "\n"
-	}
-
-	merged := userContent
-	if section != "" {
-		if merged != "" && !strings.HasSuffix(merged, "\n") {
-			merged += "\n"
-		}
-		merged += section
-	}
-
-	if strings.TrimSpace(merged) == "" {
-		// Nothing left: remove the file if it exists, never create it.
-		if exists, _ := afero.Exists(fs, path); exists {
-			if err := fs.Remove(path); err != nil {
-				return agent.ContextReport{}, err
-			}
-		}
-		return agent.ContextReport{Removed: []string{rel}}, nil
-	}
-	// Ensure .agents/ exists: as its own delivery surface, the context write can run
-	// BEFORE the hooks surface that used to create the dir (surfaces × cells delivers
-	// context first), so it can no longer assume the directory is present.
-	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return agent.ContextReport{}, fmt.Errorf("failed to create %s directory: %w", AgentsDir, err)
-	}
-	if err := agent.AtomicWriteFile(fs, path, []byte(merged), "AGENTS.md"); err != nil {
-		return agent.ContextReport{}, err
-	}
-	return agent.ContextReport{Wrote: []string{rel}}, nil
-}
-
-// stripManagedSection returns content with the ctxloom-managed marker section
-// removed. Content outside the markers is untouched; an unterminated begin
-// marker drops through to the end of the file (the section is ours to own).
-func stripManagedSection(content string) string {
-	begin := strings.Index(content, managedContextBegin)
-	if begin < 0 {
-		return content
-	}
-	rest := content[begin+len(managedContextBegin):]
-	end := strings.Index(rest, managedContextEnd)
-	if end < 0 {
-		return strings.TrimRight(content[:begin], "\n") + ifNonEmpty(content[:begin], "\n")
-	}
-	after := strings.TrimLeft(rest[end+len(managedContextEnd):], "\n")
-	before := content[:begin]
-	if before == "" {
-		return after
-	}
-	return before + after
-}
-
-// ifNonEmpty returns suffix when s is non-empty, else "".
-func ifNonEmpty(s, suffix string) string {
-	if s == "" {
-		return ""
-	}
-	return suffix
+	return agent.WriteManagedContext(w.getFS(), path, rel, content, "AGENTS.md")
 }
 
 // RemoveSettings implements SettingsWriter for Antigravity CLI: it clears

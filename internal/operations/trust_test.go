@@ -232,6 +232,14 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			want:    trust.Allow,
 			source:  trust.SourceLocal,
 		},
+		{
+			name:    "local skill auto-allowed (project-authored Agent Skill package)",
+			ref:     trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindSkill, Name: "reviewer"},
+			payload: pbytes("local"),
+			form:    rawForm,
+			want:    trust.Allow,
+			source:  trust.SourceLocal,
+		},
 
 		// --- builtin ---
 		{
@@ -311,6 +319,15 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceTrustedSigner,
 		},
 		{
+			name:    "trusted publisher allows a signed skill package",
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "reviewer"},
+			payload: pbytes("x"),
+			form:    rawForm,
+			signer:  trustedPublisher,
+			want:    trust.Allow,
+			source:  trust.SourceTrustedSigner,
+		},
+		{
 			name:    "the synthetic builtin identity is NOT a trusted publisher on a non-builtin ref",
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 			payload: pbytes("x"),
@@ -325,6 +342,21 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			payload: pbytes("x"),
 			form:    rawForm,
 			signer:  "", // no verified publisher
+			want:    trust.Deny,
+			source:  trust.SourcePending,
+		},
+		{
+			// The TDD "unsigned / untrusted-publisher skill" contract: a real
+			// Agent Skill package from a publisher this machine does not trust
+			// stays pending, mirroring every other kind above — a skill is not
+			// trusted until a human reviews and accepts it (see
+			// TestSetItemTrust_ApprovesSkillCurrentVersion for the full
+			// review+accept round trip).
+			name:    "unsigned remote skill is NOT trusted (pending)",
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "reviewer"},
+			payload: pbytes("x"),
+			form:    rawForm,
+			signer:  "",
 			want:    trust.Deny,
 			source:  trust.SourcePending,
 		},
@@ -448,6 +480,11 @@ func seededLoader() (*bundles.Loader, string) {
 		MCP: map[string]bundles.BundleMCP{
 			"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}},
 		},
+		Skills: map[string]bundles.BundleSkill{
+			"reviewer": {Files: map[string]bundles.SkillFileMeta{
+				"SKILL.md": {SHA256: "sha256:abc123", Mode: "0644"},
+			}},
+		},
 	}
 	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{seedKey: b}))
 	mcp := b.MCP["postgres"]
@@ -458,6 +495,20 @@ func seededLoader() (*bundles.Loader, string) {
 // decision function is fed for that item.
 func seededMCPPayload() []byte {
 	return mcpPayloadOf(bundles.BundleMCP{Command: "pg-mcp", Args: []string{"--port", "5432"}})
+}
+
+// seededSkillPayload is the "reviewer" skill's canonical manifest preimage —
+// the bytes the decision function is fed for that item, mirroring
+// seededMCPPayload.
+func seededSkillPayload() []byte {
+	skill := bundles.BundleSkill{Files: map[string]bundles.SkillFileMeta{
+		"SKILL.md": {SHA256: "sha256:abc123", Mode: "0644"},
+	}}
+	payload, err := skill.ContentPayload()
+	if err != nil {
+		panic(err)
+	}
+	return payload
 }
 
 func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
@@ -484,6 +535,59 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 
 	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("other"), Form: rawForm, Records: fx.records()})
 	assert.Equal(t, trust.Deny, got.Decision)
+}
+
+// TestSetItemTrust_ApprovesSkillCurrentVersion mirrors
+// TestSetItemTrust_ApprovesCurrentVersion for the NEW trust.KindSkill kind
+// (Part B2): a skill from an untrusted/unsigned publisher is NOT trusted
+// (pending) until a human reviews and accepts it — exactly like a
+// command/prompt — and once SetItemTrust records that acceptance, the exact
+// approved manifest bytes resolve ALLOW/SourceAccepted while any other
+// (never-reviewed) skill in the same bundle stays pending.
+func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
+	loader, _ := seededLoader()
+	fx := newTrustFixture(t)
+	ref := "https://github.com/acme/repo@bundles/tooling#skills/reviewer"
+
+	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "reviewer"}
+	skillPayload := seededSkillPayload()
+
+	// Before review: an unsigned remote skill is pending, exactly like an
+	// unsigned remote command/fragment/mcp (mirrors "unsigned remote item is
+	// NOT trusted (pending)" in TestEffectiveTrust_Cascade).
+	before, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Deny, before.Decision)
+	assert.Equal(t, trust.SourcePending, before.Source)
+
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	require.NoError(t, err)
+	assert.Equal(t, "approved", res.Status)
+	assert.False(t, res.Unsigned)
+	assert.Equal(t, "user", res.Store)
+	assert.NotEmpty(t, res.KeyFingerprint)
+	assert.Equal(t, "tooling#skills/reviewer", res.Ref, "the stored key uses trust.KindSkill.Dir() == \"skills\"")
+	assert.Equal(t, trustRepo, res.RepoURL)
+
+	// After review+accept: the exact approved manifest bytes now resolve
+	// ALLOW.
+	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: skillPayload, Form: rawForm, Records: fx.records()})
+	require.NoError(t, err)
+	assert.Equal(t, trust.Allow, got.Decision)
+	assert.Equal(t, trust.SourceAccepted, got.Source)
+
+	// A DIFFERENT, never-reviewed skill in the same bundle stays pending —
+	// approving one skill must not launder any other.
+	other := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindSkill, Name: "unreviewed"}
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: other, Payload: pbytes("other skill body"), Form: rawForm, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
+	assert.Equal(t, trust.SourcePending, got.Source)
+
+	// A CHANGED manifest for the same ref (e.g. a script edited after review)
+	// also reverts to pending — editing any file re-triggers review.
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, Payload: pbytes("tampered manifest"), Form: rawForm, Records: fx.records()})
+	assert.Equal(t, trust.Deny, got.Decision)
+	assert.Equal(t, trust.SourcePending, got.Source)
 }
 
 // TestSetItemTrust_ApprovesBothForms pins the "approve of a dual-form item

@@ -35,7 +35,7 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a new .ctxloom directory in the current working directory.
 
 This creates a marker directory that ctxloom uses to identify a project root.
-All ctxloom data (profiles, bundles, fragments, skills) will be stored here.
+All ctxloom data (profiles, bundles, fragments, commands) will be stored here.
 
 If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
 is used as a fallback.
@@ -392,7 +392,7 @@ var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 // conversation (profiles are chosen, then the agents that use them are bound —
 // no mid-session prompt fetch). The agent-setup half resolves through
 // ResolveSetupPrompt so every bundle- or companion-shipped `agent-setup`
-// skill is composed in at init exactly as it is for `ctxloom agent setup`; a
+// command is composed in at init exactly as it is for `ctxloom agent setup`; a
 // nil config degrades to the built-in text alone (CLAUDE.md fault tolerance).
 func discoverySessionPrompt(cfg *config.Config) string {
 	setup := agentSetupPrompt

@@ -59,6 +59,12 @@ type j4State struct {
 
 	repriseEnvelope    string
 	repriseVersionJSON string
+
+	// engine/target: this scenario's current Examples row (the multi-engine
+	// outline below) — which backend Bob materialized for, and the
+	// --target dir his materialize wrote into.
+	engine string
+	target string
 }
 
 // j4 returns (lazily allocating) this scenario's J4 fixture state.
@@ -110,6 +116,45 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Bob starts a session$`, func(c context.Context) error {
 		return runBob(worldFrom(c), "profile", "materialize", j2Profile, "--target", "out")
+	})
+
+	// --- Multi-engine outline: Bob's engine may not be Alice's ------------
+	//
+	// Reuses J5's engine-axis machinery (engineContextRelPath, steps_j5.go)
+	// rather than re-deriving a second per-engine path table — the same three
+	// engines J5's materialization outline proved (claude-code, kiro,
+	// antigravity). New step text throughout: "Bob starts a session" above
+	// already has a different meaning (materialize with NO --backend, into
+	// "out"), so reusing it verbatim for a --backend-qualified materialize
+	// would be wrong, not just ambiguous.
+
+	ctx.Step(`^Bob starts a session on (\S+)$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j4 := w.j4()
+		j4.engine = engine
+		j4.target = "out-" + engine
+		return runBob(w, "profile", "materialize", j2Profile, "--target", j4.target, "--backend", engine)
+	})
+
+	ctx.Step(`^his assistant receives the team's standardized context in (\S+)'s own native surface$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j4 := w.j4()
+		rel, err := engineContextRelPath(j4.target, engine)
+		if err != nil {
+			return err
+		}
+		body, err := readBobFile(w, rel)
+		if err != nil {
+			return fmt.Errorf("read Bob's materialized %s context (%s): %w", engine, rel, err)
+		}
+		// Real evidence for the @doc capture sidecar (set-and-consume; no-op
+		// when capture is off) — the actual bytes Bob's own engine-native
+		// surface carries, not a restatement of the assertion.
+		w.docStepMaterialized = fmt.Sprintf("%s:\n%s", rel, j5Excerpt(body, j4TeamMarker, 1))
+		if !strings.Contains(body, j4TeamMarker) {
+			return fmt.Errorf("Bob's materialized %s context does not contain the team's standardized-context marker; content:\n%s", engine, body)
+		}
+		return nil
 	})
 
 	// --- Scenario 1: cloning alone suffices -------------------------------
@@ -336,6 +381,13 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^nothing fails because of the companion's presence or absence$`, func(c context.Context) error {
 		w := worldFrom(c)
+		// Real evidence for the @doc capture sidecar: by the time this step
+		// runs, "Bob starts a session" already consumed w.j2().bobOutput via
+		// the automatic docLastBobOutput attribution, so this assertion (which
+		// runs no new command of its own) would otherwise render with an empty
+		// evidence pane despite being the load-bearing "and it actually
+		// succeeded" check — re-attach the same exit/output pair explicitly.
+		w.docStepMaterialized = fmt.Sprintf("Bob's session start: exit=%d\n%s", w.j2().bobExit, strings.TrimSpace(w.j2().bobOutput))
 		if w.j2().bobExit != 0 {
 			return fmt.Errorf("expected Bob's session start to succeed regardless of the companion's presence/absence; exit %d, output:\n%s",
 				w.j2().bobExit, w.j2().bobOutput)

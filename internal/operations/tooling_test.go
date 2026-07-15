@@ -14,7 +14,7 @@ import (
 )
 
 // TestCollectTooling_CollectsDeclarations proves collection finds
-// every bundle's `tooling` skill (bare-name match, like the
+// every bundle's `tooling` command (bare-name match, like the
 // agent-setup override contract), attributes it to its source, and skips
 // bundles without one. The nil loader exercises the real trust-gated
 // exposure path over locally-authored (baseline-trusted) bundles.
@@ -22,20 +22,20 @@ func TestCollectTooling_CollectsDeclarations(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "go-tools", `version: "1.0"
-skills:
+commands:
   tooling:
     content: "Install golangci-lint v2 and gofumpt."
 `)
 	writeRegenBundle(t, appDir, "unrelated", `version: "1.0"
-skills:
+commands:
   something-else:
     content: "NOT TOOLING"
 `)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	got := CollectTooling(cfg, nil)
-	require.Len(t, got, 1, "only the tooling skill is collected")
-	assert.Contains(t, got[0].Source, "#skills/tooling", "source is the bundle-qualified ref")
+	require.Len(t, got, 1, "only the tooling command is collected")
+	assert.Contains(t, got[0].Source, "#commands/tooling", "source is the bundle-qualified ref")
 	assert.Contains(t, got[0].Source, "go-tools", "source names the bundle")
 	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
 }

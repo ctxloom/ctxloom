@@ -5,117 +5,42 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
 )
 
-// realHomeDir is the user's actual home, captured in TestMain before any
-// scenario overrides HOME. Used to locate ~/.claude and ~/.gemini (where
-// Antigravity CLI keeps its auth) for the subscription-auth path.
-var realHomeDir string
-
-// liveAgent describes a real backend the @live suite can drive. The same
-// distillation scenarios run against each entry via a Scenario Outline, so the
-// behavioral assertions stay backend-agnostic while auth and config differ.
-type liveAgent struct {
-	// apiKeyEnvs are the env vars whose presence enables the unattended API-key
-	// path. They flow to the CLI through the inherited subprocess env, so nothing
-	// is copied for this path.
-	apiKeyEnvs []string
-	// credDir is the per-agent credential directory under HOME (e.g. ".claude").
-	credDir string
-	// config is the ctxloom config.yaml that points primary+fast at this backend.
-	config string
-	// copyCreds copies just the auth files from the real HOME into the isolated
-	// one for the subscription path.
-	copyCreds func(realHome, fakeHome string)
-}
-
-// liveAgents maps the lowercased scenario token ("claude", "antigravity") to its
-// backend wiring. Each uses a cheap model so the paid calls stay inexpensive.
-var liveAgents = map[string]liveAgent{
-	"claude": {
-		apiKeyEnvs: []string{"ANTHROPIC_API_KEY"},
-		credDir:    ".claude",
-		config: `version: 4
-llm:
-  configs:
-    claude:
-      type: claude-code
-      model: claude-haiku-4-5-20251001
-  defaults:
-    primary: claude
-    fast: claude
-profiles:
-  defaults: []
-`,
-		copyCreds: copyClaudeCredentials,
-	},
-	// Antigravity CLI (agy) authenticates via OAuth only — there is no
-	// API-key env path — and stores its auth under ~/.gemini (shared with
-	// the retired Gemini CLI's directory layout). No model is pinned: agy's
-	// own configured default applies.
-	"antigravity": {
-		credDir: ".gemini",
-		config: `version: 4
-llm:
-  configs:
-    antigravity:
-      type: antigravity
-  defaults:
-    primary: antigravity
-    fast: antigravity
-profiles:
-  defaults: []
-`,
-		copyCreds: copyAntigravityCredentials,
-	},
-}
-
-// envSet reports whether any of the named env vars is non-empty.
-func envSet(names []string) bool {
-	for _, n := range names {
-		if os.Getenv(n) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// liveAgentAvailable reports whether the named real agent can be reached. The
-// API-key path (which flows through the subprocess env) triggers automatically.
-// The subscription path copies local credentials and makes paid calls, so it is
-// gated behind an explicit opt-in rather than the mere presence of the credential
-// directory on a developer machine.
-func liveAgentAvailable(a liveAgent) bool {
-	if envSet(a.apiKeyEnvs) {
-		return true
-	}
-	if os.Getenv("CTXLOOM_ACCEPTANCE_LIVE") == "1" && realHomeDir != "" {
-		if _, err := os.Stat(filepath.Join(realHomeDir, a.credDir)); err == nil {
-			return true
-		}
-	}
-	return false
-}
+// The live-engine registry itself (liveAgent, liveAgents, liveAgentOrder,
+// engineAvailable/probeEngine, the availability report, and the
+// CTXLOOM_LIVE_REQUIRE floor) lives in live_engine_registry.go, deliberately
+// untagged so `just test` gates on its decision logic directly. This file
+// only wires that registry into godog steps.
 
 func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// The gate-and-skip: every @live scenario starts here, so the hermetic run
-	// (which excludes @live) never touches credentials, and a credential-less
-	// live run skips rather than fails. The agent token comes from the Scenario
-	// Outline Examples table ("Claude", "Antigravity").
+	// (which excludes @live) never touches credentials, and an unavailable
+	// engine skips (rather than fails) UNLESS CTXLOOM_LIVE_REQUIRE names it —
+	// see checkRequiredEngines, enforced once up front in TestAcceptance. The
+	// agent token comes from the Scenario Outline Examples table ("Claude",
+	// "Antigravity", "Kiro").
 	ctx.Step(`^a real (\S+) agent is available$`, func(c context.Context, name string) error {
-		a, ok := liveAgents[strings.ToLower(name)]
+		key := strings.ToLower(name)
+		a, ok := liveAgents[key]
 		if !ok {
 			return fmt.Errorf("unknown live agent %q", name)
 		}
-		if !liveAgentAvailable(a) {
+		status := probeEngine(key, a, realHomeDir, resolveOptIn())
+		w := worldFrom(c)
+		// Set-and-consume evidence (steps_doc_capture.go): this engine's actual
+		// resolved availability, in the SAME one-line shape as the suite-wide
+		// report, so the published J5 living-docs page carries the real,
+		// per-row honesty rather than a bare pass with no reason attached — a
+		// reader cannot mistake a skip for a fourth proven row.
+		w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})
+		if !status.available {
 			return godog.ErrSkip
 		}
-		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
@@ -242,7 +167,7 @@ func liveDistinctFacts() []string {
 }
 
 // liveBundleYAML builds a bundle manifest with a substantial, information-dense
-// fragment and skill for distillation.
+// fragment and command for distillation.
 func liveBundleYAML(fragment string) string {
 	facts := liveDistinctFacts()
 	var b strings.Builder
@@ -255,7 +180,7 @@ func liveBundleYAML(fragment string) string {
 	for _, f := range facts {
 		fmt.Fprintf(&b, "      %s\n", f)
 	}
-	b.WriteString("skills:\n")
+	b.WriteString("commands:\n")
 	b.WriteString("  guidance:\n")
 	b.WriteString("    description: live distillation prompt fixture\n")
 	b.WriteString("    content: |\n")
@@ -264,46 +189,4 @@ func liveBundleYAML(fragment string) string {
 		fmt.Fprintf(&b, "      - %s\n", f)
 	}
 	return b.String()
-}
-
-// copyClaudeCredentials copies just the auth-relevant files from the real
-// ~/.claude into the isolated home, best effort — never the whole tree (which
-// holds caches, history, and backups).
-func copyClaudeCredentials(realHome, fakeHome string) {
-	srcDir := filepath.Join(realHome, ".claude")
-	dstDir := filepath.Join(fakeHome, ".claude")
-	_ = os.MkdirAll(dstDir, 0o755)
-	for _, name := range []string{".credentials.json", "settings.json", "config.json"} {
-		data, err := os.ReadFile(filepath.Join(srcDir, name))
-		if err != nil {
-			continue
-		}
-		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
-	}
-	// ~/.claude.json holds onboarding state; copying it stops the CLI from
-	// dropping into an interactive first-run flow under the isolated HOME.
-	if data, err := os.ReadFile(filepath.Join(realHome, ".claude.json")); err == nil {
-		_ = os.WriteFile(filepath.Join(fakeHome, ".claude.json"), data, 0o600)
-	}
-}
-
-// copyAntigravityCredentials copies just the auth-relevant files for
-// Antigravity CLI (agy) into the isolated home, best effort — never the whole
-// tree (which holds the brain conversation store and caches). agy keeps its
-// OAuth state under ~/.gemini and ~/.gemini/antigravity-cli: oauth_creds.json
-// and google_accounts.json carry the subscription login; installation_id and
-// settings.json keep the CLI out of its interactive first-run flow.
-func copyAntigravityCredentials(realHome, fakeHome string) {
-	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
-		srcDir := filepath.Join(realHome, sub)
-		dstDir := filepath.Join(fakeHome, sub)
-		_ = os.MkdirAll(dstDir, 0o755)
-		for _, name := range []string{"oauth_creds.json", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
-			data, err := os.ReadFile(filepath.Join(srcDir, name))
-			if err != nil {
-				continue
-			}
-			_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
-		}
-	}
 }

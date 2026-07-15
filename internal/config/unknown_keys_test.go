@@ -157,7 +157,7 @@ profiles:
     work:
       description: work
       select_tags: [go]
-      prompts: ["b#prompts/x"]
+      commands: ["b#commands/x"]
       fragments:
         - go-style
         - name: testing

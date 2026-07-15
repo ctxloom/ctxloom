@@ -109,13 +109,13 @@ You control the base:
 
 ### Tooling declarations
 
-Bundles can declare the tools their content needs inside the agent image (a `tooling` skill). `ctxloom tooling` collects the declarations from **trusted** bundles and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. Nothing is applied automatically on pull or sync.
+Bundles can declare the tools their content needs inside the agent image (a `tooling` command). `ctxloom tooling` collects the declarations from **trusted** bundles and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. Nothing is applied automatically on pull or sync.
 
 ## Agents vs profiles
 
 | | Profile | Agent |
 |---|---------|-------|
-| Defines | Context (fragments, skills, MCP servers, variables) | Engine + profiles + runtime |
+| Defines | Context (fragments, commands, MCP servers, variables) | Engine + profiles + runtime |
 | Shipped in bundles | Yes (`<bundle>#profiles/<name>`) | Never — local only |
 | Used by | `run -p`, `map`/`weave -p`, agents | `run --agent`, `map`/`weave --agents`, `acp --agent` |
 | Engine choice | Optional `llm:` preference | Explicit `engine:` binding (overrides the profiles') |

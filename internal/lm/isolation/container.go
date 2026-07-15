@@ -176,6 +176,18 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	if err != nil {
 		return nil, err
 	}
+	// sc.root is a real on-disk scratch tree that exists from here on but has
+	// no owning Workspace yet. The explicit error path below already removes it
+	// on a normal prepareBase failure; this guards the case a normal error
+	// return can't: a PANIC inside prepareBase (worktree.go's own PrepareWorkspace
+	// carries the identical guard for ITS resources) would otherwise skip that
+	// removal entirely and leak sc.root under the OS temp dir.
+	defer func() {
+		if r := recover(); r != nil {
+			_ = os.RemoveAll(sc.root)
+			panic(r)
+		}
+	}()
 	// The base provisions the cwd the container mounts and its own mounts: the
 	// host base shadows the LIVE project's managed-config dirs (overlays) and
 	// mirrors a pointer-file .git; the worktree base creates the per-agent
@@ -386,6 +398,11 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	}
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
+		// root is normally "" here (MkdirTemp itself failed) — defensive
+		// against a mutant flipping this check and discarding a dir MkdirTemp
+		// actually created (matches the socketDir guard just below, which
+		// already does this).
+		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
 	socketDir := filepath.Join(root, "sock")

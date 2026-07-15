@@ -35,9 +35,9 @@ func TestResolveSearchTypes(t *testing.T) {
 		wantRemote []string
 		wantErr    bool
 	}{
-		{"empty searches all", "", []string{"fragment", "skill", "profile", "mcp_server"}, []string{"bundle"}, false},
+		{"empty searches all", "", []string{"fragment", "command", "profile", "mcp_server"}, []string{"bundle"}, false},
 		{"fragment is local-only", "fragment", []string{"fragment"}, nil, false},
-		{"prompt is local-only", "skill", []string{"skill"}, nil, false},
+		{"prompt is local-only", "command", []string{"command"}, nil, false},
 		{"mcp_server is local-only", "mcp_server", []string{"mcp_server"}, nil, false},
 		{"profile is local-only", "profile", []string{"profile"}, nil, false},
 		{"bundle is remote-only", "bundle", nil, []string{"bundle"}, false},

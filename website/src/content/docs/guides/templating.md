@@ -6,8 +6,8 @@ Without templating, a fragment that mentions your project name or language is st
 
 Fragments support [Mustache](https://mustache.github.io/) templating to make this work.
 
-:::note[Skills are different]
-This page describes templating in **fragments**. A skill exported as a slash command uses a narrower, unrelated mechanism: `{{VAR}}` placeholders are rewritten to positional shell arguments (`$1`, `$2`, … in first-occurrence order) at export time — the profile's `variables:` map is never consulted. Only the plain `{{word}}` pattern is recognized, so sections, inverted sections, raw output, and comments below do not work in skills.
+:::note[Commands are different]
+This page describes templating in **fragments**. A command exported as a slash command uses a narrower, unrelated mechanism: `{{VAR}}` placeholders are rewritten to positional shell arguments (`$1`, `$2`, … in first-occurrence order) at export time — the profile's `variables:` map is never consulted. Only the plain `{{word}}` pattern is recognized, so sections, inverted sections, raw output, and comments below do not work in commands.
 :::
 
 ## Basic Syntax

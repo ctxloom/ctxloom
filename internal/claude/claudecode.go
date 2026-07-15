@@ -48,7 +48,7 @@ func NewClaudeCode() *ClaudeCode {
 	// stashes the concrete Surfaces so buildArgs can read the flag files' paths.
 	b.InitLaunch(
 		agent.NewBaseLifecycle("claude-code"),
-		&ClaudeSkills{},
+		&ClaudeCommands{},
 		agent.NewBaseContextProvider(),
 		NewClaudeSessionHistory(b),
 		&agent.CellDelivery{Build: b.buildSurfaces},
@@ -62,13 +62,15 @@ func NewClaudeCode() *ClaudeCode {
 // can read Context/MCP/Settings.Path() after a SharedCell delivery.
 func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) agent.SurfaceSet {
 	b.surfaces = NewSurfaces(SurfaceInputs{
-		Context:             in.Context,
-		MCP:                 in.MCP,
-		BundleMCP:           in.BundleMCP,
-		Hooks:               in.Hooks,
-		ManageStatusline:    in.ManageStatusline,
-		Skills:              in.Skills,
-		SelfContainedSkills: in.SelfContainedSkills,
+		Context:               in.Context,
+		MCP:                   in.MCP,
+		BundleMCP:             in.BundleMCP,
+		Hooks:                 in.Hooks,
+		ManageStatusline:      in.ManageStatusline,
+		Commands:              in.Commands,
+		SelfContainedCommands: in.SelfContainedCommands,
+		Skills:                in.Skills,
+		SelfContainedSkills:   in.SelfContainedSkills,
 	}, dirPlacement{dir: isolatedDir}, nil)
 	return b.surfaces
 }

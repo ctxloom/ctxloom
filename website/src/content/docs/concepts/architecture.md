@@ -17,7 +17,7 @@ This page uses the project's canonical launch-architecture terms (defined in
 | **agent** | A ctxloom actor: a profile in action. The primary you launch with `run --agent`, and each delegated worker it spawns. |
 | **engine agent** | The engine's *own* internal subagent (claude's `--agent`, ACP's `agent` field). Always qualified — bare "agent" never means this. |
 | **session** | One launched ctxloom run, harp-named. Hosts the primary agent and its delegated agents. |
-| **surface** | One managed deliverable: **context**, **MCP**, **hooks**, **skills**, or **settings**. |
+| **surface** | One managed deliverable: **context**, **MCP**, **hooks**, **commands**, or **settings**. |
 | **loadout** | The composed set of all five surfaces for a session — what gets handed to the runner. |
 | **control-plane** / **wire** / **runner** | Everything before the handoff / the transport / everything after it. See below. |
 
@@ -43,7 +43,7 @@ The loadout it carries is always the same five surfaces:
 - **context** — the model-facing instructions (assembled fragments)
 - **MCP** — the MCP servers the engine should connect to
 - **hooks** — the lifecycle hooks to register
-- **skills** — slash-command exports
+- **commands** — slash-command exports
 - **settings** — engine-native settings
 
 Each engine materializes those five into whatever native files it actually reads.
@@ -53,7 +53,7 @@ See [Delivery per engine](#delivery-per-engine).
 
 ### Bundles
 
-**Purpose:** Package related fragments, skills, MCP server configs, profiles, and hooks.
+**Purpose:** Package related fragments, commands, MCP server configs, profiles, and hooks.
 
 **Structure:**
 ```yaml
@@ -62,7 +62,7 @@ fragments:
   name:
     content: "..."
     tags: [...]
-skills:
+commands:
   name:
     content: "..."
 mcp:
@@ -192,7 +192,7 @@ Model Context Protocol.
 - `agent_fetch_artifact` — retrieve a child's artifact
 
 **Resources:** listings are exposed as MCP resources rather than tools —
-`ctxloom://fragments`, `ctxloom://profiles`, `ctxloom://skills`,
+`ctxloom://fragments`, `ctxloom://profiles`, `ctxloom://commands`,
 `ctxloom://remotes`, `ctxloom://mcp-servers`, `ctxloom://sessions`, and
 `ctxloom://help`.
 
@@ -318,7 +318,7 @@ five surfaces into whatever the target actually looks at.
 | context | `CLAUDE.md` (or `--append-system-prompt-file`) |
 | MCP | `.mcp.json` at the project root (or `--mcp-config`) |
 | hooks + settings | `.claude/settings.json` (hooks live inside settings) |
-| skills | `.claude/commands/` |
+| commands | `.claude/commands/` |
 
 Note that MCP registration goes to **`.mcp.json`**, not to `.claude/settings.json`.
 Only hooks and settings live there.
@@ -337,7 +337,7 @@ Only hooks and settings live there.
 |---|---|
 | hooks + MCP + settings | `.codex/config.toml` (one atomic writer) |
 | context | injected by the SessionStart hook declared in `config.toml` |
-| skills | `$CODEX_HOME/prompts` (with `CODEX_HOME` scoped to the session's cell) |
+| commands | `$CODEX_HOME/prompts` (with `CODEX_HOME` scoped to the session's cell) |
 
 ### Kiro
 
@@ -346,7 +346,7 @@ Only hooks and settings live there.
 | engine agent + hooks | `.kiro/agents/ctxloom.json` |
 | MCP | `.kiro/settings/mcp.json` |
 | context | `.kiro/steering/` |
-| skills | `.kiro/skills/<name>/SKILL.md` |
+| commands | `.kiro/skills/<name>/SKILL.md` |
 
 ### ACP (generic)
 
@@ -385,7 +385,7 @@ type Backend interface {
 }
 ```
 
-It deliberately carries no hook/skill/context/MCP accessors: those are an
+It deliberately carries no hook/command/context/MCP accessors: those are an
 engine's internal setup wiring, not something the runner calls. Surfaces are
 delivered through a separate per-engine surface set, registered alongside the
 backend in the engine registry.

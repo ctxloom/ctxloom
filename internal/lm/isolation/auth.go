@@ -97,12 +97,22 @@ var kiroAuthEnvVars = []string{
 }
 
 // resolveKiroContainerAuth builds the auth plan for a containerized kiro run:
-// KIRO_API_KEY env passthrough (headless mode) only. Subscription `kiro-cli
-// login` credentials live under ~/.kiro ALONGSIDE session state the engine must
-// write, so a wholesale read-only mount would break the engine and the exact
-// credential file layout is unverified live — no credential-mount fallback until
-// it is (the same doc-first posture as the kiro settings writer). ok=false →
-// the caller degrades rather than launching an engine stuck at a browser login.
+// KIRO_API_KEY env passthrough (headless mode) only, no credential-mount
+// fallback. Verified live against an authenticated kiro-cli 2.12.1:
+// subscription `kiro-cli login` (GitHub OAuth) credentials do NOT live under
+// ~/.kiro at all — they live in $XDG_DATA_HOME/kiro-cli/data.sqlite3
+// (default ~/.local/share/kiro-cli/data.sqlite3), a SQLite database (tables
+// include auth_kv and state) that ALSO holds one of kiro's two session
+// stores (conversations_v2 — see internal/kiro/session.go's package comment).
+// ~/.kiro itself carries no credentials, only session/agent/settings state.
+// No mount fallback is implemented here even now that the real path is
+// known: KIRO_HOME (the env this package already relocates per-agent, see
+// worktree.go) does NOT relocate $XDG_DATA_HOME, so per-agent isolation
+// cannot scope this file without also wiring XDG_DATA_HOME through the
+// isolation env — and bind-mounting a live SQLite database another kiro-cli
+// process may have open (WAL mode) read-only into a container is an
+// untested operational risk, not merely an untested path. ok=false → the
+// caller degrades rather than launching an engine stuck at a browser login.
 func resolveKiroContainerAuth(string) (containerAuth, bool) {
 	if names := presentEnvKeys(os.Getenv, kiroAuthEnvVars); os.Getenv("KIRO_API_KEY") != "" {
 		return containerAuth{mode: authEnv, envPassthrough: names}, true

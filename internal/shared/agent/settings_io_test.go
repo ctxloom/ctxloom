@@ -14,6 +14,16 @@ import (
 // (claude/antigravity/codex) call directly. They moved here from the host backends
 // package along with the helpers themselves.
 
+// TestResolveMCPCommand pins dire-five's fix at its narrowest seam: an empty
+// override (every cell but an isolated container) returns EXACTLY
+// CtxloomCommand()'s value — the host self-exec-absolute invariant is
+// byte-for-byte unchanged — while a non-empty override (populated ONLY on the
+// container axis, see isolation.Container.MCPCommandOverride) wins outright.
+func TestResolveMCPCommand(t *testing.T) {
+	assert.Equal(t, CtxloomCommand(), ResolveMCPCommand(""), "empty override must not perturb the host self-exec-absolute default")
+	assert.Equal(t, "/usr/local/bin/ctxloom", ResolveMCPCommand("/usr/local/bin/ctxloom"), "a non-empty override wins outright")
+}
+
 func TestComputeHookHash(t *testing.T) {
 	h1 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
 	h2 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}

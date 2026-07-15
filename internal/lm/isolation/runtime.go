@@ -49,6 +49,76 @@ type Runtime interface {
 	// (Chroot) can map an exposure differently (e.g. a path under its root) at
 	// the one delivery-layer primitive instead of at every Mount literal.
 	Expose(host, target string, readOnly bool) Mount
+	// ExposeIdentical renders the IDENTICAL-PATH bind Mount for hostPath —
+	// project dir, gitdir mirror — through this runtime's pathMapper (§ lanky-
+	// pod). identityMapper (the default; every Docker/Podman/Host construction
+	// path today) makes this byte-for-byte Expose(hostPath, hostPath,
+	// readOnly), so introducing this seam changes NOTHING on Linux/host-
+	// native/true-DinD. A future non-identity mapper (Windows drive-letter→
+	// POSIX; DooD mountinfo-derived) plugs in at ONE place — mapper() below —
+	// rather than at every identical-path call site.
+	ExposeIdentical(hostPath string, readOnly bool) Mount
+	// mapper returns this runtime's host↔container path translation
+	// (unexported: an internal wiring seam, not part of the public contract
+	// external packages implement). buildRunSpec reads it to translate the
+	// project mount + WorkDir the SAME way ExposeIdentical does, so the two
+	// never disagree about where a host path lands in-container.
+	mapper() pathMapper
+}
+
+// pathMapper translates a host filesystem path to the path the SAME resource
+// appears at inside the container's mount namespace, and back. It is the
+// convergence point runtime.go's doc on Expose already anticipated
+// ("Centralizing every delivery-layer Mount construction here is what lets a
+// future daemonless runtime remap an exposure without touching each call
+// site"): identical-path (Host==Container) is ONE configuration of this seam
+// — identityMapper, the default — not a hardcoded assumption.
+//
+// Two non-identity mappers are anticipated (both DEFERRED past this task,
+// which builds only the seam + identity default — see the container-runtime-
+// bugs plan, lanky-pod §4/§5):
+//   - Windows: a drive-letter host path (C:\Users\foo\proj) needs a POSIX
+//     in-container target (e.g. /workspace); a real implementation must also
+//     handle the Docker-Desktop `/host_mnt/c/...` SOURCE form and rewrite the
+//     socket-dir prefix swap (containerAddrTranslator) through the same
+//     mapping — see swapPrefix's doc. The linked-worktree case additionally
+//     needs the worktree's `gitdir:` FILE content rewritten (a Windows
+//     absolute path is unresolvable as a mounted POSIX path unchanged) — a
+//     known hard edge, explicitly deferred to sudsy-sip Tier C.
+//   - DooD (docker-outside-of-docker): ctxloom itself runs inside a
+//     container that shares the HOST daemon, so this process's paths are not
+//     the daemon's paths; a mapper derived from /proc/self/mountinfo or
+//     `docker inspect <self>` would translate them (snug-dawn, optional/
+//     deferred — the shared-fs probe already detects and degrades this case
+//     loudly rather than mounting the wrong path).
+type pathMapper interface {
+	// toContainer maps a host path to the in-container path the SAME resource
+	// should be mounted/reached at.
+	toContainer(hostPath string) string
+	// toHost is the inverse: maps an in-container path back to the host path.
+	toHost(containerPath string) string
+}
+
+// identityMapper is the default pathMapper: Host==Container, unconditionally.
+// Every Docker/Podman/Host construction path uses it today (directly or via
+// the nil-mapper fallback in withMapper/runtimeMapper), so the seam changes
+// NOTHING for the supported topology — every identical-path Mount this
+// package builds is byte-for-byte what a hardcoded Mount{Host: p, Container:
+// p} literal produced before this seam existed.
+type identityMapper struct{}
+
+func (identityMapper) toContainer(hostPath string) string { return hostPath }
+func (identityMapper) toHost(containerPath string) string { return containerPath }
+
+// runtimeMapper returns m if non-nil, else identityMapper{} — the nil-safe
+// getter every Runtime's mapper() implements, so a runtime constructed
+// without an explicit mapper (every call site today) is identity, not a nil-
+// pointer hazard.
+func runtimeMapper(m pathMapper) pathMapper {
+	if m == nil {
+		return identityMapper{}
+	}
+	return m
 }
 
 // LaunchSpec carries the launch conventions Spawn needs to start one plugin run,
@@ -121,7 +191,11 @@ type Mount struct {
 // rootless-specific run-arg head (identityEnvArgs stays shared, called from each
 // head). The rootless flag itself stays on the concrete types: it is consulted
 // solely by that per-type head, so the base never needs it.
-type ociRuntime struct{}
+// pathMap, when set, is this runtime's non-identity pathMapper (lanky-pod's
+// seam) — nil (the zero value, every construction path today) is identity via
+// runtimeMapper. No constructor in this package sets it yet; it is the
+// injection point a future Windows/DooD-aware SelectRuntime would populate.
+type ociRuntime struct{ pathMap pathMapper }
 
 // RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
 // racing --rm auto-remove just reports "no such container", which callers ignore).
@@ -144,6 +218,16 @@ func (ociRuntime) runArgs(head []string, spec RunSpec) []string {
 func (ociRuntime) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
+
+// ExposeIdentical renders the identical-path Mount for hostPath through this
+// runtime's pathMapper — identityMapper by default, so this is byte-for-byte
+// Expose(hostPath, hostPath, readOnly) until a non-identity mapper is wired.
+func (rt ociRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
+	return Mount{Host: hostPath, Container: rt.mapper().toContainer(hostPath), ReadOnly: readOnly}
+}
+
+// mapper returns this runtime's pathMapper (identity when unset).
+func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 
 // spawn is the moved body of the old Container.spawnInContainer: it launches the
 // plugin INSIDE a container via the go-plugin RunnerFunc + AddrTranslator
@@ -336,6 +420,16 @@ func (Host) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
+// ExposeIdentical is the identity mount — Host has no container namespace to
+// remap into, so this is unconditionally Expose(hostPath, hostPath, readOnly).
+func (Host) ExposeIdentical(hostPath string, readOnly bool) Mount {
+	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
+}
+
+// mapper is always identity — Host launches no container, so there is no
+// host↔container path translation to perform.
+func (Host) mapper() pathMapper { return identityMapper{} }
+
 // Chroot is the SHAPED-BUT-UNIMPLEMENTED daemonless/imageless runtime (a
 // fast-follow): the interface accommodates a runtime that isolates the engine in
 // a chroot/namespace WITHOUT a container image or a daemon, proving the Spawn +
@@ -373,6 +467,13 @@ func (Chroot) Spawn(LaunchSpec) (pb.Client, error) {
 // Expose is a zero-valued stub — the real path-under-root mapping is the
 // fast-follow's work.
 func (Chroot) Expose(string, string, bool) Mount { return Mount{} }
+
+// ExposeIdentical is a zero-valued stub — see Expose.
+func (Chroot) ExposeIdentical(string, bool) Mount { return Mount{} }
+
+// mapper is identity — Chroot is never selected (Available is false), so this
+// is never consulted; identity is the harmless placeholder.
+func (Chroot) mapper() pathMapper { return identityMapper{} }
 
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The

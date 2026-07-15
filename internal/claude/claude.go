@@ -28,6 +28,12 @@ type ClaudeCodeHookWriter struct {
 	FS afero.Fs
 	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
 	statusLineDisabled bool
+	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
+	// the ctxloom-managed .mcp.json entry's command (see
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
+	// dire-five fix). Empty (the default) preserves the host self-exec-
+	// absolute behavior exactly.
+	mcpCommandOverride string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -579,7 +585,7 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 	// MCP server can never diverge from the binary that materialized it.
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
-			Command: agent.CtxloomCommand(),
+			Command: agent.ResolveMCPCommand(w.mcpCommandOverride),
 			Args:    agent.CtxloomMCPArgs,
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
 			SCM:     "ctxloom-auto",          // Marker for auto-registered ctxloom server

@@ -31,6 +31,12 @@ type fileTemplateDelivery struct {
 	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
 	// everywhere else.
 	selfContainedCommands bool
+	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
+	// the ctxloom-managed .mcp.json entry's command (see
+	// agent.ResolveMCPCommand). Only mcpSurface.Deliver/DeliverIsolated set
+	// this (from SurfaceInputs.MCPCommandOverride) — irrelevant to
+	// DeliverCommands/DeliverSettings and left "" everywhere else.
+	mcpCommandOverride string
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
@@ -44,10 +50,14 @@ func newFileTemplateDelivery(place agent.Placement, fs afero.Fs) *fileTemplateDe
 // targeted at place.Dir(): it merges ctxloom's own server, the profile+builtin
 // bundle servers, and the unified/backend servers into .mcp.json, preserving any
 // user-authored servers. Cleanup reverts via removeMCPConfig, which strips the
-// ctxloom-marked servers back out while leaving user servers in place.
+// ctxloom-marked servers back out while leaving user servers in place. Reads
+// d.mcpCommandOverride (dire-five) — DeliverSettings below is deliberately NOT
+// touched the same way: the override is an MCP-only concern (it replaces the
+// ctxloom stdio command), and settings.json carries no such command.
+// reprise:accept-drift
 func (d *fileTemplateDelivery) DeliverMCP(mcp *wire.MCPConfig, bundle map[string]wire.MCPServer) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs}
+	w := &ClaudeCodeHookWriter{FS: d.fs, mcpCommandOverride: d.mcpCommandOverride}
 	if err := w.writeMCPConfig(dir, mcp, bundle); err != nil {
 		return nil, err
 	}

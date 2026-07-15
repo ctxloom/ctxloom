@@ -54,6 +54,12 @@ func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
 type CodexHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// MCPCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
+	// the ctxloom-managed [mcp_servers] entry's command (see
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
+	// dire-five fix). Empty (the default) preserves the host self-exec-
+	// absolute behavior exactly.
+	MCPCommandOverride string
 }
 
 func (w *CodexHookWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
@@ -139,7 +145,7 @@ func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *w
 	if backendHooks, ok := hooks.Plugins["codex"]; ok {
 		addBackendHooks(cfg, backendHooks)
 	}
-	addMCPServers(cfg, mcp, bundleMCP)
+	addMCPServers(cfg, mcp, bundleMCP, w.MCPCommandOverride)
 	if trustAbsPath != "" {
 		addProjectTrust(cfg, trustAbsPath)
 	}
@@ -421,7 +427,10 @@ func removeManagedMCP(cfg map[string]any) {
 }
 
 // addMCPServers adds MCP servers from config and bundles to [mcp_servers].
-func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) {
+// override replaces agent.CtxloomCommand() for the ctxloom-managed entry when
+// non-empty (see agent.ResolveMCPCommand) — set ONLY for an isolated-
+// container cell.
+func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, override string) {
 	servers := asMap(cfg["mcp_servers"])
 	if servers == nil {
 		servers = map[string]any{}
@@ -429,9 +438,10 @@ func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string
 
 	// Auto-register ctxloom's own MCP server unless disabled. Command names
 	// the self-exec absolute path (agent.CtxloomCommand) so this session's
-	// MCP server can never diverge from the binary that materialized it.
+	// MCP server can never diverge from the binary that materialized it —
+	// unless override substitutes the in-container path (dire-five).
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.CtxloomCommand(), Args: agent.CtxloomMCPArgs})
+		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.ResolveMCPCommand(override), Args: agent.CtxloomMCPArgs})
 	}
 
 	// Profile-bundle servers (loaded first, can be overridden).

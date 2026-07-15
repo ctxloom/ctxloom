@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,46 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	list, err = g.WorktreeList(ctx, repo)
 	require.NoError(t, err)
 	assert.False(t, containsPath(list, wt), "the worktree is gone after remove")
+}
+
+// TestExecGit_CommonDir_SymlinkedWorktreePath covers live-gag's edge case
+// (container-runtime-bugs.plan.md §2.2.3): a worktree reached through a
+// SYMLINKED alias path must still resolve to the common dir's REAL absolute
+// path, not a path that runs through the symlink — the isolation container
+// axis mounts CommonDir's return value identical-path (gitCommonDirMount), so
+// a symlink-relative answer would mount the WRONG (or a nonexistent-outside-
+// the-mount) path inside the container. `git rev-parse --git-common-dir`
+// itself resolves to the physical path here (this is git's own behavior, not
+// ctxloom's CommonDir); this test pins that CommonDir does not accidentally
+// re-introduce the symlink alias when it absolutizes a relative answer.
+func TestExecGit_CommonDir_SymlinkedWorktreePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping exec git integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	wt := filepath.Join(t.TempDir(), "wt")
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "HEAD"))
+
+	// A symlinked ALIAS to the worktree — the scenario a repo reached via a
+	// symlinked path (a symlinked project dir, or a worktree on a symlinked
+	// mount) exercises.
+	link := filepath.Join(t.TempDir(), "wt-link")
+	require.NoError(t, os.Symlink(wt, link))
+
+	viaReal, err := g.CommonDir(ctx, wt)
+	require.NoError(t, err)
+	viaLink, err := g.CommonDir(ctx, link)
+	require.NoError(t, err)
+
+	// Both must resolve to the SAME real, absolute common dir — the one an
+	// identical-path container mount actually needs — regardless of which
+	// alias path git was invoked from.
+	assert.Equal(t, resolvePath(t, viaReal), resolvePath(t, viaLink),
+		"CommonDir must resolve to the same real path whether reached directly or through a symlinked alias")
+	assert.True(t, filepath.IsAbs(viaLink), "CommonDir must return an absolute path even via a symlinked cwd")
 }
 
 // TestExecGit_RepoDirsAndWorkingChanges exercises the "what exists NOW"

@@ -42,12 +42,40 @@ func (fakeRuntime) Expose(host, target string, readOnly bool) Mount {
 	return Mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
+// ExposeIdentical mirrors ociRuntime's default (identityMapper): fakeRuntime
+// carries no pathMapper, so this is Expose(hostPath, hostPath, readOnly).
+func (fakeRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
+	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
+}
+
+// mapper is always identity — fakeRuntime never carries a lanky-pod mapper;
+// tests that need to exercise a non-identity mapper inject one directly at
+// buildRunSpec (see runner_test.go), not through this fake.
+func (fakeRuntime) mapper() pathMapper { return identityMapper{} }
+
 // TestContainer_Axes pins the policy's identity: name "container", approvals
 // BYPASS (the container is the boundary that replaces the in-engine prompt).
 func TestContainer_Axes(t *testing.T) {
 	c := NewContainer(fakeRuntime{name: "docker", available: true}, "img")
 	assert.Equal(t, "container", c.Name())
 	assert.Equal(t, ApprovalsBypass, c.Approvals(), "isolated runs bypass the in-engine approval prompt")
+}
+
+// TestContainer_MCPCommandOverride pins dire-five's fix at its source: a
+// container policy (either base tier — hostBase and worktreeBase share the
+// same binaryPath field) reports the in-container ctxloom binary
+// (defaultContainerBinary) as its MCP command override, the single source of
+// truth threaded from NewContainerFor. This is the value
+// operations.MCPCommandOverrideForPolicy relays onto the run env
+// (agent.MCPCommandOverrideEnv) so the MCP-surface writer stamps a `command`
+// the container can actually exec instead of the host self-exec path.
+func TestContainer_MCPCommandOverride(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
+	assert.Equal(t, defaultContainerBinary, c.MCPCommandOverride())
+	assert.Equal(t, "/usr/local/bin/ctxloom", c.MCPCommandOverride(), "the documented in-container path — a change here is a wire-contract change")
+
+	wt := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: true}, "", ImageConfig{}, nil)
+	assert.Equal(t, defaultContainerBinary, wt.MCPCommandOverride(), "the worktree-in-container base shares the same binaryPath field")
 }
 
 // TestContainer_PrepareDegrades: an unavailable runtime OR a missing image makes

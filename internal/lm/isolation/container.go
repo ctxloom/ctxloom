@@ -276,6 +276,25 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	}, nil
 }
 
+// MCPCommandOverride returns the in-container ctxloom binary path
+// (defaultContainerBinary, threaded as c.binaryPath — the container axis's
+// single source of truth) that a container cell's MCP-surface writer should
+// stamp into the ctxloom-managed stdio command instead of the host self-exec
+// path (agent.CtxloomCommand). This is dire-five's fix: the engine inside the
+// container reads its bind-mounted, identical-path .mcp.json, but the process
+// that MATERIALIZED that surface is not necessarily the one running inside
+// the container — relying on self-exec resolution to "just happen" to agree
+// is fragile, so the container policy states its binary path explicitly.
+//
+// Exposed as a narrow capability (not a Policy interface method, probed via
+// operations.MCPCommandOverrideForPolicy) rather than a Policy method so
+// None/Worktree need no method at all: their absence IS "no override",
+// which is exactly what preserves the host self-exec-absolute invariant
+// (CtxloomCommand's doc: staged/installed divergence) on every non-container
+// cell. A leak of this override onto a non-container cell would reintroduce
+// that exact divergence bug — see the host-unchanged unit test pinning it.
+func (c Container) MCPCommandOverride() string { return c.binaryPath }
+
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a
 // git.Fake to drive the host base's gitdir mirror without a real linked worktree.
@@ -599,16 +618,41 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 // whose common dir lives OUTSIDE the mounted checkout) resolves inside the
 // container. Read-write by design: the per-checkout admin files (index, HEAD)
 // under <common>/worktrees/<name> are written there, exactly as a host-native
-// checkout writes to the shared .git — no new blast radius. Shared by the
-// worktree base (whose worktree .git is ALWAYS a pointer file) and the host base
-// (only when the live project is itself a linked worktree — see
-// gitdirMirrorMount).
+// checkout writes to the shared .git. Shared by the worktree base (whose
+// worktree .git is ALWAYS a pointer file) and the host base (only when the
+// live project is itself a linked worktree — see gitdirMirrorMount).
+//
+// Over-mount blast radius (live-gag, ACCEPTED): the key property that makes
+// this mount SUFFICIENT is that the per-worktree admin dir
+// <common>/worktrees/<name> — the ONE thing a linked checkout actually needs
+// — is a SUBDIRECTORY of <common>. Mounting the whole common dir identical-
+// path is therefore the simplest mount that covers it, but it ALSO exposes
+// every OTHER worktree's admin dir (and the main checkout's own index/refs)
+// to this container — real blast radius, not merely "no new" one. A surgical
+// mount (worktree dir + just its own <common>/worktrees/<name> + read-only
+// objects/refs) is possible in principle, but git needs write access to
+// refs/logs and the packed-refs/objects layout in ways that make a partial
+// mount fragile and easy to get subtly wrong. DECISION: keep the whole-
+// common-dir mount (correct, simple, RW-justified above) and accept the
+// wider exposure; revisit only if per-agent git isolation becomes a
+// requirement (already flagged a "later concern" — container_worktree.go's
+// worktreeBase doc). Every ctxloom-managed worktree is out-of-repo by the
+// standing layout (~/workspace/worktrees/<proj>--<branch>), so the worktree
+// base relies on this mount set in production already; the host base needs
+// it only when the user's OWN project dir happens to be a linked worktree —
+// proven end-to-end (real git, real container, payload-asserted) by
+// container_hostworktree_integration_test.go, alongside
+// container_worktree_integration_test.go's worktree-base proof.
 func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (Mount, error) {
 	common, err := g.CommonDir(ctx, dir)
 	if err != nil {
 		return Mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	return rt.Expose(common, common, false), nil
+	// ExposeIdentical (not Expose(common, common, ...)) routes through the
+	// runtime's pathMapper (lanky-pod's seam) — identity today, so this is
+	// unchanged; a non-identity mapper would need the SAME translation the
+	// project mount gets, which is exactly ExposeIdentical's contract.
+	return rt.ExposeIdentical(common, false), nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

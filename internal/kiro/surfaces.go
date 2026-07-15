@@ -74,15 +74,21 @@ func (s *contextSurface) Kind() agent.SurfaceKind { return agent.SurfaceContext 
 // mcpSurface is kiro's MCP surface: .kiro/settings/mcp.json, written via the
 // shared MCP-file reconciler (mcpFile().WriteServers). Delivery-ONLY.
 type mcpSurface struct {
-	mcp       *wire.MCPConfig
-	bundleMCP map[string]wire.MCPServer
-	fs        afero.Fs
+	mcp             *wire.MCPConfig
+	bundleMCP       map[string]wire.MCPServer
+	fs              afero.Fs
+	commandOverride string // see agent.SurfaceInputs.MCPCommandOverride
 }
 
 // Deliver writes .kiro/settings/mcp.json via the reused reconciler and returns a
-// handle whose Cleanup drops the ctxloom-managed servers (RemoveServers).
+// handle whose Cleanup drops the ctxloom-managed servers (RemoveServers). Reads
+// s.commandOverride (dire-five) — settingsSurface below and opencode's
+// configSurface are deliberately NOT touched the same way: the override is
+// MCP-only (it replaces the ctxloom stdio command), and neither the agent JSON
+// nor opencode's config carries that command.
+// reprise:accept-drift
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
-	w := &KiroWriter{FS: s.fs}
+	w := &KiroWriter{FS: s.fs, mcpCommandOverride: s.commandOverride}
 	if err := w.mcpFile(dir).WriteServers(s.mcp, s.bundleMCP); err != nil {
 		return nil, err
 	}
@@ -224,7 +230,7 @@ type Surfaces struct {
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}
-	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs}
+	mcp := &mcpSurface{mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, commandOverride: in.MCPCommandOverride}
 	settings := &settingsSurface{hooks: in.Hooks, fs: fs}
 	cmds := filterClaimedCommands(in.Commands, in.Skills)
 	commands := agent.NewManagedCommandsDelivery("kiro/commands", cmds, func(dir string, commands []agent.CommandExport) error {

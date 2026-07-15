@@ -164,6 +164,14 @@ type SurfaceInputs struct {
 	// true for a portable `profile materialize --target` artifact, false (the
 	// default) for a live/apply/container delivery that shares this host.
 	SelfContainedSkills bool
+	// MCPCommandOverride, when non-empty, replaces CtxloomCommand() as the
+	// ctxloom-managed MCP server's stdio command (see ResolveMCPCommand) — the
+	// dire-five fix. setupViaCells fills it from req.Env[MCPCommandOverrideEnv],
+	// which is populated ONLY for an isolated-container cell (see
+	// isolation.Container.MCPCommandOverride via
+	// operations.MCPCommandOverrideForPolicy); every other cell leaves it "",
+	// so the host self-exec-absolute invariant is untouched.
+	MCPCommandOverride string
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A
@@ -573,4 +581,3 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (De
 func NewProcessIsolatedCell(dir string) ProcessIsolatedCell {
 	return ProcessIsolatedCell{isolatedCell{dir: dir}}
 }
-

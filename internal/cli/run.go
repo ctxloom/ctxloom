@@ -1098,9 +1098,24 @@ Examples:
 			// Stamp the resolved isolation cell so the plugin knows which cell it
 			// runs in (it can't infer it from WorkDir alone). The external-plugin
 			// path above never reaches here, so it leaves cell_kind unset →
-			// UNSPECIFIED → Shared, which is correct: that path stays none. Setup
-			// does not consume this yet (plan S4b).
+			// UNSPECIFIED → Shared, which is correct: that path stays none.
+			// Setup's setupViaCells (launch_backend.go) consumes it to pick the
+			// delivery cell.
 			req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(policy))
+			// dire-five: for a container policy ONLY, stamp the in-container
+			// ctxloom binary path so the MCP-surface writer (running inside the
+			// container, per agentcoord B1.6's runner-terminated MCP) emits a
+			// `command` the container can actually exec, instead of the host
+			// self-exec path (which does not exist inside the container — the
+			// engine's `ctxloom mcp` stdio shim then never launches and the child
+			// has zero MCP tools). "" for none/worktree: the host self-exec-
+			// absolute invariant (agent.CtxloomCommand's doc) is untouched.
+			if override := operations.MCPCommandOverrideForPolicy(policy); override != "" {
+				if req.Options.Env == nil {
+					req.Options.Env = make(map[string]string, 1)
+				}
+				req.Options.Env[agent.MCPCommandOverrideEnv] = override
+			}
 			// Spawn through the policy, carrying the resolved label so serve
 			// configures exactly this entry (not the first map-ordered entry of the
 			// same type).

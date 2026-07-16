@@ -49,12 +49,29 @@ jobs:
           curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.2.1/versionator-linux-amd64.tar.gz -o /tmp/versionator.tar.gz
           tar -xzf /tmp/versionator.tar.gz -C /tmp
           install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
-          # Install buf
-          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
+          # Install buf. Version pinned to match .devcontainer/Dockerfile — this
+          # job runs in goreleaser-cross, not the devcontainer image, so it
+          # can't just inherit the pin; keep the two in sync by hand.
+          curl -sSL https://github.com/bufbuild/buf/releases/download/v1.47.2/buf-Linux-x86_64 -o /usr/local/bin/buf
           chmod +x /usr/local/bin/buf
 
       - name: Generate protobuf code
-        run: buf generate
+        run: |
+          # buf.gen.yaml uses `local:` plugins (not BSR `remote:` ones — see
+          # buf.gen.yaml's comment), so protoc-gen-go/protoc-gen-go-grpc must be
+          # on PATH. This job doesn't run in the devcontainer image, so it can't
+          # inherit those from there; install the SAME pinned versions
+          # .devcontainer/Dockerfile installs, by hand, and keep them in sync.
+          # Before the local-plugin switch (buf.gen.yaml history, commit
+          # b334605) this step ran fine on `remote:` BSR plugins requiring no
+          # local install; missing this update after that switch would make a
+          # release's codegen silently depend on whatever (if anything)
+          # happened to already be on PATH, or fail outright.
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          buf generate
 
       - name: Validate schemas
         run: go run ./cmd/validate

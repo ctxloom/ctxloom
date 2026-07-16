@@ -94,6 +94,36 @@ func init() {
 	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: the configured default LLM)")
 }
 
+// memoryListSessionEntry is one `memory list --format json` row: a session's
+// metadata plus the distillation status the text table's STATUS column shows
+// ("pending" or "compacted") — computed once and carried into both renderers
+// so json and text never disagree.
+type memoryListSessionEntry struct {
+	agent.SessionMeta
+	Status string `json:"status"`
+}
+
+// memoryListOutput is the --format json shape for `ctxloom memory list`.
+type memoryListOutput struct {
+	Backend  string                   `json:"backend"`
+	Sessions []memoryListSessionEntry `json:"sessions"`
+}
+
+// memoryListEntries pairs each session with its distillation status, in the
+// order ListSessions returned them. Pulled out of runMemoryList so it's unit
+// testable without a live session source.
+func memoryListEntries(sessions []agent.SessionMeta, distilledSet map[string]bool) []memoryListSessionEntry {
+	entries := make([]memoryListSessionEntry, 0, len(sessions))
+	for _, meta := range sessions {
+		status := "pending"
+		if distilledSet[meta.ID] {
+			status = "compacted"
+		}
+		entries = append(entries, memoryListSessionEntry{SessionMeta: meta, Status: status})
+	}
+	return entries
+}
+
 func runMemoryList(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -110,14 +140,18 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list sessions: %w", err)
 	}
 
-	if len(sessions) == 0 {
-		fmt.Printf("No sessions found in %s.\n", backendName)
-		return nil
-	}
+	distilledSet := loadDistilledSet(cfg)
+	out := memoryListOutput{Backend: backendName, Sessions: memoryListEntries(sessions, distilledSet)}
 
-	fmt.Printf("Sessions from %s:\n\n", backendName)
-	printSessionTable(sessions, loadDistilledSet(cfg))
-	return nil
+	return emit(cmd, out, func() error {
+		if len(sessions) == 0 {
+			fmt.Printf("No sessions found in %s.\n", backendName)
+			return nil
+		}
+		fmt.Printf("Sessions from %s:\n\n", backendName)
+		printSessionTable(sessions, distilledSet)
+		return nil
+	})
 }
 
 // resolveSessionSource resolves the backend (defaulting when empty) and a gRPC

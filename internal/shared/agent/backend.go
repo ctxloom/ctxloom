@@ -125,16 +125,19 @@ type Session struct {
 
 // SessionMeta contains metadata about a session without full content.
 type SessionMeta struct {
-	ID         string
-	StartTime  time.Time
-	EndTime    time.Time
-	EntryCount int
+	ID        string    `json:"id"`
+	StartTime time.Time `json:"start_time"`
+	// EndTime rides even when zero (a live/unfinished session): encoding/json's
+	// omitempty never elides a zero-valued struct, so tagging it would be
+	// misleading — a reader must check IsZero(), not field presence.
+	EndTime    time.Time `json:"end_time"`
+	EntryCount int       `json:"entry_count"`
 	// Path is the absolute path to the backend's raw transcript file, when
 	// the backend stores one. Empty for backends without file-backed
 	// transcripts. Lets callers scan the raw bytes (which include entries
 	// the normalized parser drops, e.g. Claude Code `attachment` blocks)
 	// without re-deriving the backend's private path convention.
-	Path string
+	Path string `json:"path,omitempty"`
 }
 
 // PlanFile is one plan document from a session's ctxloom session directory

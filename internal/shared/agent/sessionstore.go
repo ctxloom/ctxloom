@@ -11,11 +11,17 @@ import (
 	"github.com/spf13/afero"
 )
 
-// SessionStore is the shared scaffold embedded by the per-agent session
-// history readers (claude, codex, antigravity): the afero filesystem and
-// home-directory injection points their tests use, plus the common
-// JSONL-transcript parse loop. Path conventions, per-line entry conversion,
-// and session-ID recovery stay per-agent.
+// SessionStore is the shared scaffold embedded by per-agent session-history
+// readers: the afero filesystem and home-directory injection points their
+// tests use, plus the common JSONL-transcript parse loop. Path conventions,
+// per-line entry conversion, and session-ID recovery stay per-agent.
+//
+// tough-cloud S5: the claude/codex/antigravity SessionHistory readers that
+// used to embed this were deleted outright (proven broken, see each
+// package's backend.go doc). opencode's native reader still embeds it, as
+// does antigravity's agyConversationMap (capabilities.go) — a live
+// continuation lookup, not a transcript reader, that only wants the
+// FS/HomeDir test-injection seam.
 type SessionStore struct {
 	// FS is the filesystem transcripts are read through (test injection
 	// point). Nil falls back to the OS filesystem.
@@ -65,15 +71,10 @@ func MostRecentSession(sessions []SessionMeta, err error, get func(SessionMeta) 
 
 // GetCurrentSessionViaListSessions is the common GetCurrentSession shape
 // shared by every per-agent SessionHistory: call list(workDir), then load the
-// most recent result via get (MostRecentSession). claude/kiro's ListSessions
-// already scopes to workDir; a backend whose store is workspace-agnostic
-// (codex, or antigravity's global mtime-newest FALLBACK — see
-// AntigravitySessionHistory.GetCurrentSession, which prepends its own
-// workspace-map lookup before falling back to this exact tail) simply ignores
-// workDir inside its own list closure. Factored out because reprise's
-// duplicate-detection gate caught claude/kiro/antigravity's three copies of
-// this shape drifting apart as each grew its own get variant (GetSession vs
-// GetSessionByPath vs parseSessionFile).
+// most recent result via get (MostRecentSession). Originally factored out
+// when claude/kiro/antigravity's SessionHistory readers (since deleted,
+// tough-cloud S5) each grew their own drifting copy of this shape; opencode's
+// surviving native reader still uses it.
 func GetCurrentSessionViaListSessions(workDir string, list func(string) ([]SessionMeta, error), get func(SessionMeta) (*Session, error)) (*Session, error) {
 	sessions, err := list(workDir)
 	return MostRecentSession(sessions, err, get)
@@ -83,9 +84,8 @@ func GetCurrentSessionViaListSessions(workDir string, list func(string) ([]Sessi
 // GetCurrentSessionViaListSessions where the per-session loader is simply
 // "load this session by id": list(workDir), then getSession(workDir, id) on
 // the newest result. Shared by every SessionHistory whose loader takes
-// (workDir, id string) — claude/codex/opencode's GetSession all do (kiro
-// loads by transcript PATH and antigravity's fallback parses a brain file
-// directly, so those two call GetCurrentSessionViaListSessions instead).
+// (workDir, id string) — opencode's GetSession does (the claude/codex readers
+// that used to share this shape were deleted, tough-cloud S5).
 func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]SessionMeta, error), getSession func(workDir, id string) (*Session, error)) (*Session, error) {
 	return GetCurrentSessionViaListSessions(workDir, list, func(m SessionMeta) (*Session, error) {
 		return getSession(workDir, m.ID)

@@ -19,7 +19,10 @@ import (
 func TestCodex_Capabilities(t *testing.T) {
 	codex := NewCodex()
 	assert.Equal(t, "codex", codex.Name())
-	assert.NotNil(t, codex.History(), "session history")
+	// tough-cloud S5: codex's SessionHistory scraper was deleted outright
+	// (lived-zone: envelope-vs-flat parse mismatch); History() is nil now that
+	// canonical capture is the only transcript source for codex.
+	assert.Nil(t, codex.History(), "session history scraper retired, tough-cloud S5")
 }
 
 func TestCodex_Configure(t *testing.T) {

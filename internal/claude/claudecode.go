@@ -50,7 +50,7 @@ func NewClaudeCode() *ClaudeCode {
 		agent.NewBaseLifecycle("claude-code"),
 		&ClaudeCommands{},
 		agent.NewBaseContextProvider(),
-		NewClaudeSessionHistory(b),
+		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces},
 	)
 	return b

@@ -170,6 +170,12 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 // from that instead — workDir scopes the canonical side to this project. A
 // session-index open failure degrades to the legacy-only reader rather than
 // failing the caller outright.
+//
+// tough-cloud S5: a pb.RetiredScraperBackends entry (codex/kiro/antigravity/
+// claude-code — their scrapers were deleted, not demoted) never gets a legacy
+// leg at all: there is no plugin-side History() left to ask, so this never
+// even spawns the plugin for that purpose. Every other backend (opencode's
+// native reader included) keeps its legacy leg unchanged.
 func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.SessionSource, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
@@ -177,13 +183,19 @@ func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 	if !backends.Exists(backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	reader := pb.NewSessionReader(backendName, 0)
+	var legacy pb.SessionSource
+	if !pb.RetiredScraperBackends[backendName] {
+		legacy = pb.NewSessionReader(backendName, 0)
+	}
 	store, err := sessions.Open("")
 	if err != nil {
 		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
-		return reader, backendName, nil
+		if legacy != nil {
+			return legacy, backendName, nil
+		}
+		return nil, backendName, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backendName, err)
 	}
-	return pb.NewCanonicalFallbackSource(reader, workDir, store), backendName, nil
+	return pb.NewCanonicalFallbackSource(legacy, workDir, store), backendName, nil
 }
 
 // loadDistilledSet returns the set of session IDs already distilled (best

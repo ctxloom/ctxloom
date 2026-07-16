@@ -206,7 +206,11 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 }
 
 func TestClaudeCode_History(t *testing.T) {
+	// tough-cloud S5: claude's SessionHistory scraper (~/.claude/projects/*
+	// .jsonl) was deleted outright (tall-grab: wrong-filename resolution);
+	// History() is nil now that canonical capture is the only transcript
+	// source for claude.
 	backend := NewClaudeCode()
 	history := backend.History()
-	assert.NotNil(t, history)
+	assert.Nil(t, history, "session history scraper retired, tough-cloud S5")
 }

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/afero"
 
@@ -72,276 +70,89 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 // disabled/removed) lets the command reclaim the name cleanly, and neither
 // writer's cleanup can strand the other's live file.
 
-// AntigravitySessionHistory implements SessionHistory for Antigravity CLI.
-// Reads from ~/.gemini/antigravity-cli/brain/<conversation-uuid>/
-// .system_generated/logs/transcript_full.jsonl. The embedded
-// agent.SessionStore carries the afero fs + homeDir injection points used by
-// tests and the shared transcript parse loop.
-type AntigravitySessionHistory struct {
-	backend *Antigravity
+// tough-cloud S5: AntigravitySessionHistory (the transcript_full.jsonl
+// scraper — GetCurrentSession/ListSessions/GetSession/GetSessionByPath/
+// TranscriptPathFromHook, its transcript-line parser, and the SessionHistory
+// wiring in backend.go) was DELETED outright, not demoted to an importer —
+// the user's explicit decision (tall-grab: this reader mis-keyed the global
+// brain store and could hand back the wrong workspace's conversation; agy's
+// structured Chat driver already streams the real conversation through ACP,
+// captured canonically instead, see internal/transcript). Antigravity's
+// Backend.History() now returns nil.
+//
+// agyConversationMap survives the deletion: it is NOT a session-history
+// reader, it is the live continuation lookup chat.go's
+// resolveChatConversationID depends on every oneshot turn (agy -p never
+// prints its conversation id back, so Chat detects/refreshes it by re-reading
+// this cache file after each turn — see chat.go). It happens to read from the
+// same agy-owned directory tree the deleted scraper did, but never touches a
+// transcript.
+
+// agyConversationMap resolves agy's own workDir -> conversation-UUID cache
+// (cache/last_conversations.json). The embedded agent.SessionStore supplies
+// only its FS/HomeDir test-injection seam (ResolveHomeDir) — this type never
+// parses a transcript.
+type agyConversationMap struct {
 	agent.SessionStore
 }
 
-// AntigravitySessionHistoryOption configures AntigravitySessionHistory.
-type AntigravitySessionHistoryOption func(*AntigravitySessionHistory)
+// agyConversationMapOption configures agyConversationMap.
+type agyConversationMapOption func(*agyConversationMap)
 
-// WithAntigravitySessionFS sets a custom filesystem for testing.
-func WithAntigravitySessionFS(fs afero.Fs) AntigravitySessionHistoryOption {
-	return func(h *AntigravitySessionHistory) { h.FS = fs }
+// withAgyConversationMapFS sets a custom filesystem for testing.
+func withAgyConversationMapFS(fs afero.Fs) agyConversationMapOption {
+	return func(m *agyConversationMap) { m.FS = fs }
 }
 
-// WithAntigravitySessionHomeDir sets a custom home directory for testing.
-func WithAntigravitySessionHomeDir(dir string) AntigravitySessionHistoryOption {
-	return func(h *AntigravitySessionHistory) { h.HomeDir = dir }
+// withAgyConversationMapHomeDir sets a custom home directory for testing.
+func withAgyConversationMapHomeDir(dir string) agyConversationMapOption {
+	return func(m *agyConversationMap) { m.HomeDir = dir }
 }
 
-// NewAntigravitySessionHistory creates a new Antigravity session history handler.
-func NewAntigravitySessionHistory(backend *Antigravity, opts ...AntigravitySessionHistoryOption) *AntigravitySessionHistory {
-	h := &AntigravitySessionHistory{
-		backend:      backend,
-		SessionStore: agent.NewSessionStore(),
-	}
+// newAgyConversationMap builds the conversation-map reader over the OS
+// filesystem (tests override via withAgyConversationMapFS/HomeDir).
+func newAgyConversationMap(opts ...agyConversationMapOption) agyConversationMap {
+	m := agyConversationMap{SessionStore: agent.NewSessionStore()}
 	for _, opt := range opts {
-		opt(h)
+		opt(&m)
 	}
-	return h
+	return m
 }
 
-// brainDir returns agy's conversation store root.
-func (h *AntigravitySessionHistory) brainDir() (string, error) {
-	homeDir, err := h.ResolveHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(homeDir, ".gemini", "antigravity-cli", "brain"), nil
-}
-
-// transcriptPathFor returns the transcript path inside one brain conversation
-// directory.
-func transcriptPathFor(brainDir, conversationID string) string {
-	return filepath.Join(brainDir, conversationID, ".system_generated", "logs", "transcript_full.jsonl")
-}
-
-// lastConversationsPath returns agy's workspace -> conversation-UUID map file
-// (VERIFIED shape: ~/.gemini/antigravity-cli/cache/last_conversations.json, a
-// flat JSON object keyed by the ABSOLUTE workspace path agy was invoked
-// against). Sibling cache/projects.json maps workspace -> PROJECT uuid — a
-// different id, not the conversation the transcript path needs.
-func (h *AntigravitySessionHistory) lastConversationsPath() (string, error) {
-	homeDir, err := h.ResolveHomeDir()
+// path returns agy's workspace -> conversation-UUID map file (VERIFIED
+// shape: ~/.gemini/antigravity-cli/cache/last_conversations.json, a flat
+// JSON object keyed by the ABSOLUTE workspace path agy was invoked against).
+// Sibling cache/projects.json maps workspace -> PROJECT uuid — a different
+// id, not the conversation id Chat needs.
+func (m agyConversationMap) path() (string, error) {
+	homeDir, err := m.ResolveHomeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(homeDir, ".gemini", "antigravity-cli", "cache", "last_conversations.json"), nil
 }
 
-// lastConversations reads agy's workspace -> conversation-UUID map. Returns a
-// nil map (not an error) when the file is simply absent — a fresh install, or
-// a workspace agy has never been invoked against, which callers treat as "no
-// entry" and fall back to the global mtime-newest heuristic. A file that
-// EXISTS but fails to parse is a real problem (agy changed the format, or the
-// file is corrupt) and is surfaced as an error rather than silently
-// discarded — proceeding on the mtime-newest fallback there could hand back
-// the WRONG workspace's transcript with no indication anything was amiss.
-func (h *AntigravitySessionHistory) lastConversations() (map[string]string, error) {
-	path, err := h.lastConversationsPath()
+// read reads agy's workspace -> conversation-UUID map. Returns a nil map
+// (not an error) when the file is simply absent — a fresh install, or a
+// workspace agy has never been invoked against, which resolveChatConversationID
+// treats as "no entry" (ok=false). A file that EXISTS but fails to parse is a
+// real problem (agy changed the format, or the file is corrupt) and is
+// surfaced as an error rather than silently discarded.
+func (m agyConversationMap) read() (map[string]string, error) {
+	path, err := m.path()
 	if err != nil {
 		return nil, err
 	}
-	data, err := afero.ReadFile(agent.GetFS(h.FS), path)
+	data, err := afero.ReadFile(agent.GetFS(m.FS), path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read last_conversations.json: %w", err)
 	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil {
+	var out map[string]string
+	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("failed to parse last_conversations.json: %w", err)
 	}
-	return m, nil
-}
-
-// GetCurrentSession returns workDir's current session transcript.
-//
-// G-session fix: agy's brain store is global (not itself keyed by
-// workspace), but agy separately maintains cache/last_conversations.json — an
-// exact workDir -> conversation-UUID index (VERIFIED shape, see
-// lastConversationsPath) — which this now prefers. Any OTHER agy run in a
-// different workspace can no longer win just by having a newer mtime, the bug
-// this fix closes. Only when workDir is empty or absent from the map does
-// GetCurrentSession fall back to the previous global mtime-newest behavior
-// (the same trade-off codex's global session store makes), so an unmapped
-// workspace still gets a best-effort answer instead of an error.
-func (h *AntigravitySessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
-	if workDir != "" {
-		m, err := h.lastConversations()
-		if err != nil {
-			return nil, err
-		}
-		if id, ok := m[filepath.Clean(workDir)]; ok {
-			return h.GetSession(workDir, id)
-		}
-	}
-	// Unmapped workDir: fall back to the shared ListSessions+MostRecentSession
-	// tail every SessionHistory uses (agent.GetCurrentSessionViaListSessions;
-	// claude's and kiro's GetCurrentSession are a bare call to it — antigravity
-	// only differs by the workspace-map lookup above it).
-	return agent.GetCurrentSessionViaListSessions(workDir, h.ListSessions, func(m agent.SessionMeta) (*agent.Session, error) {
-		return h.parseSessionFile(m.Path, m.ID)
-	})
-}
-
-// ListSessions returns available session metadata, most recent first.
-func (h *AntigravitySessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
-	brain, err := h.brainDir()
-	if err != nil {
-		return nil, err
-	}
-
-	fs := agent.GetFS(h.FS)
-	entries, err := afero.ReadDir(fs, brain)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to read brain directory: %w", err)
-	}
-
-	var sessions []agent.SessionMeta
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := transcriptPathFor(brain, entry.Name())
-		info, err := fs.Stat(path)
-		if err != nil {
-			continue // conversation without a transcript (e.g. still starting)
-		}
-		sessions = append(sessions, agent.SessionMeta{
-			ID:        entry.Name(),
-			StartTime: info.ModTime(), // Approximate
-			Path:      path,
-		})
-	}
-
-	agent.SortSessionsMostRecentFirst(sessions)
-	return sessions, nil
-}
-
-// GetSession returns a specific session by conversation ID.
-func (h *AntigravitySessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
-	brain, err := h.brainDir()
-	if err != nil {
-		return nil, err
-	}
-	path := transcriptPathFor(brain, sessionID)
-	if _, err := agent.GetFS(h.FS).Stat(path); err != nil {
-		return nil, fmt.Errorf("session %s not found", sessionID)
-	}
-	return h.parseSessionFile(path, sessionID)
-}
-
-// GetSessionByPath returns a session by its transcript file path.
-func (h *AntigravitySessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
-	// Recover the conversation ID from .../brain/<uuid>/.system_generated/...
-	id := ""
-	if idx := strings.Index(path, string(filepath.Separator)+".system_generated"+string(filepath.Separator)); idx > 0 {
-		id = filepath.Base(path[:idx])
-	}
-	return h.parseSessionFile(path, id)
-}
-
-// TranscriptPathFromHook returns the transcript path agy provides directly on
-// every hook's stdin (the transcriptPath field), enabling session-bind.
-func (h *AntigravitySessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
-	return transcriptPath
-}
-
-// antigravityTranscriptEntry is one transcript_full.jsonl record. Verified
-// shape (agy v1.0.7): {"step_index":N,"source":"USER_EXPLICIT|SYSTEM|MODEL",
-// "type":"USER_INPUT|CONVERSATION_HISTORY|PLANNER_RESPONSE|RUN_COMMAND|…",
-// "status":"DONE","created_at":RFC3339,"content":"…","tool_calls":[…]}.
-type antigravityTranscriptEntry struct {
-	StepIndex int    `json:"step_index"`
-	Source    string `json:"source"`
-	Type      string `json:"type"`
-	CreatedAt string `json:"created_at"`
-	Content   string `json:"content"`
-	ToolCalls []struct {
-		Name string          `json:"name"`
-		Args json.RawMessage `json:"args"`
-	} `json:"tool_calls"`
-}
-
-// parseSessionFile reads an agy transcript into the normalized Session
-// contract via the shared SessionStore loop (whose unbounded bufio.Reader
-// handles agy's multi-MiB write_to_file lines). Unrecognized records are
-// skipped so a session degrades to a partial transcript rather than an error.
-func (h *AntigravitySessionHistory) parseSessionFile(path, sessionID string) (*agent.Session, error) {
-	return h.ParseSessionFile(path, sessionID, func(line []byte) []agent.SessionEntry {
-		var te antigravityTranscriptEntry
-		if err := json.Unmarshal(line, &te); err != nil {
-			return nil // malformed line — skip
-		}
-		return convertTranscriptEntry(te)
-	})
-}
-
-// userRequestRe-equivalent trimming: agy wraps the user's prompt in
-// <USER_REQUEST>…</USER_REQUEST> with metadata blocks alongside; extract just
-// the request text when present.
-func extractUserRequest(content string) string {
-	const open, close = "<USER_REQUEST>", "</USER_REQUEST>"
-	start := strings.Index(content, open)
-	if start < 0 {
-		return strings.TrimSpace(content)
-	}
-	rest := content[start+len(open):]
-	end := strings.Index(rest, close)
-	if end < 0 {
-		return strings.TrimSpace(rest)
-	}
-	return strings.TrimSpace(rest[:end])
-}
-
-// convertTranscriptEntry maps one agy record to normalized SessionEntries
-// (one PLANNER_RESPONSE can carry both text and tool calls). Returns nil for
-// records with no conversational content.
-func convertTranscriptEntry(te antigravityTranscriptEntry) []agent.SessionEntry {
-	var ts time.Time
-	if te.CreatedAt != "" {
-		if t, err := time.Parse(time.RFC3339, te.CreatedAt); err == nil {
-			ts = t
-		}
-	}
-
-	var entries []agent.SessionEntry
-	switch te.Type {
-	case "USER_INPUT":
-		if text := extractUserRequest(te.Content); text != "" {
-			entries = append(entries, agent.SessionEntry{
-				Type: agent.EntryTypeUser, Content: text, Timestamp: ts,
-			})
-		}
-	case "PLANNER_RESPONSE":
-		if text := strings.TrimSpace(te.Content); text != "" {
-			entries = append(entries, agent.SessionEntry{
-				Type: agent.EntryTypeAssistant, Content: text, Timestamp: ts,
-			})
-		}
-		for _, tc := range te.ToolCalls {
-			entries = append(entries, agent.SessionEntry{
-				Type: agent.EntryTypeToolUse, ToolName: tc.Name, ToolInput: tc.Args, Timestamp: ts,
-			})
-		}
-	default:
-		// Tool execution records (RUN_COMMAND, …) carry the result.
-		if te.Source == "MODEL" && te.Type != "" && te.Content != "" {
-			entries = append(entries, agent.SessionEntry{
-				Type: agent.EntryTypeToolResult, ToolName: strings.ToLower(te.Type), ToolOutput: te.Content, Timestamp: ts,
-			})
-		}
-	}
-	return entries
+	return out, nil
 }

@@ -259,113 +259,37 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	return entry.HarpName
 }
 
-// watchHarpNDJSON runs runSessionWatch on the harp in json mode, waits until
-// wantEntries entry lines arrived, cancels the watch, and returns the entries.
-func watchHarpNDJSON(t *testing.T, harp string, wantEntries int) []watchEntry {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	out := &syncBuffer{}
-	cmd := &cobra.Command{}
-	cmd.SetContext(ctx)
-	cmd.SetOut(out)
-	cmd.Flags().String("format", "json", "")
-
-	done := make(chan error, 1)
-	go func() { done <- runSessionWatch(cmd, []string{harp}) }()
-
-	require.Eventually(t, func() bool {
-		return len(entryLines(out.String())) >= wantEntries
-	}, 5*time.Second, 5*time.Millisecond)
-
-	cancel()
-	require.NoError(t, <-done, "a cancelled watch must end cleanly")
-	return entryLines(out.String())
-}
-
-// TestRunSessionWatch_ByLocationAcrossBackends: a watch addressed by HARP
-// resolves the right transcript for each history-backed backend through the
-// by-location discovery path — an index entry with no hook-bound session,
-// whose transcript lives in the harp's persist/ store under the engine's own
-// nested layout — and streams its normalized entries hermetically (no live
-// engines, no plugins: the by-path tail parses in-process).
-func TestRunSessionWatch_ByLocationAcrossBackends(t *testing.T) {
-	cases := []struct {
-		backend string
-		rel     string // engine-native nesting inside persist/transcripts
-		fixture string
-		want    int
-		check   func(t *testing.T, entries []watchEntry)
-	}{
-		{
-			backend: "claude-code",
-			rel:     "-proj-enc/uuid-1.jsonl",
-			fixture: `{"type":"user","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"hi from claude"}}
-{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"interior probe"}]}}
-{"type":"assistant","timestamp":"2026-06-01T10:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"claude answer"}]}}`,
-			want: 3,
-			check: func(t *testing.T, entries []watchEntry) {
-				assert.Equal(t, "user", entries[0].Type)
-				assert.Equal(t, "hi from claude", entries[0].Content)
-				assert.False(t, entries[0].Sidechain)
-				assert.True(t, entries[1].Sidechain, "subagent-interior entry must arrive attributed")
-				assert.Equal(t, "interior probe", entries[1].Content)
-				assert.Equal(t, "claude answer", entries[2].Content)
-				assert.False(t, entries[2].Sidechain)
-			},
-		},
-		{
-			backend: "codex",
-			rel:     "rollout-2026-05-27.jsonl",
-			fixture: `{"type":"message","role":"user","content":"hi codex","timestamp":"2026-05-27T10:00:00Z"}
-{"type":"message","role":"assistant","content":"codex answer","timestamp":"2026-05-27T10:00:05Z"}`,
-			want: 2,
-			check: func(t *testing.T, entries []watchEntry) {
-				assert.Equal(t, "user", entries[0].Type)
-				assert.Equal(t, "hi codex", entries[0].Content)
-				assert.Equal(t, "assistant", entries[1].Type)
-				assert.Equal(t, "codex answer", entries[1].Content)
-			},
-		},
-		{
-			// Real kiro-cli jsonl shape (live-verified against 2.12.1): the
-			// speaker lives in the line's "kind", the text nested under a
-			// "data.content[].data" block — see internal/kiro/session.go.
-			backend: "kiro",
-			rel:     "sess-1.jsonl",
-			fixture: `{"version":"v1","kind":"Prompt","data":{"content":[{"kind":"text","data":"hi kiro"}]}}
-{"version":"v1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"kiro answer"}]}}`,
-			want: 2,
-			check: func(t *testing.T, entries []watchEntry) {
-				assert.Equal(t, "user", entries[0].Type)
-				assert.Equal(t, "hi kiro", entries[0].Content)
-				assert.Equal(t, "assistant", entries[1].Type)
-				assert.Equal(t, "kiro answer", entries[1].Content)
-			},
-		},
-		{
-			backend: "antigravity",
-			rel:     "uuid-1/.system_generated/logs/transcript_full.jsonl",
-			fixture: `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-10T20:05:07Z","content":"<USER_REQUEST>\nhi agy\n</USER_REQUEST>"}
-{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-06-10T20:05:10Z","content":"agy answer"}`,
-			want: 2,
-			check: func(t *testing.T, entries []watchEntry) {
-				assert.Equal(t, "user", entries[0].Type)
-				assert.Contains(t, entries[0].Content, "hi agy")
-				assert.Equal(t, "assistant", entries[1].Type)
-				assert.Equal(t, "agy answer", entries[1].Content)
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.backend, func(t *testing.T) {
+// TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: tough-cloud S5
+// deleted the by-location legacy-file readers for claude-code/codex/kiro/
+// antigravity outright (the user's DELETE decision, not a demoted importer —
+// see each package's backend.go doc). A watch addressed by HARP whose only
+// association is a located legacy-format transcript (no hook-bound session,
+// no captured canonical transcript.acp.jsonl — the containerized-child
+// by-location shape this test used to successfully parse for all four
+// engines pre-S5) must now fail CLEANLY through operations.HistoryForBackend
+// ("no session history") rather than hang, panic, or silently stream zero
+// entries — matching the task's explicit acceptance that a retired-scraper
+// backend with no canonical transcript "simply has no legacy reader" this
+// release (interactive-pty/by-location memory for these four is scoped out
+// to a later task, petty-green). opencode is deliberately absent — its
+// native reader was never file/path-addressable to begin with
+// (GetSessionByPath always errored, see opencode/capabilities.go), so it was
+// never covered by this by-location mechanism.
+func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
+	for _, backend := range []string{"claude-code", "codex", "kiro", "antigravity"} {
+		t.Run(backend, func(t *testing.T) {
 			home := testsupport.Isolate(t)
-			harp := seedUnboundHarp(t, home, tc.backend, tc.rel, tc.fixture)
-			entries := watchHarpNDJSON(t, harp, tc.want)
-			require.GreaterOrEqual(t, len(entries), tc.want)
-			tc.check(t, entries[:tc.want])
+			harp := seedUnboundHarp(t, home, backend, "t.jsonl", "{}\n")
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			cmd := &cobra.Command{}
+			cmd.SetContext(ctx)
+			cmd.SetOut(io.Discard)
+
+			err := runSessionWatch(cmd, []string{harp})
+			require.Error(t, err, "a retired scraper's by-location watch must fail loudly, not hang or stream nothing silently")
+			assert.Contains(t, err.Error(), "no session history")
 		})
 	}
 }

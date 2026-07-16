@@ -25,11 +25,18 @@ func (AntigravityConfig) BackendType() string { return "antigravity" }
 // Configure/Execute.
 type Antigravity struct {
 	agent.LaunchBackend
+	// convMap is agy's own workDir->conversation-UUID cache reader
+	// (capabilities.go). NOT a SessionHistory — that scraper was deleted in
+	// tough-cloud S5 (tall-grab: it mis-keyed the global brain store). convMap
+	// is a live continuation lookup chat.go's resolveChatConversationID
+	// depends on every oneshot turn, unrelated to historical transcript
+	// reads.
+	convMap agyConversationMap
 }
 
 // NewAntigravity creates a new Antigravity backend with default settings.
 func NewAntigravity() *Antigravity {
-	b := &Antigravity{}
+	b := &Antigravity{convMap: newAgyConversationMap()}
 	b.BaseBackend = agent.NewBaseBackend("antigravity", "1.0.0")
 	b.BinaryPath = "agy"
 	// agy routes delivery through the cell seam. RawContext: Setup materializes the
@@ -41,7 +48,7 @@ func NewAntigravity() *Antigravity {
 		agent.NewBaseLifecycle("antigravity"),
 		&AntigravityCommands{},
 		agent.NewBaseContextProvider(),
-		NewAntigravitySessionHistory(b),
+		nil, // SessionHistory: agy's transcript_full.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b

@@ -68,9 +68,9 @@ func (MCPRegistrar) Installed(config []byte, name string) (bool, error) {
 }
 
 // kiroHome resolves Kiro's global config home: $KIRO_HOME if set, else
-// ~/.kiro. Mirrors kiroSessionHistory.storeDir's resolution (session.go) —
-// KIRO_HOME/~/.kiro holds agents/settings/skills/steering as siblings of
-// sessions/ — and codex's codexHome() pattern (commandfiles.go).
+// ~/.kiro — KIRO_HOME/~/.kiro holds agents/settings/skills/steering as
+// siblings of the (formerly scraped, tough-cloud S5-deleted) sessions/ dir —
+// and codex's codexHome() pattern (commandfiles.go).
 func kiroHome() (string, error) {
 	if home := os.Getenv("KIRO_HOME"); home != "" {
 		return home, nil

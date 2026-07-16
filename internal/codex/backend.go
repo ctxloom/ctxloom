@@ -91,7 +91,7 @@ func NewCodex() *Codex {
 		agent.NewBaseLifecycle("codex"),
 		&CodexCommands{},
 		agent.NewBaseContextProvider(),
-		NewCodexSessionHistory(b),
+		nil, // SessionHistory: codex's rollout-*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},
 	)
 	b.SetExecuteEnv(b.cellCodexHomeEnv)

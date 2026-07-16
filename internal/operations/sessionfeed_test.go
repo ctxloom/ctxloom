@@ -17,18 +17,25 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 const feedWait = 5 * time.Second
 
-// claudeFixture is a minimal claude-code transcript (two main-thread turns)
-// for the by-location store paths.
-const claudeFixture = `{"type":"user","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"stored question"}}
-{"type":"assistant","timestamp":"2026-06-01T10:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"stored answer"}]}}`
-
-// seedFeedHarp mints an index entry; withTranscript drops the claude fixture
-// into the harp's persist/ store (the by-location association).
+// seedFeedHarp mints an index entry; withTranscript records a canonical
+// transcript.acp.jsonl for it (the store-tail's by-location association).
+//
+// tough-cloud S5: this used to drop a raw claude-code legacy-format fixture
+// into the harp's persist/transcripts store, exercising the by-location
+// LEGACY reader (operations.HistoryForBackend -> claude's SessionHistory).
+// That reader was deleted outright (the user's DELETE decision — claude's
+// scraper is gone, not demoted to an importer; see internal/claude/
+// claudecode.go's doc). These tests were never actually about claude's file
+// format — they exist to exercise the store-tail SOURCE-SELECTION mechanism
+// (live vs. store, auto fallback) — so they now seed the one by-location
+// association every backend still supports: ctxloom's own canonical capture.
 func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	t.Helper()
 	mgr, err := sessions.Open("")
@@ -36,10 +43,15 @@ func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
 	if withTranscript {
-		p := filepath.Join(home, ".ctxloom", "sessions", entry.HarpName,
-			"persist", "transcripts", "-proj-enc", "uuid-1.jsonl")
-		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-		require.NoError(t, os.WriteFile(p, []byte(claudeFixture), 0o644))
+		rec, err := transcript.NewRecorder(entry.HarpName, "claude-code")
+		require.NoError(t, err)
+		require.NoError(t, rec.Record(agent.ChatEvent{
+			Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "stored question"},
+		}))
+		require.NoError(t, rec.Record(agent.ChatEvent{
+			Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "stored answer"},
+		}))
+		require.NoError(t, rec.Close())
 	}
 	return entry.HarpName
 }

@@ -13,9 +13,17 @@
 // model kiro-cli lists (auto, claude-*, deepseek, minimax, glm, qwen), and an
 // unrecognized --model value is REJECTED before any chat runs ("Model '<x>'
 // does not exist"), proving the flag reaches real model resolution rather
-// than being accepted and ignored (cf. claude-code-acp's silent-ignore). NOT
-// proven: the session history reader — internal/kiro/session.go is CONFIRMED
-// BROKEN against real session files, see its own comment.
+// than being accepted and ignored (cf. claude-code-acp's silent-ignore).
+//
+// tough-cloud S5: the session-history reader (formerly internal/kiro/
+// session.go) was DELETED outright, not demoted to an importer — the user's
+// explicit decision. It was CONFIRMED BROKEN against real session files
+// (tall-grab: it read the v1 sessions/cli/*.jsonl store, but a real
+// `kiro-cli chat --no-interactive` oneshot — the mode ctxloom's own oneshot
+// Execute path uses — persists into a structurally different v2 SQLite blob
+// this reader never parsed). Kiro's structured Chat driver already streams
+// the real conversation through ACP, captured canonically instead (see
+// internal/transcript); Kiro's Backend.History() now returns nil.
 package kiro
 
 import (
@@ -69,7 +77,7 @@ func NewKiro() *Kiro {
 		agent.NewBaseLifecycle("kiro"),
 		&KiroCommands{},
 		agent.NewBaseContextProvider(),
-		newKiroSessionHistory(),
+		nil, // SessionHistory: kiro's sessions/cli/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b

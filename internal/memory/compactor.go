@@ -140,17 +140,35 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		}
 	} else {
 		reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
+		// GetPlans reads *.plan.md straight from the harp's ctxloom session dir
+		// (internal/lm/grpc/plans.go) — it never touches Backend.History(), so it
+		// works identically whether or not config.Backend still has a legacy
+		// scraper reader.
 		plans = reader.GetPlans
 		// Tough-cloud S4: prefer ctxloom's own captured transcript over the
 		// legacy per-engine scraper reader now behind it. A session-index open
 		// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
 		// degrades to the legacy-only reader rather than failing compaction
 		// outright; distillation must never block on the canonical layer.
-		if store, sErr := sessions.Open(""); sErr == nil {
-			source = pb.NewCanonicalFallbackSource(reader, config.WorkDir, store)
-		} else {
-			source = reader
+		//
+		// Tough-cloud S5: config.Backend may be a pb.RetiredScraperBackends entry
+		// (codex/kiro/antigravity/claude-code — scraper deleted outright). Such a
+		// backend's plugin-side History() is now nil, so `reader` used as the
+		// legacy leg would only ever error; pass nil instead so
+		// CanonicalFallbackSource serves canonical-only and never makes that
+		// doomed round trip.
+		var legacy pb.SessionSource
+		if !pb.RetiredScraperBackends[config.Backend] {
+			legacy = reader
 		}
+		if store, sErr := sessions.Open(""); sErr == nil {
+			source = pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store)
+		} else if legacy != nil {
+			source = legacy
+		}
+		// legacy == nil and the index failed to open: source stays nil, and
+		// loadSessionToCompact reports "no history" — the same degradation the
+		// BackendOverride h==nil branch above already documents.
 	}
 
 	return &Compactor{

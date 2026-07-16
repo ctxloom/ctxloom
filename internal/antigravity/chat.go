@@ -148,8 +148,8 @@ func (b *Antigravity) Chat(ctx context.Context, req agent.ChatRequest, in <-chan
 			}
 
 			// Resolve (or refresh) the conversation id via agy's own
-			// workspace->conversation map (capabilities.go's lastConversations,
-			// the G-session fix) — agy -p never prints it. Emitted as a
+			// workspace->conversation map (capabilities.go's agyConversationMap)
+			// — agy -p never prints it. Emitted as a
 			// follow-up Session event only when it changed, so a coordinator can
 			// journal SessionID for a later ResumeSessionID resume. R3
 			// (TOCTOU): this file is last-writer-wins under concurrent agy runs
@@ -290,21 +290,15 @@ func advisoryMCPStatus(servers []agent.ChatMCPServer) []agent.MCPStatus {
 }
 
 // resolveChatConversationID looks up workDir's current agy conversation id via
-// the SAME workspace->conversation map GetCurrentSession prefers
-// (capabilities.go's lastConversations, the G-session fix) — ties the S3 and
-// S4 fixes together rather than re-implementing the read. ok is false when
-// the backend's configured history isn't the concrete AntigravitySessionHistory
-// (a test double), workDir is empty, the cache file doesn't exist yet, or
-// workDir has no entry.
+// agy's own workspace->conversation map (capabilities.go's agyConversationMap
+// — a live continuation lookup, NOT the deleted transcript scraper; see
+// backend.go's convMap doc). ok is false when workDir is empty, the cache
+// file doesn't exist yet, or workDir has no entry.
 func (b *Antigravity) resolveChatConversationID(workDir string) (id string, ok bool) {
 	if workDir == "" {
 		return "", false
 	}
-	h, isConcrete := b.History().(*AntigravitySessionHistory)
-	if !isConcrete {
-		return "", false
-	}
-	m, err := h.lastConversations()
+	m, err := b.convMap.read()
 	if err != nil || m == nil {
 		return "", false
 	}

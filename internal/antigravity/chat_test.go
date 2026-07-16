@@ -90,14 +90,14 @@ func fakeAgyInvocations(t *testing.T, logPath string) [][]string {
 // subprocess, so an in-memory afero.Fs would never see its write).
 func newChatTestBackend(t *testing.T, binaryPath, home string) *Antigravity {
 	t.Helper()
-	b := &Antigravity{}
+	b := &Antigravity{convMap: newAgyConversationMap(withAgyConversationMapHomeDir(home))}
 	b.BaseBackend = agent.NewBaseBackend("antigravity", "1.0.0")
 	b.BinaryPath = binaryPath
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity"),
 		&AntigravityCommands{},
 		agent.NewBaseContextProvider(),
-		NewAntigravitySessionHistory(b, WithAntigravitySessionHomeDir(home)),
+		nil, // SessionHistory: deleted, tough-cloud S5 — resolveChatConversationID uses b.convMap instead
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b

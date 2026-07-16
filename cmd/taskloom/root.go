@@ -27,7 +27,10 @@ var rootCmd = &cobra.Command{
 The project is resolved from CTXLOOM_PROJECT_ID (exported by ctxloom run),
 --project, or the working directory's identity marker/registry, in that order
 of precedence. Agents reach the same store via the MCP tools served by
-` + "`taskloom mcp`" + ` (task_list, task_add, task_set_status, task_edit).`,
+` + "`taskloom mcp`" + ` (task_list, task_add, task_set_status, task_edit, task_tag).
+
+Tasks carry flat tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
+vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom list --tag-query`" + `.`,
 	SilenceUsage: true,
 }
 

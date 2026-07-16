@@ -238,3 +238,119 @@ func TestTagTaskRequiresAddOrRemove(t *testing.T) {
 		t.Fatal("expected an error calling TagTask with no add/remove tags")
 	}
 }
+
+// TestListTasksHiddenMatchCounts pins the anti-silent-truncation contract:
+// when the default active-only view suppresses tasks that matched the
+// requested filters, the result says how many and of what kind, so frontends
+// can tell the user instead of letting matches vanish without a trace.
+func TestListTasksHiddenMatchCounts(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	active, err := AddTaskWithTags(tc, "active work", "", "", []string{"release"})
+	if err != nil {
+		t.Fatalf("add active: %v", err)
+	}
+	done, err := AddTaskWithTags(tc, "finished work", "", "", []string{"release"})
+	if err != nil {
+		t.Fatalf("add done: %v", err)
+	}
+	if _, err := SetTaskStatus(tc, done.Task.HarpID, "Done", ""); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	deferred, err := AddTaskWithTags(tc, "parked work", "", "", []string{"release"})
+	if err != nil {
+		t.Fatalf("add deferred: %v", err)
+	}
+	if _, err := SetTaskStatus(tc, deferred.Task.HarpID, "Deferred", "the trigger"); err != nil {
+		t.Fatalf("defer: %v", err)
+	}
+
+	// Default view + tag query: one visible, one completed + one deferred hidden.
+	res, err := ListTasksWithTagQuery(tc, nil, "", "release", false, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(res.Tasks) != 1 || res.Tasks[0].HarpID != active.Task.HarpID {
+		t.Fatalf("visible = %+v, want only %s", res.Tasks, active.Task.HarpID)
+	}
+	if res.HiddenCompleted != 1 || res.HiddenDeferred != 1 {
+		t.Fatalf("hidden = completed:%d deferred:%d, want 1/1", res.HiddenCompleted, res.HiddenDeferred)
+	}
+
+	// includeDone disables the view filter: nothing hidden, all three shown.
+	res, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false)
+	if err != nil {
+		t.Fatalf("list --all: %v", err)
+	}
+	if len(res.Tasks) != 3 || res.HiddenCompleted != 0 || res.HiddenDeferred != 0 {
+		t.Fatalf("all view = %d tasks, hidden %d/%d; want 3, 0/0", len(res.Tasks), res.HiddenCompleted, res.HiddenDeferred)
+	}
+
+	// An explicit status filter is honored verbatim: no view filter, no counts.
+	res, err = ListTasksWithTagQuery(tc, []string{"Done"}, "", "release", false, false)
+	if err != nil {
+		t.Fatalf("list --status Done: %v", err)
+	}
+	if len(res.Tasks) != 1 || res.HiddenCompleted != 0 || res.HiddenDeferred != 0 {
+		t.Fatalf("status view = %d tasks, hidden %d/%d; want 1, 0/0", len(res.Tasks), res.HiddenCompleted, res.HiddenDeferred)
+	}
+}
+
+// TestListTagCounts pins the tag-enumeration surface: every tag in use is
+// reported once, sorted by name, with active (default-view-visible) and total
+// counts folding completed and Deferred tasks.
+func TestListTagCounts(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	// No tags yet: empty, not nil-error.
+	res, err := ListTagCounts(tc)
+	if err != nil {
+		t.Fatalf("list tags (empty store): %v", err)
+	}
+	if len(res.Tags) != 0 {
+		t.Fatalf("tags of empty store = %+v", res.Tags)
+	}
+	if res.ProjectID != "p" {
+		t.Fatalf("project id = %q, want the pinned id", res.ProjectID)
+	}
+
+	if _, err := AddTaskWithTags(tc, "active urgent+release", "", "", []string{"urgent", "release"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	done, err := AddTaskWithTags(tc, "finished release", "", "", []string{"release"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := SetTaskStatus(tc, done.Task.HarpID, "Done", ""); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	deferred, err := AddTaskWithTags(tc, "parked release", "", "", []string{"release"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := SetTaskStatus(tc, deferred.Task.HarpID, "Deferred", "the trigger"); err != nil {
+		t.Fatalf("defer: %v", err)
+	}
+	if _, err := AddTask(tc, "untagged", "", ""); err != nil {
+		t.Fatalf("add untagged: %v", err)
+	}
+
+	res, err = ListTagCounts(tc)
+	if err != nil {
+		t.Fatalf("list tags: %v", err)
+	}
+	want := []TagCount{
+		{Tag: "release", Active: 1, Total: 3},
+		{Tag: "urgent", Active: 1, Total: 1},
+	}
+	if len(res.Tags) != len(want) {
+		t.Fatalf("tags = %+v, want %+v", res.Tags, want)
+	}
+	for i, w := range want {
+		if res.Tags[i] != w {
+			t.Fatalf("tags[%d] = %+v, want %+v (full: %+v)", i, res.Tags[i], w, res.Tags)
+		}
+	}
+}

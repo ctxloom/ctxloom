@@ -139,7 +139,7 @@ Examples:
 			query = args[0]
 		}
 		// Use unified search with local-only scope for fragments
-		return runUnifiedSearch(cmd.Context(), query, fragmentSearchTags, "fragment", true, false)
+		return runUnifiedSearch(cmd, query, fragmentSearchTags, "fragment", true, false)
 	},
 }
 

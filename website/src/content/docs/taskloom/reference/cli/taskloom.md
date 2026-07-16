@@ -20,7 +20,10 @@ Read and modify the per-project task store. Tasks are keyed by harp IDs
 The project is resolved from CTXLOOM_PROJECT_ID (exported by ctxloom run),
 --project, or the working directory's identity marker/registry, in that order
 of precedence. Agents reach the same store via the MCP tools served by
-`taskloom mcp` (task_list, task_add, task_set_status, task_edit).
+`taskloom mcp` (task_list, task_add, task_set_status, task_edit, task_tag).
+
+Tasks carry flat tags: apply them with `taskloom tag` (or `add --tag`), see the
+vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-query`.
 
 ### Options
 
@@ -44,5 +47,6 @@ of precedence. Agents reach the same store via the MCP tools served by
 * [taskloom statuses](/taskloom/reference/cli/taskloom_statuses/)	 - List the task status taxonomy (name, order, terminal, requires_trigger)
 * [taskloom summary](/taskloom/reference/cli/taskloom_summary/)	 - Show per-status counts and active in-progress tasks
 * [taskloom tag](/taskloom/reference/cli/taskloom_tag/)	 - Add and/or remove flat tags on a task
+* [taskloom tags](/taskloom/reference/cli/taskloom_tags/)	 - List the tags in use, with per-tag task counts
 * [taskloom version](/taskloom/reference/cli/taskloom_version/)	 - Print the taskloom version
 

@@ -11,18 +11,60 @@ This page is generated from `taskloom list --help`.
 
 List tasks, optionally filtered by status, term, or tag query
 
+### Synopsis
+
+List tasks, filtered by status, text term, and/or tag query.
+
+By default only active tasks are shown: completed (Done/Archived) and
+Deferred tasks are hidden. Pass --all to include them, or name a status
+explicitly with --status (an explicit status filter is honored verbatim;
+see "taskloom statuses" for the taxonomy). When a --term or --tag-query
+filter also matches hidden tasks, a note on stderr says how many, so
+matches never vanish silently.
+
+Tag queries are postfix (RPN): a slash-separated path of tags and the
+operators and/or/not, where each operator applies to the expression(s)
+before it. A bare tag list with no operator is an implicit AND. Tags
+match case-sensitively; operators are case-insensitive. Discover the
+tags in use (with counts) via "taskloom tags".
+
 ```
 taskloom list [flags]
+```
+
+### Examples
+
+```
+  # active tasks tagged both urgent AND release
+  taskloom list --tag-query urgent/release/and
+
+  # the same — a bare tag list is an implicit AND
+  taskloom list --tag-query urgent/release
+
+  # tagged urgent OR release
+  taskloom list --tag-query urgent/release/or
+
+  # active tasks NOT tagged urgent
+  taskloom list --tag-query urgent/not
+
+  # (urgent AND release) OR blocked — postfix composes left to right
+  taskloom list --tag-query urgent/release/and/blocked/or
+
+  # include completed and Deferred matches too
+  taskloom list --tag-query release --all
+
+  # In Progress tasks mentioning "docs"
+  taskloom list --status "In Progress" --term docs
 ```
 
 ### Options
 
 ```
-      --all                include completed (Done/Archived) tasks, hidden by default
+      --all                include the tasks hidden by default: completed (Done/Archived) and Deferred
   -h, --help               help for list
       --json               emit JSON instead of a table (for jq)
       --status strings     filter by status (repeatable)
-      --tag-query string   filter by postfix tag query, e.g. "urgent/release/and" (bare tag lists are an implicit AND)
+      --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")
       --term string        filter by case-insensitive substring of task text
 ```
 

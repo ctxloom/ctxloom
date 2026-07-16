@@ -400,16 +400,29 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	sessionID := entry.SessionID
 	var preloaded *agent.Session
 	if sessionID == "" {
-		if entry.TranscriptPath == "" {
-			return fmt.Errorf("harp %q has no session_id bound and no transcript path recorded; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
-		}
-		hist, herr := operations.HistoryForBackend(backendName)
-		if herr != nil {
-			return fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
-		}
-		preloaded, err = hist.GetSessionByPath(entry.TranscriptPath)
-		if err != nil {
-			return fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, err)
+		switch {
+		case entry.TranscriptPath != "":
+			hist, herr := operations.HistoryForBackend(backendName)
+			if herr != nil {
+				return fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
+			}
+			preloaded, err = hist.GetSessionByPath(entry.TranscriptPath)
+			if err != nil {
+				return fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, err)
+			}
+		case entry.CanonicalTranscriptPath != "":
+			// Tough-cloud S6: a oneshot Execute run (agy -p, kiro
+			// --no-interactive, codex exec) never runs the SessionStart bind
+			// hook — there is no interactive engine session to bind to — so
+			// it has neither a bound session_id nor a legacy TranscriptPath,
+			// only its OWN captured transcript.acp.jsonl
+			// (transcript.RecordOneshot). compactor.Compact's source
+			// (pb.NewCanonicalFallbackSource, tough-cloud S4) already
+			// resolves a harp's canonical transcript directly by HarpName —
+			// nothing to preload here, just don't hard-error before ever
+			// calling it.
+		default:
+			return fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
 		}
 	}
 

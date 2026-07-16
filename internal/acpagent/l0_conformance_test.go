@@ -46,21 +46,24 @@ type l0Capture struct {
 // a listed frame ever stops failing, require.Error below fails LOUDLY
 // instead of silently starting to pass a check that no longer means what it
 // used to — that is the signal to shrink this map, not to delete the test.
-var l0KnownDivergences = map[string]string{
-	// SDK1 (2026-07-16) deliberately renamed ctxloom's own session-info
-	// extension off the spec's "session_info_update" wire name (L0 checklist
-	// B3 — the current spec independently stabilized session_info_update as
-	// unrelated session title/timestamp metadata; both shapes validated, so
-	// the collision was invisible to schema checks, which is exactly why H1
-	// flagged it as the headline actionable finding). Emitted now under
-	// "ctxloom_session_info" (see internal/acpagent/wire.go's
-	// ctxloomSessionInfoUpdate), a discriminator value the spec's CLOSED
-	// SessionUpdate oneOf has no branch for — so it fails, on purpose: this
-	// is ctxloom's own vendor extension, not a spec variant, and a
-	// spec-conforming peer is expected to warn-and-drop it exactly like any
-	// other unmodeled session/update (see mapping.go's default case).
-	"session/update (ctxloom_session_info)": "'/update/sessionUpdate' does not validate with",
-}
+// IR4 (G13) SHRUNK this map to empty: ctxloom's session-info extension
+// (model/permissionMode/contextWindow/mcpServers) used to be its own
+// bespoke top-level `sessionUpdate` variant ("ctxloom_session_info"), which
+// the spec's CLOSED SessionUpdate oneOf has no branch for — that was this
+// map's one entry. Grepping the current schema (schema-v1.19.0, 142 $defs)
+// confirmed no combined shape for that data exists there either (the real
+// "session_info_update" is title/updatedAt only; "usage_update" is
+// used/size/cost; no $defs entry models MCP status or permission posture at
+// all — see internal/acpagent/wire.go's ctxloomSessionInfoUpdate doc comment
+// for the full evidence). So the payload is KEPT as a vendor extension, but
+// it now rides inside a REAL, schema-valid "session_info_update" frame's
+// `_meta` object (the spec's own sanctioned extension channel) instead of
+// inventing a foreign discriminator — which is exactly why this map is now
+// empty rather than carrying a renamed entry: the frame passes validation
+// outright. This is the intended shrink-to-zero outcome the doc comment
+// above asks for; if any entry is ever added back, it needs the same rigor
+// as the one it replaced.
+var l0KnownDivergences = map[string]string{}
 
 func mustValidator(t *testing.T) *acptest.Validator {
 	t.Helper()
@@ -190,8 +193,8 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	resp, turnUpdates := c.waitResponse(id)
 	require.Nil(t, resp.Error)
 	capture("session/prompt response", "PromptResponse", resp.Result)
-	require.GreaterOrEqual(t, len(turnUpdates), 5, "ctxloom_session_info, thinking, assistant, tool_call, tool_call_update, plan, usage_update")
-	labels := []string{"ctxloom_session_info", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "plan", "usage_update"}
+	require.GreaterOrEqual(t, len(turnUpdates), 5, "session_info_update(_meta), thinking, assistant, tool_call, tool_call_update, plan, usage_update")
+	labels := []string{"session_info_update (ctxloom _meta)", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "plan", "usage_update"}
 	var planUpdateIdx = -1
 	for i, u := range turnUpdates {
 		label := "session/update"
@@ -204,6 +207,18 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 		capture(label, "SessionNotification", u.Params)
 	}
 	require.GreaterOrEqual(t, planUpdateIdx, 0, "the plan update must have been captured")
+	// IR4 headline proof: the session-info header rides a REAL, schema-valid
+	// "session_info_update" frame (not the old bespoke "ctxloom_session_info"
+	// top-level variant), with ctxloom's model/context/mcp payload recovered
+	// from that frame's `_meta` object rather than lost.
+	sessionInfoFrame := string(turnUpdates[0].Params)
+	assert.Contains(t, sessionInfoFrame, `"sessionUpdate":"session_info_update"`, "the real spec discriminator, not ctxloom's old bespoke name")
+	assert.NotContains(t, sessionInfoFrame, `"sessionUpdate":"ctxloom_session_info"`, "the old colliding-with-nothing-but-also-unmodeled top-level variant must be gone")
+	assert.Contains(t, sessionInfoFrame, `"_meta":{"ctxloom_session_info":`, "ctxloom's payload rides the spec's own _meta extension channel")
+	assert.Contains(t, sessionInfoFrame, `"model":"test-model"`)
+	assert.Contains(t, sessionInfoFrame, `"contextWindow":100000`)
+	assert.Contains(t, sessionInfoFrame, `"name":"tools","status":"connected"`)
+	t.Logf("session-info frame on the wire: %s", sessionInfoFrame)
 	// Headline proof: the actual wire bytes carry the structured plan
 	// entries, not a flattened checklist string.
 	planFrame := string(turnUpdates[planUpdateIdx].Params)

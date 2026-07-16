@@ -9,7 +9,10 @@ import (
 // This file carries the ACP wire shapes that are NOT plain pass-throughs of
 // the coder/acp-go-sdk (fork) wire types: the modes/models state riding session/new and
 // session/load's response, and ctxloom's own (renamed, non-colliding)
-// session-info extension. The initialize response's agentInfo and the
+// session-info extension — which IR4 additionally moved off its own bespoke
+// top-level `sessionUpdate` variant onto the spec's `_meta` extension channel
+// riding a REAL `session_info_update` frame (see ctxloomSessionInfoUpdate's
+// doc comment for the full why). The initialize response's agentInfo and the
 // session-modes surface (session/set_mode request/response,
 // current_mode_update) used to be hand-rolled here too, ahead of the pinned
 // SDK — SDK1 (2026-07-16) collapsed those onto the SDK's
@@ -90,31 +93,68 @@ func modelStateWire(l *SessionLLMs) *modelState {
 	return out
 }
 
-// ctxloomSessionInfoUpdate is ctxloom's own session/update carrying one-time
-// session metadata (model, permission mode, context window, MCP server
-// status) so a client can render a model/session header.
+// ctxloomSessionInfoUpdate is ctxloom's own one-time session metadata (model,
+// permission mode, context window, MCP server status) so a client can render
+// a model/session header.
 //
-// L0 checklist B3 (the headline finding): this used to be emitted under the
-// wire name "session_info_update". The CURRENT spec (schema-v1.19.0)
-// independently stabilized session_info_update as something COMPLETELY
-// DIFFERENT — session METADATA (title/updatedAt), not a model/context/mcp
-// header (see this file's SessionUpdate-variant notes below). Both shapes are
-// schema-valid objects, so no validator catches the collision — but a
-// spec-conforming peer would silently DROP this frame's real content trying
-// to read it as a title update, and ctxloom's own client half
-// (internal/acp/mapping.go) would misread a real peer's session_info_update
-// as an (empty) ctxloom header. DECISION: rename ctxloom's own extension off
-// the colliding name rather than keep the collision — this shape is used
-// ctxloom↔ctxloom only today (no other ACP agent emits it), so renaming
-// breaks no one; re-init/reconnect is the only "migration" a client needs.
-// See internal/acp/mapping.go's sessionInfoVariant for the client-side twin.
+// IR4 (G13 accounting shapes): does the CURRENT spec (schema-v1.19.0) now
+// settle a standard shape for this? Grepping the vendored schema
+// (internal/acptest/acp-schema-v1.json, 142 $defs) for every candidate:
+//   - SessionInfoUpdate (the real "session_info_update" variant, which the
+//     L0 checklist B3 rename got ctxloom off of) is title/updatedAt ONLY —
+//     confirmed unrelated to model/context/mcp, exactly as B3 found.
+//   - UsageUpdate (the real "usage_update" variant) is used/size/cost — H1
+//     already confirmed ctxloom's usage_update matches it exactly (see
+//     usageUpdateWire); "size" duly covers the context-window GAUGE, so that
+//     part of this header is already redundant with a foreign-renderable
+//     frame today.
+//   - SessionConfigOption's "model" category (CO1) is an ADVERTISEMENT of
+//     available models, not a live resolved-model-for-this-turn echo, and
+//     carries no permission-mode or MCP-status concept at all.
+//   - No $defs entry anywhere models MCP connection status or a session's
+//     live permission posture.
+//
+// VERDICT: NO — the spec does not settle Model+PermissionMode+MCPServers as
+// a unit. DECISION: keep this as a vendor extension (per L0 checklist B3,
+// still not the spec's own "session_info_update", which means something
+// unrelated), but stop inventing a foreign top-level `sessionUpdate` variant
+// name for it (that trips the spec's CLOSED SessionUpdate oneOf, which is a
+// stricter failure mode than "unknown field" for a strict validating peer:
+// nothing in the spec says a peer must tolerate an unrecognized
+// discriminator the way it's obligated to tolerate an unrecognized `_meta`
+// key). Instead this payload now rides as `_meta.ctxloom_session_info` on a
+// REAL, spec-valid `session_info_update` frame (api.SessionSessionInfoUpdate
+// — Title/UpdatedAt left unset since ctxloom has none to report) — see
+// sessionInfoUpdateWire. `_meta` is the spec's OWN sanctioned extension
+// channel ("Implementations MUST NOT make assumptions about values at these
+// keys" — i.e. a conformant peer is contractually obligated to ignore it
+// gracefully, not merely likely to). A foreign client now sees a harmless,
+// schema-valid no-op title update instead of a construct it may reject
+// outright; a ctxloom-aware client (internal/acp/mapping.go's
+// sessionInfoVariant, redefined to "session_info_update" to match) still
+// recovers the full header.
+//
+// NOT done this slice: riding the containing SessionNotification's OWN
+// top-level `_meta` (sibling of `update`, see schema $defs/SessionNotification)
+// was also considered — it would let this ride alongside content updates
+// instead of needing its own frame at all. That would require adding a Meta
+// field to sessionUpdateParams and threading it through the emission call
+// sites, both in internal/acpagent/server.go, which is owned by concurrently
+// running sibling slices this release (out of scope here — see this repo's
+// IR4 brief). Deferred, not rejected.
 type ctxloomSessionInfoUpdate struct {
-	SessionUpdate  string          `json:"sessionUpdate"` // always "ctxloom_session_info" — NOT the spec's session_info_update
 	Model          string          `json:"model,omitempty"`
 	PermissionMode string          `json:"permissionMode,omitempty"`
 	ContextWindow  int             `json:"contextWindow,omitempty"`
 	McpServers     []mcpStatusWire `json:"mcpServers,omitempty"`
 }
+
+// ctxloomSessionInfoMetaKey is the `_meta` object key this payload rides
+// under (see ctxloomSessionInfoUpdate's doc comment). Mirrored by hand in
+// internal/acp/mapping.go's sessionInfoMetaKey — the two packages don't share
+// an import for this literal, exactly as the discriminator string itself was
+// already mirrored by hand pre-IR4.
+const ctxloomSessionInfoMetaKey = "ctxloom_session_info"
 
 // mcpStatusWire is one MCP server's connection status in a
 // ctxloom_session_info update.

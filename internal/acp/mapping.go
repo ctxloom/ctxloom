@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -34,28 +34,26 @@ import (
 // concatenates), matching claude-code's per-block emission.
 
 // mapSessionUpdate normalizes one decoded session/update into 0..1 ChatEvents.
+// The fork's SessionUpdate union carries no discriminator field of its own
+// (unlike the hand-rolled union it replaces) — exactly one variant pointer is
+// non-nil after UnmarshalJSON, so the dispatch switches on THAT instead of a
+// Type tag.
 func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 	if u == nil {
 		return nil
 	}
-	switch u.Type {
-	case api.SessionUpdateTypeAgentMessageChunk:
-		if u.AgentMessageChunk == nil {
-			return nil
-		}
+	switch {
+	case u.AgentMessageChunk != nil:
 		return textEntry(agent.EntryTypeAssistant, u.AgentMessageChunk.Content)
-	case api.SessionUpdateTypeAgentThoughtChunk:
-		if u.AgentThoughtChunk == nil {
-			return nil
-		}
+	case u.AgentThoughtChunk != nil:
 		return textEntry(agent.EntryTypeThinking, u.AgentThoughtChunk.Content)
-	case api.SessionUpdateTypeToolCall:
+	case u.ToolCall != nil:
 		return mapToolCall(u.ToolCall)
-	case api.SessionUpdateTypeToolCallUpdate:
+	case u.ToolCallUpdate != nil:
 		return mapToolCallUpdate(u.ToolCallUpdate)
-	case api.SessionUpdateTypePlan:
+	case u.Plan != nil:
 		return mapPlan(u.Plan)
-	case api.SessionUpdateTypeUserMessageChunk:
+	case u.UserMessageChunk != nil:
 		return nil // don't duplicate the user's own message
 	default:
 		return nil // unknown/unmodeled variant (e.g. current_mode_update, usage_update
@@ -67,7 +65,7 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 // textEntry emits a single content entry of the given type, or nothing when the
 // content block carries no text (a content-less chunk is not surfaced — unlike a
 // thinking marker, an empty ACP text chunk has nothing to show).
-func textEntry(t agent.SessionEntryType, block *api.ContentBlock) []agent.ChatEvent {
+func textEntry(t agent.SessionEntryType, block api.ContentBlock) []agent.ChatEvent {
 	text := contentBlockText(block)
 	if text == "" {
 		return nil
@@ -83,8 +81,8 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 		return nil
 	}
 	name := tc.Title
-	if name == "" && tc.Kind != nil {
-		name = string(*tc.Kind)
+	if name == "" && tc.Kind != "" {
+		name = string(tc.Kind)
 	}
 	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
 		Type:      agent.EntryTypeToolUse,
@@ -97,7 +95,7 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 // something to report — completed/failed status, or produced content/output.
 // Bare in-progress ticks (no output) yield nothing: they're status noise, not a
 // result. A failed status marks the entry as an error.
-func mapToolCallUpdate(tu *api.SessionUpdateToolCallUpdate) []agent.ChatEvent {
+func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 	if tu == nil {
 		return nil
 	}
@@ -256,36 +254,34 @@ func pickOption(options []api.PermissionOption, allow bool) string {
 
 // contentBlockText extracts the plain text from a content block, ignoring
 // non-text variants (image/audio/resource) which have no text projection.
-func contentBlockText(block *api.ContentBlock) string {
-	if block == nil {
-		return ""
-	}
-	if block.Type == api.ContentBlockTypeText && block.Text != nil {
+// ContentBlock is a plain value (not a pointer) in the fork's generated
+// shape, and carries no discriminator field — it holds exactly one non-nil
+// variant pointer after decode.
+func contentBlockText(block api.ContentBlock) string {
+	if block.Text != nil {
 		return block.Text.Text
 	}
 	return ""
 }
 
 // toolContentText flattens a tool call's content collection (each element a
-// ToolCallContent union: content block / diff) into text. Content is now
-// PROPERLY TYPED as []api.ToolCallContent (the pinned SDK left this
-// []interface{}/interface{}, requiring a remarshal-through-JSON dance this
-// function used to do for every element — see the old module's
-// unions_generated.go and this file's prior revision).
+// ToolCallContent union: content block / diff / terminal reference) into
+// text. Content is now PROPERLY TYPED as []api.ToolCallContent (the pinned
+// SDK left this []interface{}/interface{}, requiring a remarshal-through-JSON
+// dance this function used to do for every element — see the old module's
+// unions_generated.go and this file's prior revision). The union carries no
+// discriminator field of its own — dispatch switches on which variant
+// pointer is non-nil.
 func toolContentText(content []api.ToolCallContent) string {
 	var parts []string
 	for _, tcc := range content {
-		switch tcc.Type {
-		case api.ToolCallContentTypeContent:
-			if tcc.Content != nil {
-				if t := contentBlockText(tcc.Content.Content); t != "" {
-					parts = append(parts, t)
-				}
+		switch {
+		case tcc.Content != nil:
+			if t := contentBlockText(tcc.Content.Content); t != "" {
+				parts = append(parts, t)
 			}
-		case api.ToolCallContentTypeDiff:
-			if tcc.Diff != nil {
-				parts = append(parts, tcc.Diff.Path+"\n"+tcc.Diff.NewText)
-			}
+		case tcc.Diff != nil:
+			parts = append(parts, tcc.Diff.Path+"\n"+tcc.Diff.NewText)
 		}
 	}
 	return strings.Join(parts, "\n")

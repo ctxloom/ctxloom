@@ -28,7 +28,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -122,29 +122,55 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error
 // after it is guaranteed to see the turn in flight — then runs it off the loop.
 func (s *Server) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
-	case api.MethodInitialize:
+	case api.AgentMethodInitialize:
 		reply(api.InitializeResponse{
-			ProtocolVersion:   api.ACPProtocolVersion,
+			ProtocolVersion:   api.ProtocolVersionNumber,
 			AgentCapabilities: api.AgentCapabilities{LoadSession: true},
 			AgentInfo:         &api.Implementation{Name: agentName, Version: agentVersion},
 		}, nil)
-	case api.MethodSessionNew:
+	case api.AgentMethodSessionNew:
 		go s.handleSessionNew(params, reply)
-	case api.MethodSessionLoad:
+	case api.AgentMethodSessionLoad:
 		go s.handleSessionLoad(params, reply)
-	case api.MethodSessionPrompt:
+	case api.AgentMethodSessionPrompt:
 		s.handlePrompt(params, reply)
-	case api.MethodSessionSetMode:
+	case api.AgentMethodSessionSetMode:
 		go s.handleSetMode(params, reply)
+	case api.AgentMethodSessionDelete:
+		s.handleSessionDelete(params, reply)
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "ctxloom acp: method not supported: " + method})
 	}
 }
 
+// handleSessionDelete answers session/delete honestly: ctxloom's agent role
+// does not support deleting a recorded session (there is no session store
+// this side can remove entries from — a ctxloom "session" is a live engine
+// conversation plus, when accounting is available, a recorded harp on disk
+// that other ctxloom surfaces (recover, session history) still expect to
+// find). session/delete graduated unstable→stable in schema-v1.19.0 onto the
+// CORE Agent interface, but it stays capability-gated
+// (sessionCapabilities.delete) — this agent never advertises that capability
+// (see HandleRequest's initialize response), so a spec-conforming client
+// should never call it. A client that calls it anyway (or one probing
+// blind) gets an honest METHOD-NOT-FOUND error naming exactly what is
+// unsupported, never a silent success that pretends to have deleted
+// something — that is this codebase's characteristic failure mode (exit 0,
+// zero effect, no error) and this handler exists specifically to not repeat
+// it.
+func (s *Server) handleSessionDelete(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	var req api.DeleteSessionRequest
+	_ = json.Unmarshal(params, &req) // best-effort: only used to name the session in the error
+	reply(nil, &jsonrpc.Error{
+		Code:    jsonrpc.CodeMethodNotFound,
+		Message: "ctxloom acp: session/delete not supported: ctxloom does not support deleting recorded sessions (session " + string(req.SessionId) + ")",
+	})
+}
+
 // HandleNotification handles session/cancel; anything else is dropped with a
 // warning (never crash the connection on an unmodeled frame).
 func (s *Server) HandleNotification(ctx context.Context, method string, params json.RawMessage) {
-	if method != api.MethodSessionCancel {
+	if method != api.AgentMethodSessionCancel {
 		clidiag.Warn("ctxloom", "acp agent: dropping notification %q", method)
 		return
 	}
@@ -192,7 +218,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 	}
 	for _, entry := range sess.engine.Replay {
 		for _, upd := range sess.replayEntry(entry) {
-			if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
+			if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
 				reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "replay: " + err.Error()})
 				return
 			}
@@ -398,7 +424,7 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 			OptionId string `json:"optionId"`
 		} `json:"outcome"`
 	}
-	if err := s.conn.Call(sess.ctx, api.MethodSessionRequestPermission, sess.permissionRequestWire(p), &resp); err != nil {
+	if err := s.conn.Call(sess.ctx, api.ClientMethodSessionRequestPermission, sess.permissionRequestWire(p), &resp); err != nil {
 		clidiag.Warn("ctxloom", "acp agent: permission request failed, dismissing: %v", err)
 	} else if resp.Outcome.Outcome == "selected" {
 		answer.OptionID = resp.Outcome.OptionId
@@ -433,9 +459,10 @@ func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "session modes not supported for this session"})
 		return
 	}
-	mode, ok := modeByID(modes, req.ModeId)
+	modeID := string(req.ModeId)
+	mode, ok := modeByID(modes, modeID)
 	if !ok {
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown mode " + req.ModeId})
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown mode " + modeID})
 		return
 	}
 
@@ -448,10 +475,10 @@ func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.
 	sess.mu.Lock()
 	sess.leadContext = contextText
 	sess.contextSent = false
-	sess.modes.Current = req.ModeId
+	sess.modes.Current = modeID
 	sess.mu.Unlock()
 
-	if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(req.ModeId)}); err != nil {
+	if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(modeID)}); err != nil {
 		clidiag.Warn("ctxloom", "acp agent: mode update notify failed: %v", err)
 	}
 	reply(api.SetSessionModeResponse{}, nil)
@@ -541,7 +568,7 @@ func (s *Server) emitUpdate(sess *session, update any) *jsonrpc.Error {
 	if update == nil {
 		return nil
 	}
-	if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: update}); err != nil {
+	if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: update}); err != nil {
 		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "notify: " + err.Error()}
 	}
 	return nil
@@ -562,20 +589,22 @@ func engineError(err error) *jsonrpc.Error {
 // embedded resource's text; `resource_link` blocks become a labeled reference
 // line — so "add context" content reaches the engine instead of vanishing.
 // Binary/opaque blocks (images, audio, blob resources) have no text projection
-// and are still dropped.
+// and are still dropped. ContentBlock carries no discriminator field in the
+// fork's generated shape — dispatch switches on which variant pointer is
+// non-nil.
 func promptText(blocks []api.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
-		switch b.Type {
-		case api.ContentBlockTypeText:
-			if b.Text != nil && b.Text.Text != "" {
+		switch {
+		case b.Text != nil:
+			if b.Text.Text != "" {
 				parts = append(parts, b.Text.Text)
 			}
-		case api.ContentBlockTypeResource:
+		case b.Resource != nil:
 			if s := embeddedResourceText(b.Resource); s != "" {
 				parts = append(parts, s)
 			}
-		case api.ContentBlockTypeResourceLink:
+		case b.ResourceLink != nil:
 			if s := resourceLinkText(b.ResourceLink); s != "" {
 				parts = append(parts, s)
 			}
@@ -586,32 +615,30 @@ func promptText(blocks []api.ContentBlock) string {
 
 // embeddedResourceText inlines an embedded `resource` block's text. ACP embeds
 // either a text resource ({uri,text,mimeType}) or a binary blob
-// ({uri,blob,mimeType}); only text is inlinable, so a blob (no "text") yields ""
-// (dropped). A uri, when present, prefixes the text as a label. The embedded
-// resource is loosely typed (interface{}), so it is read as a decoded object.
+// ({uri,blob,mimeType}); only text is inlinable, so a blob yields "" (dropped).
+// A uri, when present, prefixes the text as a label. The embedded resource is
+// now a PROPERLY TYPED union (TextResourceContents/BlobResourceContents) — the
+// pinned SDK left this interface{} (decoded as a raw map), requiring a type
+// assertion this function used to do.
 func embeddedResourceText(r *api.ContentBlockResource) string {
-	if r == nil || r.Resource == nil {
+	if r == nil || r.Resource.TextResourceContents == nil {
 		return ""
 	}
-	m, ok := (*r.Resource).(map[string]interface{})
-	if !ok {
+	t := r.Resource.TextResourceContents
+	if t.Text == "" {
 		return ""
 	}
-	text, _ := m["text"].(string)
-	if text == "" {
-		return ""
+	if t.Uri != "" {
+		return t.Uri + ":\n" + t.Text
 	}
-	if uri, _ := m["uri"].(string); uri != "" {
-		return uri + ":\n" + text
-	}
-	return text
+	return t.Text
 }
 
 // resourceLinkText renders a `resource_link` block as one labeled reference
 // line, so a referenced resource reaches the engine as a pointer it can act on
 // rather than being dropped. A link with no uri has nothing to reference.
 // Title/Description are now PROPERLY TYPED as *string (see
-// internal/acp/api/unions.go's ContentBlockResourceLink) rather than the
+// the pinned SDK's unions_generated.go ContentBlockResourceLink) rather than the
 // interface{} the pinned SDK's union file left them as.
 func resourceLinkText(l *api.ContentBlockResourceLink) string {
 	if l == nil || l.Uri == "" {
@@ -633,18 +660,24 @@ func resourceLinkText(l *api.ContentBlockResourceLink) string {
 }
 
 // mcpServersFromACP maps the client's session mcpServers onto the engine chat
-// request shape (env list → map).
+// request shape (env list → map). ctxloom only ever spawns stdio MCP servers
+// (HTTP/SSE/ACP-transport entries are out of scope and silently skipped, same
+// as before this SDK swap — the fork's McpServer is now a discriminated union
+// of http/sse/acp/stdio, unlike the flat stdio-only struct it replaces).
 func mcpServersFromACP(servers []api.McpServer) []agent.ChatMCPServer {
 	out := make([]agent.ChatMCPServer, 0, len(servers))
 	for _, m := range servers {
+		if m.Stdio == nil {
+			continue
+		}
 		var env map[string]string
-		if len(m.Env) > 0 {
-			env = make(map[string]string, len(m.Env))
-			for _, e := range m.Env {
+		if len(m.Stdio.Env) > 0 {
+			env = make(map[string]string, len(m.Stdio.Env))
+			for _, e := range m.Stdio.Env {
 				env[e.Name] = e.Value
 			}
 		}
-		out = append(out, agent.ChatMCPServer{Name: m.Name, Command: m.Command, Args: m.Args, Env: env})
+		out = append(out, agent.ChatMCPServer{Name: m.Stdio.Name, Command: m.Stdio.Command, Args: m.Stdio.Args, Env: env})
 	}
 	return out
 }

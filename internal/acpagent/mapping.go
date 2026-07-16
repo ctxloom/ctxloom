@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -40,23 +40,19 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 	switch e.Type {
 	case agent.EntryTypeAssistant:
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentMessageChunk,
 			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
 		}}
 	case agent.EntryTypeThinking:
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentThoughtChunk,
 			AgentThoughtChunk: &api.SessionUpdateAgentThoughtChunk{Content: textBlock(e.Content)},
 		}}
 	case agent.EntryTypeToolUse:
 		id := sess.pushToolCall(e.ToolName)
-		status := api.ToolCallStatusInProgress
 		return []api.SessionUpdate{{
-			Type: api.SessionUpdateTypeToolCall,
 			ToolCall: &api.SessionUpdateToolCall{
 				ToolCallId: id,
 				Title:      e.ToolName,
-				Status:     &status,
+				Status:     api.ToolCallStatusInProgress,
 				RawInput:   rawValue(e.ToolInput),
 			},
 		}}
@@ -67,8 +63,7 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 			status = api.ToolCallStatusFailed
 		}
 		return []api.SessionUpdate{{
-			Type: api.SessionUpdateTypeToolCallUpdate,
-			ToolCallUpdate: &api.SessionUpdateToolCallUpdate{
+			ToolCallUpdate: &api.SessionToolCallUpdate{
 				ToolCallId: id,
 				Status:     &status,
 				RawOutput:  e.ToolOutput,
@@ -79,7 +74,6 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 			return nil
 		}
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentMessageChunk,
 			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
 		}}
 	default:
@@ -98,7 +92,6 @@ func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 			return nil
 		}
 		return []api.SessionUpdate{{
-			Type:             api.SessionUpdateTypeUserMessageChunk,
 			UserMessageChunk: &api.SessionUpdateUserMessageChunk{Content: textBlock(e.Content)},
 		}}
 	}
@@ -218,16 +211,16 @@ func usageUpdateWire(c *agent.TurnMeta) any {
 	if c == nil || (c.InputTokens == 0 && c.ContextWindow == 0 && c.CostUSD == 0) {
 		return nil
 	}
-	u := api.UsageUpdate{Used: c.InputTokens, Size: c.ContextWindow}
+	u := api.SessionUsageUpdate{Used: c.InputTokens, Size: c.ContextWindow}
 	if c.CostUSD != 0 {
 		u.Cost = &api.Cost{Amount: c.CostUSD, Currency: "USD"}
 	}
-	return api.SessionUpdate{Type: api.SessionUpdateTypeUsageUpdate, UsageUpdate: &u}
+	return api.SessionUpdate{UsageUpdate: &u}
 }
 
 // textBlock wraps text in an ACP text content block.
-func textBlock(text string) *api.ContentBlock {
-	return &api.ContentBlock{Type: api.ContentBlockTypeText, Text: &api.ContentBlockText{Text: text}}
+func textBlock(text string) api.ContentBlock {
+	return api.TextBlock(text)
 }
 
 // rawValue decodes raw JSON to a plain value for the loosely-typed rawInput

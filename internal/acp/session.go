@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -82,7 +82,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// per-turn: the parked session/prompt then resolves with stopReason
 	// "cancelled" and the session stays usable).
 	notifyCancel := func() {
-		_ = conn.Notify(api.MethodSessionCancel, api.CancelNotification{SessionId: sessionID})
+		_ = conn.Notify(api.AgentMethodSessionCancel, api.CancelNotification{SessionId: sessionID})
 	}
 	// abort cancels the in-flight turn AND tears the transport down. Used on any
 	// ctx cancellation — between turns or mid-prompt.
@@ -202,7 +202,7 @@ func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
 // under.
 func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
 	initParams := api.InitializeRequest{
-		ProtocolVersion: api.ACPProtocolVersion,
+		ProtocolVersion: api.ProtocolVersionNumber,
 		ClientCapabilities: api.ClientCapabilities{
 			// The client owns the cwd, so it is the natural authority for file
 			// reads/writes the agent delegates. Terminal is declined (the unstable
@@ -212,7 +212,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},
 	}
 	var initResp api.InitializeResponse
-	if err := conn.Call(ctx, api.MethodInitialize, initParams, &initResp); err != nil {
+	if err := conn.Call(ctx, api.AgentMethodInitialize, initParams, &initResp); err != nil {
 		return "", err
 	}
 
@@ -239,7 +239,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// before this call returns; the caller's drain loop must already be
 		// running (Chat starts it before setup blocks here).
 		var loadResp json.RawMessage
-		if err := conn.Call(ctx, api.MethodSessionLoad, loadReq, &loadResp); err != nil {
+		if err := conn.Call(ctx, api.AgentMethodSessionLoad, loadReq, &loadResp); err != nil {
 			return "", fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, err)
 		}
 		return api.SessionId(req.ResumeSessionID), nil
@@ -247,14 +247,17 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 
 	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
-	if err := conn.Call(ctx, api.MethodSessionNew, newReq, &newResp); err != nil {
+	if err := conn.Call(ctx, api.AgentMethodSessionNew, newReq, &newResp); err != nil {
 		return "", err
 	}
 	return newResp.SessionId, nil
 }
 
 // mcpServersToACP maps the caller-supplied MCP servers onto the session/new
-// mcpServers wire shape. Slices stay non-nil (the spec wants arrays, and a nil
+// mcpServers wire shape. ctxloom only ever launches stdio MCP servers, so
+// every entry is the union's Stdio variant (the fork's McpServer is now a
+// discriminated union of http/sse/acp/stdio, unlike the flat stdio-only
+// struct it replaces). Slices stay non-nil (the spec wants arrays, and a nil
 // slice marshals as JSON null); env is sorted for a deterministic frame.
 func mcpServersToACP(servers []agent.ChatMCPServer) []api.McpServer {
 	out := make([]api.McpServer, 0, len(servers))
@@ -267,7 +270,7 @@ func mcpServersToACP(servers []agent.ChatMCPServer) []api.McpServer {
 		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 			env = append(env, api.EnvVariable{Name: k, Value: s.Env[k]})
 		}
-		out = append(out, api.McpServer{Name: s.Name, Command: s.Command, Args: args, Env: env})
+		out = append(out, api.McpServer{Stdio: &api.McpServerStdio{Name: s.Name, Command: s.Command, Args: args, Env: env}})
 	}
 	return out
 }
@@ -280,11 +283,9 @@ func mcpServersToACP(servers []agent.ChatMCPServer) []api.McpServer {
 func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, text string) (func(context.Context) (string, error), error) {
 	promptReq := api.PromptRequest{
 		SessionId: sessionID,
-		Prompt: []api.PromptRequestPromptElem{
-			api.ContentBlock{Type: api.ContentBlockTypeText, Text: &api.ContentBlockText{Text: text}},
-		},
+		Prompt:    []api.ContentBlock{api.TextBlock(text)},
 	}
-	await, err := conn.Go(api.MethodSessionPrompt, promptReq)
+	await, err := conn.Go(api.AgentMethodSessionPrompt, promptReq)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +342,7 @@ func (s *chatSession) send(ev agent.ChatEvent) bool {
 // HandleNotification maps a session/update onto chat entries and forwards them.
 // Unknown notifications and malformed updates are dropped (warn + continue).
 func (s *chatSession) HandleNotification(ctx context.Context, method string, params json.RawMessage) {
-	if method != api.MethodSessionUpdate {
+	if method != api.ClientMethodSessionUpdate {
 		return
 	}
 	raw, err := rawSessionUpdate(params)
@@ -446,11 +447,11 @@ func (s *chatSession) completeMeta(stop string, started time.Time, requestedMode
 // rather than crashing.
 func (s *chatSession) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
-	case api.MethodSessionRequestPermission:
+	case api.ClientMethodSessionRequestPermission:
 		s.handlePermission(params, reply)
-	case api.MethodFsReadTextFile:
+	case api.ClientMethodFsReadTextFile:
 		reply(s.handleFsRead(params))
-	case api.MethodFsWriteTextFile:
+	case api.ClientMethodFsWriteTextFile:
 		reply(s.handleFsWrite(params))
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: method not supported: " + method})

@@ -1,18 +1,18 @@
 package acpagent
 
 import (
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // This file carries the ACP wire shapes that are NOT plain pass-throughs of
-// internal/acp/api's types: the modes/models state riding session/new and
+// the coder/acp-go-sdk (fork) wire types: the modes/models state riding session/new and
 // session/load's response, and ctxloom's own (renamed, non-colliding)
 // session-info extension. The initialize response's agentInfo and the
 // session-modes surface (session/set_mode request/response,
 // current_mode_update) used to be hand-rolled here too, ahead of the pinned
-// SDK — SDK1 (2026-07-16) collapsed those onto internal/acp/api's
+// SDK — SDK1 (2026-07-16) collapsed those onto the SDK's
 // InitializeResponse/Implementation/SetSessionModeRequest/SessionModeState/
 // SessionMode/CurrentModeUpdate, which the current spec defines identically
 // to what H1 confirmed ctxloom already emitted.
@@ -45,7 +45,7 @@ type loadSessionResult struct {
 // advertisement+selection there rides the generic SessionConfigOption /
 // session/set_config_option mechanism (a `category: "model"` config option),
 // which this re-vendor deliberately does NOT implement (that is slice CO1;
-// see internal/acp/api/types.go's SessionConfigOption-adjacent note). DECISION:
+// see the SDK's SessionConfigOption type). DECISION:
 // KEEP this hand-rolled advertisement-only shape for now rather than migrate
 // it to SessionConfigOption in this slice — migrating is real behavior change
 // (a client would need to read a different response shape and call a
@@ -90,7 +90,7 @@ func modelStateWire(l *SessionLLMs) *modelState {
 // wire name "session_info_update". The CURRENT spec (schema-v1.19.0)
 // independently stabilized session_info_update as something COMPLETELY
 // DIFFERENT — session METADATA (title/updatedAt), not a model/context/mcp
-// header (see internal/acp/api's SessionUpdate doc comment). Both shapes are
+// header (see this file's SessionUpdate-variant notes below). Both shapes are
 // schema-valid objects, so no validator catches the collision — but a
 // spec-conforming peer would silently DROP this frame's real content trying
 // to read it as a title update, and ctxloom's own client half
@@ -121,9 +121,9 @@ func modeStateWire(m *SessionModes) *api.SessionModeState {
 	if m == nil || len(m.Available) == 0 {
 		return nil
 	}
-	out := &api.SessionModeState{CurrentModeId: m.Current}
+	out := &api.SessionModeState{CurrentModeId: api.SessionModeId(m.Current)}
 	for _, mode := range m.Available {
-		out.AvailableModes = append(out.AvailableModes, api.SessionMode{Id: mode.ID, Name: mode.Name})
+		out.AvailableModes = append(out.AvailableModes, api.SessionMode{Id: api.SessionModeId(mode.ID), Name: mode.Name})
 	}
 	return out
 }
@@ -134,8 +134,7 @@ func modeStateWire(m *SessionModes) *api.SessionModeState {
 // the real api.SessionUpdate union instead of an ad hoc anonymous struct.
 func currentModeUpdateWire(modeID string) any {
 	return api.SessionUpdate{
-		Type:              api.SessionUpdateTypeCurrentModeUpdate,
-		CurrentModeUpdate: &api.CurrentModeUpdate{CurrentModeId: modeID},
+		CurrentModeUpdate: &api.SessionCurrentModeUpdate{CurrentModeId: api.SessionModeId(modeID)},
 	}
 }
 

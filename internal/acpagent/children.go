@@ -1,7 +1,7 @@
 package acpagent
 
 import (
-	"github.com/ctxloom/ctxloom/internal/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -79,7 +79,6 @@ func childUpdateWire(u ChildUpdate) api.SessionUpdate {
 		prefix += "completed: "
 	}
 	return api.SessionUpdate{
-		Type:              api.SessionUpdateTypeAgentMessageChunk,
 		AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(prefix + u.Text)},
 	}
 }

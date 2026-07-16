@@ -651,7 +651,15 @@ func resolveCellPath(root, rel string) (string, error) {
 		return "", fmt.Errorf("resolve working directory: %w", err)
 	}
 	absClean := filepath.Clean(filepath.Join(absRoot, rel))
-	if absClean != absRoot && !strings.HasPrefix(absClean, absRoot+string(filepath.Separator)) {
+	// The prefix a path under root must start with. Appending the separator
+	// unconditionally breaks when root IS the filesystem root ("/"): absRoot
+	// is already "/", so absRoot+separator would be "//", a prefix no real
+	// path has — rejecting every relative path when the runner cwd is root.
+	rootPrefix := absRoot
+	if !strings.HasSuffix(rootPrefix, string(filepath.Separator)) {
+		rootPrefix += string(filepath.Separator)
+	}
+	if absClean != absRoot && !strings.HasPrefix(absClean, rootPrefix) {
 		return "", fmt.Errorf("path %q escapes the working directory", rel)
 	}
 	return absClean, nil

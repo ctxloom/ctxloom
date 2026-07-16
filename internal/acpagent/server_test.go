@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -746,4 +747,93 @@ func TestServe_SessionLoad_OpenError(t *testing.T) {
 	resp, _ := c.waitResponse(c.send("session/load", `{"sessionId":"no-such-harp","cwd":"/proj","mcpServers":[]}`))
 	require.NotNil(t, resp.Error)
 	assert.Contains(t, resp.Error.Message, "open ctxloom session")
+}
+
+// TestServe_Initialize_AdvertisesCapabilitiesTruthfully pins the EXACT set of
+// capabilities ctxloom's agent role claims today: loadSession + embedded
+// context, nothing else — a client reading this response must never be told
+// about image/audio/MCP-http/sse/session-management support ctxloom does not
+// actually have (see handleInitialize's doc comment for why each is true or
+// false today).
+func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
+	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	require.Nil(t, resp.Error)
+
+	var got api.InitializeResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+
+	assert.EqualValues(t, 1, got.ProtocolVersion)
+	assert.True(t, got.AgentCapabilities.LoadSession)
+	assert.True(t, got.AgentCapabilities.PromptCapabilities.EmbeddedContext)
+	assert.False(t, got.AgentCapabilities.PromptCapabilities.Image, "no multimodal intake yet (B2) — promptText drops image blocks silently, so claiming this would be exactly the lie C1 must not tell")
+	assert.False(t, got.AgentCapabilities.PromptCapabilities.Audio, "no multimodal intake yet (B2) — promptText drops audio blocks silently")
+	assert.False(t, got.AgentCapabilities.McpCapabilities.Acp)
+	assert.False(t, got.AgentCapabilities.McpCapabilities.Http, "no HTTP MCP passthrough yet (B3) — mcpServersFromACP only forwards stdio")
+	assert.False(t, got.AgentCapabilities.McpCapabilities.Sse, "no SSE MCP passthrough yet (B3)")
+	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Close)
+	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Delete)
+	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.List)
+	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Resume)
+	assert.Nil(t, got.AgentCapabilities.Auth.Logout, "ctxloom needs no authentication today")
+	assert.NotNil(t, got.AuthMethods, "authMethods must be a wire-present [] , never a bare omitted/null field")
+	assert.Empty(t, got.AuthMethods)
+
+	// Payload assertion: the raw wire bytes actually carry these claims, not
+	// just the decoded Go struct (a decoder default could otherwise mask a
+	// missing field).
+	raw := string(resp.Result)
+	assert.Contains(t, raw, `"embeddedContext":true`)
+	assert.Contains(t, raw, `"authMethods":[]`)
+}
+
+// TestServe_Initialize_VersionNegotiation: a client offering a NEWER protocol
+// version than ctxloom speaks gets min(clientVersion, ours) back, never the
+// client's own (unspeakable) version echoed as if agreed to.
+func TestServe_Initialize_VersionNegotiation(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
+	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":5,"clientCapabilities":{}}`))
+	require.Nil(t, resp.Error)
+	var got api.InitializeResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+	assert.EqualValues(t, 1, got.ProtocolVersion, "min(5, ours=1) == 1")
+}
+
+// TestServe_Initialize_RefusesBelowFloor: a client below the version floor
+// (there is no lower integer version this codebase speaks — see
+// protocolFloor) is refused with a clean, named error, never silently
+// answered as if a real negotiation happened.
+func TestServe_Initialize_RefusesBelowFloor(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
+	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":0,"clientCapabilities":{}}`))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, jsonrpc.CodeInvalidParams, resp.Error.Code)
+	assert.Contains(t, resp.Error.Message, "unsupported protocolVersion 0")
+	assert.Contains(t, resp.Error.Message, "ctxloom speaks ACP protocol version 1")
+}
+
+// TestServe_Authenticate_AnswersCleanly: authenticate is a CORE ACP method
+// and must exist and answer — never the generic method-not-found a truly
+// unrecognized method gets. ctxloom advertises authMethods: [], so any
+// methodId here is invalid; the error must say so specifically.
+func TestServe_Authenticate_AnswersCleanly(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	resp, _ := c.waitResponse(c.send("authenticate", `{"methodId":"nope"}`))
+	require.NotNil(t, resp.Error)
+	assert.NotEqual(t, jsonrpc.CodeMethodNotFound, resp.Error.Code, "must not be indistinguishable from a truly-unrecognized method")
+	assert.Contains(t, resp.Error.Message, "no auth methods are configured")
+	assert.Contains(t, resp.Error.Message, "nope")
+}
+
+// TestServe_Logout_AnswersCleanly: logout is likewise a CORE ACP method that
+// must exist and answer — ctxloom never advertises auth.logout and never
+// authenticates, so it answers honestly rather than method-not-found.
+func TestServe_Logout_AnswersCleanly(t *testing.T) {
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	resp, _ := c.waitResponse(c.send("logout", `{}`))
+	require.NotNil(t, resp.Error)
+	assert.NotEqual(t, jsonrpc.CodeMethodNotFound, resp.Error.Code, "must not be indistinguishable from a truly-unrecognized method")
+	assert.Contains(t, resp.Error.Message, "does not support authentication")
 }

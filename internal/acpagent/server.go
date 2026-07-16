@@ -23,6 +23,7 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -41,6 +42,16 @@ const (
 	agentName    = "ctxloom"
 	agentVersion = "1.0.0"
 )
+
+// protocolFloor is the LOWEST ACP protocol version this agent will negotiate.
+// The spec renumbered its versioning scheme from fractional (0.14.0) to
+// integer (v1.0.0) on 2026-06-24; schema-v1.19.0 (what api.ProtocolVersionNumber
+// pins) is entirely inside the integer v1.x scheme, and there is no lower
+// integer version whose wire shapes this codebase understands — floor and
+// ceiling coincide today, both api.ProtocolVersionNumber (1). A client below
+// this floor is refused (see handleInitialize), not silently answered as if
+// compatible.
+const protocolFloor = api.ProtocolVersion(api.ProtocolVersionNumber)
 
 // EngineChat, OpenRequest, and the session-modes/LLM-advertisement shapes
 // they carry are frontend-neutral (ISO0): they live in internal/operations
@@ -123,11 +134,11 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error
 func (s *Server) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
 	case api.AgentMethodInitialize:
-		reply(api.InitializeResponse{
-			ProtocolVersion:   api.ProtocolVersionNumber,
-			AgentCapabilities: api.AgentCapabilities{LoadSession: true},
-			AgentInfo:         &api.Implementation{Name: agentName, Version: agentVersion},
-		}, nil)
+		s.handleInitialize(params, reply)
+	case api.AgentMethodAuthenticate:
+		s.handleAuthenticate(params, reply)
+	case api.AgentMethodLogout:
+		s.handleLogout(params, reply)
 	case api.AgentMethodSessionNew:
 		go s.handleSessionNew(params, reply)
 	case api.AgentMethodSessionLoad:
@@ -141,6 +152,108 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "ctxloom acp: method not supported: " + method})
 	}
+}
+
+// handleInitialize answers the ACP handshake: negotiates a protocol version
+// (min(clientVersion, ours); a client below protocolFloor is refused rather
+// than silently answered as if compatible — version mismatches must be LOUD,
+// never undetected) and advertises ctxloom's agent capabilities TRUTHFULLY
+// for what THIS build actually does today, never a later slice's work:
+//
+//   - loadSession: true — session/load is implemented (handleSessionLoad).
+//   - promptCapabilities.embeddedContext: true — promptText already inlines
+//     an embedded `resource` block's text (embeddedResourceText). image/audio:
+//     left false — those ContentBlock variants have no text projection in
+//     promptText today and are silently dropped; claiming true would be
+//     exactly the lie this codebase must not tell (an advertised capability
+//     that quietly discards the content it claims to accept). Multimodal
+//     intake is a later slice (B2), not this one.
+//   - mcpCapabilities: left at its zero value (acp/http/sse all false) —
+//     ctxloom only ever forwards STDIO MCP servers (mcpServersFromACP; an
+//     http/sse/acp entry is silently skipped there, unchanged by this
+//     slice). McpCapabilities has no "stdio" flag because stdio is the
+//     protocol's unconditional baseline, so leaving the rest false is the
+//     complete and honest claim — HTTP/SSE passthrough is a later slice (B3).
+//   - sessionCapabilities: left at its zero value — no session/close,
+//     /delete, /fork, /list, /resume, or /additionalDirectories exist yet
+//     (handleSessionDelete already answers a probe of the one of these a
+//     client might try honestly).
+//   - authMethods: [] — ctxloom needs no authentication today. authenticate
+//     and logout still EXIST as recognized methods and answer per spec (see
+//     handleAuthenticate/handleLogout) rather than falling through to the
+//     generic method-not-found default case below.
+//
+// This is also the one true SUPERSET a multi-engine hub can honestly
+// advertise at initialize time: the editor picks WHICH engine to actually
+// run per-session at session/new, long after this handshake completes, so
+// no per-engine capability can be promised here. Where a session's engine
+// cannot honor something this response implies (e.g. it can't load a
+// session, or its own image/audio/MCP support differs), degradation must
+// happen per-session and LOUDLY — reject or flatten the unsupported part
+// rather than silently dropping it — never invisibly here.
+func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	var req api.InitializeRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+		return
+	}
+	if req.ProtocolVersion < protocolFloor {
+		reply(nil, &jsonrpc.Error{
+			Code: jsonrpc.CodeInvalidParams,
+			Message: fmt.Sprintf(
+				"ctxloom acp: unsupported protocolVersion %d: ctxloom speaks ACP protocol version %d (schema-v1.19.0) and nothing earlier — refusing the connection rather than negotiating a version it cannot correctly speak",
+				req.ProtocolVersion, api.ProtocolVersionNumber,
+			),
+		})
+		return
+	}
+	negotiated := req.ProtocolVersion
+	if negotiated > api.ProtocolVersionNumber {
+		// min(clientVersion, ours): we cannot speak a version newer than the
+		// one this SDK vendors.
+		negotiated = api.ProtocolVersionNumber
+	}
+	reply(api.InitializeResponse{
+		ProtocolVersion: negotiated,
+		AgentCapabilities: api.AgentCapabilities{
+			LoadSession: true,
+			PromptCapabilities: api.PromptCapabilities{
+				EmbeddedContext: true,
+			},
+		},
+		AuthMethods: []api.AuthMethod{},
+		AgentInfo:   &api.Implementation{Name: agentName, Version: agentVersion},
+	}, nil)
+}
+
+// handleAuthenticate answers the authenticate method honestly. authenticate
+// is a CORE method on the ACP Agent interface (unlike capability-gated
+// methods such as session/delete) — it must exist and answer, never
+// method-not-found. ctxloom advertises authMethods: [] at initialize (see
+// handleInitialize), so ANY methodId a conforming client could have gotten
+// from OUR own initialize response does not exist; a request naming one is
+// therefore invalid, and is answered as such — a clean, specific error, not
+// the generic "method not supported" a truly-unrecognized method would get.
+func (s *Server) handleAuthenticate(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	var req api.AuthenticateRequest
+	_ = json.Unmarshal(params, &req) // best-effort: only used to name the method in the error
+	reply(nil, &jsonrpc.Error{
+		Code:    jsonrpc.CodeInvalidParams,
+		Message: "ctxloom acp: authenticate: no auth methods are configured — ctxloom requires no authentication (initialize advertises authMethods: []); method " + string(req.MethodId) + " is not available",
+	})
+}
+
+// handleLogout answers the logout method honestly. Like authenticate, logout
+// is a CORE Agent method and must exist and answer, never method-not-found.
+// ctxloom never advertises the auth.logout capability (see handleInitialize)
+// and never authenticates a session in the first place, so there is no
+// authenticated state for this call to end — answered as a clean, specific
+// error distinct from authenticate's, so a client can tell the two apart.
+func (s *Server) handleLogout(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	reply(nil, &jsonrpc.Error{
+		Code:    jsonrpc.CodeInvalidParams,
+		Message: "ctxloom acp: logout: ctxloom does not support authentication (agentCapabilities.auth.logout is not advertised); there is no authenticated session to end",
+	})
 }
 
 // handleSessionDelete answers session/delete honestly: ctxloom's agent role

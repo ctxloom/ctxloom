@@ -52,10 +52,23 @@ import (
 //	                                           which never carried structure to
 //	                                           begin with and isn't touched by
 //	                                           this slice)
-//	ChatSessionInfo     → session_info_update's `_meta` (model/mcp header,
-//	                      IR4-relocated off its own bespoke variant name onto
-//	                      the spec's real session_info_update frame's `_meta`
-//	                      extension point; see sessionInfoUpdateWire)
+//	ChatSessionInfo     → split three ways (G13 decompose — see
+//	                      sessionInfoUpdateWire and ctxloomSessionInfoUpdate's
+//	                      doc comment for the full evidence):
+//	                        Model         → already carried by CO1's
+//	                                        SessionConfigOption ("model"
+//	                                        category, session/new|load's
+//	                                        configOptions) — NOT re-emitted
+//	                                        here at all.
+//	                        ContextWindow → already carried by usage_update's
+//	                                        `size` (see usageUpdateWire) — NOT
+//	                                        re-emitted here at all.
+//	                        PermissionMode/MCPServers → session_info_update's
+//	                                        `_meta` (genuinely no spec home;
+//	                                        IR4-relocated off ctxloom's own
+//	                                        bespoke variant name onto the
+//	                                        spec's real session_info_update
+//	                                        frame's `_meta` extension point)
 //	TurnMeta (Complete) → usage_update (context gauge + cost; see usageUpdateWire) then ends the turn
 //
 // IR3: when ev.Entry is nil but ev.Raw is set (a passthrough-only event, e.g.
@@ -374,22 +387,23 @@ func (sess *session) popToolCall(name string, want api.ToolCallId) api.ToolCallI
 }
 
 // sessionInfoUpdateWire projects one ChatSessionInfo (the engine's one-time
-// start-of-chat metadata) onto ctxloom's own model/mcp header, carried inside
-// a REAL session_info_update frame's `_meta` object (IR4 — see
-// ctxloomSessionInfoUpdate's doc comment in wire.go for the full why: the
-// spec's own session_info_update means title/updatedAt, which ctxloom has
-// none of here, so those fields stay unset; only `_meta` carries content).
-// Returns nil when there is nothing worth surfacing (so an empty
-// ChatSessionInfo emits no notification).
+// start-of-chat metadata) onto the wire. G13 (decomposing IR4): only the two
+// facts with genuinely no spec home (PermissionMode, MCPServers) ride here,
+// inside a REAL session_info_update frame's `_meta` object — see
+// ctxloomSessionInfoUpdate's doc comment in wire.go for the full per-fact
+// evidence. info.Model and info.ContextWindow are deliberately NOT read here
+// at all: Model already rides CO1's SessionConfigOption ("model" category),
+// and ContextWindow already rides usage_update's `size` (usageUpdateWire) —
+// re-emitting them here would be pure duplication of a channel that already
+// fires. Returns nil when there is nothing worth surfacing (so a
+// ChatSessionInfo with no permission mode or MCP status emits no
+// notification, even if it carries a Model/ContextWindow that rides
+// elsewhere).
 func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
-	if info == nil || (info.Model == "" && info.PermissionMode == "" && info.ContextWindow == 0 && len(info.MCPServers) == 0) {
+	if info == nil || (info.PermissionMode == "" && len(info.MCPServers) == 0) {
 		return nil
 	}
-	u := ctxloomSessionInfoUpdate{
-		Model:          info.Model,
-		PermissionMode: info.PermissionMode,
-		ContextWindow:  info.ContextWindow,
-	}
+	u := ctxloomSessionInfoUpdate{PermissionMode: info.PermissionMode}
 	for _, m := range info.MCPServers {
 		u.McpServers = append(u.McpServers, mcpStatusWire{Name: m.Name, Status: m.Status})
 	}

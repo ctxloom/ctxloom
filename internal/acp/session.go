@@ -704,14 +704,15 @@ type chatSession struct {
 	pendingTerm map[string]chan agent.TerminalResponse
 	termNoInput bool // input closed: no terminal answers can arrive anymore
 
-	// turn accounting fed by the real usage_update variant and ctxloom's own
-	// (renamed, non-colliding) session-info extension — see consumeMetaUpdate.
-	// Guarded by metaMu: updates arrive on the read loop while completeMeta
-	// runs on the Chat loop.
-	metaMu     sync.Mutex
-	usage      *api.UsageUpdate // latest usage report (cumulative; freshest wins)
-	infoModel  string           // model ctxloom's own agent named in its session-info extension
-	infoWindow int              // context window from ctxloom's own session-info extension
+	// turn accounting fed by the real usage_update variant — see
+	// consumeMetaUpdate. Guarded by metaMu: updates arrive on the read loop
+	// while completeMeta runs on the Chat loop. G13: this used to also carry
+	// infoModel/infoWindow extracted from ctxloom's own session-info `_meta`
+	// extension; that extraction is gone (see consumeMetaUpdate's doc
+	// comment) now that Model/ContextWindow ride CO1's SessionConfigOption
+	// and usage_update's `size` respectively instead.
+	metaMu sync.Mutex
+	usage  *api.UsageUpdate // latest usage report (cumulative; freshest wins)
 
 	// fsUpstream, when non-nil, is this conversation's local fs reach-back
 	// link to the connected editor (B5, gap G14) — handleFsRead/
@@ -765,9 +766,10 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 		warnf("acp: dropping malformed session/update: %v", err)
 		return
 	}
-	// The real usage_update variant, and ctxloom's own renamed session-info
-	// extension (see mapping.go's sessionInfoVariant), fold into the turn meta
-	// instead of running through mapSessionUpdate as an entry.
+	// The real usage_update variant folds into the turn meta instead of
+	// running through mapSessionUpdate as an entry (G13: session_info_update
+	// no longer needs a special case here — see consumeMetaUpdate's doc
+	// comment).
 	if s.consumeMetaUpdate(raw) {
 		return
 	}
@@ -783,64 +785,62 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 	}
 }
 
-// consumeMetaUpdate absorbs two session/update variants into the turn
-// accounting rather than mapping them to an entry: the real spec usage_update
-// (now decoded straight into api.UsageUpdate), and ctxloom's own session-info
-// extension — emitted under a ctxloom-scoped name, NOT the spec's
-// session_info_update, which means something unrelated (session
-// title/timestamp metadata) as of schema-v1.19.0; see the emitter's doc
-// comment (internal/acpagent/wire.go) and mapping.go's sessionInfoVariant.
-// Returns true when the update was one of those (there is no entry to emit);
-// a malformed frame of a recognized variant is warned and dropped, never
-// crashing the stream.
+// consumeMetaUpdate absorbs the real spec usage_update variant into the turn
+// accounting rather than mapping it to an entry (now decoded straight into
+// api.UsageUpdate — H1 confirmed it already matches the spec exactly).
+// Returns true when the update was usage_update (there is no entry to emit);
+// a malformed usage_update is warned and dropped, never crashing the stream.
+//
+// G13 (decomposing IR4): this used to ALSO special-case ctxloom's own
+// "session_info_update"-discriminated frame, extracting Model/ContextWindow
+// from its `_meta.ctxloom_session_info` object into s.infoModel/s.infoWindow.
+// That case is REMOVED, not left as a no-op guard: the emitter
+// (internal/acpagent/mapping.go's sessionInfoUpdateWire) no longer puts
+// Model or ContextWindow in `_meta` at all, so there is nothing left to
+// extract — Model rides CO1's SessionConfigOption ("model" category) and
+// ContextWindow rides usage_update's own `size` field below, both
+// unconditionally. A session_info_update frame — ctxloom's own
+// PermissionMode/MCPServers residue, or a genuinely foreign engine's real
+// title/timestamp update — now simply falls through to the strict
+// api.SessionUpdate decode in HandleNotification and lands in
+// mapSessionUpdate's default case (dropped as an unmodeled variant): the
+// exact same harmless outcome an unrecognized session_info_update already
+// had before G13 (see TestChat_ForeignSessionInfoUpdateIgnored). This does
+// NOT propagate PermissionMode/MCPServers into agent.ChatSessionInfo for a
+// nested ctxloom-driving-ctxloom hop — that was ALREADY unread before this
+// slice ("the frame also carries permissionMode/mcpServers, not yet read
+// here"), and stays that way; out of scope for G13's foreign-client-render
+// mission (see the G13 report's deferred-work list).
 func (s *chatSession) consumeMetaUpdate(raw json.RawMessage) bool {
-	switch updateDiscriminator(raw) {
-	case usageUpdateVariant:
-		var u api.UsageUpdate
-		if err := json.Unmarshal(raw, &u); err != nil {
-			warnf("acp: dropping malformed usage_update: %v", err)
-			return true
-		}
-		s.metaMu.Lock()
-		s.usage = &u
-		s.metaMu.Unlock()
-		return true
-	case sessionInfoVariant:
-		var info sessionInfoWire
-		if err := json.Unmarshal(raw, &info); err != nil {
-			warnf("acp: dropping malformed session_info_update: %v", err)
-			return true
-		}
-		s.metaMu.Lock()
-		if info.Model != "" {
-			s.infoModel = info.Model
-		}
-		if info.ContextWindow > 0 {
-			s.infoWindow = info.ContextWindow
-		}
-		s.metaMu.Unlock()
+	if updateDiscriminator(raw) != usageUpdateVariant {
+		return false
+	}
+	var u api.UsageUpdate
+	if err := json.Unmarshal(raw, &u); err != nil {
+		warnf("acp: dropping malformed usage_update: %v", err)
 		return true
 	}
-	return false
+	s.metaMu.Lock()
+	s.usage = &u
+	s.metaMu.Unlock()
+	return true
 }
 
 // completeMeta assembles one turn's completion accounting: the wire-sourced
-// stop reason; the latest usage/session-info the agent reported (both are
-// cumulative session state, so the freshest value stands across turns); the
-// requested model unless the agent named its own; and the self-measured
+// stop reason; the requested model (G13: no longer overridable by ctxloom's
+// own session-info echo — see consumeMetaUpdate's doc comment; the model a
+// foreign client renders as "current" comes from CO1's SessionConfigOption
+// instead); the latest usage the agent reported (cumulative session state,
+// so the freshest value stands across turns); and the self-measured
 // wall-clock duration (the protocol carries no timing — see mapping.go on
 // what ACP v1 does and does not deliver).
 func (s *chatSession) completeMeta(stop string, started time.Time, requestedModel string) *agent.TurnMeta {
 	s.metaMu.Lock()
 	defer s.metaMu.Unlock()
 	m := &agent.TurnMeta{
-		StopReason:    stop,
-		Model:         requestedModel,
-		ContextWindow: s.infoWindow,
-		DurationMs:    int(s.clock().Sub(started).Milliseconds()),
-	}
-	if s.infoModel != "" {
-		m.Model = s.infoModel
+		StopReason: stop,
+		Model:      requestedModel,
+		DurationMs: int(s.clock().Sub(started).Milliseconds()),
 	}
 	if u := s.usage; u != nil {
 		m.InputTokens = u.Used

@@ -254,77 +254,36 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 // usage_update is a real spec SessionUpdate variant (api.UsageUpdate) as of
 // schema-v1.19.0 — H1 confirmed ctxloom's prior hand-rolled shape already
 // matched it exactly, so it is now decoded straight into the real type
-// instead of a bespoke usageUpdateWire.
-//
-// ctxloom's own session-info extension (model/permissionMode/contextWindow/
-// mcpServers) is NOT itself a spec variant — no $defs entry in the vendored
-// schema (internal/acptest/acp-schema-v1.json) models that combination; see
-// internal/acpagent/wire.go's ctxloomSessionInfoUpdate doc comment for the
-// full grep evidence and the IR4 decision record. As of IR4 it no longer
-// invents its own top-level `sessionUpdate` name (which collided with the
-// spec's OWN, unrelated "session_info_update" — session title/timestamp
-// metadata — pre-rename, and even post-rename tripped the spec's CLOSED
-// SessionUpdate oneOf as an unrecognized discriminator). It now rides inside
-// a REAL "session_info_update" frame's `_meta` object instead — the spec's
-// own sanctioned vendor-extension channel — so sessionInfoVariant below
-// matches the genuine spec discriminator, and a genuinely foreign engine's
-// OWN title/timestamp session_info_update (which carries no
-// `_meta.ctxloom_session_info`) is harmlessly absorbed as a no-op here
-// exactly as it already was pre-IR4 (dropped as an unmodeled variant in
-// mapSessionUpdate's default case) — no regression, just a different place
-// in the code doing the (still harmless) dropping. Both usage_update and
-// session_info_update are intercepted here, before the strict
-// api.SessionUpdate union ever sees them, because they feed turn ACCOUNTING
-// rather than an emitted entry — protocol v1 itself carries no
+// instead of a bespoke usageUpdateWire. It is intercepted here, before the
+// strict api.SessionUpdate union ever sees it, because it feeds turn
+// ACCOUNTING rather than an emitted entry — protocol v1 itself carries no
 // token/cost/context-window/timing fields anywhere else (PromptResponse is
 // stopReason alone), so this is the ONLY usage data any ACP agent delivers
 // today.
-const (
-	usageUpdateVariant = "usage_update"
-	sessionInfoVariant = "session_info_update" // IR4: the REAL spec discriminator now — ctxloom's payload rides in this frame's `_meta`, not the frame's identity
-	// sessionInfoMetaKey is the `_meta` object key ctxloom's payload rides
-	// under, mirroring internal/acpagent/wire.go's
-	// ctxloomSessionInfoMetaKey by hand (no shared import between the two
-	// packages for this literal, same as the discriminator was already
-	// mirrored by hand pre-IR4).
-	sessionInfoMetaKey = "ctxloom_session_info"
-)
-
-// sessionInfoWire is the ctxloom_session_info subset the turn accounting
-// consumes (the frame also carries permissionMode/mcpServers, not yet read
-// here — same as pre-IR4), now reached via `_meta.ctxloom_session_info`
-// (see sessionInfoMetaKey) instead of top-level fields. The custom
-// UnmarshalJSON keeps that relocation invisible to every caller: they still
-// just read .Model/.ContextWindow off a decoded sessionInfoWire.
-type sessionInfoWire struct {
-	Model         string
-	ContextWindow int
-}
-
-// UnmarshalJSON reaches into a session_info_update frame's
-// `_meta.ctxloom_session_info` object (see sessionInfoMetaKey) rather than
-// decoding top-level fields — IR4 moved ctxloom's payload there so the frame
-// validates as the spec's real session_info_update. A frame with no
-// `_meta.ctxloom_session_info` at all (e.g. a genuinely foreign engine's own
-// title/timestamp update) decodes to the zero value, which
-// consumeMetaUpdate's guards (`info.Model != ""` / `info.ContextWindow > 0`)
-// already treat as "nothing to report" — never fabricating a value.
-func (s *sessionInfoWire) UnmarshalJSON(data []byte) error {
-	var env struct {
-		Meta struct {
-			Info struct {
-				Model         string `json:"model"`
-				ContextWindow int    `json:"contextWindow"`
-			} `json:"ctxloom_session_info"`
-		} `json:"_meta"`
-	}
-	if err := json.Unmarshal(data, &env); err != nil {
-		return err
-	}
-	s.Model = env.Meta.Info.Model
-	s.ContextWindow = env.Meta.Info.ContextWindow
-	return nil
-}
+//
+// G13 (decomposing IR4): ctxloom's own session-info extension used to also
+// be intercepted here (a "session_info_update"-discriminated frame carrying
+// model/contextWindow in `_meta.ctxloom_session_info`), extracted into
+// s.infoModel/s.infoWindow for completeMeta to fold into TurnMeta. That
+// extraction is GONE: the emitter side (internal/acpagent/mapping.go's
+// sessionInfoUpdateWire) no longer puts Model or ContextWindow there at all
+// — Model already rides CO1's SessionConfigOption ("model" category) and
+// ContextWindow already rides usage_update's own `size` field, both
+// unconditionally, so there is nothing left for this side to extract for
+// either fact. A session_info_update frame (ctxloom's own PermissionMode/
+// MCPServers residue, OR a genuinely foreign engine's own real title/
+// timestamp update) now simply falls through to the strict
+// api.SessionUpdate decode below and lands in mapSessionUpdate's default
+// case — dropped as an unmodeled variant, exactly the same harmless no-op
+// outcome session_info_update already had for anything it didn't recognize
+// pre-G13 (see TestChat_ForeignSessionInfoUpdateIgnored). This does NOT
+// newly propagate PermissionMode/MCPServers into agent.ChatSessionInfo for a
+// nested ctxloom-driving-ctxloom hop — that was ALREADY unread pre-G13 ("the
+// frame also carries permissionMode/mcpServers, not yet read here"), and
+// stays that way; not this slice's mission (G13 is foreign-client
+// rendering, not nested-delegation header propagation) — see the G13 report's
+// deferred-work list.
+const usageUpdateVariant = "usage_update"
 
 // updateDiscriminator reads a raw update's sessionUpdate type tag without
 // decoding the full variant. Malformed JSON reads as "" (not ours to handle).

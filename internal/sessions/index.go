@@ -75,6 +75,20 @@ type Entry struct {
 	// local-only posture as Distilled/EssencePath — so this is purely an
 	// in-memory ordering aid.
 	LastActivity time.Time `yaml:"-" json:"-"`
+
+	// CanonicalTranscriptPath is the harp's OWN captured transcript
+	// (paths.HarpCanonicalTranscriptPath — internal/transcript.Recorder's
+	// output, tough-cloud plan §2), computed on read like Distilled/
+	// EssencePath — never persisted — by stat'ing the file (see
+	// fillCanonicalTranscript, called from ListForProject). Empty means no
+	// canonical transcript has landed for this harp yet: a pre-capture
+	// session, an interactive-pty-only session (§2d/§4d — not tee'd), or a
+	// chat that produced zero ChatEvents. This is the enumeration key
+	// internal/transcript.CanonicalHistory (S3) uses to discover which of a
+	// project's sessions it can serve, independent of the legacy per-engine
+	// TranscriptPath; it does not change which reader any existing consumer
+	// selects (that is S4's job).
+	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -402,6 +416,26 @@ func fillTranscriptByLocation(e *Entry) {
 	}
 }
 
+// fillCanonicalTranscript stats a harp's canonical transcript.acp.jsonl
+// (paths.HarpCanonicalTranscriptPath) and records its path on the entry COPY
+// when present — the same computed-on-read posture as
+// fillTranscriptByLocation/Distilled/EssencePath, never persisted. This is
+// how a session becomes discoverable by ctxloom's own captured transcript
+// (tough-cloud §2/§4a) independent of whatever the legacy engine-file
+// TranscriptPath does or doesn't resolve to.
+func fillCanonicalTranscript(e *Entry) {
+	if e == nil || e.HarpName == "" {
+		return
+	}
+	p, err := paths.HarpCanonicalTranscriptPath(e.HarpName)
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(p); err == nil {
+		e.CanonicalTranscriptPath = p
+	}
+}
+
 // Find returns a copy of the entry with the given harp name, or nil if
 // absent.
 func (m *Manager) Find(harpName string) (*Entry, error) {
@@ -453,6 +487,7 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
 			fillTranscriptByLocation(&e)
+			fillCanonicalTranscript(&e)
 			// Computed once per entry here, not inside the sort comparator.
 			e.LastActivity = ActivityTime(e)
 			out = append(out, e)

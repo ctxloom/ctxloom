@@ -212,6 +212,42 @@ func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
 	assert.Equal(t, "taskloom", captured.MCPServers[1].Name)
 }
 
+// TestRunStructuredREPL_PropagatesSessionHarpEnv pins the tough-cloud S4
+// harp-for-structured-runs contract: run.go's AssignSession stamps
+// runEnv[CTXLOOM_SESSION_HARP] into req.Options.Env unconditionally (before
+// --structured is ever checked, run.go ~line 819-823), and this is the exact
+// seam that env has to cross to reach GRPCClient.Chat's harp-gated transcript
+// tee (chat.go: `req.Env[agent.SessionHarpEnv]`). If this ever regressed to
+// an empty Env, `ctxloom run --structured` would silently go uncaptured
+// again — the same class of bug this whole slice exists to close.
+func TestRunStructuredREPL_PropagatesSessionHarpEnv(t *testing.T) {
+	var captured agent.ChatRequest
+	mock := &pb.MockClient{
+		ChatFunc: func(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+			captured = req
+			in := make(chan agent.ChatMessage, 1)
+			events := make(chan agent.ChatEvent)
+			errs := make(chan error)
+			go func() {
+				for range in {
+				}
+				close(events)
+				close(errs)
+			}()
+			return in, events, errs, nil
+		},
+	}
+
+	req := &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{
+		agent.SessionHarpEnv: "structured-test-harp",
+	}}}
+	var out bytes.Buffer
+	require.NoError(t, runStructuredREPL(context.Background(), mock, req, nil, formatJSON, strings.NewReader(""), &out))
+
+	require.NotNil(t, captured.Env)
+	assert.Equal(t, "structured-test-harp", captured.Env[agent.SessionHarpEnv])
+}
+
 // TestRunStructuredREPL_StreamEndsBeforeStdinEOF: a backend that crashes/ends
 // (events closed early with an error parked on errs) while stdin is still open
 // must NOT hang waiting for stdin EOF — it returns with the stream error rather

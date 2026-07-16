@@ -173,3 +173,26 @@ func Tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	}()
 	return out
 }
+
+// TeeAndClose is Tee plus automatic Recorder cleanup: it wraps events exactly
+// like Tee, and once the source channel is fully drained (so Tee's internal
+// goroutine has recorded and forwarded every event and closed its own output),
+// calls rec.Close(). This is the shape S2's host seams actually need —
+// GRPCClient.Chat and coord/enginehost.adapt own no separate "the chat is
+// over" signal of their own beyond the events channel closing, so a bare Tee
+// would leak the Recorder's open file handle for the lifetime of the process.
+// Close's error is swallowed for the same reason Tee swallows Record's: a
+// transcript-capture failure must never be visible to (or block) the live
+// chat it is shadowing.
+func TeeAndClose(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
+	teed := Tee(rec, events)
+	out := make(chan agent.ChatEvent)
+	go func() {
+		defer close(out)
+		defer func() { _ = rec.Close() }()
+		for ev := range teed {
+			out <- ev
+		}
+	}()
+	return out
+}

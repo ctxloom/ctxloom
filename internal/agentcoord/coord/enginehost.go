@@ -19,6 +19,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // engineHome is the slice of *Home the engine host consumes — an interface so
@@ -273,7 +274,25 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	eh.goTracked(func() {
 		chatErr <- eh.backend.Chat(ctx, dec.Chat, in, out)
 	})
-	eh.goTracked(func() { eh.adapt(ctx, home, out, chatErr) })
+
+	// Tough-cloud S2: capture this delegated child's canonical transcript on
+	// the runner process that hosts it — the in-process backend.Chat seam
+	// (plan §2c seam 2). dec.SessionHarp is the child's own harp (decoded from
+	// StartRun's HarnessSpec.config, "ctxloom.session_harp" — see
+	// harnessspec.go), always assigned by the coordinator before StartRun is
+	// issued (buildHarnessSpec's caller always passes rt.harp), so unlike the
+	// GRPCClient.Chat seam this is not expected to hit the no-harp gap in
+	// practice; the emptiness check stays as defensive degrade-gracefully
+	// discipline, not a documented live gap.
+	adaptOut := (<-chan agent.ChatEvent)(out)
+	if dec.SessionHarp != "" {
+		if rec, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness); rerr != nil {
+			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", dec.SessionHarp, eh.harness, rerr)
+		} else {
+			adaptOut = transcript.TeeAndClose(rec, out)
+		}
+	}
+	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
 
 	// The engine turn-delivery seam: coordinator mail lands as new turns
 	// (the driver's own loop queues mid-turn arrivals to the next boundary).

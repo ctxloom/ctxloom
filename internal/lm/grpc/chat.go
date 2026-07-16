@@ -6,6 +6,8 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -302,7 +304,49 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 		}
 	}()
 
-	return in, events, errs, nil
+	// Tough-cloud S2: capture this conversation's canonical transcript at the
+	// host boundary — this is THE host seam behind `ctxloom run --structured`
+	// and `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]:
+	// acp_cmd.go already stamps it there for the engine subprocess's own env,
+	// and it is equally available here without any ChatRequest field addition.
+	//
+	// TODO(S4): run_structured.go currently mints no harp at all
+	// (run.go:315-316), so req.Env carries no SessionHarpEnv on that path and
+	// capture below degrades to a no-op — the structured REPL runs uncaptured
+	// until S4 assigns a harp for `--structured` runs (plan §8 risk 2).
+	outEvents := (<-chan agent.ChatEvent)(events)
+	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
+		outEvents = c.teeCapture(ctx, harp, events)
+	}
+
+	return in, outEvents, errs, nil
+}
+
+// teeCapture opens a transcript.Recorder for harp — keyed by the engine name
+// the plugin's own Info RPC reports, so the recorder never has to guess or
+// duplicate a backend-name lookup the caller already resolved elsewhere — and
+// wraps events with transcript.TeeAndClose. Capture is best-effort end to
+// end: an Info failure, an empty engine name, or a NewRecorder failure all
+// log a warning and fall back to returning events unwrapped. A transcript we
+// failed to open is not a reason to fail, delay, or alter the chat it would
+// have shadowed.
+func (c *GRPCClient) teeCapture(ctx context.Context, harp string, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
+	info, err := c.client.Info(ctx, &Empty{})
+	if err != nil {
+		clidiag.Warn("ctxloom", "transcript capture: resolve engine name for harp %s: %v", harp, err)
+		return events
+	}
+	engine := info.GetName()
+	if engine == "" {
+		clidiag.Warn("ctxloom", "transcript capture: plugin reported no engine name for harp %s; skipping capture", harp)
+		return events
+	}
+	rec, err := transcript.NewRecorder(harp, engine)
+	if err != nil {
+		clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", harp, engine, err)
+		return events
+	}
+	return transcript.TeeAndClose(rec, events)
 }
 
 // chatMessageToInput maps one host-side chat message onto its ChatInput frame.

@@ -55,6 +55,7 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range m.sessions {
 		if e.ProjectDir == projectDir {
+			fillCanonicalTranscript(&e)
 			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}

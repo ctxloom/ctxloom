@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -46,7 +45,7 @@ type EngineSessionCoordinator interface {
 	// session hosted by this coordinator, or nil when no coordinator has
 	// stood up yet (delegation degraded — the session behaves as if no
 	// coordinator existed).
-	WatchChildren() func(ctx context.Context) (<-chan acpagent.ChildUpdate, func())
+	WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func())
 }
 
 // openEngineSessionGateMu serializes each session-open's strictness window
@@ -66,7 +65,7 @@ var openEngineSessionGateMu sync.Mutex
 // --structured` drives. For a resume (session/load) it additionally fetches
 // the recorded harp's history: the entries replay to the ACP client, and a
 // rendered transcript primes the fresh engine via the first-turn lead block.
-func OpenEngineSession(ctx context.Context, req acpagent.OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride string) (*acpagent.EngineChat, error) {
+func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride string) (*EngineChat, error) {
 	var (
 		cfg             *config.Config
 		profile         string
@@ -239,7 +238,7 @@ func OpenEngineSession(ctx context.Context, req acpagent.OpenRequest, acpCoord E
 	// a degraded standup that already warned) — see EngineSessionCoordinator.
 	watchChildren := acpCoord.WatchChildren()
 
-	return &acpagent.EngineChat{
+	return &EngineChat{
 		Context:       contextText,
 		In:            in,
 		Events:        events,
@@ -296,14 +295,14 @@ func acpSessionMCPServers(cfg *config.Config, backendName string, profiles []str
 // engines and mark the launched one (current). This is advertisement only: the
 // session's engine is pinned at launch — a live mid-session LLM switch is not
 // implemented. nil when no LLMs are enumerable.
-func buildSessionLLMs(cfg *config.Config, current string) *acpagent.SessionLLMs {
+func buildSessionLLMs(cfg *config.Config, current string) *SessionLLMs {
 	names := AvailableLLMNames(cfg)
 	if len(names) == 0 {
 		return nil
 	}
-	llms := &acpagent.SessionLLMs{Current: current}
+	llms := &SessionLLMs{Current: current}
 	for _, n := range names {
-		llms.Available = append(llms.Available, acpagent.LLMInfo{ID: n, Name: n})
+		llms.Available = append(llms.Available, LLMInfo{ID: n, Name: n})
 	}
 	return llms
 }
@@ -321,7 +320,7 @@ func agentModeID(name string) string { return agentModePrefix + name }
 // agent (its composed profile set; the engine binding applies only at
 // launch — see assembleModeFunc). nil when the profile list is unavailable —
 // the session simply advertises no modes.
-func buildSessionModes(cfg *config.Config, initialProfile string, defaultProfiles []string, currentAgent string) *acpagent.SessionModes {
+func buildSessionModes(cfg *config.Config, initialProfile string, defaultProfiles []string, currentAgent string) *SessionModes {
 	loader := cfg.GetProfileLoader()
 	if loader == nil {
 		return nil
@@ -341,7 +340,7 @@ func buildSessionModes(cfg *config.Config, initialProfile string, defaultProfile
 // sessionModesFrom is the pure mode-list builder behind buildSessionModes:
 // default set, profiles, then agents, with the current mode following the
 // launch selection (agent > profile > default).
-func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile string, defaultProfiles []string, currentAgent string) *acpagent.SessionModes {
+func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile string, defaultProfiles []string, currentAgent string) *SessionModes {
 	if len(profileNames) == 0 && len(subs) == 0 {
 		return nil
 	}
@@ -350,17 +349,17 @@ func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile s
 	if len(defaultProfiles) > 0 {
 		defaultName = "default (" + strings.Join(defaultProfiles, ", ") + ")"
 	}
-	modes := &acpagent.SessionModes{
-		Current:   acpagent.DefaultModeID,
-		Available: []acpagent.SessionMode{{ID: acpagent.DefaultModeID, Name: defaultName}},
+	modes := &SessionModes{
+		Current:   DefaultModeID,
+		Available: []SessionMode{{ID: DefaultModeID, Name: defaultName}},
 	}
 	seen := false
 	for _, name := range profileNames {
-		modes.Available = append(modes.Available, acpagent.SessionMode{ID: name, Name: name, Profiles: []string{name}})
+		modes.Available = append(modes.Available, SessionMode{ID: name, Name: name, Profiles: []string{name}})
 		seen = seen || name == initialProfile
 	}
 	for _, s := range subs {
-		modes.Available = append(modes.Available, acpagent.SessionMode{
+		modes.Available = append(modes.Available, SessionMode{
 			ID:       agentModeID(s.Name),
 			Name:     s.Name + " (agent)",
 			Profiles: s.Profiles,
@@ -372,7 +371,7 @@ func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile s
 		modes.Current = agentModeID(currentAgent)
 	case initialProfile != "":
 		if !seen {
-			modes.Available = append(modes.Available, acpagent.SessionMode{ID: initialProfile, Name: initialProfile, Profiles: []string{initialProfile}})
+			modes.Available = append(modes.Available, SessionMode{ID: initialProfile, Name: initialProfile, Profiles: []string{initialProfile}})
 		}
 		modes.Current = initialProfile
 	}
@@ -384,8 +383,8 @@ func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile s
 // ENGINE is pinned at launch: an agent mode declaring a different engine
 // still re-composes that agent's context, and the warning names the launch
 // flag that honors the binding fully.
-func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.Context, mode acpagent.SessionMode) (string, error) {
-	return func(ctx context.Context, mode acpagent.SessionMode) (string, error) {
+func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.Context, mode SessionMode) (string, error) {
+	return func(ctx context.Context, mode SessionMode) (string, error) {
 		if mode.Engine != "" && mode.Engine != sessionLabel {
 			clidiag.Warn("ctxloom", "acp agent: mode %q declares engine %q but this session runs %q — the engine is pinned at launch (use `ctxloom acp --agent %s` to honor it)",
 				mode.ID, mode.Engine, sessionLabel, strings.TrimPrefix(mode.ID, agentModePrefix))

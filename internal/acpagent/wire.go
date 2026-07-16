@@ -2,6 +2,8 @@ package acpagent
 
 import (
 	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // This file carries the HAND-ROLLED ACP wire shapes the pinned SDK
@@ -25,10 +27,11 @@ type agentInfoBlock struct {
 	Version string `json:"version"`
 }
 
-// DefaultModeID is the synthetic mode representing the configured default
-// profile set (which may compose several profiles, so no single profile name
-// can stand for it).
-const DefaultModeID = "default"
+// DefaultModeID is frontend-neutral (ISO0): it lives in internal/operations
+// (engine_types.go) alongside SessionModes, which uses it as the synthetic
+// mode ID for the configured default profile set (which may compose several
+// profiles, so no single profile name can stand for it).
+const DefaultModeID = operations.DefaultModeID
 
 // newSessionResult is the session/new response body: the SDK's
 // NewSessionResponse plus the modes/models state it predates.

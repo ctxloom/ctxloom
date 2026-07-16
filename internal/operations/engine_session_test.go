@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -83,10 +82,10 @@ func TestSessionModesFrom_ProfilesAndAgents(t *testing.T) {
 	modes := sessionModesFrom([]string{"go", "reviewer"}, subs, "", []string{"go", "base"}, "")
 	require.NotNil(t, modes)
 
-	assert.Equal(t, acpagent.DefaultModeID, modes.Current)
+	assert.Equal(t, DefaultModeID, modes.Current)
 	require.Len(t, modes.Available, 5)
 
-	assert.Equal(t, acpagent.DefaultModeID, modes.Available[0].ID)
+	assert.Equal(t, DefaultModeID, modes.Available[0].ID)
 	assert.Equal(t, "default (go, base)", modes.Available[0].Name)
 	assert.Nil(t, modes.Available[0].Profiles, "the default mode assembles the configured defaults")
 

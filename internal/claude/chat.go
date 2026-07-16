@@ -53,6 +53,11 @@ func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan 
 	// has no live per-chat application in the ACP driver for a
 	// backend-resolved static value. Never mutates the caller's map.
 	req.Env = withThinkingEnv(req.Env, b.thinking)
+	// D-CO-QUIRK (CO1): quarantine the live model-selection bug into this one
+	// named, version-scoped field rather than trusting ModelEnvVar alone (see
+	// claudeModelSelectionQuirk's doc comment for the full defect and its
+	// removal condition). Every OTHER backend's ChatRequest never sets this.
+	req.ModelQuirk = claudeModelSelectionQuirk
 	drv := acp.NewChatDriver(chatACPConfig(b.Env))
 	return drv.Chat(ctx, req, in, out)
 }
@@ -109,6 +114,52 @@ func withThinkingEnv(env map[string]string, level agent.ThinkingLevel) map[strin
 	maps.Copy(out, env)
 	out[claudeThinkingEnvVar] = value
 	return out
+}
+
+// claudeModelSelectionQuirk is CO1's D-CO-QUIRK escape hatch: the ONE
+// sanctioned fix for the live bug where every claude ACP session silently ran
+// claude-opus-4-6 regardless of the requested model. Verified live (2026-07,
+// controlled experiment): claude-code-acp 0.16.2's SettingsManager reads only
+// ~/.claude/settings.json (never ANTHROPIC_MODEL — the env var
+// chatACPConfig's ModelEnvVar sets, and which this quirk does NOT replace,
+// only supplements, since some future adapter release might start honoring
+// it); its `--model` argv is silently ignored (zero `argv` hits in its
+// dist/*.js); it does not implement session/set_config_option AT ALL (zero
+// hits for that method name); and every session/new unconditionally calls
+// query.setModel(...) from the adapter's OWN model list, falling back to
+// models[0] — a CURRENT valid id fails identically to a stale one, so this is
+// not a config problem this side can work around by supplying a "better"
+// model string through the channels above.
+//
+// The ONE thing that works: claude-code-acp implements its JS-JSON-RPC-SDK's
+// UNSTABLE `session/set_model` method — {sessionId, modelId} in,
+// {} out — whose HANDLER is named unstable_setSessionModel(params) in
+// dist/acp-agent.js:481-487 (that JS identifier is NOT the wire method name;
+// the wire name comes from @agentclientprotocol/sdk's schema/index.js:
+// `session_set_model: "session/set_model"` — confirmed live against the
+// installed adapter, distinct from ANY method in the vendored spec schema
+// this hub otherwise validates against, and distinct from the coder/acp-go-sdk
+// fork ctxloom pins, which has no session/set_model constant at all — hence
+// this quirk hand-rolls the request rather than using a fork-provided type).
+// Live-testing confirmed it actually switches the model (requested "haiku"
+// correctly ran claude-haiku-4-5-20251001). internal/acp/session.go's
+// applyModelQuirk calls it immediately after session/new or session/load,
+// before the first prompt — generically, with no claude-specific code of its
+// own — because this quirk's AgentName/AdapterVersions match the connected
+// agent's self-reported initialize identity exactly.
+//
+// REMOVAL CONDITION: delete this quirk (and applyModelQuirk's call sites in
+// internal/acp/session.go) once a claude-code-acp release speaks
+// session/set_config_option for model selection — the ecosystem is already
+// moving (coder's acp-go-sdk v0.13.5 is titled "Session config options take
+// over model selection"), so this SHOULD be short-lived. Before bumping the
+// pinned adapter version, grep its dist/*.js for "set_config_option"; if it's
+// there, drop the old version from AdapterVersions (or delete the whole
+// quirk if nothing else needs it) instead of silently widening the list.
+var claudeModelSelectionQuirk = &agent.ModelDeliveryQuirk{
+	Method:          "session/set_model",
+	AgentName:       "@zed-industries/claude-code-acp",
+	AdapterVersions: []string{"0.16.2"},
 }
 
 // chatACPConfig is the adapter config for one claude structured-chat spawn.

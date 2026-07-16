@@ -81,6 +81,38 @@ type ChatRequest struct {
 	// ACP client driver, internal/acp) consults it; every other backend
 	// ignores it — additive, host stays the default everywhere else.
 	Runtime string
+	// ModelQuirk optionally names a per-engine escape hatch (see
+	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
+	// call the ACP driver (internal/acp/session.go) makes right after setup,
+	// before the first prompt. nil — every backend but claude today — means
+	// no such call: the spec-standard delivery (--model / an env var / a
+	// future session/set_config_option) is trusted to work.
+	ModelQuirk *ModelDeliveryQuirk
+}
+
+// ModelDeliveryQuirk names a single, VERSION-SCOPED per-engine model-delivery
+// defect that a structured-chat driver routes around with a non-spec call,
+// instead of trusting the spec-standard channel every other engine uses. It
+// exists ONLY because CO1's controlled experiment proved claude-code-acp
+// 0.16.2 silently ignores every spec-standard model channel (argv, env, and
+// it does not implement session/set_config_option at all — zero hits in its
+// dist/*.js) — see internal/claude/chat.go for the full defect citation, the
+// one populator, and the removal condition. This type is deliberately
+// backend-neutral (it lives alongside ChatRequest, not inside internal/acp)
+// so the driver that executes it (internal/acp/session.go) never needs to
+// know which engine it is talking to — it just compares the connected
+// agent's self-reported identity against these fields.
+type ModelDeliveryQuirk struct {
+	// Method is the non-spec JSON-RPC method to call with
+	// {sessionId, modelId: <the requested model>}.
+	Method string
+	// AgentName/AdapterVersions restrict the call to the connected agent's
+	// self-reported initialize agentInfo.name and an EXACT agentInfo.version
+	// match — an unlisted version (including a hoped-for future fix that
+	// finally speaks session/set_config_option) is left on the spec-standard
+	// path untouched.
+	AgentName       string
+	AdapterVersions []string
 }
 
 // RuntimeContainer is the ChatRequest.Runtime value asking a StructuredChat

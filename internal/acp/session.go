@@ -73,12 +73,19 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		<-conn.Done()
 	}
 
-	sessionID, caps, err := b.setup(ctx, conn, req)
+	sessionID, caps, engineConfigOptions, err := b.setup(ctx, conn, req)
 	if err != nil {
 		teardown()
 		return err
 	}
 	sess.caps = caps
+	// CO1 client-role passthrough, READ half: capture whatever config options
+	// the CONNECTED ENGINE itself advertised (codex-acp's own real
+	// SessionConfigOption entries, e.g.) — see chatSession's field doc for the
+	// honest state of the remaining half (surfacing these namespaced to a
+	// ctxloom-acp editor, which needs a protobuf change this slice
+	// deliberately does not make).
+	sess.engineConfigOptions = engineConfigOptions
 
 	// notifyCancel tells the agent to abandon the in-flight turn (best-effort,
 	// per-turn: the parked session/prompt then resolves with stopReason
@@ -227,14 +234,21 @@ const authRequiredCode = -32000
 
 // setup runs the initialize + session/new (or session/load, when resuming)
 // handshake, returning the session id the rest of the conversation runs
-// under and the engine's advertised capabilities.
+// under, the engine's advertised capabilities, and (CO1 client-role
+// passthrough) whatever SessionConfigOption entries the connected engine
+// itself advertised — real spec-compliant options from an engine like
+// codex-acp, empty for one like claude-code-acp that advertises none. This
+// driver reads the latter purely because a native surface exists to read
+// (see doc.go's "mimic native surfaces" principle) — see Chat's call site
+// and chatSession.engineConfigOptions for the honest state of surfacing them
+// onward.
 //
 // Protocol version: the client FAILS LOUD on anything but the exact version
 // this SDK speaks (api.ProtocolVersionNumber) — never silently continues a
 // conversation shaped by a version this decoder does not understand. This is
 // the isolation-must-not-negotiate discipline applied to protocol versions:
 // an undetected mismatch here would silently mis-decode every frame after it.
-func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, engineCapabilities, error) {
+func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, engineCapabilities, []api.SessionConfigOption, error) {
 	initParams := api.InitializeRequest{
 		ProtocolVersion: api.ProtocolVersionNumber,
 		ClientCapabilities: api.ClientCapabilities{
@@ -250,10 +264,10 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 	}
 	var initResp api.InitializeResponse
 	if err := conn.Call(ctx, api.AgentMethodInitialize, initParams, &initResp); err != nil {
-		return "", engineCapabilities{}, err
+		return "", engineCapabilities{}, nil, err
 	}
 	if initResp.ProtocolVersion != api.ProtocolVersionNumber {
-		return "", engineCapabilities{}, fmt.Errorf(
+		return "", engineCapabilities{}, nil, fmt.Errorf(
 			"acp: engine negotiated protocol version %d; ctxloom's ACP client only speaks version %d (schema-v1.19.0) and cannot safely continue a conversation shaped by a version it does not decode",
 			initResp.ProtocolVersion, api.ProtocolVersionNumber,
 		)
@@ -280,7 +294,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// caller explicitly asked for — fail loud instead (adapter/SDK gap,
 		// reportable, never worked around by falling back to session/new).
 		if !caps.LoadSession {
-			return "", caps, fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
+			return "", caps, nil, fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
 		}
 		loadReq := api.LoadSessionRequest{Cwd: cwd, McpServers: mcpServers, SessionId: api.SessionId(req.ResumeSessionID)}
 		// session/load replays the resumed conversation's history as
@@ -289,19 +303,26 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// handler, so the replay flows to `out` as ordinary ChatEvents
 		// before this call returns; the caller's drain loop must already be
 		// running (Chat starts it before setup blocks here).
-		var loadResp json.RawMessage
+		var loadResp api.LoadSessionResponse
 		if err := conn.Call(ctx, api.AgentMethodSessionLoad, loadReq, &loadResp); err != nil {
-			return "", caps, fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, authRequiredErr(err, caps))
+			return "", caps, nil, fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, authRequiredErr(err, caps))
 		}
-		return api.SessionId(req.ResumeSessionID), caps, nil
+		sessionID := api.SessionId(req.ResumeSessionID)
+		if err := b.applyModelQuirk(ctx, conn, sessionID, initResp.AgentInfo, req); err != nil {
+			return "", caps, nil, err
+		}
+		return sessionID, caps, loadResp.ConfigOptions, nil
 	}
 
 	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
 	if err := conn.Call(ctx, api.AgentMethodSessionNew, newReq, &newResp); err != nil {
-		return "", caps, authRequiredErr(err, caps)
+		return "", caps, nil, authRequiredErr(err, caps)
 	}
-	return newResp.SessionId, caps, nil
+	if err := b.applyModelQuirk(ctx, conn, newResp.SessionId, initResp.AgentInfo, req); err != nil {
+		return "", caps, nil, err
+	}
+	return newResp.SessionId, caps, newResp.ConfigOptions, nil
 }
 
 // authRequiredErr recognizes the spec's auth_required error (code -32000) on
@@ -342,6 +363,41 @@ func authMethodNames(methods []api.AuthMethod) string {
 		return "unrecognized method shape"
 	}
 	return strings.Join(names, ", ")
+}
+
+// applyModelQuirk fires req.ModelQuirk's non-spec model-selection call — see
+// agent.ModelDeliveryQuirk's doc comment for why this exists at all — right
+// after session setup and before the first prompt, so the requested model is
+// correct from the session's very first turn. This driver holds NO
+// engine-specific knowledge of its own: it fires ONLY when the connected
+// agent's self-reported identity (this call's initialize response) matches
+// AgentName/AdapterVersions exactly; every other combination (including a
+// nil ModelQuirk — every backend but claude today) is a silent no-op, and
+// the spec-standard delivery (--model argv, ModelConfigKey, ModelEnvVar) is
+// left to do the job alone.
+func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID api.SessionId, info *api.Implementation, req agent.ChatRequest) error {
+	q := req.ModelQuirk
+	if q == nil || q.Method == "" || req.Model == "" {
+		return nil
+	}
+	if info == nil || info.Name != q.AgentName || !slices.Contains(q.AdapterVersions, info.Version) {
+		return nil
+	}
+	params := quirkSetModelParams{SessionId: sessionID, ModelId: req.Model}
+	if err := conn.Call(ctx, q.Method, params, nil); err != nil {
+		return fmt.Errorf("acp: model-delivery quirk %s: %w", q.Method, err)
+	}
+	return nil
+}
+
+// quirkSetModelParams is the {sessionId, modelId} request shape claude-code-acp's
+// UNSTABLE "session/set_model" method expects (its own @agentclientprotocol/sdk's
+// schema/zod.gen.js zSetSessionModelRequest; see claudeModelSelectionQuirk's
+// doc comment in internal/claude/chat.go for the full method-name story) —
+// not a type the pinned coder/acp-go-sdk fork has, hence hand-rolled here.
+type quirkSetModelParams struct {
+	SessionId api.SessionId `json:"sessionId"`
+	ModelId   string        `json:"modelId"`
 }
 
 // mcpServersToACP maps the caller-supplied MCP servers onto the session/new
@@ -421,6 +477,22 @@ type chatSession struct {
 	usage      *api.UsageUpdate // latest usage report (cumulative; freshest wins)
 	infoModel  string           // model ctxloom's own agent named in its session-info extension
 	infoWindow int              // context window from ctxloom's own session-info extension
+
+	// engineConfigOptions is CO1's client-role passthrough READ half: the
+	// connected engine's own SessionConfigOption entries (session/new or
+	// session/load's configOptions — see setup's doc comment), captured
+	// generically with no per-engine knowledge. It is NOT yet forwarded
+	// anywhere: doing so onto ctxloom's own agent role (as engine/<id>
+	// namespaced options — the SET half of D-CO's design) needs a new
+	// agent.ChatSessionInfo/ChatEvent field that survives the self-invoking
+	// "ctxloom llm serve" runner's protobuf boundary (internal/lm/grpc), a
+	// change this slice deliberately does not make (see CO1's final report
+	// for why: proto regen risk + internal/operations/engine_session.go,
+	// which would need to relay it, is owned by a concurrent slice). This
+	// field exists so the read is provably not silently dropped, and so a
+	// follow-up slice has a captured value to wire onward instead of adding
+	// the read from scratch.
+	engineConfigOptions []api.SessionConfigOption
 }
 
 // send emits one event, stamping a receipt time when the entry lacks one (ACP

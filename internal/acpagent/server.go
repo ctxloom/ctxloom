@@ -147,6 +147,8 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 		s.handlePrompt(params, reply)
 	case api.AgentMethodSessionSetMode:
 		go s.handleSetMode(params, reply)
+	case api.AgentMethodSessionSetConfigOption:
+		go s.handleSetConfigOption(params, reply)
 	case api.AgentMethodSessionDelete:
 		s.handleSessionDelete(params, reply)
 	default:
@@ -307,7 +309,13 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, rerr)
 		return
 	}
-	reply(newSessionResult{SessionId: sess.id, Modes: modeStateWire(sess.snapshotModes()), Models: modelStateWire(sess.engine.LLMs)}, nil)
+	modes := sess.snapshotModes()
+	reply(newSessionResult{
+		SessionId:     sess.id,
+		Modes:         modeStateWire(modes),
+		Models:        modelStateWire(sess.engine.LLMs),
+		ConfigOptions: configOptionsWire(modes, sess.engine.LLMs),
+	}, nil)
 }
 
 // handleSessionLoad resumes a recorded ctxloom session: it opens a fresh
@@ -337,7 +345,12 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 			}
 		}
 	}
-	reply(loadSessionResult{Modes: modeStateWire(sess.snapshotModes()), Models: modelStateWire(sess.engine.LLMs)}, nil)
+	modes := sess.snapshotModes()
+	reply(loadSessionResult{
+		Modes:         modeStateWire(modes),
+		Models:        modelStateWire(sess.engine.LLMs),
+		ConfigOptions: configOptionsWire(modes, sess.engine.LLMs),
+	}, nil)
 }
 
 // openSession opens the engine conversation and registers the session. A
@@ -567,34 +580,110 @@ func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown session " + string(req.SessionId)})
 		return
 	}
-	modes := sess.snapshotModes()
-	if modes == nil || sess.engine.AssembleMode == nil {
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "session modes not supported for this session"})
+	if rerr := s.switchProfile(sess, string(req.ModeId)); rerr != nil {
+		reply(nil, rerr)
 		return
 	}
-	modeID := string(req.ModeId)
+	reply(api.SetSessionModeResponse{}, nil)
+}
+
+// switchProfile is the ONE mechanism behind BOTH session/set_mode and
+// session/set_config_option's "profile" option (CO1: profile is the
+// spec-general home for exactly what modes was repurposed to do — swapping
+// ctxloom's assembled context/persona mid-session; see internal/acpagent's
+// package doc). It reassembles the lead context for the next turn and
+// notifies BOTH surfaces — a current_mode_update AND a configOptionUpdate —
+// regardless of which method the client used to trigger the switch, per
+// CO1's COMPAT decision: modes/models emit alongside set_config_option
+// through a transitional window, never replaced by it. Returns a
+// jsonrpc.Error on failure (session modes unsupported, unknown mode,
+// assembly failure); nil on success, with sess already mutated.
+func (s *Server) switchProfile(sess *session, modeID string) *jsonrpc.Error {
+	modes := sess.snapshotModes()
+	if modes == nil || sess.engine.AssembleMode == nil {
+		return &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "session modes not supported for this session"}
+	}
 	mode, ok := modeByID(modes, modeID)
 	if !ok {
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown mode " + modeID})
-		return
+		return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown mode " + modeID}
 	}
 
 	contextText, err := sess.engine.AssembleMode(sess.ctx, mode)
 	if err != nil {
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "assemble mode: " + err.Error()})
-		return
+		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "assemble mode: " + err.Error()}
 	}
 
 	sess.mu.Lock()
 	sess.leadContext = contextText
 	sess.contextSent = false
 	sess.modes.Current = modeID
+	updatedModes := *sess.modes
 	sess.mu.Unlock()
 
-	if err := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(modeID)}); err != nil {
-		clidiag.Warn("ctxloom", "acp agent: mode update notify failed: %v", err)
+	if nerr := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(modeID)}); nerr != nil {
+		clidiag.Warn("ctxloom", "acp agent: mode update notify failed: %v", nerr)
 	}
-	reply(api.SetSessionModeResponse{}, nil)
+	opts := configOptionsWire(&updatedModes, sess.engine.LLMs)
+	if nerr := s.conn.Notify(api.ClientMethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: configOptionUpdateWire(opts)}); nerr != nil {
+		clidiag.Warn("ctxloom", "acp agent: config option update notify failed: %v", nerr)
+	}
+	return nil
+}
+
+// handleSetConfigOption implements session/set_config_option (CO1): the
+// spec's generalization of model/mode selection (schema-v1.19.0) onto
+// ctxloom's session-mutable surface. "profile" shares switchProfile's real,
+// working mechanism with session/set_mode (COMPAT: both fire on either
+// trigger). "model" is deliberately refused rather than silently accepted:
+// the requested model IS honored now (see internal/claude/chat.go's
+// claudeModelSelectionQuirk, the session-START fix for the live billing bug
+// this slice exists for), but a LIVE mid-session change has no channel yet —
+// the running engine conversation lives in a SEPARATE process (the
+// self-invoking "ctxloom llm serve" runner), reached only through
+// agent.ChatMessage/ChatEvent's fixed protobuf oneofs, neither of which
+// carries a model-change variant today. Silently accepting and doing
+// nothing would be exactly this codebase's characteristic failure mode
+// (exit 0, zero effect) — see handleSessionDelete for the same honest
+// method-not-found precedent.
+func (s *Server) handleSetConfigOption(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	var req api.SetSessionConfigOptionRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+		return
+	}
+	var sessionID api.SessionId
+	var configID api.SessionConfigId
+	switch {
+	case req.ValueId != nil:
+		sessionID, configID = req.ValueId.SessionId, req.ValueId.ConfigId
+	case req.Boolean != nil:
+		sessionID, configID = req.Boolean.SessionId, req.Boolean.ConfigId
+	default:
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session/set_config_option: no value variant set"})
+		return
+	}
+	sess := s.lookup(sessionID)
+	if sess == nil {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown session " + string(sessionID)})
+		return
+	}
+
+	switch configID {
+	case profileConfigID:
+		if req.ValueId == nil {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "ctxloom acp: profile is a select option (needs a value id, not a boolean)"})
+			return
+		}
+		if rerr := s.switchProfile(sess, string(req.ValueId.Value)); rerr != nil {
+			reply(nil, rerr)
+			return
+		}
+		reply(api.SetSessionConfigOptionResponse{ConfigOptions: configOptionsWire(sess.snapshotModes(), sess.engine.LLMs)}, nil)
+	case modelConfigID:
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "ctxloom acp: live model switching is not implemented yet (the requested model IS honored at session start); open a new session to run under a different model"})
+	default:
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "ctxloom acp: unknown config option " + string(configID)})
+	}
 }
 
 // cancelTurn cancels the session's in-flight TURN, per the spec: the prompt

@@ -89,14 +89,59 @@ message SessionData {
 
 // SessionEntry mirrors agent.SessionEntry: one normalized turn.
 message SessionEntry {
-  string type = 1;          // user | assistant | tool_use | tool_result | system
-  string content = 2;       // text for user/assistant/system
+  string type = 1;          // user | assistant | thinking | tool_use | tool_result | system
+  string content = 2;       // text for user/assistant/thinking/system
   string tool_name = 3;     // for tool_use/tool_result
   bytes tool_input = 4;     // raw JSON for tool_use
   string tool_output = 5;   // for tool_result
   bool is_error = 6;        // for tool_result
   int64 timestamp_unix = 7;
   bool sidechain = 8;       // entry belongs to an engine-side subagent, not the main thread
+
+  // --- IR2 (2026-07, ACP conformance audit gap G9): additive richness.
+  // Every field below is OPTIONAL — absent/zero mirrors agent.SessionEntry's
+  // own zero value exactly, so an old plugin/host pair that never sets them
+  // keeps decoding identically to before these fields existed.
+  string tool_call_id = 9;               // engine-native tool-call id, when known
+  string tool_kind = 10;                 // ACP tool-call kind classification
+  repeated ToolLocation tool_locations = 11;    // files/lines a tool call touches
+  repeated ToolContentBlock tool_content = 12;  // structured tool result content
+  repeated ContentBlock content_blocks = 13;    // structured content for this entry
+  string system_kind = 14;               // "" (notice) | "plan" — see agent.SessionSystemKind
+  repeated PlanEntry plan = 15;           // structured plan entries when system_kind == "plan"
+}
+
+// ToolLocation mirrors agent.ToolLocation.
+message ToolLocation {
+  string path = 1;
+  int32 line = 2; // 0 means unset
+}
+
+// ContentBlock mirrors agent.ContentBlock: a structured ACP content block,
+// carried mostly opaquely (raw) with a text/kind convenience projection.
+message ContentBlock {
+  string kind = 1; // "text" | "image" | "audio" | "resource_link" | "resource"
+  string text = 2; // populated only when kind == "text"
+  bytes raw = 3;   // the block's own JSON, verbatim
+}
+
+// ToolContentBlock mirrors agent.ToolContentBlock: one element of a tool
+// call's structured content collection (content block | diff | terminal).
+message ToolContentBlock {
+  string kind = 1; // "content" | "diff" | "terminal"
+  string text = 2; // flattened text, when kind == "content"
+  string diff_path = 3;
+  string diff_old_text = 4;
+  string diff_new_text = 5;
+  string terminal_id = 6;
+  bytes raw = 7;
+}
+
+// PlanEntry mirrors agent.PlanEntry: one task in an agent's execution plan.
+message PlanEntry {
+  string content = 1;
+  string priority = 2; // high | medium | low
+  string status = 3;   // pending | in_progress | completed
 }
 
 // WatchSessionRequest locates the session to tail by its agent-agnostic id (the
@@ -157,6 +202,14 @@ message ChatStart {
   // Caller-supplied MCP servers to attach to the conversation, in addition to
   // whatever native config the engine reads from its cwd.
   repeated ChatMCPServer mcp_servers = 6;
+  // transcript_raw_policy names the transcript.raw capture policy the
+  // canonical-transcript Recorder should honor for this chat (off |
+  // lossy-only | all — see internal/transcript/recorder.go's RawPolicy).
+  // Empty means "use the default" (lossy-only). Mirrors
+  // agent.ChatRequest.TranscriptRawPolicy; see that field's doc comment —
+  // nothing populates this from user config yet (deferred), every current
+  // caller leaves it empty.
+  string transcript_raw_policy = 7;
 }
 
 // ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
@@ -170,6 +223,10 @@ message ChatMCPServer {
 // ChatUserMessage is one inbound user turn (plain text in v1).
 message ChatUserMessage {
   string text = 1;
+  // content_blocks mirrors agent.ChatMessage.ContentBlocks: structured
+  // content for a richer turn than plain text. Additive; nothing consumes
+  // non-text blocks yet (multimodal intake is a later slice, B2).
+  repeated ContentBlock content_blocks = 2;
 }
 
 // ChatPermissionAnswer resolves the ChatPermissionRequest with the same id:
@@ -195,6 +252,14 @@ message ChatEvent {
     ChatSessionInfo       session    = 3;
     ChatPermissionRequest permission = 4;
   }
+  // raw mirrors agent.ChatEvent.Raw: IR3's side channel for the curated
+  // allowlist (available_commands_update, current_mode_update, any variant's
+  // `_meta`) that has no field of its own above. May be set ALONGSIDE entry
+  // (a `_meta` supplement) or ALONE (event unset — a pure passthrough frame).
+  // PERMISSIONS NEVER RIDE HERE — see agent.ChatEvent.Raw's doc comment; this
+  // is a plain sibling field, not part of the oneof, precisely so it can
+  // never be confused with permission above.
+  bytes raw = 5;
 }
 
 // ChatPermissionRequest is a forwarded engine permission request: the engine
@@ -205,6 +270,9 @@ message ChatPermissionRequest {
   string tool_name = 2;
   bytes  tool_input = 3; // raw JSON, may be empty
   repeated ChatPermissionOption options = 4;
+  // tool_call_id mirrors agent.PermissionRequest.ToolCallID: the engine-
+  // native tool-call id this request refers to, when known.
+  string tool_call_id = 5;
 }
 
 // ChatPermissionOption is one decision the engine offers. kind is the ACP

@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -21,11 +22,12 @@ import (
 
 func chatStartToProto(req agent.ChatRequest) *ChatStart {
 	out := &ChatStart{
-		WorkDir:            req.WorkDir,
-		Model:              req.Model,
-		Env:                req.Env,
-		PermissionMode:     req.Permissions.String(),
-		ForwardPermissions: req.ForwardPermissions,
+		WorkDir:             req.WorkDir,
+		Model:               req.Model,
+		Env:                 req.Env,
+		PermissionMode:      req.Permissions.String(),
+		ForwardPermissions:  req.ForwardPermissions,
+		TranscriptRawPolicy: req.TranscriptRawPolicy,
 	}
 	for _, m := range req.MCPServers {
 		out.McpServers = append(out.McpServers, &ChatMCPServer{
@@ -40,11 +42,12 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 
 func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 	req := agent.ChatRequest{
-		WorkDir:            p.GetWorkDir(),
-		Model:              p.GetModel(),
-		Env:                p.GetEnv(),
-		Permissions:        agent.WireMode(p.GetPermissionMode()),
-		ForwardPermissions: p.GetForwardPermissions(),
+		WorkDir:             p.GetWorkDir(),
+		Model:               p.GetModel(),
+		Env:                 p.GetEnv(),
+		Permissions:         agent.WireMode(p.GetPermissionMode()),
+		ForwardPermissions:  p.GetForwardPermissions(),
+		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
 	}
 	for _, m := range p.GetMcpServers() {
 		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
@@ -58,33 +61,37 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 }
 
 func chatEventToProto(ev agent.ChatEvent) *ChatEvent {
+	out := &ChatEvent{Raw: ev.Raw}
 	switch {
 	case ev.Entry != nil:
-		return &ChatEvent{Event: &ChatEvent_Entry{Entry: EntryToProto(*ev.Entry)}}
+		out.Event = &ChatEvent_Entry{Entry: EntryToProto(*ev.Entry)}
 	case ev.Complete != nil:
-		return &ChatEvent{Event: &ChatEvent_Complete{Complete: turnMetaToProto(ev.Complete)}}
+		out.Event = &ChatEvent_Complete{Complete: turnMetaToProto(ev.Complete)}
 	case ev.Session != nil:
-		return &ChatEvent{Event: &ChatEvent_Session{Session: chatSessionInfoToProto(ev.Session)}}
+		out.Event = &ChatEvent_Session{Session: chatSessionInfoToProto(ev.Session)}
 	case ev.Permission != nil:
-		return &ChatEvent{Event: &ChatEvent_Permission{Permission: permissionRequestToProto(ev.Permission)}}
-	default:
-		return &ChatEvent{}
+		out.Event = &ChatEvent_Permission{Permission: permissionRequestToProto(ev.Permission)}
 	}
+	return out
 }
 
 func chatEventFromProto(p *ChatEvent) agent.ChatEvent {
+	raw := json.RawMessage(p.GetRaw())
+	if len(raw) == 0 {
+		raw = nil
+	}
 	switch ev := p.GetEvent().(type) {
 	case *ChatEvent_Entry:
 		e := entryFromProto(ev.Entry)
-		return agent.ChatEvent{Entry: &e}
+		return agent.ChatEvent{Entry: &e, Raw: raw}
 	case *ChatEvent_Complete:
-		return agent.ChatEvent{Complete: turnMetaFromProto(ev.Complete)}
+		return agent.ChatEvent{Complete: turnMetaFromProto(ev.Complete), Raw: raw}
 	case *ChatEvent_Session:
-		return agent.ChatEvent{Session: chatSessionInfoFromProto(ev.Session)}
+		return agent.ChatEvent{Session: chatSessionInfoFromProto(ev.Session), Raw: raw}
 	case *ChatEvent_Permission:
-		return agent.ChatEvent{Permission: permissionRequestFromProto(ev.Permission)}
+		return agent.ChatEvent{Permission: permissionRequestFromProto(ev.Permission), Raw: raw}
 	default:
-		return agent.ChatEvent{}
+		return agent.ChatEvent{Raw: raw}
 	}
 }
 
@@ -93,9 +100,10 @@ func permissionRequestToProto(p *agent.PermissionRequest) *ChatPermissionRequest
 		return nil
 	}
 	out := &ChatPermissionRequest{
-		Id:        p.ID,
-		ToolName:  p.ToolName,
-		ToolInput: p.ToolInput,
+		Id:         p.ID,
+		ToolName:   p.ToolName,
+		ToolInput:  p.ToolInput,
+		ToolCallId: p.ToolCallID,
 	}
 	for _, o := range p.Options {
 		out.Options = append(out.Options, &ChatPermissionOption{Id: o.ID, Kind: o.Kind, Name: o.Name})
@@ -108,9 +116,10 @@ func permissionRequestFromProto(p *ChatPermissionRequest) *agent.PermissionReque
 		return nil
 	}
 	out := &agent.PermissionRequest{
-		ID:        p.GetId(),
-		ToolName:  p.GetToolName(),
-		ToolInput: p.GetToolInput(),
+		ID:         p.GetId(),
+		ToolName:   p.GetToolName(),
+		ToolInput:  p.GetToolInput(),
+		ToolCallID: p.GetToolCallId(),
 	}
 	for _, o := range p.GetOptions() {
 		out.Options = append(out.Options, agent.PermissionOption{ID: o.GetId(), Kind: o.GetKind(), Name: o.GetName()})
@@ -224,7 +233,10 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 			var cm agent.ChatMessage
 			switch input := msg.GetInput().(type) {
 			case *ChatInput_UserMessage:
-				cm = agent.ChatMessage{Text: input.UserMessage.GetText()}
+				cm = agent.ChatMessage{
+					Text:          input.UserMessage.GetText(),
+					ContentBlocks: contentBlocksFromProto(input.UserMessage.GetContentBlocks()),
+				}
 			case *ChatInput_PermissionAnswer:
 				cm = agent.ChatMessage{Permission: &agent.PermissionAnswer{
 					ID:       input.PermissionAnswer.GetId(),
@@ -299,7 +311,7 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	// the file and reset Seq to 0.
 	var rec transcript.Recorder
 	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
-		rec = c.openRecorder(ctx, harp)
+		rec = c.openRecorder(ctx, harp, req.TranscriptRawPolicy)
 	}
 
 	go func() {
@@ -349,7 +361,7 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 // or a NewRecorder failure all log a warning and return nil. A transcript we
 // failed to open is not a reason to fail, delay, or alter the chat it would
 // have shadowed.
-func (c *GRPCClient) openRecorder(ctx context.Context, harp string) transcript.Recorder {
+func (c *GRPCClient) openRecorder(ctx context.Context, harp, rawPolicy string) transcript.Recorder {
 	info, err := c.client.Info(ctx, &Empty{})
 	if err != nil {
 		clidiag.Warn("ctxloom", "transcript capture: resolve engine name for harp %s: %v", harp, err)
@@ -360,7 +372,7 @@ func (c *GRPCClient) openRecorder(ctx context.Context, harp string) transcript.R
 		clidiag.Warn("ctxloom", "transcript capture: plugin reported no engine name for harp %s; skipping capture", harp)
 		return nil
 	}
-	rec, err := transcript.NewRecorder(harp, engine)
+	rec, err := transcript.NewRecorder(harp, engine, transcript.WithRawPolicy(transcript.RawPolicy(rawPolicy)))
 	if err != nil {
 		clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", harp, engine, err)
 		return nil
@@ -379,7 +391,10 @@ func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
 	case msg.CancelTurn:
 		return &ChatInput{Input: &ChatInput_CancelTurn{CancelTurn: &ChatCancelTurn{}}}
 	default:
-		return &ChatInput{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{Text: msg.Text}}}
+		return &ChatInput{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{
+			Text:          msg.Text,
+			ContentBlocks: contentBlocksToProto(msg.ContentBlocks),
+		}}}
 	}
 }
 

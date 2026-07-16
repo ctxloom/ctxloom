@@ -97,12 +97,79 @@ func TestMapSessionUpdate_ToolCallUpdate(t *testing.T) {
 	})
 }
 
-// TestMapSessionUpdate_Plan pins plan → a system checklist entry.
+// TestMapSessionUpdate_Plan pins plan → a system checklist entry, AND (IR2)
+// the structured entries surviving into SessionEntry.Plan with the
+// SystemKindPlan discriminator — the fix for the conformance audit's
+// headline finding: a prior revision only kept the flattened text, which the
+// outbound side had no way to turn back into a real ACP `plan` update.
 func TestMapSessionUpdate_Plan(t *testing.T) {
 	e := oneEntry(t, mapUpdateJSON(t, `{"sessionUpdate":"plan","entries":[{"content":"Do X","priority":"high","status":"pending"},{"content":"Do Y","priority":"medium","status":"in_progress"}]}`))
 	assert.Equal(t, agent.EntryTypeSystem, e.Type)
 	assert.Contains(t, e.Content, "[pending] Do X")
 	assert.Contains(t, e.Content, "[in_progress] Do Y")
+
+	assert.Equal(t, agent.SystemKindPlan, e.SystemKind)
+	require.Len(t, e.Plan, 2)
+	assert.Equal(t, agent.PlanEntry{Content: "Do X", Priority: "high", Status: "pending"}, e.Plan[0])
+	assert.Equal(t, agent.PlanEntry{Content: "Do Y", Priority: "medium", Status: "in_progress"}, e.Plan[1])
+}
+
+// TestMapSessionUpdate_ToolCallIDPreserved pins IR2's tool-call id fix: the
+// engine's own toolCallId (and kind/locations) survive into the IR instead of
+// being dropped at the flatten boundary — this is what lets the outbound
+// re-emission reuse the SAME id instead of generating one keyed only by tool
+// name (the confirmed same-name mispair risk).
+func TestMapSessionUpdate_ToolCallIDPreserved(t *testing.T) {
+	e := oneEntry(t, mapUpdateJSON(t, `{"sessionUpdate":"tool_call","toolCallId":"engine-call-7","title":"Read file","kind":"read","status":"pending","locations":[{"path":"/a.txt","line":3}]}`))
+	assert.Equal(t, "engine-call-7", e.ToolCallID)
+	assert.Equal(t, "read", e.ToolKind)
+	require.Len(t, e.ToolLocations, 1)
+	assert.Equal(t, agent.ToolLocation{Path: "/a.txt", Line: 3}, e.ToolLocations[0])
+
+	r := oneEntry(t, mapUpdateJSON(t, `{"sessionUpdate":"tool_call_update","toolCallId":"engine-call-7","status":"completed","content":[{"type":"content","content":{"type":"text","text":"body"}}]}`))
+	assert.Equal(t, "engine-call-7", r.ToolCallID)
+	require.Len(t, r.ToolContent, 1)
+	assert.Equal(t, "content", r.ToolContent[0].Kind)
+	assert.Equal(t, "body", r.ToolContent[0].Text)
+}
+
+// TestMapSessionUpdate_RawPassthrough pins IR3: available_commands_update and
+// current_mode_update have no IR entry type of their own, but are forwarded
+// on the ChatEvent.Raw side channel instead of silently dropped (the
+// conformance audit's gap G9) — and a `_meta` supplement on an otherwise
+// fully-mapped entry rides alongside it.
+func TestMapSessionUpdate_RawPassthrough(t *testing.T) {
+	t.Run("available_commands_update forwarded as a raw-only event", func(t *testing.T) {
+		evs := mapUpdateJSON(t, `{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"foo","description":"d"}]}`)
+		require.Len(t, evs, 1)
+		assert.Nil(t, evs[0].Entry)
+		require.NotEmpty(t, evs[0].Raw)
+		assert.Contains(t, string(evs[0].Raw), `"sessionUpdate":"available_commands_update"`)
+		assert.Contains(t, string(evs[0].Raw), `"foo"`)
+	})
+
+	t.Run("current_mode_update forwarded as a raw-only event", func(t *testing.T) {
+		evs := mapUpdateJSON(t, `{"sessionUpdate":"current_mode_update","currentModeId":"review"}`)
+		require.Len(t, evs, 1)
+		assert.Nil(t, evs[0].Entry)
+		require.NotEmpty(t, evs[0].Raw)
+		assert.Contains(t, string(evs[0].Raw), `"currentModeId":"review"`)
+	})
+
+	t.Run("_meta on a mapped entry rides alongside it, not instead of it", func(t *testing.T) {
+		evs := mapUpdateJSON(t, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"},"_meta":{"vendor":{"x":1}}}`)
+		require.Len(t, evs, 1)
+		require.NotNil(t, evs[0].Entry)
+		assert.Equal(t, "hi", evs[0].Entry.Content)
+		require.NotEmpty(t, evs[0].Raw)
+		assert.JSONEq(t, `{"_meta":{"vendor":{"x":1}}}`, string(evs[0].Raw))
+	})
+
+	t.Run("no _meta means no Raw", func(t *testing.T) {
+		evs := mapUpdateJSON(t, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}`)
+		require.Len(t, evs, 1)
+		assert.Empty(t, evs[0].Raw)
+	})
 }
 
 // TestMapSessionUpdate_Dropped pins the variants and shapes that must yield no

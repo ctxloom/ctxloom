@@ -50,6 +50,14 @@ const (
 	// KindPermission carries a forwarded engine permission request awaiting a
 	// caller decision. Mirrors agent.ChatEvent.Permission.
 	KindPermission Kind = "permission"
+	// KindRaw carries ONLY the IR3 raw side channel (Record.Raw) — a
+	// ChatEvent that had no Entry/Session/Complete/Permission of its own
+	// (e.g. an available_commands_update/current_mode_update passthrough
+	// forwarded via agent.ChatEvent.Raw; see internal/acp/mapping.go's
+	// rawOnlyEvent). Distinct from the other four Kinds carrying no payload:
+	// this one is legitimately payload-FREE of the structured kinds by
+	// construction, not an error.
+	KindRaw Kind = "raw"
 )
 
 // Record is one line of the canonical transcript.acp.jsonl file.
@@ -93,13 +101,18 @@ type Record struct {
 	Complete   *CompletePayload   `json:"complete,omitempty"`
 	Permission *PermissionPayload `json:"permission,omitempty"`
 
-	// Raw is an OPTIONAL escape hatch for the original engine frame, reserved
-	// for a capture path that holds one and finds the ChatEvent mapping lossy
-	// for a given frame (see docs/transcript-schema.md, "Fidelity"). The
-	// ChatEvent-driven Recorder in THIS package never populates it — ChatEvent
-	// carries no raw frame to attach. It exists in the schema now so S6
-	// importers (which DO hold the native engine frame) and any future
-	// richer capture path can use the same envelope without a schema bump.
+	// Raw is an OPTIONAL escape hatch for the original engine frame. As of IR3
+	// (2026-07), agent.ChatEvent DOES carry one (ChatEvent.Raw — the protocol
+	// side channel for the curated available_commands_update/
+	// current_mode_update/_meta allowlist) and the Recorder in THIS package
+	// DOES populate this field FROM it, gated by RawPolicy (see NewRecorder's
+	// WithRawPolicy option). This is a CAPTURE-layer decision only — it
+	// governs what gets written to DISK from a ChatEvent.Raw that already
+	// exists (or doesn't) by the time a Recorder sees it; it has nothing to
+	// do with what crosses the wire (that is entirely internal/acp's and
+	// internal/acpagent's mapping-layer allowlist). Never conflate protocol
+	// `_meta`/passthrough forwarding with this transcript capture policy —
+	// they are unrelated decisions that happen to share a name ("raw").
 	Raw json.RawMessage `json:"raw,omitempty"`
 }
 
@@ -118,6 +131,47 @@ type EntryPayload struct {
 	// subagent rather than the session's main thread (agent.SessionEntry.
 	// Sidechain / agent.MainThreadEntries).
 	Sidechain bool `json:"sidechain,omitempty"`
+
+	// --- IR2 (2026-07): mirrors agent.SessionEntry's additive richness
+	// fields, field for field. All optional/omitempty, same as above.
+	ToolCallID    string             `json:"tool_call_id,omitempty"`
+	ToolKind      string             `json:"tool_kind,omitempty"`
+	ToolLocations []ToolLocation     `json:"tool_locations,omitempty"`
+	ToolContent   []ToolContentBlock `json:"tool_content,omitempty"`
+	ContentBlocks []ContentBlock     `json:"content_blocks,omitempty"`
+	SystemKind    string             `json:"system_kind,omitempty"`
+	Plan          []PlanEntry        `json:"plan,omitempty"`
+}
+
+// ToolLocation mirrors agent.ToolLocation.
+type ToolLocation struct {
+	Path string `json:"path"`
+	Line int    `json:"line,omitempty"`
+}
+
+// ContentBlock mirrors agent.ContentBlock.
+type ContentBlock struct {
+	Kind string          `json:"kind"`
+	Text string          `json:"text,omitempty"`
+	Raw  json.RawMessage `json:"raw,omitempty"`
+}
+
+// ToolContentBlock mirrors agent.ToolContentBlock.
+type ToolContentBlock struct {
+	Kind        string          `json:"kind"`
+	Text        string          `json:"text,omitempty"`
+	DiffPath    string          `json:"diff_path,omitempty"`
+	DiffOldText string          `json:"diff_old_text,omitempty"`
+	DiffNewText string          `json:"diff_new_text,omitempty"`
+	TerminalID  string          `json:"terminal_id,omitempty"`
+	Raw         json.RawMessage `json:"raw,omitempty"`
+}
+
+// PlanEntry mirrors agent.PlanEntry.
+type PlanEntry struct {
+	Content  string `json:"content"`
+	Priority string `json:"priority,omitempty"`
+	Status   string `json:"status,omitempty"`
 }
 
 // SessionPayload is the KindSession payload — agent.ChatSessionInfo minus
@@ -179,10 +233,13 @@ type PermissionOption struct {
 
 // payloadFromChatEvent classifies ev and builds its Kind + payload, leaving
 // the envelope fields (v/harp/session_id/engine/seq/ts) for the caller
-// (Recorder.Record) to stamp. Returns an error for a zero-value ChatEvent (no
-// variant set) — the caller must not silently emit a line with no payload; a
-// blank envelope masquerading as a recorded event is exactly the
-// silent-no-op failure mode this package exists to avoid.
+// (Recorder.Record) to stamp. Returns an error for a truly zero-value
+// ChatEvent (no variant AND no Raw) — the caller must not silently emit a
+// line with no payload; a blank envelope masquerading as a recorded event is
+// exactly the silent-no-op failure mode this package exists to avoid. A
+// raw-only event (Entry/Session/Complete/Permission all nil, Raw non-empty —
+// IR3's passthrough events) is NOT that case: it legitimately has nothing
+// else to say, and classifies as KindRaw instead of erroring.
 func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayload, *CompletePayload, *PermissionPayload, error) {
 	switch {
 	case ev.Entry != nil:
@@ -193,21 +250,126 @@ func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayl
 		return KindComplete, nil, nil, completePayload(ev.Complete), nil, nil
 	case ev.Permission != nil:
 		return KindPermission, nil, nil, nil, permissionPayload(ev.Permission), nil
+	case len(ev.Raw) > 0:
+		return KindRaw, nil, nil, nil, nil, nil
 	default:
-		return "", nil, nil, nil, nil, fmt.Errorf("transcript: ChatEvent carries no variant (Entry/Session/Complete/Permission all nil) — refusing to record an empty line")
+		return "", nil, nil, nil, nil, fmt.Errorf("transcript: ChatEvent carries no variant and no Raw (Entry/Session/Complete/Permission all nil, Raw empty) — refusing to record an empty line")
+	}
+}
+
+// RawPolicy controls whether/when the Recorder persists a ChatEvent's IR3 raw
+// protocol side channel (agent.ChatEvent.Raw) into Record.Raw. This is a
+// CAPTURE-layer policy ONLY: by the time a Recorder ever sees a ChatEvent,
+// ev.Raw already exists (or doesn't) — the mapping layer
+// (internal/acp/mapping.go, internal/acpagent/mapping.go) decided that; this
+// policy cannot make the hub carry MORE than the mapping layer already chose
+// to forward, and in particular can never surface a permission request here
+// — permissions are never carried on ChatEvent.Raw in the first place (see
+// that field's doc comment).
+type RawPolicy string
+
+const (
+	// RawOff never persists Raw. A raw-ONLY event (nothing else to record)
+	// is dropped from the transcript entirely under this policy, rather than
+	// writing a payload-free placeholder line — the same "write nothing,
+	// verifiably" discipline NewRecorder's lazy-open behavior follows.
+	RawOff RawPolicy = "off"
+	// RawLossyOnly (the DEFAULT) persists Raw only when it is the event's
+	// SOLE payload — the mapping layer had no other IR projection for this
+	// frame at all (a raw-only passthrough event, KindRaw). When Raw merely
+	// SUPPLEMENTS an already-captured Entry/Session/Complete/Permission
+	// (e.g. a `_meta` blob riding alongside a mapped tool_call), it is
+	// dropped: that structured payload is not itself lossy, and the
+	// supplement is treated as non-essential to keep on disk by default.
+	RawLossyOnly RawPolicy = "lossy-only"
+	// RawAll persists Raw whenever the mapping layer set it, even alongside
+	// an already-fully-captured structured payload.
+	RawAll RawPolicy = "all"
+)
+
+// DefaultRawPolicy is RawLossyOnly, per the IR3 design decision (2026-07):
+// capture what would otherwise be silently lost; skip byte-for-byte
+// duplication of content already captured structurally.
+const DefaultRawPolicy = RawLossyOnly
+
+// normalizeRawPolicy maps an empty/unrecognized policy string to the default,
+// so a caller that leaves ChatRequest.TranscriptRawPolicy unset (every
+// current caller) gets DefaultRawPolicy rather than an invalid/zero policy
+// that would silently behave like RawOff.
+func normalizeRawPolicy(p RawPolicy) RawPolicy {
+	switch p {
+	case RawOff, RawLossyOnly, RawAll:
+		return p
+	default:
+		return DefaultRawPolicy
 	}
 }
 
 func entryPayload(e *agent.SessionEntry) *EntryPayload {
 	return &EntryPayload{
-		Type:       string(e.Type),
-		Content:    e.Content,
-		ToolName:   e.ToolName,
-		ToolInput:  e.ToolInput,
-		ToolOutput: e.ToolOutput,
-		IsError:    e.IsError,
-		Sidechain:  e.Sidechain,
+		Type:          string(e.Type),
+		Content:       e.Content,
+		ToolName:      e.ToolName,
+		ToolInput:     e.ToolInput,
+		ToolOutput:    e.ToolOutput,
+		IsError:       e.IsError,
+		Sidechain:     e.Sidechain,
+		ToolCallID:    e.ToolCallID,
+		ToolKind:      e.ToolKind,
+		ToolLocations: toolLocationsPayload(e.ToolLocations),
+		ToolContent:   toolContentPayload(e.ToolContent),
+		ContentBlocks: contentBlocksPayload(e.ContentBlocks),
+		SystemKind:    string(e.SystemKind),
+		Plan:          planEntriesPayload(e.Plan),
 	}
+}
+
+func toolLocationsPayload(locs []agent.ToolLocation) []ToolLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]ToolLocation, 0, len(locs))
+	for _, l := range locs {
+		out = append(out, ToolLocation{Path: l.Path, Line: l.Line})
+	}
+	return out
+}
+
+func contentBlocksPayload(blocks []agent.ContentBlock) []ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, ContentBlock{Kind: b.Kind, Text: b.Text, Raw: b.Raw})
+	}
+	return out
+}
+
+func toolContentPayload(content []agent.ToolContentBlock) []ToolContentBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]ToolContentBlock, 0, len(content))
+	for _, c := range content {
+		out = append(out, ToolContentBlock{
+			Kind: c.Kind, Text: c.Text,
+			DiffPath: c.DiffPath, DiffOldText: c.DiffOldText, DiffNewText: c.DiffNewText,
+			TerminalID: c.TerminalID, Raw: c.Raw,
+		})
+	}
+	return out
+}
+
+func planEntriesPayload(entries []agent.PlanEntry) []PlanEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]PlanEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, PlanEntry{Content: e.Content, Priority: e.Priority, Status: e.Status})
+	}
+	return out
 }
 
 func sessionPayload(s *agent.ChatSessionInfo) *SessionPayload {

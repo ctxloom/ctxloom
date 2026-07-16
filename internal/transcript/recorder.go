@@ -35,11 +35,26 @@ type fileRecorder struct {
 	engine string
 	path   string
 	now    func() time.Time
+	policy RawPolicy
 
 	mu        sync.Mutex
 	file      *os.File // nil until the first successful Record call
 	seq       int
 	sessionID string // latched from the first KindSession line seen
+}
+
+// RecorderOption configures optional NewRecorder behavior. Additive: every
+// existing NewRecorder(harp, engine) call site keeps compiling and behaving
+// identically (RawLossyOnly, the default, was always the intended behavior
+// for the ONLY thing an option can change so far).
+type RecorderOption func(*fileRecorder)
+
+// WithRawPolicy sets the RawPolicy governing whether/when Record persists a
+// ChatEvent's IR3 raw side channel into Record.Raw (see RawPolicy's doc
+// comment). An empty/unrecognized policy normalizes to DefaultRawPolicy
+// (RawLossyOnly) rather than silently behaving like RawOff.
+func WithRawPolicy(p RawPolicy) RecorderOption {
+	return func(r *fileRecorder) { r.policy = normalizeRawPolicy(p) }
 }
 
 // NewRecorder returns a Recorder for harp/engine, targeting
@@ -61,7 +76,7 @@ type fileRecorder struct {
 //
 // Seq starts at 0 on the first Record call and increases by 1, with no gaps,
 // for the lifetime of the Recorder.
-func NewRecorder(harp, engine string) (Recorder, error) {
+func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) {
 	if harp == "" {
 		return nil, fmt.Errorf("transcript: NewRecorder requires a non-empty harp")
 	}
@@ -72,12 +87,29 @@ func NewRecorder(harp, engine string) (Recorder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harp, err)
 	}
-	return &fileRecorder{
+	r := &fileRecorder{
 		harp:   harp,
 		engine: engine,
 		path:   p,
 		now:    func() time.Time { return time.Now().UTC() },
-	}, nil
+		policy: DefaultRawPolicy,
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r, nil
+}
+
+// rawToPersist decides what (if anything) of ev.Raw this recorder's policy
+// keeps for kind. See RawPolicy's doc comment for the per-policy rule.
+func (r *fileRecorder) rawToPersist(ev agent.ChatEvent, kind Kind) json.RawMessage {
+	if len(ev.Raw) == 0 || r.policy == RawOff {
+		return nil
+	}
+	if r.policy == RawAll || kind == KindRaw {
+		return ev.Raw
+	}
+	return nil // RawLossyOnly, and Raw only SUPPLEMENTS another payload
 }
 
 // Record implements Recorder.
@@ -89,6 +121,16 @@ func (r *fileRecorder) Record(ev agent.ChatEvent) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	raw := r.rawToPersist(ev, kind)
+	if kind == KindRaw && raw == nil {
+		// RawOff suppressed the ONLY payload this event had: nothing left to
+		// write. A deliberate, policy-directed skip — not the silent-no-op
+		// bug pattern this package is otherwise paranoid about — mirroring
+		// NewRecorder's own "write nothing, verifiably" convention for a
+		// chat that produced no events at all.
+		return nil
+	}
 
 	if kind == KindSession && session != nil {
 		if sid := chatEventSessionID(ev); sid != "" {
@@ -108,6 +150,7 @@ func (r *fileRecorder) Record(ev agent.ChatEvent) error {
 		Session:    session,
 		Complete:   complete,
 		Permission: permission,
+		Raw:        raw,
 	}
 
 	line, err := json.Marshal(rec)

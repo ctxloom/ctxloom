@@ -214,14 +214,70 @@ func entriesFromRecord(rec Record) []agent.SessionEntry {
 	if rec.Kind != KindEntry || rec.Entry == nil {
 		return nil
 	}
+	e := rec.Entry
 	return []agent.SessionEntry{{
-		Timestamp:  rec.TS,
-		Type:       agent.SessionEntryType(rec.Entry.Type),
-		Content:    rec.Entry.Content,
-		ToolName:   rec.Entry.ToolName,
-		ToolInput:  rec.Entry.ToolInput,
-		ToolOutput: rec.Entry.ToolOutput,
-		IsError:    rec.Entry.IsError,
-		Sidechain:  rec.Entry.Sidechain,
+		Timestamp:     rec.TS,
+		Type:          agent.SessionEntryType(e.Type),
+		Content:       e.Content,
+		ToolName:      e.ToolName,
+		ToolInput:     e.ToolInput,
+		ToolOutput:    e.ToolOutput,
+		IsError:       e.IsError,
+		Sidechain:     e.Sidechain,
+		ToolCallID:    e.ToolCallID,
+		ToolKind:      e.ToolKind,
+		ToolLocations: toolLocationsFromPayload(e.ToolLocations),
+		ToolContent:   toolContentFromPayload(e.ToolContent),
+		ContentBlocks: contentBlocksFromPayload(e.ContentBlocks),
+		SystemKind:    agent.SessionSystemKind(e.SystemKind),
+		Plan:          planEntriesFromPayload(e.Plan),
 	}}
+}
+
+func toolLocationsFromPayload(locs []ToolLocation) []agent.ToolLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolLocation, 0, len(locs))
+	for _, l := range locs {
+		out = append(out, agent.ToolLocation{Path: l.Path, Line: l.Line})
+	}
+	return out
+}
+
+func contentBlocksFromPayload(blocks []ContentBlock) []agent.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]agent.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, agent.ContentBlock{Kind: b.Kind, Text: b.Text, Raw: b.Raw})
+	}
+	return out
+}
+
+func toolContentFromPayload(content []ToolContentBlock) []agent.ToolContentBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolContentBlock, 0, len(content))
+	for _, c := range content {
+		out = append(out, agent.ToolContentBlock{
+			Kind: c.Kind, Text: c.Text,
+			DiffPath: c.DiffPath, DiffOldText: c.DiffOldText, DiffNewText: c.DiffNewText,
+			TerminalID: c.TerminalID, Raw: c.Raw,
+		})
+	}
+	return out
+}
+
+func planEntriesFromPayload(entries []PlanEntry) []agent.PlanEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]agent.PlanEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, agent.PlanEntry{Content: e.Content, Priority: e.Priority, Status: e.Status})
+	}
+	return out
 }

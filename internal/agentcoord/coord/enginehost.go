@@ -294,7 +294,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// message necessarily does.
 	var rec transcript.Recorder
 	if dec.SessionHarp != "" {
-		r, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness)
+		r, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness, transcript.WithRawPolicy(transcript.RawPolicy(dec.Chat.TranscriptRawPolicy)))
 		if rerr != nil {
 			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", dec.SessionHarp, eh.harness, rerr)
 		} else {

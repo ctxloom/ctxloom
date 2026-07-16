@@ -29,6 +29,22 @@ type AttachedContainer struct {
 // Close tears the container down. Safe to call once.
 func (a *AttachedContainer) Close() error { return a.close() }
 
+// interactiveRunArgs inserts `-i` right after RunArgs' leading "run" element,
+// keeping the container's stdin OPEN for this caller's piped writes. The
+// shared RunSpec/RunArgs never add it themselves: the go-plugin transport
+// (containerRunnerFunc/newContainerRunner) deliberately leaves stdin nil —
+// go-plugin never watches it, so `-i` would only hold the run process open
+// for nothing — but a caller speaking its OWN stdio protocol (RunAttached's
+// whole reason to exist) needs a live bidirectional stdin or the container
+// sees EOF immediately and the engine's read loop exits before ever seeing a
+// request. Args always start with "run" (every Runtime.RunArgs
+// implementation here does), so element 1 is always a safe insertion point.
+func interactiveRunArgs(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args[0], "-i")
+	return append(out, args[1:]...)
+}
+
 // RunAttached starts spec's container in the FOREGROUND (Runtime.RunArgs —
 // stdout/stderr attached, no -d/-t: a pty would mangle a piped protocol
 // exactly as it would the go-plugin handshake) with piped stdin/stdout for a
@@ -44,7 +60,7 @@ func (a *AttachedContainer) Close() error { return a.close() }
 // to confirm removal is surfaced, loudly, since the live container would
 // otherwise hold this session's workspace mounts invisibly.
 func RunAttached(ctx context.Context, rt Runtime, spec RunSpec) (*AttachedContainer, error) {
-	cmd := exec.CommandContext(ctx, rt.Binary(), rt.RunArgs(spec)...)
+	cmd := exec.CommandContext(ctx, rt.Binary(), interactiveRunArgs(rt.RunArgs(spec))...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("container attach: stdin pipe: %w", err)

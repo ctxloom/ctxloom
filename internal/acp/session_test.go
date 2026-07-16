@@ -618,6 +618,109 @@ func TestChat_MCPServersAtSessionNew(t *testing.T) {
 	assert.Equal(t, "A", got.McpServers[0].Env[0].Name, "env is sorted for a deterministic frame")
 }
 
+// TestChat_MCPServersHttpSse_EngineSupports proves an editor-supplied http/sse
+// MCP server (B3, gap G11) actually REACHES the engine: when the connected
+// engine's own initialize response advertises mcpCapabilities.http/sse,
+// mcpServersToACP forwards both in the spec's discriminated-union shape
+// (verified from the RAW wire bytes, not just the decoded Go struct) and no
+// drop is reported.
+func TestChat_MCPServersHttpSse_EngineSupports(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{
+		WorkDir: "/work",
+		MCPServers: []agent.ChatMCPServer{
+			{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}},
+			{Name: "remote-sse", Transport: agent.MCPTransportSSE, URL: "https://example.com/sse"},
+		},
+	})
+	events := collect(h.out)
+
+	newParams := make(chan json.RawMessage, 1)
+	go func() {
+		initReq := <-h.fa.requests
+		_ = h.fa.respond(initReq.ID, map[string]any{
+			"protocolVersion":   1,
+			"agentCapabilities": map[string]any{"mcpCapabilities": map[string]any{"http": true, "sse": true}},
+		})
+		newReq := <-h.fa.requests
+		newParams <- newReq.Params
+		_ = h.fa.respond(newReq.ID, map[string]any{"sessionId": "s"})
+		promptReq := <-h.fa.requests
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+
+	raw := string(<-newParams)
+	assert.Contains(t, raw, `"type":"http"`)
+	assert.Contains(t, raw, `"url":"https://example.com/mcp"`)
+	assert.Contains(t, raw, `"Authorization"`)
+	assert.Contains(t, raw, `"type":"sse"`)
+	assert.Contains(t, raw, `"url":"https://example.com/sse"`)
+
+	for _, ev := range evs {
+		if ev.Session != nil {
+			assert.Empty(t, ev.Session.MCPServers, "both entries were accepted by the engine's advertised capabilities — nothing should be reported as dropped")
+		}
+	}
+}
+
+// TestChat_MCPServersHttp_EngineDoesNotSupport proves the OTHER half of the
+// contract: when the connected engine does NOT advertise mcpCapabilities.http,
+// ctxloom must NOT send the http entry (would be a protocol violation) — but
+// must NEVER silently drop it either. It is folded into the session's
+// ChatSessionInfo.MCPServers as a named, reasoned status (this codebase's
+// established loud-status mechanism — see internal/cli/run_structured.go's
+// rendering of it), and the raw session/new bytes are proven to omit it.
+func TestChat_MCPServersHttp_EngineDoesNotSupport(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{
+		WorkDir: "/work",
+		MCPServers: []agent.ChatMCPServer{
+			{Name: "stdio-tool", Command: "/bin/tools"},
+			{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp"},
+		},
+	})
+	events := collect(h.out)
+
+	newParams := make(chan json.RawMessage, 1)
+	go func() {
+		initReq := <-h.fa.requests
+		// No mcpCapabilities in the response at all: http/sse default false.
+		_ = h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1})
+		newReq := <-h.fa.requests
+		newParams <- newReq.Params
+		_ = h.fa.respond(newReq.ID, map[string]any{"sessionId": "s"})
+		promptReq := <-h.fa.requests
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hi"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+
+	raw := string(<-newParams)
+	assert.Contains(t, raw, `"stdio-tool"`, "the stdio entry is the protocol's unconditional baseline — always sent")
+	assert.NotContains(t, raw, "remote-http", "an http entry MUST NOT be sent to an engine that never advertised mcpCapabilities.http")
+
+	var sawStatus bool
+	for _, ev := range evs {
+		if ev.Session == nil {
+			continue
+		}
+		for _, s := range ev.Session.MCPServers {
+			if s.Name == "remote-http" {
+				sawStatus = true
+				assert.Contains(t, s.Status, "unsupported", "the dropped entry's status must say WHY, never a bare 'withheld'")
+				assert.Contains(t, s.Status, "http")
+			}
+		}
+	}
+	assert.True(t, sawStatus, "a dropped http entry must be reported in ChatSessionInfo.MCPServers, never silently discarded")
+}
+
 // TestChat_ResumeSessionLoad: a ChatRequest with ResumeSessionID, against an
 // agent that advertises the loadSession capability, resumes via session/load
 // (never session/new) under the SAME session id — and the replay history

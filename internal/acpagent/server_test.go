@@ -759,10 +759,13 @@ func TestServe_SessionLoad_OpenError(t *testing.T) {
 
 // TestServe_Initialize_AdvertisesCapabilitiesTruthfully pins the EXACT set of
 // capabilities ctxloom's agent role claims today: loadSession + embedded
-// context, nothing else — a client reading this response must never be told
-// about image/audio/MCP-http/sse/session-management support ctxloom does not
-// actually have (see handleInitialize's doc comment for why each is true or
-// false today).
+// context + mcp http/sse (B3, gap G11 — mcpServersFromACP now accepts an
+// editor-supplied http/sse server; see handleInitialize's doc comment for
+// what happens when the SESSION'S chosen engine can't actually take one).
+// mcp acp and image/audio/session-management stay false — a client reading
+// this response must never be told about support ctxloom does not actually
+// have (see handleInitialize's doc comment for why each is true or false
+// today).
 func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return nil, assert.AnError })
 	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
@@ -776,9 +779,9 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	assert.True(t, got.AgentCapabilities.PromptCapabilities.EmbeddedContext)
 	assert.False(t, got.AgentCapabilities.PromptCapabilities.Image, "no multimodal intake yet (B2) — promptText drops image blocks silently, so claiming this would be exactly the lie C1 must not tell")
 	assert.False(t, got.AgentCapabilities.PromptCapabilities.Audio, "no multimodal intake yet (B2) — promptText drops audio blocks silently")
-	assert.False(t, got.AgentCapabilities.McpCapabilities.Acp)
-	assert.False(t, got.AgentCapabilities.McpCapabilities.Http, "no HTTP MCP passthrough yet (B3) — mcpServersFromACP only forwards stdio")
-	assert.False(t, got.AgentCapabilities.McpCapabilities.Sse, "no SSE MCP passthrough yet (B3)")
+	assert.False(t, got.AgentCapabilities.McpCapabilities.Acp, "ACP-transport MCP servers have no seam yet — mcpServersFromACP rejects them loudly rather than forwarding a server that could never connect")
+	assert.True(t, got.AgentCapabilities.McpCapabilities.Http, "B3 (gap G11): mcpServersFromACP now accepts an editor-supplied HTTP MCP server")
+	assert.True(t, got.AgentCapabilities.McpCapabilities.Sse, "B3 (gap G11): mcpServersFromACP now accepts an editor-supplied SSE MCP server")
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Close)
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.Delete)
 	assert.Nil(t, got.AgentCapabilities.SessionCapabilities.List)
@@ -793,6 +796,8 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	raw := string(resp.Result)
 	assert.Contains(t, raw, `"embeddedContext":true`)
 	assert.Contains(t, raw, `"authMethods":[]`)
+	assert.Contains(t, raw, `"http":true`)
+	assert.Contains(t, raw, `"sse":true`)
 }
 
 // TestServe_Initialize_VersionNegotiation: a client offering a NEWER protocol
@@ -844,4 +849,37 @@ func TestServe_Logout_AnswersCleanly(t *testing.T) {
 	require.NotNil(t, resp.Error)
 	assert.NotEqual(t, jsonrpc.CodeMethodNotFound, resp.Error.Code, "must not be indistinguishable from a truly-unrecognized method")
 	assert.Contains(t, resp.Error.Message, "does not support authentication")
+}
+
+// TestMcpServersFromACP_HttpSse: an editor-supplied http/sse McpServer (B3,
+// gap G11) is accepted and carried onward as an agent.ChatMCPServer with
+// Transport/URL/Headers set — proving the editor's server actually reaches
+// ctxloom's internal shape, not just that initialize claims support.
+func TestMcpServersFromACP_HttpSse(t *testing.T) {
+	got := mcpServersFromACP([]api.McpServer{
+		{Stdio: &api.McpServerStdio{Name: "local", Command: "/bin/x", Args: []string{"a"}}},
+		{Http: &api.McpServerHttpInline{Name: "remote-http", Url: "https://example.com/mcp", Headers: []api.HttpHeader{{Name: "Authorization", Value: "Bearer tok"}}}},
+		{Sse: &api.McpServerSseInline{Name: "remote-sse", Url: "https://example.com/sse"}},
+	})
+	require.Len(t, got, 3)
+	assert.Equal(t, agent.ChatMCPServer{Name: "local", Command: "/bin/x", Args: []string{"a"}}, got[0])
+	assert.Equal(t, agent.ChatMCPServer{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}}, got[1])
+	assert.Equal(t, agent.ChatMCPServer{Name: "remote-sse", Transport: agent.MCPTransportSSE, URL: "https://example.com/sse"}, got[2])
+}
+
+// TestMcpServersFromACP_RejectsUnreachableVariants: an McpServer::Acp entry
+// (no seam ctxloom can actually reach) and a malformed entry with no variant
+// set at all are BOTH dropped rather than forwarded — never silently: they
+// simply do not appear in the output (see mcpServersFromACP's doc comment
+// for the clidiag.Warn side of this, which is stderr-only and not unit
+// tested here, but the functional guarantee — nothing broken reaches the
+// engine — is what this test pins).
+func TestMcpServersFromACP_RejectsUnreachableVariants(t *testing.T) {
+	got := mcpServersFromACP([]api.McpServer{
+		{Acp: &api.McpServerAcpInline{Name: "acp-server"}},
+		{}, // no variant set at all
+		{Stdio: &api.McpServerStdio{Name: "kept", Command: "/bin/x"}},
+	})
+	require.Len(t, got, 1, "only the valid stdio entry should survive")
+	assert.Equal(t, "kept", got[0].Name)
 }

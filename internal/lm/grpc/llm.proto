@@ -212,12 +212,25 @@ message ChatStart {
   string transcript_raw_policy = 7;
 }
 
-// ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
+// ChatMCPServer is one caller-supplied MCP server for a chat run: a stdio
+// command (transport empty, command/args/env meaningful) or a remote
+// http/sse server (transport set, url/headers meaningful) — mirrors
+// agent.ChatMCPServer/MCPTransport (B3, gap G11). Fields 5-7 are additive:
+// every pre-B3 sender leaves them unset, which decodes as stdio (the
+// pre-existing behavior), so this is wire-compatible with older builds.
 message ChatMCPServer {
   string name = 1;
   string command = 2;
   repeated string args = 3;
   map<string, string> env = 4;
+  // transport is "" (stdio, default) | "http" | "sse". Mirrors
+  // agent.MCPTransport's string values byte-for-byte.
+  string transport = 5;
+  // url is the remote endpoint for an http/sse transport. Empty for stdio.
+  string url = 6;
+  // headers are HTTP headers sent when connecting an http/sse transport
+  // (e.g. Authorization). Empty for stdio.
+  map<string, string> headers = 7;
 }
 
 // ChatUserMessage is one inbound user turn (plain text in v1).

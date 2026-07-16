@@ -70,6 +70,19 @@ type opencodeMCPLocal struct {
 	Enabled     bool              `json:"enabled"`
 }
 
+// opencodeMCPRemote is opencode's remote (http/sse) MCP server shape (B3, gap
+// G11) — VERIFIED against opencode 1.18.1 via `opencode debug config`: a
+// `{"type":"remote","url":...,"headers":{...},"enabled":true}` entry round-trips
+// with no validation error. opencode has ONE remote shape for both ACP
+// transports (it does not distinguish http from sse the way the ACP wire
+// does), so both agent.MCPTransportHTTP and agent.MCPTransportSSE map here.
+type opencodeMCPRemote struct {
+	Type    string            `json:"type"`
+	Url     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
 // managedConfig is the ctxloom-managed slice of opencode.json for one merge. Every
 // field is optional; a zero field leaves that key untouched.
 type managedConfig struct {
@@ -113,13 +126,21 @@ func applyManaged(cfg map[string]json.RawMessage, m managedConfig) (mcpNames []s
 			}
 		}
 		for _, s := range m.mcpServers {
-			entry := opencodeMCPLocal{
-				Type:        "local",
-				Command:     append([]string{s.Command}, s.Args...),
-				Environment: s.Env,
-				Enabled:     true,
+			var (
+				raw []byte
+				e   error
+			)
+			switch s.Transport {
+			case agent.MCPTransportHTTP, agent.MCPTransportSSE:
+				raw, e = json.Marshal(opencodeMCPRemote{Type: "remote", Url: s.URL, Headers: s.Headers, Enabled: true})
+			default:
+				raw, e = json.Marshal(opencodeMCPLocal{
+					Type:        "local",
+					Command:     append([]string{s.Command}, s.Args...),
+					Environment: s.Env,
+					Enabled:     true,
+				})
 			}
-			raw, e := json.Marshal(entry)
 			if e != nil {
 				return nil, fmt.Errorf("encode opencode mcp %q: %w", s.Name, e)
 			}

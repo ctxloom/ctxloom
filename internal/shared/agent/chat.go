@@ -121,12 +121,51 @@ type ModelDeliveryQuirk struct {
 // for why this is a duplicated literal, not an import).
 const RuntimeContainer = "container"
 
-// ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
+// MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
+// The zero value (MCPTransportStdio, "") is the protocol's unconditional
+// baseline — every EXISTING construction site (ComposeChatMCPServers and
+// everything that feeds it: ctxloom's own bundle/config-managed servers,
+// which are stdio-only today — see wire.MCPServer) leaves this field unset
+// and is therefore completely unaffected by its addition. Http/Sse carry an
+// EDITOR-supplied remote MCP server instead of a local command (ACP's
+// session/new mcpServers, B3/gap G11): ctxloom's own materialized bundle
+// servers never populate these, only the ACP passthrough paths
+// (mcpServersFromACP / mcpServersToACP) do.
+type MCPTransport string
+
+const (
+	// MCPTransportStdio is the explicit zero value: a local command ctxloom
+	// (or the editor) spawns as a subprocess. Every ACP agent MUST support
+	// this transport per spec, so it carries no capability gate.
+	MCPTransportStdio MCPTransport = ""
+	// MCPTransportHTTP is a remote MCP server reached over streamable HTTP.
+	// Only meaningful when the RECEIVING engine advertises
+	// mcpCapabilities.http — see internal/acp/session.go's mcpServersToACP.
+	MCPTransportHTTP MCPTransport = "http"
+	// MCPTransportSSE is a remote MCP server reached over Server-Sent
+	// Events. Only meaningful when the RECEIVING engine advertises
+	// mcpCapabilities.sse.
+	MCPTransportSSE MCPTransport = "sse"
+)
+
+// ChatMCPServer is one caller-supplied MCP server for a chat run: a stdio
+// command (the default, Transport == MCPTransportStdio, Command/Args/Env
+// meaningful) or a remote Http/Sse server (Transport set, URL/Headers
+// meaningful, Command/Args/Env empty).
 type ChatMCPServer struct {
 	Name    string
 	Command string
 	Args    []string
 	Env     map[string]string
+
+	// Transport is MCPTransportStdio (default) for a local command, or
+	// MCPTransportHTTP/MCPTransportSSE for a remote server.
+	Transport MCPTransport
+	// URL is the remote endpoint for an Http/Sse Transport entry. Empty for stdio.
+	URL string
+	// Headers are HTTP headers to send when connecting an Http/Sse Transport
+	// entry (e.g. Authorization). Empty for stdio.
+	Headers map[string]string
 }
 
 // ChatMessage is one inbound message on a chat's input channel. Exactly one

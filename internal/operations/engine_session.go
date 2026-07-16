@@ -180,6 +180,24 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// session/new mcpServers instead. Bundle executables pass the SAME trust
 		// gate the run path applies before reaching the engine (fail-closed);
 		// client-supplied servers win by name over the managed entries.
+		//
+		// B3 (gap G11, HTTP/SSE passthrough) CONCLUSION on trust: req.MCPServers
+		// (the editor's session/new payload) is NEVER run through this gate,
+		// for ANY transport — stdio, http, or sse alike — and that is
+		// unchanged by B3, not a new hole it opens. This gate exists to vet
+		// CONTENT ctxloom itself resolves from a bundle/remote by publisher
+		// signature (trust.Ref + EffectiveTrust); an editor's session/new
+		// mcpServers has no publisher, no signature, no bundle — it is the
+		// human's own direct configuration of THEIR OWN editor, structurally
+		// outside what this gate was built to evaluate (a URL is no more
+		// "gateable" by a signer-trust model than a stdio command is: neither
+		// carries a Ref). Extending to http/sse therefore does not lower the
+		// bar — client-supplied servers were already outside this gate's
+		// domain before B3. See mcpServersFromACP/mcpServersToACP for the
+		// actual delivery-time decision (an engine's own advertised
+		// capability), which is a DIFFERENT axis (can the engine take it) from
+		// trust (should ctxloom forward it) — B3 does not invent a new trust
+		// policy for either axis.
 		execGate := NewExecutableTrustGate(cfg)
 		cfg.SetExecutableTrustGate(execGate.Gate())
 		mcpServers = append(append([]agent.ChatMCPServer{}, req.MCPServers...),

@@ -1,15 +1,20 @@
 # ctxloom Canonical Transcript — Specification
 
-**Status:** Slice S1 of 7 (`tough-cloud`) — **schema + Recorder shipped, capture
-NOT wired yet.** This document and `internal/transcript/*` are the accepted
-design; the four remaining consumer-facing pieces (host-side tee, canonical
-reader, consumer cutover, scraper retirement) land in S2–S7. See "How to read
-this document" below for what that means concretely.
+**Status:** SHIPPED, `tough-cloud` slices S1–S6 all landed on v0.7.0-pre1.
+ctxloom captures its own transcript at the host-side `agent.ChatEvent` seams
+for every structured/ACP engine, plus a low-fidelity two-entry capture for
+oneshot `Execute` runs. `CanonicalHistory` is the live read path for
+compaction, MCP memory tools, `session current|list|show|watch`, and the
+resume picker. The four broken per-engine file scrapers (codex, kiro,
+antigravity, claude) have been **deleted outright** — see §8. Interactive-pty
+sessions (a human driving the engine's own TUI) are the one regime that
+cannot be captured this way; that gap is scoped out for this release (§8,
+task `petty-green`, post-pre1).
 
-**Contract version:** `v: 1` (see §6 — this is a schema new consumers will
-build against; treat it as public once S2 starts writing it for real).
+**Contract version:** `v: 1` (see §6). This is the schema every consumer
+reads today — not a future target.
 
-**Base:** v0.7.0-pre1, commit `33ef638`. Companion to the `tough-cloud` plan
+**Base:** v0.7.0-pre1. Companion to the `tough-cloud` plan
 (`~/.ctxloom/sessions/sixth-moist-kite/tough-cloud-transcript-capture.plan.md`),
 which is the sequencing/rationale record. Where the two disagree on a shipped
 fact, this document and the code win — the plan is upstream of the code, not
@@ -19,28 +24,24 @@ the other way around.
 
 ## 0. How to read this document
 
-- **Unmarked = shipped in S1.** The schema (`Record` and its payload types),
-  the JSON Schema, the fixtures, and `internal/transcript.Recorder` /
-  `internal/transcript.Tee` exist in the tree and are covered by tests today.
-- **Marked `> PLANNED (S2+)`** — designed, not yet built. Nothing in S1 wires
-  a transcript into a live chat: no engine writes `transcript.acp.jsonl` yet,
-  and no reader (`CanonicalHistory`) consumes one yet. `Tee` exists as a
-  ready-to-call helper but is not called from `GRPCClient.Chat` or
-  `coord/enginehost.adapt` — that's S2's job.
+Everything below describes shipped behavior. §5 and §8 mark the two known
+gaps honestly (oneshot fidelity, interactive-pty), not as "not built yet" but
+as accepted, deliberate scope limits for this release.
 
 ---
 
-## 1. Why: ctxloom captures no transcript of its own
+## 1. Why: ctxloom used to capture no transcript of its own
 
-Every consumer of session memory today reads one of four private,
-undocumented, version-unstable engine file formats through a per-engine
-`agent.SessionHistory` implementation — and three of those four readers are
-independently confirmed broken (codex: envelope-vs-flat parse; kiro: reads a
-`v1` file while the real oneshot store is a `v2` sqlite; claude: recomputes the
-wrong project-slug filename). The fix is not a fourth reader: it's to stop
-scraping and capture the conversation at the one point ctxloom already holds
-it in its own hands. Full rationale in the `tough-cloud` plan §1; this
-document covers only the schema the capture writes.
+Before this schema, every consumer of session memory read one of four
+private, undocumented, version-unstable engine file formats through a
+per-engine `agent.SessionHistory` implementation — and three of those four
+readers were independently confirmed broken (codex: envelope-vs-flat parse;
+kiro: read a `v1` file while the real oneshot store was a `v2` sqlite;
+claude: recomputed the wrong project-slug filename). The fix was not a
+fourth reader: it was to stop scraping and capture the conversation at the
+one point ctxloom already holds it in its own hands. Full rationale in the
+`tough-cloud` plan §1; this document covers the schema the capture writes,
+plus what actually shipped (§7–§8).
 
 ---
 
@@ -76,12 +77,12 @@ it wraps `agent.ChatEvent` in an envelope, verbatim.
 | `usage_update` / `session_info_update` *(out-of-SDK, hand-decoded)* | `ChatEvent.Complete` / `ChatEvent.Session` | the ONLY accounting data any ACP agent delivers — protocol v1 carries no token/cost/context-window/timing fields anywhere else |
 | `session/request_permission` | `ChatEvent.Permission` | forwarded only under `ChatRequest.ForwardPermissions` |
 
-### 2b. Native per-engine formats (for context / the `raw` escape hatch / S6 importers)
+### 2b. Native per-engine formats (historical context only)
 
 These are NOT what the Recorder reads (it reads `agent.ChatEvent`, already
-normalized) — they matter for (a) explaining why the *old* per-engine readers
-broke, and (b) informing the S6 one-shot importers that will convert
-interactive-pty history into canonical form.
+normalized), and as of S5 nothing in ctxloom reads them anymore either — the
+readers below were deleted, not demoted to importers (§8). Kept here only to
+explain why the *old* per-engine readers broke, for anyone tracing history.
 
 - **codex** (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): an *envelope*
   `{timestamp, type, payload}` where `type` is `session_meta` \|
@@ -208,57 +209,75 @@ is already the mapping `mapSessionUpdate` chose to keep. Two concrete gaps:
    (dropped so the stream never crashes on a frame it doesn't model), and
    bare in-progress tool-call ticks with no output (status noise, not a
    result).
-2. The two non-structured capture regimes (§5) are lossy by construction:
-   oneshot capture has no tool granularity at all (prose only), and the
-   interactive-pty importer (S6, not built yet) converts an engine's own file
-   after the fact.
+2. The oneshot capture regime (§5) is lossy by construction: no `ChatEvent`
+   stream exists for a oneshot `Execute` run, so capture falls back to two
+   entries (prompt + stdout) with no tool granularity at all.
 
 The `raw` field exists so a capture path that DOES hold the original frame —
-an S6 importer reading a native engine file, or a future richer capture point
-— can attach it without a schema version bump. **The `Recorder` in this slice
-never populates `raw`**: `agent.ChatEvent` carries no such field to copy from.
-This is a conscious, budgeted lossiness (plan §8, risk 3), not an oversight:
-paying for full raw-frame retention on every line was decided against for S1;
-revisit if a concrete consumer needs it.
+a future richer capture point — can attach it without a schema version bump.
+**The shipped `Recorder` never populates `raw`**: `agent.ChatEvent` carries
+no such field to copy from. This is a conscious, budgeted lossiness (plan §8,
+risk 3), not an oversight: paying for full raw-frame retention on every line
+was decided against, and the interactive-pty importer that would have been
+the other `raw` producer (plan §4d option A) was **not built** — the project
+instead deleted the per-engine readers outright rather than demoting them
+(see §8). Revisit if a concrete consumer needs it.
 
 ---
 
-## 5. Capture regimes (for context — S2/S6, not S1)
+## 5. Capture regimes (shipped)
 
-> PLANNED (S2+). Documented here because it explains the schema's `engine`
-> enum including `antigravity`, which never reaches the tee.
+Documented here because it explains the schema's `engine` enum including
+`antigravity`, which never reaches the tee.
 
 - **Structured/ACP** (codex, kiro, claude-via-acp, opencode, generic acp):
-  the tee at `GRPCClient.Chat` / `coord/enginehost.adapt` records every
-  `ChatEvent` — zero scraping, full fidelity within `mapSessionUpdate`'s
-  documented drops.
+  the tee at `GRPCClient.Chat` (`internal/lm/grpc/chat.go`) and
+  `coord/enginehost.adapt` (delegated children) records every `ChatEvent` —
+  zero scraping, full fidelity within `mapSessionUpdate`'s documented drops.
+  This is the default and the win: five of ctxloom's six engines run
+  structured chat, so five of six get full-fidelity canonical memory with no
+  per-engine parsing on the capture side at all.
 - **Oneshot** (antigravity `-p`, `kiro --no-interactive`, `codex exec`): no
-  `ChatEvent` stream exists; capture a two-entry transcript (one `user` entry
-  from the request prompt, one `assistant` entry from captured stdout).
-- **Interactive pty**: cannot be teed at all — the engine's own TUI never
-  crosses ctxloom's process. Handled by a one-shot importer converting the
-  engine's native file to canonical form once, at session end (S6).
+  `ChatEvent` stream exists; `transcript.RecordOneshot`
+  (`internal/transcript/oneshot.go`) captures a two-entry transcript (one
+  `user` entry from the request prompt, one `assistant` entry from captured
+  stdout) at the runner's `Execute` seam.
+- **Interactive pty**: cannot be teed at all — a human driving the engine's
+  own TUI means the assistant's text never crosses ctxloom's process. **This
+  is the one regime this release does not capture.** See §8 for what that
+  means in practice and why.
 
 ---
 
 ## 6. Schema evolution
 
-`v` gates it. A `CanonicalHistory` reader (S3, not built yet) encountering a
-`Record.V` it does not recognize must fail loud, per project discipline
-(memory "isolation-must-not-negotiate": never silently mis-parse an unknown
-shape). There is exactly one version today: `1`.
+`v` gates it. `CanonicalHistory` (`internal/transcript/history.go`)
+encountering a `Record.V` it does not recognize fails loud, per project
+discipline (memory "isolation-must-not-negotiate": never silently mis-parse
+an unknown shape). There is exactly one version today: `1`.
 
 ---
 
-## 7. What this slice (S1) shipped, concretely
+## 7. What's shipped, concretely
 
 - `internal/transcript/record.go` — `Record` + `EntryPayload` /
   `SessionPayload` / `CompletePayload` / `PermissionPayload`, and the
   `agent.ChatEvent → Record` payload conversion.
 - `internal/transcript/recorder.go` — `Recorder` (interface),
-  `NewRecorder(harp, engine string) (Recorder, error)`, and `Tee(rec,
-  events) <-chan agent.ChatEvent` (unwired — S2 calls this at its two host
-  seams).
+  `NewRecorder(harp, engine string) (Recorder, error)`, and `Tee`/
+  `TeeAndClose(rec, events) <-chan agent.ChatEvent`, wired into
+  `GRPCClient.Chat` (`internal/lm/grpc/chat.go`) and
+  `coord/enginehost.adapt` (`internal/agentcoord/coord/enginehost.go`) — the
+  two host-side seams that see every structured engine's event stream.
+- `internal/transcript/oneshot.go` — `RecordOneshot`, the two-entry oneshot
+  capture, wired at the runner's `Backend.Execute` stdout seam.
+- `internal/transcript/history.go` — `CanonicalHistory`, the harp-keyed
+  read view implementing both `agent.SessionHistory` and
+  `pb.SessionSource`. It is now the live read path behind
+  `internal/memory/compactor.go`, the MCP memory tools
+  (`load_session`/`recover_session`/`get_previous_session`/
+  `compact_session`), `ctxloom session current|list|show|watch`, and the
+  resume picker.
 - `paths.HarpCanonicalTranscriptPath(harp)` — `internal/paths/paths.go`.
 - `docs/transcript.schema.json` — machine-checkable JSON Schema for `Record`.
 - `internal/transcript/testdata/fixtures/*.transcript.acp.jsonl` — one
@@ -272,7 +291,40 @@ shape). There is exactly one version today: `1`.
   see `recorder.go`'s `NewRecorder` doc comment for why this is a deliberate
   departure from an eager-open reading of the original design sketch).
 
-Everything else — the tee actually wired into a live chat, the
-`CanonicalHistory` reader, consumer cutover, scraper retirement, the
-interactive-pty/oneshot capture code itself — is S2 through S7 and does not
-exist yet.
+---
+
+## 8. Scraper removal and the interactive-pty gap
+
+The four broken per-engine `SessionHistory` file readers named in §1 —
+codex (`internal/codex`), kiro (`internal/kiro/session.go`), antigravity
+(`internal/antigravity`), and claude (`internal/claude`) — have been
+**deleted outright**, not demoted to a one-shot importer as the plan's §4d
+option A originally recommended. Each backend's `Backend.History()` now
+returns `nil`; grep the removal commits for `tough-cloud S5` for the
+per-engine rationale (e.g. codex: the envelope-vs-flat parse bug silently
+returned zero-entry sessions; claude: the cwd→slug encoder resolved a
+directory that doesn't exist for any workDir containing a dot, underscore,
+or space). `TranscriptPathFromHook`, `LocateTranscript`, and the
+`persist/transcripts/` bind-mount discovery are gone with them — there is no
+legacy read path left to fall back to. **opencode is explicitly excluded**
+from this removal: its native reader (`internal/opencode/capabilities.go`,
+driving `opencode session list`/`opencode export`) was never broken — it
+reads opencode's own documented CLI surface rather than a private file — and
+stays wired as the fallback leg for interactive-opencode sessions (memory
+"mimic-cli-native-surfaces").
+
+The consequence, stated plainly: **a session driven through an engine's own
+interactive TUI (not through ctxloom's structured/ACP chat) has no ctxloom
+memory.** No canonical transcript is captured for it (the tee cannot reach a
+pty), and there is no importer left to backfill one from the engine's native
+file after the fact. This is a deliberate, honest scope cut for
+v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
+(interactive-session memory), deferred post-pre1. It affects only the
+interactive-pty path; every structured/ACP session (the default for `ctxloom
+run`) and every oneshot `Execute` run are captured as described in §5.
+
+Sessions indexed before this release, or created only through an
+interactive-pty run, have no canonical transcript and therefore nothing to
+distill, recover, or browse via `ctxloom session`/the memory MCP tools — that
+memory is gone, not migrated. There is no automatic backfill from the old
+per-engine files.

@@ -7,7 +7,7 @@ title: "MCP Tools Reference"
 This page is generated from taskloom's registered MCP tools and resources, as served by `taskloom mcp`.
 :::
 
-Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later), task_add to create, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI.
+Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI.
 
 ## Tools
 

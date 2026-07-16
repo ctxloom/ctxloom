@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
@@ -1145,6 +1147,22 @@ Examples:
 		var stdout io.Writer = os.Stdout
 		var resize <-chan *pb.WindowSize
 		restoreTerm := func() {}
+		// S6 oneshot capture: a ONESHOT `--print` run drives Backend.Execute,
+		// which returns prose on stdout with no ChatEvent stream — the
+		// structured tee (GRPCClient.Chat, internal/lm/grpc/chat.go) never
+		// fires for it, so this is the runner's own seam onto both halves of
+		// a two-entry canonical transcript (transcript.RecordOneshot): the
+		// prompt is already known (the `prompt` var above), and this
+		// captures the returned half by teeing the SAME bytes already bound
+		// for the terminal into a buffer, alongside (never instead of) the
+		// user-visible stdout. Never allocated for INTERACTIVE (the pty
+		// path, out of scope — petty-green) or when mode==ONESHOT via
+		// --structured (returns earlier, at runStructuredREPL above).
+		var oneshotCapture *bytes.Buffer
+		if mode == pb.ExecutionMode_ONESHOT {
+			oneshotCapture = &bytes.Buffer{}
+			stdout = io.MultiWriter(stdout, oneshotCapture)
+		}
 		if mode == pb.ExecutionMode_INTERACTIVE {
 			stdin, resize, restoreTerm = interactiveTerminal(ctx)
 			// Wrap the terminal seams with the observation layer (prefix-key
@@ -1190,6 +1208,16 @@ Examples:
 		restoreTerm()
 		if err != nil {
 			return fmt.Errorf("AI plugin failed: %w", err)
+		}
+
+		// Best-effort: capture failure warns but must never fail an
+		// otherwise-successful (or otherwise-failed — the exit code below
+		// is unaffected either way) run. Captured even on a nonzero exit:
+		// partial prose on stdout is still real memory of what happened.
+		if oneshotCapture != nil {
+			if terr := transcript.RecordOneshot(activeHarp, backendName, prompt, oneshotCapture.String()); terr != nil {
+				clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
+			}
 		}
 
 		if status.Code != 0 {

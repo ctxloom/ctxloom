@@ -15,7 +15,9 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
@@ -433,6 +435,21 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 	if exitCode != 0 {
 		return nil, fmt.Errorf("agent exited with code %d: %s", exitCode, strings.TrimSpace(stderr.String()))
+	}
+
+	// S6 oneshot capture: this Execute call returns prose on stdout with no
+	// ChatEvent stream, so the structured tee (GRPCClient.Chat/coord's
+	// enginehost.startRun, S2) never fires for it — see
+	// transcript.RecordOneshot's doc. The harp rides req.ExtraEnv exactly
+	// like the delegated-child structured path (agent.SessionHarpEnv,
+	// stamped by coord/children.go's childEnv); a fan/synth member with no
+	// harp (map/weave have none today) degrades to RecordOneshot's own
+	// empty-harp no-op. Best-effort: a capture failure warns but must never
+	// fail an otherwise-successful run.
+	if harp := req.ExtraEnv[agent.SessionHarpEnv]; harp != "" {
+		if terr := transcript.RecordOneshot(harp, req.Backend, req.Task, stdout.String()); terr != nil {
+			clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
+		}
 	}
 
 	return &RunOneshotResult{

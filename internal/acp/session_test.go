@@ -1036,6 +1036,11 @@ func TestChat_MultimodalDelivery_NoContentBlocks_Unchanged(t *testing.T) {
 // locally-implemented fake terminal (ctxloom brokers, it never implements
 // one of its own), and never the generic method-not-found a truly
 // unrecognized method gets.
+// TestChat_TerminalDeclined_Honestly: without ForwardTerminal (no upstream
+// editor advertised the capability — the ordinary case for e.g. a delegated
+// child agent with no ACP editor at all), ctxloom's client role advertises
+// Terminal: false and declines a probing engine's terminal/* call with a
+// specific, actionable reason — never a locally-implemented fake terminal.
 func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	h := startChat(t, agent.ChatRequest{})
 
@@ -1043,7 +1048,7 @@ func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	require.Equal(t, "initialize", initReq.Method)
 	var init api.InitializeRequest
 	require.NoError(t, json.Unmarshal(initReq.Params, &init))
-	assert.False(t, init.ClientCapabilities.Terminal, "no broker channel exists yet — advertising true would be an advertise-then-drop lie")
+	assert.False(t, init.ClientCapabilities.Terminal, "ForwardTerminal is false (no upstream editor advertised terminal) — advertising true would be an advertise-then-drop lie")
 	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
 
 	newReq := <-h.fa.requests
@@ -1058,6 +1063,126 @@ func TestChat_TerminalDeclined_Honestly(t *testing.T) {
 	close(h.in)
 	err := <-h.chatErr
 	require.NoError(t, err)
+	for range h.out {
+	}
+}
+
+// readUntilTerminal consumes out until a forwarded ChatEvent.Terminal arrives.
+func readUntilTerminal(t *testing.T, out <-chan agent.ChatEvent) *agent.TerminalRequest {
+	t.Helper()
+	for ev := range out {
+		if ev.Terminal != nil {
+			return ev.Terminal
+		}
+	}
+	t.Fatal("chat closed before a terminal request arrived")
+	return nil
+}
+
+// TestChat_ForwardedTerminal_Create: under ForwardTerminal, ctxloom advertises
+// Terminal: true, and an engine's terminal/create call surfaces as a
+// ChatEvent.Terminal with the session id STRIPPED (the engine's opaque
+// session id must never reach whatever answers on the caller's behalf), and
+// the caller's TerminalResponse.Result rides back as the JSON-RPC result
+// VERBATIM — proving both the honest capability advertisement and the full
+// round trip.
+func TestChat_ForwardedTerminal_Create(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{ForwardTerminal: true})
+
+	initReq := <-h.fa.requests
+	var init api.InitializeRequest
+	require.NoError(t, json.Unmarshal(initReq.Params, &init))
+	assert.True(t, init.ClientCapabilities.Terminal, "ForwardTerminal true must advertise Terminal: true — brokering actually works")
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-term"}))
+
+	gotResp := make(chan rpcMessage, 1)
+	go func() {
+		gotResp <- l0CallClient(h.fa, "terminal/create", map[string]any{
+			"sessionId": "sess-term", "command": "bash", "args": []string{"-lc", "echo hi"},
+		})
+	}()
+
+	term := readUntilTerminal(t, h.out)
+	assert.Equal(t, agent.TerminalOpCreate, term.Op)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal(term.Params, &params))
+	_, hasSessionID := params["sessionId"]
+	assert.False(t, hasSessionID, "the engine's own opaque session id must be stripped before crossing the boundary")
+	assert.Equal(t, "bash", params["command"])
+
+	h.in <- agent.ChatMessage{Terminal: &agent.TerminalResponse{ID: term.ID, Result: json.RawMessage(`{"terminalId":"editor-term-1"}`)}}
+
+	resp := <-gotResp
+	require.Nil(t, resp.Error)
+	assert.JSONEq(t, `{"terminalId":"editor-term-1"}`, string(resp.Result), "the caller's answer must reach the engine's JSON-RPC result verbatim")
+
+	close(h.in)
+	err := <-h.chatErr
+	require.NoError(t, err)
+	for range h.out {
+	}
+}
+
+// TestChat_ForwardedTerminal_CallerError: when the caller answers with an
+// Error (the upstream editor declined/errored), the engine's terminal/*
+// call fails with that SPECIFIC reason — never a silent drop or a
+// fabricated success.
+func TestChat_ForwardedTerminal_CallerError(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{ForwardTerminal: true})
+	initReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-term"}))
+
+	gotResp := make(chan rpcMessage, 1)
+	go func() {
+		gotResp <- l0CallClient(h.fa, "terminal/kill", map[string]any{"sessionId": "sess-term", "terminalId": "t1"})
+	}()
+
+	term := readUntilTerminal(t, h.out)
+	assert.Equal(t, agent.TerminalOpKill, term.Op)
+	h.in <- agent.ChatMessage{Terminal: &agent.TerminalResponse{ID: term.ID, Error: "editor: no such terminal"}}
+
+	resp := <-gotResp
+	require.NotNil(t, resp.Error)
+	assert.Contains(t, resp.Error.Message, "editor: no such terminal")
+
+	close(h.in)
+	err := <-h.chatErr
+	require.NoError(t, err)
+	for range h.out {
+	}
+}
+
+// TestChat_ForwardedTerminal_InputClosed: closing input while a terminal
+// request is pending resolves it with a loud, specific error — never a hang.
+// A turn is kept in flight (mirroring TestChat_ForwardedPermission_
+// InputClosed) so the driver's own teardown — which fires once input is
+// closed AND no turn is in flight — cannot race the reply this test asserts
+// on: the fake engine only completes the turn AFTER the terminal answer.
+func TestChat_ForwardedTerminal_InputClosed(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{ForwardTerminal: true})
+
+	gotResp := make(chan rpcMessage, 1)
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		gotResp <- l0CallClient(h.fa, "terminal/create", map[string]any{"sessionId": sid, "command": "bash"})
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "do it"}
+	readUntilTerminal(t, h.out)
+	close(h.in)
+
+	resp := <-gotResp
+	require.NotNil(t, resp.Error, "a pending terminal request must resolve, not hang, when input closes")
+	assert.Contains(t, resp.Error.Message, "input closed")
+
+	require.NoError(t, <-h.chatErr)
 	for range h.out {
 	}
 }

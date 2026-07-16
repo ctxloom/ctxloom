@@ -165,6 +165,129 @@ type SessionEntry struct {
 	// subagent-interior events; distillation and session-load replay keep to
 	// the main thread via MainThreadEntries.
 	Sidechain bool
+
+	// --- IR2 (2026-07, ACP conformance audit gap G9): additive richness the
+	// hub itself consumes or mediates. Every field below is OPTIONAL — a zero
+	// value means "the producing backend didn't have one" — so no existing
+	// producer or consumer needs to change to keep compiling or behaving
+	// identically.
+
+	// ToolCallID is the engine-NATIVE tool-call identifier (ACP
+	// tool_call.toolCallId / tool_call_update.toolCallId), when the backend's
+	// protocol exposes a stable one. Carried through the hub so a re-emission
+	// can reuse the SAME id instead of inventing a fresh one keyed by tool
+	// NAME — killing the same-name mispair risk a live drive confirmed
+	// (internal/acpagent's FIFO push/pop-by-name assigns a fresh "call-N" per
+	// tool name and pairs results in FIFO order; two concurrent calls to the
+	// SAME tool can pop the wrong one's result). Empty means the backend
+	// assigned none (or doesn't have the concept), and the hub falls back to
+	// its own generated id exactly as before this field existed.
+	ToolCallID string
+	// ToolKind is the ACP tool-call category classification (execute | edit |
+	// delete | move | read | search | fetch | think | switch_mode | other),
+	// when the backend's protocol supplies one. Empty means unclassified.
+	// Purely advisory (UI icon/treatment hints); mirrors
+	// PermissionRequest.Kind's existing precedent.
+	ToolKind string
+	// ToolLocations are file locations (path + optional line) this tool call
+	// touches — ACP's "follow-along" locations, for tool_use/tool_result
+	// entries whose backend reports them. Nil when unreported.
+	ToolLocations []ToolLocation
+	// ToolContent carries a tool result's STRUCTURED content collection
+	// (content blocks / diffs / terminal embeds) for tool_result entries,
+	// alongside the flattened ToolOutput string (which stays populated
+	// exactly as before — existing consumers that only want text are
+	// unaffected). Nil when the backend reported only flattened output.
+	ToolContent []ToolContentBlock
+	// ContentBlocks carries this entry's content as a structured block list
+	// (text/image/audio/resource), alongside the flattened Content string
+	// (unchanged). Nil for entries whose backend only ever produced flat
+	// text — every current producer. It exists so a richer producer (and
+	// eventual multimodal intake, a later slice) has an additive IR
+	// projection to write into instead of lossy-flattening at the mapping
+	// boundary.
+	ContentBlocks []ContentBlock
+	// SystemKind discriminates what produced an EntryTypeSystem entry — there
+	// are two producers today with no other way to tell them apart once the
+	// IR has flattened Content to a string: an ACP `plan` update
+	// (SystemKindPlan; Plan carries the structured entries, Content is a
+	// rendered fallback for a consumer that only reads text) and the
+	// delegated-turn-failure notice (internal/operations/delegate.go;
+	// SystemKindNotice, the zero value, so every entry that predates this
+	// field decodes as a notice exactly like before). A consumer that only
+	// wants to know "is this content" (not which kind) can keep ignoring
+	// SystemKind entirely and read Content, unchanged.
+	SystemKind SessionSystemKind
+	// Plan carries the ACP plan's structured entries when SystemKind ==
+	// SystemKindPlan. Nil for every other system entry.
+	Plan []PlanEntry
+}
+
+// SessionSystemKind discriminates the producer of an EntryTypeSystem entry.
+// See SessionEntry.SystemKind.
+type SessionSystemKind string
+
+const (
+	// SystemKindNotice is a freeform system notice with no structured payload
+	// (e.g. internal/operations/delegate.go's delegated-turn-failure notice).
+	// The zero value, so pre-existing entries (written before this field
+	// existed) decode as notices, matching their actual prior behavior.
+	SystemKindNotice SessionSystemKind = ""
+	// SystemKindPlan marks a system entry produced from an ACP `plan` update;
+	// Plan carries the structured entries.
+	SystemKindPlan SessionSystemKind = "plan"
+)
+
+// PlanEntry is one task in an agent's execution plan — mirrors ACP's
+// PlanEntry (content/priority/status) so the hub can carry it through
+// structurally instead of flattening it to a checklist string at the mapping
+// boundary (the IR2 fix for the conformance audit's headline finding: a
+// prior revision only flattened a `plan` update into SessionEntry.Content,
+// which had no field to carry entries back out, so a re-emission could never
+// reconstruct a real ACP `plan` update — only make the flattened text
+// visible as a message fallback).
+type PlanEntry struct {
+	Content  string // human-readable task description
+	Priority string // ACP PlanEntryPriority: high | medium | low
+	Status   string // ACP PlanEntryStatus: pending | in_progress | completed
+}
+
+// ToolLocation is one file location a tool call touches (ACP
+// ToolCallLocation): Path is required, Line is 0 when unset (ACP's Line is
+// itself optional and 1-based, so 0 is never a real line number).
+type ToolLocation struct {
+	Path string
+	Line int
+}
+
+// ContentBlock is one structured ACP content block (text | image | audio |
+// resource_link | resource). Kind/Text are a convenience projection for a
+// consumer that only wants to know what it is or read its text; Raw is the
+// block's own JSON verbatim so a consumer that understands the richer
+// variants (image/audio bytes, resource contents — multimodal intake, a
+// later slice) can decode it without this package needing to model every
+// variant's fields today. Text is empty for a non-text kind.
+type ContentBlock struct {
+	Kind string
+	Text string
+	Raw  json.RawMessage
+}
+
+// ToolContentBlock is one element of a tool call's structured content
+// collection (ACP ToolCallContent: content block | diff | terminal
+// reference). Diff fields are decoded (not left in Raw) because ctxloom
+// already flattens diffs for text display (internal/acp/mapping.go's
+// toolContentText) and a diff-aware consumer wants the structured form
+// without a second JSON round-trip; Raw carries the element verbatim
+// regardless, for anything this type doesn't otherwise model.
+type ToolContentBlock struct {
+	Kind        string // "content" | "diff" | "terminal"
+	Text        string // flattened text, when Kind == "content"
+	DiffPath    string
+	DiffOldText string // empty means "new file" (ACP's OldText is nil)
+	DiffNewText string
+	TerminalID  string
+	Raw         json.RawMessage
 }
 
 // MainThreadEntries returns the entries that belong to the session's main

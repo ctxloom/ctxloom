@@ -1,0 +1,187 @@
+package acp
+
+// L0 — frame schema validation against the CURRENT ACP spec (internal/acptest,
+// vendored schema-v1.19.0), deliberately newer than the pinned SDK
+// (2025-09-02). This file is the CLIENT-role twin of
+// internal/acpagent/l0_conformance_test.go: it captures every distinct frame
+// shape ctxloom emits as an ACP CLIENT (internal/acp — driving another
+// engine's `<agent> acp`) via the SAME in-process fakeAgent harness
+// fakeagent_test.go/execute_test.go already use, and validates each captured
+// payload against the spec's matching $defs entry.
+//
+// A captured frame not listed in l0ClientKnownDivergences is asserted to
+// PASS; any listed divergence must fail with its recorded reason — see
+// internal/acpagent/l0_conformance_test.go's doc comment for the full
+// rationale (identical policy, client side).
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/acptest"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+type l0ClientCapture struct {
+	label   string
+	defName string
+	payload json.RawMessage
+}
+
+// l0ClientKnownDivergences — see internal/acpagent/l0_conformance_test.go's
+// l0KnownDivergences for the shared policy this mirrors.
+var l0ClientKnownDivergences = map[string]string{
+	// internal/acp/session.go's handleFsWrite returns (nil, nil) on success;
+	// internal/acp/jsonrpc.marshalResult renders a nil result as JSON
+	// `null`. The current spec's WriteTextFileResponse is `"type":"object"`
+	// with no null alternative, so `null` fails type:object. This is a
+	// REAL, directly reproducible schema failure (confirmed standalone in
+	// internal/acptest/schema_test.go), not merely a missing-field gap.
+	"fs/write_text_file response": "expected object, but got null",
+}
+
+func mustClientValidator(t *testing.T) *acptest.Validator {
+	t.Helper()
+	v, err := acptest.NewValidator()
+	require.NoError(t, err)
+	return v
+}
+
+func checkL0Client(t *testing.T, v *acptest.Validator, c l0ClientCapture) {
+	t.Helper()
+	err := v.ValidateDef(c.defName, c.payload)
+	if want, known := l0ClientKnownDivergences[c.label]; known {
+		if !assert.Error(t, err, "%s (%s): expected a KNOWN divergence but validation now PASSES — shrink l0ClientKnownDivergences", c.label, c.defName) {
+			return
+		}
+		assert.Contains(t, err.Error(), want, "%s (%s): failed for a DIFFERENT reason than recorded — investigate before updating the allowlist", c.label, c.defName)
+		return
+	}
+	assert.NoError(t, err, "%s (%s): NEW divergence from the current ACP schema (schema-v1.19.0), not in l0ClientKnownDivergences", c.label, c.defName)
+}
+
+// l0CallClient sends an arbitrary agent->client request over the fakeAgent's
+// connection and blocks for the response — the same request/response
+// pattern fa.requestPermission (fakeagent_test.go) already uses for
+// session/request_permission, generalized here (without modifying that file)
+// so fs/read_text_file and fs/write_text_file can be driven the same way.
+func l0CallClient(a *fakeAgent, method string, params any) rpcMessage {
+	id := atomic.AddInt64(&a.nextID, 1)
+	ch := make(chan rpcMessage, 1)
+	a.pendingMu.Lock()
+	a.pending[id] = ch
+	a.pendingMu.Unlock()
+	raw, _ := json.Marshal(params)
+	_ = a.writeFrame(rpcMessage{Method: method, ID: json.RawMessage(strconv.FormatInt(id, 10)), Params: raw})
+	select {
+	case resp := <-ch:
+		return resp
+	case <-time.After(10 * time.Second):
+		panic("l0CallClient: timed out waiting for " + method + " response")
+	}
+}
+
+// TestL0_ClientEmittedFrames drives one comprehensive scripted conversation —
+// handshake, a turn cancelled mid-flight (capturing session/prompt AND
+// session/cancel), an auto-decided permission request, and both fs/*
+// callbacks — capturing every distinct frame shape ctxloom emits as an ACP
+// CLIENT, then validates each against the current spec.
+func TestL0_ClientEmittedFrames(t *testing.T) {
+	v := mustClientValidator(t)
+	var captures []l0ClientCapture
+	capture := func(label, defName string, payload json.RawMessage) {
+		captures = append(captures, l0ClientCapture{label: label, defName: defName, payload: payload})
+	}
+
+	b := NewACP()
+	fa := executeHarness(t, b)
+
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent, 32)
+	chatDone := make(chan error, 1)
+	go func() {
+		chatDone <- b.Chat(context.Background(), agent.ChatRequest{
+			WorkDir:     "/proj",
+			Permissions: agent.PermissionBypass, // auto-decide (not forwarded) so the permission capture below doesn't need a live upstream consumer
+			MCPServers:  []agent.ChatMCPServer{{Name: "tools", Command: "/bin/tools"}},
+		}, in, out)
+	}()
+	go func() {
+		for range out { // drain — this test measures EMISSION, not the client's own decoding of inbound updates
+		}
+	}()
+
+	// initialize
+	initReq := <-fa.requests
+	require.Equal(t, "initialize", initReq.Method)
+	capture("initialize request", "InitializeRequest", initReq.Params)
+	require.NoError(t, fa.respond(initReq.ID, map[string]any{
+		"protocolVersion":   1,
+		"agentCapabilities": map[string]any{"loadSession": true},
+		"authMethods":       []any{},
+	}))
+
+	// session/new
+	newReq := <-fa.requests
+	require.Equal(t, "session/new", newReq.Method)
+	capture("session/new request", "NewSessionRequest", newReq.Params)
+	const sid = "sess-l0"
+	require.NoError(t, fa.respond(newReq.ID, map[string]any{"sessionId": sid}))
+
+	// session/prompt, left UNANSWERED so the caller's CancelTurn produces a
+	// real session/cancel notification (Chat only cancels a turn actually
+	// in flight).
+	in <- agent.ChatMessage{Text: "hello"}
+	promptReq := <-fa.requests
+	require.Equal(t, "session/prompt", promptReq.Method)
+	capture("session/prompt request", "PromptRequest", promptReq.Params)
+
+	in <- agent.ChatMessage{CancelTurn: true}
+	cancelNotif := <-fa.notifications
+	require.Equal(t, "session/cancel", cancelNotif.Method)
+	capture("session/cancel notification", "CancelNotification", cancelNotif.Params)
+	require.NoError(t, fa.respond(promptReq.ID, map[string]any{"stopReason": "cancelled"}))
+
+	// fs/read_text_file (agent -> client -> real filesystem)
+	tmpFile := filepath.Join(t.TempDir(), "f.txt")
+	require.NoError(t, os.WriteFile(tmpFile, []byte("hello\n"), 0o644))
+	readResp := l0CallClient(fa, "fs/read_text_file", map[string]any{"path": tmpFile})
+	require.Nil(t, readResp.Error)
+	capture("fs/read_text_file response", "ReadTextFileResponse", readResp.Result)
+
+	// fs/write_text_file — the confirmed divergence.
+	writeResp := l0CallClient(fa, "fs/write_text_file", map[string]any{"path": filepath.Join(t.TempDir(), "w.txt"), "content": "written"})
+	require.Nil(t, writeResp.Error)
+	capture("fs/write_text_file response", "WriteTextFileResponse", writeResp.Result)
+
+	// session/request_permission -> RequestPermissionResponse (auto-decided:
+	// PermissionBypass picks the allow_once option).
+	permResp := fa.requestPermission(sid, []map[string]any{
+		{"optionId": "ok", "kind": "allow_once", "name": "Allow"},
+		{"optionId": "no", "kind": "reject_once", "name": "Reject"},
+	})
+	require.Nil(t, permResp.Error)
+	capture("session/request_permission response", "RequestPermissionResponse", permResp.Result)
+
+	close(in)
+	select {
+	case err := <-chatDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for Chat to return after closing input")
+	}
+
+	require.NotEmpty(t, captures, "the scripted conversation must have captured at least one frame — an empty capture list would validate nothing and certify emptiness as success")
+	for _, cap := range captures {
+		checkL0Client(t, v, cap)
+	}
+}

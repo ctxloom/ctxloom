@@ -341,13 +341,20 @@ test-acceptance: build
 # (internal/lm/isolation/*_integration_test.go): builds a minimal image,
 # spawns the mock plugin INSIDE a real container, and proves the gRPC
 # transport + force-removal-on-Kill boundary end to end, including a real
-# git worktree mounted into a container. Requires a local container runtime;
-# each test self-skips (not fails) when docker is unreachable or non-rootless,
-# so this is safe to run anywhere — it just proves nothing when it skips.
-# Previously gated behind a build tag that appeared in neither the justfile
-# nor any CI workflow, so it had never actually run.
+# git worktree mounted into a container. Also covers
+# internal/agentcoord/coord/container_bus_docker_integration_test.go
+# (crazy-yarn): the coordinator<->containerized-child agentcoord BUS itself
+# (agent_run over runtime: container, coordinator<->child agent_send,
+# agent_report, and artifact round-trip), a real docker container running
+# the production `ctxloom llm serve` runner, not the transport-only or
+# in-process-simulated proofs the rest of this package already gives.
+# Requires a local container runtime; each test self-skips (not fails) when
+# docker is unreachable or non-rootless, so this is safe to run anywhere —
+# it just proves nothing when it skips. Previously gated behind a build tag
+# that appeared in neither the justfile nor any CI workflow, so it had never
+# actually run.
 test-docker-integration:
-    go test -v -tags docker_integration ./internal/lm/isolation/...
+    go test -v -tags docker_integration ./internal/lm/isolation/... ./internal/agentcoord/coord/...
 
 # Build the acceptance image (devcontainer toolchain + Node + the Claude Code
 # agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;

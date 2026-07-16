@@ -54,7 +54,26 @@ type ChatRequest struct {
 	// loudly rather than silently starting a fresh session under the old
 	// id's name — a delegated child's resumed context is load-bearing.
 	ResumeSessionID string
+	// Runtime asks the backend to run the underlying engine SUBPROCESS inside
+	// a container instead of directly on the host: RuntimeContainer
+	// containerizes it, "" (or anything else) means host — today's behavior,
+	// unchanged. It carries the AGENT BINDING's resolved runtime axis (see
+	// isolation.RuntimeAxis / ResolvedAgent.Runtime) into a structured chat,
+	// which the axis could not reach before (ISO1): this package sits below
+	// internal/lm/isolation in the import graph (isolation -> lm/grpc ->
+	// this package), so the axis rides as a bare string rather than an
+	// imported type, to avoid a cycle back to here. Only a backend whose
+	// StructuredChat transport actually implements container isolation (the
+	// ACP client driver, internal/acp) consults it; every other backend
+	// ignores it — additive, host stays the default everywhere else.
+	Runtime string
 }
+
+// RuntimeContainer is the ChatRequest.Runtime value asking a StructuredChat
+// backend to run its engine subprocess inside a container. Mirrors
+// isolation.RuntimeContainer's string value byte-for-byte (see Runtime's doc
+// for why this is a duplicated literal, not an import).
+const RuntimeContainer = "container"
 
 // ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
 type ChatMCPServer struct {

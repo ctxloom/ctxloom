@@ -24,9 +24,16 @@ var _ agent.StructuredChat = (*Codex)(nil)
 // native config; the adapter runs codex in the same cwd); the driver only
 // speaks the protocol.
 func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	if _, err := exec.LookPath(codexACPAdapter); err != nil {
-		close(out) // honor the StructuredChat contract: producer closes out exactly once
-		return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", codexACPAdapter)
+	// The host-PATH adapter check only applies to a HOST-runtime chat: a
+	// runtime:container agent runs codex-acp INSIDE the agent image instead
+	// (ISO1's container transport, internal/acp), where the image carries
+	// the adapter — checking THIS process's PATH would wrongly refuse a
+	// session whose adapter the host never needs.
+	if req.Runtime != agent.RuntimeContainer {
+		if _, err := exec.LookPath(codexACPAdapter); err != nil {
+			close(out) // honor the StructuredChat contract: producer closes out exactly once
+			return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", codexACPAdapter)
+		}
 	}
 	drv := acp.NewChatDriver(chatACPConfig(b.Env))
 	return drv.Chat(ctx, req, in, out)

@@ -1,9 +1,12 @@
 package kiro
 
 import (
+	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -34,6 +37,28 @@ func TestKiro_Configure(t *testing.T) {
 	assert.Equal(t, "high", b.effort)
 	assert.Equal(t, "myagent", b.agentName)
 	assert.Equal(t, "v3", b.agentEngine)
+}
+
+// TestKiro_ConfigureThinkingIsWarnedNoOp pins the honest-no-op contract: kiro
+// has no wired mechanism for the cross-engine normalized thinking level
+// (unlike claude/codex — see internal/claude/chat.go, internal/codex/chat.go),
+// so an explicit `thinking` setting must WARN rather than silently vanish.
+func TestKiro_ConfigureThinkingIsWarnedNoOp(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+
+	b := NewKiro()
+	b.Configure(&KiroConfig{Thinking: "high"})
+	_ = w.Close()
+	os.Stderr = orig
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "thinking", "an explicit setting must be surfaced, not silently swallowed")
+	assert.Contains(t, string(out), "high")
 }
 
 func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {

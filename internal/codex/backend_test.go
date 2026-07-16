@@ -37,6 +37,41 @@ func TestCodex_Configure(t *testing.T) {
 	assert.Equal(t, "V", codex.Env["K"])
 }
 
+// TestNewCodex_ThinkingDefaultsToMedium pins that a freshly-constructed
+// backend that never runs Configure at all still resolves to the documented
+// medium default (agent.ThinkingLevel's zero value IS ThinkingMedium).
+func TestNewCodex_ThinkingDefaultsToMedium(t *testing.T) {
+	codex := NewCodex()
+	assert.Equal(t, agent.ThinkingMedium, codex.thinking)
+}
+
+// TestCodex_Configure_Thinking verifies the normalized thinking level parses
+// through Configure onto the backend.
+func TestCodex_Configure_Thinking(t *testing.T) {
+	codex := NewCodex()
+	codex.Configure(&CodexConfig{Thinking: "low"})
+	assert.Equal(t, agent.ThinkingLow, codex.thinking)
+}
+
+// TestCodex_Configure_ThinkingUnknownWarnsAndDefaults verifies an
+// unrecognized (but non-empty) value still resolves to medium AND warns.
+func TestCodex_Configure_ThinkingUnknownWarnsAndDefaults(t *testing.T) {
+	r, w, err := os.Pipe()
+	assert.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = w
+
+	codex := NewCodex()
+	codex.Configure(&CodexConfig{Thinking: "extreme"})
+	_ = w.Close()
+	os.Stderr = orig
+
+	out, err := io.ReadAll(r)
+	assert.NoError(t, err)
+	assert.Equal(t, agent.ThinkingMedium, codex.thinking)
+	assert.Contains(t, string(out), "extreme")
+}
+
 // =============================================================================
 // buildArgs — context now reaches codex via the SessionStart hook + context
 // file, so buildArgs no longer prepends context to the prompt.

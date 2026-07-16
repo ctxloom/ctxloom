@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // TestChatACPConfig_StripsNestedSessionGuard is the regression pin for the
@@ -71,4 +73,56 @@ func TestResolveModel_EmptyOrUnknownShapedFails(t *testing.T) {
 // driver-side delivery is pinned in internal/acp (TestChat_ModelEnvVar).
 func TestChatACPConfig_ModelEnvVar(t *testing.T) {
 	assert.Equal(t, "ANTHROPIC_MODEL", chatACPConfig(nil).ModelEnvVar)
+}
+
+// TestClaudeThinkingTokens pins the enum -> MAX_THINKING_TOKENS mapping:
+// off sets nothing at all (ok=false, the verified zero-thinking baseline);
+// medium is 10000, the value VERIFIED live to actually produce thought
+// chunks (29, vs 0 with the var absent).
+func TestClaudeThinkingTokens(t *testing.T) {
+	cases := []struct {
+		level   agent.ThinkingLevel
+		want    string
+		wantSet bool
+	}{
+		{agent.ThinkingOff, "", false},
+		{agent.ThinkingLow, "4000", true},
+		{agent.ThinkingMedium, "10000", true},
+		{agent.ThinkingHigh, "24000", true},
+	}
+	for _, tc := range cases {
+		got, ok := claudeThinkingTokens(tc.level)
+		assert.Equal(t, tc.wantSet, ok, "level %v", tc.level)
+		assert.Equal(t, tc.want, got, "level %v", tc.level)
+	}
+}
+
+// TestWithThinkingEnv_MediumSetsVar pins the default path: a medium level
+// (ctxloom's documented default) adds MAX_THINKING_TOKENS=10000 without
+// touching any other key, and never mutates the caller's map.
+func TestWithThinkingEnv_MediumSetsVar(t *testing.T) {
+	callerEnv := map[string]string{"FOO": "bar"}
+	got := withThinkingEnv(callerEnv, agent.ThinkingMedium)
+	assert.Equal(t, "10000", got["MAX_THINKING_TOKENS"])
+	assert.Equal(t, "bar", got["FOO"])
+	assert.NotContains(t, callerEnv, "MAX_THINKING_TOKENS", "the caller's map is copied, never mutated")
+}
+
+// TestWithThinkingEnv_OffSetsNoVar pins that an explicit off adds no env
+// var at all, matching the verified absent-var baseline (0 thought chunks)
+// rather than a value claude might interpret as a nonzero budget.
+func TestWithThinkingEnv_OffSetsNoVar(t *testing.T) {
+	callerEnv := map[string]string{"FOO": "bar"}
+	got := withThinkingEnv(callerEnv, agent.ThinkingOff)
+	assert.NotContains(t, got, "MAX_THINKING_TOKENS")
+	assert.Equal(t, callerEnv, got)
+}
+
+// TestWithThinkingEnv_CallerOverrideWins pins that a caller-supplied
+// MAX_THINKING_TOKENS already in env is never clobbered by the resolved
+// default.
+func TestWithThinkingEnv_CallerOverrideWins(t *testing.T) {
+	callerEnv := map[string]string{"MAX_THINKING_TOKENS": "99"}
+	got := withThinkingEnv(callerEnv, agent.ThinkingMedium)
+	assert.Equal(t, "99", got["MAX_THINKING_TOKENS"])
 }

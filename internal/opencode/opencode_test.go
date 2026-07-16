@@ -2,6 +2,8 @@ package opencode
 
 import (
 	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -32,6 +34,27 @@ func TestOpencode_Configure(t *testing.T) {
 	assert.Equal(t, []string{"--log-level", "ERROR"}, b.Args)
 	assert.Equal(t, "bar", b.Env["FOO"])
 	assert.Equal(t, "openrouter/meta-llama/llama-3.3-70b-instruct:free", b.model)
+}
+
+// TestOpencode_ConfigureThinkingIsWarnedNoOp pins the honest-no-op contract:
+// opencode has no wired mechanism for the cross-engine normalized thinking
+// level (unlike claude/codex), so an explicit `thinking` setting must WARN
+// rather than silently vanish.
+func TestOpencode_ConfigureThinkingIsWarnedNoOp(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = w
+
+	b := NewOpencode()
+	b.Configure(&OpencodeConfig{Thinking: "high"})
+	_ = w.Close()
+	os.Stderr = orig
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "thinking", "an explicit setting must be surfaced, not silently swallowed")
+	assert.Contains(t, string(out), "high")
 }
 
 func TestOpencode_ConfigureIgnoresForeignConfig(t *testing.T) {

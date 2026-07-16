@@ -31,6 +31,7 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // defaultAgentName is the Kiro custom agent ctxloom materializes (.kiro/agents/
@@ -44,12 +45,23 @@ type KiroConfig struct {
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`
-	// Effort maps to `--effort` (low|medium|high|xhigh|max).
+	// Effort maps to `--effort` (low|medium|high|xhigh|max). This is kiro's
+	// OWN native knob for the DIRECT interactive/oneshot CLI path
+	// (buildArgs) — distinct from the normalized cross-engine Thinking
+	// field below, which this backend does NOT wire anywhere (see Thinking's
+	// own doc).
 	Effort string `mapstructure:"effort"`
 	// Agent selects a materialized Kiro custom agent via `--agent` (default "ctxloom").
 	Agent string `mapstructure:"agent"`
 	// AgentEngine maps to `--agent-engine` (v1|v2|v3; Kiro's harness version).
 	AgentEngine string `mapstructure:"agent_engine"`
+	// Thinking is the normalized cross-engine reasoning/thinking-budget level
+	// (off|low|medium|high). Kiro has NO wired mechanism for it: chat.go's
+	// ACP structured-chat path (kiro-cli acp) sets no ModelConfigKey/
+	// ModelEnvVar-equivalent for reasoning, and this field is read ONLY to
+	// detect an explicit setting and warn — an honest documented no-op, not
+	// a silent swallow. Use kiro's own native Effort above instead.
+	Thinking string `mapstructure:"thinking"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -99,6 +111,13 @@ func (b *Kiro) Configure(cfg agent.BackendConfig) {
 	}
 	if c.AgentEngine != "" {
 		b.agentEngine = c.AgentEngine
+	}
+	// The normalized thinking knob has no wired mechanism on this backend
+	// (see KiroConfig.Thinking's doc) — warn rather than silently swallow an
+	// explicit setting, so a user who set it learns it did nothing instead
+	// of wrongly assuming it worked.
+	if c.Thinking != "" {
+		clidiag.Warn("ctxloom", "kiro config declares thinking %q, but kiro has no wired reasoning-level mechanism; it is ignored — use kiro's own \"effort\" instead", c.Thinking)
 	}
 }
 

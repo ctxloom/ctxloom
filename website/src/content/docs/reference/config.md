@@ -201,6 +201,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `thinking` | string | Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium. Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `claude-code`. |
 
 #### antigravity
@@ -225,6 +226,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `thinking` | string | Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare "high"; ctxloom's "high" maps to "xhigh") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob). Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `codex`. |
 
 #### kiro
@@ -240,6 +242,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `thinking` | string | The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) — use "effort" above instead. Allowed values: `off`, `low`, `medium`, `high`. |
 | `type` | string | Must be `kiro`. |
 
 #### opencode
@@ -254,6 +257,7 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 | `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `thinking` | string | The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning). Allowed values: `off`, `low`, `medium`, `high`. |
 | `type` | string | Must be `opencode`. |
 
 #### mock
@@ -282,6 +286,10 @@ Generic Agent Client Protocol client: drives any ACP-capable agent chosen by con
 | `model_config_key` | string | When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it). |
 | `model_env_var` | string | When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL). |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
+| `reasoning_config_key` | string | When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort). |
+| `reasoning_effort` | string | The resolved value reasoning_config_key delivers. |
+| `reasoning_summary` | string | The resolved value reasoning_summary_config_key delivers. |
+| `reasoning_summary_config_key` | string | A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary). |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `strip_env` | string[] | Inherited environment variables removed from the spawned agent's env. |
 | `type` | string | Must be `acp`. |

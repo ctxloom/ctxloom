@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code
@@ -19,6 +20,13 @@ type ClaudeConfig struct {
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`
+	// Thinking is the normalized reasoning/thinking-budget level
+	// (off|low|medium|high — agent.ThinkingLevel). Empty or unrecognized
+	// defaults to "medium". See chat.go's translation to claude's
+	// MAX_THINKING_TOKENS env var — the load-bearing fix for the bug where
+	// ctxloom never set that variable at all, so claude-code-acp never
+	// generated any thinking (0 thought chunks, verified live).
+	Thinking string `mapstructure:"thinking"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -34,6 +42,12 @@ type ClaudeCode struct {
 	// --append-system-prompt-file / --mcp-config / --settings scratch a SharedCell
 	// delivered) after Setup ran. Zero value (nil surface fields) before Setup.
 	surfaces Surfaces
+	// thinking is the resolved normalized reasoning level (Configure defaults
+	// it to agent.ThinkingMedium — the Go zero value happens to be
+	// ThinkingOff, so an unconfigured backend must NOT rely on the zero
+	// value; NewClaudeCode sets it explicitly). Chat translates it into
+	// claude's MAX_THINKING_TOKENS env var (chat.go).
+	thinking agent.ThinkingLevel
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
@@ -80,6 +94,17 @@ func (b *ClaudeCode) buildSurfaces(in agent.SurfaceInputs, isolatedDir string) a
 func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	if c, ok := cfg.(*ClaudeConfig); ok {
 		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
+		// An unrecognized (but non-empty) value still resolves to the
+		// documented medium default (ParseThinkingLevel's ok=false path) —
+		// advisory validation, matching agents.SetAgentRequest's tolerance for
+		// a typo'd permissions/runtime value, never a hard failure over a
+		// cost-tuning knob.
+		level, ok := agent.ParseThinkingLevel(c.Thinking)
+		if c.Thinking != "" && !ok {
+			clidiag.Warn("ctxloom", "claude-code config declares unknown thinking level %q (known: %s); using the default %q",
+				c.Thinking, strings.Join(agent.ThinkingLevelNames(), "|"), agent.ThinkingMedium)
+		}
+		b.thinking = level
 	}
 }
 

@@ -28,6 +28,7 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // OpencodeConfig is opencode's typed LLM config. The backend owns this struct;
@@ -37,6 +38,12 @@ type OpencodeConfig struct {
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`
+	// Thinking is the normalized cross-engine reasoning/thinking-budget
+	// level (off|low|medium|high). opencode has NO wired mechanism for it
+	// (verified by reading chat.go: no ACP config-option/env-var equivalent
+	// found) — this field is read ONLY to detect an explicit setting and
+	// warn, an honest documented no-op rather than a silent swallow.
+	Thinking string `mapstructure:"thinking"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -104,6 +111,12 @@ func (b *Opencode) Configure(cfg agent.BackendConfig) {
 	agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
 	if c.Model != "" {
 		b.model = c.Model
+	}
+	// The normalized thinking knob has no wired mechanism on this backend
+	// (see OpencodeConfig.Thinking's doc) — warn rather than silently
+	// swallow an explicit setting.
+	if c.Thinking != "" {
+		clidiag.Warn("ctxloom", "opencode config declares thinking %q, but opencode has no wired reasoning-level mechanism; it is ignored", c.Thinking)
 	}
 }
 

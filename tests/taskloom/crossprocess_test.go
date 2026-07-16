@@ -87,11 +87,12 @@ func (e *env) run(extraEnv []string, args ...string) (stdout, stderr string, err
 // jsonTask mirrors the wire shape emitted by `tasks list --json`
 // (tasks.Task carries snake_case json tags).
 type jsonTask struct {
-	HarpID   string `json:"harp_id"`
-	Text     string `json:"text"`
-	Status   string `json:"status"`
-	Checked  bool   `json:"checked"`
-	TextHash string `json:"text_hash"`
+	HarpID   string   `json:"harp_id"`
+	Text     string   `json:"text"`
+	Status   string   `json:"status"`
+	Checked  bool     `json:"checked"`
+	TextHash string   `json:"text_hash"`
+	Tags     []string `json:"tags,omitempty"`
 }
 
 // TestCrossProcessConcurrentAdd launches N independent `tasks add` processes
@@ -234,4 +235,95 @@ func TestCrossProcessReadDuringWrites(t *testing.T) {
 	var got []jsonTask
 	require.NoError(t, json.Unmarshal([]byte(listOut), &got))
 	assert.Len(t, got, writers)
+}
+
+// TestCrossProcessConcurrentTag launches N independent `tasks tag --add`
+// processes against ONE task and asserts no tag event was lost: every one of
+// the N distinct tags survives the fold, and the on-disk log carries exactly
+// N `tag` events (plus the one seeding `add`), none of them torn. The
+// in-process unit tests already prove the fold-time union logic is correct
+// given a well-formed log; this proves the cross-process filelock actually
+// serializes N independent `tag` writers the same way it serializes `add`
+// writers in TestCrossProcessConcurrentAdd — a genuinely different code path
+// (store.AddTags reads-folds-appends under the same lock, but a lost
+// read-modify-write here would manifest as a DROPPED tag rather than a
+// dropped task, which the add test cannot catch).
+func TestCrossProcessConcurrentTag(t *testing.T) {
+	e := newEnv(t)
+	harpEnv := []string{"CTXLOOM_SESSION_HARP=cross-proc-tag-harp"}
+
+	// Seed the one task every goroutine will tag concurrently.
+	addOut, addErr, err := e.run(harpEnv, "add", "tag-me")
+	require.NoErrorf(t, err, "seed task failed: %s", addErr)
+	fields := strings.Split(strings.TrimSpace(addOut), "\t")
+	require.GreaterOrEqualf(t, len(fields), 1, "unexpected add output: %q", addOut)
+	harpID := fields[0]
+
+	const n = 40
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	outs := make([]string, n)
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			tag := fmt.Sprintf("tag-%03d", i)
+			_, stderr, err := e.run(harpEnv, "tag", harpID, "--add", tag)
+			errs[i] = err
+			outs[i] = stderr
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range n {
+		require.NoErrorf(t, errs[i], "tag process %d failed: %s", i, outs[i])
+	}
+
+	// Read the final store back through the CLI (single process, no race).
+	listOut, listErr, err := e.run(harpEnv, "list", "--json")
+	require.NoErrorf(t, err, "tasks list failed: %s", listErr)
+
+	var got []jsonTask
+	require.NoError(t, json.Unmarshal([]byte(listOut), &got),
+		"tasks list --json did not produce valid JSON (torn store?):\n%s", listOut)
+	require.Lenf(t, got, 1, "expected exactly the one seeded task, got %d", len(got))
+
+	// No lost tag events: exactly N distinct tags survived the fold.
+	assert.Lenf(t, got[0].Tags, n, "expected %d tags after %d concurrent tag --add processes, got %v", n, n, got[0].Tags)
+	seenTag := make(map[string]bool, len(got[0].Tags))
+	for _, tag := range got[0].Tags {
+		seenTag[tag] = true
+	}
+	for i := range n {
+		tag := fmt.Sprintf("tag-%03d", i)
+		assert.Truef(t, seenTag[tag], "tag %q missing from final tag set %v", tag, got[0].Tags)
+	}
+
+	// Not torn: every non-empty line is well-formed JSON, and exactly N of
+	// them are `tag` events (plus the one seeding `add`).
+	logs, err := filepath.Glob(filepath.Join(e.homeDir, ".ctxloom", "tasks", "*.jsonl"))
+	require.NoError(t, err)
+	require.Lenf(t, logs, 1, "expected exactly one per-project task log, found %v", logs)
+	raw, err := os.ReadFile(logs[0])
+	require.NoError(t, err, "task log should exist at %s", logs[0])
+
+	adds, tags := 0, 0
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var ev struct {
+			Op string `json:"op"`
+		}
+		require.NoErrorf(t, json.Unmarshal([]byte(line), &ev), "malformed (torn?) event line: %q", line)
+		switch ev.Op {
+		case "add":
+			adds++
+		case "tag":
+			tags++
+		}
+	}
+	assert.Equalf(t, 1, adds, "expected exactly 1 add event on disk")
+	assert.Equalf(t, n, tags, "expected %d tag events on disk", n)
 }

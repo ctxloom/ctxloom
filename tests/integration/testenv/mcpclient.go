@@ -45,16 +45,30 @@ type MCPClient struct {
 	lines   chan string // server stdout, one line per receive; closed on read error
 	readErr error       // why lines closed; written before close, read only after
 	nextID  int
+
+	// initResult is the raw "initialize" response envelope, captured by
+	// Initialize so callers can inspect what the server advertised (e.g.
+	// Instructions) without re-implementing the handshake. Nil until
+	// Initialize succeeds.
+	initResult map[string]any
 }
 
 // StartMCP spawns the MCP server in the project directory with the isolated
 // (and session-scrubbed — see isolatedEnv) environment. extraEnv entries
 // ("KEY=VALUE") are appended last and win over the isolated environment.
 func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
+	return startMCPProcess(e.AppBinary, []string{"mcp"}, e.ProjectDir, e.isolatedEnv(), extraEnv...)
+}
+
+// startMCPProcess spawns bin(args...) as an MCP server over stdio in dir, with
+// baseEnv plus extraEnv ("KEY=VALUE", appended last so it wins). Factored out
+// of StartMCP so a second binary (taskloom, see taskloom_acceptance.go) can
+// reuse the exact same process/reader plumbing rather than re-implementing it.
+func startMCPProcess(bin string, args []string, dir string, baseEnv []string, extraEnv ...string) (*MCPClient, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, e.AppBinary, "mcp")
-	cmd.Dir = e.ProjectDir
-	cmd.Env = append(e.isolatedEnv(), extraEnv...)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	cmd.Env = append(baseEnv, extraEnv...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -195,12 +209,24 @@ func (c *MCPClient) Initialize() error {
 	}); err != nil {
 		return err
 	}
-	if _, err := c.recvByID(id); err != nil {
+	msg, err := c.recvByID(id)
+	if err != nil {
 		return err
 	}
+	c.initResult = msg
 	return c.send(map[string]any{
 		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]any{},
 	})
+}
+
+// Instructions returns the server's initialize-response "instructions"
+// string (the top-level Instructions a client sees before ever calling a
+// tool), or "" if the server advertised none or Initialize has not
+// succeeded yet.
+func (c *MCPClient) Instructions() string {
+	result, _ := c.initResult["result"].(map[string]any)
+	s, _ := result["instructions"].(string)
+	return s
 }
 
 // ToolResult is a tools/call response envelope with helpers to unwrap the inner
@@ -337,6 +363,63 @@ func (c *MCPClient) listNames(method, array, field string) ([]string, error) {
 // ListTools returns the names of every registered MCP tool.
 func (c *MCPClient) ListTools() ([]string, error) {
 	return c.listNames("tools/list", "tools", "name")
+}
+
+// ToolDetail is one tool's name, static description, and raw input schema
+// (marshaled back to JSON text) from a tools/list response — additive
+// alongside ListTools (names only) for surfaces that need to assert what a
+// tool's description or schema actually document, not just that the tool
+// exists.
+type ToolDetail struct {
+	Name        string
+	Description string
+	SchemaJSON  string
+}
+
+// ListToolDetails fires tools/list and returns each tool's name, description,
+// and input schema (as raw JSON text, for substring assertions against
+// per-field jsonschema descriptions the schema — not the static
+// Description — carries).
+func (c *MCPClient) ListToolDetails() ([]ToolDetail, error) {
+	id := c.nextID
+	c.nextID++
+	if err := c.send(map[string]any{
+		"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": map[string]any{},
+	}); err != nil {
+		return nil, err
+	}
+	msg, err := c.recvByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if e := msg["error"]; e != nil {
+		return nil, fmt.Errorf("tools/list error: %v", e)
+	}
+	result, ok := msg["result"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("tools/list: result is not a map")
+	}
+	items, ok := result["tools"].([]any)
+	if !ok {
+		return nil, nil
+	}
+	out := make([]ToolDetail, 0, len(items))
+	for _, it := range items {
+		m, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		desc, _ := m["description"].(string)
+		schemaJSON := ""
+		if schema, ok := m["inputSchema"]; ok {
+			if b, err := json.Marshal(schema); err == nil {
+				schemaJSON = string(b)
+			}
+		}
+		out = append(out, ToolDetail{Name: name, Description: desc, SchemaJSON: schemaJSON})
+	}
+	return out, nil
 }
 
 // ListResources returns the URIs of every fixed MCP resource.

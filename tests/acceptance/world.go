@@ -17,9 +17,10 @@ import (
 // constructed fresh in a Before hook and torn down in After, so scenarios share
 // nothing.
 type World struct {
-	env  *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
-	mock *testenv.MockLM          // deterministic LLM backend (set by fixtures)
-	mcp  *testenv.MCPClient       // mock agent: JSON-RPC stdio client (lazy)
+	env   *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
+	mock  *testenv.MockLM          // deterministic LLM backend (set by fixtures)
+	mcp   *testenv.MCPClient       // mock agent: JSON-RPC stdio client (lazy)
+	tlMCP *testenv.MCPClient       // J11: taskloom's own MCP server (see steps_j11_taskloom.go), eager (started explicitly, not lazily)
 
 	lastTool  testenv.ToolResult // last tools/call envelope
 	lastInner map[string]any     // unwrapped inner result of lastTool
@@ -42,6 +43,7 @@ type World struct {
 	j7s *j7State // J7: the incident journey's fixture state (steps_j7.go)
 	j9  *j9State  // J9: the isolation-axes journey's fixture state (steps_j9_isolation.go)
 	j10 *j10State // J10: the Agent Skill materialization journey's fixture state (steps_j10_doctor.go)
+	j11 *j11State // J11: the taskloom tag-surface journey's fixture state (steps_j11_taskloom.go)
 	ts  *tsState  // trust-surface matrix: fixture state (steps_trust_surface.go)
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
@@ -102,6 +104,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 			return ctx, nil
 		}
 		_ = w.mcp.Close()
+		_ = w.tlMCP.Close()
 		_ = w.env.Cleanup()
 		return ctx, nil
 	})
@@ -123,6 +126,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ8Steps(ctx)
 	registerJ9Steps(ctx)
 	registerJ10Steps(ctx)
+	registerJ11Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerSkillSteps(ctx)
 	registerDocCaptureHooks(ctx)

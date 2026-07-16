@@ -7,7 +7,7 @@ title: "MCP Tools Reference"
 This page is generated from taskloom's registered MCP tools and resources, as served by `taskloom mcp`.
 :::
 
-Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later), task_add to create, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI.
+Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI.
 
 ## Tools
 
@@ -18,6 +18,7 @@ Add a new task to the project's task log. Returns the assigned harp ID; referenc
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `status` | string | No | Initial status (default: "To Do"). Free-form; standard values are "In Progress", "To Do", "Deferred", "Done", "Archived". |
+| `tags` | string[] | No | Optional flat tags to set on the task at creation (e.g. ["urgent", "release"]). Add more later with task_tag. |
 | `text` | string | Yes | Task text. Required, trimmed. |
 | `trigger` | string | No | The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. "the v2 API ships"). REQUIRED when status is "Deferred"; ignored otherwise. |
 
@@ -39,6 +40,7 @@ List the project's tasks, optionally filtered by status or text term. Pass inclu
 | `include_completed` | boolean | No | When true, include completed (Done/Archived) tasks, which are hidden by default. |
 | `include_summary` | boolean | No | When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. |
 | `statuses` | string[] | No | Optional list of statuses to filter by (e.g. ["In Progress", "To Do"]). Empty = active tasks only (completed tasks are hidden unless include_completed is set or a completed status is named here). |
+| `tag_query` | string | No | Optional postfix (RPN) boolean tag filter, e.g. "urgent/release/and" (tagged both urgent AND release), "urgent/release/or", or "urgent/not" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: "urgent/release" behaves like "urgent/release/and". Empty = no tag filter. |
 | `term` | string | No | Optional case-insensitive substring filter against task text. |
 
 ### task_set_status
@@ -50,4 +52,14 @@ Move a task to a different status. Use "Done" to complete a task or "Archived" t
 | `harp_id` | string | Yes | The task's harp ID (e.g. "swift-amber-falcon") as returned by task_list or task_add. |
 | `status` | string | Yes | Target status. Standard values: "In Progress", "To Do", "Deferred", "Done", "Archived". |
 | `trigger` | string | No | The revive condition when moving to "Deferred": what should bring the task back. REQUIRED for "Deferred" unless the task already carries a trigger (then it is preserved). Ignored for other statuses. |
+
+### task_tag
+
+Add and/or remove flat tags on a task, keyed by its harp ID. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). Filter task_list with tag_query using the resulting tags.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `add` | string[] | No | Tags to add (union onto the task's current tag set). Duplicates and already-present tags are no-ops. |
+| `harp_id` | string | Yes | The task's harp ID (e.g. "swift-amber-falcon") as returned by task_list or task_add. |
+| `remove` | string[] | No | Tags to remove (subtracted from the task's current tag set). Removing an absent tag is a no-op. At least one of add/remove is required; a tag named in both ends up removed. |
 

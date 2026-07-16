@@ -14,15 +14,16 @@ import (
 var (
 	tasksListStatuses []string
 	tasksListTerm     string
+	tasksListTagQuery string
 	tasksListJSON     bool
 	tasksListAll      bool
 )
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List tasks, optionally filtered by status or term",
+	Short: "List tasks, optionally filtered by status, term, or tag query",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.ListTasks(taskContext(), tasksListStatuses, tasksListTerm, tasksListAll, false)
+		res, err := operations.ListTasksWithTagQuery(taskContext(), tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, false)
 		if err != nil {
 			return err
 		}
@@ -49,6 +50,7 @@ var listCmd = &cobra.Command{
 var (
 	tasksAddStatus  string
 	tasksAddTrigger string
+	tasksAddTags    []string
 )
 
 var addCmd = &cobra.Command{
@@ -57,7 +59,7 @@ var addCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		res, err := operations.AddTask(taskContext(), text, tasksAddStatus, tasksAddTrigger)
+		res, err := operations.AddTaskWithTags(taskContext(), text, tasksAddStatus, tasksAddTrigger, tasksAddTags)
 		if err != nil {
 			return err
 		}
@@ -114,6 +116,34 @@ status and any Deferred trigger are left unchanged.`,
 		task := res.Task
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	},
+}
+
+var (
+	tasksTagAdd    []string
+	tasksTagRemove []string
+)
+
+var tagCmd = &cobra.Command{
+	Use:   "tag <harp-id>",
+	Short: "Add and/or remove flat tags on a task",
+	Long: `Add and/or remove flat tags on a task, keyed by its harp ID.
+
+--add and --remove are each repeatable; at least one is required. --add is
+applied before --remove, so a tag named in both ends up removed. Filter
+"taskloom list --tag-query" using the resulting tags.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := operations.TagTask(taskContext(), args[0], tasksTagAdd, tasksTagRemove)
+		if err != nil {
+			return err
+		}
+		warnTask(res.Warning)
+		noteTaskProject(res.ProjectID, res.ProjectDir)
+		task := res.Task
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
 		return w.Err()
 	},
 }
@@ -179,15 +209,20 @@ hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
 func init() {
 	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
+	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and" (bare tag lists are an implicit AND)`)
 	listCmd.Flags().BoolVar(&tasksListJSON, "json", false, "emit JSON instead of a table (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include completed (Done/Archived) tasks, hidden by default")
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 	addCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")
+	addCmd.Flags().StringArrayVar(&tasksAddTags, "tag", nil, "flat tag to set at creation (repeatable)")
 
 	statusCmd.Flags().StringVar(&tasksStatusTrigger, "trigger", "", "revive condition when setting status to Deferred")
 
+	tagCmd.Flags().StringArrayVar(&tasksTagAdd, "add", nil, "tag to add (repeatable)")
+	tagCmd.Flags().StringArrayVar(&tasksTagRemove, "remove", nil, "tag to remove (repeatable)")
+
 	statusesCmd.Flags().BoolVar(&tasksStatusesJSON, "json", false, "emit JSON instead of a table (for jq)")
 
-	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, summaryCmd, statusesCmd)
+	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, tagCmd, summaryCmd, statusesCmd)
 }

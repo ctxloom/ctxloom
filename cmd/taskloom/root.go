@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -108,6 +109,9 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		text := t.Text
 		if t.Trigger != "" {
 			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
+		}
+		if len(t.Tags) > 0 {
+			text = fmt.Sprintf("%s  [%s]", text, strings.Join(t.Tags, ", "))
 		}
 		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, text)
 	}

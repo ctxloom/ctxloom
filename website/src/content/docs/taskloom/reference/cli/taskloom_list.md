@@ -9,7 +9,7 @@ This page is generated from `taskloom list --help`.
 
 ## taskloom list
 
-List tasks, optionally filtered by status or term
+List tasks, optionally filtered by status, term, or tag query
 
 ```
 taskloom list [flags]
@@ -18,11 +18,12 @@ taskloom list [flags]
 ### Options
 
 ```
-      --all              include completed (Done/Archived) tasks, hidden by default
-  -h, --help             help for list
-      --json             emit JSON instead of a table (for jq)
-      --status strings   filter by status (repeatable)
-      --term string      filter by case-insensitive substring of task text
+      --all                include completed (Done/Archived) tasks, hidden by default
+  -h, --help               help for list
+      --json               emit JSON instead of a table (for jq)
+      --status strings     filter by status (repeatable)
+      --tag-query string   filter by postfix tag query, e.g. "urgent/release/and" (bare tag lists are an implicit AND)
+      --term string        filter by case-insensitive substring of task text
 ```
 
 ### Options inherited from parent commands

@@ -14,7 +14,7 @@ Serve the task tools over MCP on stdio
 ### Synopsis
 
 Run an MCP server on stdio exposing the task store to agents:
-task_list, task_add, task_set_status, and task_edit. The project and session
+task_list, task_add, task_tag, task_set_status, and task_edit. The project and session
 are resolved per call from CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP (exported
 by ctxloom run) or the working directory, so one long-lived server follows the
 session it was launched for.

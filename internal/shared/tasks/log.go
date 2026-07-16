@@ -18,13 +18,14 @@ import (
 // is the fold of its events. Identity is the task harp; provenance is the
 // `add` event's session.
 type Event struct {
-	Op       string    `json:"op"`                  // add | status | text | remove
+	Op       string    `json:"op"`                  // add | status | text | remove | tag | untag
 	Task     string    `json:"task,omitempty"`      // task harp (identity)
 	Text     string    `json:"text,omitempty"`      // add: task text
 	Status   string    `json:"status,omitempty"`    // add/status: section name
 	Trigger  string    `json:"trigger,omitempty"`   // add/status: revive condition for a Deferred task
-	Session  string    `json:"session,omitempty"`   // origin (add) / acting (status,remove) session harp
+	Session  string    `json:"session,omitempty"`   // origin (add) / acting (status,remove,tag,untag) session harp
 	RepairOf string    `json:"repair_of,omitempty"` // add: anomaly key this re-add resolves
+	Tags     []string  `json:"tags,omitempty"`      // add: initial tags / tag: tags to union / untag: tags to subtract
 	Ts       time.Time `json:"ts"`
 }
 
@@ -33,6 +34,12 @@ const (
 	opStatus = "status"
 	opText   = "text"
 	opRemove = "remove"
+	// opTag and opUntag were added in the tag-query log-format bump: they
+	// union/subtract Event.Tags onto a task's derived tag set. A log carrying
+	// them is rejected by any pre-tag taskloom binary (apply's fail-loud
+	// unknown-op rule) — that binary must be upgraded, not the log downgraded.
+	opTag   = "tag"
+	opUntag = "untag"
 )
 
 // eventLog is the append-only backend behind a Store. It owns an in-process
@@ -135,10 +142,19 @@ func (f *folded) apply(ev Event) error {
 		}
 		t.Checked = statusIsDone(t.Status)
 		t.TextHash = hashText(t.Text)
+		t.Tags = normalizeTags(ev.Tags)
 		f.byID[ev.Task] = t
 		f.order = append(f.order, ev.Task)
 		if t.Status == StatusDeferred {
 			f.deferredSince[ev.Task] = ev.Ts
+		}
+	case opTag:
+		if t := f.byID[ev.Task]; t != nil {
+			t.Tags = unionTags(t.Tags, ev.Tags)
+		}
+	case opUntag:
+		if t := f.byID[ev.Task]; t != nil {
+			t.Tags = subtractTags(t.Tags, ev.Tags)
 		}
 	case opStatus:
 		if t := f.byID[ev.Task]; t != nil {
@@ -223,6 +239,13 @@ func (l *eventLog) lock() (func(), error) {
 }
 
 func (l *eventLog) add(text, status, trigger string) (Task, error) {
+	return l.addWithTags(text, status, trigger, nil)
+}
+
+// addWithTags is add with an initial tag set stamped on the `add` event
+// itself (rather than a follow-on `tag` event), so a task's creation and its
+// starting tags land as one atomic log line.
+func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Task, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Task{}, fmt.Errorf("text required")
@@ -234,6 +257,7 @@ func (l *eventLog) add(text, status, trigger string) (Task, error) {
 	if err := ValidateStatusTrigger(status, trigger); err != nil {
 		return Task{}, err
 	}
+	tags = normalizeTags(tags)
 	release, err := l.lock()
 	if err != nil {
 		return Task{}, err
@@ -245,7 +269,7 @@ func (l *eventLog) add(text, status, trigger string) (Task, error) {
 		return Task{}, err
 	}
 	id := uniqueHarpIDFromSet(f.issued)
-	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Trigger: trigger, Session: l.session}); err != nil {
+	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Trigger: trigger, Session: l.session, Tags: tags}); err != nil {
 		return Task{}, err
 	}
 	return Task{
@@ -256,6 +280,7 @@ func (l *eventLog) add(text, status, trigger string) (Task, error) {
 		TextHash:      hashText(text),
 		Trigger:       trigger,
 		OriginSession: l.session,
+		Tags:          tags,
 	}, nil
 }
 
@@ -348,6 +373,66 @@ func (l *eventLog) remove(harpID string) (Task, error) {
 	return *t, nil
 }
 
+// addTags unions tags onto harpID's current tag set and returns the updated
+// task. At least one (non-empty, post-trim) tag is required — an empty call
+// is rejected rather than silently appending a no-op event.
+func (l *eventLog) addTags(harpID string, tags []string) (Task, error) {
+	tags = normalizeTags(tags)
+	if len(tags) == 0 {
+		return Task{}, fmt.Errorf("at least one tag required")
+	}
+	release, err := l.lock()
+	if err != nil {
+		return Task{}, err
+	}
+	defer release()
+
+	f, err := l.fold()
+	if err != nil {
+		return Task{}, err
+	}
+	t := f.byID[harpID]
+	if t == nil {
+		return Task{}, fmt.Errorf("task not found: %s", harpID)
+	}
+	if err := l.append(Event{Op: opTag, Task: harpID, Tags: tags, Session: l.session}); err != nil {
+		return Task{}, err
+	}
+	out := *t
+	out.Tags = unionTags(t.Tags, tags)
+	return out, nil
+}
+
+// removeTags subtracts tags from harpID's current tag set and returns the
+// updated task. Removing a tag the task doesn't have is a no-op for that tag
+// (not an error); at least one tag argument is still required.
+func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
+	tags = normalizeTags(tags)
+	if len(tags) == 0 {
+		return Task{}, fmt.Errorf("at least one tag required")
+	}
+	release, err := l.lock()
+	if err != nil {
+		return Task{}, err
+	}
+	defer release()
+
+	f, err := l.fold()
+	if err != nil {
+		return Task{}, err
+	}
+	t := f.byID[harpID]
+	if t == nil {
+		return Task{}, fmt.Errorf("task not found: %s", harpID)
+	}
+	if err := l.append(Event{Op: opUntag, Task: harpID, Tags: tags, Session: l.session}); err != nil {
+		return Task{}, err
+	}
+	out := *t
+	out.Tags = subtractTags(t.Tags, tags)
+	return out, nil
+}
+
 func (l *eventLog) snapshot() ([]Task, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -392,11 +477,18 @@ func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 }
 
 func (l *eventLog) list(statuses []string, term string) ([]Task, error) {
+	return l.listWithTagQuery(statuses, term, "")
+}
+
+// listWithTagQuery is list with an additional postfix tag-query filter (see
+// pkg/tagquery). An empty tagQuery behaves exactly like list; a malformed
+// one surfaces as an error, never a silently empty or unfiltered result.
+func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {
 	all, err := l.snapshot()
 	if err != nil {
 		return nil, err
 	}
-	return filterTasks(all, statuses, term), nil
+	return filterTasks(all, statuses, term, tagQuery)
 }
 
 func (l *eventLog) summarize() (Summary, error) {

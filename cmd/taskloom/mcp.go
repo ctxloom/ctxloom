@@ -15,13 +15,13 @@ import (
 // store is shared with the `taskloom` CLI; the project resolves from the session
 // env (CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP, exported by ctxloom run) or
 // the working directory.
-const mcpServerInstructions = `Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later), task_add to create, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the ` + "`taskloom`" + ` CLI.`
+const mcpServerInstructions = `Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the ` + "`taskloom`" + ` CLI.`
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Serve the task tools over MCP on stdio",
 	Long: `Run an MCP server on stdio exposing the task store to agents:
-task_list, task_add, task_set_status, and task_edit. The project and session
+task_list, task_add, task_tag, task_set_status, and task_edit. The project and session
 are resolved per call from CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP (exported
 by ctxloom run) or the working directory, so one long-lived server follows the
 session it was launched for.`,

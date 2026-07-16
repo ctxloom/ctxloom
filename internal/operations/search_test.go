@@ -387,6 +387,49 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 	assert.True(t, found, "should find prompt by name")
 }
 
+// TestSearchContent_SearchSkills proves SearchContent indexes Agent Skill
+// packages (a directory-form bundle's skills/<name>/ tree), not just
+// single-blob fragments/commands — the search operation's counterpart to
+// ListAllSkills, exercised end to end through SearchContent{Types: []string{"skill"}}
+// the way `ctxloom search --type skill` drives it.
+func TestSearchContent_SearchSkills(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := paths.LocalBundlesPath(testBaseDir)
+	bundleDir := bundlesDir + "/skill-bundle"
+	require.NoError(t, fsys.MkdirAll(bundleDir+"/skills/humanize", 0755))
+	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
+		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  humanize:\n"), 0644))
+	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/humanize/SKILL.md",
+		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false, bundles.WithFS(fsys))
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
+		Query:  "humanize",
+		Types:  []string{"skill"},
+		Loader: loader,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Count)
+	got := result.Results[0]
+	assert.Equal(t, "skill", got.Type)
+	assert.Equal(t, "skill-bundle/humanize", got.Name)
+	assert.Equal(t, "name", got.Match)
+
+	// A query that only hits the SKILL.md description still resolves — proves
+	// the description path (not just the name path) is wired.
+	result, err = SearchContent(context.Background(), cfg, SearchContentRequest{
+		Query:  "sound less like an ai",
+		Types:  []string{"skill"},
+		Loader: loader,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Count)
+	assert.Equal(t, "description", result.Results[0].Match)
+}
+
 func TestSearchContent_SearchProfiles(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},

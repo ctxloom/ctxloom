@@ -1,13 +1,20 @@
 package grpc
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -226,4 +233,148 @@ func TestGRPCClient_Chat_DialErrorReturned(t *testing.T) {
 	c := &GRPCClient{client: &fakeLLMClient{chatErr: errors.New("dial failed")}}
 	_, _, _, err := c.Chat(context.Background(), agent.ChatRequest{})
 	require.Error(t, err)
+}
+
+// readCanonicalTranscript reads back harp's canonical transcript file
+// (paths.HarpCanonicalTranscriptPath) into transcript.Record values, in file
+// order. Record's fields are exported (unlike internal/transcript's own test
+// helper), so this package reads the file directly rather than importing a
+// test-only helper.
+func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
+	t.Helper()
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	var recs []transcript.Record
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var r transcript.Record
+		require.NoError(t, json.Unmarshal([]byte(line), &r))
+		recs = append(recs, r)
+	}
+	require.NoError(t, scanner.Err())
+	return recs
+}
+
+// TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent pins the tough-cloud
+// S2 seam: when the caller stamps req.Env[agent.SessionHarpEnv] (exactly what
+// acp_cmd.go does today), GRPCClient.Chat must (a) forward every event on the
+// returned channel UNCHANGED (lossless passthrough) and (b) ALSO have written
+// the same events to the harp's canonical transcript.acp.jsonl, keyed by the
+// engine name the plugin's Info RPC reports.
+func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "grpc-chat-tee-harp"
+
+	cs := newFakeChatClientStream([]*ChatEvent{
+		{Event: &ChatEvent_Session{Session: &ChatSessionInfo{Model: "m"}}},
+		{Event: &ChatEvent_Entry{Entry: &SessionEntry{Type: "assistant", Content: "hi there"}}},
+		{Event: &ChatEvent_Complete{Complete: &TurnMeta{InputTokens: 5}}},
+	})
+	c := &GRPCClient{client: &fakeLLMClient{
+		chatStream: cs,
+		infoResp:   &LLMInfo{Name: "codex"},
+	}}
+
+	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
+	in, events, errs, err := c.Chat(context.Background(), req)
+	require.NoError(t, err)
+	close(in)
+
+	var forwarded []agent.ChatEvent
+	for ev := range events {
+		forwarded = append(forwarded, ev)
+	}
+	require.NoError(t, <-errs)
+
+	// (a) passthrough is lossless.
+	require.Len(t, forwarded, 3)
+	require.NotNil(t, forwarded[0].Session)
+	assert.Equal(t, "m", forwarded[0].Session.Model)
+	require.NotNil(t, forwarded[1].Entry)
+	assert.Equal(t, "hi there", forwarded[1].Entry.Content)
+	require.NotNil(t, forwarded[2].Complete)
+	assert.Equal(t, 5, forwarded[2].Complete.InputTokens)
+
+	// (b) every event was ALSO recorded to the canonical transcript, on a
+	// valid-JSONL file, engine/harp stamped from the seam's own resolution.
+	recs := readCanonicalTranscript(t, harp)
+	require.Len(t, recs, 3)
+	assert.Equal(t, transcript.KindSession, recs[0].Kind)
+	assert.Equal(t, "codex", recs[0].Engine)
+	assert.Equal(t, harp, recs[0].Harp)
+	require.NotNil(t, recs[1].Entry)
+	assert.Equal(t, "hi there", recs[1].Entry.Content)
+	assert.Equal(t, transcript.KindComplete, recs[2].Kind)
+}
+
+// TestGRPCClient_Chat_NoHarpSkipsCapture pins the documented S4 gap: with no
+// harp on the request (run_structured.go mints none today), Chat must not
+// attempt capture at all — no Info RPC, no transcript file — and must still
+// forward every event unchanged. This is the "degrades gracefully, never
+// crashes" contract for the no-harp case.
+func TestGRPCClient_Chat_NoHarpSkipsCapture(t *testing.T) {
+	testsupport.Isolate(t)
+
+	cs := newFakeChatClientStream([]*ChatEvent{
+		{Event: &ChatEvent_Entry{Entry: &SessionEntry{Type: "assistant", Content: "hi"}}},
+	})
+	fc := &fakeLLMClient{chatStream: cs}
+	c := &GRPCClient{client: fc}
+
+	in, events, errs, err := c.Chat(context.Background(), agent.ChatRequest{Model: "m"})
+	require.NoError(t, err)
+	close(in)
+
+	var forwarded []agent.ChatEvent
+	for ev := range events {
+		forwarded = append(forwarded, ev)
+	}
+	require.NoError(t, <-errs)
+
+	require.Len(t, forwarded, 1)
+	assert.Equal(t, "hi", forwarded[0].Entry.Content)
+	assert.Equal(t, 0, fc.gotInfoCalls, "no harp on the request must skip the Info RPC capture uses to resolve the engine name")
+}
+
+// TestGRPCClient_Chat_InfoFailureDegradesGracefully asserts that when a harp
+// IS present but the plugin's Info RPC fails, capture is skipped rather than
+// the chat itself failing or stalling — a transcript-capture fault must never
+// be visible to the live chat it shadows.
+func TestGRPCClient_Chat_InfoFailureDegradesGracefully(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "grpc-chat-tee-info-fail-harp"
+
+	cs := newFakeChatClientStream([]*ChatEvent{
+		{Event: &ChatEvent_Entry{Entry: &SessionEntry{Type: "assistant", Content: "hi"}}},
+	})
+	c := &GRPCClient{client: &fakeLLMClient{
+		chatStream: cs,
+		infoErr:    errors.New("info rpc unavailable"),
+	}}
+
+	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
+	in, events, errs, err := c.Chat(context.Background(), req)
+	require.NoError(t, err)
+	close(in)
+
+	var forwarded []agent.ChatEvent
+	for ev := range events {
+		forwarded = append(forwarded, ev)
+	}
+	require.NoError(t, <-errs)
+	require.Len(t, forwarded, 1)
+	assert.Equal(t, "hi", forwarded[0].Entry.Content)
+
+	path, perr := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, perr)
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "an Info RPC failure must not leave a transcript file behind")
 }

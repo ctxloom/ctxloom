@@ -1,7 +1,12 @@
 package coord
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +16,10 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // fakeEngineHome records everything the engine host emits, standing in for a
@@ -306,6 +314,153 @@ func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
 	assert.Equal(t, "/work", req.WorkDir)
 	assert.Equal(t, "claude-sonnet-5", req.Model)
 	assert.Equal(t, agent.PermissionBypass, req.Permissions)
+}
+
+// readCanonicalTranscript reads back harp's canonical transcript file
+// (paths.HarpCanonicalTranscriptPath) into transcript.Record values, in file
+// order. Mirrors the same small helper internal/lm/grpc's chat_test.go uses
+// for its own S2 seam — Record's fields are exported, so each package reads
+// the file directly rather than sharing a test-only helper across packages.
+func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
+	t.Helper()
+	path, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	var recs []transcript.Record
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var r transcript.Record
+		require.NoError(t, json.Unmarshal([]byte(line), &r))
+		recs = append(recs, r)
+	}
+	require.NoError(t, scanner.Err())
+	return recs
+}
+
+// TestEngineHost_StartRun_CapturesTranscript pins the tough-cloud S2 seam on
+// the delegated-child side: enginehost.startRun tees the in-process
+// backend.Chat stream (dec.SessionHarp="child-harp-1", eh.harness=
+// "claude-code" — see testStartRun/NewEngineHost above) into the child's own
+// canonical transcript BEFORE adapt ever sees an event, so by the time the
+// turn's completion has reached plane-1 (home's turn_idle custom event), the
+// same events must already be on disk, in order, unaltered.
+func TestEngineHost_StartRun_CapturesTranscript(t *testing.T) {
+	testsupport.Isolate(t)
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode(), "StartRun must succeed: %s", resp.GetStatus().GetMessage())
+
+	require.Eventually(t, func() bool {
+		for _, n := range home.customNames() {
+			if n == CustomTurnIdle {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the turn boundary must reach plane-1")
+
+	// adapt still did its normal job — capture must be a pure tee, not a
+	// substitute consumer.
+	kinds := home.payloadKinds()
+	assert.Contains(t, kinds, "message_started")
+	assert.Contains(t, kinds, "tool_call_started")
+
+	// testStartRun's HarnessSpec carries SessionHarp "child-harp-1"; the
+	// scriptedChat backend for one turn emits session, thinking, assistant,
+	// tool_use, tool_result, complete — six events, six recorded lines.
+	recs := readCanonicalTranscript(t, "child-harp-1")
+	require.Len(t, recs, 6)
+	for _, r := range recs {
+		assert.Equal(t, "child-harp-1", r.Harp)
+		assert.Equal(t, "claude-code", r.Engine, "engine must be eh.harness, the RunnerHello-advertised backend name")
+	}
+	assert.Equal(t, transcript.KindSession, recs[0].Kind)
+	assert.Equal(t, "native-sess-42", recs[0].SessionID, "the native ACP session id from ChatEvent.Session must be recorded")
+
+	require.NotNil(t, recs[1].Entry)
+	assert.Equal(t, "thinking", recs[1].Entry.Type)
+	assert.Equal(t, "pondering", recs[1].Entry.Content)
+
+	require.NotNil(t, recs[2].Entry)
+	assert.Equal(t, "assistant", recs[2].Entry.Type)
+	assert.Equal(t, "echo: CTX\n\ndo the thing", recs[2].Entry.Content)
+
+	require.NotNil(t, recs[3].Entry)
+	assert.Equal(t, "tool_use", recs[3].Entry.Type)
+	assert.Equal(t, "grep", recs[3].Entry.ToolName)
+	assert.Contains(t, string(recs[3].Entry.ToolInput), "\"q\":\"x\"")
+
+	require.NotNil(t, recs[4].Entry)
+	assert.Equal(t, "tool_result", recs[4].Entry.Type)
+	assert.Equal(t, "found", recs[4].Entry.ToolOutput)
+
+	require.NotNil(t, recs[5].Complete)
+	assert.Equal(t, "end_turn", recs[5].Complete.StopReason)
+}
+
+// TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully pins the defensive
+// degrade-gracefully branch: if a StartRun somehow arrives with no
+// SessionHarp in its HarnessSpec (not expected in production — the
+// coordinator always assigns one before issuing StartRun — but defensive per
+// the plan's "no crash" requirement), the engine still runs and adapts
+// normally; it simply writes no transcript.
+func TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully(t *testing.T) {
+	testsupport.Isolate(t)
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+
+	spec, err := buildHarnessSpec(HarnessSpecInput{
+		Harness:    "claude-code",
+		Model:      "claude-sonnet-5",
+		Workspace:  "/work",
+		Permission: agent.PermissionBypass,
+		// SessionHarp deliberately omitted.
+	})
+	require.NoError(t, err)
+	input, _ := structpb.NewStruct(map[string]any{"prompt": "no harp here"})
+	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{
+		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Harness: spec, Input: input, Role: "worker"},
+	}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+	require.Eventually(t, func() bool {
+		for _, n := range home.customNames() {
+			if n == CustomTurnIdle {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "adapt must still process the turn normally with no harp")
+
+	// No harp was ever assigned to this run, so NO canonical transcript file
+	// should exist anywhere under the isolated home's sessions tree — the
+	// real assertion that capture was skipped outright, not attempted and
+	// silently swallowed.
+	sessionsDir, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	found := false
+	_ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr == nil && !d.IsDir() && d.Name() == paths.CanonicalTranscriptFileName {
+			found = true
+		}
+		return nil
+	})
+	assert.False(t, found, "no harp on the StartRun must produce no transcript.acp.jsonl anywhere")
 }
 
 // TestEngineHost_TurnSinkDeliversFramedMail: a coordinator-pushed

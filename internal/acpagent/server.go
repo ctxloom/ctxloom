@@ -164,12 +164,25 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 //
 //   - loadSession: true — session/load is implemented (handleSessionLoad).
 //   - promptCapabilities.embeddedContext: true — promptText already inlines
-//     an embedded `resource` block's text (embeddedResourceText). image/audio:
-//     left false — those ContentBlock variants have no text projection in
-//     promptText today and are silently dropped; claiming true would be
-//     exactly the lie this codebase must not tell (an advertised capability
-//     that quietly discards the content it claims to accept). Multimodal
-//     intake is a later slice (B2), not this one.
+//     an embedded `resource` block's text (embeddedResourceText).
+//   - promptCapabilities.image/audio: TRUE as of B2 (gap G3) — handlePrompt
+//     now builds a structured agent.ChatMessage.ContentBlocks alongside the
+//     flattened Text (see contentBlocksFromACP), so this HUB LAYER no longer
+//     discards an image/audio block's bytes: they ride the IR losslessly
+//     (Kind/Raw — internal/acp/mapping.go's blockToIR shape) all the way to
+//     whichever backend is driving the session. "true" here means exactly
+//     what the honesty discipline requires and NO MORE: ctxloom's agent role
+//     accepts the block and does something non-silent with it — never a
+//     flat, unindicated drop. It does NOT promise every connected engine
+//     literally sees pixels/audio: that is a PER-SESSION question the
+//     CLIENT-role driver (internal/acp/session.go's buildPromptBlocks)
+//     answers against the specific engine's OWN advertised capabilities,
+//     degrading to a visible flatten-WITH-warning placeholder when the
+//     engine can't take it — never a silent drop at that layer either. A
+//     backend that only reads ChatMessage.Text (claude/codex/kiro/opencode's
+//     own native StructuredChat drivers, untouched by this slice) still gets
+//     a non-silent placeholder too: promptText's image/audio case now emits
+//     a labeled marker instead of omitting the block outright.
 //   - mcpCapabilities: http/sse true, acp false (B3, gap G11) — ctxloom now
 //     accepts an editor-supplied http/sse MCP server (mcpServersFromACP) and
 //     carries it onward through the chosen engine's own ACP client
@@ -227,6 +240,8 @@ func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonr
 			LoadSession: true,
 			PromptCapabilities: api.PromptCapabilities{
 				EmbeddedContext: true,
+				Image:           true,
+				Audio:           true,
 			},
 			McpCapabilities: api.McpCapabilities{
 				Http: true,
@@ -425,6 +440,13 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	}
 
 	text := promptText(req.Prompt)
+	// B2 (gap G3): carry the prompt's content blocks through STRUCTURALLY too
+	// (agent.ChatMessage.ContentBlocks, IR2's carrier) — text alone loses
+	// image/audio entirely and only ever inlines resource/resource_link. A
+	// backend that consumes ContentBlocks (today: internal/acp's CLIENT-role
+	// driver) gets the full-fidelity blocks to deliver (capability-gated
+	// there); every other backend still only reads Text, unchanged.
+	blocks := contentBlocksFromACP(req.Prompt)
 	sess.mu.Lock()
 	if sess.inTurn {
 		sess.mu.Unlock()
@@ -440,20 +462,23 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	if !sess.contextSent && sess.leadContext != "" {
 		// First turn (or first after a mode switch): ctxloom's assembled
 		// context rides as the lead block — the oneshot fan-out's proven
-		// delivery model, no engine flags needed.
+		// delivery model, no engine flags needed. The structured form gets
+		// the SAME prefix, as its own leading text block, so a ContentBlocks
+		// consumer sees the identical lead context a Text-only consumer does.
 		text = sess.leadContext + "\n\n" + text
+		blocks = append([]agent.ContentBlock{{Kind: "text", Text: sess.leadContext}}, blocks...)
 	}
 	sess.contextSent = true
 	sess.mu.Unlock()
 
-	go s.runTurn(sess, text, reply)
+	go s.runTurn(sess, text, blocks, reply)
 }
 
 // runTurn runs ONE registered turn: deliver the message, forward the engine's
 // events as session/update notifications, forward its permission requests to
 // the client, relay a session/cancel to the engine, and reply with the stop
 // reason when the turn completes.
-func (s *Server) runTurn(sess *session, text string, replyWire func(any, *jsonrpc.Error)) {
+func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock, replyWire func(any, *jsonrpc.Error)) {
 	// The turn must close BEFORE its response reaches the wire: the client may
 	// send the next prompt the instant it reads the reply, and that prompt
 	// must not race a deferred reset into "a turn is already in flight".
@@ -466,7 +491,7 @@ func (s *Server) runTurn(sess *session, text string, replyWire func(any, *jsonrp
 
 	// Send the message; a dead engine (closed conversation) surfaces on Errs.
 	select {
-	case sess.engine.In <- agent.ChatMessage{Text: text}:
+	case sess.engine.In <- agent.ChatMessage{Text: text, ContentBlocks: blocks}:
 	case <-sess.cancelTurnCh:
 		// Cancelled before the engine even received the message: honor the
 		// cancel without running the turn.
@@ -796,14 +821,25 @@ func engineError(err error) *jsonrpc.Error {
 	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msg}
 }
 
-// promptText flattens a prompt's content blocks to text for the engine (which
-// consumes text). Text blocks pass through; `resource` blocks inline their
-// embedded resource's text; `resource_link` blocks become a labeled reference
-// line — so "add context" content reaches the engine instead of vanishing.
-// Binary/opaque blocks (images, audio, blob resources) have no text projection
-// and are still dropped. ContentBlock carries no discriminator field in the
-// fork's generated shape — dispatch switches on which variant pointer is
-// non-nil.
+// promptText flattens a prompt's content blocks to text for a backend that
+// only ever consumes text (every native backend but internal/acp's — claude/
+// codex/kiro/opencode's own StructuredChat drivers, untouched by this slice).
+// Text blocks pass through; `resource` blocks inline their embedded
+// resource's text; `resource_link` blocks become a labeled reference line —
+// so "add context" content reaches the engine instead of vanishing.
+//
+// B2 (gap G3): image/audio blocks, and a `resource` block carrying only a
+// binary blob (no text), have no text projection — but they are no longer
+// SILENTLY dropped here: each renders a labeled placeholder line (kind, mime
+// type, byte count) so a text-only backend's model at least sees that
+// something arrived, instead of the turn quietly missing it (this
+// codebase's signature failure mode — exit 0, success, zero bytes
+// delivered). A richer backend gets the REAL bytes via
+// agent.ChatMessage.ContentBlocks (contentBlocksFromACP), not this flattened
+// projection — see handlePrompt.
+//
+// ContentBlock carries no discriminator field in the fork's generated shape —
+// dispatch switches on which variant pointer is non-nil.
 func promptText(blocks []api.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
@@ -815,14 +851,43 @@ func promptText(blocks []api.ContentBlock) string {
 		case b.Resource != nil:
 			if s := embeddedResourceText(b.Resource); s != "" {
 				parts = append(parts, s)
+			} else {
+				parts = append(parts, binaryResourcePlaceholder(b.Resource))
 			}
 		case b.ResourceLink != nil:
 			if s := resourceLinkText(b.ResourceLink); s != "" {
 				parts = append(parts, s)
 			}
+		case b.Image != nil:
+			parts = append(parts, mediaPlaceholderLine("image", b.Image.MimeType, len(b.Image.Data)))
+		case b.Audio != nil:
+			parts = append(parts, mediaPlaceholderLine("audio", b.Audio.MimeType, len(b.Audio.Data)))
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// mediaPlaceholderLine renders the visible, non-silent placeholder for an
+// image/audio block flattened to plain text (see promptText's B2 note).
+func mediaPlaceholderLine(kind, mimeType string, dataLen int) string {
+	return fmt.Sprintf("[%s content received (mimeType=%s, %d bytes) — this flattened text channel cannot render it; a structured-content-aware backend receives it via ContentBlocks instead]", kind, mimeType, dataLen)
+}
+
+// binaryResourcePlaceholder renders the visible placeholder for an embedded
+// `resource` block carrying only a binary blob (embeddedResourceText returns
+// "" for one) — B2's fix for the pre-existing silent drop this path used to
+// have (see TestPromptText_ResourceBlocks's history: a blob resource used to
+// vanish with no trace at all).
+func binaryResourcePlaceholder(r *api.ContentBlockResource) string {
+	if r == nil || r.Resource.BlobResourceContents == nil {
+		return ""
+	}
+	b := r.Resource.BlobResourceContents
+	mimeType := ""
+	if b.MimeType != nil {
+		mimeType = *b.MimeType
+	}
+	return fmt.Sprintf("[binary resource %s received (mimeType=%s, %d bytes) — this flattened text channel cannot render it; a structured-content-aware backend receives it via ContentBlocks instead]", b.Uri, mimeType, len(b.Blob))
 }
 
 // embeddedResourceText inlines an embedded `resource` block's text. ACP embeds
@@ -869,6 +934,46 @@ func resourceLinkText(l *api.ContentBlockResourceLink) string {
 		line += " " + *l.Description
 	}
 	return line
+}
+
+// contentBlocksFromACP projects a session/prompt's content blocks onto the
+// IR2 structured form (agent.ContentBlock: Kind/Text/Raw) — the AGENT-role
+// mirror of internal/acp/mapping.go's blockToIR (CLIENT-role intake from an
+// ENGINE's own updates). Every variant's FULL bytes ride in Raw regardless of
+// kind, so image/audio/resource are carried losslessly all the way to a
+// backend that can act on them (B2, gap G3) — this is what makes
+// handleInitialize's promptCapabilities.image/audio: true honest: this layer
+// never drops the bytes, whatever a specific downstream engine later decides
+// to do with them (internal/acp/session.go's buildPromptBlocks degrades that
+// per-session, never silently).
+func contentBlocksFromACP(blocks []api.ContentBlock) []agent.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]agent.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		kind, text := "", ""
+		switch {
+		case b.Text != nil:
+			kind, text = "text", b.Text.Text
+		case b.Image != nil:
+			kind = "image"
+		case b.Audio != nil:
+			kind = "audio"
+		case b.ResourceLink != nil:
+			kind = "resource_link"
+		case b.Resource != nil:
+			kind = "resource"
+		default:
+			continue // no recognized variant — nothing to carry
+		}
+		raw, err := json.Marshal(b)
+		if err != nil {
+			continue // never expected: b was itself just decoded from JSON
+		}
+		out = append(out, agent.ContentBlock{Kind: kind, Text: text, Raw: raw})
+	}
+	return out
 }
 
 // mcpServersFromACP maps the client's session mcpServers onto the engine chat

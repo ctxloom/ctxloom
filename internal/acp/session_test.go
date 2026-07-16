@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	api "github.com/coder/acp-go-sdk"
+	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -891,6 +892,174 @@ func TestChat_SessionNewError_NotAuthRequired(t *testing.T) {
 	assert.Contains(t, err.Error(), "boom")
 	assert.NotContains(t, err.Error(), "requires authentication")
 	assert.Empty(t, events())
+}
+
+// TestChat_MultimodalDelivery_CapableEngine: when the connected engine
+// advertises image/audio/embeddedContext support, an outbound ChatMessage's
+// ContentBlocks deliver as REAL ACP content blocks (not a flattened
+// placeholder) — the payload proof that an image/audio block reaches the
+// engine (B2, gap G3).
+func TestChat_MultimodalDelivery_CapableEngine(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+
+	promptParams := make(chan json.RawMessage, 1)
+	go func() {
+		initReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{
+			"protocolVersion": 1,
+			"agentCapabilities": map[string]any{
+				"promptCapabilities": map[string]any{"image": true, "audio": true, "embeddedContext": true},
+			},
+		}))
+		newReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-mm"}))
+		promptReq := <-h.fa.requests
+		promptParams <- promptReq.Params
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{
+		Text: "look",
+		ContentBlocks: []agent.ContentBlock{
+			{Kind: "text", Text: "look", Raw: json.RawMessage(`{"type":"text","text":"look"}`)},
+			{Kind: "image", Raw: json.RawMessage(`{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}`)},
+			{Kind: "audio", Raw: json.RawMessage(`{"type":"audio","data":"d29ybGQ=","mimeType":"audio/wav"}`)},
+			{Kind: "resource", Raw: json.RawMessage(`{"type":"resource","resource":{"uri":"file:///a.go","text":"package main","mimeType":"text/x-go"}}`)},
+		},
+	}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range collect(h.out)() {
+	}
+
+	var got struct {
+		Prompt []api.ContentBlock `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(<-promptParams, &got))
+	require.Len(t, got.Prompt, 4)
+	require.NotNil(t, got.Prompt[0].Text)
+	assert.Equal(t, "look", got.Prompt[0].Text.Text)
+	require.NotNil(t, got.Prompt[1].Image, "the image block rides as a REAL ImageBlock, not a text placeholder")
+	assert.Equal(t, "aGVsbG8=", got.Prompt[1].Image.Data)
+	assert.Equal(t, "image/png", got.Prompt[1].Image.MimeType)
+	require.NotNil(t, got.Prompt[2].Audio, "the audio block rides as a REAL AudioBlock")
+	assert.Equal(t, "d29ybGQ=", got.Prompt[2].Audio.Data)
+	require.NotNil(t, got.Prompt[3].Resource, "the resource block rides as a REAL embedded resource")
+}
+
+// TestChat_MultimodalDelivery_IncapableEngine_FlattensWithWarning: when the
+// connected engine did NOT advertise image/audio support, an image/audio
+// content block is NEVER silently dropped — it degrades to a visible text
+// placeholder naming exactly what happened and why, so the model (and a
+// transcript viewer) sees the warning instead of the turn silently missing
+// content. Proves the flatten-WITH-warning path end to end, including the
+// wire payload the engine actually receives.
+func TestChat_MultimodalDelivery_IncapableEngine_FlattensWithWarning(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+
+	promptParams := make(chan json.RawMessage, 1)
+	go func() {
+		// serveHandshake responds with bare {"protocolVersion":1} — zero-value
+		// PromptCapabilities (image/audio/embeddedContext all false): an
+		// engine that advertised NOTHING.
+		_ = h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		promptParams <- promptReq.Params
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{
+		Text: "look",
+		ContentBlocks: []agent.ContentBlock{
+			{Kind: "text", Text: "look", Raw: json.RawMessage(`{"type":"text","text":"look"}`)},
+			{Kind: "image", Raw: json.RawMessage(`{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}`)},
+		},
+	}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range collect(h.out)() {
+	}
+
+	var got struct {
+		Prompt []api.ContentBlock `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(<-promptParams, &got))
+	require.Len(t, got.Prompt, 2)
+	require.NotNil(t, got.Prompt[0].Text)
+	assert.Equal(t, "look", got.Prompt[0].Text.Text)
+
+	require.NotNil(t, got.Prompt[1].Text, "the image degrades to a TEXT block — never a silent drop, and never sent as an image the engine didn't advertise support for")
+	warning := got.Prompt[1].Text.Text
+	assert.Contains(t, warning, "image content received but not delivered", "the warning names what happened")
+	assert.Contains(t, warning, "does not advertise image support", "the warning names why")
+	assert.Contains(t, warning, "image/png", "the warning names the mime type")
+	assert.NotContains(t, warning, "aGVsbG8=", "the raw base64 bytes are never included in the warning text")
+}
+
+// TestChat_MultimodalDelivery_NoContentBlocks_Unchanged pins the hard
+// constraint: a caller that never populates ContentBlocks (every current
+// caller besides acpagent's session/prompt intake — run --structured,
+// oneshot Execute, the interactive pty driver) gets the EXACT SAME single
+// flattened TextBlock delivery as before this slice, regardless of the
+// connected engine's capabilities.
+func TestChat_MultimodalDelivery_NoContentBlocks_Unchanged(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	promptParams := make(chan json.RawMessage, 1)
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		promptParams <- promptReq.Params
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	events()
+
+	var got struct {
+		Prompt []api.ContentBlock `json:"prompt"`
+	}
+	require.NoError(t, json.Unmarshal(<-promptParams, &got))
+	require.Len(t, got.Prompt, 1, "exactly one block — the flattened text, exactly as before B2")
+	require.NotNil(t, got.Prompt[0].Text)
+	assert.Equal(t, "hello", got.Prompt[0].Text.Text)
+}
+
+// TestChat_TerminalDeclined_Honestly: B1 (gap G6) — ctxloom's client role
+// never advertises the terminal capability (no cross-process broker channel
+// to the real editor exists yet — see setup's doc comment), and an engine
+// that calls terminal/create anyway (ignoring the advertised false, or
+// probing) gets a SPECIFIC, actionable decline naming exactly why — never a
+// locally-implemented fake terminal (ctxloom brokers, it never implements
+// one of its own), and never the generic method-not-found a truly
+// unrecognized method gets.
+func TestChat_TerminalDeclined_Honestly(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+
+	initReq := <-h.fa.requests
+	require.Equal(t, "initialize", initReq.Method)
+	var init api.InitializeRequest
+	require.NoError(t, json.Unmarshal(initReq.Params, &init))
+	assert.False(t, init.ClientCapabilities.Terminal, "no broker channel exists yet — advertising true would be an advertise-then-drop lie")
+	require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+
+	newReq := <-h.fa.requests
+	require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-term"}))
+
+	resp := l0CallClient(h.fa, "terminal/create", map[string]any{"sessionId": "sess-term", "command": "bash"})
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, jsonrpc.CodeMethodNotFound, resp.Error.Code)
+	assert.Contains(t, resp.Error.Message, "does not advertise the terminal capability")
+	assert.Contains(t, resp.Error.Message, "brokers terminal/* to editors, it never implements one itself")
+
+	close(h.in)
+	err := <-h.chatErr
+	require.NoError(t, err)
+	for range h.out {
+	}
 }
 
 // TestChat_TransportError surfaces a spawn failure as a Chat error (and still

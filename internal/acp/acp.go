@@ -131,6 +131,14 @@ type ACP struct {
 	// instance per call — see claude/codex/kiro's Chat methods), so this is safe
 	// per-call state, not shared mutable state racing concurrent chats.
 	runtimeAxis string
+
+	// containerImage, when non-empty, overrides the container profile's
+	// resolved image (isolation.Container.WithImage) instead of the
+	// engine's real one. Test-only seam: the docker-gated container
+	// transport proof points this at a minimal harness image instead of a
+	// real (credentialed, multi-hundred-MB) engine image; every production
+	// construction path leaves it empty.
+	containerImage string
 }
 
 // NewChatDriver builds an ACP client for EMBEDDING inside a target agent's own

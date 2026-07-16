@@ -71,6 +71,9 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 	}
 
 	pol := isolation.NewContainerFor(rt, containerProfileBackend(b.agentEngine))
+	if b.containerImage != "" {
+		pol = pol.WithImage(b.containerImage)
+	}
 	state := isolation.SessionStateFromEnv(env)
 	pol = pol.WithSessionState(state)
 

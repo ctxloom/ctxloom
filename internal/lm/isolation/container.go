@@ -292,6 +292,19 @@ func (c Container) WithSessionState(state SessionState) Container {
 	return c
 }
 
+// WithImage overrides this Container's resolved image, keeping the profile's
+// auth/overlay/transcript knobs (whichever engine's auth the caller can
+// actually resolve) but running a DIFFERENT image — e.g. a docker-gated
+// test's minimal harness image, which has nothing to do with the profile's
+// own engine but needs SOME resolvable auth to clear PrepareWorkspace's gate.
+// Exposed as a narrow, explicit override (not a general profile mutator) so
+// production callers (NewContainerFor/containerFor) are unaffected: only a
+// caller that deliberately wants this specific mismatch reaches for it.
+func (c Container) WithImage(image string) Container {
+	c.image = image
+	return c
+}
+
 // ExecSpec builds the RunSpec for running an ARBITRARY in-container command
 // against a workspace this Container already prepared via PrepareWorkspace —
 // ISO1's use case: the container hosts the target agent's OWN ACP subprocess

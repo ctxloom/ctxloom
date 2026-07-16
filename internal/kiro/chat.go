@@ -32,6 +32,15 @@ func (b *Kiro) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 // wired: the generic driver's --model argv is kiro's own established
 // mechanism (buildArgs in backend.go already uses it for the oneshot
 // `kiro-cli chat` path too).
+//
+// It sets no ReasoningConfigKey/ReasoningEffort (acp.ACPConfig): the
+// cross-engine normalized thinking level (off|low|medium|high — see
+// internal/claude/chat.go, internal/codex/chat.go) is a DOCUMENTED no-op on
+// this backend, not a silent swallow — KiroConfig.Thinking's Configure warns
+// if a user sets it (backend.go). kiro-cli acp may well have its own
+// reasoning knob (its direct-CLI --effort exists — buildArgs), but wiring
+// the normalized enum onto it is unresearched; do not assume the two
+// vocabularies line up without verifying kiro-cli acp's own flags live.
 func (b *Kiro) chatACPConfig() acp.ACPConfig {
 	return acp.ACPConfig{
 		Command:     b.BinaryPath + " acp",

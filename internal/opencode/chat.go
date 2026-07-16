@@ -117,6 +117,12 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 // It sets NO Model/ModelConfigKey/ModelEnvVar: opencode acp has no --model flag
 // and no known model env var — model selection is the opencode.json written in
 // Chat. Nor Agent/AgentEngine: opencode acp rejects those flags too.
+//
+// It likewise sets no ReasoningConfigKey/ReasoningEffort: the cross-engine
+// normalized thinking level (off|low|medium|high — see
+// internal/claude/chat.go, internal/codex/chat.go) is a DOCUMENTED no-op on
+// this backend — no ACP config-option or env-var equivalent was found
+// (OpencodeConfig.Thinking's Configure warns if a user sets it, backend.go).
 func (b *Opencode) chatACPConfig() acp.ACPConfig {
 	return acp.ACPConfig{
 		Command: b.BinaryPath + " acp",

@@ -79,6 +79,27 @@ type ACPConfig struct {
 	// config.toml dotted-path convention, e.g. `-c model="o3"`, confirmed
 	// live) is the only mechanism that works.
 	ModelConfigKey string `mapstructure:"model_config_key"`
+	// ReasoningConfigKey, when set, delivers a resolved reasoning/thinking
+	// value via an ADDITIONAL `-c <key>=<value>` override — independent of
+	// ModelConfigKey; both render together when both are set (chatArgv).
+	// Unlike Model there is no per-request override: the embedding backend
+	// (internal/codex/chat.go) resolves the concrete value from the agent's
+	// normalized thinking level (off|low|medium|high) BEFORE constructing
+	// this config, from the labeled config's own static `thinking` field —
+	// so ReasoningEffort is already the literal string to send, not a
+	// request-time lookup. e.g. codex-acp's "model_reasoning_effort".
+	ReasoningConfigKey string `mapstructure:"reasoning_config_key"`
+	// ReasoningEffort is the resolved value ReasoningConfigKey delivers.
+	// Empty means "no override" even if ReasoningConfigKey is set (never
+	// renders `-c key=""`, which would overwrite the adapter's own default
+	// with an explicit empty string).
+	ReasoningEffort string `mapstructure:"reasoning_effort"`
+	// ReasoningSummaryConfigKey/ReasoningSummary are a companion override in
+	// the same shape as ReasoningConfigKey/ReasoningEffort — codex's
+	// model_reasoning_summary, sent alongside model_reasoning_effort so an
+	// enabled reasoning level actually surfaces a summary in the stream.
+	ReasoningSummaryConfigKey string `mapstructure:"reasoning_summary_config_key"`
+	ReasoningSummary          string `mapstructure:"reasoning_summary"`
 	// StripEnv names inherited environment variables REMOVED from the spawned
 	// agent's env. The embedding backend uses it to drop a variable whose
 	// inherited presence would be a false signal to the child engine — e.g.
@@ -111,6 +132,16 @@ type ACP struct {
 	modelEnvVar    string
 	modelConfigKey string
 	stripEnv       []string
+
+	// reasoningConfigKey/reasoningEffort and their summary counterparts mirror
+	// modelConfigKey's shape for the normalized thinking-level knob (see
+	// ACPConfig.ReasoningConfigKey). Unlike model there is no per-request
+	// override to layer on top in chatArgv — these are already the resolved,
+	// static values the embedding backend computed at Configure time.
+	reasoningConfigKey        string
+	reasoningEffort           string
+	reasoningSummaryConfigKey string
+	reasoningSummary          string
 
 	// openTransport spawns (or, in tests, fakes) the ACP subprocess transport.
 	// nil → spawnTransport (a real `<agent> acp` process).
@@ -176,6 +207,18 @@ func (b *ACP) Configure(cfg agent.BackendConfig) {
 	}
 	if c.ModelConfigKey != "" {
 		b.modelConfigKey = c.ModelConfigKey
+	}
+	if c.ReasoningConfigKey != "" {
+		b.reasoningConfigKey = c.ReasoningConfigKey
+	}
+	if c.ReasoningEffort != "" {
+		b.reasoningEffort = c.ReasoningEffort
+	}
+	if c.ReasoningSummaryConfigKey != "" {
+		b.reasoningSummaryConfigKey = c.ReasoningSummaryConfigKey
+	}
+	if c.ReasoningSummary != "" {
+		b.reasoningSummary = c.ReasoningSummary
 	}
 	if len(c.StripEnv) > 0 {
 		b.stripEnv = c.StripEnv
@@ -267,6 +310,17 @@ func (b *ACP) chatArgv(req agent.ChatRequest) []string {
 	}
 	if b.agentEngine != "" {
 		args = append(args, "--agent-engine", b.agentEngine)
+	}
+	// The reasoning overrides render independently of the model one above —
+	// they are their own `-c key=value` pair(s), not mutually exclusive with
+	// --model/-c model=. Always quoted for the same reason as the model's
+	// codex-acp form (its own TOML parser reads the value). Only when both a
+	// key AND a resolved value are set — never `-c key=""`.
+	if b.reasoningConfigKey != "" && b.reasoningEffort != "" {
+		args = append(args, "-c", fmt.Sprintf("%s=%q", b.reasoningConfigKey, b.reasoningEffort))
+	}
+	if b.reasoningSummaryConfigKey != "" && b.reasoningSummary != "" {
+		args = append(args, "-c", fmt.Sprintf("%s=%q", b.reasoningSummaryConfigKey, b.reasoningSummary))
 	}
 	return args
 }

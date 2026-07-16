@@ -2,6 +2,8 @@ package claude
 
 import (
 	"context"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -113,6 +115,52 @@ func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 
 	// Original default should be preserved
 	assert.Equal(t, "claude", backend.BinaryPath)
+}
+
+// TestNewClaudeCode_ThinkingDefaultsToMedium pins that a freshly-constructed
+// backend that never runs Configure at all still resolves to the documented
+// medium default (agent.ThinkingLevel's zero value IS ThinkingMedium — see
+// thinking.go) — the "fires by default" guarantee must not depend on
+// Configure having run.
+func TestNewClaudeCode_ThinkingDefaultsToMedium(t *testing.T) {
+	backend := NewClaudeCode()
+	assert.Equal(t, agent.ThinkingMedium, backend.thinking)
+}
+
+// TestClaudeCode_Configure_Thinking verifies the normalized thinking level
+// parses through Configure onto the backend.
+func TestClaudeCode_Configure_Thinking(t *testing.T) {
+	backend := NewClaudeCode()
+	backend.Configure(&ClaudeConfig{Thinking: "high"})
+	assert.Equal(t, agent.ThinkingHigh, backend.thinking)
+}
+
+// TestClaudeCode_Configure_ThinkingEmptyDefaultsToMedium verifies an unset
+// Thinking field resolves to the documented medium default.
+func TestClaudeCode_Configure_ThinkingEmptyDefaultsToMedium(t *testing.T) {
+	backend := NewClaudeCode()
+	backend.Configure(&ClaudeConfig{})
+	assert.Equal(t, agent.ThinkingMedium, backend.thinking)
+}
+
+// TestClaudeCode_Configure_ThinkingUnknownWarnsAndDefaults verifies an
+// unrecognized (but non-empty) value still resolves to medium AND warns —
+// an honest degrade, not a silent one.
+func TestClaudeCode_Configure_ThinkingUnknownWarnsAndDefaults(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = w
+
+	backend := NewClaudeCode()
+	backend.Configure(&ClaudeConfig{Thinking: "extreme"})
+	_ = w.Close()
+	os.Stderr = orig
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Equal(t, agent.ThinkingMedium, backend.thinking)
+	assert.Contains(t, string(out), "extreme")
 }
 
 // =============================================================================

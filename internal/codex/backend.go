@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // codexAuthFileName is the credential file codex reads from $CODEX_HOME —
@@ -30,6 +31,14 @@ type CodexConfig struct {
 	BinaryPath string            `mapstructure:"binary_path"`
 	Args       []string          `mapstructure:"args"`
 	Env        map[string]string `mapstructure:"env"`
+	// Thinking is the normalized reasoning/thinking-budget level
+	// (off|low|medium|high — agent.ThinkingLevel). Empty or unrecognized
+	// defaults to "medium". See chat.go's translation to codex-acp's
+	// model_reasoning_effort/model_reasoning_summary config keys. Codex is
+	// model-gated (model_supports_reasoning_summaries) and returns no
+	// reasoning at all on ChatGPT-OAuth auth (`codex doctor`: reasoning
+	// header false) — an account-tier limit this knob cannot lift.
+	Thinking string `mapstructure:"thinking"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -63,6 +72,11 @@ type Codex struct {
 	// already seeded before this run starts and already fails loud earlier,
 	// at isolation.Prepare's own choke gate (see ensureCodexCredentials).
 	credentialErr error
+	// thinking is the resolved normalized reasoning level (Configure defaults
+	// it to agent.ThinkingMedium — the zero value, so an unconfigured backend
+	// is still medium). Chat translates it into codex-acp's
+	// model_reasoning_effort/model_reasoning_summary config keys (chat.go).
+	thinking agent.ThinkingLevel
 }
 
 // NewCodex creates a new Codex backend with default settings. Its InitLaunch
@@ -319,6 +333,16 @@ func (b *Codex) cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
 func (b *Codex) Configure(cfg agent.BackendConfig) {
 	if c, ok := cfg.(*CodexConfig); ok {
 		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args, c.Env)
+		// Advisory validation only, matching claude-code's Configure and
+		// agents.SetAgentRequest's tolerance for a typo'd cost-tuning knob:
+		// an unrecognized (non-empty) value still resolves to the documented
+		// medium default rather than failing the whole config.
+		level, ok := agent.ParseThinkingLevel(c.Thinking)
+		if c.Thinking != "" && !ok {
+			clidiag.Warn("ctxloom", "codex config declares unknown thinking level %q (known: %s); using the default %q",
+				c.Thinking, strings.Join(agent.ThinkingLevelNames(), "|"), agent.ThinkingMedium)
+		}
+		b.thinking = level
 	}
 }
 

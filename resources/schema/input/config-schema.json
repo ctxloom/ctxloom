@@ -376,7 +376,8 @@
             "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium." }
           },
           "additionalProperties": false
         },
@@ -402,7 +403,8 @@
             "model": { "type": "string" },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare \"high\"; ctxloom's \"high\" maps to \"xhigh\") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob)." }
           },
           "additionalProperties": false
         },
@@ -418,7 +420,8 @@
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
             "agent": { "type": "string", "description": "Kiro custom agent selected via --agent (default \"ctxloom\")." },
-            "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." }
+            "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." },
+            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) — use \"effort\" above instead." }
           },
           "additionalProperties": false
         },
@@ -432,7 +435,8 @@
             "model": { "type": "string", "examples": ["openrouter/meta-llama/llama-3.3-70b-instruct:free"], "description": "opencode model string (provider/model); written into the run's opencode.json." },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning)." }
           },
           "additionalProperties": false
         },
@@ -460,6 +464,10 @@
             "model": { "type": "string", "description": "Passed to the spawned agent via `--model` when set." },
             "model_env_var": { "type": "string", "description": "When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL)." },
             "model_config_key": { "type": "string", "description": "When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it)." },
+            "reasoning_config_key": { "type": "string", "description": "When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort)." },
+            "reasoning_effort": { "type": "string", "description": "The resolved value reasoning_config_key delivers." },
+            "reasoning_summary_config_key": { "type": "string", "description": "A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary)." },
+            "reasoning_summary": { "type": "string", "description": "The resolved value reasoning_summary_config_key delivers." },
             "strip_env": { "type": "array", "description": "Inherited environment variables removed from the spawned agent's env.", "items": { "type": "string" } },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },

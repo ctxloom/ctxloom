@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os/exec"
 	"strings"
 
@@ -23,10 +24,13 @@ var _ agent.StructuredChat = (*ClaudeCode)(nil)
 // the claude-code-acp ADAPTER subprocess. This REPLACED the bespoke stream-json
 // driver (chat_run.go/chat_stream.go, deleted once this path was verified live):
 // one protocol mapper in internal/acp now serves every structured backend, and
-// ACP's agent_thought_chunk surfaces summarized thinking that stream-json
-// stripped. Materialization stays with this backend (Setup wrote .claude/ +
-// .mcp.json + the framed context file; the adapter runs claude in the same cwd,
-// which reads them natively); the driver only speaks the protocol.
+// ACP's agent_thought_chunk CAN surface summarized thinking that stream-json
+// stripped — but only when the adapter is actually asked to think (see
+// withThinkingEnv below; this is the fix for the bug where ctxloom asked for
+// nothing and thinking was never generated at all). Materialization stays with
+// this backend (Setup wrote .claude/ + .mcp.json + the framed context file; the
+// adapter runs claude in the same cwd, which reads them natively); the driver
+// only speaks the protocol.
 //
 // The interactive terminal path (a real `claude` TUI over the pty launcher) is
 // untouched — ACP replaces only the programmatic conversation surface.
@@ -35,8 +39,69 @@ func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan 
 		close(out) // honor the StructuredChat contract: producer closes out exactly once
 		return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", claudeACPAdapter)
 	}
+	// req.Env carries this call's caller-supplied env straight through to the
+	// spawned adapter (internal/acp/session.go's spawnEnv method merges it
+	// with ModelEnvVar); withThinkingEnv rides the SAME proven delivery path
+	// rather than ACPConfig.Env, which — unlike ModelEnvVar/ModelConfigKey —
+	// has no live per-chat application in the ACP driver for a
+	// backend-resolved static value. Never mutates the caller's map.
+	req.Env = withThinkingEnv(req.Env, b.thinking)
 	drv := acp.NewChatDriver(chatACPConfig(b.Env))
 	return drv.Chat(ctx, req, in, out)
+}
+
+// claudeThinkingEnvVar is the claude SDK's own extended-thinking budget
+// selector. VERIFIED live (controlled A/B on one reasoning-forcing prompt):
+// absent → 0 agent_thought_chunk frames; MAX_THINKING_TOKENS=10000 → 29. The
+// Claude Agent SDK reads it — the bug this whole feature exists to fix is
+// that ctxloom never set it, so structured chat NEVER generated thinking
+// regardless of the model's own reasoning capability.
+const claudeThinkingEnvVar = "MAX_THINKING_TOKENS"
+
+// claudeThinkingTokens translates the normalized level into the SDK's env
+// var value. These NUMBERS are ctxloom's own tuning, not Anthropic's: the raw
+// Messages API REMOVED the token-count budget_tokens parameter for ctxloom's
+// current default models (claude-opus-4-8, claude-sonnet-5 — sending it
+// returns 400) in favor of a qualitative effort enum, which means the SDK is
+// translating this env var internally rather than treating it as a literal
+// token count — a future SDK release could silently re-scale it. 10000 is
+// the verified-working value (the "think hard" tier); low/high are
+// ctxloom's own proportional guesses, retunable later with no config-schema
+// break since the wire vocabulary (off|low|medium|high) never changes.
+// off returns ok=false so the caller sets no env var at all — the verified
+// zero-thinking baseline — rather than a value claude might interpret as a
+// non-zero budget.
+func claudeThinkingTokens(level agent.ThinkingLevel) (value string, ok bool) {
+	switch level {
+	case agent.ThinkingOff:
+		return "", false
+	case agent.ThinkingLow:
+		return "4000", true
+	case agent.ThinkingHigh:
+		return "24000", true
+	default: // ThinkingMedium, and any level this switch doesn't otherwise name
+		return "10000", true
+	}
+}
+
+// withThinkingEnv returns env with claudeThinkingEnvVar added for a non-off
+// level, added last: a caller-supplied override in env (unlikely, but always
+// more specific than the resolved default) is NOT overwritten. env is never
+// mutated — the caller's map (often req.Env, shared with other readers)
+// stays untouched, matching internal/acp/session.go's own spawnEnv copy
+// discipline for the analogous ModelEnvVar delivery.
+func withThinkingEnv(env map[string]string, level agent.ThinkingLevel) map[string]string {
+	value, ok := claudeThinkingTokens(level)
+	if !ok {
+		return env
+	}
+	if _, already := env[claudeThinkingEnvVar]; already {
+		return env
+	}
+	out := make(map[string]string, len(env)+1)
+	maps.Copy(out, env)
+	out[claudeThinkingEnvVar] = value
+	return out
 }
 
 // chatACPConfig is the adapter config for one claude structured-chat spawn.

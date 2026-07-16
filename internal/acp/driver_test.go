@@ -170,3 +170,44 @@ func TestChatArgv_ModelConfigKey(t *testing.T) {
 	drv3 := NewChatDriver(ACPConfig{Command: "kiro-cli acp"})
 	assert.Equal(t, []string{"acp", "--model", "sonnet"}, drv3.chatArgv(agent.ChatRequest{Model: "sonnet"}))
 }
+
+// TestChatArgv_ReasoningConfigKey pins the normalized thinking-level
+// delivery for codex-acp: an ADDITIONAL `-c key=value` pair, independent of
+// (and combinable with) ModelConfigKey — both render together when both are
+// configured, and neither is per-request (no ChatRequest field drives this;
+// the embedding backend already resolved the concrete value at Configure
+// time — see internal/codex/chat.go).
+func TestChatArgv_ReasoningConfigKey(t *testing.T) {
+	drv := NewChatDriver(ACPConfig{
+		Command:            "codex-acp",
+		ModelConfigKey:     "model",
+		ReasoningConfigKey: "model_reasoning_effort",
+		ReasoningEffort:    "medium",
+	})
+	argv := drv.chatArgv(agent.ChatRequest{Model: "o3"})
+	assert.Equal(t, []string{"-c", `model="o3"`, "-c", `model_reasoning_effort="medium"`}, argv)
+
+	// Both reasoning overrides render together, in order, when both are set.
+	drv2 := NewChatDriver(ACPConfig{
+		Command:                   "codex-acp",
+		ReasoningConfigKey:        "model_reasoning_effort",
+		ReasoningEffort:           "xhigh",
+		ReasoningSummaryConfigKey: "model_reasoning_summary",
+		ReasoningSummary:          "auto",
+	})
+	assert.Equal(t, []string{
+		"-c", `model_reasoning_effort="xhigh"`,
+		"-c", `model_reasoning_summary="auto"`,
+	}, drv2.chatArgv(agent.ChatRequest{}))
+
+	// Neither key configured -> no reasoning flags at all. A bare adapter
+	// command (no trailing subcommand, like "codex-acp" itself) so an empty
+	// chatArgv result actually means "no flags" rather than surfacing
+	// Command's own leading args (cf. TestNewChatDriver_AdapterBinary).
+	drv3 := NewChatDriver(ACPConfig{Command: "codex-acp"})
+	assert.Empty(t, drv3.chatArgv(agent.ChatRequest{}))
+
+	// A key with no resolved value never renders `-c key=""`.
+	drv4 := NewChatDriver(ACPConfig{Command: "codex-acp", ReasoningConfigKey: "model_reasoning_effort"})
+	assert.Empty(t, drv4.chatArgv(agent.ChatRequest{}))
+}

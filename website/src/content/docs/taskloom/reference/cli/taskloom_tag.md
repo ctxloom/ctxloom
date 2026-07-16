@@ -16,11 +16,19 @@ Add and/or remove flat tags on a task
 Add and/or remove flat tags on a task, keyed by its harp ID.
 
 --add and --remove are each repeatable; at least one is required. --add is
-applied before --remove, so a tag named in both ends up removed. Filter
-"taskloom list --tag-query" using the resulting tags.
+applied before --remove, so a tag named in both ends up removed. See the
+tags already in use with "taskloom tags"; filter tasks by tag with
+"taskloom list --tag-query".
 
 ```
 taskloom tag <harp-id> [flags]
+```
+
+### Examples
+
+```
+  taskloom tag swift-amber-falcon --add urgent --add release
+  taskloom tag swift-amber-falcon --remove urgent --add blocked
 ```
 
 ### Options

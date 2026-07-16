@@ -15,6 +15,14 @@ Add a new task
 taskloom add <text> [flags]
 ```
 
+### Examples
+
+```
+  taskloom add "ship the release notes" --tag release --tag docs
+  taskloom add "investigate flaky TestFoo" --status "In Progress"
+  taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
+```
+
 ### Options
 
 ```

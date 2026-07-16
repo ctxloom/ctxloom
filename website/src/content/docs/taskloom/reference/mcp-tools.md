@@ -33,13 +33,13 @@ Replace a task's text in place, keyed by its harp ID. Pass the full new text (th
 
 ### task_list
 
-List the project's tasks, optionally filtered by status or text term. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).
+List the project's tasks, optionally filtered by status, text term, or tag query (tag_query). Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `include_completed` | boolean | No | When true, include completed (Done/Archived) tasks, which are hidden by default. |
+| `include_completed` | boolean | No | When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed. |
 | `include_summary` | boolean | No | When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. |
-| `statuses` | string[] | No | Optional list of statuses to filter by (e.g. ["In Progress", "To Do"]). Empty = active tasks only (completed tasks are hidden unless include_completed is set or a completed status is named here). |
+| `statuses` | string[] | No | Optional list of statuses to filter by (e.g. ["In Progress", "To Do"]). Empty = active tasks only (completed Done/Archived and Deferred tasks are hidden unless include_completed is set or such a status is named here). |
 | `tag_query` | string | No | Optional postfix (RPN) boolean tag filter, e.g. "urgent/release/and" (tagged both urgent AND release), "urgent/release/or", or "urgent/not" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: "urgent/release" behaves like "urgent/release/and". Empty = no tag filter. |
 | `term` | string | No | Optional case-insensitive substring filter against task text. |
 

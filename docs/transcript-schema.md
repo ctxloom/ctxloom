@@ -72,7 +72,7 @@ it wraps `agent.ChatEvent` in an envelope, verbatim.
 | `agent_thought_chunk` | `thinking` | summarized reasoning — ACP surfaces this where claude's own stream-json strips it |
 | `tool_call` | `tool_use` | title/kind → `ToolName`, rawInput → `ToolInput` |
 | `tool_call_update` | `tool_result` | only once it carries output or a terminal status; `failed` → `IsError` |
-| `plan` | `system` | rendered checklist; no dedicated plan type |
+| `plan` | `system` | IR2 (2026-07): structured entries carried in `SessionEntry.Plan` (`SystemKind=="plan"`), not just a rendered checklist string — a re-emission (`ctxloom acp`) rebuilds a real ACP `plan` update from it instead of only a text fallback |
 | `user_message_chunk` | *(dropped)* | never echo the user's own message back |
 | `usage_update` / `session_info_update` *(out-of-SDK, hand-decoded)* | `ChatEvent.Complete` / `ChatEvent.Session` | the ONLY accounting data any ACP agent delivers — protocol v1 carries no token/cost/context-window/timing fields anywhere else |
 | `session/request_permission` | `ChatEvent.Permission` | forwarded only under `ChatRequest.ForwardPermissions` |
@@ -161,29 +161,39 @@ store) and is never gitignored.
   "engine": "codex",             // codex|kiro|claude|opencode|acp|antigravity
   "seq": 0,                      // monotonic per transcript, starting at 0, no gaps
   "ts": "2026-07-14T19:42:24Z",  // RFC3339 UTC — recorder RECEIPT time, not an engine timestamp
-  "kind": "entry",               // entry|session|complete|permission — selects the payload below
+  "kind": "entry",               // entry|session|complete|permission|raw — selects the payload below
 
   "entry": { … },       // present iff kind=="entry"
   "session": { … },     // present iff kind=="session"
   "complete": { … },    // present iff kind=="complete"
   "permission": { … },  // present iff kind=="permission"
 
-  "raw": { … }           // OPTIONAL escape hatch — see §4
+  "raw": { … }           // OPTIONAL — see §4. Present iff kind=="raw" (the ONLY
+                         // payload); may ALSO ride alongside "entry" as a `_meta`
+                         // supplement, per the recorder's RawPolicy.
 }
 ```
 
 ### 3b. Payloads
 
-All four mirror an `agent.ChatEvent` variant field-for-field — see
-`internal/transcript/record.go` for the authoritative Go types and
-`docs/transcript.schema.json` for the machine-checkable shape.
+All four (plus the raw-only `kind:"raw"` line — §4) mirror an
+`agent.ChatEvent` variant field-for-field — see `internal/transcript/record.go`
+for the authoritative Go types and `docs/transcript.schema.json` for the
+machine-checkable shape.
 
 - **`entry`** (`agent.SessionEntry`, minus `Timestamp` — the envelope's `ts`
   covers it): `type` (`user|assistant|thinking|tool_use|tool_result|system`),
   `content`, `tool_name`, `tool_input` (raw JSON), `tool_output`, `is_error`,
   `sidechain` (marks an engine's own in-harness subagent interior, e.g. a
   Claude Code Task sidechain — `agent.MainThreadEntries` is the filter that
-  drops these for distillation/replay).
+  drops these for distillation/replay). IR2 additions (2026-07, all optional):
+  `tool_call_id` (engine-native tool-call id), `tool_kind` (ACP classification),
+  `tool_locations`, `tool_content` (structured diff/terminal/content — mirrors
+  ACP's `ToolCallContent` alongside the flattened `tool_output`),
+  `content_blocks` (structured content alongside flattened `content`),
+  `system_kind` (`""` notice \| `"plan"` — discriminates
+  `EntryTypeSystem`'s two producers), `plan` (structured
+  `[{content, priority, status}]` entries when `system_kind=="plan"`).
 - **`session`** (`agent.ChatSessionInfo`, minus `SessionID` — hoisted to the
   envelope): `model`, `permission_mode`, `context_window`,
   `mcp_servers: [{name, status}]`.
@@ -195,33 +205,54 @@ All four mirror an `agent.ChatEvent` variant field-for-field — see
 - **`permission`** (`agent.PermissionRequest`): `id`, `tool_name`,
   `tool_input`, `kind` (ACP `ToolCallKind`: execute\|edit\|delete\|move\|
   read\|search\|fetch\|think\|other — advisory, distinct from the envelope's
-  `kind`), `options: [{id, kind, name}]`.
+  `kind`), `options: [{id, kind, name}]`, `tool_call_id` (IR2).
 
 ---
 
 ## 4. Fidelity: the `raw` field, and where this schema is honestly lossy
 
 `agent.ChatEvent` is not a lossless copy of every engine's wire protocol — it
-is already the mapping `mapSessionUpdate` chose to keep. Two concrete gaps:
+is already the mapping `mapSessionUpdate` chose to keep. Concrete gaps:
 
 1. `mapSessionUpdate`'s own documented drops: `user_message_chunk` (never
-   echoed — would duplicate the user's own turn), unknown/malformed variants
-   (dropped so the stream never crashes on a frame it doesn't model), and
-   bare in-progress tool-call ticks with no output (status noise, not a
-   result).
+   echoed — would duplicate the user's own turn), a true unknown/unmodeled
+   variant with no `_meta` (dropped so the stream never crashes on a frame it
+   doesn't model at all), and bare in-progress tool-call ticks with no output
+   (status noise, not a result).
 2. The oneshot capture regime (§5) is lossy by construction: no `ChatEvent`
    stream exists for a oneshot `Execute` run, so capture falls back to two
    entries (prompt + stdout) with no tool granularity at all.
 
-The `raw` field exists so a capture path that DOES hold the original frame —
-a future richer capture point — can attach it without a schema version bump.
-**The shipped `Recorder` never populates `raw`**: `agent.ChatEvent` carries
-no such field to copy from. This is a conscious, budgeted lossiness (plan §8,
-risk 3), not an oversight: paying for full raw-frame retention on every line
-was decided against, and the interactive-pty importer that would have been
-the other `raw` producer (plan §4d option A) was **not built** — the project
-instead deleted the per-engine readers outright rather than demoting them
-(see §8). Revisit if a concrete consumer needs it.
+**Update (IR3, 2026-07):** `agent.ChatEvent` now DOES carry a `Raw`
+field — the protocol-level side channel for a curated allowlist
+(`available_commands_update`, `current_mode_update`, any variant's `_meta`)
+that has no dedicated IR projection of its own (see
+`internal/acp/mapping.go`'s `rawOnlyEvent`/`metaRaw` and
+`internal/acpagent/mapping.go`'s `rawOnlyUpdates`/`metaFromRaw`). The
+Recorder in THIS package now populates `Record.Raw` FROM that field, gated by
+a `RawPolicy` (`off | lossy-only | all`, default `lossy-only` —
+`NewRecorder`'s `WithRawPolicy` option, `internal/transcript/recorder.go`):
+`lossy-only` keeps `raw` only when it's a line's SOLE payload (a genuinely
+otherwise-lost frame); `all` keeps it even alongside an already-captured
+structured payload; `off` drops a raw-only line entirely rather than writing
+an empty placeholder.
+
+**This is a capture-layer decision, not a wire one.** `ChatEvent.Raw` already
+exists (or doesn't) by the time any Recorder sees it — RawPolicy cannot make
+the hub forward more than the ACP mapping layer chose to; it only decides
+what of that gets written to DISK. It is UNRELATED to protocol `_meta`/
+passthrough forwarding itself (which is unconditional and lives entirely in
+`internal/acp`/`internal/acpagent`) — the two happen to share the word "raw"
+and nothing else. **Permissions never ride this channel at all**, at either
+layer: `session/request_permission` is not even a `session/update` variant,
+so there is no `ChatEvent.Raw` producer that could carry one even in
+principle.
+
+Still not captured: a byte-for-byte copy of every OTHER frame (the fully
+IR2-projected ones), and the interactive-pty importer that would have been
+a second `raw` producer for the true unknown/malformed case (plan §4d option
+A) — **not built**; the project instead deleted the per-engine readers
+outright rather than demoting them (see §8).
 
 ---
 

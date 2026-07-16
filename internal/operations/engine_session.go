@@ -22,6 +22,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"

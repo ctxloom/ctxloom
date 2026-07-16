@@ -114,6 +114,14 @@ type OpenRequest struct {
 	// ResumeHarp names a recorded ctxloom session to resume (session/load):
 	// the opener replays its history and primes the fresh engine with it.
 	ResumeHarp string
+	// ForwardTerminal asks the opened engine conversation to broker terminal/*
+	// requests to the connected editor (B1, gap G6): the caller (acpagent.
+	// Server) sets this from whatever THAT editor advertised at ITS OWN
+	// initialize (clientCapabilities.terminal) — see agent.ChatRequest.
+	// ForwardTerminal's doc comment for exactly what "true" honestly promises
+	// and why this cannot default true. Rides straight through to the
+	// engine's ChatRequest (OpenEngineSession).
+	ForwardTerminal bool
 }
 
 // ChildUpdateKind names what a ChildUpdate reports.

@@ -43,6 +43,25 @@ type ChatRequest struct {
 	// (Permissions bypass → allow, otherwise reject). Only meaningful to a caller
 	// that can actually answer — an interactive host with a human behind it.
 	ForwardPermissions bool
+	// ForwardTerminal asks the backend to surface each engine terminal/*
+	// request (terminal/create, terminal/output, terminal/wait_for_exit,
+	// terminal/kill, terminal/release) as a ChatEvent.Terminal and park the
+	// engine until the matching ChatMessage.Terminal answer arrives (B1, gap
+	// G6) — the exact same carrier shape as ForwardPermissions, applied to a
+	// different upstream callback. Unlike ForwardPermissions (always
+	// answerable — session/request_permission is a core, ungated ACP method),
+	// this is only honest when the caller actually has a live upstream editor
+	// that ADVERTISED the terminal capability at ITS OWN initialize: a
+	// backend must NEVER advertise ClientCapabilities.Terminal: true to the
+	// engine unless this is true AND actually wired (see
+	// internal/acp/session.go's setup) — ctxloom brokers terminal/* to a real
+	// editor, it never implements a terminal of its own. The one populator
+	// (internal/acpagent/server.go, via internal/operations.OpenRequest.
+	// ForwardTerminal) sets this from the connected editor's own
+	// clientCapabilities.terminal; every other caller (delegated child agents
+	// with no ACP editor upstream, e.g. agentcoord's HarnessSpec) leaves it
+	// false, which is exactly correct: there is nothing to broker to.
+	ForwardTerminal bool
 	// MCPServers are caller-supplied MCP servers to attach to the conversation
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
 	// native config the engine reads from its cwd.
@@ -184,6 +203,10 @@ type ChatMessage struct {
 	// non-text blocks (image/audio) is multimodal intake, a later slice
 	// (B2). It exists now so the wire can carry them ahead of that slice.
 	ContentBlocks []ContentBlock
+	// Terminal answers a pending ChatEvent.Terminal request (B1, gap G6) —
+	// the upstream editor's reply to one brokered terminal/* call, keyed by
+	// the same ID. Mirrors Permission's carrier shape exactly.
+	Terminal *TerminalResponse
 }
 
 // ChatEvent is one normalized outbound event. The variants are distinct in
@@ -199,11 +222,18 @@ type ChatMessage struct {
 //     ChatRequest.ForwardPermissions); the caller answers with a
 //     ChatMessage.Permission carrying the same ID. The turn stays parked until
 //     the answer arrives.
+//   - Terminal    — the engine is asking to broker one terminal/* operation to
+//     the upstream editor (only under ChatRequest.ForwardTerminal, B1 gap G6);
+//     the caller answers with a ChatMessage.Terminal carrying the same ID.
+//     Same shape and parking discipline as Permission, applied to a different
+//     upstream callback — ctxloom never implements a terminal of its own, it
+//     only relays.
 type ChatEvent struct {
 	Entry      *SessionEntry
 	Complete   *TurnMeta
 	Session    *ChatSessionInfo
 	Permission *PermissionRequest
+	Terminal   *TerminalRequest
 
 	// Raw is IR3's side channel: the ORIGINAL ACP session/update frame (or
 	// just its `_meta` object), verbatim, for the CURATED ALLOWLIST of things
@@ -278,6 +308,56 @@ type PermissionOption struct {
 type PermissionAnswer struct {
 	ID       string
 	OptionID string
+}
+
+// Terminal op vocabulary (B1, gap G6): the five ACP terminal/* methods a
+// TerminalRequest/TerminalResponse pair can broker. Mirrors the ACP method
+// names (terminal/create → "create", etc.) without importing the ACP SDK
+// into this package (same discipline as ContentBlock.Kind / MCPTransport's
+// plain-string vocabularies).
+const (
+	TerminalOpCreate      = "create"
+	TerminalOpOutput      = "output"
+	TerminalOpWaitForExit = "wait_for_exit"
+	TerminalOpKill        = "kill"
+	TerminalOpRelease     = "release"
+)
+
+// TerminalRequest is a forwarded engine terminal/* request (B1, gap G6): the
+// engine wants ctxloom to broker ONE terminal operation to the connected
+// upstream editor — ctxloom implements no terminal of its own, ever. ID
+// correlates the eventual TerminalResponse (unique within one chat, same
+// discipline as PermissionRequest.ID). Op names which ACP terminal/* method
+// this is (the TerminalOp* constants above). Params carries that method's
+// ACP request body VERBATIM as JSON, WITH THE SESSION ID STRIPPED: the id in
+// there is the CLIENT-role driver's own opaque session with the ENGINE,
+// which the upstream editor does not share and must never see — the
+// agent-role broker (internal/acpagent) substitutes ITS OWN editor-facing
+// session id before relaying, exactly as permissionRequestWire substitutes
+// sess.id for a forwarded permission request rather than carrying the
+// engine's own id through. Params/Result ride as raw JSON (not five
+// duplicated typed structs, one per op, in both this package and its proto
+// mirror) — the same established pattern as PermissionRequest.ToolInput and
+// ChatEvent.Raw: this hub layer relays bytes, it never needs to construct or
+// validate the ACP-typed terminal shapes itself.
+type TerminalRequest struct {
+	ID     string
+	Op     string
+	Params json.RawMessage
+}
+
+// TerminalResponse resolves the TerminalRequest with the same ID: on
+// success, Result carries the op's ACP response body verbatim as JSON
+// (e.g. `{"terminalId":"..."}` for create, `{}` for kill/release); on
+// failure (the editor declined, errored, or the brokering channel died
+// before an answer arrived), Error carries a human-readable reason and
+// Result is empty. Exactly one of Result/Error is meaningful — never both
+// empty, which would be this codebase's signature silent-no-op bug wearing
+// a new hat.
+type TerminalResponse struct {
+	ID     string
+	Result json.RawMessage
+	Error  string
 }
 
 // TurnMeta is backend-agnostic completion metadata for one response: a client can

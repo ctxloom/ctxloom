@@ -84,6 +84,19 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[api.SessionId]*session
 	nextID   int64
+
+	// editorTerminal records whether the connected editor advertised
+	// clientCapabilities.terminal at initialize (B1, gap G6): only then can a
+	// session honestly ask its engine's client-role driver to broker
+	// terminal/* — an editor that never advertised the capability would be
+	// asked to answer a method it cannot. Set exactly once, synchronously,
+	// inline in handleInitialize — which the ACP handshake guarantees
+	// completes before any session/new can arrive on this connection — so the
+	// happens-before edge into the async session-opening goroutines needs no
+	// separate synchronization; mu is still taken on both sides purely
+	// because it is the cheapest available guard and this field is read from
+	// a different goroutine than the one that set it.
+	editorTerminal bool
 }
 
 // session is one ACP session bound to one engine conversation.
@@ -228,6 +241,18 @@ func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonr
 		})
 		return
 	}
+	// B1 (gap G6): capture whether THIS editor advertised
+	// clientCapabilities.terminal — read by openSession (via
+	// editorAdvertisedTerminal) once a session opens its engine conversation,
+	// so that conversation's own client-role driver can honestly advertise
+	// (or not) Terminal to whichever engine it drives. There is no
+	// "terminal capability" for THIS agent-role response to advertise back
+	// (ACP's AgentCapabilities has no such field — terminal is a client→agent
+	// capability only), so relaying it downstream to the engine is the whole
+	// of B1's agent-role half.
+	s.mu.Lock()
+	s.editorTerminal = req.ClientCapabilities.Terminal
+	s.mu.Unlock()
 	negotiated := req.ProtocolVersion
 	if negotiated > api.ProtocolVersionNumber {
 		// min(clientVersion, ours): we cannot speak a version newer than the
@@ -329,7 +354,7 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
 	}
-	sess, rerr := s.openSession(OpenRequest{Cwd: req.Cwd, MCPServers: mcpServersFromACP(req.McpServers)}, "")
+	sess, rerr := s.openSession(OpenRequest{Cwd: req.Cwd, MCPServers: mcpServersFromACP(req.McpServers), ForwardTerminal: s.editorAdvertisedTerminal()}, "")
 	if rerr != nil {
 		reply(nil, rerr)
 		return
@@ -354,9 +379,10 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		return
 	}
 	sess, rerr := s.openSession(OpenRequest{
-		Cwd:        req.Cwd,
-		MCPServers: mcpServersFromACP(req.McpServers),
-		ResumeHarp: string(req.SessionId),
+		Cwd:             req.Cwd,
+		MCPServers:      mcpServersFromACP(req.McpServers),
+		ResumeHarp:      string(req.SessionId),
+		ForwardTerminal: s.editorAdvertisedTerminal(),
 	}, req.SessionId)
 	if rerr != nil {
 		reply(nil, rerr)
@@ -542,6 +568,13 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 				go s.forwardPermission(sess, ev.Permission)
 				continue
 			}
+			if ev.Terminal != nil {
+				// B1 (gap G6): forward to the editor OFF this loop, exactly
+				// like a permission request — session/updates must keep
+				// streaming while the editor answers a terminal/* call.
+				go s.forwardTerminal(sess, ev.Terminal)
+				continue
+			}
 			for _, upd := range sess.mapEvent(ev) {
 				if rerr := s.emitUpdate(sess, upd); rerr != nil {
 					reply(nil, rerr)
@@ -596,6 +629,97 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 	case <-sess.ctx.Done():
 	case <-s.ctx.Done():
 	}
+}
+
+// editorAdvertisedTerminal reports whether the connected editor advertised
+// clientCapabilities.terminal at initialize (captured once in
+// handleInitialize). read under mu for cross-goroutine safety with the
+// synchronous write there.
+func (s *Server) editorAdvertisedTerminal() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.editorTerminal
+}
+
+// forwardTerminal relays one engine terminal/* request (B1, gap G6) to the
+// connected editor and feeds the answer back into the engine. ctxloom
+// implements NO terminal of its own here — it substitutes THIS session's
+// real editor-facing id (sess.id) into the request before relaying (the
+// engine's own opaque request arrived with that field already stripped —
+// see internal/acp/session.go's stripSessionID), exactly as forwardPermission
+// substitutes sess.id for a forwarded permission request instead of carrying
+// the engine's own id through. Any failure (unknown op, decode error,
+// transport error, session teardown) resolves as a TerminalResponse.Error,
+// never a silent drop: the engine's own terminal/create (etc.) caller must
+// see a real answer, not a hang or a fabricated success — this codebase's
+// signature failure mode is exit 0 with zero effect, and this path exists
+// specifically to not repeat it.
+func (s *Server) forwardTerminal(sess *session, p *agent.TerminalRequest) {
+	answer := agent.TerminalResponse{ID: p.ID}
+
+	method, merr := terminalClientMethod(p.Op)
+	if merr != nil {
+		answer.Error = merr.Error()
+	} else {
+		wireParams, werr := terminalParamsWithSession(p.Params, sess.id)
+		if werr != nil {
+			answer.Error = werr.Error()
+		} else {
+			var result json.RawMessage
+			if cerr := s.conn.Call(sess.ctx, method, wireParams, &result); cerr != nil {
+				answer.Error = cerr.Error()
+			} else {
+				answer.Result = result
+			}
+		}
+	}
+
+	select {
+	case sess.engine.In <- agent.ChatMessage{Terminal: &answer}:
+	case <-sess.ctx.Done():
+	case <-s.ctx.Done():
+	}
+}
+
+// terminalClientMethod maps the agent.TerminalOp* vocabulary onto the ACP
+// terminal/* JSON-RPC method name to call on the editor. An unrecognized op
+// is a defect in whatever produced the TerminalRequest (today: only
+// internal/acp/session.go's terminalOp, which only ever emits these five) —
+// reported as an error, never silently ignored or guessed at.
+func terminalClientMethod(op string) (string, error) {
+	switch op {
+	case agent.TerminalOpCreate:
+		return api.ClientMethodTerminalCreate, nil
+	case agent.TerminalOpOutput:
+		return api.ClientMethodTerminalOutput, nil
+	case agent.TerminalOpWaitForExit:
+		return api.ClientMethodTerminalWaitForExit, nil
+	case agent.TerminalOpKill:
+		return api.ClientMethodTerminalKill, nil
+	case agent.TerminalOpRelease:
+		return api.ClientMethodTerminalRelease, nil
+	default:
+		return "", fmt.Errorf("ctxloom acp: unknown terminal operation %q", op)
+	}
+}
+
+// terminalParamsWithSession re-injects THIS session's real editor-facing id
+// into a forwarded terminal/* request's params (stripped upstream — see
+// internal/acp/session.go's stripSessionID) so the outbound call carries a
+// sessionId the connected editor actually recognizes.
+func terminalParamsWithSession(params json.RawMessage, sessID api.SessionId) (json.RawMessage, error) {
+	m := map[string]json.RawMessage{}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &m); err != nil {
+			return nil, fmt.Errorf("decode terminal request params: %w", err)
+		}
+	}
+	sidJSON, err := json.Marshal(sessID)
+	if err != nil {
+		return nil, err
+	}
+	m["sessionId"] = sidJSON
+	return json.Marshal(m)
 }
 
 // handleSetMode switches the session's mode (= a ctxloom profile set: the

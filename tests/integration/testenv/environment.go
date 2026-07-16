@@ -55,38 +55,6 @@ type TestEnvironment struct {
 	runCount int
 }
 
-// staleEnvironmentAge gates reapStaleEnvironments (see its comment): well
-// past any single suite's real runtime, so a slow-but-still-live concurrent
-// run's directory is never touched, while an orphan from a run that was
-// SIGKILLed hours or days ago gets reclaimed automatically.
-const staleEnvironmentAge = 6 * time.Hour
-
-// reapStaleEnvironments removes ctxloom-integration-* directories left behind
-// by a PREVIOUS test process that never reached its own Cleanup — every
-// current call site wires Cleanup via t.Cleanup/ctx.After, but none of that
-// runs if the process is SIGKILLed (a mutation-test timeout, a killed CI job,
-// a Ctrl-C'd local run): no defer or signal handler in this package can catch
-// that. Left alone, those orphans accumulate indefinitely on this box's 16G
-// /tmp tmpfs (the same failure class documented for gremlins' mutation-via-
-// just tmpfs exhaustion) until a fresh test run's own MkdirTemp is what tips
-// it over. Called at the top of every NewTestEnvironment so any of the three
-// entry points (integration tests, acceptance tests, the doc-capture run)
-// self-heals the previous run's mess instead of only ever adding to it.
-func reapStaleEnvironments() {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "ctxloom-integration-*"))
-	if err != nil {
-		return
-	}
-	cutoff := time.Now().Add(-staleEnvironmentAge)
-	for _, dir := range matches {
-		info, err := os.Stat(dir)
-		if err != nil || info.ModTime().After(cutoff) {
-			continue
-		}
-		_ = forceRemoveAll(dir)
-	}
-}
-
 // forceRemoveAll removes dir even when it contains read-only files or
 // directories. This matters here specifically because of a bug this package
 // used to have (see taskloom_acceptance.go's realProcessEnv comment): a `go
@@ -99,10 +67,25 @@ func reapStaleEnvironments() {
 // a scenario that ever produced such a tree left a permanent partial
 // directory behind even on a normal, non-killed test run. That was the
 // primary, always-reproducible mechanism behind the observed /tmp leak, not
-// merely an edge case triggered by a killed process. Walking the tree first
-// and restoring owner-write everywhere makes the subsequent RemoveAll
-// unconditional, so Cleanup (and the stale-environment reaper above) actually
-// finish the job even if something upstream misbehaves again the same way.
+// a killed-process edge case: every current call site already wires Cleanup
+// via t.Cleanup/ctx.After, but a silently-discarded error means Cleanup runs,
+// reports nothing, and removes nothing. Walking the tree first and restoring
+// owner-write everywhere makes the subsequent RemoveAll unconditional, so
+// Cleanup actually finishes the job even if something upstream misbehaves
+// the same way again.
+//
+// Deliberately NOT paired with a "sweep other stale ctxloom-integration-*
+// dirs on startup" step: multiple test processes legitimately run
+// concurrently on this box (parallel agent worktrees, a live acceptance
+// suite), each with its own live directory under the same /tmp prefix. A
+// blind glob-and-remove has no reliable way to tell "orphaned by a SIGKILLed
+// run" apart from "another process's directory, still very much in use" —
+// getting that wrong turns a cheap, cosmetic disk leak into an
+// impossible-to-reproduce cross-run flake (one suite deletes another's
+// project/home mid-scenario). This forceRemoveAll fix is sufficient on its
+// own: it's what makes every EXISTING Cleanup call site (which already
+// fires on every current entry point) actually succeed, so no leak
+// accumulates going forward without adding that cross-process risk.
 func forceRemoveAll(dir string) error {
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -118,8 +101,6 @@ func forceRemoveAll(dir string) error {
 
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
-	reapStaleEnvironments()
-
 	// Create root temp directory
 	root, err := os.MkdirTemp("", "ctxloom-integration-*")
 	if err != nil {

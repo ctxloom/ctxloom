@@ -47,15 +47,19 @@ type l0Capture struct {
 // instead of silently starting to pass a check that no longer means what it
 // used to — that is the signal to shrink this map, not to delete the test.
 var l0KnownDivergences = map[string]string{
-	// internal/acpagent/mapping.go's permissionRequestWire builds Options by
-	// appending onto a nil []api.PermissionOption; when the engine's
-	// PermissionRequest carries NO options, the field stays a nil slice,
-	// which encodes as JSON `null`. The current spec's RequestPermissionRequest
-	// requires `options` to be a (possibly empty) ARRAY — `null` fails
-	// type:array. Real engines observed so far always populate options, so
-	// this is an edge-case gap rather than an observed live break, but it is
-	// a genuine, directly reproducible schema failure.
-	"session/request_permission request, engine supplied zero options": "expected array, but got null",
+	// SDK1 (2026-07-16) deliberately renamed ctxloom's own session-info
+	// extension off the spec's "session_info_update" wire name (L0 checklist
+	// B3 — the current spec independently stabilized session_info_update as
+	// unrelated session title/timestamp metadata; both shapes validated, so
+	// the collision was invisible to schema checks, which is exactly why H1
+	// flagged it as the headline actionable finding). Emitted now under
+	// "ctxloom_session_info" (see internal/acpagent/wire.go's
+	// ctxloomSessionInfoUpdate), a discriminator value the spec's CLOSED
+	// SessionUpdate oneOf has no branch for — so it fails, on purpose: this
+	// is ctxloom's own vendor extension, not a spec variant, and a
+	// spec-conforming peer is expected to warn-and-drop it exactly like any
+	// other unmodeled session/update (see mapping.go's default case).
+	"session/update (ctxloom_session_info)": "'/update/sessionUpdate' does not validate with",
 }
 
 func mustValidator(t *testing.T) *acptest.Validator {
@@ -155,8 +159,8 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	resp, turnUpdates := c.waitResponse(id)
 	require.Nil(t, resp.Error)
 	capture("session/prompt response", "PromptResponse", resp.Result)
-	require.GreaterOrEqual(t, len(turnUpdates), 4, "session_info_update, thinking, assistant, tool_call, tool_call_update, usage_update")
-	labels := []string{"session_info_update", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "usage_update"}
+	require.GreaterOrEqual(t, len(turnUpdates), 4, "ctxloom_session_info, thinking, assistant, tool_call, tool_call_update, usage_update")
+	labels := []string{"ctxloom_session_info", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "usage_update"}
 	for i, u := range turnUpdates {
 		label := "session/update"
 		if i < len(labels) {

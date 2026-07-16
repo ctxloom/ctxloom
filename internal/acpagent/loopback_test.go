@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -159,7 +159,7 @@ func newL1Handler() *l1Handler {
 }
 
 func (h *l1Handler) HandleRequest(_ context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
-	if method == api.MethodSessionRequestPermission {
+	if method == api.ClientMethodSessionRequestPermission {
 		h.permReqs <- l1Frame{Method: method, Params: params, reply: reply}
 		return
 	}
@@ -167,7 +167,7 @@ func (h *l1Handler) HandleRequest(_ context.Context, method string, params json.
 }
 
 func (h *l1Handler) HandleNotification(_ context.Context, method string, params json.RawMessage) {
-	if method == api.MethodSessionUpdate {
+	if method == api.ClientMethodSessionUpdate {
 		h.updates <- l1Frame{Method: method, Params: params}
 	}
 }
@@ -219,8 +219,8 @@ func startL1Proc(t *testing.T) *l1Proc {
 func (p *l1Proc) initialize() api.InitializeResponse {
 	p.t.Helper()
 	var resp api.InitializeResponse
-	err := p.conn.Call(context.Background(), api.MethodInitialize,
-		map[string]any{"protocolVersion": api.ACPProtocolVersion, "clientCapabilities": map[string]any{}}, &resp)
+	err := p.conn.Call(context.Background(), api.AgentMethodInitialize,
+		map[string]any{"protocolVersion": api.ProtocolVersionNumber, "clientCapabilities": map[string]any{}}, &resp)
 	require.NoError(p.t, err, "initialize")
 	return resp
 }
@@ -229,7 +229,7 @@ func (p *l1Proc) initialize() api.InitializeResponse {
 func (p *l1Proc) newSession(cwd string) api.SessionId {
 	p.t.Helper()
 	var resp api.NewSessionResponse
-	err := p.conn.Call(context.Background(), api.MethodSessionNew,
+	err := p.conn.Call(context.Background(), api.AgentMethodSessionNew,
 		map[string]any{"cwd": cwd, "mcpServers": []any{}}, &resp)
 	require.NoError(p.t, err, "session/new")
 	require.NotEmpty(p.t, resp.SessionId, "session/new must mint a real session id")
@@ -243,7 +243,7 @@ func (p *l1Proc) newSession(cwd string) api.SessionId {
 func (p *l1Proc) loadSession(harp, cwd string) (json.RawMessage, []l1Frame) {
 	p.t.Helper()
 	var raw json.RawMessage
-	err := p.conn.Call(context.Background(), api.MethodSessionLoad,
+	err := p.conn.Call(context.Background(), api.AgentMethodSessionLoad,
 		map[string]any{"sessionId": harp, "cwd": cwd, "mcpServers": []any{}}, &raw)
 	require.NoError(p.t, err, "session/load")
 	return raw, p.drainUpdates()
@@ -270,9 +270,9 @@ func (p *l1Proc) promptAsync(sid api.SessionId, text string) func(context.Contex
 	p.t.Helper()
 	req := api.PromptRequest{
 		SessionId: sid,
-		Prompt:    []api.PromptRequestPromptElem{api.ContentBlock{Type: api.ContentBlockTypeText, Text: &api.ContentBlockText{Text: text}}},
+		Prompt:    []api.ContentBlock{api.TextBlock(text)},
 	}
-	await, err := p.conn.Go(api.MethodSessionPrompt, req)
+	await, err := p.conn.Go(api.AgentMethodSessionPrompt, req)
 	require.NoError(p.t, err, "writing session/prompt")
 	return func(ctx context.Context) (api.PromptResponse, *jsonrpc.Error) {
 		var resp api.PromptResponse
@@ -288,7 +288,7 @@ func (p *l1Proc) promptAsync(sid api.SessionId, text string) func(context.Contex
 
 func (p *l1Proc) cancel(sid api.SessionId) {
 	p.t.Helper()
-	require.NoError(p.t, p.conn.Notify(api.MethodSessionCancel, api.CancelNotification{SessionId: sid}))
+	require.NoError(p.t, p.conn.Notify(api.AgentMethodSessionCancel, api.CancelNotification{SessionId: sid}))
 }
 
 func (p *l1Proc) waitUpdate() l1Frame {

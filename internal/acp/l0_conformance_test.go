@@ -39,15 +39,17 @@ type l0ClientCapture struct {
 
 // l0ClientKnownDivergences — see internal/acpagent/l0_conformance_test.go's
 // l0KnownDivergences for the shared policy this mirrors.
-var l0ClientKnownDivergences = map[string]string{
-	// internal/acp/session.go's handleFsWrite returns (nil, nil) on success;
-	// internal/acp/jsonrpc.marshalResult renders a nil result as JSON
-	// `null`. The current spec's WriteTextFileResponse is `"type":"object"`
-	// with no null alternative, so `null` fails type:object. This is a
-	// REAL, directly reproducible schema failure (confirmed standalone in
-	// internal/acptest/schema_test.go), not merely a missing-field gap.
-	"fs/write_text_file response": "expected object, but got null",
-}
+//
+// SDK1 (2026-07-16) fixed the L0 checklist's A1 (fs/write_text_file used to
+// return a bare nil, rendering as JSON `null`, which failed the spec's
+// `"type":"object"` WriteTextFileResponse — see
+// internal/acp/session.go's handleFsWrite, which now returns
+// api.WriteTextFileResponse{}): the divergence that used to be recorded
+// here is GONE, confirmed by this test itself failing with "validation now
+// PASSES" until the entry was removed. Empty rather than deleted-and-
+// forgotten: an empty map is exactly what "zero known client-side
+// divergences" looks like.
+var l0ClientKnownDivergences = map[string]string{}
 
 func mustClientValidator(t *testing.T) *acptest.Validator {
 	t.Helper()

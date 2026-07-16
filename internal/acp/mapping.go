@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
-
+	api "github.com/coder/acp-go-sdk"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -35,38 +34,38 @@ import (
 // concatenates), matching claude-code's per-block emission.
 
 // mapSessionUpdate normalizes one decoded session/update into 0..1 ChatEvents.
+// The fork's SessionUpdate union carries no discriminator field of its own
+// (unlike the hand-rolled union it replaces) — exactly one variant pointer is
+// non-nil after UnmarshalJSON, so the dispatch switches on THAT instead of a
+// Type tag.
 func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 	if u == nil {
 		return nil
 	}
-	switch u.Type {
-	case api.SessionUpdateTypeAgentMessageChunk:
-		if u.AgentMessageChunk == nil {
-			return nil
-		}
+	switch {
+	case u.AgentMessageChunk != nil:
 		return textEntry(agent.EntryTypeAssistant, u.AgentMessageChunk.Content)
-	case api.SessionUpdateTypeAgentThoughtChunk:
-		if u.AgentThoughtChunk == nil {
-			return nil
-		}
+	case u.AgentThoughtChunk != nil:
 		return textEntry(agent.EntryTypeThinking, u.AgentThoughtChunk.Content)
-	case api.SessionUpdateTypeToolCall:
+	case u.ToolCall != nil:
 		return mapToolCall(u.ToolCall)
-	case api.SessionUpdateTypeToolCallUpdate:
+	case u.ToolCallUpdate != nil:
 		return mapToolCallUpdate(u.ToolCallUpdate)
-	case api.SessionUpdateTypePlan:
+	case u.Plan != nil:
 		return mapPlan(u.Plan)
-	case api.SessionUpdateTypeUserMessageChunk:
+	case u.UserMessageChunk != nil:
 		return nil // don't duplicate the user's own message
 	default:
-		return nil // unknown variant — never crash the stream
+		return nil // unknown/unmodeled variant (e.g. current_mode_update, usage_update
+		// reach here only if a caller feeds mapSessionUpdate directly without
+		// going through consumeMetaUpdate first) — never crash the stream
 	}
 }
 
 // textEntry emits a single content entry of the given type, or nothing when the
 // content block carries no text (a content-less chunk is not surfaced — unlike a
 // thinking marker, an empty ACP text chunk has nothing to show).
-func textEntry(t agent.SessionEntryType, block *api.ContentBlock) []agent.ChatEvent {
+func textEntry(t agent.SessionEntryType, block api.ContentBlock) []agent.ChatEvent {
 	text := contentBlockText(block)
 	if text == "" {
 		return nil
@@ -82,13 +81,13 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 		return nil
 	}
 	name := tc.Title
-	if name == "" && tc.Kind != nil {
-		name = string(*tc.Kind)
+	if name == "" && tc.Kind != "" {
+		name = string(tc.Kind)
 	}
 	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
 		Type:      agent.EntryTypeToolUse,
 		ToolName:  name,
-		ToolInput: rawJSON(tc.Rawinput),
+		ToolInput: rawJSON(tc.RawInput),
 	}}}
 }
 
@@ -96,24 +95,31 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 // something to report — completed/failed status, or produced content/output.
 // Bare in-progress ticks (no output) yield nothing: they're status noise, not a
 // result. A failed status marks the entry as an error.
-func mapToolCallUpdate(tu *api.SessionUpdateToolCallUpdate) []agent.ChatEvent {
+func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 	if tu == nil {
 		return nil
 	}
-	status := statusString(tu.Status)
+	var status api.ToolCallStatus
+	if tu.Status != nil {
+		status = *tu.Status
+	}
 	output := toolContentText(tu.Content)
 	if output == "" {
-		output = rawText(tu.Rawoutput)
+		output = rawText(tu.RawOutput)
 	}
-	terminal := status == string(api.ToolCallStatusCompleted) || status == string(api.ToolCallStatusFailed)
+	terminal := status == api.ToolCallStatusCompleted || status == api.ToolCallStatusFailed
 	if output == "" && !terminal {
 		return nil
 	}
+	title := ""
+	if tu.Title != nil {
+		title = *tu.Title
+	}
 	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
 		Type:       agent.EntryTypeToolResult,
-		ToolName:   titleString(tu.Title),
+		ToolName:   title,
 		ToolOutput: output,
-		IsError:    status == string(api.ToolCallStatusFailed),
+		IsError:    status == api.ToolCallStatusFailed,
 	}}}
 }
 
@@ -126,9 +132,8 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 	}
 	var b strings.Builder
 	b.WriteString("Plan:")
-	for _, raw := range p.Entries {
-		var pe api.PlanEntry
-		if remarshal(raw, &pe) != nil || pe.Content == "" {
+	for _, pe := range p.Entries {
+		if pe.Content == "" {
 			continue
 		}
 		fmt.Fprintf(&b, "\n- [%s] %s", pe.Status, pe.Content)
@@ -136,35 +141,28 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 	return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeSystem, Content: b.String()}}}
 }
 
-// --- accounting update variants (out-of-SDK) ---
+// --- accounting update variants ---
 
-// The pinned SDK's SessionUpdate union predates the ACP session-usage RFD, so
-// the accounting variants are decoded by hand here — the client-side twins of
-// the shapes ctxloom's own acp agent emits (internal/acpagent/wire.go). They
-// are the ONLY usage data any ACP agent delivers today: protocol v1 itself
-// carries no token/cost/context-window/timing fields anywhere (PromptResponse
-// is stopReason alone), so every other TurnMeta figure is either self-measured
-// (duration) or absent.
+// usage_update is a real spec SessionUpdate variant (api.UsageUpdate) as of
+// schema-v1.19.0 — H1 confirmed ctxloom's prior hand-rolled shape already
+// matched it exactly, so it is now decoded straight into the real type
+// instead of a bespoke usageUpdateWire. ctxloom's own session-info extension
+// is NOT a spec variant (and deliberately does not collide with the spec's
+// OWN session_info_update, which means something different — session
+// title/timestamp metadata — as of schema-v1.19.0; see the emitter's doc
+// comment in internal/acpagent/wire.go for the L0 checklist's B3 decision),
+// so it stays hand-decoded under its own ctxloom-scoped discriminator. Both
+// are intercepted here, before the strict api.SessionUpdate union ever sees
+// them, because they feed turn ACCOUNTING rather than an emitted entry —
+// protocol v1 itself carries no token/cost/context-window/timing fields
+// anywhere else (PromptResponse is stopReason alone), so this is the ONLY
+// usage data any ACP agent delivers today.
 const (
 	usageUpdateVariant = "usage_update"
-	sessionInfoVariant = "session_info_update"
+	sessionInfoVariant = "ctxloom_session_info"
 )
 
-// usageUpdateWire is the session-usage RFD's usage_update: tokens currently
-// in context, the context-window size, and optional cumulative cost.
-type usageUpdateWire struct {
-	Used int            `json:"used"`
-	Size int            `json:"size"`
-	Cost *usageCostWire `json:"cost,omitempty"`
-}
-
-// usageCostWire is the optional cumulative cost of a usage_update.
-type usageCostWire struct {
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"` // ISO 4217
-}
-
-// sessionInfoWire is the session_info_update subset the turn accounting
+// sessionInfoWire is the ctxloom_session_info subset the turn accounting
 // consumes (the frame also carries permissionMode/mcpServers).
 type sessionInfoWire struct {
 	Model         string `json:"model"`
@@ -207,12 +205,12 @@ type permissionResult struct {
 // its raw input, and the offered options verbatim (the upstream decider needs
 // the real option ids to answer with).
 func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent.PermissionRequest {
-	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput), Kind: titleString(req.ToolCall.Kind)}
+	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput), Kind: toolKindString(req.ToolCall.Kind)}
 	if req.ToolCall.Title != nil {
 		p.ToolName = *req.ToolCall.Title
 	}
 	if p.ToolName == "" {
-		p.ToolName = titleString(req.ToolCall.Kind)
+		p.ToolName = toolKindString(req.ToolCall.Kind)
 	}
 	for _, o := range req.Options {
 		p.Options = append(p.Options, agent.PermissionOption{ID: string(o.OptionId), Kind: string(o.Kind), Name: o.Name})
@@ -256,50 +254,41 @@ func pickOption(options []api.PermissionOption, allow bool) string {
 
 // contentBlockText extracts the plain text from a content block, ignoring
 // non-text variants (image/audio/resource) which have no text projection.
-func contentBlockText(block *api.ContentBlock) string {
-	if block == nil {
-		return ""
-	}
-	if block.Type == api.ContentBlockTypeText && block.Text != nil {
+// ContentBlock is a plain value (not a pointer) in the fork's generated
+// shape, and carries no discriminator field — it holds exactly one non-nil
+// variant pointer after decode.
+func contentBlockText(block api.ContentBlock) string {
+	if block.Text != nil {
 		return block.Text.Text
 	}
 	return ""
 }
 
 // toolContentText flattens a tool call's content collection (each element a
-// ToolCallContent union: content block / diff / terminal) into text. The wire
-// type is loose — []interface{} on a tool_call, bare interface{} on a
-// tool_call_update — so coerce to a slice of raw elements and re-marshal each
-// into the union.
-func toolContentText(content interface{}) string {
-	elems, ok := content.([]interface{})
-	if !ok {
-		return ""
-	}
+// ToolCallContent union: content block / diff / terminal reference) into
+// text. Content is now PROPERLY TYPED as []api.ToolCallContent (the pinned
+// SDK left this []interface{}/interface{}, requiring a remarshal-through-JSON
+// dance this function used to do for every element — see the old module's
+// unions_generated.go and this file's prior revision). The union carries no
+// discriminator field of its own — dispatch switches on which variant
+// pointer is non-nil.
+func toolContentText(content []api.ToolCallContent) string {
 	var parts []string
-	for _, raw := range elems {
-		var tcc api.ToolCallContent
-		if remarshal(raw, &tcc) != nil {
-			continue
-		}
-		switch tcc.Type {
-		case api.ToolCallContentTypeContent:
-			if tcc.Content != nil {
-				if t := contentBlockText(tcc.Content.Content); t != "" {
-					parts = append(parts, t)
-				}
+	for _, tcc := range content {
+		switch {
+		case tcc.Content != nil:
+			if t := contentBlockText(tcc.Content.Content); t != "" {
+				parts = append(parts, t)
 			}
-		case api.ToolCallContentTypeDiff:
-			if tcc.Diff != nil {
-				parts = append(parts, tcc.Diff.Path+"\n"+tcc.Diff.Newtext)
-			}
+		case tcc.Diff != nil:
+			parts = append(parts, tcc.Diff.Path+"\n"+tcc.Diff.NewText)
 		}
 	}
 	return strings.Join(parts, "\n")
 }
 
-// --- loosely-typed field helpers (the SDK types several update fields as
-// interface{}; these coerce them back defensively) ---
+// --- loosely-typed field helpers (rawInput/rawOutput carry no schema type —
+// the spec leaves them arbitrary JSON — so these coerce them defensively) ---
 
 // rawJSON re-marshals an arbitrary decoded value to raw JSON for ToolInput.
 func rawJSON(v interface{}) json.RawMessage {
@@ -329,25 +318,10 @@ func rawText(v interface{}) string {
 	return string(data)
 }
 
-func statusString(v interface{}) string { return rawText(v) }
-
-func titleString(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
+// toolKindString unwraps an optional tool kind for display, or "" when unset.
+func toolKindString(k *api.ToolKind) string {
+	if k == nil {
+		return ""
 	}
-	if p, ok := v.(*string); ok && p != nil {
-		return *p
-	}
-	return ""
-}
-
-// remarshal round-trips a decoded interface{} value through JSON into a typed
-// destination — the SDK leaves several nested update fields as interface{}
-// (decoded to map[string]interface{}), so this recovers the typed view.
-func remarshal(v, dst interface{}) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, dst)
+	return string(*k)
 }

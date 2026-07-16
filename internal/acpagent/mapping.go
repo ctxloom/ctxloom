@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	api "github.com/coder/acp-go-sdk"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -40,24 +40,20 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 	switch e.Type {
 	case agent.EntryTypeAssistant:
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentMessageChunk,
 			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
 		}}
 	case agent.EntryTypeThinking:
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentThoughtChunk,
 			AgentThoughtChunk: &api.SessionUpdateAgentThoughtChunk{Content: textBlock(e.Content)},
 		}}
 	case agent.EntryTypeToolUse:
 		id := sess.pushToolCall(e.ToolName)
-		status := api.ToolCallStatusInProgress
 		return []api.SessionUpdate{{
-			Type: api.SessionUpdateTypeToolCall,
 			ToolCall: &api.SessionUpdateToolCall{
-				Toolcallid: &id,
+				ToolCallId: id,
 				Title:      e.ToolName,
-				Status:     &status,
-				Rawinput:   rawValue(e.ToolInput),
+				Status:     api.ToolCallStatusInProgress,
+				RawInput:   rawValue(e.ToolInput),
 			},
 		}}
 	case agent.EntryTypeToolResult:
@@ -67,11 +63,10 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 			status = api.ToolCallStatusFailed
 		}
 		return []api.SessionUpdate{{
-			Type: api.SessionUpdateTypeToolCallUpdate,
-			ToolCallUpdate: &api.SessionUpdateToolCallUpdate{
-				Toolcallid: &id,
-				Status:     status,
-				Rawoutput:  e.ToolOutput,
+			ToolCallUpdate: &api.SessionToolCallUpdate{
+				ToolCallId: id,
+				Status:     &status,
+				RawOutput:  e.ToolOutput,
 			},
 		}}
 	case agent.EntryTypeSystem:
@@ -79,7 +74,6 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 			return nil
 		}
 		return []api.SessionUpdate{{
-			Type:              api.SessionUpdateTypeAgentMessageChunk,
 			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
 		}}
 	default:
@@ -98,7 +92,6 @@ func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 			return nil
 		}
 		return []api.SessionUpdate{{
-			Type:             api.SessionUpdateTypeUserMessageChunk,
 			UserMessageChunk: &api.SessionUpdateUserMessageChunk{Content: textBlock(e.Content)},
 		}}
 	}
@@ -110,10 +103,18 @@ func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 // most recent OPEN generated id for the same tool name — the engine announces
 // the tool_call just before asking permission for it — falling back to a fresh
 // id when none is open (a lone toolCallId is still valid ACP).
+//
+// L0 checklist A2: Options is built from make(..., 0, ...) rather than a
+// `var` (nil) slice, so a permission request with ZERO engine-supplied
+// options still marshals `"options":[]`, not `"options":null` — the current
+// spec's RequestPermissionRequest requires options to be an array (no null
+// alternative); a nil slice through encoding/json is indistinguishable from
+// one that was never populated, and used to marshal as `null`.
 func (sess *session) permissionRequestWire(p *agent.PermissionRequest) api.RequestPermissionRequest {
 	req := api.RequestPermissionRequest{
 		SessionId: sess.id,
 		ToolCall:  api.ToolCallUpdate{ToolCallId: sess.peekToolCall(p.ToolName)},
+		Options:   make([]api.PermissionOption, 0, len(p.Options)),
 	}
 	if p.ToolName != "" {
 		title := p.ToolName
@@ -172,15 +173,17 @@ func (sess *session) popToolCall(name string) api.ToolCallId {
 }
 
 // sessionInfoUpdateWire projects one ChatSessionInfo (the engine's one-time
-// start-of-chat metadata) onto a session_info_update session/update, so a
-// client can render a model/mcp header. Returns nil when there is nothing worth
-// surfacing (so an empty ChatSessionInfo emits no notification).
+// start-of-chat metadata) onto ctxloom's own (renamed, non-colliding)
+// session-info session/update, so a client can render a model/mcp header.
+// Returns nil when there is nothing worth surfacing (so an empty
+// ChatSessionInfo emits no notification). See ctxloomSessionInfoUpdate's doc
+// comment (wire.go) for why this is NOT the spec's session_info_update.
 func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
 	if info == nil || (info.Model == "" && info.PermissionMode == "" && info.ContextWindow == 0 && len(info.MCPServers) == 0) {
 		return nil
 	}
-	u := sessionInfoUpdate{
-		SessionUpdate:  "session_info_update",
+	u := ctxloomSessionInfoUpdate{
+		SessionUpdate:  "ctxloom_session_info",
 		Model:          info.Model,
 		PermissionMode: info.PermissionMode,
 		ContextWindow:  info.ContextWindow,
@@ -191,26 +194,33 @@ func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
 	return u
 }
 
-// usageUpdateWire projects one turn's completion accounting (TurnMeta) onto a
-// usage_update session/update — the context-window gauge and cumulative cost.
+// usageUpdateWire projects one turn's completion accounting (TurnMeta) onto
+// the real usage_update SessionUpdate variant (api.UsageUpdate/api.Cost) —
+// the context-window gauge and cumulative cost. H1 confirmed this hand-rolled
+// shape already matched the current spec exactly, so it is now built through
+// api.SessionUpdate directly rather than a bespoke usageUpdate/usageCost pair.
 // `used`/`size` follow ctxloom's own gauge convention (InputTokens against the
 // model's ContextWindow; see run_structured.go), CostUSD is reported in USD.
 // Returns nil when the turn carried no accounting worth reporting (so a bare
-// completion — e.g. a cancel — emits no gauge).
+// completion — e.g. a cancel — emits no gauge). NOTE: returns the
+// api.SessionUpdate by VALUE (never a nil *api.SessionUpdate) specifically so
+// the "nothing to report" case can return a plain untyped nil `any` —
+// emitUpdate's `update == nil` no-op check would otherwise be defeated by a
+// typed-nil-in-interface (a non-nil interface wrapping a nil *SessionUpdate).
 func usageUpdateWire(c *agent.TurnMeta) any {
 	if c == nil || (c.InputTokens == 0 && c.ContextWindow == 0 && c.CostUSD == 0) {
 		return nil
 	}
-	u := usageUpdate{SessionUpdate: "usage_update", Used: c.InputTokens, Size: c.ContextWindow}
+	u := api.SessionUsageUpdate{Used: c.InputTokens, Size: c.ContextWindow}
 	if c.CostUSD != 0 {
-		u.Cost = &usageCost{Amount: c.CostUSD, Currency: "USD"}
+		u.Cost = &api.Cost{Amount: c.CostUSD, Currency: "USD"}
 	}
-	return u
+	return api.SessionUpdate{UsageUpdate: &u}
 }
 
 // textBlock wraps text in an ACP text content block.
-func textBlock(text string) *api.ContentBlock {
-	return &api.ContentBlock{Type: api.ContentBlockTypeText, Text: &api.ContentBlockText{Text: text}}
+func textBlock(text string) api.ContentBlock {
+	return api.TextBlock(text)
 }
 
 // rawValue decodes raw JSON to a plain value for the loosely-typed rawInput

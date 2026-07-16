@@ -3,7 +3,6 @@ package acpagent
 import (
 	"testing"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -29,10 +28,7 @@ func TestMapEvent_SystemEntryEmitsVisibleFrame(t *testing.T) {
 
 	require.Len(t, updates, 1, "a non-empty system entry must produce exactly one outbound frame")
 	u := updates[0]
-	require.Equal(t, api.SessionUpdateTypeAgentMessageChunk, u.Type)
 	require.NotNil(t, u.AgentMessageChunk, "agent_message_chunk payload must be present")
-	require.NotNil(t, u.AgentMessageChunk.Content)
-	require.Equal(t, api.ContentBlockTypeText, u.AgentMessageChunk.Content.Type)
 	require.NotNil(t, u.AgentMessageChunk.Content.Text)
 	require.Equal(t, planText, u.AgentMessageChunk.Content.Text.Text,
 		"the plan's rendered text must survive byte-for-byte into the outbound chunk")

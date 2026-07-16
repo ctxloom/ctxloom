@@ -3,7 +3,7 @@ package acp
 import (
 	"testing"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	api "github.com/coder/acp-go-sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -116,11 +116,32 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 		assert.Empty(t, mapSessionUpdate(nil))
 	})
 
-	t.Run("unknown sessionUpdate variant fails to decode (warned, dropped)", func(t *testing.T) {
-		// The union rejects an unmodeled discriminator; the live handler warns and
-		// drops rather than crashing the stream.
-		_, err := decodeSessionUpdate([]byte(`{"sessionId":"s","update":{"sessionUpdate":"quantum_flux"}}`))
-		assert.Error(t, err)
+	t.Run("unknown sessionUpdate variant never crashes the stream", func(t *testing.T) {
+		// BEHAVIOR CHANGE from the hand-rolled union this replaced: that decoder
+		// rejected any unmodeled discriminator outright (a decode error the live
+		// handler turned into a logged warning). The fork's generated
+		// SessionUpdate.UnmarshalJSON is more lenient: once its discriminator
+		// switch and per-variant required-field checks both miss, it falls back
+		// to trying a bare json.Unmarshal into EVERY variant type in turn and
+		// accepts the first one that doesn't error — and an ordinary
+		// encoding/json Unmarshal never complains about a struct's fields all
+		// being absent. For a body with no variant-identifying fields at all
+		// (like this one), that means it silently decodes into
+		// UserMessageChunk{} (the first candidate in that fallback list) rather
+		// than returning an error. mapSessionUpdate still degrades safely: a
+		// user_message_chunk maps to nothing (see mapSessionUpdate's "don't echo
+		// the user's own message" case), so the STREAM never crashes and no
+		// entry is ever emitted for an unrecognized frame — the outcome this
+		// test actually guards. What is LOST is the diagnostic: session.go's
+		// HandleNotification no longer logs "dropping malformed session/update"
+		// for a body shaped like this, because there is no error to log. That
+		// loss of a warning (not a functional regression) is flagged in this
+		// slice's report as a candidate follow-up, not fixed here (out of
+		// scope: a fix would mean adding discriminator pre-validation, which is
+		// new behavior, not a type swap).
+		upd, err := decodeSessionUpdate([]byte(`{"sessionId":"s","update":{"sessionUpdate":"quantum_flux"}}`))
+		require.NoError(t, err)
+		assert.Empty(t, mapSessionUpdate(upd))
 	})
 }
 

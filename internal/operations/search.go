@@ -45,6 +45,11 @@ type SearchContentResult struct {
 	Results []SearchResult `json:"results"`
 	Count   int            `json:"count"`
 	Query   string         `json:"query"`
+	// TotalMatches is the match count BEFORE Limit truncated Results. It only
+	// differs from Count when the limit bit — callers use TotalMatches-Count
+	// to tell the user how many matches the limit hid, rather than letting a
+	// truncated answer look like the whole answer.
+	TotalMatches int `json:"total_matches,omitempty"`
 }
 
 // SearchContent searches across all content types.
@@ -114,14 +119,16 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	sortResults(results, sortBy, req.SortOrder == "desc")
 
 	// Apply limit
+	totalMatches := len(results)
 	if len(results) > req.Limit {
 		results = results[:req.Limit]
 	}
 
 	return &SearchContentResult{
-		Results: results,
-		Count:   len(results),
-		Query:   req.Query,
+		Results:      results,
+		Count:        len(results),
+		Query:        req.Query,
+		TotalMatches: totalMatches,
 	}, nil
 }
 

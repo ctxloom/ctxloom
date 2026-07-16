@@ -537,6 +537,32 @@ func TestSearchContent_WithLimit(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.LessOrEqual(t, result.Count, 2)
+	// TotalMatches is the pre-truncation count: callers (the CLI's search
+	// command) subtract Count from it to report how many matches the limit
+	// hid, so a truncated answer never silently looks like the whole answer.
+	assert.GreaterOrEqual(t, result.TotalMatches, result.Count)
+	if result.Count == 2 {
+		assert.Greater(t, result.TotalMatches, result.Count, "a 2-item cap on a query matching many items should truncate")
+	}
+}
+
+// TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit pins the other half
+// of the truncation contract: when nothing was cut, TotalMatches and Count
+// must agree exactly (no phantom "hidden" matches reported for an answer
+// that was already complete).
+func TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit(t *testing.T) {
+	_, loader := setupSearchTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
+		Query:  "a",
+		Types:  []string{"fragment", "command"},
+		Limit:  1000,
+		Loader: loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, result.Count, result.TotalMatches)
 }
 
 func TestSearchContent_DefaultLimit(t *testing.T) {

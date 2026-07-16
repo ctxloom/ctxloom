@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // This file is the per-harp observation-feed resolver (agent-io plan §3): ONE
@@ -424,6 +425,11 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 		err  error
 	)
 	switch {
+	case entry.CanonicalTranscriptPath != "":
+		// Tough-cloud S4: ctxloom's own captured transcript is available
+		// host-side with no plugin round-trip, regardless of where the engine
+		// ran — prefer it over both locators below.
+		sess, err = transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, entry.HarpName)
 	case entry.SessionID != "":
 		sess, err = pb.NewSessionReader(backend, 0).GetSession(ctx, entry.SessionID)
 	case entry.TranscriptPath != "":
@@ -457,6 +463,11 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 		errs        <-chan error
 	)
 	switch {
+	case entry.CanonicalTranscriptPath != "":
+		// Tough-cloud S4: prefer ctxloom's own captured transcript — host-side,
+		// no plugin round-trip, and correct regardless of which engine or
+		// container ran the session (plan §4b "session watch live feed").
+		watchEvents, errs = pb.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 	case entry.SessionID != "":
 		var err error
 		watchEvents, errs, err = pb.NewSessionReader(backend, 0).WatchSession(ctx, entry.SessionID)

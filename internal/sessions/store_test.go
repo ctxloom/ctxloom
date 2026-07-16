@@ -1,9 +1,13 @@
 package sessions
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestSessionStoreContract runs one lifecycle scenario against every Store
@@ -106,6 +110,66 @@ func TestSessionStoreContract(t *testing.T) {
 			}
 			if got, _ := s.Find("renamed"); got != nil {
 				t.Fatal("harp still present after Forget")
+			}
+		})
+	}
+}
+
+// TestSessionStoreContract_FindPopulatesCanonicalTranscript pins the
+// tough-cloud S4 fix: Find must enrich its returned copy with
+// CanonicalTranscriptPath exactly like ListForProject already does
+// (fillCanonicalTranscript), for BOTH Store adapters — every S4 consumer that
+// resolves a single harp (compactor, sessionfeed, mcp memory tools) goes
+// through Find, not ListForProject, so a harp with a captured transcript must
+// be visible there too.
+func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
+	adapters := []struct {
+		name string
+		make func(t *testing.T) Store
+	}{
+		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
+		{"Manager", func(t *testing.T) Store {
+			m, err := Open(filepath.Join(t.TempDir(), "index.yaml"))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			return m
+		}},
+	}
+
+	for _, a := range adapters {
+		t.Run(a.name, func(t *testing.T) {
+			testsupport.Isolate(t) // paths.HarpCanonicalTranscriptPath is HOME-rooted
+
+			s := a.make(t)
+			e, err := s.AssignHarp("/proj", "codex")
+			if err != nil {
+				t.Fatalf("AssignHarp: %v", err)
+			}
+
+			// No canonical transcript yet: Find must leave the field empty, not
+			// synthesize a path that doesn't exist on disk.
+			if got, _ := s.Find(e.HarpName); got.CanonicalTranscriptPath != "" {
+				t.Fatalf("CanonicalTranscriptPath = %q before any transcript was written, want empty", got.CanonicalTranscriptPath)
+			}
+
+			canonicalPath, err := paths.HarpCanonicalTranscriptPath(e.HarpName)
+			if err != nil {
+				t.Fatalf("HarpCanonicalTranscriptPath: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Dir(canonicalPath), 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(canonicalPath, []byte(`{"v":1}`+"\n"), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			got, err := s.Find(e.HarpName)
+			if err != nil {
+				t.Fatalf("Find: %v", err)
+			}
+			if got.CanonicalTranscriptPath != canonicalPath {
+				t.Fatalf("CanonicalTranscriptPath = %q, want %q", got.CanonicalTranscriptPath, canonicalPath)
 			}
 		})
 	}

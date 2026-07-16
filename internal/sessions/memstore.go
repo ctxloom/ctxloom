@@ -69,13 +69,16 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 	return out, nil
 }
 
-// Find returns a copy of the entry for harpName, or nil if absent.
+// Find returns a copy of the entry for harpName, or nil if absent. Enriches
+// the copy with CanonicalTranscriptPath, matching ListForProject and
+// *Manager.Find (tough-cloud S4).
 func (m *MemStore) Find(harpName string) (*Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.sessions {
 		if m.sessions[i].HarpName == harpName {
 			out := m.sessions[i]
+			fillCanonicalTranscript(&out)
 			return &out, nil
 		}
 	}

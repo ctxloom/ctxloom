@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
 // This file carries the WatchSession transport: a structured, turn-based view of
@@ -162,6 +163,52 @@ func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path str
 			sess, err := hist.GetSessionByPath(path)
 			if err != nil {
 				clidiag.Warn("ctxloom", "watch transcript %s: %v", path, err)
+			} else {
+				for _, ev := range w.step(sess) {
+					select {
+					case events <- ev:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return events, errs
+}
+
+// WatchCanonicalTranscript streams a captured transcript.acp.jsonl's
+// structured turns by polling transcript.ParseTranscriptFile — the canonical
+// counterpart to WatchHistoryByPath (which polls a legacy per-engine file).
+// Tough-cloud S4: session watch prefers this over both WatchSession (backend
+// session id) and WatchHistoryByPath (located legacy transcript) whenever the
+// harp has a canonical transcript, since ctxloom's own capture is available
+// host-side with no plugin round-trip regardless of where the engine ran.
+// harpName is both the file's lookup key and the resulting Session.ID; poll
+// <= 0 uses the default cadence. Same fault-tolerance and lifecycle contract
+// as WatchHistoryByPath: a transient parse error is warned and retried next
+// tick, never kills the stream; it ends when ctx is cancelled.
+func WatchCanonicalTranscript(ctx context.Context, path, harpName string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
+	if poll <= 0 {
+		poll = defaultWatchPoll
+	}
+	events := make(chan *WatchEvent)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(events)
+		defer close(errs)
+		w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
+		for {
+			sess, err := transcript.ParseTranscriptFile(path, harpName)
+			if err != nil {
+				clidiag.Warn("ctxloom", "watch canonical transcript %s: %v", path, err)
 			} else {
 				for _, ev := range w.step(sess) {
 					select {

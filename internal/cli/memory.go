@@ -14,7 +14,9 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
@@ -130,7 +132,12 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	source, backendName, err := resolveSessionSource(cfg, listBackend)
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	source, backendName, err := resolveSessionSource(cfg, listBackend, workDir)
 	if err != nil {
 		return err
 	}
@@ -154,19 +161,29 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// resolveSessionSource resolves the backend (defaulting when empty) and a gRPC
-// transcript reader for it, returning the resolved backend name for display.
-// Shared by the memory list and load tools. Transcript reads go to the agent
-// server (self-situated), so ctxloom passes no workspace and the path works for
-// a remote agent.
-func resolveSessionSource(cfg *config.Config, backendName string) (pb.SessionSource, string, error) {
+// resolveSessionSource resolves the backend (defaulting when empty) and a
+// transcript source for it, returning the resolved backend name for display.
+// Shared by the memory list and load tools. The legacy leg (pb.SessionReader)
+// reads over gRPC to the agent server (self-situated, no workspace passed,
+// works for a remote agent); it is wrapped in CanonicalFallbackSource
+// (tough-cloud S4) so any harp with a captured canonical transcript is read
+// from that instead — workDir scopes the canonical side to this project. A
+// session-index open failure degrades to the legacy-only reader rather than
+// failing the caller outright.
+func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.SessionSource, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
 	if !backends.Exists(backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	return pb.NewSessionReader(backendName, 0), backendName, nil
+	reader := pb.NewSessionReader(backendName, 0)
+	store, err := sessions.Open("")
+	if err != nil {
+		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
+		return reader, backendName, nil
+	}
+	return pb.NewCanonicalFallbackSource(reader, workDir, store), backendName, nil
 }
 
 // loadDistilledSet returns the set of session IDs already distilled (best
@@ -213,18 +230,17 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
 	// Determine backend
-	backendName := showBackend
-	if backendName == "" {
-		backendName = cfg.GetDefaultLLM()
+	source, backendName, err := resolveSessionSource(cfg, showBackend, workDir)
+	if err != nil {
+		return err
 	}
 
-	if !backends.Exists(backendName) {
-		return fmt.Errorf("unknown backend: %s", backendName)
-	}
-
-	// Load session over the agent server (self-situated; no workspace passed).
-	source := pb.NewSessionReader(backendName, 0)
 	session, err := source.GetSession(context.Background(), sessionID)
 	if err != nil {
 		return fmt.Errorf("load session: %w", err)

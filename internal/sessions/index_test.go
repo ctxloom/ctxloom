@@ -276,6 +276,32 @@ func TestEntry_SourceStale_DelegatesToFingerprint(t *testing.T) {
 	assert.False(t, stale)
 }
 
+// TestEntry_SourceStale_PrefersCanonicalTranscriptPath pins the tough-cloud
+// S4 fix: once a harp has a captured canonical transcript, THAT is the file
+// SourceSize was fingerprinted against (memory.transcriptSize's matching
+// preference) — so staleness must compare against it, not the legacy
+// TranscriptPath, or the badge would compare two unrelated files.
+func TestEntry_SourceStale_PrefersCanonicalTranscriptPath(t *testing.T) {
+	dir := t.TempDir()
+	legacyPath := filepath.Join(dir, "legacy.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, []byte("0123456789"), 0o644)) // 10 bytes
+	canonicalPath := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(canonicalPath, []byte("0123456789012345678901234"), 0o644)) // 25 bytes
+
+	e := Entry{TranscriptPath: legacyPath, CanonicalTranscriptPath: canonicalPath, SourceSize: 25}
+	stale, known := e.SourceStale()
+	assert.True(t, known)
+	assert.False(t, stale, "stamped size (25) matches the CANONICAL file, so this must read as current")
+
+	// The same stamped size against the legacy file's real size (10) would
+	// read as stale — proving the two paths are genuinely different sources,
+	// not a coincidence.
+	legacyOnly := Entry{TranscriptPath: legacyPath, SourceSize: 25}
+	stale, known = legacyOnly.SourceStale()
+	assert.True(t, known)
+	assert.True(t, stale, "sanity check: the legacy file alone does NOT match a 25-byte stamp")
+}
+
 func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {
 	// Earlier (Python) ctxloom builds wrote timestamps as
 	// datetime.isoformat(sep=' '): space separator, microseconds, "+00:00"

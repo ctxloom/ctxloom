@@ -310,10 +310,16 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	// acp_cmd.go already stamps it there for the engine subprocess's own env,
 	// and it is equally available here without any ChatRequest field addition.
 	//
-	// TODO(S4): run_structured.go currently mints no harp at all
-	// (run.go:315-316), so req.Env carries no SessionHarpEnv on that path and
-	// capture below degrades to a no-op — the structured REPL runs uncaptured
-	// until S4 assigns a harp for `--structured` runs (plan §8 risk 2).
+	// S4 verified this env-var plumbing rather than adding to it: run.go's
+	// AssignSession (cmd/run.go, unconditional since well before S2/S4) mints
+	// activeHarp and stamps runEnv["CTXLOOM_SESSION_HARP"] regardless of
+	// --structured, and that env rides req.Options.Env straight into
+	// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
+	// already populated on this path today. Confirmed end to end: a real
+	// `ctxloom run --structured` session mints a harp and writes a non-empty
+	// persist/transcript.acp.jsonl. (The plan's §8 risk 2 — "run_structured.go
+	// mints no harp" — did not hold against this base; nothing left to do
+	// here.)
 	outEvents := (<-chan agent.ChatEvent)(events)
 	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
 		outEvents = c.teeCapture(ctx, harp, events)

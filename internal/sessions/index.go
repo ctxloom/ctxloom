@@ -437,7 +437,19 @@ func fillCanonicalTranscript(e *Entry) {
 }
 
 // Find returns a copy of the entry with the given harp name, or nil if
-// absent.
+// absent. Enriches the copy with CanonicalTranscriptPath the same way
+// ListForProject does (fillCanonicalTranscript) — tough-cloud S4: every
+// single-harp lookup (compactor, sessionfeed, mcp memory tools) needs to see
+// canonical-transcript presence consistently with the listing path, not just
+// callers that go through ListForProject.
+//
+// internal/shared/tasks/projectid/registry.go's ResolveByPath/ResolveByID
+// share this function's generic Load+IndexFunc+copy shape (a find-in-slice
+// idiom that recurs across this codebase's several independent index/registry
+// types) but are a DIFFERENT domain — a project-id registry, not the harp
+// session index — with no canonical-transcript concept to mirror. This is a
+// deliberate, reviewed divergence, not a missed sibling update.
+// reprise:accept-drift
 func (m *Manager) Find(harpName string) (*Entry, error) {
 	idx, err := m.Load()
 	if err != nil {
@@ -449,6 +461,7 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 	}
 	out := idx.Sessions[i]
 	fillTranscriptByLocation(&out)
+	fillCanonicalTranscript(&out)
 	return &out, nil
 }
 
@@ -527,8 +540,19 @@ func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known boo
 // SourceStale reports whether this entry's distilled essence is out of date
 // relative to its source transcript, and whether that could be determined (see
 // TranscriptStale). The picker and `session list` use it to badge stale rows.
+//
+// Prefers CanonicalTranscriptPath over TranscriptPath (tough-cloud S4): once a
+// harp has a captured canonical transcript, that IS the file the compactor
+// actually distills from (memory.transcriptSize stamps its size the same way),
+// so staleness must compare against it — comparing the essence's stamped size
+// to the legacy engine file's size would compare two different sources and
+// the badge would lie.
 func (e Entry) SourceStale() (stale, known bool) {
-	return TranscriptStale(e.TranscriptPath, e.SourceSize)
+	path := e.TranscriptPath
+	if e.CanonicalTranscriptPath != "" {
+		path = e.CanonicalTranscriptPath
+	}
+	return TranscriptStale(path, e.SourceSize)
 }
 
 // MarkEnded sets EndedAt on the named entry. Idempotent.

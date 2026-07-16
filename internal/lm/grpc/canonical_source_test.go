@@ -1,0 +1,207 @@
+package grpc
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/transcript"
+)
+
+// fakeSessionSource is a minimal in-memory pb.SessionSource stand-in for the
+// legacy leg of CanonicalFallbackSource — the per-engine scraper reader these
+// tests must prove is bypassed whenever a canonical transcript exists, and
+// consulted whenever it doesn't.
+type fakeSessionSource struct {
+	sessions map[string]*agent.Session
+	metas    []agent.SessionMeta
+	current  *agent.Session
+	getErr   error
+	listErr  error
+}
+
+func (f *fakeSessionSource) GetSession(_ context.Context, id string) (*agent.Session, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	sess, ok := f.sessions[id]
+	if !ok {
+		return nil, fmt.Errorf("fake legacy source: no session %q", id)
+	}
+	return sess, nil
+}
+
+func (f *fakeSessionSource) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {
+	return f.metas, f.listErr
+}
+
+func (f *fakeSessionSource) CurrentSession(_ context.Context) (*agent.Session, error) {
+	return f.current, nil
+}
+
+// writeCanonicalFixture records one real assistant turn (via the actual
+// transcript.Recorder writer, not hand-rolled JSONL) to harp's canonical
+// transcript path, so these tests exercise the real writer/reader contract.
+func writeCanonicalFixture(t *testing.T, harp, engine, content string) {
+	t.Helper()
+	rec, err := transcript.NewRecorder(harp, engine)
+	require.NoError(t, err)
+	require.NoError(t, rec.Record(agent.ChatEvent{
+		Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: content},
+	}))
+	require.NoError(t, rec.Close())
+}
+
+// mintBoundHarp registers harp under projectDir in store with the given
+// bound backend session id — AssignHarp mints its own name, so Rename
+// retargets it to the exact name the test wants (mirrors internal/transcript's
+// own history_test.go `mint` helper).
+func mintBoundHarp(t *testing.T, store *sessions.MemStore, harp, projectDir, sessionID string) {
+	t.Helper()
+	e, err := store.AssignHarp(projectDir, "test-engine")
+	require.NoError(t, err)
+	require.NoError(t, store.Rename(e.HarpName, harp))
+	require.NoError(t, store.BindSession(harp, sessionID, ""))
+}
+
+// TestCanonicalFallbackSource_GetSession_PrefersCanonical is the core
+// tough-cloud S4 selection-rule proof: a backend-native session id that
+// resolves to a harp WITH a captured canonical transcript is served from
+// canonical — the legacy source is wired to fail the test if consulted at
+// all, so this also proves canonical genuinely short-circuits legacy rather
+// than merely winning a race.
+func TestCanonicalFallbackSource_GetSession_PrefersCanonical(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-canonical", "/proj", "backend-uuid-1")
+	writeCanonicalFixture(t, "harp-canonical", "codex", "REAL-CANONICAL-PAYLOAD")
+
+	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when canonical exists")}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.GetSession(ctx, "backend-uuid-1")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "REAL-CANONICAL-PAYLOAD", sess.Entries[0].Content, "payload must survive the round trip, not just a non-empty session")
+}
+
+// TestCanonicalFallbackSource_GetSession_FallsBackWhenNoCanonical proves the
+// transitional half of the selection rule: a harp that predates capture (no
+// canonical transcript ever written) is served from the legacy source
+// unchanged.
+func TestCanonicalFallbackSource_GetSession_FallsBackWhenNoCanonical(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-legacy-only", "/proj", "backend-uuid-2")
+	// Deliberately no writeCanonicalFixture call for this harp.
+
+	legacySess := &agent.Session{
+		ID:      "backend-uuid-2",
+		Entries: []agent.SessionEntry{{Type: agent.EntryTypeAssistant, Content: "REAL-LEGACY-PAYLOAD"}},
+	}
+	legacy := &fakeSessionSource{sessions: map[string]*agent.Session{"backend-uuid-2": legacySess}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.GetSession(ctx, "backend-uuid-2")
+	require.NoError(t, err)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "REAL-LEGACY-PAYLOAD", sess.Entries[0].Content)
+}
+
+// TestCanonicalFallbackSource_GetSession_UnboundIDFallsBack covers a session
+// id the index has no entry for at all (e.g. --session <uuid> pasted from a
+// legacy `memory list` row) — resolveHarp finds nothing, so this must still
+// reach the legacy source directly by id, exactly like pre-S4 behavior.
+func TestCanonicalFallbackSource_GetSession_UnboundIDFallsBack(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	legacySess := &agent.Session{ID: "unbound-uuid", Entries: []agent.SessionEntry{{Type: agent.EntryTypeAssistant, Content: "UNBOUND-PAYLOAD"}}}
+	legacy := &fakeSessionSource{sessions: map[string]*agent.Session{"unbound-uuid": legacySess}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.GetSession(ctx, "unbound-uuid")
+	require.NoError(t, err)
+	assert.Equal(t, "UNBOUND-PAYLOAD", sess.Entries[0].Content)
+}
+
+// TestCanonicalFallbackSource_CurrentSession_PrefersCanonical mirrors the
+// GetSession proof for the no-explicit-id "current session" path.
+func TestCanonicalFallbackSource_CurrentSession_PrefersCanonical(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-current", "/proj", "backend-uuid-3")
+	writeCanonicalFixture(t, "harp-current", "codex", "CURRENT-CANONICAL-PAYLOAD")
+
+	legacy := &fakeSessionSource{current: &agent.Session{ID: "should-not-be-used"}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.CurrentSession(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, "harp-current", sess.ID)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "CURRENT-CANONICAL-PAYLOAD", sess.Entries[0].Content)
+}
+
+// TestCanonicalFallbackSource_CurrentSession_FallsBackWhenProjectHasNoCanonical
+// proves a project with no canonical-backed session at all (pre-capture
+// project) degrades to the legacy source's own "current" pick.
+func TestCanonicalFallbackSource_CurrentSession_FallsBackWhenProjectHasNoCanonical(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	legacy := &fakeSessionSource{current: &agent.Session{ID: "legacy-current", Entries: []agent.SessionEntry{{Type: agent.EntryTypeAssistant, Content: "LEGACY-CURRENT"}}}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.CurrentSession(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, "legacy-current", sess.ID)
+}
+
+// TestCanonicalFallbackSource_ListSessions_MergesAndDedupes proves the
+// listing merge: a canonical-backed harp appears once (from canonical, keyed
+// by harp), and a legacy session NOT covered by any canonical harp still
+// appears (keyed by its own backend-native id) — the transitional decay the
+// plan describes, in one listing.
+func TestCanonicalFallbackSource_ListSessions_MergesAndDedupes(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-listed", "/proj", "backend-uuid-covered")
+	writeCanonicalFixture(t, "harp-listed", "codex", "LISTED-PAYLOAD")
+
+	legacy := &fakeSessionSource{metas: []agent.SessionMeta{
+		{ID: "backend-uuid-covered"}, // same session as harp-listed: must be deduped away
+		{ID: "backend-uuid-uncovered"},
+	}}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	metas, err := src.ListSessions(ctx)
+	require.NoError(t, err)
+
+	ids := make(map[string]bool, len(metas))
+	for _, m := range metas {
+		ids[m.ID] = true
+	}
+	assert.True(t, ids["harp-listed"], "canonical-backed session must be listed by harp")
+	assert.False(t, ids["backend-uuid-covered"], "the same session must not also appear under its legacy id")
+	assert.True(t, ids["backend-uuid-uncovered"], "a legacy session with no canonical counterpart must still be listed")
+}

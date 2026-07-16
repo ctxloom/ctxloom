@@ -140,8 +140,17 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		}
 	} else {
 		reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
-		source = reader
 		plans = reader.GetPlans
+		// Tough-cloud S4: prefer ctxloom's own captured transcript over the
+		// legacy per-engine scraper reader now behind it. A session-index open
+		// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
+		// degrades to the legacy-only reader rather than failing compaction
+		// outright; distillation must never block on the canonical layer.
+		if store, sErr := sessions.Open(""); sErr == nil {
+			source = pb.NewCanonicalFallbackSource(reader, config.WorkDir, store)
+		} else {
+			source = reader
+		}
 	}
 
 	return &Compactor{
@@ -495,10 +504,22 @@ func transcriptSize(harpName string) int64 {
 		return 0
 	}
 	entry, _ := mgr.Find(harpName)
-	if entry == nil || entry.TranscriptPath == "" {
+	if entry == nil {
 		return 0
 	}
-	info, err := os.Stat(entry.TranscriptPath)
+	// Prefer the canonical transcript's size (tough-cloud S4): once a harp has
+	// one, that is the file Compact actually distilled from (NewCompactor's
+	// CanonicalFallbackSource), so the staleness fingerprint must be stamped
+	// against IT, not the legacy engine file — otherwise Entry.SourceStale
+	// compares the essence to a source it was never distilled from.
+	path := entry.CanonicalTranscriptPath
+	if path == "" {
+		path = entry.TranscriptPath
+	}
+	if path == "" {
+		return 0
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return 0
 	}

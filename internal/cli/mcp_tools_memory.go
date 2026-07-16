@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -243,6 +242,11 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
 	}
 
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get working directory: %w", err)
+	}
+
 	targetSessionID := in.SessionID
 	if targetSessionID == "" {
 		// Identity-first: the active harp's own session-index binding is the exact
@@ -256,7 +260,11 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		activeEntry, _ := operations.GetSession(s.self.Harp)
 		targetSessionID = recoverTargetSessionID(activeEntry, backendName, nil, fileExists)
 		if targetSessionID == "" {
-			sessionsList, err := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
+			source, _, serr := resolveSessionSource(s.cfg, backendName, workDir)
+			if serr != nil {
+				return nil, nil, serr
+			}
+			sessionsList, err := source.ListSessions(ctx)
 			if err != nil {
 				return nil, nil, fmt.Errorf("list sessions: %w", err)
 			}
@@ -337,7 +345,11 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	// session by mtime and shift every position by one, so a blind index-1 pick
 	// can return the active session itself or an unrelated foreign transcript.
 	if sessionID == "" {
-		metas, lerr := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
+		source, _, serr := resolveSessionSource(s.cfg, backendName, workDir)
+		if serr != nil {
+			return nil, nil, serr
+		}
+		metas, lerr := source.ListSessions(ctx)
 		if lerr != nil {
 			// A flaky transcript listing must not turn a recovery convenience into a
 			// tool error: warn and fall through to the "no previous session" result.
@@ -407,7 +419,11 @@ func previousSessionFromMtime(activeSessionID string, metas []agent.SessionMeta)
 //     cache); load_session / get_previous_session keep the cache (a finished
 //     session rarely changes, so spending an LLM call on it isn't worth it).
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, redistillWhenUnknown bool) (*mcp.CallToolResult, *loadSessionResult, error) {
-	source, backendName, err := resolveSessionSource(s.cfg, backendName)
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get working directory: %w", err)
+	}
+	source, backendName, err := resolveSessionSource(s.cfg, backendName, workDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -442,7 +458,14 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	transcriptPath := ""
 	if harp != "" {
 		if entry, _ := operations.GetSession(harp); entry != nil {
+			// Prefer the canonical transcript (tough-cloud S4): once captured,
+			// that's the file Compact actually distilled from, so staleness must
+			// compare against it, not the legacy engine file (see
+			// memory.transcriptSize's matching preference).
 			transcriptPath = entry.TranscriptPath
+			if entry.CanonicalTranscriptPath != "" {
+				transcriptPath = entry.CanonicalTranscriptPath
+			}
 		}
 	}
 
@@ -455,9 +478,8 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		// stale, or indeterminate with a re-distill bias: fall through.
 	}
 
-	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read
-	// is self-situated and ignores it.
-	workDir, _ := os.Getwd()
+	// workDir (resolved above) feeds CompactionConfig for compatibility; the
+	// gRPC transcript read is self-situated and ignores it.
 	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	return nil, result, err
 }

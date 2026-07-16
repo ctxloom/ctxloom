@@ -66,7 +66,14 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 	}
 
 	rt := isolation.SelectRuntime("")
-	if !rt.Available() {
+	// SelectRuntime never reports "unavailable" via a sentinel value: on no
+	// launchable docker/podman it falls back to Host{}, whose Available()
+	// is UNCONDITIONALLY true (Host can always run a bare subprocess — the
+	// fault-tolerant floor other isolation policies rely on). A type check
+	// against Host is the only way to tell "no real container runtime" apart
+	// from "found one" — the exact test isolation.go's own chainFor uses for
+	// the identical decision (see its rt.(Host) check).
+	if _, isHost := rt.(isolation.Host); isHost {
 		return nil, fmt.Errorf("acp: agent %q needs runtime:container but no container runtime is reachable (docker or podman CLI on PATH with its daemon up) — install/start docker or podman, or switch this agent's runtime to host", engine)
 	}
 

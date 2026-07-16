@@ -603,7 +603,7 @@ Examples:
 			// --agent (a HARD error on an unknown name), a missing/empty/unresolvable
 			// default_agent must NEVER block startup: warn and continue with empty
 			// context at the project-default label + runtime (CLAUDE.md fault
-			// tolerance; mirrors acp's openACPEngineChat degrade).
+			// tolerance; mirrors acp's operations.OpenEngineSession degrade).
 			if rs, rerr := operations.ResolveAgent(ctx, cfg, cfg.DefaultAgent, runLLM); rerr != nil {
 				strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", cfg.DefaultAgent, rerr)
 				ctxResult = &operations.AssembleContextResult{}

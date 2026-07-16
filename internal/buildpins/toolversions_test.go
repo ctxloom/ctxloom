@@ -20,6 +20,7 @@
 package buildpins
 
 import (
+	"encoding/json"
 	"os"
 	"regexp"
 	"sort"
@@ -28,11 +29,12 @@ import (
 )
 
 const (
-	toolVersionsPath    = "../../.devcontainer/tool-versions.env"
-	dockerfilePath      = "../../.devcontainer/Dockerfile"
-	justfilePath        = "../../justfile"
-	ciWorkflowPath      = "../../.github/workflows/ci.yml"
-	releaseWorkflowPath = "../../.github/workflows/release-completer.yml"
+	toolVersionsPath     = "../../.devcontainer/tool-versions.env"
+	dockerfilePath       = "../../.devcontainer/Dockerfile"
+	justfilePath         = "../../justfile"
+	ciWorkflowPath       = "../../.github/workflows/ci.yml"
+	releaseWorkflowPath  = "../../.github/workflows/release-completer.yml"
+	devcontainerJSONPath = "../../.devcontainer/devcontainer.json"
 )
 
 // releaseCompleterKeys are the tool-versions.env keys that
@@ -289,6 +291,79 @@ func TestDockerfileAndReleaseCompleterShareVariableNames(t *testing.T) {
 		}
 		if !strings.Contains(releaseContent, ref) {
 			t.Errorf("release-completer.yml never references %s — see TestReleaseCompleterDerivesToolVersionsFromFile", ref)
+		}
+	}
+}
+
+// stripJSONCLineComments removes standalone `// ...` comment lines so
+// encoding/json (which doesn't accept JSONC) can parse a devcontainer.json.
+// devcontainer.json is specified as JSONC; this repo's file only uses
+// whole-line comments (never a trailing `// ...` after a value on the same
+// line), so trimming lines whose first non-whitespace characters are `//` is
+// sufficient — it deliberately does NOT handle comments embedded inside
+// string values or same-line trailing comments, since neither appears here.
+func stripJSONCLineComments(raw string) string {
+	lines := strings.Split(raw, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// TestDevcontainerJSONBuildArgsMatchToolVersionsEnv covers the fourth
+// consumer this package found beyond the two named in the original bug
+// report: .devcontainer/devcontainer.json's build.args. VS Code's own
+// "Reopen in Container" invokes `docker build` directly (never through `just
+// dev-image`), so it needs the same tool versions passed explicitly or the
+// Dockerfile's default-less ARGs fail its guard RUN. JSON can't shell out to
+// read tool-versions.env at build time the way justfile/CI workflows can, so
+// these values are a literal, drift-gated copy — this test is what makes
+// that copy honest.
+func TestDevcontainerJSONBuildArgsMatchToolVersionsEnv(t *testing.T) {
+	versions := parseToolVersionsEnv(t, toolVersionsPath)
+
+	raw, err := os.ReadFile(devcontainerJSONPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", devcontainerJSONPath, err)
+	}
+
+	var doc struct {
+		Build struct {
+			Args map[string]string `json:"args"`
+		} `json:"build"`
+	}
+	if err := json.Unmarshal([]byte(stripJSONCLineComments(string(raw))), &doc); err != nil {
+		t.Fatalf("parse %s: %v", devcontainerJSONPath, err)
+	}
+
+	if len(doc.Build.Args) == 0 {
+		t.Fatalf("%s has no build.args — VS Code's own container build will fail the Dockerfile's tool-version guard RUN (no --build-arg supplied)", devcontainerJSONPath)
+	}
+
+	var fileKeys []string
+	for k := range versions {
+		fileKeys = append(fileKeys, k)
+	}
+	sort.Strings(fileKeys)
+
+	for _, k := range fileKeys {
+		want := versions[k]
+		got, ok := doc.Build.Args[k]
+		if !ok {
+			t.Errorf("%s: build.args is missing %s (tool-versions.env has %s=%s)", devcontainerJSONPath, k, k, want)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: build.args.%s=%q disagrees with %s's %s=%q", devcontainerJSONPath, k, got, toolVersionsPath, k, want)
+		}
+	}
+	for k := range doc.Build.Args {
+		if _, ok := versions[k]; !ok {
+			t.Errorf("%s: build.args has %s, but %s has no such key — stale entry?", devcontainerJSONPath, k, toolVersionsPath)
 		}
 	}
 }

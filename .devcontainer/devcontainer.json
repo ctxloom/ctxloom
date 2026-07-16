@@ -2,7 +2,28 @@
   "name": "ctxloom Development",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".."
+    "context": "..",
+    // Dockerfile's tool-version ARGs are deliberately default-less (see
+    // .devcontainer/tool-versions.env, the single source of truth for all of
+    // them), so VS Code's own "Reopen in Container" build — which invokes
+    // docker build directly, not `just dev-image` — needs these passed
+    // explicitly too, or it fails the guard RUN. Keep this object's values
+    // equal to tool-versions.env; internal/buildpins' drift-gate test
+    // (TestDevcontainerJSONBuildArgsMatchToolVersionsEnv) fails if they
+    // diverge.
+    "args": {
+      "GO_VERSION": "1.25.10",
+      "UPX_VERSION": "4.2.4",
+      "ONNX_VERSION": "1.20.1",
+      "GOLANGCI_LINT_VERSION": "2.12.1",
+      "BUF_VERSION": "1.47.2",
+      "PROTOC_GEN_GO_VERSION": "1.36.11",
+      "PROTOC_GEN_GO_GRPC_VERSION": "1.6.2",
+      "GREMLINS_VERSION": "0.6.0",
+      "VERSIONATOR_VERSION": "0.2.1",
+      "GORELEASER_VERSION": "2.16.0",
+      "LIZARD_VERSION": "1.22.2"
+    }
   },
   "customizations": {
     "vscode": {

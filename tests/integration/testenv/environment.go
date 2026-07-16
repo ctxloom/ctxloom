@@ -55,8 +55,71 @@ type TestEnvironment struct {
 	runCount int
 }
 
+// staleEnvironmentAge gates reapStaleEnvironments (see its comment): well
+// past any single suite's real runtime, so a slow-but-still-live concurrent
+// run's directory is never touched, while an orphan from a run that was
+// SIGKILLed hours or days ago gets reclaimed automatically.
+const staleEnvironmentAge = 6 * time.Hour
+
+// reapStaleEnvironments removes ctxloom-integration-* directories left behind
+// by a PREVIOUS test process that never reached its own Cleanup — every
+// current call site wires Cleanup via t.Cleanup/ctx.After, but none of that
+// runs if the process is SIGKILLed (a mutation-test timeout, a killed CI job,
+// a Ctrl-C'd local run): no defer or signal handler in this package can catch
+// that. Left alone, those orphans accumulate indefinitely on this box's 16G
+// /tmp tmpfs (the same failure class documented for gremlins' mutation-via-
+// just tmpfs exhaustion) until a fresh test run's own MkdirTemp is what tips
+// it over. Called at the top of every NewTestEnvironment so any of the three
+// entry points (integration tests, acceptance tests, the doc-capture run)
+// self-heals the previous run's mess instead of only ever adding to it.
+func reapStaleEnvironments() {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "ctxloom-integration-*"))
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-staleEnvironmentAge)
+	for _, dir := range matches {
+		info, err := os.Stat(dir)
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = forceRemoveAll(dir)
+	}
+}
+
+// forceRemoveAll removes dir even when it contains read-only files or
+// directories. This matters here specifically because of a bug this package
+// used to have (see taskloom_acceptance.go's realProcessEnv comment): a `go
+// build` run with HOME pointed at a scenario's fake home populated a full
+// GOMODCACHE tree under it, and the Go toolchain deliberately marks module
+// cache directories 0555 to guard cached module sources against accidental
+// edits. Plain os.RemoveAll cannot unlink through a read-only directory and
+// returns an error — an error every current caller discards (Cleanup's
+// return value is thrown away as `_ = env.Cleanup()` at every call site), so
+// a scenario that ever produced such a tree left a permanent partial
+// directory behind even on a normal, non-killed test run. That was the
+// primary, always-reproducible mechanism behind the observed /tmp leak, not
+// merely an edge case triggered by a killed process. Walking the tree first
+// and restoring owner-write everywhere makes the subsequent RemoveAll
+// unconditional, so Cleanup (and the stale-environment reaper above) actually
+// finish the job even if something upstream misbehaves again the same way.
+func forceRemoveAll(dir string) error {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // let RemoveAll below surface the real error
+		}
+		if info, ierr := d.Info(); ierr == nil && info.Mode().Perm()&0200 == 0 {
+			_ = os.Chmod(path, info.Mode().Perm()|0700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
+}
+
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
+	reapStaleEnvironments()
+
 	// Create root temp directory
 	root, err := os.MkdirTemp("", "ctxloom-integration-*")
 	if err != nil {
@@ -236,9 +299,11 @@ func (e *TestEnvironment) Cleanup() error {
 		}
 	}
 
-	// Remove temp directory
+	// Remove temp directory. forceRemoveAll (not a bare os.RemoveAll) because
+	// this Root can end up containing a read-only GOMODCACHE tree — see its
+	// doc comment for why that isn't just theoretical.
 	if e.Root != "" {
-		return os.RemoveAll(e.Root)
+		return forceRemoveAll(e.Root)
 	}
 	return nil
 }

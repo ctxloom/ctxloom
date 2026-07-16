@@ -276,6 +276,80 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	}, nil
 }
 
+// WithSessionState stamps the run's session identity (harp + project id) onto
+// this Container, matching Prepare's withSessionState for the Container case
+// (isolation.go). Exposed for a caller that constructs a Container directly
+// via NewContainerFor rather than going through the Resolve/Prepare axes
+// chain — ISO1's ACP container transport (internal/acp), whose caller (an
+// editor-launched session) must never silently degrade a requested container
+// to the host: PrepareWorkspace's error is the ONLY outcome of a failed
+// gate, unlike chainFor's degrade-to-None-unless-strict chain.
+func (c Container) WithSessionState(state SessionState) Container {
+	c.state = state
+	if c.base != nil {
+		c.base = c.base.withState(state)
+	}
+	return c
+}
+
+// WithImage overrides this Container's resolved image, keeping the profile's
+// auth/overlay/transcript knobs (whichever engine's auth the caller can
+// actually resolve) but running a DIFFERENT image — e.g. a docker-gated
+// test's minimal harness image, which has nothing to do with the profile's
+// own engine but needs SOME resolvable auth to clear PrepareWorkspace's gate.
+// Exposed as a narrow, explicit override (not a general profile mutator) so
+// production callers (NewContainerFor/containerFor) are unaffected: only a
+// caller that deliberately wants this specific mismatch reaches for it.
+func (c Container) WithImage(image string) Container {
+	c.image = image
+	return c
+}
+
+// ExecSpec builds the RunSpec for running an ARBITRARY in-container command
+// against a workspace this Container already prepared via PrepareWorkspace —
+// ISO1's use case: the container hosts the target agent's OWN ACP subprocess
+// directly (e.g. `claude-code-acp`), piped over plain stdio, rather than
+// go-plugin's gRPC-over-socket transport for the `ctxloom llm serve`
+// protocol (which SpawnClient/launchSpec build instead). ws must be the
+// Workspace THIS Container returned from PrepareWorkspace.
+//
+// It assembles the SAME three ingredients buildRunSpec (runner.go) computes
+// for the go-plugin path, minus the plugin-handshake-specific pieces (the
+// socket-dir mount, the curated handshake env, the loopback-port publish):
+// the identical-path project mount (ExposeIdentical — the SAME primitive
+// buildRunSpec's project mount and gitCommonDirMount use, so a non-identity
+// path mapper, when one exists, applies here too without another call site
+// to update), the workspace's own auth/overlay/gitdir/state mounts
+// (cw.extraMounts) plus any caller-supplied extraMounts (e.g. ISO1's
+// reach-back socket-dir mount), and the fixed container base env
+// (containerBaseEnv) + the workspace's scoped auth env passthrough
+// (cw.extraEnv) plus any caller-supplied extraEnv.
+func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, extraMounts []Mount) (RunSpec, error) {
+	cw, ok := ws.(*containerWorkspace)
+	if !ok {
+		return RunSpec{}, fmt.Errorf("container exec: unexpected workspace %T (expected a container workspace)", ws)
+	}
+	mounts := make([]Mount, 0, 1+len(cw.extraMounts)+len(extraMounts))
+	mounts = append(mounts, c.runtime.ExposeIdentical(cw.dir, false))
+	mounts = append(mounts, cw.extraMounts...)
+	mounts = append(mounts, extraMounts...)
+
+	env := make([]string, 0, len(containerBaseEnv)+len(cw.extraEnv)+len(extraEnv))
+	env = append(env, containerBaseEnv...)
+	env = append(env, cw.extraEnv...)
+	env = append(env, extraEnv...)
+
+	return RunSpec{
+		Image:   c.image,
+		Name:    containerName(cw.agentID),
+		WorkDir: c.runtime.mapper().toContainer(cw.dir),
+		Home:    c.home,
+		Command: command,
+		Env:     env,
+		Mounts:  mounts,
+	}, nil
+}
+
 // MCPCommandOverride returns the in-container ctxloom binary path
 // (defaultContainerBinary, threaded as c.binaryPath — the container axis's
 // single source of truth) that a container cell's MCP-surface writer should

@@ -128,15 +128,27 @@ func (r *containerRunner) Kill(ctx context.Context) error {
 }
 
 // removeReportsGone reports whether a force-remove error is the benign
-// already-gone race (the --rm `run` beat us to removing the container): docker/
-// podman exit non-zero with "No such container". That is teardown SUCCESS — the
-// container is gone — not a leak, so it is not surfaced.
+// already-gone race (the --rm `run` beat us to removing the container):
+// docker/podman exit non-zero with "No such container" — the container had
+// ALREADY finished self-removing before our `rm -f` ran — or "removal of
+// container ... is already in progress" — docker's OWN async --rm cleanup
+// is in flight AT THE SAME MOMENT ours lands, a race live-verified (ISO1's
+// docker-gated ACP container-transport test, TestACPContainerTransport_
+// RealTurn: a long-lived container that only exits when its stdin closes
+// reliably reproduces this exact message on this docker version, 100% of
+// runs — the SamePathMount test's short-lived `cat` never does, because
+// by the time Close() runs there its --rm has always already finished).
+// Both are teardown SUCCESS — the container is gone (or is guaranteed to be,
+// momentarily, by docker's own in-flight removal) — not a leak, so neither
+// is surfaced.
 func removeReportsGone(err error) bool {
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
 		return false
 	}
-	return strings.Contains(strings.ToLower(string(ee.Stderr)), "no such container")
+	stderr := strings.ToLower(string(ee.Stderr))
+	return strings.Contains(stderr, "no such container") ||
+		(strings.Contains(stderr, "removal of container") && strings.Contains(stderr, "already in progress"))
 }
 
 // Stdout is the container's stdout — go-plugin negotiates the handshake here.

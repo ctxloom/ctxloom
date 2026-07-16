@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -96,6 +95,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		backendName     string
 		model           string
 		mcpServers      []agent.ChatMCPServer
+		runtimeAxis     string
 	)
 	// Fail-loudly gate, per session: checkpoint before config load + assembly
 	// so this session's fatal findings don't bleed across sessions (the process
@@ -138,13 +138,15 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 				label = rs.Label
 				currentAgent = resolveAgent
 				sessionProfiles = rs.Profiles
-				if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
-					// ACP sessions run in-process at the editor's cwd — a
-					// containerized engine the editor cannot reach would be worse
-					// than none. The session paths (run/map/weave) are where the
-					// runtime axis applies.
-					clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", resolveAgent, rs.Runtime)
-				}
+				// ISO1: the runtime axis now rides ChatRequest.Runtime into the
+				// engine's StructuredChat call below — a container-bound agent
+				// runs its engine subprocess inside a container (same-path
+				// workspace mount, reach-back via the runner-terminated MCP
+				// socket), never silently on the host. See internal/acp's
+				// container transport (acp.go) for the honoring half; a backend
+				// whose structured chat does not implement it fails loudly
+				// there rather than falling back to the host.
+				runtimeAxis = rs.Runtime
 			}
 		}
 
@@ -267,6 +269,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// interactive approvals in structured mode (no terminal prompt here).
 		ForwardPermissions: true,
 		MCPServers:         mcpServers,
+		Runtime:            runtimeAxis,
 	})
 	if err != nil {
 		client.Kill()

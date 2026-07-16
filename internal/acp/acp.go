@@ -149,6 +149,27 @@ type ACP struct {
 	// now stamps chat entries that arrive without a timestamp (ACP session/update
 	// carries no per-event time). Injected for deterministic tests; nil = time.Now.
 	now func() time.Time
+
+	// runtimeAxis is this chat's resolved runtime axis (agent.ChatRequest.Runtime:
+	// "" = host, agent.RuntimeContainer = container), stashed by chatArgv as a
+	// deliberate side effect (see its doc) so spawnTransport can route to
+	// containerTransport WITHOUT session.go's Chat needing to change: Chat calls
+	// `open(ctx, b.chatArgv(req), b.spawnEnv(req), req.WorkDir)`, and Go evaluates
+	// every argument (chatArgv included) before invoking `open` — which is already
+	// a bound method value over this same *ACP, so the mutation is visible by the
+	// time `open`'s body (spawnTransport) actually runs. One *ACP instance ever
+	// drives exactly one Chat call (NewChatDriver/NewACP construct a fresh
+	// instance per call — see claude/codex/kiro's Chat methods), so this is safe
+	// per-call state, not shared mutable state racing concurrent chats.
+	runtimeAxis string
+
+	// containerImage, when non-empty, overrides the container profile's
+	// resolved image (isolation.Container.WithImage) instead of the
+	// engine's real one. Test-only seam: the docker-gated container
+	// transport proof points this at a minimal harness image instead of a
+	// real (credentialed, multi-hundred-MB) engine image; every production
+	// construction path leaves it empty.
+	containerImage string
 }
 
 // NewChatDriver builds an ACP client for EMBEDDING inside a target agent's own
@@ -278,6 +299,14 @@ func (b *ACP) clock() func() time.Time {
 // below as model's alternate delivery and why codex's embedding config
 // (internal/codex/chat.go) never sets Agent/AgentEngine.
 func (b *ACP) chatArgv(req agent.ChatRequest) []string {
+	// ISO1 side channel: this is the one point in session.go's Chat where the
+	// full ChatRequest reaches code this package owns before the transport is
+	// chosen (session.go itself calls `open(ctx, b.chatArgv(req),
+	// b.spawnEnv(req), req.WorkDir)`, evaluating chatArgv's argument BEFORE
+	// `open` runs) — see runtimeAxis's doc on why stashing it here, rather
+	// than threading a new parameter through session.go, is deliberate and
+	// safe.
+	b.runtimeAxis = req.Runtime
 	_, cmdArgs := splitCommand(b.command)
 
 	args := make([]string, 0, len(cmdArgs)+len(b.Args)+6)
@@ -348,9 +377,24 @@ type transport struct {
 
 type transportFunc func(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error)
 
-// spawnTransport launches the real `<agent> acp` process with piped stdio (no
-// pty). stderr passes through for diagnostics, matching the claude chat driver.
+// spawnTransport launches the real `<agent> acp` process with piped stdio,
+// on the HOST or inside a CONTAINER per this chat's resolved runtime axis
+// (runtimeAxis — see its doc for how it gets here without session.go
+// changing). This is the ACP client driver's transport seam (ISO1): JSON-RPC
+// is transport-agnostic, so routing here is the ONLY place that changes —
+// the driver, the protocol mapping, and everything above this function are
+// untouched regardless of which branch runs.
 func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
+	if b.runtimeAxis == agent.RuntimeContainer {
+		return b.containerTransport(ctx, argv, env, workDir)
+	}
+	return b.spawnHostTransport(ctx, argv, env, workDir)
+}
+
+// spawnHostTransport is spawnTransport's unchanged pre-ISO1 body: the real
+// `<agent> acp` process with piped stdio (no pty). stderr passes through for
+// diagnostics, matching the claude chat driver.
+func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[string]string, workDir string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, argv...)
 	cmd.Dir = workDir
 	cmd.Env = spawnEnv(os.Environ(), b.stripEnv, env)

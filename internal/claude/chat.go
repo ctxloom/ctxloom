@@ -35,9 +35,16 @@ var _ agent.StructuredChat = (*ClaudeCode)(nil)
 // The interactive terminal path (a real `claude` TUI over the pty launcher) is
 // untouched — ACP replaces only the programmatic conversation surface.
 func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	if _, err := exec.LookPath(claudeACPAdapter); err != nil {
-		close(out) // honor the StructuredChat contract: producer closes out exactly once
-		return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", claudeACPAdapter)
+	// The host-PATH adapter check only applies to a HOST-runtime chat: a
+	// runtime:container agent runs claude-code-acp INSIDE the agent image
+	// instead (ISO1's container transport, internal/acp), where the image
+	// carries the adapter — checking THIS process's PATH would wrongly
+	// refuse a session whose adapter the host never needs.
+	if req.Runtime != agent.RuntimeContainer {
+		if _, err := exec.LookPath(claudeACPAdapter); err != nil {
+			close(out) // honor the StructuredChat contract: producer closes out exactly once
+			return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", claudeACPAdapter)
+		}
 	}
 	// req.Env carries this call's caller-supplied env straight through to the
 	// spawned adapter (internal/acp/session.go's spawnEnv method merges it

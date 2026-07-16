@@ -13,10 +13,15 @@ import (
 // CommandEntry represents a command in operation results. Tags carry the
 // bundle's tags merged with the command's own; Source is the bundle name,
 // which also serves as the grouping key for the CLI's grouped listing.
+// Description is the command's own authored `description:` (BundleCommand),
+// "" when the bundle didn't set one — carried through so a listing surface
+// (e.g. the ACP agent role's available_commands_update, B4) can advertise a
+// real human-readable description rather than fabricating one.
 type CommandEntry struct {
-	Name   string   `json:"name"`
-	Tags   []string `json:"tags,omitempty"`
-	Source string   `json:"source"`
+	Name        string   `json:"name"`
+	Tags        []string `json:"tags,omitempty"`
+	Source      string   `json:"source"`
+	Description string   `json:"description,omitempty"`
 }
 
 // ListCommandsRequest contains parameters for listing commands.
@@ -70,9 +75,10 @@ func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsReque
 	}
 	for _, info := range infos {
 		result.Commands = append(result.Commands, CommandEntry{
-			Name:   info.Name,
-			Tags:   info.Tags,
-			Source: info.Source,
+			Name:        info.Name,
+			Tags:        info.Tags,
+			Source:      info.Source,
+			Description: info.Description,
 		})
 	}
 

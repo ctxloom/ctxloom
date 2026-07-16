@@ -60,12 +60,14 @@ const protocolFloor = api.ProtocolVersion(api.ProtocolVersionNumber)
 // These are type ALIASES, not new types — every existing acpagent.X reference
 // in this package (and any external caller) keeps compiling unchanged.
 type (
-	EngineChat   = operations.EngineChat
-	OpenRequest  = operations.OpenRequest
-	SessionLLMs  = operations.SessionLLMs
-	LLMInfo      = operations.LLMInfo
-	SessionModes = operations.SessionModes
-	SessionMode  = operations.SessionMode
+	EngineChat      = operations.EngineChat
+	OpenRequest     = operations.OpenRequest
+	SessionLLMs     = operations.SessionLLMs
+	LLMInfo         = operations.LLMInfo
+	SessionModes    = operations.SessionModes
+	SessionMode     = operations.SessionMode
+	SessionCommands = operations.SessionCommands
+	CommandInfo     = operations.CommandInfo
 )
 
 // ChatOpener opens the engine conversation for a new ACP session. The
@@ -84,6 +86,9 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[api.SessionId]*session
 	nextID   int64
+	// clientFs is the connected editor's advertised fs capabilities (set once
+	// at handleInitialize) — B5 (gap G14), see internal/acpagent/fsupstream.go.
+	clientFs api.FileSystemCapabilities
 }
 
 // session is one ACP session bound to one engine conversation.
@@ -109,6 +114,20 @@ type session struct {
 	// ToolResult pops its match so tool_call_update targets the right call.
 	toolSeq  int64
 	openCall map[string][]api.ToolCallId
+
+	// commands is ctxloom's own command system (B4, gap G5) as advertised to
+	// this session — nil when the cwd has no commands configured. Set once
+	// at openSession from engine.Commands and never mutated afterward (a
+	// mode/profile switch does not change which BUNDLE commands exist), so
+	// reads need no lock — see internal/acpagent/commands.go.
+	commands *SessionCommands
+
+	// fsUpstream is this session's local fs reach-back listener (B5, gap
+	// G14) — nil when the connected editor never declared the fs
+	// capability, or listener setup failed (both degrade to local disk,
+	// never a refused session). Closed once, at server teardown
+	// (closeAllSessions); see internal/acpagent/fsupstream.go.
+	fsUpstream *fsUpstreamListener
 }
 
 // Serve runs the ACP agent over one reader/writer pair (stdio) until the
@@ -234,6 +253,11 @@ func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonr
 		// one this SDK vendors.
 		negotiated = api.ProtocolVersionNumber
 	}
+	// B5 (gap G14): stash the CONNECTED EDITOR's own fs capabilities —
+	// startFsUpstream (internal/acpagent/fsupstream.go) reads this to decide
+	// whether offering host-axis fs chaining is even possible for this
+	// connection at all.
+	s.setClientFs(req.ClientCapabilities.Fs)
 	reply(api.InitializeResponse{
 		ProtocolVersion: negotiated,
 		AgentCapabilities: api.AgentCapabilities{
@@ -329,8 +353,21 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
 	}
-	sess, rerr := s.openSession(OpenRequest{Cwd: req.Cwd, MCPServers: mcpServersFromACP(req.McpServers)}, "")
+	// B5 (gap G14): openSessionWithFsUpstream (not openSession directly)
+	// stands up this session's fs reach-back listener FIRST — its address
+	// must ride the OpenRequest so OpenEngineSession can decide, per the
+	// resolved axes, whether to actually forward it to the engine.
+	sess, rerr := s.openSessionWithFsUpstream(OpenRequest{Cwd: req.Cwd, MCPServers: mcpServersFromACP(req.McpServers)}, "")
 	if rerr != nil {
+		reply(nil, rerr)
+		return
+	}
+	// B4 (gap G5): available_commands_update has no field on session/new's
+	// response (unlike modes/models) — the spec requires it as a
+	// session/update notification instead. Sent before the reply so a
+	// client's command palette is populated from the earliest possible
+	// moment; emitUpdate is a no-op when the session has no commands.
+	if rerr := s.emitAvailableCommands(sess); rerr != nil {
 		reply(nil, rerr)
 		return
 	}
@@ -353,7 +390,9 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
 	}
-	sess, rerr := s.openSession(OpenRequest{
+	// B5 (gap G14): see handleSessionNew's identical call for why this goes
+	// through openSessionWithFsUpstream.
+	sess, rerr := s.openSessionWithFsUpstream(OpenRequest{
 		Cwd:        req.Cwd,
 		MCPServers: mcpServersFromACP(req.McpServers),
 		ResumeHarp: string(req.SessionId),
@@ -369,6 +408,12 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 				return
 			}
 		}
+	}
+	// B4 (gap G5): see handleSessionNew's identical call for why this rides a
+	// notification rather than a loadSessionResult field.
+	if rerr := s.emitAvailableCommands(sess); rerr != nil {
+		reply(nil, rerr)
+		return
 	}
 	modes := sess.snapshotModes()
 	reply(loadSessionResult{
@@ -411,6 +456,7 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId) (*session, 
 		leadContext:  engine.Context,
 		modes:        engine.Modes,
 		openCall:     make(map[string][]api.ToolCallId),
+		commands:     engine.Commands,
 	}
 	s.sessions[sess.id] = sess
 	s.mu.Unlock()
@@ -447,6 +493,39 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	// driver) gets the full-fidelity blocks to deliver (capability-gated
 	// there); every other backend still only reads Text, unchanged.
 	blocks := contentBlocksFromACP(req.Prompt)
+
+	// B4 (gap G5): a prompt beginning "/<name>" invoking one of ctxloom's OWN
+	// advertised commands (see sess.commands) is expanded to that command's
+	// content before it ever reaches the engine — the engine has no idea
+	// what ctxloom's bundle commands are. Text that doesn't match a known
+	// command name (most "/word..." messages are just user text) passes
+	// through byte-for-byte unchanged; see expandCommand's doc for why this
+	// must never be a fuzzy match.
+	//
+	// PARITY WITH blocks (B2/B4 merge invariant — do not drop this): a naive
+	// keep-both merge of B2 and B4 would expand `text` here but leave
+	// `blocks` carrying the RAW, unexpanded "/name ..." — a ContentBlocks
+	// consumer (internal/acp's CLIENT-role driver, which is the path B2
+	// exists to enable) would then run the engine on the UNEXPANDED
+	// invocation while a text-only backend got the expansion, silently. When
+	// expandCommand actually matched (matched == true), blocks is rebuilt the
+	// same way the lead-context prefix below rebuilds it: expandedCommandBlocks
+	// drops the original text-kind block(s) (the raw invocation) and replaces
+	// them with ONE new text block carrying the identical expanded string,
+	// preserving every non-text block (image/audio/resource/resource_link)
+	// untouched — so an image attached alongside "/code-review" still reaches
+	// the engine. An unmatched prompt (matched == false) leaves blocks
+	// completely untouched, in both forms.
+	expanded, matched, cerr := expandCommand(sess.ctx, sess.commands, text)
+	if cerr != nil {
+		reply(nil, cerr)
+		return
+	}
+	if matched {
+		text = expanded
+		blocks = expandedCommandBlocks(blocks, expanded)
+	}
+
 	sess.mu.Lock()
 	if sess.inTurn {
 		sess.mu.Unlock()
@@ -765,6 +844,11 @@ func (s *Server) closeAllSessions() {
 		sess.mu.Unlock()
 		sess.cancel()
 		sess.engine.Close()
+		// B5 (gap G14): tear down this session's fs reach-back listener, if
+		// one was ever stood up — nil-safe (Close checks for a nil receiver).
+		if err := sess.fsUpstream.Close(); err != nil {
+			clidiag.Warn("ctxloom", "acp agent: fs-upstream listener cleanup: %v", err)
+		}
 	}
 }
 

@@ -273,6 +273,15 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 	}
 
+	// B5 (gap G14): see shouldChainFsUpstream's doc for THE ONE RULE this
+	// enforces — leaving env untouched on the two isolating axes is what
+	// makes worktree/container sessions keep reading local disk, with no
+	// separate per-axis branch of their own (session.go's handleFsRead/
+	// handleFsWrite) to get wrong.
+	if req.FsUpstreamAddr != "" && shouldChainFsUpstream(aw, runtimeAxis) {
+		env[FsUpstreamEnvVar] = req.FsUpstreamAddr
+	}
+
 	client, err := newACPEngineClient(backendName, label, 0, spawnEnv)
 	if err != nil {
 		if aw != nil {
@@ -340,7 +349,51 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		Replay:        replay,
 		LLMs:          buildSessionLLMs(cfg, label),
 		WatchChildren: watchChildren,
+		Commands:      buildSessionCommands(ctx, cfg),
 	}, nil
+}
+
+// buildSessionCommands surfaces the cwd's ctxloom commands (ListCommands/
+// GetCommand — the same bundle "commands" surface `ctxloom run --command
+// <name>` (internal/cli/run.go) and the MCP commands resource already read)
+// as ACP's own agent-role command system (B4, gap G5): an editor's command
+// palette gets ctxloom's REAL commands, and a recognized "/<name> ..." in a
+// prompt (see acpagent's expandCommand) resolves through the IDENTICAL
+// GetCommand path — one command system, two surfaces, never a separate
+// reimplementation. nil when no commands are configured for this cwd (the
+// session advertises none), degrading fault-tolerantly exactly like
+// buildSessionModes/buildSessionLLMs do on an empty/failed listing rather
+// than refusing the session open.
+func buildSessionCommands(ctx context.Context, cfg *config.Config) *SessionCommands {
+	res, err := ListCommands(ctx, cfg, ListCommandsRequest{})
+	if err != nil {
+		clidiag.Warn("ctxloom", "acp agent: listing commands for available_commands_update: %v", err)
+		return nil
+	}
+	if len(res.Commands) == 0 {
+		return nil
+	}
+	names := make(map[string]bool, len(res.Commands))
+	out := &SessionCommands{Available: make([]CommandInfo, 0, len(res.Commands))}
+	for _, c := range res.Commands {
+		names[c.Name] = true
+		out.Available = append(out.Available, CommandInfo{Name: c.Name, Description: c.Description})
+	}
+	out.Resolve = func(rctx context.Context, name, rest string) (string, bool, error) {
+		if !names[name] {
+			return "", false, nil
+		}
+		got, gerr := GetCommand(rctx, cfg, GetCommandRequest{Name: name})
+		if gerr != nil {
+			return "", true, gerr
+		}
+		text := got.Content
+		if rest != "" {
+			text = text + "\n\n" + rest
+		}
+		return text, true, nil
+	}
+	return out
 }
 
 // engineSessionFindingsError renders the strictness findings since mark as an
@@ -605,6 +658,35 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 			aw.dir)
 	}
 	return aw, nil
+}
+
+// shouldChainFsUpstream decides B5's (gap G14) "one rule" — fs follows the
+// engine's authoritative workspace — for ONE session, given its already-
+// resolved workspace/runtime axes:
+//
+//   - aw != nil (ISO2 asked for a worktree — axes.WantsWorktree() gates
+//     prepareACPWorkspace's every non-nil return, see its doc): the
+//     connected editor's own buffers describe the MAIN checkout, a
+//     DIFFERENT tree from wherever this engine actually runs — chaining
+//     there would silently serve the WRONG file's content under a
+//     right-looking path, this codebase's signature failure mode. This
+//     holds even in isolation's rare "wanted a worktree but degraded to
+//     None" case (not a git repo, `git worktree add` failed): aw is still
+//     non-nil then (prepareACPWorkspace's aw.dir/aw.env are just the
+//     harmless projectDir/nil), so this function conservatively still
+//     refuses to chain — a missed optimization in that corner, never a
+//     wrong-content bug.
+//   - runtimeAxis == agent.RuntimeContainer (ISO1 containerized the
+//     ENGINE's own subprocess): ISO1's same-path mount already makes
+//     local disk correct — this "ctxloom llm serve" subprocess (where
+//     internal/acp/session.go's fs handlers actually run) is ALWAYS on
+//     the HOST, never inside that container, so req.Path is valid on
+//     both sides already; chaining would add nothing.
+//   - Otherwise (the fully unisolated default): true — this is the ONLY
+//     axis where local disk can diverge from the truth (an editor's
+//     unsaved buffer), so it's the only one that chains.
+func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
+	return aw == nil && runtimeAxis == ""
 }
 
 // announceOnFirstEvent wraps an engine's chat events so the very FIRST event

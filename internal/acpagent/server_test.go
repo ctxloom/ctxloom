@@ -708,11 +708,18 @@ func TestHandlePrompt_ContentBlocksPayload(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
-// TestServe_UsageAndSessionInfo: the engine's one-time ChatSessionInfo projects
-// onto a REAL "session_info_update" frame carrying ctxloom's model/mcp header
-// in its `_meta` object (IR4 — see internal/acpagent/wire.go's
-// ctxloomSessionInfoUpdate doc comment), and a turn's completion accounting
-// rides ahead of the prompt response as a usage_update (context gauge + cost).
+// TestServe_UsageAndSessionInfo: the engine's one-time ChatSessionInfo is
+// DECOMPOSED across three spec-shaped channels (G13, correcting IR4's
+// whole-blob-in-`_meta` answer): Model rides CO1's SessionConfigOption
+// ("model" category — proved with a payload assertion in
+// TestL0_AgentEmittedFrames, since it requires SessionLLMs to be configured
+// and this fakeEngine has none), only PermissionMode/MCPServers ride the
+// REAL "session_info_update" frame's `_meta` object (see
+// internal/acpagent/wire.go's ctxloomSessionInfoUpdate doc comment for the
+// full per-fact evidence), and a turn's completion accounting rides ahead of
+// the prompt response as a usage_update (context gauge + cost) — which
+// already carries ContextWindow, so it is NOT duplicated into `_meta`
+// either.
 func TestServe_UsageAndSessionInfo(t *testing.T) {
 	eng := newFakeEngine()
 	go eng.pump()
@@ -721,10 +728,14 @@ func TestServe_UsageAndSessionInfo(t *testing.T) {
 
 	go func() {
 		eng.receivedText(t)
+		// Model/ContextWindow are still populated here (a real backend
+		// reports them) to prove the WIRE layer drops them from `_meta`
+		// deliberately, not because the engine never reported them.
 		eng.events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{
-			Model:         "claude-sonnet",
-			ContextWindow: 200000,
-			MCPServers:    []agent.MCPStatus{{Name: "tools", Status: "connected"}},
+			Model:          "claude-sonnet",
+			PermissionMode: "default",
+			ContextWindow:  200000,
+			MCPServers:     []agent.MCPStatus{{Name: "tools", Status: "connected"}},
 		}}
 		eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hi"}}
 		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{InputTokens: 53000, ContextWindow: 200000, CostUSD: 0.045, StopReason: "end_turn"}}
@@ -743,11 +754,12 @@ func TestServe_UsageAndSessionInfo(t *testing.T) {
 	assert.Contains(t, joined, `"sessionUpdate":"session_info_update"`, "IR4: the REAL spec discriminator, not ctxloom's old bespoke top-level name")
 	assert.NotContains(t, joined, `"sessionUpdate":"ctxloom_session_info"`, "the old (schema-invalid) top-level variant name must be gone")
 	assert.Contains(t, joined, `"_meta":{"ctxloom_session_info"`, "ctxloom's own header rides the spec's sanctioned _meta extension channel, not the frame's identity")
-	assert.Contains(t, joined, "claude-sonnet")
+	assert.Contains(t, joined, `"permissionMode":"default"`, "PermissionMode has no spec home — it stays in _meta")
 	assert.Contains(t, joined, "connected")
+	assert.NotContains(t, joined, "claude-sonnet", "G13: Model no longer duplicates into _meta")
 	assert.Contains(t, joined, `"usage_update"`)
 	assert.Contains(t, joined, `"used":53000`)
-	assert.Contains(t, joined, `"size":200000`)
+	assert.Contains(t, joined, `"size":200000`, "ContextWindow rides usage_update's size, not _meta")
 	assert.Contains(t, joined, `"amount":0.045`)
 }
 

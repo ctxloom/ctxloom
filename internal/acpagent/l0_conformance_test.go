@@ -46,23 +46,23 @@ type l0Capture struct {
 // a listed frame ever stops failing, require.Error below fails LOUDLY
 // instead of silently starting to pass a check that no longer means what it
 // used to — that is the signal to shrink this map, not to delete the test.
-// IR4 (G13) SHRUNK this map to empty: ctxloom's session-info extension
+// IR4 SHRUNK this map to empty: ctxloom's session-info extension
 // (model/permissionMode/contextWindow/mcpServers) used to be its own
 // bespoke top-level `sessionUpdate` variant ("ctxloom_session_info"), which
 // the spec's CLOSED SessionUpdate oneOf has no branch for — that was this
-// map's one entry. Grepping the current schema (schema-v1.19.0, 142 $defs)
-// confirmed no combined shape for that data exists there either (the real
-// "session_info_update" is title/updatedAt only; "usage_update" is
-// used/size/cost; no $defs entry models MCP status or permission posture at
-// all — see internal/acpagent/wire.go's ctxloomSessionInfoUpdate doc comment
-// for the full evidence). So the payload is KEPT as a vendor extension, but
-// it now rides inside a REAL, schema-valid "session_info_update" frame's
-// `_meta` object (the spec's own sanctioned extension channel) instead of
-// inventing a foreign discriminator — which is exactly why this map is now
-// empty rather than carrying a renamed entry: the frame passes validation
-// outright. This is the intended shrink-to-zero outcome the doc comment
-// above asks for; if any entry is ever added back, it needs the same rigor
-// as the one it replaced.
+// map's one entry. G13 KEPT it empty while correcting IR4's actual mistake:
+// riding the whole four-field blob in `_meta` made every frame schema-valid
+// but meant no foreign client rendered any of it. Model and ContextWindow
+// turned out to already have a real spec home ctxloom wasn't using
+// (SessionConfigOption's "model" category, and UsageUpdate's `size`
+// respectively) and were moved there; only PermissionMode and MCP
+// connection status are genuinely homeless (exhaustive grep of
+// schema-v1.19.0's 142 $defs — see internal/acpagent/wire.go's
+// ctxloomSessionInfoUpdate doc comment for the full per-fact evidence) and
+// still ride `_meta` on a REAL, schema-valid "session_info_update" frame —
+// the spec's own sanctioned extension channel — so this map stays empty
+// either way. If any entry is ever added back, it needs the same rigor as
+// the one it replaced.
 var l0KnownDivergences = map[string]string{}
 
 func mustValidator(t *testing.T) *acptest.Validator {
@@ -126,6 +126,12 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	resp, newUpdates := c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
 	require.Nil(t, resp.Error)
 	capture("session/new response", "NewSessionResponse", resp.Result)
+	// G13 headline proof: a FOREIGN client (zero ctxloom knowledge) renders
+	// the CURRENT model from CO1's spec-general SessionConfigOption "model"
+	// category — unconditionally, at session/new, with no ctxloom-specific
+	// `_meta` decoding required.
+	assert.Contains(t, string(resp.Result), `"category":"model"`, "the model selector rides the spec's own category enum")
+	assert.Contains(t, string(resp.Result), `"currentValue":"primary"`, "a foreign client reads the CURRENT model straight off this field")
 	var newResp struct {
 		SessionId string `json:"sessionId"`
 	}
@@ -172,7 +178,11 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	// loop), the tool's result, then usage accounting.
 	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"do work"}]}`)
 	eng.receivedText(t)
-	eng.events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: "test-model", ContextWindow: 100000, MCPServers: []agent.MCPStatus{{Name: "tools", Status: "connected"}}}}
+	// Model/ContextWindow are still populated here (a real backend reports
+	// them) to prove the WIRE layer drops them from `_meta` deliberately, not
+	// because the engine never reported them in the first place — see the
+	// assertions on sessionInfoFrame below.
+	eng.events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: "test-model", PermissionMode: "default", ContextWindow: 100000, MCPServers: []agent.MCPStatus{{Name: "tools", Status: "connected"}}}}
 	eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}}
 	eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "working on it"}}
 	eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "fs_read", ToolInput: json.RawMessage(`{"path":"x"}`)}}
@@ -216,17 +226,28 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 		capture(label, "SessionNotification", u.Params)
 	}
 	require.GreaterOrEqual(t, planUpdateIdx, 0, "the plan update must have been captured")
-	// IR4 headline proof: the session-info header rides a REAL, schema-valid
+	// G13 headline proof (the other half): the context window this turn's
+	// TurnMeta carried (100000) rides the REAL usage_update variant's `size`
+	// field — the spec-shaped frame a foreign client already renders a
+	// gauge from — not ctxloom's own `_meta`.
+	usageFrame := string(turnUpdates[len(turnUpdates)-1].Params)
+	assert.Contains(t, usageFrame, `"sessionUpdate":"usage_update"`)
+	assert.Contains(t, usageFrame, `"size":100000`, "the context-window gauge a foreign client renders")
+	// G13 headline proof: the session-info header rides a REAL, schema-valid
 	// "session_info_update" frame (not the old bespoke "ctxloom_session_info"
-	// top-level variant), with ctxloom's model/context/mcp payload recovered
-	// from that frame's `_meta` object rather than lost.
+	// top-level variant), and its `_meta` residue now carries ONLY the two
+	// facts with no spec home (permissionMode, mcpServers) — Model and
+	// ContextWindow are gone from it entirely because they ride elsewhere
+	// (CO1's SessionConfigOption "model" category, and usage_update's `size`
+	// — asserted on separately below).
 	sessionInfoFrame := string(turnUpdates[0].Params)
 	assert.Contains(t, sessionInfoFrame, `"sessionUpdate":"session_info_update"`, "the real spec discriminator, not ctxloom's old bespoke name")
 	assert.NotContains(t, sessionInfoFrame, `"sessionUpdate":"ctxloom_session_info"`, "the old colliding-with-nothing-but-also-unmodeled top-level variant must be gone")
 	assert.Contains(t, sessionInfoFrame, `"_meta":{"ctxloom_session_info":`, "ctxloom's payload rides the spec's own _meta extension channel")
-	assert.Contains(t, sessionInfoFrame, `"model":"test-model"`)
-	assert.Contains(t, sessionInfoFrame, `"contextWindow":100000`)
-	assert.Contains(t, sessionInfoFrame, `"name":"tools","status":"connected"`)
+	assert.Contains(t, sessionInfoFrame, `"permissionMode":"default"`, "PermissionMode has no spec home — it stays in _meta")
+	assert.Contains(t, sessionInfoFrame, `"name":"tools","status":"connected"`, "MCP connection status has no spec home — it stays in _meta")
+	assert.NotContains(t, sessionInfoFrame, `"model"`, "G13: Model no longer duplicates into _meta — it rides CO1's SessionConfigOption instead")
+	assert.NotContains(t, sessionInfoFrame, `contextWindow`, "G13: ContextWindow no longer duplicates into _meta — it rides usage_update's size instead")
 	t.Logf("session-info frame on the wire: %s", sessionInfoFrame)
 	// Headline proof: the actual wire bytes carry the structured plan
 	// entries, not a flattened checklist string.

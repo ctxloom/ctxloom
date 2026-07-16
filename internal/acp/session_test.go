@@ -240,7 +240,7 @@ func TestChat_InitializeHandshake(t *testing.T) {
 	assert.Equal(t, "initialize", hs.init.Method)
 	var init api.InitializeRequest
 	require.NoError(t, json.Unmarshal(hs.init.Params, &init))
-	assert.Equal(t, 1, init.ProtocolVersion)
+	assert.EqualValues(t, 1, init.ProtocolVersion)
 	assert.True(t, init.ClientCapabilities.Fs.ReadTextFile)
 	assert.True(t, init.ClientCapabilities.Fs.WriteTextFile)
 	require.NotNil(t, init.ClientInfo)

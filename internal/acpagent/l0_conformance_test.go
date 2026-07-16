@@ -126,12 +126,33 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	require.NoError(t, json.Unmarshal(resp.Result, &newResp))
 	sid := newResp.SessionId
 
-	// session/set_mode -> response + current_mode_update notification
+	// session/set_mode -> response + current_mode_update AND configOptionUpdate
+	// notifications (CO1 COMPAT: switchProfile fires both surfaces on every
+	// switch, regardless of which method triggered it).
 	resp, updates := c.waitResponse(c.send("session/set_mode", `{"sessionId":"`+sid+`","modeId":"review"}`))
 	require.Nil(t, resp.Error)
 	capture("session/set_mode response", "SetSessionModeResponse", resp.Result)
-	require.Len(t, updates, 1)
+	require.Len(t, updates, 2)
 	capture("current_mode_update", "SessionNotification", updates[0].Params)
+	capture("config_option_update (from session/set_mode)", "SessionNotification", updates[1].Params)
+
+	// CO1: session/set_config_option's "profile" case shares switchProfile's
+	// mechanism with session/set_mode above — same COMPAT double-notify, the
+	// other direction.
+	resp, updates = c.waitResponse(c.send("session/set_config_option", `{"sessionId":"`+sid+`","configId":"profile","value":"default"}`))
+	require.Nil(t, resp.Error)
+	capture("session/set_config_option response (profile)", "SetSessionConfigOptionResponse", resp.Result)
+	require.Len(t, updates, 2)
+	capture("current_mode_update (from session/set_config_option)", "SessionNotification", updates[0].Params)
+	capture("config_option_update", "SessionNotification", updates[1].Params)
+
+	// CO1 D-CO-QUIRK: a LIVE mid-session "model" switch is honestly refused
+	// (method-not-found), never a silent no-op — see handleSetConfigOption's
+	// doc comment. Not schema-captured (it's a JSON-RPC error, not a result
+	// payload), but exercised here so this scripted conversation proves the
+	// refusal fires instead of silently succeeding.
+	resp, _ = c.waitResponse(c.send("session/set_config_option", `{"sessionId":"`+sid+`","configId":"model","value":"haiku"}`))
+	require.NotNil(t, resp.Error, "a live model switch must be refused loudly, never silently accepted")
 
 	// A full turn: session info, thinking, assistant text, a tool call whose
 	// permission is forwarded to the client mid-turn (session/updates keep

@@ -554,9 +554,14 @@ func TestServe_SessionModes(t *testing.T) {
 	assert.Equal(t, "review", mode.ID)
 	assert.Equal(t, []string{"review"}, mode.Profiles)
 
-	require.Len(t, updates, 1)
+	// CO1: switchProfile notifies BOTH surfaces on every switch (COMPAT —
+	// current_mode_update alongside a configOptionUpdate reflecting the same
+	// change), regardless of which method triggered it.
+	require.Len(t, updates, 2)
 	assert.Contains(t, string(updates[0].Params), `"current_mode_update"`)
 	assert.Contains(t, string(updates[0].Params), `"review"`)
+	assert.Contains(t, string(updates[1].Params), `"config_option_update"`)
+	assert.Contains(t, string(updates[1].Params), `"review"`)
 
 	go func() {
 		msg := eng.receivedText(t)

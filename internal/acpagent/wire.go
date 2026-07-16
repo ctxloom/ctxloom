@@ -24,17 +24,27 @@ import (
 const DefaultModeID = operations.DefaultModeID
 
 // newSessionResult is the session/new response body: api.NewSessionResponse's
-// sessionId plus the modes/models state riding alongside it.
+// sessionId plus the modes/models state riding alongside it, PLUS (CO1) the
+// spec-general configOptions surface — see configOptionsWire. COMPAT: modes
+// and models are NOT retired in favor of configOptions — they ride alongside
+// it through a transitional window (see this file's package doc and
+// claudeModelSelectionQuirk's sibling doc in internal/claude/chat.go): target
+// clients (agentic.nvim, formulahendry's picker) drive session/set_mode and
+// the models advertisement TODAY and almost certainly do not speak
+// session/set_config_option yet.
 type newSessionResult struct {
-	SessionId api.SessionId         `json:"sessionId"`
-	Modes     *api.SessionModeState `json:"modes,omitempty"`
-	Models    *modelState           `json:"models,omitempty"`
+	SessionId     api.SessionId             `json:"sessionId"`
+	Modes         *api.SessionModeState     `json:"modes,omitempty"`
+	Models        *modelState               `json:"models,omitempty"`
+	ConfigOptions []api.SessionConfigOption `json:"configOptions,omitempty"`
 }
 
-// loadSessionResult is the session/load response body (modes + models state).
+// loadSessionResult is the session/load response body (modes + models state,
+// plus CO1's configOptions — see newSessionResult's doc comment on compat).
 type loadSessionResult struct {
-	Modes  *api.SessionModeState `json:"modes,omitempty"`
-	Models *modelState           `json:"models,omitempty"`
+	Modes         *api.SessionModeState     `json:"modes,omitempty"`
+	Models        *modelState               `json:"models,omitempty"`
+	ConfigOptions []api.SessionConfigOption `json:"configOptions,omitempty"`
 }
 
 // modelState advertises the LLMs a session could run, mirroring the emerging
@@ -43,21 +53,19 @@ type loadSessionResult struct {
 // L0 checklist B4: `models`/`currentModelId`/`availableModels` are NOT a
 // construct in the current spec (schema-v1.19.0) at all — model
 // advertisement+selection there rides the generic SessionConfigOption /
-// session/set_config_option mechanism (a `category: "model"` config option),
-// which this re-vendor deliberately does NOT implement (that is slice CO1;
-// see the SDK's SessionConfigOption type). DECISION:
-// KEEP this hand-rolled advertisement-only shape for now rather than migrate
-// it to SessionConfigOption in this slice — migrating is real behavior change
-// (a client would need to read a different response shape and call a
-// different request method), which is explicitly out of SDK1's scope; CO1
-// does the migration. This shape is ADVERTISEMENT ONLY: the pinned SDK never
-// had a model surface either, and ctxloom pins the engine's LLM at launch (a
-// live mid-session switch is not implemented — there is no session/set_model
-// call here, and — separately verified during this slice — the current spec
-// has no session/set_model method or MethodSessionSetModel constant to call
-// even if we wanted to; see the SDK1 report's model-delivery finding). A
-// client can display the available engines and the launched one; selecting a
-// different one is not yet honored.
+// session/set_config_option mechanism (a `category: "model"` config option,
+// see configOptionsWire's "model" entry). CO1 now ALSO emits that spec-general
+// surface, but this hand-rolled shape is KEPT and still emitted ALONGSIDE it
+// (see newSessionResult's compat doc comment) rather than retired — a
+// pre-CO1 client keeps working unchanged. This shape stays ADVERTISEMENT
+// ONLY (a live mid-session switch via THIS field was never implemented and
+// still isn't — a client wanting to change models must go through
+// session/set_config_option, which — see handleSetConfigOption's "model"
+// case — currently refuses a live switch too, honestly, rather than
+// pretending). A client can display the available engines and the launched
+// one either way; only the requested model actually being HONORED at
+// session start changed in this slice (see internal/claude/chat.go's
+// claudeModelSelectionQuirk).
 type modelState struct {
 	CurrentModelId  string      `json:"currentModelId,omitempty"`
 	AvailableModels []modelWire `json:"availableModels"`
@@ -135,6 +143,79 @@ func modeStateWire(m *SessionModes) *api.SessionModeState {
 func currentModeUpdateWire(modeID string) any {
 	return api.SessionUpdate{
 		CurrentModeUpdate: &api.SessionCurrentModeUpdate{CurrentModeId: api.SessionModeId(modeID)},
+	}
+}
+
+// CO1's config-option ids: ctxloom's own (unnamespaced) session-mutable
+// surface. "profile" is the spec-general home for exactly what session/set_mode
+// was repurposed to do (see switchProfile in server.go, shared by both
+// surfaces); "model" is advertisement PLUS the session-start delivery fix
+// (claudeModelSelectionQuirk) — see handleSetConfigOption's model case for
+// why a LIVE mid-session switch is deliberately refused rather than silently
+// accepted. Permission posture (D-CO's third knob) is NOT surfaced in this
+// slice: unlike profile/model, ctxloom has no synchronous source for a
+// session's launched permission posture at session/new time (it arrives
+// later, per-event, via ChatSessionInfo) — advertising a value here would
+// mean fabricating one, which this codebase's own no-silent-no-op standard
+// forbids. See internal/claude/chat.go / internal/acp/session.go for the
+// engine-crossing constraint that also blocks a live SET for both of these.
+const (
+	profileConfigID api.SessionConfigId = "profile"
+	modelConfigID   api.SessionConfigId = "model"
+)
+
+// configOptionsWire renders the session's CURRENT config-option surface (both
+// entries omitted when their underlying data is unavailable — never a
+// fabricated placeholder). "profile" mirrors modeStateWire's data under the
+// spec-general surface; "model" mirrors modelStateWire's data the same way.
+// Called both to answer session/new|load|set_config_option's initial/echoed
+// state, and to build the configOptionUpdate notification switchProfile
+// fires on every change (COMPAT: alongside current_mode_update, never
+// instead of it).
+func configOptionsWire(modes *SessionModes, llms *SessionLLMs) []api.SessionConfigOption {
+	// Always non-nil: SetSessionConfigOptionResponse.ConfigOptions has no
+	// `omitempty` and its Validate() requires a non-nil (possibly empty)
+	// array — a bare `nil` here would marshal as JSON `null`, which is not a
+	// schema-valid array.
+	out := make([]api.SessionConfigOption, 0, 2)
+	if modes != nil && len(modes.Available) > 0 {
+		modeCat := api.SessionConfigOptionCategoryMode
+		opts := make(api.SessionConfigSelectOptionsUngrouped, 0, len(modes.Available))
+		for _, m := range modes.Available {
+			opts = append(opts, api.SessionConfigSelectOption{Value: api.SessionConfigValueId(m.ID), Name: m.Name})
+		}
+		out = append(out, api.SessionConfigOption{Select: &api.SessionConfigOptionSelect{
+			Id:           profileConfigID,
+			Name:         "Profile",
+			Category:     &modeCat,
+			CurrentValue: api.SessionConfigValueId(modes.Current),
+			Options:      api.SessionConfigSelectOptions{Ungrouped: &opts},
+		}})
+	}
+	if llms != nil && len(llms.Available) > 0 {
+		modelCat := api.SessionConfigOptionCategoryModel
+		opts := make(api.SessionConfigSelectOptionsUngrouped, 0, len(llms.Available))
+		for _, m := range llms.Available {
+			opts = append(opts, api.SessionConfigSelectOption{Value: api.SessionConfigValueId(m.ID), Name: m.Name})
+		}
+		out = append(out, api.SessionConfigOption{Select: &api.SessionConfigOptionSelect{
+			Id:           modelConfigID,
+			Name:         "Model",
+			Category:     &modelCat,
+			CurrentValue: api.SessionConfigValueId(llms.Current),
+			Options:      api.SessionConfigSelectOptions{Ungrouped: &opts},
+		}})
+	}
+	return out
+}
+
+// configOptionUpdateWire is the session/update variant announcing the FULL
+// current config-option set after any one of them changes (the spec's
+// ConfigOptionUpdate carries the whole set, not a delta — schema
+// $defs/ConfigOptionUpdate).
+func configOptionUpdateWire(opts []api.SessionConfigOption) any {
+	return api.SessionUpdate{
+		ConfigOptionUpdate: &api.SessionConfigOptionUpdate{ConfigOptions: opts},
 	}
 }
 

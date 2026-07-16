@@ -15,19 +15,37 @@ Search content across local and remote sources
 
 Search for content by name, tags, or description.
 
-By default, searches both local content (fragments, prompts, profiles) and
-remote repositories (bundles, profiles).
+By default, searches both local content (fragments, commands, skills,
+profiles) and remote repositories (bundles). --type narrows to one kind;
+--local/--remote narrow to one source. A query and/or --tag is required —
+an empty search matches everything and is refused rather than dumping the
+whole library.
 
-Examples:
-  ctxloom search cache                    # Search all sources
-  ctxloom search -t golang                # Search by tag
-  ctxloom search --local cache            # Search only local content
-  ctxloom search --remote golang          # Search only remote repositories
-  ctxloom search --type fragment cache    # Search only fragments
-  ctxloom search --type bundle golang     # Search only remote bundles
+Local results are capped at 100; if a query matches more, a note on stderr
+says how many were hidden and how to narrow (this never affects --format
+json, which reports the same count via "hidden_local"). Remote results are
+not capped.
+
+Use one match: add its ref to a profile (ctxloom profile create/modify),
+then ctxloom remote pull for a remote bundle, or ctxloom fragment show /
+ctxloom command show / ctxloom skill show for local content.
 
 ```
 ctxloom search <query> [flags]
+```
+
+### Examples
+
+```
+  ctxloom search cache                    # search all sources
+  ctxloom search -t golang                # search by tag
+  ctxloom search -t golang,testing        # search by multiple tags (OR)
+  ctxloom search --local cache            # search only local content
+  ctxloom search --remote golang          # search only remote repositories
+  ctxloom search --type fragment cache    # search only fragments
+  ctxloom search --type skill review      # search only Agent Skills
+  ctxloom search --type bundle golang     # search only remote bundles
+  ctxloom search --format json cache      # machine-readable output
 ```
 
 ### Options
@@ -36,8 +54,8 @@ ctxloom search <query> [flags]
   -h, --help          help for search
       --local         Search only local content
       --remote        Search only remote repositories
-  -t, --tag strings   Filter by tags (comma-separated)
-      --type string   Filter by type (fragment, prompt, profile, bundle, mcp_server)
+  -t, --tag strings   Filter by tags (comma-separated; matches any)
+      --type string   Filter by type: fragment, command, skill, profile, bundle, mcp_server (default: all)
 ```
 
 ### Options inherited from parent commands

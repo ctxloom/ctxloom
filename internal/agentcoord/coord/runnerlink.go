@@ -39,6 +39,18 @@ type RunnerLink struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	handler RunnerRequestHandler
+
+	// wg tracks every goroutine DialRunner/receiveLoop dispatches beyond its
+	// spawning call's own return (heartbeatLoop, receiveLoop itself, and one
+	// serveRequest per coordinator-initiated RunnerRequest) — see
+	// goTracked. Shutdown joins it (waitTracked, bounded) before closing the
+	// underlying conn — mirrors Coordinator.wg/Home.wg/EngineHost.wg
+	// (flaky-agentcoord S1/S2, deaf-rut): an unjoined serveRequest racing
+	// Shutdown's conn.Close could still be mid-Send on a torn-down
+	// transport.
+	mu      sync.Mutex
+	wg      sync.WaitGroup
+	closing bool
 }
 
 // send writes one frame under the single-writer mutex.
@@ -129,9 +141,57 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 	}
 
 	l := &RunnerLink{runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}
-	go l.heartbeatLoop(linkCtx)
-	go l.receiveLoop()
+	l.goTracked(func() { l.heartbeatLoop(linkCtx) })
+	l.goTracked(l.receiveLoop)
 	return l, nil
+}
+
+// runnerLinkCloseJoinBudget bounds Shutdown's wait for tracked goroutines —
+// see Coordinator's closeJoinBudget (coordinator.go) for the identical
+// reasoning: every tracked goroutine here selects on either linkCtx (bound
+// to the caller's ctx, already cancelled by the time Shutdown calls
+// l.cancel()) or the stream's own Recv, which CloseSend + conn state
+// unblocks around the same point.
+const runnerLinkCloseJoinBudget = 3 * time.Second
+
+// goTracked runs fn on a new goroutine tracked by l.wg, so Shutdown can join
+// it (waitTracked) before closing the underlying conn. EVERY bare `go` this
+// type dispatches whose goroutine can outlive the call that spawned it must
+// ride this — mirrors Coordinator.goTracked/Home.goTracked/
+// EngineHost.goTracked (flaky-agentcoord S1/S2, deaf-rut).
+//
+// Refuses to Add() once l.closing is set (Shutdown flips it before its own
+// wg.Wait()): receiveLoop can still dispatch a fresh serveRequest for a
+// RunnerRequest that arrived just as Shutdown began, which would otherwise
+// Add() concurrently with an in-progress Wait() — a genuine sync.WaitGroup
+// misuse. Past that point fn still runs (untracked, best-effort).
+func (l *RunnerLink) goTracked(fn func()) {
+	l.mu.Lock()
+	if l.closing {
+		l.mu.Unlock()
+		go fn()
+		return
+	}
+	l.wg.Add(1)
+	l.mu.Unlock()
+	go func() {
+		defer l.wg.Done()
+		fn()
+	}()
+}
+
+// waitTracked joins every l.goTracked goroutine, with a bounded escape.
+func (l *RunnerLink) waitTracked() {
+	done := make(chan struct{})
+	go func() {
+		l.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(runnerLinkCloseJoinBudget):
+		clidiag.Warn("ctxloom", "runner link shutdown: tracked goroutines did not finish within %s; proceeding", runnerLinkCloseJoinBudget)
+	}
 }
 
 func (l *RunnerLink) heartbeatLoop(ctx context.Context) {
@@ -170,7 +230,7 @@ func (l *RunnerLink) receiveLoop() {
 		}
 		switch kind := frame.GetKind().(type) {
 		case *agentcoordpb.RuntimeFrame_Request:
-			go l.serveRequest(kind.Request)
+			l.goTracked(func() { l.serveRequest(kind.Request) })
 		case *agentcoordpb.RuntimeFrame_HelloAck:
 			// Duplicate ack on a live stream; ignore.
 		}
@@ -200,8 +260,9 @@ func (l *RunnerLink) serveRequest(req *agentcoordpb.RunnerRequest) {
 func (l *RunnerLink) Done() <-chan struct{} { return l.done }
 
 // Shutdown sends a best-effort RunExited (docker-stop usually gives no
-// chance; the coordinator's synthesis is the load-bearing path) and closes
-// the link.
+// chance; the coordinator's synthesis is the load-bearing path), joins
+// every tracked goroutine (deaf-rut — heartbeatLoop, receiveLoop, and any
+// in-flight serveRequest), then closes the link.
 func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 	if l.runID != "" { // a session-owner runner has no run to report exited
 		_ = l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_RunExited{
@@ -212,8 +273,12 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 			},
 		}})
 	}
+	l.mu.Lock()
+	l.closing = true
+	l.mu.Unlock()
 	_ = l.stream.CloseSend()
 	l.cancel()
 	<-l.done
+	l.waitTracked()
 	_ = l.conn.Close()
 }

@@ -266,6 +266,7 @@ func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
@@ -314,6 +315,7 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode())
@@ -340,6 +342,7 @@ func TestEngineHost_StartRunIdempotentOnReissue(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
 	mismatch := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-OTHER")}})
@@ -359,6 +362,7 @@ func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
 	sc := &scriptedChat{}
 	ctx, cancel := context.WithCancel(context.Background())
 	eh := NewEngineHost(ctx, sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode())
@@ -425,6 +429,7 @@ func TestEngineHost_ForwardsPermissionAsApprovalRequest(t *testing.T) {
 		},
 	}}
 	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode())
@@ -498,6 +503,7 @@ func TestEngineHost_ApprovalDeclineCancels(t *testing.T) {
 				},
 			}}
 			eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+			t.Cleanup(eh.Close)
 			eh.BindHome(home)
 			resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 			require.Equal(t, int32(0), resp.GetStatus().GetCode())

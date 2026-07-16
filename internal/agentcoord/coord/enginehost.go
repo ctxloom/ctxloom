@@ -64,6 +64,25 @@ type EngineHost struct {
 	result  *agentcoordpb.RunnerResponse // cached StartRunResult (request reissue idempotency)
 	in      chan agent.ChatMessage
 	cancel  context.CancelFunc
+
+	// wg tracks every goroutine startRun/adapt dispatches beyond its
+	// spawning call's own return (the in-process backend.Chat call, the
+	// adapt loop, the briefing's first-turn send, and one resolveApproval
+	// per forwarded engine permission request) — see goTracked. Close joins
+	// it (waitTracked, bounded) before returning, so a runner-side teardown
+	// leaves no goroutine still touching eh/home state — the same
+	// untracked-goroutine discipline as Coordinator.wg/Home.wg
+	// (flaky-agentcoord S1/S2), mirrored here for the runner-hosted engine
+	// half (deaf-rut).
+	wg sync.WaitGroup
+	// closing, once true (set by Close() before its own wg.Wait()), makes
+	// goTracked stop calling wg.Add — see goTracked's doc: a still-in-flight
+	// resolveApproval or a startRun reissue landing exactly as Close begins
+	// can otherwise Add() while an in-progress Wait() is already running, a
+	// genuine sync.WaitGroup misuse (mirrors Coordinator.closing/
+	// Home.closing).
+	closing   bool
+	closeOnce sync.Once
 }
 
 // NewEngineHost builds the host for the runner's one hostable run. ctx bounds
@@ -76,6 +95,73 @@ func NewEngineHost(ctx context.Context, backend agent.StructuredChat, harness, r
 		baseCtx:   ctx,
 		homeReady: make(chan struct{}),
 	}
+}
+
+// engineHostCloseJoinBudget bounds Close's wait for tracked goroutines — see
+// Coordinator's closeJoinBudget (coordinator.go) for the identical
+// reasoning: generous headroom above the ctx-aware waits every tracked
+// goroutine here selects on (all key off the run's own ctx, cancelled by
+// Close before waitTracked runs), short enough that one genuinely wedged
+// goroutine cannot hang shutdown forever.
+const engineHostCloseJoinBudget = 3 * time.Second
+
+// goTracked runs fn on a new goroutine tracked by eh.wg, so Close can join
+// it (waitTracked) before returning. EVERY bare `go` this type dispatches
+// whose goroutine can outlive the call that spawned it must ride this —
+// mirrors Coordinator.goTracked/Home.goTracked (flaky-agentcoord S1/S2,
+// deaf-rut: the enginehost/runnerlink tail of the same untracked-goroutine
+// family).
+//
+// Refuses to Add() once eh.closing is set (Close flips it before its own
+// wg.Wait()): a still-in-flight resolveApproval's own dispatch, or a
+// startRun reissue racing the very start of Close, could otherwise Add()
+// concurrently with an in-progress Wait() — a genuine sync.WaitGroup
+// misuse. Past that point fn still runs (untracked, best-effort): every
+// tracked goroutine here already respects ctx.Done() on its own.
+func (eh *EngineHost) goTracked(fn func()) {
+	eh.mu.Lock()
+	if eh.closing {
+		eh.mu.Unlock()
+		go fn()
+		return
+	}
+	eh.wg.Add(1)
+	eh.mu.Unlock()
+	go func() {
+		defer eh.wg.Done()
+		fn()
+	}()
+}
+
+// waitTracked joins every eh.goTracked goroutine, with a bounded escape.
+func (eh *EngineHost) waitTracked() {
+	done := make(chan struct{})
+	go func() {
+		eh.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(engineHostCloseJoinBudget):
+		clidiag.Warn("ctxloom", "engine host close: tracked goroutines did not finish within %s; proceeding (a leaked goroutine may still touch home/backend state)", engineHostCloseJoinBudget)
+	}
+}
+
+// Close cancels the hosted run (if StartRun ever launched one) and joins
+// every tracked goroutine before returning — the runner-side teardown
+// counterpart to Coordinator.Close/Home.Close (deaf-rut). Idempotent
+// (closeOnce-guarded) and safe to call even when no run was ever started.
+func (eh *EngineHost) Close() {
+	eh.closeOnce.Do(func() {
+		eh.mu.Lock()
+		eh.closing = true
+		cancel := eh.cancel
+		eh.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		eh.waitTracked()
+	})
 }
 
 // BindHome wires the dialed Home (event emission + turn sink + RunExited).
@@ -184,10 +270,10 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	}}})
 
 	chatErr := make(chan error, 1)
-	go func() {
+	eh.goTracked(func() {
 		chatErr <- eh.backend.Chat(ctx, dec.Chat, in, out)
-	}()
-	go eh.adapt(ctx, home, out, chatErr)
+	})
+	eh.goTracked(func() { eh.adapt(ctx, home, out, chatErr) })
 
 	// The engine turn-delivery seam: coordinator mail lands as new turns
 	// (the driver's own loop queues mid-turn arrivals to the next boundary).
@@ -202,12 +288,12 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 
 	// The briefing is the first turn (context already joined coordinator-side).
 	if prompt != "" {
-		go func() {
+		eh.goTracked(func() {
 			select {
 			case in <- agent.ChatMessage{Text: prompt}:
 			case <-ctx.Done():
 			}
-		}()
+		})
 	}
 	return result
 }
@@ -317,7 +403,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			// instead of being auto-decided here. Its own goroutine — the
 			// adapt loop must keep draining `out` while a relay rung parks
 			// on a human, possibly for minutes.
-			go eh.resolveApproval(ctx, home, ev.Permission)
+			eh.goTracked(func() { eh.resolveApproval(ctx, home, ev.Permission) })
 		}
 	}
 	closeOpenMsg()

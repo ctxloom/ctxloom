@@ -2,12 +2,23 @@ package codex
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
+
+// codexAuthFileName is the credential file codex reads from $CODEX_HOME —
+// the SAME literal internal/lm/isolation/auth.go's credentialSeedSpecs
+// registry and codexCredentialMounts use for the host-seed and
+// container-mount destinations respectively (not imported from there to
+// avoid a reverse dependency from this package's isolation-registry callers
+// onto one specific engine package).
+const codexAuthFileName = "auth.json"
 
 // backend.go wires codex onto the shared launch core and the surfaces × cells
 // delivery seam.
@@ -41,6 +52,17 @@ type Codex struct {
 	// ephemeral, never-committed home safe to auto-trust) — "" for the
 	// in-tree/None path, which never pre-seeds trust.
 	resolvedTrustAbsPath string
+	// credentialErr is set by Setup (ensureCodexCredentials) when this run's
+	// CODEX_HOME has no usable codex credentials AND Setup could not seed/
+	// verify them — warm-yodel (in-tree host run) / dense-amaze (container
+	// fresh-$HOME). Execute checks it FIRST and refuses to launch codex at
+	// all when set, rather than the historical silent 401/exit-0: Setup's own
+	// errors are fault-tolerantly warned-and-ignored by the grpc server (see
+	// its doc), so a credential failure can only surface loudly from Execute.
+	// nil on the isolation-provided axis (worktree fan-out) — that axis is
+	// already seeded before this run starts and already fails loud earlier,
+	// at isolation.Prepare's own choke gate (see ensureCodexCredentials).
+	credentialErr error
 }
 
 // NewCodex creates a new Codex backend with default settings. Its InitLaunch
@@ -99,17 +121,27 @@ func NewCodex() *Codex {
 // WriteSettingsWithTrust's doc) — an out-of-tree home that spills no engine
 // state into the project tree and is removed at Worktree.Cleanup.
 //
-// No isolation-provided value (None/shared-cwd, or no backend context) falls
-// back to today's default: WorkDir itself, in-tree. This is a KNOWN,
-// deliberately-scoped residual — see the codex state spill note in this
-// package's materialize/apply doc and the task's final report — not a
-// silent regression: it is EXACTLY today's behavior, already dbea746-
-// gitignored, and None was never an isolation boundary to begin with (no
-// concurrent-agent claim is made for it).
-func resolveCodexProjectDir(env map[string]string, workDir string) (dir string, isolated bool) {
+// No isolation-provided value falls back to two further cases, both of which
+// codex itself relocates CODEX_HOME for WITHOUT any isolation-package
+// involvement — and so, unlike the isolation-provided case above, WITHOUT any
+// upstream credential seeding either (see ensureCodexCredentials, which
+// covers exactly these two):
+//
+//   - a ProcessIsolatedCell (container — req.CellKind) already runs inside a
+//     fresh, per-container $HOME (isolation/runtime.go passes `-e HOME=...`
+//     into every container spawn) that the isolation layer already bind-
+//     mounted codex's auth.json into (codexCredentialMounts, auth.go) — so
+//     $HOME/.codex IS the correct, already-authenticated CODEX_HOME
+//     (dense-amaze's fix: this used to fall through to the WorkDir case
+//     below, landing on the bind-mounted PROJECT dir instead — empty, no
+//     auth.json, hence the 401 mismatch).
+//   - anything else (None/shared-cwd, or no backend context) falls back to
+//     today's default: WorkDir itself, in-tree — a relocation codex has
+//     always silently performed but never seeded (warm-yodel).
+func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agent.CellKind) (dir string, source codexHomeSource) {
 	if home := env["CODEX_HOME"]; home != "" {
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+".codex"); stripped != home {
-			return stripped, true
+			return stripped, codexHomeIsolationProvided
 		}
 		// An isolation-provided CODEX_HOME not in the expected "/.codex" shape
 		// (a caller override, or a future spec whose Subdir changes) — use it
@@ -117,13 +149,48 @@ func resolveCodexProjectDir(env map[string]string, workDir string) (dir string, 
 		// ".codex" under it, which is at least self-consistent (Setup and
 		// Execute still agree) even if it doesn't match what the isolation
 		// layer intended.
-		return home, true
+		return home, codexHomeIsolationProvided
+	}
+	if cellKind == agent.CellKindProcessIsolated {
+		if home := os.Getenv("HOME"); home != "" {
+			return home, codexHomeContainerFresh
+		}
+		// No $HOME even inside a container cell — every container spec sets
+		// one (runtime.go), so this is unexpected; fall through to the
+		// in-tree case below so this run still gets ACTIVE seeding
+		// (ensureCodexCredentials) rather than silently landing on an
+		// unverified home.
 	}
 	if workDir == "" {
-		return ".", false
+		return ".", codexHomeInTree
 	}
-	return workDir, false
+	return workDir, codexHomeInTree
 }
+
+// codexHomeSource classifies WHY resolveCodexProjectDir landed on the
+// returned dir, so Setup knows which axis-specific credential handling
+// applies (ensureCodexCredentials) — the three cases need three different
+// treatments, not one:
+type codexHomeSource int
+
+const (
+	// codexHomeInTree: plain host run, no isolation-provided CODEX_HOME, not
+	// a container cell — <WorkDir>/.codex. NOTHING upstream ever prepared
+	// this directory, so Setup must ACTIVELY COPY host credentials into it
+	// (warm-yodel). Never trust-pre-seeded (today's behavior, unchanged).
+	codexHomeInTree codexHomeSource = iota
+	// codexHomeIsolationProvided: env["CODEX_HOME"] came from the isolation
+	// package (worktree.go's Env(), gated through credentialSeedSpecs
+	// ["codex"]) — ALREADY seeded by provisionConfigHome before this run
+	// even started, and already fails loud earlier (isolation.Prepare's own
+	// choke gate) if seeding found nothing. Setup does nothing further.
+	codexHomeIsolationProvided
+	// codexHomeContainerFresh: a ProcessIsolatedCell's own $HOME — codex's
+	// auth.json is already bind-mounted there by codexCredentialMounts
+	// BEFORE this process started. Setup only VERIFIES the mount landed
+	// (never copies: the destination IS the read-only mount target).
+	codexHomeContainerFresh
+)
 
 // buildSurfaces is codex's CellDelivery.Build: unlike every other well-known-
 // file backend (which use the shared agent.BuildWellKnown, ignoring
@@ -146,17 +213,79 @@ func (b *Codex) buildSurfaces(in agent.SurfaceInputs, _ string) agent.SurfaceSet
 // re-deriving it from a possibly-different view of req. This is what makes
 // Setup's delivery and Execute's env agree by construction, not convention.
 func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
-	dir, isolated := resolveCodexProjectDir(req.Env, req.WorkDir)
+	dir, source := resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
 	b.resolvedProjectDir = dir
 	b.resolvedTrustAbsPath = ""
-	if isolated {
+	if source != codexHomeInTree {
 		if abs, err := filepath.Abs(req.WorkDir); err == nil {
 			b.resolvedTrustAbsPath = abs
 		} else {
 			b.resolvedTrustAbsPath = req.WorkDir
 		}
 	}
+	// FAIL-LOUD credential check (warm-yodel/dense-amaze): resolved and
+	// stashed here (Setup errors are fault-tolerantly warned-and-ignored by
+	// the grpc server — see its doc — so a credential failure recorded here
+	// alone would never surface); Execute checks b.credentialErr FIRST and
+	// refuses to launch codex at all when set, instead of the historical
+	// silent 401/exit-0.
+	b.credentialErr = ensureCodexCredentials(dir, source)
 	return b.LaunchBackend.Setup(ctx, req)
+}
+
+// ensureCodexCredentials makes sure the CODEX_HOME this run is about to use
+// (cellScopedCodexHome(dir)) actually has usable credentials, for the two
+// axes codex relocates CODEX_HOME on WITHOUT any upstream isolation-package
+// seeding — codexHomeIsolationProvided (worktree fan-out) is already seeded
+// by internal/lm/isolation/worktree.go's provisionConfigHome before this run
+// even starts and already fails loud at isolation.Prepare's own choke gate,
+// so it is a deliberate no-op here:
+//
+//   - codexHomeInTree (warm-yodel): nothing upstream ever prepared this
+//     directory, so this ACTIVELY COPIES the host's ~/.codex/auth.json into
+//     it via isolation.SeedCodexHome — the SAME copy-based
+//     credentialSeedSpecs mechanism worktree.go's fan-out path already
+//     relies on, reused rather than reinvented.
+//   - codexHomeContainerFresh (dense-amaze): the container's fresh $HOME
+//     already has auth.json bind-mounted in by codexCredentialMounts
+//     (isolation/auth.go) before this process even started — copying here
+//     would read AND write the SAME read-only-mounted file, so this only
+//     VERIFIES the mount landed rather than re-seeding.
+//
+// Either way, no usable credential (and no OPENAI_API_KEY override) returns
+// a clear, actionable error naming the fix.
+func ensureCodexCredentials(dir string, source codexHomeSource) error {
+	if source == codexHomeIsolationProvided {
+		return nil
+	}
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		return nil // codex's envTrigger — auth rides the env, nothing to seed/verify
+	}
+	if source == codexHomeContainerFresh {
+		authPath := filepath.Join(cellScopedCodexHome(dir), codexAuthFileName)
+		if !codexFileExists(authPath) {
+			return fmt.Errorf("codex: no OPENAI_API_KEY and no credentials at %s — this container's codex auth mount did not land; authenticate with `codex login` on the host (or set OPENAI_API_KEY), or check the container runtime/image", authPath)
+		}
+		return nil
+	}
+	// codexHomeInTree: actively seed from the host's ~/.codex/auth.json.
+	if _, err := seedCodexHomeFn(dir); err != nil {
+		return fmt.Errorf("codex: %w", err)
+	}
+	return nil
+}
+
+// seedCodexHomeFn is the seam onto isolation.SeedCodexHome — a package var
+// (mirroring internal/lm/isolation/isolation.go's selectRuntimeProbe
+// pattern) so tests can substitute a fake without touching the real host's
+// ~/.codex or attempting real filesystem writes against the fake WorkDirs
+// (e.g. "/proj") the existing Setup tests already drive against.
+var seedCodexHomeFn = isolation.SeedCodexHome
+
+// codexFileExists reports whether path is an existing regular file.
+func codexFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // cellCodexHomeEnv is codex's per-backend child-env contributor. It reads the
@@ -169,18 +298,19 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 // below). Skipped for a minimal/distill run (SkipSetup), which delivers no
 // surfaces and should keep codex's global home.
 //
-// OPEN QUESTION (plan risk): a ProcessIsolatedCell (container) already has a
-// fresh $HOME, so a relocated CODEX_HOME may be redundant or point at a
-// non-existent in-namespace path. It is set here consistently pending a live
-// container smoke test; revisit if codex resolves its home differently under
-// the container mount model.
+// A ProcessIsolatedCell (container) is handled the SAME way as any other
+// axis: resolveCodexProjectDir resolves it to the container's own fresh
+// $HOME (dense-amaze), which is a real, in-namespace, already-authenticated
+// path (see resolveCodexProjectDir's doc and codexHomeContainerFresh) — not
+// redundant and not non-existent, so no container-specific branch is needed
+// here; the OPEN QUESTION this comment used to raise is resolved.
 func (b *Codex) cellCodexHomeEnv(req *agent.ExecuteRequest) map[string]string {
 	if req.SkipSetup {
 		return nil
 	}
 	dir := b.resolvedProjectDir
 	if dir == "" {
-		dir, _ = resolveCodexProjectDir(req.Env, req.WorkDir)
+		dir, _ = resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
 	}
 	return map[string]string{"CODEX_HOME": cellScopedCodexHome(dir)}
 }
@@ -194,6 +324,15 @@ func (b *Codex) Configure(cfg agent.BackendConfig) {
 
 // Execute runs the backend with the given request.
 func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	// FAIL LOUD (warm-yodel/dense-amaze): Setup already resolved this run's
+	// CODEX_HOME and checked it for usable credentials (ensureCodexCredentials).
+	// A non-nil credentialErr means codex would otherwise launch straight into
+	// a silent 401/exit-0 — refuse to spawn it at all and return the error
+	// instead, so the failure is a loud, non-zero exit naming the actual fix.
+	if b.credentialErr != nil {
+		return nil, b.credentialErr
+	}
+
 	// Report ONLY the model we actually asked for. An empty req.Model means codex
 	// resolves its own configured default, which lives server-side (its model list
 	// is account-scoped and fetched) — so ctxloom cannot name it, and inventing a
@@ -201,13 +340,27 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// ModelInfo (bundle distillation records it as source provenance).
 	modelInfo := &agent.ModelInfo{ModelName: req.Model, Provider: "openai"}
 
-	// Codex's credential seeding (balmy-comic) is now a COPY into the
-	// isolation-provided CODEX_HOME, performed host-side by
-	// internal/lm/isolation/worktree.go's provisionConfigHome BEFORE this run
-	// even starts (credentialSeedSpecs["codex"], auth.go) — replacing the
-	// former per-Execute SYMLINK (linkUserCodexAuth, deleted). Nothing to do
-	// here: by the time Execute runs, auth.json is already in place (or
-	// OPENAI_API_KEY rides the env instead).
+	// Codex's credential seeding is now handled entirely by Setup
+	// (ensureCodexCredentials), which covers ALL THREE axes CODEX_HOME can
+	// resolve to (see resolveCodexProjectDir / codexHomeSource) — not just the
+	// worktree fan-out's isolation-provided home this comment used to name as
+	// the sole mechanism:
+	//   - codexHomeIsolationProvided (worktree fan-out): COPIED host-side by
+	//     internal/lm/isolation/worktree.go's provisionConfigHome BEFORE this
+	//     run even starts (credentialSeedSpecs["codex"], auth.go).
+	//   - codexHomeInTree (plain host run): COPIED by Setup itself via
+	//     isolation.SeedCodexHome — a container is NOT required for this
+	//     seeding to matter; a bare host run relocates CODEX_HOME too
+	//     (warm-yodel) and needed its own seed path.
+	//   - codexHomeContainerFresh (container): VERIFIED by Setup against the
+	//     bind-mounted auth.json in the container's own fresh $HOME
+	//     (dense-amaze) — container alone does NOT isolate/seed CODEX_HOME by
+	//     itself; it only provides the fresh $HOME namespace the mount lands
+	//     in, and CODEX_HOME must actually be pointed there (see
+	//     resolveCodexProjectDir) for the mount to be reachable at all.
+	// By the time Execute runs (past the credentialErr check above), auth.json
+	// is already in place for whichever axis applies (or OPENAI_API_KEY rides
+	// the env instead) — nothing left to do here.
 
 	// Context reaches Codex through the SessionStart hook + context file (the
 	// shared file+hook mechanism), so Execute only forwards the context-file

@@ -102,15 +102,19 @@ func TestCodex_Setup_WritesAGENTSmd(t *testing.T) {
 }
 
 // TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup proves CODEX_HOME is scoped to
-// <WorkDir>/.codex in EVERY cell (including SharedCell, so codex finds the
-// cell-scoped prompts in the live cwd), and is left unset for a minimal/distill
-// (SkipSetup) run so codex keeps its global ~/.codex home.
+// <WorkDir>/.codex in every NON-container cell (including SharedCell, so codex
+// finds the cell-scoped prompts in the live cwd), and is left unset for a
+// minimal/distill (SkipSetup) run so codex keeps its global ~/.codex home. A
+// ProcessIsolated (container) cell is asserted separately below
+// (TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome, dense-amaze): it
+// scopes to the container's own fresh $HOME instead, since <WorkDir>/.codex is
+// the bind-mounted PROJECT dir, where the isolation layer never mounts creds.
 func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
 	b := NewCodex()
 	work := "/proj"
 	want := filepath.Join(work, ".codex")
 
-	for _, cell := range []agent.CellKind{agent.CellKindShared, agent.CellKindDirectoryIsolated, agent.CellKindProcessIsolated} {
+	for _, cell := range []agent.CellKind{agent.CellKindShared, agent.CellKindDirectoryIsolated} {
 		env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: cell})
 		assert.Equal(t, want, env["CODEX_HOME"], "CODEX_HOME is set for cell %v", cell)
 	}
@@ -118,6 +122,19 @@ func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
 	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindShared, SkipSetup: true})
 	_, ok := env["CODEX_HOME"]
 	assert.False(t, ok, "a SkipSetup run keeps codex's global home (no CODEX_HOME override)")
+}
+
+// TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome is dense-amaze's
+// ExecuteEnv-level assertion: a ProcessIsolated (container) cell scopes
+// CODEX_HOME to the container's OWN fresh $HOME (where codexCredentialMounts
+// bind-mounts auth.json — isolation/auth.go), never <WorkDir>/.codex (the
+// bind-mounted project dir this used to silently fall back to, landing on an
+// empty, unauthenticated home and a silent 401).
+func TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome(t *testing.T) {
+	t.Setenv("HOME", "/home/ctxloom")
+	b := NewCodex()
+	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: "/workspace/proj", CellKind: agent.CellKindProcessIsolated})
+	assert.Equal(t, "/home/ctxloom/.codex", env["CODEX_HOME"])
 }
 
 // TestCodex_Setup_ConfigByteIdenticalToDirectWrite pins byte-identity: the

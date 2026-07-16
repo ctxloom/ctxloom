@@ -303,3 +303,67 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 }
+
+// writeCodexAuth writes a host ~/.codex/auth.json under home.
+func writeCodexAuth(t *testing.T, home string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(`{"tokens":"x"}`), 0o600))
+}
+
+// =============================================================================
+// SeedCodexHome — the exported seam internal/codex's Setup (ensureCodexCredentials,
+// warm-yodel) calls to extend THIS package's copy-based codex credential seeding
+// to the in-tree/None axis, which never goes through provisionConfigHome at all.
+// =============================================================================
+
+// TestSeedCodexHome_CopiesAuthJson is the PAYLOAD-asserting case: the host's
+// ~/.codex/auth.json lands byte-identical, owner-only, at destDir/.codex/auth.json
+// — exactly where cellScopedCodexHome(destDir) resolves CODEX_HOME to.
+func TestSeedCodexHome_CopiesAuthJson(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("OPENAI_API_KEY", "")
+	writeCodexAuth(t, home)
+	dest := t.TempDir()
+
+	skipped, err := SeedCodexHome(dest)
+	require.NoError(t, err)
+	assert.False(t, skipped)
+
+	want, err := os.ReadFile(filepath.Join(home, ".codex", "auth.json"))
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(dest, ".codex", "auth.json"))
+	require.NoError(t, err, "seeded auth.json must exist at destDir/.codex/auth.json")
+	assert.Equal(t, want, got, "seeded bytes are byte-identical to the host source")
+
+	info, err := os.Stat(filepath.Join(dest, ".codex", "auth.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
+}
+
+// TestSeedCodexHome_EnvTriggerSkips: OPENAI_API_KEY set → skipped=true, nil
+// error, no copy attempted (matches hostCredentialSeed's envTrigger precedence).
+func TestSeedCodexHome_EnvTriggerSkips(t *testing.T) {
+	withFakeHome(t) // no ~/.codex/auth.json on disk
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	dest := t.TempDir()
+
+	skipped, err := SeedCodexHome(dest)
+	require.NoError(t, err)
+	assert.True(t, skipped)
+	assert.NoDirExists(t, filepath.Join(dest, ".codex"))
+}
+
+// TestSeedCodexHome_NoSourceFailsLoud is warm-yodel's fail-loud contract: no
+// OPENAI_API_KEY and no host ~/.codex/auth.json returns a non-nil, actionable
+// error — NEVER a silent success that would let codex launch straight into a 401.
+func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
+	withFakeHome(t) // empty fake home — no .codex at all
+	t.Setenv("OPENAI_API_KEY", "")
+	dest := t.TempDir()
+
+	_, err := SeedCodexHome(dest)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "OPENAI_API_KEY")
+	assert.Contains(t, err.Error(), "auth.json")
+}

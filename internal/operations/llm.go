@@ -3,8 +3,10 @@ package operations
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // SetDefaultLLMRequest is the input for SetDefaultLLM.
@@ -34,4 +36,25 @@ func SetDefaultLLM(_ context.Context, cfg *config.Config, req SetDefaultLLMReque
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
 	return &SetDefaultLLMResult{Status: "set", Name: req.Name}, nil
+}
+
+// AvailableLLMNames returns a sorted list of all known LLM names:
+// registered built-ins plus any with an explicit config entry.
+func AvailableLLMNames(cfg *config.Config) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, n := range backends.List() {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	for n := range cfg.LM.Configs {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

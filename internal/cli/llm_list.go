@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // llmEntry is one row of `llm list --format json`: an LLM config label (the
@@ -64,7 +65,7 @@ func availableLLMsWithDefault() ([]string, string) {
 	// Reuse the same name set and default identity `llm default` reports:
 	// built-ins unioned with configured labels, and the primary *label*
 	// (not the backend type) marked as default, so the two commands agree.
-	return availableLLMNames(cfg), cfg.PrimaryLabel()
+	return operations.AvailableLLMNames(cfg), cfg.PrimaryLabel()
 }
 
 func init() {

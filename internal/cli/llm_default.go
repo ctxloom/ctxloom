@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -35,7 +34,7 @@ With an LLM name argument, sets that LLM as the default.`,
 		name := args[0]
 
 		if !isKnownLLM(cfg, name) {
-			available := availableLLMNames(cfg)
+			available := operations.AvailableLLMNames(cfg)
 			return fmt.Errorf("unknown LLM %q; available: %s", name, strings.Join(available, ", "))
 		}
 
@@ -59,27 +58,6 @@ func isKnownLLM(cfg *config.Config, name string) bool {
 	}
 	_, ok := cfg.LM.Configs[name]
 	return ok
-}
-
-// availableLLMNames returns a sorted list of all known LLM names:
-// registered built-ins plus any with an explicit config entry.
-func availableLLMNames(cfg *config.Config) []string {
-	seen := map[string]bool{}
-	var names []string
-	for _, n := range backends.List() {
-		if !seen[n] {
-			seen[n] = true
-			names = append(names, n)
-		}
-	}
-	for n := range cfg.LM.Configs {
-		if !seen[n] {
-			seen[n] = true
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	return names
 }
 
 func init() {

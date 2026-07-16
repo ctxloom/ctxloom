@@ -23,10 +23,12 @@ type acpCoordinator struct {
 
 func newACPCoordinator() *acpCoordinator { return &acpCoordinator{} }
 
-// sessionEnv returns the coordinator reach-back trio for one ACP session's
+// SessionEnv returns the coordinator reach-back trio for one ACP session's
 // engine env (host runtime — the loopback endpoint reaches the editor's cwd).
-// Empty on any standup/mint failure (warned once).
-func (a *acpCoordinator) sessionEnv(cfg *config.Config, cwd, harp string) map[string]string {
+// Empty on any standup/mint failure (warned once). Exported: it implements
+// operations.EngineSessionCoordinator (internal/operations/engine_session.go)
+// so OpenEngineSession can call it without importing this package.
+func (a *acpCoordinator) SessionEnv(cfg *config.Config, cwd, harp string) map[string]string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.c == nil {

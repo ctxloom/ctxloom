@@ -31,10 +31,13 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 	}
 	for _, m := range req.MCPServers {
 		out.McpServers = append(out.McpServers, &ChatMCPServer{
-			Name:    m.Name,
-			Command: m.Command,
-			Args:    m.Args,
-			Env:     m.Env,
+			Name:      m.Name,
+			Command:   m.Command,
+			Args:      m.Args,
+			Env:       m.Env,
+			Transport: string(m.Transport),
+			Url:       m.URL,
+			Headers:   m.Headers,
 		})
 	}
 	return out
@@ -51,10 +54,13 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 	}
 	for _, m := range p.GetMcpServers() {
 		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
-			Name:    m.GetName(),
-			Command: m.GetCommand(),
-			Args:    m.GetArgs(),
-			Env:     m.GetEnv(),
+			Name:      m.GetName(),
+			Command:   m.GetCommand(),
+			Args:      m.GetArgs(),
+			Env:       m.GetEnv(),
+			Transport: agent.MCPTransport(m.GetTransport()),
+			URL:       m.GetUrl(),
+			Headers:   m.GetHeaders(),
 		})
 	}
 	return req

@@ -170,12 +170,18 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 //     exactly the lie this codebase must not tell (an advertised capability
 //     that quietly discards the content it claims to accept). Multimodal
 //     intake is a later slice (B2), not this one.
-//   - mcpCapabilities: left at its zero value (acp/http/sse all false) —
-//     ctxloom only ever forwards STDIO MCP servers (mcpServersFromACP; an
-//     http/sse/acp entry is silently skipped there, unchanged by this
-//     slice). McpCapabilities has no "stdio" flag because stdio is the
-//     protocol's unconditional baseline, so leaving the rest false is the
-//     complete and honest claim — HTTP/SSE passthrough is a later slice (B3).
+//   - mcpCapabilities: http/sse true, acp false (B3, gap G11) — ctxloom now
+//     accepts an editor-supplied http/sse MCP server (mcpServersFromACP) and
+//     carries it onward through the chosen engine's own ACP client
+//     (internal/acp/session.go's mcpServersToACP), gated per-session on
+//     THAT engine's own advertised capability — a downstream engine that
+//     cannot take one gets a LOUD ChatSessionInfo.MCPServers status, never a
+//     silent drop (see mcpServersToACP's doc comment). acp (the unstable
+//     ACP-transport variant) stays false: it names an ACP-side component
+//     ctxloom has no seam for yet, so an entry of that shape is still
+//     rejected (loudly — see mcpServersFromACP) rather than forwarded blind.
+//     McpCapabilities has no "stdio" flag because stdio is the protocol's
+//     unconditional baseline.
 //   - sessionCapabilities: left at its zero value — no session/close,
 //     /delete, /fork, /list, /resume, or /additionalDirectories exist yet
 //     (handleSessionDelete already answers a probe of the one of these a
@@ -221,6 +227,10 @@ func (s *Server) handleInitialize(params json.RawMessage, reply func(any, *jsonr
 			LoadSession: true,
 			PromptCapabilities: api.PromptCapabilities{
 				EmbeddedContext: true,
+			},
+			McpCapabilities: api.McpCapabilities{
+				Http: true,
+				Sse:  true,
 			},
 		},
 		AuthMethods: []api.AuthMethod{},
@@ -862,24 +872,61 @@ func resourceLinkText(l *api.ContentBlockResourceLink) string {
 }
 
 // mcpServersFromACP maps the client's session mcpServers onto the engine chat
-// request shape (env list → map). ctxloom only ever spawns stdio MCP servers
-// (HTTP/SSE/ACP-transport entries are out of scope and silently skipped, same
-// as before this SDK swap — the fork's McpServer is now a discriminated union
-// of http/sse/acp/stdio, unlike the flat stdio-only struct it replaces).
+// request shape (env/header list → map). Stdio is the protocol's
+// unconditional baseline, always accepted. Http/Sse (B3, gap G11) are now
+// accepted too — ctxloom's own initialize advertises both true (see
+// handleInitialize) — and carried onward as agent.ChatMCPServer with
+// Transport/URL/Headers set; whether the SESSION'S chosen engine can
+// actually use them is a separate, per-session question answered by
+// internal/acp/session.go's mcpServersToACP (which gates on that engine's
+// own advertised capability and reports a loud status when it can't).
+//
+// The ACP-transport variant (m.Acp, still UNSTABLE in the spec) names an
+// ACP-side component ctxloom has no seam to reach yet — accepting it would
+// be a lie (it would never actually connect), so it is REJECTED loudly
+// rather than silently dropped, same as an entry with no variant set at all
+// (a malformed frame a conforming client should never send).
 func mcpServersFromACP(servers []api.McpServer) []agent.ChatMCPServer {
 	out := make([]agent.ChatMCPServer, 0, len(servers))
 	for _, m := range servers {
-		if m.Stdio == nil {
-			continue
-		}
-		var env map[string]string
-		if len(m.Stdio.Env) > 0 {
-			env = make(map[string]string, len(m.Stdio.Env))
-			for _, e := range m.Stdio.Env {
-				env[e.Name] = e.Value
+		switch {
+		case m.Stdio != nil:
+			var env map[string]string
+			if len(m.Stdio.Env) > 0 {
+				env = make(map[string]string, len(m.Stdio.Env))
+				for _, e := range m.Stdio.Env {
+					env[e.Name] = e.Value
+				}
 			}
+			out = append(out, agent.ChatMCPServer{Name: m.Stdio.Name, Command: m.Stdio.Command, Args: m.Stdio.Args, Env: env})
+		case m.Http != nil:
+			out = append(out, agent.ChatMCPServer{
+				Name: m.Http.Name, Transport: agent.MCPTransportHTTP, URL: m.Http.Url,
+				Headers: httpHeadersToMap(m.Http.Headers),
+			})
+		case m.Sse != nil:
+			out = append(out, agent.ChatMCPServer{
+				Name: m.Sse.Name, Transport: agent.MCPTransportSSE, URL: m.Sse.Url,
+				Headers: httpHeadersToMap(m.Sse.Headers),
+			})
+		case m.Acp != nil:
+			clidiag.Warn("ctxloom", "acp agent: session/new mcpServers: %q is an ACP-transport server (McpServer::Acp) — ctxloom has no seam to reach an ACP-side MCP component yet; dropping it rather than forwarding a server that would never connect", m.Acp.Name)
+		default:
+			clidiag.Warn("ctxloom", "acp agent: session/new mcpServers: an entry set no known transport variant (stdio/http/sse/acp); dropping it")
 		}
-		out = append(out, agent.ChatMCPServer{Name: m.Stdio.Name, Command: m.Stdio.Command, Args: m.Stdio.Args, Env: env})
+	}
+	return out
+}
+
+// httpHeadersToMap converts the ACP wire's HTTP header list to the map shape
+// agent.ChatMCPServer.Headers carries. nil for an empty list.
+func httpHeadersToMap(headers []api.HttpHeader) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for _, h := range headers {
+		out[h.Name] = h.Value
 	}
 	return out
 }

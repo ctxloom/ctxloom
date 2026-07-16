@@ -23,6 +23,33 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// TestChatMCPServer_ProtoRoundTrip_HttpSse proves the host<->plugin gRPC relay
+// (B3, gap G11) carries an editor-supplied http/sse MCP server LOSSLESSLY —
+// Transport/URL/Headers survive chatStartToProto -> chatStartFromProto byte
+// for byte. Without this, an http/sse server that reaches ctxloom's ACP agent
+// merge would silently vanish the moment a chat crossed this relay boundary
+// (host process <-> plugin subprocess) — the exact silent-no-op shape this
+// codebase must never ship.
+func TestChatMCPServer_ProtoRoundTrip_HttpSse(t *testing.T) {
+	req := agent.ChatRequest{
+		MCPServers: []agent.ChatMCPServer{
+			{Name: "stdio-tool", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"K": "v"}},
+			{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}},
+			{Name: "remote-sse", Transport: agent.MCPTransportSSE, URL: "https://example.com/sse"},
+		},
+	}
+
+	proto := chatStartToProto(req)
+	require.Len(t, proto.GetMcpServers(), 3)
+	assert.Equal(t, "http", proto.GetMcpServers()[1].GetTransport())
+	assert.Equal(t, "https://example.com/mcp", proto.GetMcpServers()[1].GetUrl())
+	assert.Equal(t, map[string]string{"Authorization": "Bearer tok"}, proto.GetMcpServers()[1].GetHeaders())
+	assert.Equal(t, "sse", proto.GetMcpServers()[2].GetTransport())
+
+	back := chatStartFromProto(proto)
+	assert.Equal(t, req.MCPServers, back.MCPServers, "http/sse Transport/URL/Headers must survive the relay round trip byte for byte")
+}
+
 // chatBackend is a fakeBackend that also implements agent.StructuredChat: it
 // echoes each inbound message as an assistant entry + a completion, framed by a
 // session event.

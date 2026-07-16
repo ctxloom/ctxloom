@@ -65,6 +65,49 @@ func TestWriteOpencodeConfig_MergesManagedKeysPreservingForeign(t *testing.T) {
 	assert.Equal(t, "deny", perm["bash"], "bash denied (closes the plan-agent shell hole)")
 }
 
+// TestWriteOpencodeConfig_HttpSseMCPServer proves an editor-supplied http/sse
+// MCP server (B3, gap G11) actually reaches opencode's own config surface:
+// opencode.json's `remote` type — VERIFIED against the real opencode 1.18.1
+// binary (`opencode debug config` round-trips this exact shape with no
+// validation error, since opencode.json's mcp schema is strict and
+// additionalProperties:false). Both agent.MCPTransportHTTP and
+// agent.MCPTransportSSE map to the SAME "remote" type (opencode has one
+// remote shape for both ACP transports).
+func TestWriteOpencodeConfig_HttpSseMCPServer(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/work", 0o755))
+
+	err := writeOpencodeConfig(fs, "/work", managedConfig{
+		mcpServers: []agent.ChatMCPServer{
+			{Name: "stdio-tool", Command: "/bin/tools"},
+			{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}},
+			{Name: "remote-sse", Transport: agent.MCPTransportSSE, URL: "https://example.com/sse"},
+		},
+	})
+	require.NoError(t, err)
+
+	got := readJSON(t, fs, "/work/opencode.json")
+	mcp := mcpObject(t, got)
+
+	stdio, ok := mcp["stdio-tool"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "local", stdio["type"])
+
+	httpSrv, ok := mcp["remote-http"].(map[string]any)
+	require.True(t, ok, "http entry present")
+	assert.Equal(t, "remote", httpSrv["type"])
+	assert.Equal(t, "https://example.com/mcp", httpSrv["url"])
+	assert.Equal(t, map[string]any{"Authorization": "Bearer tok"}, httpSrv["headers"])
+	assert.Equal(t, true, httpSrv["enabled"])
+	_, hasCommand := httpSrv["command"]
+	assert.False(t, hasCommand, "a remote entry must not carry the local shape's command key")
+
+	sseSrv, ok := mcp["remote-sse"].(map[string]any)
+	require.True(t, ok, "sse entry present")
+	assert.Equal(t, "remote", sseSrv["type"], "opencode has one remote shape for both http and sse")
+	assert.Equal(t, "https://example.com/sse", sseSrv["url"])
+}
+
 // TestWriteOpencodeConfig_ReadOnlyOverridesExistingPermission proves read-only is
 // authoritative: an existing edit/bash "allow" is replaced with deny, while an
 // unrelated user permission key survives.

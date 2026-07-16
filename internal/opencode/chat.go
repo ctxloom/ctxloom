@@ -26,6 +26,10 @@ const opencodeConfigFile = "opencode.json"
 //   - model: `opencode acp` has no --model flag, so the model rides opencode.json.
 //   - mcp: the managed MCP servers, so `opencode debug config` resolves them (the
 //     ACP wire's session/new mcpServers has no bearing on opencode's own config).
+//     Editor-supplied http/sse servers (B3, gap G11) ride here too — opencode's
+//     own `remote` config shape, NOT the ACP wire (opencode is never asked to
+//     advertise mcpCapabilities.http/sse the way claude-code-acp/codex-acp are,
+//     since it never receives mcpServers over session/new to begin with).
 //   - permission: the read-only posture in plan mode — enforced by opencode's own
 //     permission layer, which the ACP protocol has no field to carry.
 //

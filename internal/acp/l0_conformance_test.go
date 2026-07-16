@@ -114,7 +114,15 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 		chatDone <- b.Chat(context.Background(), agent.ChatRequest{
 			WorkDir:     "/proj",
 			Permissions: agent.PermissionBypass, // auto-decide (not forwarded) so the permission capture below doesn't need a live upstream consumer
-			MCPServers:  []agent.ChatMCPServer{{Name: "tools", Command: "/bin/tools"}},
+			MCPServers: []agent.ChatMCPServer{
+				{Name: "tools", Command: "/bin/tools"},
+				// B3 (gap G11): an http entry, accepted because the fake
+				// agent's initialize response below advertises
+				// mcpCapabilities.http — this proves mcpServersToACP's
+				// constructed McpServerHttpInline is schema-valid, not just
+				// that stdio still is.
+				{Name: "remote-tools", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}},
+			},
 		}, in, out)
 	}()
 	go func() {
@@ -128,7 +136,7 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	capture("initialize request", "InitializeRequest", initReq.Params)
 	require.NoError(t, fa.respond(initReq.ID, map[string]any{
 		"protocolVersion":   1,
-		"agentCapabilities": map[string]any{"loadSession": true},
+		"agentCapabilities": map[string]any{"loadSession": true, "mcpCapabilities": map[string]any{"http": true}},
 		"authMethods":       []any{},
 	}))
 

@@ -73,7 +73,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		<-conn.Done()
 	}
 
-	sessionID, caps, engineConfigOptions, err := b.setup(ctx, conn, req)
+	sessionID, caps, engineConfigOptions, mcpDropped, err := b.setup(ctx, conn, req)
 	if err != nil {
 		teardown()
 		return err
@@ -100,7 +100,13 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		teardown()
 	}
 
-	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID)}}) {
+	// mcpDropped (B3, gap G11) names any editor-supplied http/sse MCP server
+	// THIS engine's own advertised mcpCapabilities couldn't take (see
+	// mcpServersToACP) — folded into the session's one-time info so a client
+	// sees "configured but not delivered" rather than nothing at all. nil
+	// when every entry was either stdio or a capability this engine
+	// accepted.
+	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID), MCPServers: mcpDropped}}) {
 		abort()
 		return ctx.Err()
 	}
@@ -248,7 +254,7 @@ const authRequiredCode = -32000
 // conversation shaped by a version this decoder does not understand. This is
 // the isolation-must-not-negotiate discipline applied to protocol versions:
 // an undetected mismatch here would silently mis-decode every frame after it.
-func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, engineCapabilities, []api.SessionConfigOption, error) {
+func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, engineCapabilities, []api.SessionConfigOption, []agent.MCPStatus, error) {
 	initParams := api.InitializeRequest{
 		ProtocolVersion: api.ProtocolVersionNumber,
 		ClientCapabilities: api.ClientCapabilities{
@@ -264,10 +270,10 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 	}
 	var initResp api.InitializeResponse
 	if err := conn.Call(ctx, api.AgentMethodInitialize, initParams, &initResp); err != nil {
-		return "", engineCapabilities{}, nil, err
+		return "", engineCapabilities{}, nil, nil, err
 	}
 	if initResp.ProtocolVersion != api.ProtocolVersionNumber {
-		return "", engineCapabilities{}, nil, fmt.Errorf(
+		return "", engineCapabilities{}, nil, nil, fmt.Errorf(
 			"acp: engine negotiated protocol version %d; ctxloom's ACP client only speaks version %d (schema-v1.19.0) and cannot safely continue a conversation shaped by a version it does not decode",
 			initResp.ProtocolVersion, api.ProtocolVersionNumber,
 		)
@@ -285,7 +291,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 	if cwd == "" {
 		cwd = "." // spec asks for an absolute cwd; the host supplies one in practice.
 	}
-	mcpServers := mcpServersToACP(req.MCPServers)
+	mcpServers, mcpDropped := mcpServersToACP(req.MCPServers, caps.Mcp)
 
 	if req.ResumeSessionID != "" {
 		// session/load is capability-gated (unlike session/new): an agent
@@ -294,7 +300,7 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// caller explicitly asked for — fail loud instead (adapter/SDK gap,
 		// reportable, never worked around by falling back to session/new).
 		if !caps.LoadSession {
-			return "", caps, nil, fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
+			return "", caps, nil, nil, fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
 		}
 		loadReq := api.LoadSessionRequest{Cwd: cwd, McpServers: mcpServers, SessionId: api.SessionId(req.ResumeSessionID)}
 		// session/load replays the resumed conversation's history as
@@ -305,24 +311,24 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// running (Chat starts it before setup blocks here).
 		var loadResp api.LoadSessionResponse
 		if err := conn.Call(ctx, api.AgentMethodSessionLoad, loadReq, &loadResp); err != nil {
-			return "", caps, nil, fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, authRequiredErr(err, caps))
+			return "", caps, nil, nil, fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, authRequiredErr(err, caps))
 		}
 		sessionID := api.SessionId(req.ResumeSessionID)
 		if err := b.applyModelQuirk(ctx, conn, sessionID, initResp.AgentInfo, req); err != nil {
-			return "", caps, nil, err
+			return "", caps, nil, nil, err
 		}
-		return sessionID, caps, loadResp.ConfigOptions, nil
+		return sessionID, caps, loadResp.ConfigOptions, mcpDropped, nil
 	}
 
 	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
 	if err := conn.Call(ctx, api.AgentMethodSessionNew, newReq, &newResp); err != nil {
-		return "", caps, nil, authRequiredErr(err, caps)
+		return "", caps, nil, nil, authRequiredErr(err, caps)
 	}
 	if err := b.applyModelQuirk(ctx, conn, newResp.SessionId, initResp.AgentInfo, req); err != nil {
-		return "", caps, nil, err
+		return "", caps, nil, nil, err
 	}
-	return newResp.SessionId, caps, newResp.ConfigOptions, nil
+	return newResp.SessionId, caps, newResp.ConfigOptions, mcpDropped, nil
 }
 
 // authRequiredErr recognizes the spec's auth_required error (code -32000) on
@@ -401,23 +407,63 @@ type quirkSetModelParams struct {
 }
 
 // mcpServersToACP maps the caller-supplied MCP servers onto the session/new
-// mcpServers wire shape. ctxloom only ever launches stdio MCP servers, so
-// every entry is the union's Stdio variant (the fork's McpServer is now a
-// discriminated union of http/sse/acp/stdio, unlike the flat stdio-only
-// struct it replaces). Slices stay non-nil (the spec wants arrays, and a nil
-// slice marshals as JSON null); env is sorted for a deterministic frame.
-func mcpServersToACP(servers []agent.ChatMCPServer) []api.McpServer {
-	out := make([]api.McpServer, 0, len(servers))
+// mcpServers wire shape, gated on the CONNECTED ENGINE's own advertised
+// mcpCapabilities (caps, read from this engine's initialize response —
+// see setup). Stdio is the protocol's unconditional baseline (every ACP
+// agent MUST support it — McpCapabilities has no "stdio" flag), so a stdio
+// entry is always forwarded unconditionally, exactly as before B3.
+//
+// Http/Sse (B3, gap G11) are forwarded ONLY when this specific engine
+// advertised the matching capability at initialize — the spec is explicit
+// that these variants are "only available when the Agent capabilities
+// indicate" them, so sending one to an engine that never claimed it would
+// be a protocol violation, not a graceful degrade. An entry this engine
+// can't take is NEVER silently dropped: it comes back in `dropped` as an
+// agent.MCPStatus the caller (Chat) folds into the session's
+// ChatSessionInfo, so the user sees "you configured tool X but this engine
+// doesn't support it" instead of nothing.
+//
+// Slices stay non-nil (the spec wants arrays, and a nil slice marshals as
+// JSON null); env/headers are sorted for a deterministic frame.
+func mcpServersToACP(servers []agent.ChatMCPServer, caps api.McpCapabilities) (out []api.McpServer, dropped []agent.MCPStatus) {
+	out = make([]api.McpServer, 0, len(servers))
 	for _, s := range servers {
-		args := s.Args
-		if args == nil {
-			args = []string{}
+		switch s.Transport {
+		case agent.MCPTransportHTTP:
+			if !caps.Http {
+				dropped = append(dropped, agent.MCPStatus{Name: s.Name,
+					Status: "unsupported: connected engine does not advertise mcpCapabilities.http — configured HTTP MCP server was NOT sent (would be a protocol violation, not a graceful degrade)"})
+				continue
+			}
+			out = append(out, api.McpServer{Http: &api.McpServerHttpInline{Name: s.Name, Url: s.URL, Headers: headersToACP(s.Headers)}})
+		case agent.MCPTransportSSE:
+			if !caps.Sse {
+				dropped = append(dropped, agent.MCPStatus{Name: s.Name,
+					Status: "unsupported: connected engine does not advertise mcpCapabilities.sse — configured SSE MCP server was NOT sent (would be a protocol violation, not a graceful degrade)"})
+				continue
+			}
+			out = append(out, api.McpServer{Sse: &api.McpServerSseInline{Name: s.Name, Url: s.URL, Headers: headersToACP(s.Headers)}})
+		default:
+			args := s.Args
+			if args == nil {
+				args = []string{}
+			}
+			env := make([]api.EnvVariable, 0, len(s.Env))
+			for _, k := range slices.Sorted(maps.Keys(s.Env)) {
+				env = append(env, api.EnvVariable{Name: k, Value: s.Env[k]})
+			}
+			out = append(out, api.McpServer{Stdio: &api.McpServerStdio{Name: s.Name, Command: s.Command, Args: args, Env: env}})
 		}
-		env := make([]api.EnvVariable, 0, len(s.Env))
-		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
-			env = append(env, api.EnvVariable{Name: k, Value: s.Env[k]})
-		}
-		out = append(out, api.McpServer{Stdio: &api.McpServerStdio{Name: s.Name, Command: s.Command, Args: args, Env: env}})
+	}
+	return out, dropped
+}
+
+// headersToACP converts agent.ChatMCPServer.Headers to the ACP wire's sorted
+// HTTP header list (non-nil, mirroring mcpServersToACP's env handling).
+func headersToACP(headers map[string]string) []api.HttpHeader {
+	out := make([]api.HttpHeader, 0, len(headers))
+	for _, k := range slices.Sorted(maps.Keys(headers)) {
+		out = append(out, api.HttpHeader{Name: k, Value: headers[k]})
 	}
 	return out
 }

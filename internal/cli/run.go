@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1071,6 +1072,14 @@ Examples:
 			// container that failed to launch does NOT drop a configured bypass —
 			// that is the point of the host stopgap.
 			policy := prepared
+			// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
+			// config layer (CLAUDE_CONFIG_DIR / CODEX_HOME / KIRO_HOME / ...) from
+			// this run; nil for none/container. Mirrors the fan-out member path
+			// (operations/oneshot.go's workspaceEnv/env assembly): merged UNDER the
+			// already-assembled req.Options.Env (session identity + user --env), so
+			// an explicit user/session var still wins over a resolved isolation var
+			// — this must never clobber a caller-set env, only fill gaps.
+			req.Options.Env = mergeWorkspaceEnv(req.Options.Env, isolation.WorkspaceEnv(ws))
 			// Tear the workspace down after the client is killed (kill the plugin/
 			// container before removing its scratch — WIP-safe). Registered before
 			// client.Kill so it runs after, and before the gate below so an abort on
@@ -1226,6 +1235,25 @@ Examples:
 
 		return nil
 	},
+}
+
+// mergeWorkspaceEnv layers the isolation-resolved per-engine config-home env
+// (isolation.WorkspaceEnv's CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME/... — nil
+// for a none/container workspace) UNDER an already-assembled env map, so an
+// explicit user/session var set before isolation resolves still wins over a
+// resolved isolation var: this must fill gaps, never clobber a caller-set
+// env. Mirrors the fan-out member path's workspaceEnv/ExtraEnv precedence
+// (operations/oneshot.go's runResolvedAgent). A nil/empty workspaceEnv is a
+// true no-op — existing is returned unchanged (not copied), so the top-level
+// run's shared/none path (the overwhelming common case) allocates nothing new.
+func mergeWorkspaceEnv(existing, workspaceEnv map[string]string) map[string]string {
+	if len(workspaceEnv) == 0 {
+		return existing
+	}
+	merged := make(map[string]string, len(workspaceEnv)+len(existing))
+	maps.Copy(merged, workspaceEnv)
+	maps.Copy(merged, existing)
+	return merged
 }
 
 // externalPluginIsolationFixIt is the fix-it for a container requested on the

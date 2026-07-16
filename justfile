@@ -847,9 +847,24 @@ container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 # Devcontainer image name
 devcontainer_image := "ctxloom-devcontainer"
 
-# Build devcontainer image
+# Build devcontainer image. Tool versions (Go, buf, protoc-gen-go, ...) are
+# NOT hardcoded here or in the Dockerfile — .devcontainer/tool-versions.env is
+# their one source of truth, and every entry in it is passed through as a
+# --build-arg so the Dockerfile's (deliberately default-less) ARGs resolve.
+# .github/workflows/ci.yml's build-container job builds the same Dockerfile
+# without going through `just` (via docker/build-push-action), so it loads
+# the same file into that action's build-args input instead of this recipe —
+# see that workflow. internal/buildpins' drift-gate test fails if either
+# consumer's build-args stop matching this file.
 dev-image:
-    {{container_cmd}} build -t {{devcontainer_image}}:latest -f .devcontainer/Dockerfile .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build_args=()
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        build_args+=(--build-arg "$line")
+    done < .devcontainer/tool-versions.env
+    {{container_cmd}} build "${build_args[@]}" -t {{devcontainer_image}}:latest -f .devcontainer/Dockerfile .
 
 # Internal helper: run just target inside devcontainer
 # Mounts justfile.container as /workspace/justfile (overlay pattern)

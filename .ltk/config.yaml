@@ -35,3 +35,17 @@ rules:
     match: { command: [gremlins] }
     message: "Run mutation testing through the task runner. A bare `gremlins unleash` copies the entire module per worker (it has filled /tmp here) and inherits a timeout budget that starves fast packages — a 3ms test suite gives each mutant ~15ms, so mutants score as TIMED OUT rather than killed or lived."
     suggest: "just test-mutation-pkg internal/shared/tasks/triggers   # or `just test-mutation` for the whole module"
+  # buf.gen.yaml deliberately uses `local:` plugins, not BSR `remote:` ones, so
+  # `buf generate` needs protoc-gen-go/protoc-gen-go-grpc on PATH — and the host
+  # has its own copies, at different versions than the devcontainer's pinned
+  # ones (seen: host protoc-gen-go v1.36.6 vs pinned v1.36.11, host
+  # protoc-gen-go-grpc 1.6.0 vs pinned v1.6.2). A host `buf generate` therefore
+  # *succeeds* — no error, no denial from anything else — while silently
+  # emitting generated code from the wrong plugin versions. The .pb.go files
+  # are gitignored, so `git diff` never shows the drift; it surfaces later as
+  # unexplained proto churn or a subtly different build than CI's. Same shape
+  # as goreleaser-via-just: the host run doesn't fail, it lies.
+  - id: buf-via-just
+    match: { command: [buf] }
+    message: "buf must run in the devcontainer, never on the host: the host's protoc-gen-go/protoc-gen-go-grpc are unpinned and differ from the devcontainer's pinned versions, so a host `buf generate` succeeds but silently produces generated code that doesn't match CI (the .pb.go files are gitignored, so `git diff` won't surface it)."
+    suggest: "just proto   # or `just gen-mcp-schemas` for the MCP tool-schema regen"

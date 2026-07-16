@@ -1,10 +1,18 @@
 name: CI
 
 on:
+  # 'v*' covers release branches (v0.7.0-pre1 today, v0.8.0-pre1 next, ...) so
+  # a new release branch is covered automatically instead of needing another
+  # hardcoded entry here each time. Work lands directly on the release branch
+  # with no PR, so the push trigger is what actually matters for it; the
+  # pull_request entry is added too in case a PR against a release branch ever
+  # happens. Deliberately NOT a wildcard over all branches: agent worktrees
+  # push disposable branches constantly and none of those start with 'v', so
+  # this stays scoped to main + long-lived release branches.
   push:
-    branches: [main, initial-prototyping]
+    branches: [main, initial-prototyping, 'v*']
   pull_request:
-    branches: [main]
+    branches: [main, 'v*']
 
 env:
   REGISTRY: ghcr.io
@@ -69,6 +77,22 @@ jobs:
             type=sha,format=long,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # .devcontainer/tool-versions.env is the single source of truth for
+      # every pinned tool version the Dockerfile installs; its ARGs are
+      # deliberately default-less (see the Dockerfile's guard RUN), so this
+      # step is what makes a plain build-push-action build resolve them —
+      # this mirrors what `just dev-image` does for a local build. The
+      # build-args input takes the exact same newline-delimited KEY=VALUE
+      # format as the file, once comments/blank lines are stripped.
+      - name: Load tool versions for build-args
+        id: tool_versions
+        run: |
+          {
+            echo 'args<<TOOL_VERSIONS_EOF'
+            grep -v '^#' .devcontainer/tool-versions.env | grep -v '^$'
+            echo 'TOOL_VERSIONS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -77,6 +101,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.tool_versions.outputs.args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

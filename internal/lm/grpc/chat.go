@@ -28,6 +28,7 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		PermissionMode:      req.Permissions.String(),
 		ForwardPermissions:  req.ForwardPermissions,
 		TranscriptRawPolicy: req.TranscriptRawPolicy,
+		ForwardTerminal:     req.ForwardTerminal,
 	}
 	for _, m := range req.MCPServers {
 		out.McpServers = append(out.McpServers, &ChatMCPServer{
@@ -51,6 +52,7 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 		Permissions:         agent.WireMode(p.GetPermissionMode()),
 		ForwardPermissions:  p.GetForwardPermissions(),
 		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
+		ForwardTerminal:     p.GetForwardTerminal(),
 	}
 	for _, m := range p.GetMcpServers() {
 		req.MCPServers = append(req.MCPServers, agent.ChatMCPServer{
@@ -77,6 +79,8 @@ func chatEventToProto(ev agent.ChatEvent) *ChatEvent {
 		out.Event = &ChatEvent_Session{Session: chatSessionInfoToProto(ev.Session)}
 	case ev.Permission != nil:
 		out.Event = &ChatEvent_Permission{Permission: permissionRequestToProto(ev.Permission)}
+	case ev.Terminal != nil:
+		out.Event = &ChatEvent_Terminal{Terminal: terminalRequestToProto(ev.Terminal)}
 	}
 	return out
 }
@@ -96,9 +100,39 @@ func chatEventFromProto(p *ChatEvent) agent.ChatEvent {
 		return agent.ChatEvent{Session: chatSessionInfoFromProto(ev.Session), Raw: raw}
 	case *ChatEvent_Permission:
 		return agent.ChatEvent{Permission: permissionRequestFromProto(ev.Permission), Raw: raw}
+	case *ChatEvent_Terminal:
+		return agent.ChatEvent{Terminal: terminalRequestFromProto(ev.Terminal), Raw: raw}
 	default:
 		return agent.ChatEvent{Raw: raw}
 	}
+}
+
+func terminalRequestToProto(t *agent.TerminalRequest) *ChatTerminalRequest {
+	if t == nil {
+		return nil
+	}
+	return &ChatTerminalRequest{Id: t.ID, Op: t.Op, Params: t.Params}
+}
+
+func terminalRequestFromProto(p *ChatTerminalRequest) *agent.TerminalRequest {
+	if p == nil {
+		return nil
+	}
+	return &agent.TerminalRequest{ID: p.GetId(), Op: p.GetOp(), Params: p.GetParams()}
+}
+
+func terminalAnswerToProto(t *agent.TerminalResponse) *ChatTerminalAnswer {
+	if t == nil {
+		return nil
+	}
+	return &ChatTerminalAnswer{Id: t.ID, Result: t.Result, Error: t.Error}
+}
+
+func terminalAnswerFromProto(p *ChatTerminalAnswer) *agent.TerminalResponse {
+	if p == nil {
+		return nil
+	}
+	return &agent.TerminalResponse{ID: p.GetId(), Result: p.GetResult(), Error: p.GetError()}
 }
 
 func permissionRequestToProto(p *agent.PermissionRequest) *ChatPermissionRequest {
@@ -250,6 +284,8 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 				}}
 			case *ChatInput_CancelTurn:
 				cm = agent.ChatMessage{CancelTurn: true}
+			case *ChatInput_TerminalAnswer:
+				cm = agent.ChatMessage{Terminal: terminalAnswerFromProto(input.TerminalAnswer)}
 			default:
 				continue // a stray start / unknown variant — ignore
 			}
@@ -322,7 +358,7 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 
 	go func() {
 		for msg := range in {
-			if msg.Permission == nil && !msg.CancelTurn {
+			if msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
 				transcript.RecordUserText(rec, msg.Text)
 			}
 			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
@@ -396,6 +432,8 @@ func chatMessageToInput(msg agent.ChatMessage) *ChatInput {
 		}}}
 	case msg.CancelTurn:
 		return &ChatInput{Input: &ChatInput_CancelTurn{CancelTurn: &ChatCancelTurn{}}}
+	case msg.Terminal != nil:
+		return &ChatInput{Input: &ChatInput_TerminalAnswer{TerminalAnswer: terminalAnswerToProto(msg.Terminal)}}
 	default:
 		return &ChatInput{Input: &ChatInput_UserMessage{UserMessage: &ChatUserMessage{
 			Text:          msg.Text,

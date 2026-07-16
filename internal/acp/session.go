@@ -60,6 +60,8 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		autoApprove: req.Permissions.AllowsWithoutPrompt(),
 		forward:     req.ForwardPermissions,
 		pendingPerm: make(map[string]chan agent.PermissionAnswer),
+		forwardTerm: req.ForwardTerminal,
+		pendingTerm: make(map[string]chan agent.TerminalResponse),
 		clock:       b.clock(),
 	}
 	// B5 (gap G14): req.Env[fsUpstreamEnvVar] is set ONLY on the fully
@@ -207,6 +209,8 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 			switch {
 			case msg.Permission != nil:
 				sess.deliverPermission(*msg.Permission)
+			case msg.Terminal != nil:
+				sess.deliverTerminal(*msg.Terminal)
 			case msg.CancelTurn:
 				if turnDone != nil {
 					notifyCancel()
@@ -293,26 +297,30 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 			// auth_required handling below), so it must not invite an engine to
 			// offer a terminal-shaped auth method it could never answer.
 			//
-			// Terminal (B1, gap G6) is ALSO declined here, but for a DIFFERENT
-			// and more structural reason than "out of scope": ctxloom must
-			// BROKER terminal/* to the real upstream editor, never implement a
-			// terminal of its own (that would be a different, wrong design —
-			// see HandleRequest's terminal case below) — and brokering requires
-			// a live round trip from THIS client-role process, across the
-			// plugin gRPC boundary, to whichever acpagent.Server process holds
-			// the real editor connection. That round trip needs a NEW
-			// bidirectional carrier symmetric to Permission's
-			// (ChatEvent.Permission up / ChatMessage.Permission down, both
-			// proto-mirrored) — a TerminalRequest/TerminalResponse pair — which
-			// does not exist yet: agent.ChatEvent/ChatMessage (internal/shared/
-			// agent) and their proto mirror (internal/lm/grpc/llm.proto) are
-			// owned by a concurrent slice (B3) as of this writing. Advertising
-			// Terminal: true without that channel would be the exact
-			// advertise-then-drop lie this codebase must never tell (the same
-			// discipline B2 applies to promptCapabilities.image/audio) — so
-			// this stays false until the IR/proto carrier lands. See
-			// HandleRequest's terminal/* case for the loud, specific decline.
-			Fs: api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
+			// Terminal (B1, gap G6): the bidirectional carrier symmetric to
+			// Permission's (ChatEvent.Terminal up / ChatMessage.Terminal down,
+			// both proto-mirrored — internal/shared/agent/chat.go's
+			// TerminalRequest/TerminalResponse, internal/lm/grpc/llm.proto's
+			// ChatTerminalRequest/ChatTerminalAnswer) now EXISTS end to end
+			// through the plugin gRPC boundary to whichever acpagent.Server
+			// process holds the real editor connection (see HandleRequest's
+			// terminal/* case below for the brokering itself). But THIS
+			// process cannot know, from here, whether that upstream editor
+			// actually advertised clientCapabilities.terminal at ITS OWN
+			// initialize — that is decided by acpagent.Server, long before
+			// this engine conversation was ever opened, and rides down as
+			// req.ForwardTerminal (internal/operations.OpenRequest.
+			// ForwardTerminal → agent.ChatRequest.ForwardTerminal). So this
+			// advertises Terminal: true ONLY when the caller says brokering is
+			// actually possible — never unconditionally true, which would
+			// promise brokering to an engine whose upstream editor never
+			// agreed to answer terminal/* at all (the same advertise-then-drop
+			// lie B2 guards against for promptCapabilities.image/audio). A
+			// caller with no upstream editor (e.g. a delegated child agent,
+			// agentcoord's HarnessSpec) leaves ForwardTerminal false, so this
+			// stays false there too — honest, not a regression.
+			Terminal: req.ForwardTerminal,
+			Fs:       api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 		},
 		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},
 	}
@@ -684,6 +692,18 @@ type chatSession struct {
 	pendingPerm map[string]chan agent.PermissionAnswer
 	noInput     bool // input closed: no answers can arrive anymore
 
+	// forwardTerm mirrors forward, gating the terminal/* broker instead of
+	// permission forwarding (B1, gap G6) — set from
+	// agent.ChatRequest.ForwardTerminal, true only when the upstream editor
+	// actually advertised the terminal capability (see setup's doc comment).
+	// forwarded-terminal state mirrors the permission bookkeeping above
+	// exactly, in its own mutex/map so the two domains never share a lock.
+	forwardTerm bool
+	termMu      sync.Mutex
+	termSeq     int64
+	pendingTerm map[string]chan agent.TerminalResponse
+	termNoInput bool // input closed: no terminal answers can arrive anymore
+
 	// turn accounting fed by the real usage_update variant and ctxloom's own
 	// (renamed, non-colliding) session-info extension — see consumeMetaUpdate.
 	// Guarded by metaMu: updates arrive on the read loop while completeMeta
@@ -850,15 +870,7 @@ func (s *chatSession) HandleRequest(ctx context.Context, method string, params j
 		reply(s.handleFsWrite(params))
 	case api.ClientMethodTerminalCreate, api.ClientMethodTerminalOutput,
 		api.ClientMethodTerminalWaitForExit, api.ClientMethodTerminalKill, api.ClientMethodTerminalRelease:
-		// B1 (gap G6): a spec-conforming engine should never call these — this
-		// client never advertised Terminal: true (see setup's doc comment for
-		// exactly why: the cross-process broker channel to the real editor
-		// doesn't exist yet). An engine that tries anyway (ignoring the
-		// advertised false, or probing) gets a SPECIFIC, actionable decline —
-		// never the generic method-not-found a truly-unrecognized method
-		// gets, and never a locally-implemented fake terminal (ctxloom must
-		// broker, not implement one of its own).
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability (no broker channel exists yet from this process to the real editor) — ctxloom brokers terminal/* to editors, it never implements one itself"})
+		s.handleTerminal(method, params, reply)
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: method not supported: " + method})
 	}
@@ -952,12 +964,154 @@ func (s *chatSession) unregisterPermission(id string) {
 // request resolves as cancelled, and future ones auto-decide instead.
 func (s *chatSession) inputClosed() {
 	s.permMu.Lock()
-	defer s.permMu.Unlock()
 	s.noInput = true
 	for id, ch := range s.pendingPerm {
 		close(ch)
 		delete(s.pendingPerm, id)
 	}
+	s.permMu.Unlock()
+
+	s.termMu.Lock()
+	s.termNoInput = true
+	for id, ch := range s.pendingTerm {
+		close(ch)
+		delete(s.pendingTerm, id)
+	}
+	s.termMu.Unlock()
+}
+
+// handleTerminal answers one terminal/* request (B1, gap G6). Under
+// ForwardTerminal (the upstream editor advertised the capability) it
+// surfaces the request as a ChatEvent.Terminal and parks (off the read loop)
+// until the caller's TerminalResponse resolves it — exactly handlePermission's
+// shape, applied to a different upstream callback. Otherwise it declines with
+// a SPECIFIC, actionable error naming the real reason — never the generic
+// method-not-found a truly-unrecognized method gets, and never a
+// locally-implemented fake terminal: ctxloom must broker, never implement one
+// of its own.
+func (s *chatSession) handleTerminal(method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	if ch, id := s.registerTerminal(); ch != nil {
+		go s.forwardTerminal(id, ch, method, params, reply)
+		return
+	}
+	reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability for this session (no upstream editor advertised clientCapabilities.terminal, or input has already closed) — ctxloom brokers terminal/* to editors, it never implements one itself"})
+}
+
+// registerTerminal allocates a pending forwarded-terminal-request slot, or
+// returns nil when forwarding is off (or no answer can ever arrive — input
+// closed). Mirrors registerPermission exactly.
+func (s *chatSession) registerTerminal() (chan agent.TerminalResponse, string) {
+	if !s.forwardTerm {
+		return nil, ""
+	}
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	if s.termNoInput {
+		return nil, ""
+	}
+	s.termSeq++
+	id := "term-" + strconv.FormatInt(s.termSeq, 10)
+	ch := make(chan agent.TerminalResponse, 1)
+	s.pendingTerm[id] = ch
+	return ch, id
+}
+
+// forwardTerminal emits one terminal/* request upstream (stripped of this
+// process's own opaque session id — the upstream editor does not share it;
+// see agent.TerminalRequest's doc comment) and replies with the editor's
+// answer. A closed answer channel (input closed) or ctx death replies with a
+// loud, specific error — never a silent drop, and never a hang: an engine
+// waiting on terminal/create must get SOME answer.
+func (s *chatSession) forwardTerminal(id string, ch chan agent.TerminalResponse, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
+	defer s.unregisterTerminal(id)
+	stripped, err := stripSessionID(params)
+	if err != nil {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
+		return
+	}
+	req := &agent.TerminalRequest{ID: id, Op: terminalOp(method), Params: stripped}
+	if !s.send(agent.ChatEvent{Terminal: req}) {
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": chat ended before the terminal request could reach the editor"})
+		return
+	}
+	select {
+	case ans, ok := <-ch:
+		if !ok {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": input closed before the editor answered the terminal request"})
+			return
+		}
+		if ans.Error != "" {
+			reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": editor terminal request failed: " + ans.Error})
+			return
+		}
+		reply(ans.Result, nil)
+	case <-s.ctx.Done():
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": chat context cancelled before the editor answered the terminal request"})
+	}
+}
+
+// deliverTerminal routes the caller's answer to the parked terminal request;
+// an answer for an unknown (already-resolved) request is dropped with a
+// warning. Mirrors deliverPermission exactly.
+func (s *chatSession) deliverTerminal(ans agent.TerminalResponse) {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	ch := s.pendingTerm[ans.ID]
+	if ch == nil {
+		warnf("acp: dropping terminal answer for unknown request %q", ans.ID)
+		return
+	}
+	select {
+	case ch <- ans:
+	default: // buffered(1): a duplicate answer is dropped
+	}
+}
+
+// unregisterTerminal retires a resolved forwarded terminal request.
+func (s *chatSession) unregisterTerminal(id string) {
+	s.termMu.Lock()
+	delete(s.pendingTerm, id)
+	s.termMu.Unlock()
+}
+
+// terminalOp maps an ACP terminal/* JSON-RPC method name onto the
+// agent.TerminalOp* vocabulary the IR/proto carrier uses.
+func terminalOp(method string) string {
+	switch method {
+	case api.ClientMethodTerminalCreate:
+		return agent.TerminalOpCreate
+	case api.ClientMethodTerminalOutput:
+		return agent.TerminalOpOutput
+	case api.ClientMethodTerminalWaitForExit:
+		return agent.TerminalOpWaitForExit
+	case api.ClientMethodTerminalKill:
+		return agent.TerminalOpKill
+	case api.ClientMethodTerminalRelease:
+		return agent.TerminalOpRelease
+	default:
+		return method
+	}
+}
+
+// stripSessionID removes the "sessionId" property from a terminal/*
+// request's raw params before it crosses ChatEvent.Terminal: sessionId here
+// names THIS client-role process's own opaque session with the connected
+// ENGINE, which the upstream editor does not share and must never see — the
+// agent-role broker (internal/acpagent) substitutes ITS OWN editor-facing
+// session id before relaying, exactly as permissionRequestWire substitutes
+// sess.id for a forwarded permission request instead of carrying the
+// engine's own id through.
+func stripSessionID(params json.RawMessage) (json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(params, &m); err != nil {
+		return nil, fmt.Errorf("decode terminal request params: %w", err)
+	}
+	delete(m, "sessionId")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("re-encode terminal request params: %w", err)
+	}
+	return out, nil
 }
 
 // handleFsRead serves fs/read_text_file (B5, gap G14 — THE ONE RULE: fs

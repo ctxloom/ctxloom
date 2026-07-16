@@ -22,8 +22,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -296,8 +296,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// The connected editor answers session/request_permission — real
 		// interactive approvals in structured mode (no terminal prompt here).
 		ForwardPermissions: true,
-		MCPServers:         mcpServers,
-		Runtime:            runtimeAxis,
+		// ForwardTerminal (B1, gap G6) rides straight through from the
+		// caller's OpenRequest — only true when acpagent.Server's own
+		// connected editor advertised clientCapabilities.terminal at
+		// initialize; see OpenRequest.ForwardTerminal's doc comment.
+		ForwardTerminal: req.ForwardTerminal,
+		MCPServers:      mcpServers,
+		Runtime:         runtimeAxis,
 	})
 	if err != nil {
 		client.Kill()

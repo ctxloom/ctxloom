@@ -48,6 +48,7 @@ const (
 	l1SentinelRaceComplete = "L1_RACE_COMPLETE"
 	l1SentinelPermission   = "L1_PERMISSION"
 	l1SentinelFail         = "L1_FAIL"
+	l1SentinelTerminal     = "L1_TERMINAL"
 	l1FailMessage          = "l1 harness: deliberate failure for conformance testing"
 	l1ReplayUser           = "earlier question (l1 harness replay)"
 	l1ReplayAssistant      = "earlier answer (l1 harness replay)"
@@ -147,23 +148,33 @@ type l1Frame struct {
 }
 
 // l1Handler is the jsonrpc.Handler for the test's connection to the spawned
-// agent: it captures session/update notifications and session/request_permission
-// requests for the driving test to inspect and answer.
+// agent: it captures session/update notifications, session/request_permission
+// requests, and terminal/* requests (B1, gap G6) for the driving test to
+// inspect and answer.
 type l1Handler struct {
 	updates  chan l1Frame
 	permReqs chan l1Frame
+	termReqs chan l1Frame
 }
 
 func newL1Handler() *l1Handler {
-	return &l1Handler{updates: make(chan l1Frame, 64), permReqs: make(chan l1Frame, 8)}
+	return &l1Handler{
+		updates:  make(chan l1Frame, 64),
+		permReqs: make(chan l1Frame, 8),
+		termReqs: make(chan l1Frame, 8),
+	}
 }
 
 func (h *l1Handler) HandleRequest(_ context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
-	if method == api.ClientMethodSessionRequestPermission {
+	switch method {
+	case api.ClientMethodSessionRequestPermission:
 		h.permReqs <- l1Frame{Method: method, Params: params, reply: reply}
-		return
+	case api.ClientMethodTerminalCreate, api.ClientMethodTerminalOutput,
+		api.ClientMethodTerminalWaitForExit, api.ClientMethodTerminalKill, api.ClientMethodTerminalRelease:
+		h.termReqs <- l1Frame{Method: method, Params: params, reply: reply}
+	default:
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "l1 test client: unsupported method " + method})
 	}
-	reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "l1 test client: unsupported method " + method})
 }
 
 func (h *l1Handler) HandleNotification(_ context.Context, method string, params json.RawMessage) {
@@ -221,6 +232,20 @@ func (p *l1Proc) initialize() api.InitializeResponse {
 	var resp api.InitializeResponse
 	err := p.conn.Call(context.Background(), api.AgentMethodInitialize,
 		map[string]any{"protocolVersion": api.ProtocolVersionNumber, "clientCapabilities": map[string]any{}}, &resp)
+	require.NoError(p.t, err, "initialize")
+	return resp
+}
+
+// initializeWithTerminal is initialize() advertising
+// clientCapabilities.terminal: true (B1, gap G6) — a real editor sets this
+// so the agent may honestly ask its engine's client-role driver to broker
+// terminal/* to it; see internal/acp/session.go's setup doc comment for
+// exactly what this promises.
+func (p *l1Proc) initializeWithTerminal() api.InitializeResponse {
+	p.t.Helper()
+	var resp api.InitializeResponse
+	err := p.conn.Call(context.Background(), api.AgentMethodInitialize,
+		map[string]any{"protocolVersion": api.ProtocolVersionNumber, "clientCapabilities": map[string]any{"terminal": true}}, &resp)
 	require.NoError(p.t, err, "initialize")
 	return resp
 }
@@ -309,6 +334,18 @@ func (p *l1Proc) waitPermRequest() l1Frame {
 		return f
 	case <-time.After(10 * time.Second):
 		p.t.Fatal("timed out waiting for a session/request_permission")
+		return l1Frame{}
+	}
+}
+
+// waitTerminalRequest blocks for one forwarded terminal/* request (B1, gap G6).
+func (p *l1Proc) waitTerminalRequest() l1Frame {
+	p.t.Helper()
+	select {
+	case f := <-p.handler.termReqs:
+		return f
+	case <-time.After(10 * time.Second):
+		p.t.Fatal("timed out waiting for a terminal/* request")
 		return l1Frame{}
 	}
 }
@@ -537,4 +574,65 @@ func TestL1_OneReplyPerRequest_ConcurrentPromptIsRejectedNotQueued(t *testing.T)
 	firstResp, firstErr := firstAwait(context.Background())
 	require.Nil(t, firstErr)
 	assert.EqualValues(t, api.StopReasonCancelled, firstResp.StopReason, "the FIRST (legitimate) turn still resolves normally")
+}
+
+// TestL1_TerminalForwarding_RealProcessBoundary (B1, gap G6): an engine
+// terminal/create request forwards to the client as a REAL terminal/create
+// JSON-RPC request — with THIS session's real editor-facing id substituted
+// for the engine's own opaque one (proving terminalParamsWithSession, the
+// exact analog of permissionRequestWire's sess.id substitution) — and the
+// editor's real answer rides back into the engine verbatim, across a real
+// spawned OS process boundary in both directions. This is the headline B1
+// proof: ctxloom brokers terminal/*, it never fabricates or drops it.
+func TestL1_TerminalForwarding_RealProcessBoundary(t *testing.T) {
+	p := startL1Proc(t)
+	p.initializeWithTerminal()
+	sid := p.newSession(t.TempDir())
+
+	await := p.promptAsync(sid, l1SentinelTerminal)
+
+	termReq := p.waitTerminalRequest()
+	assert.Equal(t, api.ClientMethodTerminalCreate, termReq.Method)
+	var params struct {
+		SessionId string `json:"sessionId"`
+		Command   string `json:"command"`
+		Args      []string
+	}
+	require.NoError(t, json.Unmarshal(termReq.Params, &params))
+	assert.Equal(t, string(sid), params.SessionId, "the agent must substitute ITS OWN editor-facing session id, not the engine's opaque one")
+	assert.Equal(t, "echo", params.Command, "the op's real body must cross the process boundary verbatim")
+	assert.Equal(t, []string{"hi"}, params.Args)
+
+	termReq.reply(map[string]any{"terminalId": "real-editor-terminal-42"}, nil)
+
+	answerEntry := decodeUpdate(t, p.waitUpdate())
+	assert.Equal(t, `terminal result: {"terminalId":"real-editor-terminal-42"}`, answerEntry.Update.Content.Text,
+		"the editor's real answer bytes must round-trip back into the engine verbatim")
+
+	resp, rerr := await(context.Background())
+	require.Nil(t, rerr)
+	assert.EqualValues(t, api.StopReasonEndTurn, resp.StopReason)
+}
+
+// TestL1_TerminalForwarding_EditorDeclines: when the connected editor answers
+// a forwarded terminal/create with a JSON-RPC error, the engine receives that
+// SPECIFIC reason as a TerminalResponse.Error — never a silent drop, a hang,
+// or a fabricated success (this codebase's signature failure mode).
+func TestL1_TerminalForwarding_EditorDeclines(t *testing.T) {
+	p := startL1Proc(t)
+	p.initializeWithTerminal()
+	sid := p.newSession(t.TempDir())
+
+	await := p.promptAsync(sid, l1SentinelTerminal)
+	termReq := p.waitTerminalRequest()
+	termReq.reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "editor: terminal not actually available"})
+
+	answerEntry := decodeUpdate(t, p.waitUpdate())
+	assert.Contains(t, answerEntry.Update.Content.Text, "terminal error:")
+	assert.Contains(t, answerEntry.Update.Content.Text, "editor: terminal not actually available",
+		"the editor's real decline reason must reach the engine, not a generic failure")
+
+	resp, rerr := await(context.Background())
+	require.Nil(t, rerr)
+	assert.EqualValues(t, api.StopReasonEndTurn, resp.StopReason)
 }

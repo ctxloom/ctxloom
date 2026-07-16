@@ -180,6 +180,7 @@ message ChatInput {
     ChatUserMessage      user_message      = 2; // a structured user turn
     ChatPermissionAnswer permission_answer = 3; // answers a ChatPermissionRequest
     ChatCancelTurn       cancel_turn       = 4; // abandon the in-flight turn, keep the conversation
+    ChatTerminalAnswer   terminal_answer   = 5; // answers a ChatTerminalRequest (B1, gap G6)
   }
 }
 
@@ -210,6 +211,13 @@ message ChatStart {
   // nothing populates this from user config yet (deferred), every current
   // caller leaves it empty.
   string transcript_raw_policy = 7;
+  // Surface engine terminal/* requests as ChatTerminalRequest events and
+  // park until the ChatTerminalAnswer arrives (B1, gap G6) — mirrors
+  // forward_permissions exactly, applied to terminal/create/output/
+  // wait_for_exit/kill/release instead of session/request_permission. Only
+  // honest when the caller actually has a live upstream editor that
+  // advertised the terminal capability; see agent.ChatRequest.ForwardTerminal.
+  bool forward_terminal = 8;
 }
 
 // ChatMCPServer is one caller-supplied MCP server for a chat run: a stdio
@@ -257,13 +265,16 @@ message ChatCancelTurn {}
 // conversation content (many per response), `complete` the response's
 // completion + accounting (one per response), `session` one-time session info,
 // `permission` a forwarded mid-turn engine permission request (only under
-// ChatStart.forward_permissions; answered via ChatPermissionAnswer).
+// ChatStart.forward_permissions; answered via ChatPermissionAnswer),
+// `terminal` a forwarded mid-turn engine terminal/* request (only under
+// ChatStart.forward_terminal, B1 gap G6; answered via ChatTerminalAnswer).
 message ChatEvent {
   oneof event {
     SessionEntry          entry      = 1;
     TurnMeta              complete   = 2;
     ChatSessionInfo       session    = 3;
     ChatPermissionRequest permission = 4;
+    ChatTerminalRequest   terminal   = 6;
   }
   // raw mirrors agent.ChatEvent.Raw: IR3's side channel for the curated
   // allowlist (available_commands_update, current_mode_update, any variant's
@@ -294,6 +305,30 @@ message ChatPermissionOption {
   string id = 1;
   string kind = 2;
   string name = 3;
+}
+
+// ChatTerminalRequest is a forwarded engine terminal/* request (B1, gap G6):
+// the engine wants ctxloom to broker one terminal operation to the connected
+// editor. Mirrors agent.TerminalRequest. id correlates the eventual
+// ChatTerminalAnswer. op is one of create|output|wait_for_exit|kill|release.
+// params carries that op's ACP request body verbatim as JSON, with the
+// engine-side session id already stripped (see agent.TerminalRequest's doc
+// comment) — the agent-role broker substitutes its own editor-facing session
+// id before relaying.
+message ChatTerminalRequest {
+  string id = 1;
+  string op = 2;
+  bytes  params = 3;
+}
+
+// ChatTerminalAnswer resolves the ChatTerminalRequest with the same id.
+// Mirrors agent.TerminalResponse: result carries the op's ACP response body
+// verbatim as JSON on success; error carries a human-readable reason on
+// failure. Exactly one is meaningful.
+message ChatTerminalAnswer {
+  string id = 1;
+  bytes  result = 2;
+  string error = 3;
 }
 
 // TurnMeta is per-response completion metadata a client can surface (context

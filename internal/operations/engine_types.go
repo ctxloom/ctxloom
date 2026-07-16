@@ -179,6 +179,14 @@ type OpenRequest struct {
 	// correct) — see internal/acp/session.go's handleFsRead for the
 	// consuming half of this same rule.
 	FsUpstreamAddr string
+	// ForwardTerminal asks the opened engine conversation to broker terminal/*
+	// requests to the connected editor (B1, gap G6): the caller (acpagent.
+	// Server) sets this from whatever THAT editor advertised at ITS OWN
+	// initialize (clientCapabilities.terminal) — see agent.ChatRequest.
+	// ForwardTerminal's doc comment for exactly what "true" honestly promises
+	// and why this cannot default true. Rides straight through to the
+	// engine's ChatRequest (OpenEngineSession).
+	ForwardTerminal bool
 }
 
 // FsUpstreamEnvVar names the engine-env variable OpenEngineSession uses to

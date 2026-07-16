@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"sync/atomic"
@@ -36,6 +37,13 @@ const (
 	// completing, so a test can assert the resulting JSON-RPC error message
 	// VERBATIM (see FailMessage).
 	SentinelFail = "L1_FAIL"
+	// SentinelTerminal (B1, gap G6) asks the server to broker one
+	// terminal/create call to the connected editor, then reports the
+	// editor's real answer (terminalId on success, the error text on
+	// failure) verbatim as the next entry's content — so a test can assert
+	// the exact bytes the editor sent survived the round trip across the
+	// real process boundary, in both directions.
+	SentinelTerminal = "L1_TERMINAL"
 
 	// FailMessage is SentinelFail's exact error text — pinned as a constant
 	// so the driving test's verbatim assertion and this engine can never
@@ -52,6 +60,15 @@ const (
 	// announced tool_use and its permission request, matching the real
 	// server's FIFO tool-call-id pairing convention (acpagent/mapping.go).
 	permToolName = "l1_tool"
+
+	// terminalTestID is SentinelTerminal's fixed TerminalRequest.ID.
+	terminalTestID = "l1-term-1"
+	// terminalTestParams is SentinelTerminal's fixed, ALREADY-STRIPPED (no
+	// sessionId — the real client-role driver strips it; see
+	// internal/acp/session.go's stripSessionID) terminal/create body, so a
+	// driving test can assert the server injects its OWN session id rather
+	// than carrying this engine's opaque one through.
+	terminalTestParams = `{"command":"echo","args":["hi"]}`
 )
 
 // sessionSeq mints the harp for a fresh (non-resumed) session — deterministic
@@ -120,7 +137,7 @@ func runHarnessEngine(ctx context.Context, in <-chan agent.ChatMessage, events c
 			if !ok {
 				return
 			}
-			if msg.CancelTurn || msg.Permission != nil {
+			if msg.CancelTurn || msg.Permission != nil || msg.Terminal != nil {
 				continue // stray control message with no turn in flight
 			}
 			runTurn(ctx, msg.Text, in, events, errs)
@@ -209,6 +226,28 @@ func runTurn(ctx context.Context, text string, in <-chan agent.ChatMessage, even
 		case errs <- errors.New(FailMessage):
 		case <-ctx.Done():
 		}
+	case SentinelTerminal:
+		if !emit(ctx, events, agent.ChatEvent{Terminal: &agent.TerminalRequest{
+			ID:     terminalTestID,
+			Op:     agent.TerminalOpCreate,
+			Params: json.RawMessage(terminalTestParams),
+		}}) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-in:
+			switch {
+			case !ok || m.Terminal == nil:
+				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal: no answer"}})
+			case m.Terminal.Error != "":
+				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal error: " + m.Terminal.Error}})
+			default:
+				emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "terminal result: " + string(m.Terminal.Result)}})
+			}
+		}
+		emit(ctx, events, agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
 	default:
 		if !emit(ctx, events, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "echo: " + text}}) {
 			return

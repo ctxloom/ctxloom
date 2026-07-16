@@ -69,6 +69,22 @@ jobs:
             type=sha,format=long,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
+      # .devcontainer/tool-versions.env is the single source of truth for
+      # every pinned tool version the Dockerfile installs; its ARGs are
+      # deliberately default-less (see the Dockerfile's guard RUN), so this
+      # step is what makes a plain build-push-action build resolve them —
+      # this mirrors what `just dev-image` does for a local build. The
+      # build-args input takes the exact same newline-delimited KEY=VALUE
+      # format as the file, once comments/blank lines are stripped.
+      - name: Load tool versions for build-args
+        id: tool_versions
+        run: |
+          {
+            echo 'args<<TOOL_VERSIONS_EOF'
+            grep -v '^#' .devcontainer/tool-versions.env | grep -v '^$'
+            echo 'TOOL_VERSIONS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -77,6 +93,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.tool_versions.outputs.args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

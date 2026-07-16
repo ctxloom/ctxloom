@@ -43,15 +43,49 @@ RUN apt-get update && apt-get install -y \
 # linux releases with arch names that match TARGETARCH 1:1.
 ARG TARGETARCH
 
+# --- Tool versions ----------------------------------------------------------
+# .devcontainer/tool-versions.env is the ONE place these versions are
+# declared. These ARGs deliberately have NO default value: a default here
+# would recreate a second source of truth that could silently drift from
+# that file. `just dev-image` (see justfile) reads the file and passes every
+# entry as `--build-arg`; so does ci.yml's build-container job. A bare
+# `docker build .` with no --build-arg gets caught by the guard RUN just
+# below instead of silently installing an empty version or "latest" —
+# ctxloom's characteristic bug is exit 0 with wrong/missing bytes, not a
+# loud failure, and this guard exists specifically to not repeat that here.
+# internal/buildpins' drift-gate test asserts these ARG names and the
+# workflow consumers all agree with tool-versions.env.
+ARG GO_VERSION
+ARG UPX_VERSION
+ARG ONNX_VERSION
+ARG GOLANGCI_LINT_VERSION
+ARG BUF_VERSION
+ARG PROTOC_GEN_GO_VERSION
+ARG PROTOC_GEN_GO_GRPC_VERSION
+ARG GREMLINS_VERSION
+ARG VERSIONATOR_VERSION
+ARG GORELEASER_VERSION
+ARG LIZARD_VERSION
+
+RUN : "${GO_VERSION:?missing --build-arg GO_VERSION — build via 'just dev-image', which reads .devcontainer/tool-versions.env}" \
+    && : "${UPX_VERSION:?missing --build-arg UPX_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${ONNX_VERSION:?missing --build-arg ONNX_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GOLANGCI_LINT_VERSION:?missing --build-arg GOLANGCI_LINT_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${BUF_VERSION:?missing --build-arg BUF_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${PROTOC_GEN_GO_VERSION:?missing --build-arg PROTOC_GEN_GO_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${PROTOC_GEN_GO_GRPC_VERSION:?missing --build-arg PROTOC_GEN_GO_GRPC_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GREMLINS_VERSION:?missing --build-arg GREMLINS_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${VERSIONATOR_VERSION:?missing --build-arg VERSIONATOR_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${GORELEASER_VERSION:?missing --build-arg GORELEASER_VERSION — see .devcontainer/tool-versions.env}" \
+    && : "${LIZARD_VERSION:?missing --build-arg LIZARD_VERSION — see .devcontainer/tool-versions.env}"
+
 # Install Go
-ARG GO_VERSION=1.25.10
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:$PATH"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 
 # Install UPX from GitHub releases
-ARG UPX_VERSION=4.2.4
 RUN wget -qO- "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-${TARGETARCH}_linux.tar.xz" \
     | tar -xJf - --strip-components=1 -C /usr/local/bin "upx-${UPX_VERSION}-${TARGETARCH}_linux/upx"
 
@@ -63,7 +97,6 @@ ENV LD_LIBRARY_PATH="/osxcross/lib"
 # Note: tokenizers library removed - using pure Go sugarme/tokenizer instead
 
 # Install ONNX Runtime (for embedding into binary)
-ARG ONNX_VERSION=1.20.1
 RUN case "${TARGETARCH}" in \
         amd64) ONNX_ARCH="x64" ;; \
         arm64) ONNX_ARCH="aarch64" ;; \
@@ -80,7 +113,7 @@ ENV CGO_LDFLAGS="-ldl -lm -pthread"
 
 # Copy ONNX runtime .so for embedding into binary
 RUN mkdir -p /opt/onnxruntime-embed && \
-    cp /opt/onnxruntime/lib/libonnxruntime.so.1.20.1 /opt/onnxruntime-embed/libonnxruntime.so
+    cp /opt/onnxruntime/lib/libonnxruntime.so.${ONNX_VERSION} /opt/onnxruntime-embed/libonnxruntime.so
 
 # Install just (command runner)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
@@ -88,7 +121,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash 
 # Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
 # marks its Python env externally-managed (PEP 668), so --break-system-packages
 # is required; the console script lands in /usr/local/bin (already on PATH).
-RUN pip3 install --break-system-packages --no-cache-dir lizard==1.22.2
+RUN pip3 install --break-system-packages --no-cache-dir lizard==${LIZARD_VERSION}
 
 # Install golangci-lint via `go install` so the build does not depend on
 # golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to
@@ -96,35 +129,33 @@ RUN pip3 install --break-system-packages --no-cache-dir lizard==1.22.2
 # time of writing). `go install` uses the Go module checksum database, which
 # is the more reliable verification path. Binary lands in $GOPATH/bin (/go/bin),
 # already on PATH from the Go install step above.
-RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${GOLANGCI_LINT_VERSION}
 
 # Install buf for protobuf
-RUN BIN="/usr/local/bin" && \
-    VERSION="1.47.2" && \
-    curl -sSL "https://github.com/bufbuild/buf/releases/download/v${VERSION}/buf-$(uname -s)-$(uname -m)" -o "${BIN}/buf" && \
-    chmod +x "${BIN}/buf"
+RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf && \
+    chmod +x /usr/local/bin/buf
 
 # Codegen plugins installed LOCALLY so `buf generate` never executes remote
 # plugins on the BSR — remote plugin execution is rate-limited and made the
 # build non-deterministic (a throttled `buf generate` failed the whole
 # pipeline). Versions pinned to match the output these plugins were producing
-# remotely (protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2) so generated
-# code stays byte-identical. buf.gen.yaml references these as `local:` plugins.
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+# remotely so generated code stays byte-identical. buf.gen.yaml references
+# these as `local:` plugins.
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION} && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}
 
 # Install gremlins for mutation testing
-RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v${GREMLINS_VERSION}
 
 # Install versionator for version management
-RUN go install github.com/benjaminabbitt/versionator@v0.2.1
+RUN go install github.com/benjaminabbitt/versionator@v${VERSIONATOR_VERSION}
 
 # GoReleaser: `just release-check` / `just release-snapshot` run here, never on
 # the host. The host has no upx and no cross toolchain, so a host snapshot
 # silently emits "-upx" artifacts that were never compressed. CI releases from
 # goreleaser-cross (see .github/workflows/release-completer.yml), which bundles
 # its own goreleaser — this pin only governs local validation.
-RUN go install github.com/goreleaser/goreleaser/v2@v2.16.0
+RUN go install github.com/goreleaser/goreleaser/v2@v${GORELEASER_VERSION}
 
 # Go caches live under GOPATH, NEVER under /workspace. /workspace is the
 # bind-mounted source tree: caches written there land inside the Go module

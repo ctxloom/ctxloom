@@ -34,6 +34,14 @@ session context and its engine binding picks the backend (an explicit --llm
 still wins). Configure one editor agent entry per agent to pick agents
 from the editor — 'ctxloom acp agents' prints the entries ready to paste.
 
+--workspace worktree runs that agent's session in its own fresh git worktree
+(ISO2) instead of the editor's own cwd — reuses the exact worktree machinery
+'ctxloom run --agent'/agent_run drive, with a first-turn announcement of the
+worktree path (the editor's own view stays unaware of it). Requires --agent:
+worktree isolation is for a deliberately-configured agent entry, never the
+plain 'ctxloom acp' one, even when the project's 'workspace:' default is
+"worktree" for map/weave.
+
 Stdout carries the protocol; all diagnostics go to stderr.
 
 ```
@@ -43,10 +51,11 @@ ctxloom acp [flags]
 ### Options
 
 ```
-  -a, --agent string     agent to serve as the agent: its composed profiles + engine binding (see 'ctxloom agent list')
-  -h, --help             help for acp
-  -l, --llm string       LLM config label to drive (default: the agent's/profile's llm, then the primary)
-  -p, --profile string   profile to assemble context from (default: the configured defaults)
+  -a, --agent string       agent to serve as the agent: its composed profiles + engine binding (see 'ctxloom agent list')
+  -h, --help               help for acp
+  -l, --llm string         LLM config label to drive (default: the agent's/profile's llm, then the primary)
+  -p, --profile string     profile to assemble context from (default: the configured defaults)
+      --workspace string   Session workspace axis (none|worktree; empty = project default). Honored only together with --agent (ISO2)
 ```
 
 ### Options inherited from parent commands

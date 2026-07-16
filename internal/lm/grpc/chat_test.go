@@ -357,17 +357,44 @@ func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
 
 	// But the canonical transcript must carry it, as a `user` entry, with the
 	// real prompt text — this is the whole point of the fix.
+	//
+	// Position is NOT asserted for the user entry relative to the Session
+	// record: they are recorded from two independent goroutines (the inbound
+	// `in`-channel tap vs. the outbound events tee) with no causal
+	// relationship to each other in this fake-stream test (the canned Session
+	// event is emitted independent of anything arriving on `in` — matching
+	// the real ACP driver, which likewise emits Session before ever reading
+	// its first inbound message, see internal/acp/session.go's Chat). Which
+	// one lands at seq 0 is genuinely a race, and Session — envelope
+	// metadata, not conversation content (transcript/history.go's
+	// entriesFromRecord) — never becomes a Session.Entries item either way,
+	// so the race has no observable effect on any reader. What IS causally
+	// fixed, and asserted below: the assistant's reply always follows the
+	// Session record (both flow through the one sequential outbound tee).
 	recs := readCanonicalTranscript(t, harp)
 	require.Len(t, recs, 3)
-	require.NotNil(t, recs[0].Entry, "the user's turn must be recorded to the canonical transcript")
-	assert.Equal(t, "user", recs[0].Entry.Type)
-	assert.Equal(t, "what does this function do?", recs[0].Entry.Content)
-	assert.Equal(t, harp, recs[0].Harp)
-	assert.Equal(t, "codex", recs[0].Engine)
+	for _, r := range recs {
+		assert.Equal(t, harp, r.Harp)
+		assert.Equal(t, "codex", r.Engine)
+	}
 
-	assert.Equal(t, transcript.KindSession, recs[1].Kind)
-	require.NotNil(t, recs[2].Entry)
-	assert.Equal(t, "hi there", recs[2].Entry.Content)
+	var userRec, sessionRec, assistantRec *transcript.Record
+	for i := range recs {
+		switch {
+		case recs[i].Kind == transcript.KindSession:
+			sessionRec = &recs[i]
+		case recs[i].Entry != nil && recs[i].Entry.Type == "user":
+			userRec = &recs[i]
+		case recs[i].Entry != nil && recs[i].Entry.Type == "assistant":
+			assistantRec = &recs[i]
+		}
+	}
+	require.NotNil(t, userRec, "the user's turn must be recorded to the canonical transcript")
+	assert.Equal(t, "what does this function do?", userRec.Entry.Content)
+	require.NotNil(t, sessionRec)
+	require.NotNil(t, assistantRec)
+	assert.Equal(t, "hi there", assistantRec.Entry.Content)
+	assert.Less(t, sessionRec.Seq, assistantRec.Seq, "the assistant reply must follow the session record (single sequential outbound tee)")
 }
 
 // TestGRPCClient_Chat_PermissionAndCancelMessagesNotRecordedAsUserTurns

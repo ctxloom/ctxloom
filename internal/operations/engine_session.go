@@ -273,6 +273,30 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 	}
 
+	// B5 (gap G14) — THE ONE RULE: fs follows the engine's authoritative
+	// workspace. req.FsUpstreamAddr is forwarded into the engine's env
+	// ONLY on the fully unisolated HOST axis — aw == nil (ISO2 never cut a
+	// worktree for this session) AND runtimeAxis == "" (ISO1 never
+	// containerized it). Both isolating axes are deliberately excluded:
+	// - aw != nil (worktree): the editor's own buffers describe the
+	//   MAIN checkout, a DIFFERENT tree than the one this engine runs
+	//   in — chaining there would silently serve the wrong file's
+	//   content under the right-looking path (session.go already reads
+	//   local disk at workDir, which IS the worktree — correct as-is).
+	// - runtimeAxis == RuntimeContainer: ISO1's same-path mount already
+	//   makes local disk correct from inside the "ctxloom llm serve"
+	//   subprocess (which always runs on the HOST, never in the
+	//   container — only the engine's own subprocess is containerized),
+	//   so chaining would be redundant at best and a second source of
+	//   truth at worst.
+	// Leaving env untouched on those two axes is what enforces the rule —
+	// session.go's handleFsRead/handleFsWrite simply serve local disk
+	// whenever this var is absent, with no separate per-axis branch of
+	// its own to get wrong.
+	if aw == nil && runtimeAxis == "" && req.FsUpstreamAddr != "" {
+		env[FsUpstreamEnvVar] = req.FsUpstreamAddr
+	}
+
 	client, err := newACPEngineClient(backendName, label, 0, spawnEnv)
 	if err != nil {
 		if aw != nil {
@@ -340,7 +364,51 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		Replay:        replay,
 		LLMs:          buildSessionLLMs(cfg, label),
 		WatchChildren: watchChildren,
+		Commands:      buildSessionCommands(ctx, cfg),
 	}, nil
+}
+
+// buildSessionCommands surfaces the cwd's ctxloom commands (ListCommands/
+// GetCommand — the same bundle "commands" surface `ctxloom run --command
+// <name>` (internal/cli/run.go) and the MCP commands resource already read)
+// as ACP's own agent-role command system (B4, gap G5): an editor's command
+// palette gets ctxloom's REAL commands, and a recognized "/<name> ..." in a
+// prompt (see acpagent's expandCommand) resolves through the IDENTICAL
+// GetCommand path — one command system, two surfaces, never a separate
+// reimplementation. nil when no commands are configured for this cwd (the
+// session advertises none), degrading fault-tolerantly exactly like
+// buildSessionModes/buildSessionLLMs do on an empty/failed listing rather
+// than refusing the session open.
+func buildSessionCommands(ctx context.Context, cfg *config.Config) *SessionCommands {
+	res, err := ListCommands(ctx, cfg, ListCommandsRequest{})
+	if err != nil {
+		clidiag.Warn("ctxloom", "acp agent: listing commands for available_commands_update: %v", err)
+		return nil
+	}
+	if len(res.Commands) == 0 {
+		return nil
+	}
+	names := make(map[string]bool, len(res.Commands))
+	out := &SessionCommands{Available: make([]CommandInfo, 0, len(res.Commands))}
+	for _, c := range res.Commands {
+		names[c.Name] = true
+		out.Available = append(out.Available, CommandInfo{Name: c.Name, Description: c.Description})
+	}
+	out.Resolve = func(rctx context.Context, name, rest string) (string, bool, error) {
+		if !names[name] {
+			return "", false, nil
+		}
+		got, gerr := GetCommand(rctx, cfg, GetCommandRequest{Name: name})
+		if gerr != nil {
+			return "", true, gerr
+		}
+		text := got.Content
+		if rest != "" {
+			text = text + "\n\n" + rest
+		}
+		return text, true, nil
+	}
+	return out
 }
 
 // engineSessionFindingsError renders the strictness findings since mark as an

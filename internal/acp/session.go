@@ -62,15 +62,33 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		pendingPerm: make(map[string]chan agent.PermissionAnswer),
 		clock:       b.clock(),
 	}
+	// B5 (gap G14): req.Env[fsUpstreamEnvVar] is set ONLY on the fully
+	// unisolated HOST axis (see operations.OpenEngineSession's gate, and
+	// operations.OpenRequest.FsUpstreamAddr's doc for the full rule) — when
+	// present, handleFsRead/handleFsWrite chain to the connected editor
+	// instead of local disk. A dial failure degrades to local disk (warn,
+	// continue) rather than failing the whole conversation: this is an
+	// upstream-truth OPTIMIZATION, not a hard requirement to run at all.
+	if addr := req.Env[fsUpstreamEnvVar]; addr != "" {
+		if fc, ferr := dialFsUpstream(ctx, addr); ferr != nil {
+			warnf("acp: fs-upstream dial %q failed, serving fs/* from local disk for this conversation: %v", addr, ferr)
+		} else {
+			sess.fsUpstream = fc
+		}
+	}
 	conn := jsonrpc.NewConn(ctx, tr.stdout, tr.stdin, jsonrpc.CloserFunc(tr.close), sess)
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
 	// transport (unblocking a parked reader), then waits for the read loop to exit
-	// so nothing races the deferred close(out).
+	// so nothing races the deferred close(out) — and (B5) the fs-upstream link,
+	// when one was dialed, alongside it.
 	teardown := func() {
 		cancel()
 		_ = conn.Close()
 		<-conn.Done()
+		if sess.fsUpstream != nil {
+			_ = sess.fsUpstream.Close()
+		}
 	}
 
 	sessionID, caps, engineConfigOptions, mcpDropped, err := b.setup(ctx, conn, req)
@@ -675,6 +693,18 @@ type chatSession struct {
 	infoModel  string           // model ctxloom's own agent named in its session-info extension
 	infoWindow int              // context window from ctxloom's own session-info extension
 
+	// fsUpstream, when non-nil, is this conversation's local fs reach-back
+	// link to the connected editor (B5, gap G14) — handleFsRead/
+	// handleFsWrite relay through it instead of reading/writing local disk.
+	// nil is the overwhelmingly common case: every launch path OTHER than
+	// an ACP-hosted, fully-unisolated (host axis) session — interactive pty,
+	// `run --structured`, oneshot Execute, and any WORKTREE- or
+	// CONTAINER-isolated ACP session — leaves this nil and serves local
+	// disk exactly as before this field existed. Set once in Chat, before
+	// conn's read loop starts (handleFsRead/Write only ever run on that read
+	// loop), so it needs no lock.
+	fsUpstream *jsonrpc.Conn
+
 	// engineConfigOptions is CO1's client-role passthrough READ half: the
 	// connected engine's own SessionConfigOption entries (session/new or
 	// session/load's configOptions — see setup's doc comment), captured
@@ -930,12 +960,36 @@ func (s *chatSession) inputClosed() {
 	}
 }
 
-// handleFsRead serves fs/read_text_file from the local filesystem, honoring the
-// optional 1-based line offset and line limit.
+// handleFsRead serves fs/read_text_file (B5, gap G14 — THE ONE RULE: fs
+// follows the engine's authoritative workspace):
+//
+//   - HOST axis, fs-upstream dialed (s.fsUpstream != nil): the connected
+//     EDITOR is authoritative — chained upstream so an unsaved buffer's live
+//     content answers instead of whatever is (or isn't yet) on disk. This is
+//     the ONLY branch this slice adds; the other two are the PRE-EXISTING
+//     local-disk read, now with the axis reasoning made explicit:
+//   - WORKTREE axis: req.Path arrives already rooted at the worktree
+//     (the engine's own cwd — see OpenEngineSession's workDir), so
+//     os.ReadFile below reads the WORKTREE's real content. Chaining to
+//     the editor here would be WRONG — its buffers describe the MAIN
+//     checkout, a different tree entirely.
+//   - CONTAINER axis: ISO1's same-path mount means req.Path is ALSO valid
+//     on this host filesystem (this driver always runs on the host —
+//     only the ENGINE's own subprocess is containerized), so local disk
+//     is already correct.
+//
+// Honors the optional 1-based line offset and line limit either way.
 func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.ReadTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
+	}
+	if s.fsUpstream != nil {
+		var resp api.ReadTextFileResponse
+		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsReadTextFile, req, &resp); err != nil {
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
+		}
+		return resp, nil
 	}
 	data, err := os.ReadFile(req.Path)
 	if err != nil {
@@ -944,15 +998,26 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	return api.ReadTextFileResponse{Content: sliceLines(string(data), req.Line, req.Limit)}, nil
 }
 
-// handleFsWrite serves fs/write_text_file to the local filesystem. It returns
-// api.WriteTextFileResponse{} (an empty JSON OBJECT) on success — the spec's
-// WriteTextFileResponse is `"type":"object"` with no null alternative (L0
-// checklist A1); a bare `nil` here used to render as literal JSON `null` via
+// handleFsWrite serves fs/write_text_file under the SAME axis rule as
+// handleFsRead (see its doc): chained to the editor when s.fsUpstream is
+// set (host axis — the editor's buffer is authoritative for what gets
+// written back to it too), local disk otherwise (worktree/container axes,
+// unchanged). It returns api.WriteTextFileResponse{} (an empty JSON OBJECT)
+// on success either way — the spec's WriteTextFileResponse is
+// `"type":"object"` with no null alternative (L0 checklist A1); a bare
+// `nil` here used to render as literal JSON `null` via
 // jsonrpc.marshalResult, which is schema-invalid.
 func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
+	}
+	if s.fsUpstream != nil {
+		var resp api.WriteTextFileResponse
+		if err := s.fsUpstream.Call(s.ctx, api.ClientMethodFsWriteTextFile, req, &resp); err != nil {
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
+		}
+		return api.WriteTextFileResponse{}, nil
 	}
 	if err := os.WriteFile(req.Path, []byte(req.Content), 0o644); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}

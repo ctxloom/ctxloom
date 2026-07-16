@@ -60,6 +60,52 @@ type EngineChat struct {
 	// ctx (the session's own lifetime) ends; the caller (acpagent's
 	// pushChildUpdates) owns calling cancel exactly once.
 	WatchChildren func(ctx context.Context) (<-chan ChildUpdate, func())
+	// Commands surfaces ctxloom's OWN command system (B4, gap G5) as ACP's
+	// available_commands_update — nil when the cwd has no commands
+	// configured (the session advertises none). See SessionCommands's doc
+	// for how this differs from IR3's engine-side passthrough.
+	Commands *SessionCommands
+}
+
+// SessionCommands surfaces ctxloom's OWN command system (bundle "commands" —
+// internal/operations/commands.go's ListCommands/GetCommand, the same surface
+// `ctxloom run --command <name>` and the MCP commands resource already
+// expose) as ACP's available_commands_update (B4, gap G5): an editor driving
+// `ctxloom acp` sees ctxloom's REAL commands in its command palette.
+//
+// This is deliberately separate from IR3's engine-side passthrough
+// (ChatEvent.Raw forwarding a connected ENGINE's own available_commands_update
+// verbatim — internal/acp/mapping.go's rawOnlyEvent / internal/acpagent/
+// mapping.go's rawOnlyUpdates allowlist): that surfaces the underlying
+// engine's commands (e.g. claude-code-acp's own slash commands, if it has
+// any); THIS surfaces ctxloom's, in ctxloom's own agent role. A session can
+// legitimately advertise both — they are not alternatives.
+type SessionCommands struct {
+	// Available lists ctxloom's own commands as of session open. nil/empty
+	// means none configured.
+	Available []CommandInfo
+	// Resolve expands a recognized invocation into the text to actually send
+	// the engine: name is matched EXACTLY against Available (never a prefix
+	// or fuzzy match — an unmatched name is not this codebase's business to
+	// guess at); rest is the free text the user typed after the command name
+	// (ACP's AvailableCommandInput.Unstructured — "all text typed after the
+	// command name"). ok is false when name does not match a known command —
+	// the caller MUST leave the original prompt text untouched in that case:
+	// most "/word ..." prompt text is just a user message that happens to
+	// start with a slash (a file path, a fraction, casual punctuation), NOT a
+	// command invocation, and misinterpreting it would silently corrupt the
+	// user's own message — exactly the silent-no-op-adjacent failure this
+	// codebase does not tolerate. A non-nil err means name DID match but
+	// resolving its content failed (e.g. the bundle backing it disappeared
+	// mid-session) — the caller surfaces that loudly rather than silently
+	// sending the raw slash text through.
+	Resolve func(ctx context.Context, name, rest string) (text string, ok bool, err error)
+}
+
+// CommandInfo is one of ctxloom's own commands, advertised to an ACP editor.
+type CommandInfo struct {
+	Name        string
+	Description string
 }
 
 // SessionLLMs advertises the ctxloom LLM configs available to a session and
@@ -114,7 +160,36 @@ type OpenRequest struct {
 	// ResumeHarp names a recorded ctxloom session to resume (session/load):
 	// the opener replays its history and primes the fresh engine with it.
 	ResumeHarp string
+	// FsUpstreamAddr, when non-empty, is the address of a local unix socket
+	// the ACP AGENT role stood up so this session's engine conversation CAN
+	// chain fs/read_text_file and fs/write_text_file upstream to the
+	// connected editor, instead of local disk (B5, gap G14). "" means no
+	// such upstream exists (the connected editor never declared the fs
+	// capability, or this OpenRequest isn't coming from an ACP-hosted
+	// session at all — e.g. `run --structured`/oneshot Execute never set
+	// this field, and both keep reading local disk exactly as before this
+	// field existed).
+	//
+	// OpenEngineSession forwards this into the engine's env (under
+	// FsUpstreamEnvVar) ONLY when the RESOLVED axes are BOTH the fully
+	// unisolated host case — see its doc comment for exactly where that gate
+	// lives and why: a worktree- or container-bound session must never
+	// chain (the editor's buffers describe a DIFFERENT tree in the worktree
+	// case; container's same-path mount already makes local serving
+	// correct) — see internal/acp/session.go's handleFsRead for the
+	// consuming half of this same rule.
+	FsUpstreamAddr string
 }
+
+// FsUpstreamEnvVar names the engine-env variable OpenEngineSession uses to
+// forward OpenRequest.FsUpstreamAddr to the engine conversation (B5, gap
+// G14). internal/acp/session.go mirrors this EXACT string literal rather
+// than importing this package (operations sits above internal/acp in the
+// import graph — the ACP client driver must not import back up to it,
+// mirroring how agent.RuntimeContainer/isolation.RuntimeContainer are kept
+// as two literal copies of the same string for the identical reason — see
+// that const's doc in internal/shared/agent/chat.go).
+const FsUpstreamEnvVar = "CTXLOOM_ACP_FS_UPSTREAM"
 
 // ChildUpdateKind names what a ChildUpdate reports.
 type ChildUpdateKind string

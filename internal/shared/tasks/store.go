@@ -39,6 +39,14 @@ func (s *Store) List(statuses []string, term string) ([]Task, error) {
 	return s.log.list(statuses, term)
 }
 
+// ListWithTagQuery is List with an additional postfix tag-query filter (see
+// pkg/tagquery for the grammar, e.g. "urgent/release/and"). An empty
+// tagQuery behaves exactly like List. A malformed tagQuery is returned as an
+// error rather than a silently empty or unfiltered result.
+func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {
+	return s.log.listWithTagQuery(statuses, term, tagQuery)
+}
+
 // Add appends a new task with an auto-generated unique harp ID. Empty
 // status defaults to StatusToDo. Returns the persisted task.
 func (s *Store) Add(text, status string) (Task, error) {
@@ -52,6 +60,32 @@ func (s *Store) AddWithTrigger(text, status, trigger string) (Task, error) {
 		return Task{}, err
 	}
 	return s.log.add(text, status, trigger)
+}
+
+// AddWithTags is AddWithTrigger with an initial tag set stamped on the same
+// `add` event, so a task's creation and its starting tags land as one atomic
+// log line rather than an add followed by a separate tag event.
+func (s *Store) AddWithTags(text, status, trigger string, tags ...string) (Task, error) {
+	if err := ValidateStatusTrigger(status, trigger); err != nil {
+		return Task{}, err
+	}
+	return s.log.addWithTags(text, status, trigger, tags)
+}
+
+// AddTags unions tags onto an existing task's tag set (append opTag),
+// attributing the change to the store's session. Duplicate or
+// already-present tags are no-ops; at least one tag is required. Errors if
+// the harp ID isn't present.
+func (s *Store) AddTags(harpID string, tags ...string) (Task, error) {
+	return s.log.addTags(harpID, tags)
+}
+
+// RemoveTags subtracts tags from an existing task's tag set (append
+// opUntag), attributing the change to the store's session. Removing an
+// absent tag is a no-op for that tag; at least one tag is required. Errors
+// if the harp ID isn't present.
+func (s *Store) RemoveTags(harpID string, tags ...string) (Task, error) {
+	return s.log.removeTags(harpID, tags)
 }
 
 // Remove tombstones the task with harpID and returns the removed task. Errors

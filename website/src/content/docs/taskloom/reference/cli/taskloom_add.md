@@ -18,9 +18,10 @@ taskloom add <text> [flags]
 ### Options
 
 ```
-  -h, --help             help for add
-      --status string    initial status (default: "To Do")
-      --trigger string   revive condition for a Deferred task (required when --status Deferred)
+  -h, --help              help for add
+      --status string     initial status (default: "To Do")
+      --tag stringArray   flat tag to set at creation (repeatable)
+      --trigger string    revive condition for a Deferred task (required when --status Deferred)
 ```
 
 ### Options inherited from parent commands

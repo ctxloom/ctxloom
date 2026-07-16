@@ -95,11 +95,23 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 // with a summary. Completed (Done/Archived) tasks are excluded by default;
 // includeDone opts them back in, as does naming a status explicitly.
 func ListTasks(tc TaskContext, statuses []string, term string, includeDone, includeSummary bool) (*TaskListResult, error) {
+	return listTasks(tc, statuses, term, "", includeDone, includeSummary)
+}
+
+// ListTasksWithTagQuery is ListTasks with an additional postfix tag-query
+// filter (see pkg/tagquery for the grammar, e.g. "urgent/release/and"). An
+// empty tagQuery behaves exactly like ListTasks. A malformed tagQuery
+// surfaces as an error — never a silently empty or unfiltered result.
+func ListTasksWithTagQuery(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool) (*TaskListResult, error) {
+	return listTasks(tc, statuses, term, tagQuery, includeDone, includeSummary)
+}
+
+func listTasks(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool) (*TaskListResult, error) {
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
 	}
-	list, err := store.List(statuses, term)
+	list, err := store.ListWithTagQuery(statuses, term, tagQuery)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -141,6 +153,48 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 	task, err := store.AddWithTrigger(text, status, trigger)
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
+	}
+	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// AddTaskWithTags is AddTask with an initial tag set stamped on the same
+// `add` event.
+func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
+	store, proj, warning, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	task, err := store.AddWithTags(text, status, trigger, tags...)
+	if err != nil {
+		return nil, fmt.Errorf("add task: %w", err)
+	}
+	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// TagTask adds and/or removes tags on an existing task in one call,
+// attributing the change to the acting session. At least one of add/remove
+// must be non-empty. Add is applied before remove, so a tag named in both
+// lists ends up removed.
+func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, error) {
+	if len(add) == 0 && len(remove) == 0 {
+		return nil, fmt.Errorf("at least one tag to add or remove is required")
+	}
+	store, proj, warning, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	var task tasks.Task
+	if len(add) > 0 {
+		task, err = store.AddTags(harpID, add...)
+		if err != nil {
+			return nil, fmt.Errorf("add tags: %w", err)
+		}
+	}
+	if len(remove) > 0 {
+		task, err = store.RemoveTags(harpID, remove...)
+		if err != nil {
+			return nil, fmt.Errorf("remove tags: %w", err)
+		}
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
 }

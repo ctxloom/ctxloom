@@ -34,7 +34,7 @@ of precedence. Agents reach the same store via the MCP tools served by
 * [taskloom add](/taskloom/reference/cli/taskloom_add/)	 - Add a new task
 * [taskloom completion](/taskloom/reference/cli/taskloom_completion/)	 - Generate the autocompletion script for the specified shell
 * [taskloom edit](/taskloom/reference/cli/taskloom_edit/)	 - Replace a task's text in place (full new text)
-* [taskloom list](/taskloom/reference/cli/taskloom_list/)	 - List tasks, optionally filtered by status or term
+* [taskloom list](/taskloom/reference/cli/taskloom_list/)	 - List tasks, optionally filtered by status, term, or tag query
 * [taskloom loadout](/taskloom/reference/cli/taskloom_loadout/)	 - Print taskloom's ctxloom loadout — the bundle content taskloom contributes to a session
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends
 * [taskloom mcp](/taskloom/reference/cli/taskloom_mcp/)	 - Serve the task tools over MCP on stdio
@@ -43,5 +43,6 @@ of precedence. Agents reach the same store via the MCP tools served by
 * [taskloom status](/taskloom/reference/cli/taskloom_status/)	 - Change the status of a task
 * [taskloom statuses](/taskloom/reference/cli/taskloom_statuses/)	 - List the task status taxonomy (name, order, terminal, requires_trigger)
 * [taskloom summary](/taskloom/reference/cli/taskloom_summary/)	 - Show per-status counts and active in-progress tasks
+* [taskloom tag](/taskloom/reference/cli/taskloom_tag/)	 - Add and/or remove flat tags on a task
 * [taskloom version](/taskloom/reference/cli/taskloom_version/)	 - Print the taskloom version
 

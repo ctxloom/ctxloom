@@ -8,9 +8,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
 // Default status names. Hardcoded in v1; revisit if user-defined statuses
@@ -90,6 +93,12 @@ type Task struct {
 	// OriginSession is the harp of the session that created the task, from the
 	// `add` event; empty for tasks added outside a session.
 	OriginSession string `json:"origin_session,omitempty"`
+
+	// Tags is the task's current flat tag set, derived by folding add/tag/untag
+	// events (never persisted as a snapshot). Always kept sorted for
+	// deterministic output across `taskloom list --json` and MCP. Not part of
+	// TextHash — tagging a task never changes its text identity.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // Summary holds counts per status and the harp IDs currently in-progress.
@@ -125,13 +134,26 @@ func uniqueHarpIDFromSet(used map[string]struct{}) string {
 	return harp.UniqueFrom(used, harp.GenerateShortName)
 }
 
-func filterTasks(all []Task, statuses []string, term string) []Task {
+// filterTasks applies status/term/tag-query filters to a task list. An empty
+// tagQuery applies no tag filter; a non-empty one is parsed once (via
+// pkg/tagquery) and evaluated per task. A malformed tagQuery is returned as
+// an error — never silently degraded to an empty or unfiltered result (see
+// CLAUDE.md fail-loud philosophy).
+func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, error) {
 	var statusSet map[string]bool
 	if len(statuses) > 0 {
 		statusSet = make(map[string]bool, len(statuses))
 		for _, s := range statuses {
 			statusSet[s] = true
 		}
+	}
+	var expr *tagquery.Expr
+	if strings.TrimSpace(tagQuery) != "" {
+		e, err := tagquery.Parse(tagQuery)
+		if err != nil {
+			return nil, fmt.Errorf("tag query %q: %w", tagQuery, err)
+		}
+		expr = &e
 	}
 	termLower := strings.ToLower(strings.TrimSpace(term))
 	out := make([]Task, 0, len(all))
@@ -142,7 +164,84 @@ func filterTasks(all []Task, statuses []string, term string) []Task {
 		if termLower != "" && !strings.Contains(strings.ToLower(t.Text), termLower) {
 			continue
 		}
+		if expr != nil && !expr.Matches(taskHasTag(t)) {
+			continue
+		}
 		out = append(out, t)
+	}
+	return out, nil
+}
+
+// taskHasTag returns a tagquery-shaped "has this tag" predicate for t. Tags
+// are always stored sorted+deduped, so a linear scan is ample for the small
+// per-task tag sets this system expects.
+func taskHasTag(t Task) func(tag string) bool {
+	return func(tag string) bool {
+		for _, has := range t.Tags {
+			if has == tag {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// normalizeTags trims, drops empties, dedupes, and sorts tags for
+// deterministic storage and output. Applied on every write path (add/tag)
+// and never trusted from raw event input.
+func normalizeTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// unionTags returns the normalized union of base and add — the fold rule for
+// a `tag` event. Idempotent: unioning an already-present tag is a no-op.
+func unionTags(base, add []string) []string {
+	merged := make([]string, 0, len(base)+len(add))
+	merged = append(merged, base...)
+	merged = append(merged, add...)
+	return normalizeTags(merged)
+}
+
+// subtractTags returns base with every tag in remove taken out — the fold
+// rule for an `untag` event. Removing an absent tag is a no-op; base is
+// assumed already normalized, so the result stays sorted.
+func subtractTags(base, remove []string) []string {
+	if len(base) == 0 || len(remove) == 0 {
+		return base
+	}
+	removeSet := make(map[string]struct{}, len(remove))
+	for _, t := range remove {
+		removeSet[strings.TrimSpace(t)] = struct{}{}
+	}
+	out := make([]string, 0, len(base))
+	for _, t := range base {
+		if _, drop := removeSet[t]; drop {
+			continue
+		}
+		out = append(out, t)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

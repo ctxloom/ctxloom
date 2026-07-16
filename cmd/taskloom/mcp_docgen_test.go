@@ -37,13 +37,13 @@ func TestNewMCPServerRegistersTaskTools(t *testing.T) {
 			t.Errorf("tool %q has no description — the reference page would render a blank entry", tool.Name)
 		}
 	}
-	for _, want := range []string{"task_list", "task_add", "task_set_status", "task_edit"} {
+	for _, want := range []string{"task_list", "task_add", "task_set_status", "task_edit", "task_tag"} {
 		if !got[want] {
 			t.Errorf("tool %q not registered", want)
 		}
 	}
-	if len(res.Tools) != 4 {
-		t.Errorf("registered %d tools, want 4 — add the new tool to this list and regenerate the docs", len(res.Tools))
+	if len(res.Tools) != 5 {
+		t.Errorf("registered %d tools, want 5 — add the new tool to this list and regenerate the docs", len(res.Tools))
 	}
 
 	// The server's instructions are the source of truth for the reference

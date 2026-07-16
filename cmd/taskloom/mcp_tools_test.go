@@ -117,3 +117,88 @@ func TestHandleTaskEdit_ReplacesText(t *testing.T) {
 	assert.Equal(t, "new text", edit.Task.Text)
 	assert.Equal(t, add.Task.HarpID, edit.Task.HarpID, "identity is stable across an edit")
 }
+
+func TestHandleTaskAdd_SetsInitialTags(t *testing.T) {
+	withProjectDir(t)
+
+	_, res, err := handleTaskAdd(context.Background(), nil, taskAddInput{
+		Text: "write the storage layer",
+		Tags: []string{"beta", "alpha", "beta"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "beta"}, res.Task.Tags, "tags come back sorted+deduped")
+}
+
+func TestHandleTaskTag_AddsAndRemoves(t *testing.T) {
+	withProjectDir(t)
+
+	_, add, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+	require.NoError(t, err)
+
+	_, tagged, err := handleTaskTag(context.Background(), nil, taskTagInput{
+		HarpID: add.Task.HarpID,
+		Add:    []string{"urgent", "release"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"release", "urgent"}, tagged.Task.Tags)
+
+	_, untagged, err := handleTaskTag(context.Background(), nil, taskTagInput{
+		HarpID: add.Task.HarpID,
+		Remove: []string{"urgent"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"release"}, untagged.Task.Tags)
+}
+
+func TestHandleTaskTag_UnknownHarpIDErrors(t *testing.T) {
+	withProjectDir(t)
+
+	_, _, err := handleTaskTag(context.Background(), nil, taskTagInput{
+		HarpID: "no-such-id",
+		Add:    []string{"urgent"},
+	})
+	assert.Error(t, err)
+}
+
+func TestHandleTaskTag_RequiresAddOrRemove(t *testing.T) {
+	withProjectDir(t)
+
+	_, add, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "ship it"})
+	require.NoError(t, err)
+
+	_, _, err = handleTaskTag(context.Background(), nil, taskTagInput{HarpID: add.Task.HarpID})
+	assert.Error(t, err, "task_tag with neither add nor remove must not silently no-op")
+}
+
+func TestHandleTaskList_FiltersByTagQuery(t *testing.T) {
+	withProjectDir(t)
+
+	_, urgentRelease, err := handleTaskAdd(context.Background(), nil, taskAddInput{
+		Text: "urgent release work",
+		Tags: []string{"urgent", "release"},
+	})
+	require.NoError(t, err)
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "just urgent", Tags: []string{"urgent"}})
+	require.NoError(t, err)
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "no tags"})
+	require.NoError(t, err)
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{TagQuery: "urgent/release/and"})
+	require.NoError(t, err)
+	require.Len(t, res.Tasks, 1)
+	assert.Equal(t, urgentRelease.Task.HarpID, res.Tasks[0].HarpID)
+
+	_, res, err = handleTaskList(context.Background(), nil, taskListInput{TagQuery: "urgent"})
+	require.NoError(t, err)
+	assert.Len(t, res.Tasks, 2)
+}
+
+func TestHandleTaskList_MalformedTagQueryErrors(t *testing.T) {
+	withProjectDir(t)
+
+	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "a task"})
+	require.NoError(t, err)
+
+	_, _, err = handleTaskList(context.Background(), nil, taskListInput{TagQuery: "and"})
+	assert.Error(t, err, "a malformed tag query must fail loud, never silently return an empty/all result")
+}

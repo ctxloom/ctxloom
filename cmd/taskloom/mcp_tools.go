@@ -9,13 +9,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
-// A tight 4-tool surface: list, add, set_status, edit. Search rides on
+// A tight 5-tool surface: list, add, set_status, edit, tag. Search rides on
 // task_list's term filter; summary on its include_summary flag — saving the
 // tool-tax of extra MCP entries.
 
 type taskListInput struct {
 	Statuses         []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = active tasks only (completed tasks are hidden unless include_completed is set or a completed status is named here)."`
 	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
+	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter, e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". Empty = no tag filter."`
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include completed (Done/Archived) tasks, which are hidden by default."`
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones."`
 }
@@ -29,9 +30,10 @@ type taskListResult struct {
 }
 
 type taskAddInput struct {
-	Text    string `json:"text" jsonschema:"Task text. Required, trimmed."`
-	Status  string `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
-	Trigger string `json:"trigger,omitempty" jsonschema:"The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise."`
+	Text    string   `json:"text" jsonschema:"Task text. Required, trimmed."`
+	Status  string   `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
+	Trigger string   `json:"trigger,omitempty" jsonschema:"The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise."`
+	Tags    []string `json:"tags,omitempty" jsonschema:"Optional flat tags to set on the task at creation (e.g. [\"urgent\", \"release\"]). Add more later with task_tag."`
 }
 
 type taskAddResult struct {
@@ -56,6 +58,17 @@ type taskEditInput struct {
 }
 
 type taskEditResult struct {
+	Path string     `json:"path"`
+	Task tasks.Task `json:"task"`
+}
+
+type taskTagInput struct {
+	HarpID string   `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
+	Add    []string `json:"add,omitempty" jsonschema:"Tags to add (union onto the task's current tag set). Duplicates and already-present tags are no-ops."`
+	Remove []string `json:"remove,omitempty" jsonschema:"Tags to remove (subtracted from the task's current tag set). Removing an absent tag is a no-op. At least one of add/remove is required; a tag named in both ends up removed."`
+}
+
+type taskTagResult struct {
 	Path string     `json:"path"`
 	Task tasks.Task `json:"task"`
 }
@@ -88,10 +101,17 @@ func registerTaskTools(server *mcp.Server) {
 			Description: "Replace a task's text in place, keyed by its harp ID. Pass the full new text (the whole text is replaced, not patched); status and any Deferred trigger are left unchanged.",
 		},
 		handleTaskEdit)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "task_tag",
+			Description: "Add and/or remove flat tags on a task, keyed by its harp ID. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). Filter task_list with tag_query using the resulting tags.",
+		},
+		handleTaskTag)
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
-	res, err := operations.ListTasks(taskContext(), in.Statuses, in.Term, in.IncludeCompleted, in.IncludeSummary)
+	res, err := operations.ListTasksWithTagQuery(taskContext(), in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,7 +127,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 }
 
 func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	res, err := operations.AddTask(taskContext(), in.Text, in.Status, in.Trigger)
+	res, err := operations.AddTaskWithTags(taskContext(), in.Text, in.Status, in.Trigger, in.Tags)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,4 +151,13 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 	}
 	warnTask(res.Warning)
 	return nil, &taskEditResult{Path: res.Path, Task: res.Task}, nil
+}
+
+func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (*mcp.CallToolResult, *taskTagResult, error) {
+	res, err := operations.TagTask(taskContext(), in.HarpID, in.Add, in.Remove)
+	if err != nil {
+		return nil, nil, err
+	}
+	warnTask(res.Warning)
+	return nil, &taskTagResult{Path: res.Path, Task: res.Task}, nil
 }

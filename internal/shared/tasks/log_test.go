@@ -45,6 +45,181 @@ func TestLogAddListRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLogAddWithTagsFoldsInitialTags pins the `add`-carries-tags path: a
+// task's creation and its starting tags land as one atomic log line, and the
+// fold surfaces them sorted+deduped.
+func TestLogAddWithTagsFoldsInitialTags(t *testing.T) {
+	s := newLog(t, "")
+	a, err := s.AddWithTags("write the storage layer", "", "", "beta", "alpha", "beta")
+	if err != nil {
+		t.Fatalf("add with tags: %v", err)
+	}
+	if len(a.Tags) != 2 || a.Tags[0] != "alpha" || a.Tags[1] != "beta" {
+		t.Fatalf("Tags = %v, want [alpha beta] (sorted, deduped)", a.Tags)
+	}
+
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Tags) != 2 || got[0].Tags[0] != "alpha" || got[0].Tags[1] != "beta" {
+		t.Fatalf("folded tags = %+v", got)
+	}
+}
+
+// TestLogAddTagsUnionsAndIsIdempotent covers the `tag` fold rule: it unions
+// onto the current set, and re-adding an already-present tag changes nothing.
+func TestLogAddTagsUnionsAndIsIdempotent(t *testing.T) {
+	s := newLog(t, "")
+	a, _ := s.Add("ship it", "")
+
+	got, err := s.AddTags(a.HarpID, "urgent")
+	if err != nil {
+		t.Fatalf("add tags: %v", err)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "urgent" {
+		t.Fatalf("Tags = %v, want [urgent]", got.Tags)
+	}
+
+	got, err = s.AddTags(a.HarpID, "release", "urgent")
+	if err != nil {
+		t.Fatalf("add tags 2: %v", err)
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "release" || got.Tags[1] != "urgent" {
+		t.Fatalf("Tags after union = %v, want [release urgent]", got.Tags)
+	}
+
+	// Idempotent: unioning the same tags again is a no-op on the tag set.
+	got, err = s.AddTags(a.HarpID, "urgent")
+	if err != nil {
+		t.Fatalf("add tags 3 (idempotent): %v", err)
+	}
+	if len(got.Tags) != 2 {
+		t.Fatalf("re-adding an existing tag should not duplicate: %v", got.Tags)
+	}
+}
+
+// TestLogRemoveTagsSubtractsAndAbsentIsNoop covers the `untag` fold rule:
+// subtraction from the current set, and removing a tag the task never had is
+// a no-op rather than an error.
+func TestLogRemoveTagsSubtractsAndAbsentIsNoop(t *testing.T) {
+	s := newLog(t, "")
+	a, err := s.AddWithTags("ship it", "", "", "urgent", "release")
+	if err != nil {
+		t.Fatalf("add with tags: %v", err)
+	}
+
+	got, err := s.RemoveTags(a.HarpID, "urgent")
+	if err != nil {
+		t.Fatalf("remove tags: %v", err)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "release" {
+		t.Fatalf("Tags after remove = %v, want [release]", got.Tags)
+	}
+
+	// Removing an absent tag is a no-op, not an error.
+	got, err = s.RemoveTags(a.HarpID, "nonexistent")
+	if err != nil {
+		t.Fatalf("remove absent tag should not error: %v", err)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "release" {
+		t.Fatalf("Tags after no-op remove = %v, want unchanged [release]", got.Tags)
+	}
+}
+
+func TestLogAddTagsUnknownHarpErrors(t *testing.T) {
+	s := newLog(t, "")
+	if _, err := s.AddTags("no-such-id", "urgent"); err == nil {
+		t.Fatal("expected error tagging an unknown task")
+	}
+	if _, err := s.RemoveTags("no-such-id", "urgent"); err == nil {
+		t.Fatal("expected error untagging an unknown task")
+	}
+}
+
+// TestLogAddTagsRequiresAtLeastOneTag pins the fail-loud contract: an empty
+// tag call is rejected outright rather than silently appending a no-op event.
+func TestLogAddTagsRequiresAtLeastOneTag(t *testing.T) {
+	s := newLog(t, "")
+	a, _ := s.Add("ship it", "")
+	if _, err := s.AddTags(a.HarpID); err == nil {
+		t.Fatal("expected error adding zero tags")
+	}
+	if _, err := s.RemoveTags(a.HarpID); err == nil {
+		t.Fatal("expected error removing zero tags")
+	}
+}
+
+// TestLogTagsSurviveReFold is the append-only proof at unit scale: tags
+// applied through one Store handle are visible when a SECOND Store handle
+// opens the same on-disk log and re-folds it from scratch — nothing but the
+// event stream carries the state.
+func TestLogTagsSurviveReFold(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	s1, err := OpenLog(path, "")
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	a, err := s1.AddWithTags("ship it", "", "", "urgent")
+	if err != nil {
+		t.Fatalf("add with tags: %v", err)
+	}
+	if _, err := s1.AddTags(a.HarpID, "release"); err != nil {
+		t.Fatalf("add tags: %v", err)
+	}
+	if _, err := s1.RemoveTags(a.HarpID, "urgent"); err != nil {
+		t.Fatalf("remove tags: %v", err)
+	}
+
+	s2, err := OpenLog(path, "")
+	if err != nil {
+		t.Fatalf("re-open log: %v", err)
+	}
+	got, err := s2.List(nil, "")
+	if err != nil {
+		t.Fatalf("list from fresh handle: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Tags) != 1 || got[0].Tags[0] != "release" {
+		t.Fatalf("re-folded tags = %+v, want just [release]", got)
+	}
+}
+
+// TestLogTaglessLogFoldsUnchanged is the no-regression proof: a log that
+// never carries a tag/untag event, nor an add with tags, folds to the exact
+// same task shape it did before tags existed (Tags empty/nil, everything
+// else untouched).
+func TestLogTaglessLogFoldsUnchanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"pre-tags task","status":"To Do","session":"swift-amber-falcon","ts":"2026-01-01T00:00:00Z"}
+{"op":"status","task":"alpha","status":"In Progress","ts":"2026-01-01T00:00:01Z"}
+{"op":"text","task":"alpha","text":"renamed","ts":"2026-01-01T00:00:02Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenLog(path, "")
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 task, got %d: %+v", len(got), got)
+	}
+	task := got[0]
+	if task.HarpID != "alpha" || task.Text != "renamed" || task.Status != StatusInProgress {
+		t.Fatalf("fold regressed: %+v", task)
+	}
+	if task.OriginSession != "swift-amber-falcon" {
+		t.Fatalf("origin session regressed: %q", task.OriginSession)
+	}
+	if len(task.Tags) != 0 {
+		t.Fatalf("a tag-less log must fold to an empty tag set, got %v", task.Tags)
+	}
+}
+
 func TestLogSetStatusLastWriteWins(t *testing.T) {
 	s := newLog(t, "")
 	a, _ := s.Add("ship it", "")

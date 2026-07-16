@@ -18,7 +18,15 @@ import (
 //	EntryTypeToolUse    → tool_call        (generated toolCallId, pushed per tool name)
 //	EntryTypeToolResult → tool_call_update (pops the matching open id; failed → status failed)
 //	EntryTypeUser       → (dropped — never echo the user's message back)
-//	EntryTypeSystem     → (dropped — structural, not conversation content)
+//	EntryTypeSystem     → agent_message_chunk (Q1 fallback: the IR has already
+//	                                           flattened structured content —
+//	                                           e.g. a plan's entries — into
+//	                                           e.Content by the time it reaches
+//	                                           here, see internal/acp/mapping.go's
+//	                                           mapPlan; there is no dedicated ACP
+//	                                           `plan` update to rebuild from a
+//	                                           string, so this at least makes the
+//	                                           content VISIBLE instead of vanishing)
 //	ChatSessionInfo     → session_info_update (model/mcp header; see sessionInfoUpdateWire)
 //	TurnMeta (Complete) → usage_update (context gauge + cost; see usageUpdateWire) then ends the turn
 
@@ -66,6 +74,14 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 				Rawoutput:  e.ToolOutput,
 			},
 		}}
+	case agent.EntryTypeSystem:
+		if e.Content == "" {
+			return nil
+		}
+		return []api.SessionUpdate{{
+			Type:              api.SessionUpdateTypeAgentMessageChunk,
+			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
+		}}
 	default:
 		return nil
 	}
@@ -73,8 +89,9 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 
 // replayEntry maps one RECORDED session entry onto session/update
 // notifications for session/load replay. Unlike the live mapping, user entries
-// ARE emitted (the spec's replay includes the user's messages); system entries
-// stay dropped (structural, not conversation content).
+// ARE emitted (the spec's replay includes the user's messages); everything else
+// (including system entries, per mapEvent's Q1 fallback above) replays exactly
+// as it was live mapped.
 func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 	if e.Type == agent.EntryTypeUser {
 		if e.Content == "" {

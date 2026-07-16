@@ -15,77 +15,239 @@ import (
 //
 //	EntryTypeAssistant  → agent_message_chunk
 //	EntryTypeThinking   → agent_thought_chunk
-//	EntryTypeToolUse    → tool_call        (generated toolCallId, pushed per tool name)
-//	EntryTypeToolResult → tool_call_update (pops the matching open id; failed → status failed)
+//	EntryTypeToolUse    → tool_call        (e.ToolCallID reused verbatim when the
+//	                                        producing backend supplied one — e.g.
+//	                                        internal/acp's ACP-native client
+//	                                        mapping — else a fresh id generated
+//	                                        and pushed per tool name exactly as
+//	                                        before; e.ToolKind/e.ToolLocations
+//	                                        carry through — IR2)
+//	EntryTypeToolResult → tool_call_update (e.ToolCallID, when present, targets
+//	                                        the SAME id directly instead of
+//	                                        popping a FIFO guess by tool name —
+//	                                        this is the fix for the confirmed
+//	                                        call-1/call-2 mispair risk: two
+//	                                        concurrent calls to the same tool
+//	                                        name used to risk pairing a result
+//	                                        with the WRONG call. e.ToolContent,
+//	                                        when present, rebuilds the
+//	                                        structured content collection
+//	                                        instead of only RawOutput text)
 //	EntryTypeUser       → (dropped — never echo the user's message back)
-//	EntryTypeSystem     → agent_message_chunk (Q1 fallback: the IR has already
-//	                                           flattened structured content —
-//	                                           e.g. a plan's entries — into
-//	                                           e.Content by the time it reaches
-//	                                           here, see internal/acp/mapping.go's
-//	                                           mapPlan; there is no dedicated ACP
-//	                                           `plan` update to rebuild from a
-//	                                           string, so this at least makes the
-//	                                           content VISIBLE instead of vanishing)
+//	EntryTypeSystem     → SystemKind discriminates the two producers (see
+//	                      agent.SessionSystemKind):
+//	                        SystemKindPlan   → a REAL ACP `plan` update, built
+//	                                           from e.Plan's structured entries
+//	                                           (the IR2 fix for the conformance
+//	                                           audit's headline finding — a
+//	                                           prior revision could only
+//	                                           forward the flattened text as an
+//	                                           agent_message_chunk, because the
+//	                                           IR had nowhere to keep the
+//	                                           structured entries; it does now)
+//	                        SystemKindNotice → agent_message_chunk (unchanged:
+//	                                           this is the delegated-turn-
+//	                                           failure notice path,
+//	                                           internal/operations/delegate.go,
+//	                                           which never carried structure to
+//	                                           begin with and isn't touched by
+//	                                           this slice)
 //	ChatSessionInfo     → session_info_update (model/mcp header; see sessionInfoUpdateWire)
 //	TurnMeta (Complete) → usage_update (context gauge + cost; see usageUpdateWire) then ends the turn
+//
+// IR3: when ev.Entry is nil but ev.Raw is set (a passthrough-only event, e.g.
+// available_commands_update/current_mode_update forwarded verbatim by
+// internal/acp/mapping.go), mapEvent re-decodes it straight into an
+// api.SessionUpdate and re-emits it — see rawOnlyUpdates. When ev.Entry IS
+// set and ev.Raw ALSO carries a `_meta` supplement, that meta is folded onto
+// the outbound update's own Meta field — see metaFromRaw.
 
 // mapEvent converts one chat event into 0..1 session updates, tracking
 // tool-call id pairing on the session.
 func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 	if ev.Entry == nil {
-		return nil
+		return rawOnlyUpdates(ev.Raw)
 	}
 	e := ev.Entry
+	meta := metaFromRaw(ev.Raw)
 	switch e.Type {
 	case agent.EntryTypeAssistant:
-		return []api.SessionUpdate{{
-			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
-		}}
+		u := &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content), Meta: meta}
+		return []api.SessionUpdate{{AgentMessageChunk: u}}
 	case agent.EntryTypeThinking:
-		return []api.SessionUpdate{{
-			AgentThoughtChunk: &api.SessionUpdateAgentThoughtChunk{Content: textBlock(e.Content)},
-		}}
+		u := &api.SessionUpdateAgentThoughtChunk{Content: textBlock(e.Content), Meta: meta}
+		return []api.SessionUpdate{{AgentThoughtChunk: u}}
 	case agent.EntryTypeToolUse:
-		id := sess.pushToolCall(e.ToolName)
+		id := sess.pushToolCall(e.ToolName, api.ToolCallId(e.ToolCallID))
 		return []api.SessionUpdate{{
 			ToolCall: &api.SessionUpdateToolCall{
 				ToolCallId: id,
 				Title:      e.ToolName,
 				Status:     api.ToolCallStatusInProgress,
 				RawInput:   rawValue(e.ToolInput),
+				Kind:       api.ToolKind(e.ToolKind),
+				Locations:  locationsFromIR(e.ToolLocations),
+				Meta:       meta,
 			},
 		}}
 	case agent.EntryTypeToolResult:
-		id := sess.popToolCall(e.ToolName)
+		id := sess.popToolCall(e.ToolName, api.ToolCallId(e.ToolCallID))
 		status := api.ToolCallStatusCompleted
 		if e.IsError {
 			status = api.ToolCallStatusFailed
 		}
-		return []api.SessionUpdate{{
-			ToolCallUpdate: &api.SessionToolCallUpdate{
-				ToolCallId: id,
-				Status:     &status,
-				RawOutput:  e.ToolOutput,
-			},
-		}}
+		u := &api.SessionToolCallUpdate{
+			ToolCallId: id,
+			Status:     &status,
+			RawOutput:  e.ToolOutput,
+			Locations:  locationsFromIR(e.ToolLocations),
+			Meta:       meta,
+		}
+		if e.ToolKind != "" {
+			k := api.ToolKind(e.ToolKind)
+			u.Kind = &k
+		}
+		if content := toolContentFromIR(e.ToolContent); content != nil {
+			u.Content = content
+		}
+		return []api.SessionUpdate{{ToolCallUpdate: u}}
 	case agent.EntryTypeSystem:
+		if e.SystemKind == agent.SystemKindPlan && len(e.Plan) > 0 {
+			return []api.SessionUpdate{{Plan: &api.SessionUpdatePlan{Entries: planEntriesFromIR(e.Plan), Meta: meta}}}
+		}
 		if e.Content == "" {
 			return nil
 		}
 		return []api.SessionUpdate{{
-			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content)},
+			AgentMessageChunk: &api.SessionUpdateAgentMessageChunk{Content: textBlock(e.Content), Meta: meta},
 		}}
 	default:
 		return nil
 	}
 }
 
+// rawOnlyUpdates re-decodes an IR3 passthrough-only ChatEvent.Raw straight
+// into an api.SessionUpdate (the SDK's own UnmarshalJSON dispatches on the
+// embedded "sessionUpdate" discriminator, so this round-trips exactly what
+// internal/acp/mapping.go's rawOnlyEvent marshaled) and re-emits it — but
+// ONLY when the decoded result is one of the allowlisted passthrough
+// variants. This re-checks the allowlist at the OUTBOUND boundary too
+// (defense in depth: this function trusts nothing about how Raw got here) —
+// a malformed or unexpected payload emits nothing rather than forwarding an
+// unvetted frame. Permissions cannot appear here even in principle:
+// session/request_permission is a request, not a session/update, so it has
+// no corresponding SessionUpdate variant to decode into.
+func rawOnlyUpdates(raw json.RawMessage) []api.SessionUpdate {
+	if len(raw) == 0 {
+		return nil
+	}
+	var u api.SessionUpdate
+	if err := json.Unmarshal(raw, &u); err != nil {
+		return nil
+	}
+	switch {
+	case u.AvailableCommandsUpdate != nil, u.CurrentModeUpdate != nil:
+		return []api.SessionUpdate{u}
+	default:
+		return nil
+	}
+}
+
+// metaFromRaw extracts the `_meta` object IR3 attached to an Entry-carrying
+// ChatEvent's Raw field (internal/acp/mapping.go's metaRaw envelope:
+// `{"_meta": ...}`), or nil when Raw is empty or carries no _meta. Any other
+// shape (e.g. a raw-only passthrough frame reaching here by mistake) also
+// decodes to nil rather than erroring — this is a best-effort supplement,
+// never load-bearing for the entry it rides alongside.
+func metaFromRaw(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m struct {
+		Meta map[string]any `json:"_meta"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil
+	}
+	return m.Meta
+}
+
+// locationsFromIR rebuilds ACP tool-call locations from the IR2 form.
+func locationsFromIR(locs []agent.ToolLocation) []api.ToolCallLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]api.ToolCallLocation, 0, len(locs))
+	for _, l := range locs {
+		loc := api.ToolCallLocation{Path: l.Path}
+		if l.Line != 0 {
+			line := l.Line
+			loc.Line = &line
+		}
+		out = append(out, loc)
+	}
+	return out
+}
+
+// toolContentFromIR rebuilds a tool call's structured content collection from
+// the IR2 form. Returns nil (not an empty slice) when content carries
+// nothing rebuildable, so the caller can tell "no structured content" from
+// "structured content that happens to be empty" and fall back to RawOutput.
+func toolContentFromIR(content []agent.ToolContentBlock) []api.ToolCallContent {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]api.ToolCallContent, 0, len(content))
+	for _, c := range content {
+		switch c.Kind {
+		case "diff":
+			d := &api.ToolCallContentDiff{Path: c.DiffPath, NewText: c.DiffNewText}
+			if c.DiffOldText != "" {
+				old := c.DiffOldText
+				d.OldText = &old
+			}
+			out = append(out, api.ToolCallContent{Diff: d})
+		case "terminal":
+			out = append(out, api.ToolCallContent{Terminal: &api.ToolCallContentTerminal{TerminalId: api.TerminalId(c.TerminalID)}})
+		case "content":
+			out = append(out, api.ToolCallContent{Content: &api.ToolCallContentContent{Content: textBlock(c.Text)}})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// planEntriesFromIR rebuilds ACP plan entries from the IR2 structured form.
+// Priority/Status are non-optional ACP enum fields (no omitempty — an empty
+// string would marshal as `""`, which no PlanEntryPriority/PlanEntryStatus
+// value is), so an entry that somehow arrived without one (every producer
+// today — internal/acp/mapping.go's mapPlan — always sets both, straight
+// from the engine's own real plan update; this is a safety net for a future
+// non-ACP producer) defaults to "medium"/"pending" rather than emitting an
+// invalid frame.
+func planEntriesFromIR(entries []agent.PlanEntry) []api.PlanEntry {
+	out := make([]api.PlanEntry, 0, len(entries))
+	for _, e := range entries {
+		priority := api.PlanEntryPriority(e.Priority)
+		if priority == "" {
+			priority = api.PlanEntryPriorityMedium
+		}
+		status := api.PlanEntryStatus(e.Status)
+		if status == "" {
+			status = api.PlanEntryStatusPending
+		}
+		out = append(out, api.PlanEntry{Content: e.Content, Priority: priority, Status: status})
+	}
+	return out
+}
+
 // replayEntry maps one RECORDED session entry onto session/update
 // notifications for session/load replay. Unlike the live mapping, user entries
 // ARE emitted (the spec's replay includes the user's messages); everything else
-// (including system entries, per mapEvent's Q1 fallback above) replays exactly
-// as it was live mapped.
+// (including system/plan entries, per mapEvent above) replays exactly as it
+// was live mapped.
 func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 	if e.Type == agent.EntryTypeUser {
 		if e.Content == "" {
@@ -99,10 +261,12 @@ func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 }
 
 // permissionRequestWire renders a forwarded engine permission request as the
-// outbound session/request_permission body. The referenced toolCall reuses the
-// most recent OPEN generated id for the same tool name — the engine announces
-// the tool_call just before asking permission for it — falling back to a fresh
-// id when none is open (a lone toolCallId is still valid ACP).
+// outbound session/request_permission body. The referenced toolCall targets
+// p.ToolCallID directly when the producing backend supplied one (IR2 — same
+// fix as tool_call/tool_call_update); otherwise it falls back to the most
+// recent OPEN generated id for the same tool name — the engine announces the
+// tool_call just before asking permission for it — or a fresh id when none is
+// open (a lone toolCallId is still valid ACP).
 //
 // L0 checklist A2: Options is built from make(..., 0, ...) rather than a
 // `var` (nil) slice, so a permission request with ZERO engine-supplied
@@ -113,7 +277,7 @@ func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
 func (sess *session) permissionRequestWire(p *agent.PermissionRequest) api.RequestPermissionRequest {
 	req := api.RequestPermissionRequest{
 		SessionId: sess.id,
-		ToolCall:  api.ToolCallUpdate{ToolCallId: sess.peekToolCall(p.ToolName)},
+		ToolCall:  api.ToolCallUpdate{ToolCallId: sess.peekToolCall(p.ToolName, api.ToolCallId(p.ToolCallID))},
 		Options:   make([]api.PermissionOption, 0, len(p.Options)),
 	}
 	if p.ToolName != "" {
@@ -133,43 +297,77 @@ func (sess *session) permissionRequestWire(p *agent.PermissionRequest) api.Reque
 	return req
 }
 
-// peekToolCall returns the NEWEST open call id for name without consuming it
-// (the result will pop it later), or a fresh id when none is open.
-func (sess *session) peekToolCall(name string) api.ToolCallId {
+// nextToolCallID mints a fresh generated toolCallId (the pre-IR2 fallback
+// scheme, unchanged): "call-N" from the session's monotonic counter. Callers
+// hold sess.mu.
+func (sess *session) nextToolCallID() api.ToolCallId {
+	sess.toolSeq++
+	return api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+}
+
+// peekToolCall returns want when the producing backend supplied an
+// engine-native id (IR2); otherwise the NEWEST open call id for name without
+// consuming it (the result will pop it later), or a fresh id when none is
+// open.
+func (sess *session) peekToolCall(name string, want api.ToolCallId) api.ToolCallId {
+	if want != "" {
+		return want
+	}
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if ids := sess.openCall[name]; len(ids) > 0 {
 		return ids[len(ids)-1]
 	}
-	sess.toolSeq++
-	return api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+	return sess.nextToolCallID()
 }
 
-// pushToolCall generates a fresh toolCallId and records it as the open call
-// for name, so the eventual result can target it.
-func (sess *session) pushToolCall(name string) api.ToolCallId {
+// pushToolCall records the open call for name so the eventual result can
+// target it, and returns the id to use: want, when the producing backend
+// supplied an engine-native one (IR2 — the fix for the same-name mispair
+// risk, since the matching tool_result will carry the SAME want and
+// popToolCall below honors it directly instead of guessing by FIFO order);
+// otherwise a freshly generated one, exactly as before this field existed.
+func (sess *session) pushToolCall(name string, want api.ToolCallId) api.ToolCallId {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
-	sess.toolSeq++
-	id := api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+	id := want
+	if id == "" {
+		id = sess.nextToolCallID()
+	}
 	sess.openCall[name] = append(sess.openCall[name], id)
 	return id
 }
 
-// popToolCall pairs a result with the OLDEST open call of the same tool name
-// (FIFO — engines report results in call order). An unmatched result gets a
-// fresh id: a lone tool_call_update is still valid ACP, and honesty beats
-// mis-pairing.
-func (sess *session) popToolCall(name string) api.ToolCallId {
+// popToolCall pairs a result with its call. When want is set (IR2: the
+// producing backend supplied the SAME engine-native id on both the tool_call
+// and its result), that id is honored DIRECTLY — no name-based guessing at
+// all — and dropped from the open-call bookkeeping if still present there
+// (so a later permission peek doesn't see a stale open id). Otherwise it
+// falls back to the OLDEST open call of the same tool name (FIFO — engines
+// report results in call order): the pre-IR2 behavior, kept for backends
+// that carry no native id. An unmatched result with no open call of that name
+// gets a fresh id: a lone tool_call_update is still valid ACP, and honesty
+// beats mis-pairing.
+func (sess *session) popToolCall(name string, want api.ToolCallId) api.ToolCallId {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
+	if want != "" {
+		if ids := sess.openCall[name]; len(ids) > 0 {
+			for i, id := range ids {
+				if id == want {
+					sess.openCall[name] = append(ids[:i:i], ids[i+1:]...)
+					break
+				}
+			}
+		}
+		return want
+	}
 	if ids := sess.openCall[name]; len(ids) > 0 {
 		id := ids[0]
 		sess.openCall[name] = ids[1:]
 		return id
 	}
-	sess.toolSeq++
-	return api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+	return sess.nextToolCallID()
 }
 
 // sessionInfoUpdateWire projects one ChatSessionInfo (the engine's one-time

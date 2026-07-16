@@ -54,6 +54,20 @@ type ChatRequest struct {
 	// loudly rather than silently starting a fresh session under the old
 	// id's name — a delegated child's resumed context is load-bearing.
 	ResumeSessionID string
+	// TranscriptRawPolicy names the transcript.raw capture policy this chat's
+	// canonical-transcript Recorder should honor (transcript.RawPolicy: off |
+	// lossy-only | all — see internal/transcript/recorder.go). Empty means
+	// "use the default" (lossy-only). This is a CAPTURE-layer setting riding
+	// ChatRequest purely as a convenient existing carrier from host to the
+	// point a Recorder gets constructed (internal/lm/grpc/chat.go,
+	// internal/agentcoord/coord/enginehost.go) — it has nothing to do with
+	// the chat itself and a backend implementation never reads it. NOTE:
+	// nothing yet POPULATES this from user config (that CLI-boundary wiring
+	// — reading config.Config's transcript.raw key at run_structured/oneshot/
+	// acp call sites — is deferred); every current caller leaves it empty, so
+	// every current transcript keeps recording under the default policy
+	// exactly as before this field existed.
+	TranscriptRawPolicy string
 }
 
 // ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
@@ -74,6 +88,12 @@ type ChatMessage struct {
 	Text       string
 	Permission *PermissionAnswer
 	CancelTurn bool
+	// ContentBlocks carries structured content blocks for a richer turn than
+	// plain Text (e.g. multiple blocks). Additive: a caller that only sends
+	// Text need not change, and no backend consumes this yet — populating
+	// non-text blocks (image/audio) is multimodal intake, a later slice
+	// (B2). It exists now so the wire can carry them ahead of that slice.
+	ContentBlocks []ContentBlock
 }
 
 // ChatEvent is one normalized outbound event. The variants are distinct in
@@ -94,6 +114,37 @@ type ChatEvent struct {
 	Complete   *TurnMeta
 	Session    *ChatSessionInfo
 	Permission *PermissionRequest
+
+	// Raw is IR3's side channel: the ORIGINAL ACP session/update frame (or
+	// just its `_meta` object), verbatim, for the CURATED ALLOWLIST of things
+	// that have no IR projection of their own — today: available_commands_
+	// update, current_mode_update, and any variant's `_meta` property (ACP's
+	// vendor-extension escape hatch). It is what keeps those from being
+	// SILENTLY LOST in transit (the conformance audit's gap G9): unlike
+	// Entry/Complete/Session/Permission, Raw is not part of the "exactly one
+	// set" union above — it may ride ALONGSIDE Entry (a `_meta` supplement to
+	// an otherwise-fully-mapped entry) or stand ALONE (Entry/Complete/
+	// Session/Permission all nil — a pure passthrough frame, e.g.
+	// available_commands_update, that the IR has no other shape for at all).
+	// See internal/acp/mapping.go (producer) and internal/acpagent/mapping.go
+	// (consumer/re-emitter) for the allowlist enforcement.
+	//
+	// PERMISSIONS NEVER RIDE HERE. session/request_permission is not even a
+	// session/update variant (it is a separate agent→client REQUEST,
+	// mediated end to end via Permission above), so it structurally cannot
+	// reach Raw — this is not a filter that could be bypassed, permission
+	// requests are never in the candidate set to begin with. Never add a
+	// producer that marshals a permission-shaped frame into Raw: mediation is
+	// exactly where ctxloom's trust layer injects, and a byte tunnel would
+	// defeat it.
+	//
+	// Raw is NOT internal/transcript's Record.Raw (record.go). That is a
+	// SEPARATE capture-layer field, populated FROM this one under the
+	// transcript.raw capture policy (off | lossy-only | all, default
+	// lossy-only) — a decision about what gets written to DISK, unrelated to
+	// what crosses the WIRE. Do not conflate the two in code or docs; see
+	// internal/transcript/recorder.go's RawPolicy doc comment.
+	Raw json.RawMessage
 }
 
 // PermissionRequest is a forwarded engine permission request: the engine wants
@@ -112,6 +163,14 @@ type PermissionRequest struct {
 	// escalation ladder's ApprovalKind, Wave C2) — backends that cannot
 	// classify simply leave it empty.
 	Kind string
+	// ToolCallID is the engine-native tool-call id this permission request
+	// refers to, when the backend's protocol supplies one (ACP's
+	// RequestPermissionRequest.toolCall.toolCallId). Carried through so a
+	// re-emission can target the SAME id instead of guessing one by tool
+	// name — the same fix as SessionEntry.ToolCallID, applied to the
+	// permission-forwarding path. Empty means unknown; a consumer falls back
+	// to its own name-based lookup exactly as before this field existed.
+	ToolCallID string
 }
 
 // PermissionOption is one decision the engine offers for a permission request.

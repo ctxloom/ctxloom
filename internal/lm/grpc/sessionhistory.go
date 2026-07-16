@@ -46,7 +46,110 @@ func EntryToProto(e agent.SessionEntry) *SessionEntry {
 		IsError:       e.IsError,
 		TimestampUnix: timeToUnix(e.Timestamp),
 		Sidechain:     e.Sidechain,
+		ToolCallId:    e.ToolCallID,
+		ToolKind:      e.ToolKind,
+		ToolLocations: locationsToProto(e.ToolLocations),
+		ToolContent:   toolContentToProto(e.ToolContent),
+		ContentBlocks: contentBlocksToProto(e.ContentBlocks),
+		SystemKind:    string(e.SystemKind),
+		Plan:          planEntriesToProto(e.Plan),
 	}
+}
+
+func locationsToProto(locs []agent.ToolLocation) []*ToolLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]*ToolLocation, 0, len(locs))
+	for _, l := range locs {
+		out = append(out, &ToolLocation{Path: l.Path, Line: int32(l.Line)})
+	}
+	return out
+}
+
+func locationsFromProto(locs []*ToolLocation) []agent.ToolLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolLocation, 0, len(locs))
+	for _, l := range locs {
+		out = append(out, agent.ToolLocation{Path: l.GetPath(), Line: int(l.GetLine())})
+	}
+	return out
+}
+
+func contentBlocksToProto(blocks []agent.ContentBlock) []*ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]*ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, &ContentBlock{Kind: b.Kind, Text: b.Text, Raw: b.Raw})
+	}
+	return out
+}
+
+func contentBlocksFromProto(blocks []*ContentBlock) []agent.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]agent.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, agent.ContentBlock{Kind: b.GetKind(), Text: b.GetText(), Raw: b.GetRaw()})
+	}
+	return out
+}
+
+func toolContentToProto(content []agent.ToolContentBlock) []*ToolContentBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]*ToolContentBlock, 0, len(content))
+	for _, c := range content {
+		out = append(out, &ToolContentBlock{
+			Kind: c.Kind, Text: c.Text,
+			DiffPath: c.DiffPath, DiffOldText: c.DiffOldText, DiffNewText: c.DiffNewText,
+			TerminalId: c.TerminalID, Raw: c.Raw,
+		})
+	}
+	return out
+}
+
+func toolContentFromProto(content []*ToolContentBlock) []agent.ToolContentBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolContentBlock, 0, len(content))
+	for _, c := range content {
+		out = append(out, agent.ToolContentBlock{
+			Kind: c.GetKind(), Text: c.GetText(),
+			DiffPath: c.GetDiffPath(), DiffOldText: c.GetDiffOldText(), DiffNewText: c.GetDiffNewText(),
+			TerminalID: c.GetTerminalId(), Raw: c.GetRaw(),
+		})
+	}
+	return out
+}
+
+func planEntriesToProto(entries []agent.PlanEntry) []*PlanEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]*PlanEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, &PlanEntry{Content: e.Content, Priority: e.Priority, Status: e.Status})
+	}
+	return out
+}
+
+func planEntriesFromProto(entries []*PlanEntry) []agent.PlanEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]agent.PlanEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, agent.PlanEntry{Content: e.GetContent(), Priority: e.GetPriority(), Status: e.GetStatus()})
+	}
+	return out
 }
 
 func sessionToProto(s *agent.Session) *SessionData {
@@ -89,14 +192,21 @@ func entryFromProto(e *SessionEntry) agent.SessionEntry {
 		ti = json.RawMessage(in)
 	}
 	return agent.SessionEntry{
-		Timestamp:  unixToTime(e.GetTimestampUnix()),
-		Type:       agent.SessionEntryType(e.GetType()),
-		Content:    e.GetContent(),
-		ToolName:   e.GetToolName(),
-		ToolInput:  ti,
-		ToolOutput: e.GetToolOutput(),
-		IsError:    e.GetIsError(),
-		Sidechain:  e.GetSidechain(),
+		Timestamp:     unixToTime(e.GetTimestampUnix()),
+		Type:          agent.SessionEntryType(e.GetType()),
+		Content:       e.GetContent(),
+		ToolName:      e.GetToolName(),
+		ToolInput:     ti,
+		ToolOutput:    e.GetToolOutput(),
+		IsError:       e.GetIsError(),
+		Sidechain:     e.GetSidechain(),
+		ToolCallID:    e.GetToolCallId(),
+		ToolKind:      e.GetToolKind(),
+		ToolLocations: locationsFromProto(e.GetToolLocations()),
+		ToolContent:   toolContentFromProto(e.GetToolContent()),
+		ContentBlocks: contentBlocksFromProto(e.GetContentBlocks()),
+		SystemKind:    agent.SessionSystemKind(e.GetSystemKind()),
+		Plan:          planEntriesFromProto(e.GetPlan()),
 	}
 }
 

@@ -21,14 +21,39 @@ import (
 //	agent_thought_chunk   → EntryTypeThinking    (summarized reasoning — the win:
 //	                                               ACP surfaces thinking prose that
 //	                                               claude-code's stream-json strips)
-//	tool_call             → EntryTypeToolUse      (title/kind → ToolName, rawInput → ToolInput)
+//	tool_call             → EntryTypeToolUse      (title/kind → ToolName, rawInput →
+//	                                               ToolInput, toolCallId → ToolCallID,
+//	                                               kind → ToolKind, locations →
+//	                                               ToolLocations — IR2)
 //	tool_call_update      → EntryTypeToolResult   (only once it carries output or a
-//	                                               terminal status; failed → IsError)
-//	plan                  → EntryTypeSystem        (rendered checklist; no dedicated
-//	                                               plan entry type, System is the best fit)
+//	                                               terminal status; failed → IsError;
+//	                                               same IR2 richness as tool_call, plus
+//	                                               content → ToolContent structurally)
+//	plan                  → EntryTypeSystem        (SystemKind=SystemKindPlan; Plan
+//	                                               carries the STRUCTURED entries —
+//	                                               IR2's fix for the conformance
+//	                                               audit's headline finding: a prior
+//	                                               revision flattened this into
+//	                                               Content alone, which the outbound
+//	                                               side (acpagent/mapping.go) had no
+//	                                               way to turn back into a real ACP
+//	                                               `plan` update. Content still
+//	                                               carries the rendered checklist as
+//	                                               a fallback for any consumer that
+//	                                               only reads text.)
+//	available_commands_update,
+//	current_mode_update    → ChatEvent{Raw: ...}  (IR3: no IR entry type of their
+//	                                               own, forwarded on the curated raw
+//	                                               passthrough allowlist instead of
+//	                                               being silently dropped — see
+//	                                               ChatEvent.Raw's doc comment)
 //	user_message_chunk    → (dropped — never echo the user's own message back)
 //	unknown / malformed   → (dropped — the stream must never crash on a frame we
 //	                         don't model)
+//
+// Additionally, ANY of the variants above that carries a non-empty ACP `_meta`
+// object attaches it to the emitted ChatEvent's Raw field (IR3's third
+// allowlist entry) — see metaRaw below.
 //
 // Each update yields 0..1 entries. Chunks are emitted one entry apiece (a frontend
 // concatenates), matching claude-code's per-block emission.
@@ -44,9 +69,9 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 	}
 	switch {
 	case u.AgentMessageChunk != nil:
-		return textEntry(agent.EntryTypeAssistant, u.AgentMessageChunk.Content)
+		return textEntry(agent.EntryTypeAssistant, u.AgentMessageChunk.Content, u.AgentMessageChunk.Meta)
 	case u.AgentThoughtChunk != nil:
-		return textEntry(agent.EntryTypeThinking, u.AgentThoughtChunk.Content)
+		return textEntry(agent.EntryTypeThinking, u.AgentThoughtChunk.Content, u.AgentThoughtChunk.Meta)
 	case u.ToolCall != nil:
 		return mapToolCall(u.ToolCall)
 	case u.ToolCallUpdate != nil:
@@ -55,27 +80,73 @@ func mapSessionUpdate(u *api.SessionUpdate) []agent.ChatEvent {
 		return mapPlan(u.Plan)
 	case u.UserMessageChunk != nil:
 		return nil // don't duplicate the user's own message
+	case u.AvailableCommandsUpdate != nil, u.CurrentModeUpdate != nil:
+		// IR3: no IR entry type exists for these (ctxloom itself doesn't
+		// consume/mediate them), but they're on the curated raw-passthrough
+		// allowlist rather than silently dropped like a true unknown variant.
+		// api.SessionUpdate.MarshalJSON reconstructs the properly-tagged
+		// `{"sessionUpdate":"...", ...}` object from whichever pointer is
+		// set, so re-marshaling `u` here round-trips exactly what the engine
+		// sent (this variant only) without needing the ORIGINAL raw bytes at
+		// all.
+		return rawOnlyEvent(u)
 	default:
-		return nil // unknown/unmodeled variant (e.g. current_mode_update, usage_update
-		// reach here only if a caller feeds mapSessionUpdate directly without
-		// going through consumeMetaUpdate first) — never crash the stream
+		return nil // unknown/unmodeled variant (e.g. usage_update — reaches
+		// here only if a caller feeds mapSessionUpdate directly without going
+		// through consumeMetaUpdate first) — never crash the stream
 	}
+}
+
+// rawOnlyEvent marshals u (expected to have exactly one of the IR3-allowlisted
+// variants set) into a raw-only ChatEvent — Entry/Complete/Session/Permission
+// all nil, only Raw populated. A marshal failure (never expected for a
+// well-formed decoded union) drops the frame rather than panicking or
+// fabricating a malformed one.
+func rawOnlyEvent(u *api.SessionUpdate) []agent.ChatEvent {
+	b, err := json.Marshal(u)
+	if err != nil {
+		return nil
+	}
+	return []agent.ChatEvent{{Raw: b}}
+}
+
+// metaRaw wraps a variant's `_meta` object (when non-empty) as the small Raw
+// envelope `{"_meta": ...}` IR3's allowlist forwards it as. Returns nil for an
+// empty/absent meta so a ChatEvent with nothing else to report doesn't
+// acquire an empty, meaningless Raw field.
+func metaRaw(meta map[string]any) json.RawMessage {
+	if len(meta) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(struct {
+		Meta map[string]any `json:"_meta"`
+	}{Meta: meta})
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // textEntry emits a single content entry of the given type, or nothing when the
 // content block carries no text (a content-less chunk is not surfaced — unlike a
-// thinking marker, an empty ACP text chunk has nothing to show).
-func textEntry(t agent.SessionEntryType, block api.ContentBlock) []agent.ChatEvent {
+// thinking marker, an empty ACP text chunk has nothing to show). meta is the
+// containing update's `_meta`, forwarded via Raw when present (IR3).
+func textEntry(t agent.SessionEntryType, block api.ContentBlock, meta map[string]any) []agent.ChatEvent {
 	text := contentBlockText(block)
 	if text == "" {
 		return nil
 	}
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: t, Content: text}}}
+	return []agent.ChatEvent{{
+		Entry: &agent.SessionEntry{Type: t, Content: text, ContentBlocks: []agent.ContentBlock{blockToIR(block)}},
+		Raw:   metaRaw(meta),
+	}}
 }
 
 // mapToolCall turns a new tool_call into a tool_use entry: the human-readable
 // title (falling back to the tool kind) names the tool, and rawInput carries the
-// arguments.
+// arguments. IR2: the engine-native toolCallId, kind, and locations are carried
+// through so a re-emission (internal/acpagent/mapping.go) can reuse the SAME id
+// instead of generating one keyed only by tool name.
 func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 	if tc == nil {
 		return nil
@@ -84,17 +155,25 @@ func mapToolCall(tc *api.SessionUpdateToolCall) []agent.ChatEvent {
 	if name == "" && tc.Kind != "" {
 		name = string(tc.Kind)
 	}
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
-		Type:      agent.EntryTypeToolUse,
-		ToolName:  name,
-		ToolInput: rawJSON(tc.RawInput),
-	}}}
+	return []agent.ChatEvent{{
+		Entry: &agent.SessionEntry{
+			Type:          agent.EntryTypeToolUse,
+			ToolName:      name,
+			ToolInput:     rawJSON(tc.RawInput),
+			ToolCallID:    string(tc.ToolCallId),
+			ToolKind:      string(tc.Kind),
+			ToolLocations: locationsToIR(tc.Locations),
+		},
+		Raw: metaRaw(tc.Meta),
+	}}
 }
 
 // mapToolCallUpdate turns a tool_call_update into a tool_result entry once it has
 // something to report — completed/failed status, or produced content/output.
 // Bare in-progress ticks (no output) yield nothing: they're status noise, not a
-// result. A failed status marks the entry as an error.
+// result. A failed status marks the entry as an error. IR2: toolCallId/kind/
+// locations carry through as mapToolCall does, and Content is ALSO kept
+// structurally (ToolContent) alongside the flattened ToolOutput string.
 func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 	if tu == nil {
 		return nil
@@ -115,30 +194,59 @@ func mapToolCallUpdate(tu *api.SessionToolCallUpdate) []agent.ChatEvent {
 	if tu.Title != nil {
 		title = *tu.Title
 	}
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
-		Type:       agent.EntryTypeToolResult,
-		ToolName:   title,
-		ToolOutput: output,
-		IsError:    status == api.ToolCallStatusFailed,
-	}}}
+	var kind string
+	if tu.Kind != nil {
+		kind = string(*tu.Kind)
+	}
+	return []agent.ChatEvent{{
+		Entry: &agent.SessionEntry{
+			Type:          agent.EntryTypeToolResult,
+			ToolName:      title,
+			ToolOutput:    output,
+			IsError:       status == api.ToolCallStatusFailed,
+			ToolCallID:    string(tu.ToolCallId),
+			ToolKind:      kind,
+			ToolLocations: locationsToIR(tu.Locations),
+			ToolContent:   toolContentToIR(tu.Content),
+		},
+		Raw: metaRaw(tu.Meta),
+	}}
 }
 
-// mapPlan renders the agent's execution plan as a single system entry — a
-// checklist a frontend can display. There is no dedicated plan entry type; System
-// (structural, non-conversational, not a tool call) is the closest fit.
+// mapPlan carries the agent's execution plan through STRUCTURALLY (IR2): Plan
+// holds the entries verbatim (content/priority/status) so a re-emission can
+// rebuild a real ACP `plan` update, and SystemKind marks this as a plan entry
+// (not the delegated-turn-failure notice, EntryTypeSystem's other producer —
+// see agent.SessionSystemKind's doc comment). Content still carries the
+// rendered checklist, unchanged, as a fallback for a consumer that only reads
+// text (e.g. a transcript viewer, or a distillation pass).
 func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 	if p == nil || len(p.Entries) == 0 {
 		return nil
 	}
 	var b strings.Builder
 	b.WriteString("Plan:")
+	entries := make([]agent.PlanEntry, 0, len(p.Entries))
 	for _, pe := range p.Entries {
+		entries = append(entries, agent.PlanEntry{
+			Content:  pe.Content,
+			Priority: string(pe.Priority),
+			Status:   string(pe.Status),
+		})
 		if pe.Content == "" {
 			continue
 		}
 		fmt.Fprintf(&b, "\n- [%s] %s", pe.Status, pe.Content)
 	}
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeSystem, Content: b.String()}}}
+	return []agent.ChatEvent{{
+		Entry: &agent.SessionEntry{
+			Type:       agent.EntryTypeSystem,
+			Content:    b.String(),
+			SystemKind: agent.SystemKindPlan,
+			Plan:       entries,
+		},
+		Raw: metaRaw(p.Meta),
+	}}
 }
 
 // --- accounting update variants ---
@@ -205,7 +313,12 @@ type permissionResult struct {
 // its raw input, and the offered options verbatim (the upstream decider needs
 // the real option ids to answer with).
 func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent.PermissionRequest {
-	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput), Kind: toolKindString(req.ToolCall.Kind)}
+	p := &agent.PermissionRequest{
+		ID:         id,
+		ToolInput:  rawJSON(req.ToolCall.RawInput),
+		Kind:       toolKindString(req.ToolCall.Kind),
+		ToolCallID: string(req.ToolCall.ToolCallId),
+	}
 	if req.ToolCall.Title != nil {
 		p.ToolName = *req.ToolCall.Title
 	}
@@ -262,6 +375,74 @@ func contentBlockText(block api.ContentBlock) string {
 		return block.Text.Text
 	}
 	return ""
+}
+
+// blockToIR projects one ACP content block onto the IR2 structured form: Kind/
+// Text for a consumer that only needs to know what it is, Raw verbatim for
+// anything richer (image/audio/resource — multimodal intake, a later slice).
+// A marshal failure leaves Raw empty (never expected: block was itself just
+// decoded from JSON).
+func blockToIR(block api.ContentBlock) agent.ContentBlock {
+	kind, text := "", ""
+	switch {
+	case block.Text != nil:
+		kind, text = "text", block.Text.Text
+	case block.Image != nil:
+		kind = "image"
+	case block.Audio != nil:
+		kind = "audio"
+	case block.ResourceLink != nil:
+		kind = "resource_link"
+	case block.Resource != nil:
+		kind = "resource"
+	}
+	raw, _ := json.Marshal(block)
+	return agent.ContentBlock{Kind: kind, Text: text, Raw: raw}
+}
+
+// locationsToIR projects ACP tool-call locations onto the IR2 form.
+func locationsToIR(locs []api.ToolCallLocation) []agent.ToolLocation {
+	if len(locs) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolLocation, 0, len(locs))
+	for _, l := range locs {
+		line := 0
+		if l.Line != nil {
+			line = *l.Line
+		}
+		out = append(out, agent.ToolLocation{Path: l.Path, Line: line})
+	}
+	return out
+}
+
+// toolContentToIR projects a tool call's structured content collection (ACP
+// ToolCallContent union) onto the IR2 form, alongside toolContentText's
+// flattened string projection (both are populated; neither replaces the
+// other).
+func toolContentToIR(content []api.ToolCallContent) []agent.ToolContentBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]agent.ToolContentBlock, 0, len(content))
+	for _, tcc := range content {
+		raw, _ := json.Marshal(tcc)
+		switch {
+		case tcc.Content != nil:
+			out = append(out, agent.ToolContentBlock{Kind: "content", Text: contentBlockText(tcc.Content.Content), Raw: raw})
+		case tcc.Diff != nil:
+			old := ""
+			if tcc.Diff.OldText != nil {
+				old = *tcc.Diff.OldText
+			}
+			out = append(out, agent.ToolContentBlock{
+				Kind: "diff", DiffPath: tcc.Diff.Path, DiffOldText: old, DiffNewText: tcc.Diff.NewText, Raw: raw,
+			})
+		case tcc.Terminal != nil:
+			out = append(out, agent.ToolContentBlock{Kind: "terminal", TerminalID: string(tcc.Terminal.TerminalId), Raw: raw})
+		}
+	}
+	return out
 }
 
 // toolContentText flattens a tool call's content collection (each element a

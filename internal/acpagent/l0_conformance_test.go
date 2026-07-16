@@ -154,20 +154,45 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 
 	eng.receiveMsg(t) // the permission answer reaches the engine
 	eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolName: "fs_read", ToolOutput: "data"}}
+	// IR2 headline: a plan entry (SystemKind==SystemKindPlan, structured
+	// entries) must re-emit a REAL ACP `plan` update — schema-validated below
+	// like every other captured frame, not a special-cased assertion.
+	eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeSystem, SystemKind: agent.SystemKindPlan,
+		Plan: []agent.PlanEntry{
+			{Content: "Read the file", Priority: "high", Status: "completed"},
+			{Content: "Apply the fix", Priority: "medium", Status: "in_progress"},
+		},
+	}}
 	eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{InputTokens: 1234, ContextWindow: 100000, CostUSD: 0.02, StopReason: "end_turn"}}
 
 	resp, turnUpdates := c.waitResponse(id)
 	require.Nil(t, resp.Error)
 	capture("session/prompt response", "PromptResponse", resp.Result)
-	require.GreaterOrEqual(t, len(turnUpdates), 4, "ctxloom_session_info, thinking, assistant, tool_call, tool_call_update, usage_update")
-	labels := []string{"ctxloom_session_info", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "usage_update"}
+	require.GreaterOrEqual(t, len(turnUpdates), 5, "ctxloom_session_info, thinking, assistant, tool_call, tool_call_update, plan, usage_update")
+	labels := []string{"ctxloom_session_info", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "plan", "usage_update"}
+	var planUpdateIdx = -1
 	for i, u := range turnUpdates {
 		label := "session/update"
 		if i < len(labels) {
 			label = "session/update (" + labels[i] + ")"
+			if labels[i] == "plan" {
+				planUpdateIdx = i
+			}
 		}
 		capture(label, "SessionNotification", u.Params)
 	}
+	require.GreaterOrEqual(t, planUpdateIdx, 0, "the plan update must have been captured")
+	// Headline proof: the actual wire bytes carry the structured plan
+	// entries, not a flattened checklist string.
+	planFrame := string(turnUpdates[planUpdateIdx].Params)
+	assert.Contains(t, planFrame, `"sessionUpdate":"plan"`)
+	assert.Contains(t, planFrame, `"content":"Read the file"`)
+	assert.Contains(t, planFrame, `"priority":"high"`)
+	assert.Contains(t, planFrame, `"status":"completed"`)
+	assert.Contains(t, planFrame, `"content":"Apply the fix"`)
+	assert.Contains(t, planFrame, `"status":"in_progress"`)
+	t.Logf("plan frame on the wire: %s", planFrame)
 
 	// session/request_permission with ZERO options — the confirmed edge-case
 	// divergence (see l0KnownDivergences).

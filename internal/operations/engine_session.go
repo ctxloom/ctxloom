@@ -59,6 +59,17 @@ type EngineSessionCoordinator interface {
 // so a slow engine spawn does not block other opens.
 var openEngineSessionGateMu sync.Mutex
 
+// newACPEngineClient is OpenEngineSession's seam onto
+// pb.NewSelfInvokingClientForLabelEnv — a package var, mirroring oneshot.go's
+// prepareIsolation seam style, so a test can drive the WHOLE opener
+// (including the ISO2 workspace-axis wiring immediately above this call) with
+// a fake pb.Client instead of spawning a real `ctxloom llm serve <backend>`
+// subprocess (which a unit test cannot do: it would try to self-exec the
+// TEST binary as the plugin).
+var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv map[string]string) (pb.Client, error) {
+	return pb.NewSelfInvokingClientForLabelEnv(backendName, label, verbosity, spawnEnv)
+}
+
 // OpenEngineSession is the production ChatOpener body: it loads ctxloom
 // config for the session's cwd, assembles the context (an agent's composed
 // profiles, or the profile flow), resolves the engine label (override →
@@ -241,7 +252,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 	}
 
-	client, err := pb.NewSelfInvokingClientForLabelEnv(backendName, label, 0, spawnEnv)
+	client, err := newACPEngineClient(backendName, label, 0, spawnEnv)
 	if err != nil {
 		if aw != nil {
 			aw.cleanup()

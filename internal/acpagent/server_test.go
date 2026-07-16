@@ -651,9 +651,10 @@ func TestPromptText_ResourceBlocks(t *testing.T) {
 }
 
 // TestServe_UsageAndSessionInfo: the engine's one-time ChatSessionInfo projects
-// onto a session_info_update (model/mcp header), and a turn's completion
-// accounting rides ahead of the prompt response as a usage_update (context
-// gauge + cost).
+// onto a REAL "session_info_update" frame carrying ctxloom's model/mcp header
+// in its `_meta` object (IR4 — see internal/acpagent/wire.go's
+// ctxloomSessionInfoUpdate doc comment), and a turn's completion accounting
+// rides ahead of the prompt response as a usage_update (context gauge + cost).
 func TestServe_UsageAndSessionInfo(t *testing.T) {
 	eng := newFakeEngine()
 	go eng.pump()
@@ -681,7 +682,9 @@ func TestServe_UsageAndSessionInfo(t *testing.T) {
 	for _, u := range updates {
 		joined += string(u.Params)
 	}
-	assert.Contains(t, joined, `"ctxloom_session_info"`, "ctxloom's own session-info extension rides under a NON-colliding name (L0 checklist B3) — the current ACP spec's session_info_update means something else (session title/timestamp metadata)")
+	assert.Contains(t, joined, `"sessionUpdate":"session_info_update"`, "IR4: the REAL spec discriminator, not ctxloom's old bespoke top-level name")
+	assert.NotContains(t, joined, `"sessionUpdate":"ctxloom_session_info"`, "the old (schema-invalid) top-level variant name must be gone")
+	assert.Contains(t, joined, `"_meta":{"ctxloom_session_info"`, "ctxloom's own header rides the spec's sanctioned _meta extension channel, not the frame's identity")
 	assert.Contains(t, joined, "claude-sonnet")
 	assert.Contains(t, joined, "connected")
 	assert.Contains(t, joined, `"usage_update"`)

@@ -52,7 +52,10 @@ import (
 //	                                           which never carried structure to
 //	                                           begin with and isn't touched by
 //	                                           this slice)
-//	ChatSessionInfo     → session_info_update (model/mcp header; see sessionInfoUpdateWire)
+//	ChatSessionInfo     → session_info_update's `_meta` (model/mcp header,
+//	                      IR4-relocated off its own bespoke variant name onto
+//	                      the spec's real session_info_update frame's `_meta`
+//	                      extension point; see sessionInfoUpdateWire)
 //	TurnMeta (Complete) → usage_update (context gauge + cost; see usageUpdateWire) then ends the turn
 //
 // IR3: when ev.Entry is nil but ev.Raw is set (a passthrough-only event, e.g.
@@ -371,17 +374,18 @@ func (sess *session) popToolCall(name string, want api.ToolCallId) api.ToolCallI
 }
 
 // sessionInfoUpdateWire projects one ChatSessionInfo (the engine's one-time
-// start-of-chat metadata) onto ctxloom's own (renamed, non-colliding)
-// session-info session/update, so a client can render a model/mcp header.
+// start-of-chat metadata) onto ctxloom's own model/mcp header, carried inside
+// a REAL session_info_update frame's `_meta` object (IR4 — see
+// ctxloomSessionInfoUpdate's doc comment in wire.go for the full why: the
+// spec's own session_info_update means title/updatedAt, which ctxloom has
+// none of here, so those fields stay unset; only `_meta` carries content).
 // Returns nil when there is nothing worth surfacing (so an empty
-// ChatSessionInfo emits no notification). See ctxloomSessionInfoUpdate's doc
-// comment (wire.go) for why this is NOT the spec's session_info_update.
+// ChatSessionInfo emits no notification).
 func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
 	if info == nil || (info.Model == "" && info.PermissionMode == "" && info.ContextWindow == 0 && len(info.MCPServers) == 0) {
 		return nil
 	}
 	u := ctxloomSessionInfoUpdate{
-		SessionUpdate:  "ctxloom_session_info",
 		Model:          info.Model,
 		PermissionMode: info.PermissionMode,
 		ContextWindow:  info.ContextWindow,
@@ -389,7 +393,9 @@ func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
 	for _, m := range info.MCPServers {
 		u.McpServers = append(u.McpServers, mcpStatusWire{Name: m.Name, Status: m.Status})
 	}
-	return u
+	return api.SessionUpdate{SessionInfoUpdate: &api.SessionSessionInfoUpdate{
+		Meta: map[string]any{ctxloomSessionInfoMetaKey: u},
+	}}
 }
 
 // usageUpdateWire projects one turn's completion accounting (TurnMeta) onto

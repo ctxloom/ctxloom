@@ -136,9 +136,11 @@ func TestChat_FullTurn(t *testing.T) {
 	assert.Equal(t, "test-model", evs[5].Complete.Model)
 }
 
-// TestChat_TurnMetaAccounting: the real usage_update variant and ctxloom's
-// own (renamed, non-colliding — see L0 checklist B3) ctxloom_session_info
-// extension — the shapes ctxloom's own acp agent emits; protocol v1 itself
+// TestChat_TurnMetaAccounting: the real usage_update variant, and ctxloom's
+// own model/mcp header riding a REAL session_info_update frame's `_meta`
+// object (IR4 — previously its own bespoke top-level "ctxloom_session_info"
+// variant; see internal/acpagent/wire.go's ctxloomSessionInfoUpdate doc
+// comment) — the shapes ctxloom's own acp agent emits; protocol v1 itself
 // delivers no usage anywhere else — fold into the turn's Complete meta
 // instead of being dropped as malformed, and the turn duration is
 // self-measured off the clock.
@@ -153,7 +155,7 @@ func TestChat_TurnMetaAccounting(t *testing.T) {
 	go func() {
 		sid := h.fa.serveHandshake(t)
 		promptReq := <-h.fa.requests
-		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"ctxloom_session_info","model":"real-model","permissionMode":"default","contextWindow":150000}`)
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"session_info_update","_meta":{"ctxloom_session_info":{"model":"real-model","permissionMode":"default","contextWindow":150000}}}`)
 		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"usage_update","used":53000,"size":200000,"cost":{"amount":0.045,"currency":"USD"}}`)
 		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
 	}()
@@ -175,6 +177,47 @@ func TestChat_TurnMetaAccounting(t *testing.T) {
 	assert.Equal(t, 200000, meta.ContextWindow, "usage_update's window size outranks session_info")
 	assert.InDelta(t, 0.045, meta.CostUSD, 1e-9)
 	assert.Positive(t, meta.DurationMs, "duration is self-measured (ACP carries no timing)")
+}
+
+// TestChat_ForeignSessionInfoUpdateIgnored: IR4 moved ctxloom's own header
+// onto the REAL "session_info_update" discriminator (previously a bespoke,
+// non-colliding "ctxloom_session_info" name). A genuinely foreign engine's
+// OWN session_info_update — real session title/timestamp metadata, no
+// `_meta.ctxloom_session_info` at all — must NOT be misread as ctxloom's
+// header (no fabricated Model/ContextWindow), and must not crash or drop the
+// turn: this is the same "harmlessly absorbed, nothing to report" outcome as
+// pre-IR4 (when it fell through to mapSessionUpdate's default case instead),
+// proven here with a real payload rather than asserted by inspection.
+func TestChat_ForeignSessionInfoUpdateIgnored(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{Model: "test-model"})
+	events := collect(h.out)
+
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"session_info_update","title":"a real title update","updatedAt":"2026-07-16T00:00:00Z"}`)
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}`)
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+	// The foreign title update is consumed as accounting (no entry, same as
+	// ctxloom's own session-info frames) but contributes NOTHING — only the
+	// handshake's own Session event, the assistant chunk, and Complete carry
+	// through (matching TestChat_FullTurn's baseline shape).
+	require.Len(t, evs, 3)
+	require.NotNil(t, evs[0].Session)
+	assert.Equal(t, "test-model", evs[0].Session.Model, "the handshake's own Session event, untouched by the foreign frame")
+	require.NotNil(t, evs[1].Entry)
+	assert.Equal(t, agent.EntryTypeAssistant, evs[1].Entry.Type)
+	meta := evs[2].Complete
+	require.NotNil(t, meta)
+	assert.Equal(t, "test-model", meta.Model, "no ctxloom _meta payload present — the requested model is NOT overwritten with a fabricated value")
+	assert.Zero(t, meta.ContextWindow, "a foreign title update carries no context-window data to report")
 }
 
 // TestChat_TurnMetaDefaults: with no accounting variants on the wire (every

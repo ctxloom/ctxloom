@@ -12,6 +12,8 @@ package operations
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +67,13 @@ var openEngineSessionGateMu sync.Mutex
 // --structured` drives. For a resume (session/load) it additionally fetches
 // the recorded harp's history: the entries replay to the ACP client, and a
 // rendered transcript primes the fresh engine via the first-turn lead block.
-func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride string) (*EngineChat, error) {
+//
+// ISO2 (WORKSPACE axis): flagWorkspace is the session-level --workspace
+// override (isolation.WorkspaceAxis values "none"|"worktree", mirroring
+// `ctxloom run`'s flag), honored ONLY for a session bound to an EXPLICIT
+// flagAgent — never the plain `ctxloom acp` entry — see prepareACPWorkspace's
+// doc for why and how that gate is drawn.
+func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSessionCoordinator, flagProfile, flagAgent, llmOverride, flagWorkspace string) (*EngineChat, error) {
 	var (
 		cfg             *config.Config
 		profile         string
@@ -172,6 +180,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		return nil, gerr
 	}
 
+	// ISO2: resolve the WORKSPACE axis. See prepareACPWorkspace's doc for the
+	// full gate (only an EXPLICIT --agent binding may isolate; the plain
+	// `ctxloom acp` entry never does, regardless of cfg.Workspace or an
+	// auto-bound cfg.DefaultAgent). The RUNTIME axis deliberately stays the
+	// zero value (host) here — ISO1 owns that axis on this same opener.
+	acpAxes := isolation.Axes{Workspace: acpWorkspaceAxis(cfg, flagAgent, currentAgent, flagWorkspace)}
+
 	// Session accounting: resume the named harp, or mint a fresh one. A resume
 	// of an unknown/unbound harp is a hard error (the client asked for THAT
 	// session); a failed mint merely degrades — the session runs unrecorded.
@@ -207,12 +222,34 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 	}
 
+	// ISO2: prepare the resolved workspace (a no-op nil for the default host
+	// cwd — every session without an isolating agent binding). aw.cleanup MUST
+	// run on every path out of here from this point on (the two error returns
+	// below, and closeOnce further down) — see prepareACPWorkspace's doc.
+	aw, werr := prepareACPWorkspace(ctx, cfg, acpAxes, backendName, currentAgent, req.Cwd, env)
+	if werr != nil {
+		return nil, werr
+	}
+	workDir := req.Cwd
+	if aw != nil {
+		workDir = aw.dir
+		if len(aw.env) > 0 {
+			merged := make(map[string]string, len(aw.env)+len(env))
+			maps.Copy(merged, aw.env)
+			maps.Copy(merged, env) // an already-set var (CTXLOOM_SESSION_HARP) wins
+			env = merged
+		}
+	}
+
 	client, err := pb.NewSelfInvokingClientForLabelEnv(backendName, label, 0, spawnEnv)
 	if err != nil {
+		if aw != nil {
+			aw.cleanup()
+		}
 		return nil, err
 	}
 	in, events, errs, err := client.Chat(ctx, agent.ChatRequest{
-		WorkDir: req.Cwd,
+		WorkDir: workDir,
 		Model:   model,
 		Env:     env,
 		// The connected editor answers session/request_permission — real
@@ -222,11 +259,31 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	})
 	if err != nil {
 		client.Kill()
+		if aw != nil {
+			aw.cleanup()
+		}
 		return nil, err
+	}
+	if aw != nil && aw.announce != "" {
+		// D-ISO (announce-only, USER-DECIDED): the editor is otherwise BLIND to
+		// the isolated worktree — no ACP method lets an agent make a client open
+		// a folder. This is the mechanism available today: a synthetic system
+		// entry riding as the FIRST event of the FIRST turn, ahead of the
+		// engine's own output, rendering as a visible agent_message_chunk in
+		// the client (mapping.go's EntryTypeSystem case — no wire/mapping
+		// changes needed here, only the event this opener hands the server).
+		events = announceOnFirstEvent(ctx, events, aw.announce)
 	}
 
 	closeOnce := sync.OnceFunc(func() {
 		client.Kill()
+		// ISO2 lifecycle: kill the engine BEFORE removing its workspace (the
+		// worktree teardown is WIP-safe and git-based; nothing should still be
+		// running against the checkout while it runs). A nil aw (the default,
+		// unisolated path) makes this a no-op.
+		if aw != nil {
+			aw.cleanup()
+		}
 		if harp != "" {
 			if merr := MarkSessionEnded(harp, time.Now()); merr != nil {
 				clidiag.Warn("ctxloom", "acp agent: mark session ended: %v", merr)
@@ -414,4 +471,143 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 		d = parent
 	}
 	return config.Load()
+}
+
+// ISO2 (v0.7.0 ACP Hub plan): the WORKSPACE isolation axis for ACP-hosted
+// sessions. `internal/lm/isolation` already draws the axis as an
+// ORCHESTRATION trait the invocation supplies (isolation.go's doc: needing a
+// private cwd is a property of how you fan, not of who the agent is), and
+// `ctxloom run --agent`/agent_run (internal/cli/run.go, delegate.go) already
+// resolve+prepare it via isolation.Prepare/isolation.WorkspaceEnv over the
+// oneshot.go package-level seams (prepareIsolation, isolationGateMu,
+// isolationGateErr). Nothing isolation-specific is reinvented below — this is
+// that same machinery wired onto the ACP opener, plus one ACP-only posture
+// rule layered on top (see acpWorkspaceAxis).
+
+// acpWorkspaceAxis decides the workspace-axis VALUE for one ACP session:
+// flagWorkspace (this invocation's --workspace) else the project's
+// `workspace:` default — but ONLY when the session is bound to an EXPLICIT
+// --agent, never the plain `ctxloom acp` entry (D-ISO's posture: worktree-
+// under-ACP is for deliberately-isolated agent bindings — reviewer/executor
+// agents an editor configures as their OWN client entry via `ctxloom acp
+// --agent <name>`, see 'ctxloom acp agents' — never a silent default for the
+// entry with no --agent).
+//
+// currentAgent != "" is not sufficient on its own to detect "an explicit
+// --agent was given": an unset --agent still auto-binds the project's
+// cfg.DefaultAgent (see OpenEngineSession's resolveAgent fallback above), so
+// a project that merely SETS default_agent would otherwise get its plain
+// entry silently isolated too. resolveAgent is assigned flagAgent verbatim,
+// unconditionally, whenever flagAgent != "" — so currentAgent == flagAgent
+// holds exactly when the explicit-agent path resolved successfully; that
+// equality (not just currentAgent != "") is the honest test for "an editor
+// deliberately chose this agent's own entry".
+func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace string) isolation.WorkspaceAxis {
+	if flagAgent == "" || currentAgent != flagAgent {
+		return isolation.WorkspaceAxis("")
+	}
+	ws := flagWorkspace
+	if ws == "" {
+		ws = cfg.Workspace
+	}
+	return isolation.WorkspaceAxis(ws)
+}
+
+// acpWorkspace is ISO2's prepared workspace-axis state for one ACP session:
+// where the engine's cwd lives, the per-agent config-home env additions
+// (worktree only — CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME isolating the
+// engine's GLOBAL layer), the first-turn announcement text (worktree only),
+// and its teardown. A nil *acpWorkspace (prepareACPWorkspace's fast path)
+// means the default host cwd applies — the overwhelming common case,
+// including every session without an isolating --agent binding.
+type acpWorkspace struct {
+	dir      string
+	env      map[string]string
+	announce string
+	cleanup  func()
+}
+
+// prepareACPWorkspace resolves and prepares ISO2's workspace axis for one ACP
+// session. It returns (nil, nil) — no isolation.Prepare call at all — when
+// axes asks for nothing but the shared project dir (acpWorkspaceAxis already
+// enforces the "no --agent → never worktree" posture, so this is the path
+// for the plain `ctxloom acp` entry and any --agent session that didn't ask
+// for a worktree).
+//
+// Otherwise this is the SAME checkpoint→Prepare→gate window
+// oneshot.go's runResolvedAgent and delegate.go's PrepareAgentChat run over
+// the package's shared prepareIsolation/isolationGateMu/isolationGateErr
+// seams: a ClassIsolation finding (e.g. grave-prize's no-host-credentials-to-
+// seed case, or antigravity's no-config-home-lever case) refuses the session
+// open in strict mode exactly like a fan member would refuse itself — rather
+// than silently launching an unseeded/logged-out engine — and the
+// already-prepared (but refused) workspace is torn down before returning the
+// error. The RUNTIME axis is left at its zero value (isolation.Axes.Runtime
+// defaults to host) — ISO1 owns that axis on this same opener.
+func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation.Axes, backendName, agentID, projectDir string, env map[string]string) (*acpWorkspace, error) {
+	if !axes.WantsWorktree() {
+		return nil, nil
+	}
+	isolationGateMu.Lock()
+	mark := strictness.Checkpoint()
+	policy, ws := prepareIsolation(ctx, axes, backendName, IsolationImageConfig(cfg, backendName), projectDir, agentID, isolation.SessionStateFromEnv(env))
+	found := strictness.Since(mark)
+	isolationGateMu.Unlock()
+
+	cleanup := func() { _ = ws.Cleanup() }
+	if gerr := isolationGateErr(found); gerr != nil {
+		cleanup()
+		return nil, gerr
+	}
+	aw := &acpWorkspace{dir: ws.Dir(), env: isolation.WorkspaceEnv(ws), cleanup: cleanup}
+	if isolation.Isolated(policy) {
+		// isolation.Isolated is false when the chain degraded worktree→none
+		// (not a git repo, or `git worktree add` failed) — a silent,
+		// benign fallback (isolation.go's doc), so no announcement fires and
+		// aw.dir/aw.env are the harmless projectDir/nil the None tier
+		// produces. Only a REAL worktree gets the honesty announcement.
+		aw.announce = fmt.Sprintf(
+			"ctxloom: this agent's session is isolated to its own git worktree — %s. "+
+				"Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.",
+			aw.dir)
+	}
+	return aw, nil
+}
+
+// announceOnFirstEvent wraps an engine's chat events so the very FIRST event
+// delivered is a synthetic system entry carrying msg — rendering as a visible
+// agent_message_chunk in the ACP client (acpagent/mapping.go's
+// EntryTypeSystem case) ahead of anything the engine itself says on the
+// session's first turn. This is the ANNOUNCE-ONLY mechanism D-ISO settled on:
+// no ACP method lets an agent make a client open a folder, so a visible
+// message on the first turn is what's available today (a dedicated
+// session-info surface is a later slice). ctx bounds the forwarding
+// goroutine to the session's own lifetime, so a session closed before any
+// prompt arrives never leaks it.
+func announceOnFirstEvent(ctx context.Context, events <-chan agent.ChatEvent, msg string) <-chan agent.ChatEvent {
+	out := make(chan agent.ChatEvent)
+	go func() {
+		defer close(out)
+		select {
+		case out <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeSystem, Content: msg}}:
+		case <-ctx.Done():
+			return
+		}
+		for {
+			select {
+			case ev, ok := <-events:
+				if !ok {
+					return
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out
 }

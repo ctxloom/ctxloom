@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	acpProfile string
-	acpLLM     string
-	acpAgent   string
+	acpProfile   string
+	acpLLM       string
+	acpAgent     string
+	acpWorkspace string
 )
 
 var acpCmd = &cobra.Command{
@@ -40,6 +41,14 @@ session context and its engine binding picks the backend (an explicit --llm
 still wins). Configure one editor agent entry per agent to pick agents
 from the editor — 'ctxloom acp agents' prints the entries ready to paste.
 
+--workspace worktree runs that agent's session in its own fresh git worktree
+(ISO2) instead of the editor's own cwd — reuses the exact worktree machinery
+'ctxloom run --agent'/agent_run drive, with a first-turn announcement of the
+worktree path (the editor's own view stays unaware of it). Requires --agent:
+worktree isolation is for a deliberately-configured agent entry, never the
+plain 'ctxloom acp' one, even when the project's 'workspace:' default is
+"worktree" for map/weave.
+
 Stdout carries the protocol; all diagnostics go to stderr.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,7 +66,7 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 		// opener instead of re-implementing it. acpCoord satisfies
 		// operations.EngineSessionCoordinator structurally.
 		return acpagent.Serve(cmd.Context(), os.Stdin, os.Stdout, func(ctx context.Context, req acpagent.OpenRequest) (*acpagent.EngineChat, error) {
-			return operations.OpenEngineSession(ctx, req, acpCoord, acpProfile, acpAgent, acpLLM)
+			return operations.OpenEngineSession(ctx, req, acpCoord, acpProfile, acpAgent, acpLLM, acpWorkspace)
 		})
 	},
 }
@@ -66,6 +75,8 @@ func init() {
 	acpCmd.Flags().StringVarP(&acpProfile, "profile", "p", "", "profile to assemble context from (default: the configured defaults)")
 	acpCmd.Flags().StringVarP(&acpLLM, "llm", "l", "", "LLM config label to drive (default: the agent's/profile's llm, then the primary)")
 	acpCmd.Flags().StringVarP(&acpAgent, "agent", "a", "", "agent to serve as the agent: its composed profiles + engine binding (see 'ctxloom agent list')")
+	acpCmd.Flags().StringVar(&acpWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default). Honored only together with --agent (ISO2)")
 	acpCmd.MarkFlagsMutuallyExclusive("profile", "agent")
+	_ = acpCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 	rootCmd.AddCommand(acpCmd)
 }

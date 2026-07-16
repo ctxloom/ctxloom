@@ -36,6 +36,20 @@ func acpChildWatcher(c *coord.Coordinator) func(ctx context.Context) (<-chan acp
 	}
 }
 
+// WatchChildren implements operations.EngineSessionCoordinator
+// (internal/operations/engine_session.go): the D3 child-update watch closure
+// for a session hosted by this coordinator, or nil when no coordinator has
+// stood up yet — the same "coordinator() != nil" gate that used to live at
+// OpenEngineSession's call site before the ISO0 extraction moved that
+// function out of this package.
+func (a *acpCoordinator) WatchChildren() func(context.Context) (<-chan acpagent.ChildUpdate, func()) {
+	sc := a.coordinator()
+	if sc == nil {
+		return nil
+	}
+	return acpChildWatcher(sc)
+}
+
 // adaptChildWatch translates the coordinator's live AgentEvent stream into
 // acpagent.ChildUpdate values until events closes or ctx ends.
 func adaptChildWatch(ctx context.Context, snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, out chan<- acpagent.ChildUpdate) {

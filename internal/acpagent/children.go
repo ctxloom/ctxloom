@@ -3,6 +3,7 @@ package acpagent
 import (
 	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -15,27 +16,23 @@ import (
 // ConsumerService/WatchRuns; acpagent only ever sees the small ChildUpdate
 // shape.
 
-// ChildUpdateKind names what a ChildUpdate reports.
-type ChildUpdateKind string
+// ChildUpdateKind and ChildUpdate are frontend-neutral (ISO0): they live in
+// internal/operations (engine_types.go) alongside EngineChat, whose
+// WatchChildren field carries them. Aliases, not new types — every existing
+// acpagent.ChildUpdate* reference keeps compiling unchanged.
+type (
+	ChildUpdateKind = operations.ChildUpdateKind
+	ChildUpdate     = operations.ChildUpdate
+)
 
 const (
 	// ChildUpdateStarted marks a delegated child's run beginning.
-	ChildUpdateStarted ChildUpdateKind = "started"
+	ChildUpdateStarted = operations.ChildUpdateStarted
 	// ChildUpdateMessage carries a chunk of the child's own output.
-	ChildUpdateMessage ChildUpdateKind = "message"
+	ChildUpdateMessage = operations.ChildUpdateMessage
 	// ChildUpdateCompleted marks a delegated child's run ending.
-	ChildUpdateCompleted ChildUpdateKind = "completed"
+	ChildUpdateCompleted = operations.ChildUpdateCompleted
 )
-
-// ChildUpdate is one normalized, frontend-shaped notice about a delegated
-// child's activity — the CLI's WatchChildren implementation translates
-// coordinator AgentEvents into this shape; acpagent only maps THIS onto the
-// wire, never the coordinator's own contract types.
-type ChildUpdate struct {
-	Harp string
-	Kind ChildUpdateKind
-	Text string
-}
 
 // pushChildUpdates runs for the session's lifetime (its ctx is cancelled on
 // session close): subscribes via engine.WatchChildren and forwards each

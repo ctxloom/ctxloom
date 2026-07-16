@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"os"
@@ -9,12 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
+
+// Moved from internal/cli/acp_cmd_test.go (ISO0 extraction) alongside the
+// functions they test: acpSessionMCPServers and sessionModesFrom now live in
+// engine_session.go, package operations.
 
 // TestACPSessionMCPServers: an ACP session-open composes the managed MCP set
 // from the session's cwd config — ctxloom's own context server plus every
@@ -73,17 +75,17 @@ func TestACPSessionMCPServers(t *testing.T) {
 // its composed profile set, carrying its declared engine, namespaced so a
 // agent can never collide with a profile of the same name).
 func TestSessionModesFrom_ProfilesAndAgents(t *testing.T) {
-	subs := []operations.AgentEntry{
+	subs := []AgentEntry{
 		{Name: "reviewer", Engine: "fast", Profiles: []string{"r1", "r2"}},
 		{Name: "docs", Profiles: []string{"d"}},
 	}
 	modes := sessionModesFrom([]string{"go", "reviewer"}, subs, "", []string{"go", "base"}, "")
 	require.NotNil(t, modes)
 
-	assert.Equal(t, acpagent.DefaultModeID, modes.Current)
+	assert.Equal(t, DefaultModeID, modes.Current)
 	require.Len(t, modes.Available, 5)
 
-	assert.Equal(t, acpagent.DefaultModeID, modes.Available[0].ID)
+	assert.Equal(t, DefaultModeID, modes.Available[0].ID)
 	assert.Equal(t, "default (go, base)", modes.Available[0].Name)
 	assert.Nil(t, modes.Available[0].Profiles, "the default mode assembles the configured defaults")
 
@@ -103,7 +105,7 @@ func TestSessionModesFrom_ProfilesAndAgents(t *testing.T) {
 // TestSessionModesFrom_CurrentSelection: the launch selection decides the
 // current mode — agent beats profile beats default.
 func TestSessionModesFrom_CurrentSelection(t *testing.T) {
-	subs := []operations.AgentEntry{{Name: "reviewer", Profiles: []string{"r"}}}
+	subs := []AgentEntry{{Name: "reviewer", Profiles: []string{"r"}}}
 
 	modes := sessionModesFrom([]string{"go"}, subs, "", nil, "reviewer")
 	require.NotNil(t, modes)
@@ -133,7 +135,7 @@ func TestSessionModesFrom_Empty(t *testing.T) {
 // TestSessionModesFrom_AgentsOnly: agents alone still advertise modes
 // (default + agents) even with no installed profiles.
 func TestSessionModesFrom_AgentsOnly(t *testing.T) {
-	modes := sessionModesFrom(nil, []operations.AgentEntry{{Name: "docs", Profiles: []string{"d"}}}, "", nil, "")
+	modes := sessionModesFrom(nil, []AgentEntry{{Name: "docs", Profiles: []string{"d"}}}, "", nil, "")
 	require.NotNil(t, modes)
 	require.Len(t, modes.Available, 2)
 	assert.Equal(t, "agent:docs", modes.Available[1].ID)

@@ -194,6 +194,15 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	logText := c.sessionToText(session)
 	result.TotalTokensIn = estimateTokens(logText)
 
+	// male-aide: a session with zero main-thread entries has nothing to
+	// distill — see isEmptySession for why "zero entries" (not a byte/token
+	// floor) is the bright line. Skip the whole chunk/map/reduce pipeline
+	// (no plugin subprocess spawned at all) and persist a trivial dump
+	// instead, so the picker/resume flow still finds a valid essence.
+	if isEmptySession(session.Entries) {
+		return c.dumpEmptySession(session, harpName, sourceSize, plans, result, start)
+	}
+
 	// Chunk the log, distill each chunk, then optionally re-compress.
 	chunks := c.chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
@@ -234,12 +243,66 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
-	// Fall back to the first prose line when the LLM omitted a summary, so a
-	// distilled session never renders as "(no summary)" in the picker.
-	summary = deriveSummary(summary, cleanedBody)
+	return c.finishDistill(session, harpName, sourceSize, plans, result, summary, cleanedBody, start)
+}
+
+// isEmptySession reports whether a session has no main-thread content at all
+// (zero entries — loadSessionToCompact has already dropped sidechain entries
+// via agent.MainThreadEntries, so this is the post-filter count). Zero
+// entries is the bright line, not a byte/token floor: a genuinely tiny but
+// real exchange — a single "hello" with no reply (TestCompact_
+// DeliversSystemPromptUnderSkipSetup), or a two-line "Hello, how are you?" /
+// "I'm doing well" round trip (TestCompact_WithMockClient) — renders to well
+// under 20 estimated tokens, so any threshold generous enough to spare those
+// real conversations would spare essentially everything; it would not be a
+// usable "skip the pipeline" signal. "Zero entries" has no such false
+// positive: nothing was ever said, so there is nothing to condense, and
+// spawning a plugin subprocess (map) plus a reduce pass to summarize an
+// empty transcript is pure waste — one of the surfaces plausibly implicated
+// in tart-aqua's final-pass timeout.
+func isEmptySession(entries []agent.SessionEntry) bool {
+	return len(entries) == 0
+}
+
+// emptySessionPlaceholder is the body written for a session with zero
+// main-thread entries, so the saved essence is never a literal empty string
+// (a blank file would look indistinguishable from a write failure to a
+// human skimming ~/.ctxloom/sessions/<harp>/essence.md).
+const emptySessionPlaceholder = "_(empty session — no conversation content to distill)_"
+
+// dumpEmptySession is the short-circuit for isEmptySession: it skips
+// chunking, per-chunk map distillation, and the reduce pass entirely — no
+// LLM plugin subprocess is spawned — and persists a trivial but valid
+// essence (any plan files still re-attached verbatim) via the same
+// saveDistilled/updateSessionIndex plumbing normal distillation uses, so a
+// later `session list` / resume picker sees a well-formed entry rather than
+// a hole. Returns success: an empty session is not a failure, just nothing
+// to compact.
+func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, sourceSize int64, plans []PlanBlock, result *CompactionResult, start time.Time) (*CompactionResult, error) {
+	label := harpName
+	if label == "" {
+		label = session.ID
+	}
+	c.progressf("ctxloom: session %s empty — dumped without distillation\n", label)
+
+	result.ChunksCreated = 0
+	result.TotalTokensOut = result.TotalTokensIn // verbatim dump: no compression ran
+
+	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
+}
+
+// finishDistill assembles the picker summary + Open-Items detail, re-attaches
+// plan blocks, and persists the distilled artifact plus session-index entry.
+// Shared by the normal compaction path (cleanedBody is the LLM's combined,
+// possibly-reduced output) and dumpEmptySession (cleanedBody is the trivial
+// placeholder) so both produce an identically-shaped on-disk essence.
+func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourceSize int64, plans []PlanBlock, result *CompactionResult, frontmatterSummary, cleanedBody string, start time.Time) (*CompactionResult, error) {
+	// Fall back to the first prose line when there's no frontmatter summary,
+	// so a distilled session never renders as "(no summary)" in the picker.
+	summary := deriveSummary(frontmatterSummary, cleanedBody)
 
 	// Extra picker lines: the leading Open Items, so a resume row shows "what +
-	// what's left" instead of a lone subject. Derived from the LLM body before
+	// what's left" instead of a lone subject. Derived from the body before
 	// plan blocks are re-attached.
 	detail := buildPickerDetail(cleanedBody)
 
@@ -267,8 +330,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 }
 
 // loadSessionToCompact resolves the session to compact — the configured
-// SessionID if set, else the current session — and rejects the
-// nothing-to-do cases (no backend history support, no session, empty session).
+// SessionID if set, else the current session — and rejects the true
+// nothing-to-do cases (no backend history support, no session found). An
+// empty session (found, but zero main-thread entries) is NOT rejected here:
+// it's a valid session for Compact to short-circuit to a dump via
+// isEmptySession, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	if c.source == nil {
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
@@ -325,10 +391,11 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	}
 	// Distillation reflects the conversation the user had: subagent-interior
 	// (sidechain) entries are attribution data for viewers, not essence input.
+	// A session with zero main-thread entries (including an all-sidechain
+	// session, which filters down to none) is not an error here — male-aide:
+	// Compact's isEmptySession check short-circuits it to a plain dump rather
+	// than failing, since "nothing to distill" is not "nothing was found".
 	session.Entries = agent.MainThreadEntries(session.Entries)
-	if len(session.Entries) == 0 {
-		return nil, fmt.Errorf("session %s has no entries", session.ID)
-	}
 	return session, nil
 }
 

@@ -464,6 +464,13 @@ func TestCompact_NoSession(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestCompact_EmptySession is the male-aide regression test: a session with
+// zero main-thread entries must short-circuit straight to a dumped, trivial
+// essence — succeeding, not erroring — and must never reach the map/reduce
+// LLM pipeline. The ClientFactory below fails the test outright if the
+// compactor ever tries to spawn an LLM plugin, so a regression that routes an
+// empty session back through chunking/distillChunks/finalCompressionPass is
+// caught even if the result's shape still happens to look plausible.
 func TestCompact_EmptySession(t *testing.T) {
 	testsupport.Isolate(t) // isolates CTXLOOM_SESSION_HARP too — this test's mock
 	// has no harp-index binding, and without isolation an ambient real session's
@@ -477,14 +484,28 @@ func TestCompact_EmptySession(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatal("compaction pipeline invoked for an empty session; must short-circuit to a dump before any LLM call")
+			return 0, nil
+		},
+	}
+
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
 	})
 	require.NoError(t, err)
 
-	_, err = compactor.Compact(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "has no entries")
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "an empty session must dump successfully, not error")
+	assert.Equal(t, 0, result.ChunksCreated, "no chunking/compaction pass should run for an empty session")
+	assert.NotEmpty(t, result.DistilledPath)
+
+	data, err := os.ReadFile(result.DistilledPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), emptySessionPlaceholder, "the dumped essence must carry the trivial placeholder body")
 }
 
 // TestCompact_SidechainEntriesExcluded: the reader now surfaces
@@ -539,7 +560,10 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 }
 
 // TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is
-// subagent-interior has nothing to distill.
+// subagent-interior filters down to zero main-thread entries, so it must take
+// the same male-aide dump short-circuit as a literally-empty session (see
+// TestCompact_EmptySession) — succeeding with a trivial essence, never
+// reaching the LLM.
 func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	testsupport.Isolate(t) // see TestCompact_EmptySession: isolates CTXLOOM_SESSION_HARP
 	// so identityBoundSessionID can't resolve a real ambient session.
@@ -553,12 +577,23 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	compactor, err := NewCompactor(CompactionConfig{BackendOverride: mockBe})
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatal("compaction pipeline invoked for an all-sidechain (empty main-thread) session")
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+	})
 	require.NoError(t, err)
 
-	_, err = compactor.Compact(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "has no entries")
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "an all-sidechain session must dump successfully, not error")
+	assert.Equal(t, 0, result.ChunksCreated)
 }
 
 func TestCompact_WithMockClient(t *testing.T) {

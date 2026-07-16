@@ -630,7 +630,8 @@ func TestServe_SessionLoad(t *testing.T) {
 // TestPromptText_ResourceBlocks: promptText inlines `resource` (embedded text,
 // labeled by uri) and renders `resource_link` as a labeled reference line, so
 // "add context" content reaches the engine. Text passes through; a binary blob
-// resource (no text) is still dropped.
+// resource (no text) has no text projection but (B2) is no longer a SILENT
+// drop — it renders a visible placeholder naming what arrived instead.
 func TestPromptText_ResourceBlocks(t *testing.T) {
 	raw := `[
 		{"type":"text","text":"look at this"},
@@ -647,7 +648,62 @@ func TestPromptText_ResourceBlocks(t *testing.T) {
 	assert.Contains(t, got, "file:///a.go", "the embedded resource is labeled by its uri")
 	assert.Contains(t, got, "file:///spec.md", "the resource link references its uri")
 	assert.Contains(t, got, "Design Spec", "the resource link uses its title as the label")
-	assert.NotContains(t, got, "AAAA", "a binary blob resource has no text projection and is dropped")
+	assert.NotContains(t, got, "AAAA", "raw base64 blob bytes never render as-is")
+	assert.Contains(t, got, "file:///bin", "B2: a binary blob resource is no longer a silent drop — its uri is named in a visible placeholder")
+	assert.Contains(t, got, "application/octet-stream", "the placeholder names the blob's mime type")
+}
+
+// TestPromptText_MediaBlocks_NeverSilentlyDropped: B2's cross-backend safety
+// net — image/audio blocks have no text projection, but the flattened Text
+// every native backend (claude/codex/kiro/opencode) reads must still show
+// SOMETHING arrived, never nothing (this codebase's signature failure mode).
+func TestPromptText_MediaBlocks_NeverSilentlyDropped(t *testing.T) {
+	raw := `[
+		{"type":"text","text":"what is this"},
+		{"type":"image","data":"aGVsbG8=","mimeType":"image/png"},
+		{"type":"audio","data":"d29ybGQ=","mimeType":"audio/wav"}
+	]`
+	var blocks []api.ContentBlock
+	require.NoError(t, json.Unmarshal([]byte(raw), &blocks))
+
+	got := promptText(blocks)
+	assert.Contains(t, got, "what is this")
+	assert.Contains(t, got, "image content received", "an image is never silently omitted from the flattened text")
+	assert.Contains(t, got, "image/png", "the placeholder names the mime type")
+	assert.Contains(t, got, "audio content received", "an audio block is never silently omitted either")
+	assert.Contains(t, got, "audio/wav")
+	assert.NotContains(t, got, "aGVsbG8=", "raw base64 image bytes never render as text")
+}
+
+// TestHandlePrompt_ContentBlocksPayload: B2's structural intake payload
+// proof — an image block in session/prompt reaches the engine via
+// agent.ChatMessage.ContentBlocks losslessly (Raw carries the full original
+// bytes), not just as a flattened text placeholder. This is the payload
+// behind promptCapabilities.image/audio: true.
+func TestHandlePrompt_ContentBlocksPayload(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	promptJSON := `{"sessionId":"` + sid + `","prompt":[
+		{"type":"text","text":"describe this"},
+		{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}
+	]}`
+	id := c.send("session/prompt", promptJSON)
+
+	msg := eng.receiveMsg(t)
+	assert.Contains(t, msg.Text, "image content received", "the flattened Text fallback still shows a visible placeholder")
+	require.Len(t, msg.ContentBlocks, 2, "text + image, carried structurally")
+	assert.Equal(t, "text", msg.ContentBlocks[0].Kind)
+	assert.Equal(t, "describe this", msg.ContentBlocks[0].Text)
+	assert.Equal(t, "image", msg.ContentBlocks[1].Kind)
+	assert.Contains(t, string(msg.ContentBlocks[1].Raw), "aGVsbG8=", "the image's REAL base64 data rides Raw losslessly — no flattening at the intake layer")
+	assert.Contains(t, string(msg.ContentBlocks[1].Raw), "image/png")
+
+	eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	resp, _ := c.waitResponse(id)
+	require.Nil(t, resp.Error)
 }
 
 // TestServe_UsageAndSessionInfo: the engine's one-time ChatSessionInfo projects
@@ -771,8 +827,8 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	assert.EqualValues(t, 1, got.ProtocolVersion)
 	assert.True(t, got.AgentCapabilities.LoadSession)
 	assert.True(t, got.AgentCapabilities.PromptCapabilities.EmbeddedContext)
-	assert.False(t, got.AgentCapabilities.PromptCapabilities.Image, "no multimodal intake yet (B2) — promptText drops image blocks silently, so claiming this would be exactly the lie C1 must not tell")
-	assert.False(t, got.AgentCapabilities.PromptCapabilities.Audio, "no multimodal intake yet (B2) — promptText drops audio blocks silently")
+	assert.True(t, got.AgentCapabilities.PromptCapabilities.Image, "B2 landed: handlePrompt carries image blocks through structurally (contentBlocksFromACP) instead of dropping them — see TestHandlePrompt_ContentBlocksCarryImageThrough")
+	assert.True(t, got.AgentCapabilities.PromptCapabilities.Audio, "B2 landed: handlePrompt carries audio blocks through structurally instead of dropping them")
 	assert.False(t, got.AgentCapabilities.McpCapabilities.Acp)
 	assert.False(t, got.AgentCapabilities.McpCapabilities.Http, "no HTTP MCP passthrough yet (B3) — mcpServersFromACP only forwards stdio")
 	assert.False(t, got.AgentCapabilities.McpCapabilities.Sse, "no SSE MCP passthrough yet (B3)")
@@ -789,6 +845,8 @@ func TestServe_Initialize_AdvertisesCapabilitiesTruthfully(t *testing.T) {
 	// missing field).
 	raw := string(resp.Result)
 	assert.Contains(t, raw, `"embeddedContext":true`)
+	assert.Contains(t, raw, `"image":true`)
+	assert.Contains(t, raw, `"audio":true`)
 	assert.Contains(t, raw, `"authMethods":[]`)
 }
 

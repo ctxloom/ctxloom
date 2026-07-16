@@ -110,19 +110,23 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		err  error
 	}
 	var (
-		turnDone    chan turnResult // non-nil while a turn is in flight
-		turnStarted time.Time       // when the in-flight turn's prompt was written
-		queued      []string        // text messages that arrived mid-turn, in order
-		inChan      = in            // nil'd once the caller closes input
+		turnDone    chan turnResult     // non-nil while a turn is in flight
+		turnStarted time.Time           // when the in-flight turn's prompt was written
+		queued      []agent.ChatMessage // messages that arrived mid-turn, in order (B2: full message, not just Text — ContentBlocks rides along)
+		inChan      = in                // nil'd once the caller closes input
 	)
 	// startTurn WRITES the session/prompt frame synchronously (so a CancelTurn
 	// processed later by this loop is guaranteed to reach the agent after the
-	// prompt it cancels), then awaits the turn's response off the loop.
-	startTurn := func(text string) {
+	// prompt it cancels), then awaits the turn's response off the loop. B2:
+	// the outbound content blocks are built (and capability-gated against the
+	// connected engine — see buildPromptBlocks) from the FULL queued message,
+	// not just its flattened Text.
+	startTurn := func(msg agent.ChatMessage) {
 		done := make(chan turnResult, 1)
 		turnDone = done
 		turnStarted = sess.clock()
-		await, err := b.promptAsync(conn, sessionID, text)
+		blocks := sess.buildPromptBlocks(msg)
+		await, err := b.promptAsync(conn, sessionID, blocks)
 		if err != nil {
 			done <- turnResult{err: err}
 			return
@@ -184,7 +188,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 					notifyCancel()
 				}
 			default:
-				queued = append(queued, msg.Text)
+				queued = append(queued, msg)
 			}
 		}
 	}
@@ -215,6 +219,13 @@ func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
 // the EDITOR completes) — this is the other half of that story: ctxloom AS A
 // CLIENT of the chosen engine reads what that specific engine actually
 // offers, so callers can degrade per-session instead of guessing.
+//
+// B2 (multimodal content, gap G3): Prompt.Image/Audio/EmbeddedContext is the
+// FIRST real consumer — buildPromptBlocks/deliverBlock gate every outbound
+// image/audio/resource block against it, flattening to a visible warning
+// instead of a silent drop when the connected engine didn't advertise
+// support. Before this slice the struct was captured but never read past
+// LoadSession/AuthMethods.
 type engineCapabilities struct {
 	Prompt      api.PromptCapabilities
 	Mcp         api.McpCapabilities
@@ -253,11 +264,30 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		ProtocolVersion: api.ProtocolVersionNumber,
 		ClientCapabilities: api.ClientCapabilities{
 			// The client owns the cwd, so it is the natural authority for file
-			// reads/writes the agent delegates. Terminal is declined (the unstable
-			// terminal/* surface is out of scope for this increment) — and so is
-			// auth.terminal: ctxloom drives no interactive authenticate flow yet
-			// (see the auth_required handling below), so it must not invite an
-			// engine to offer a terminal-shaped auth method it could never answer.
+			// reads/writes the agent delegates. auth.terminal is declined:
+			// ctxloom drives no interactive authenticate flow yet (see the
+			// auth_required handling below), so it must not invite an engine to
+			// offer a terminal-shaped auth method it could never answer.
+			//
+			// Terminal (B1, gap G6) is ALSO declined here, but for a DIFFERENT
+			// and more structural reason than "out of scope": ctxloom must
+			// BROKER terminal/* to the real upstream editor, never implement a
+			// terminal of its own (that would be a different, wrong design —
+			// see HandleRequest's terminal case below) — and brokering requires
+			// a live round trip from THIS client-role process, across the
+			// plugin gRPC boundary, to whichever acpagent.Server process holds
+			// the real editor connection. That round trip needs a NEW
+			// bidirectional carrier symmetric to Permission's
+			// (ChatEvent.Permission up / ChatMessage.Permission down, both
+			// proto-mirrored) — a TerminalRequest/TerminalResponse pair — which
+			// does not exist yet: agent.ChatEvent/ChatMessage (internal/shared/
+			// agent) and their proto mirror (internal/lm/grpc/llm.proto) are
+			// owned by a concurrent slice (B3) as of this writing. Advertising
+			// Terminal: true without that channel would be the exact
+			// advertise-then-drop lie this codebase must never tell (the same
+			// discipline B2 applies to promptCapabilities.image/audio) — so
+			// this stays false until the IR/proto carrier lands. See
+			// HandleRequest's terminal/* case for the loud, specific decline.
 			Fs: api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 		},
 		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},
@@ -427,10 +457,13 @@ func mcpServersToACP(servers []agent.ChatMCPServer) []api.McpServer {
 // turn ends, yielding the stop reason. The turn's session/update stream is
 // consumed concurrently by the read loop (chatSession.HandleNotification),
 // which forwards mapped entries to `out` before the response arrives.
-func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, text string) (func(context.Context) (string, error), error) {
+// blocks is the already-built (and, per B2, already capability-gated — see
+// chatSession.buildPromptBlocks) outbound content-block array; the caller
+// decides its shape, this function only ships it.
+func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, blocks []api.ContentBlock) (func(context.Context) (string, error), error) {
 	promptReq := api.PromptRequest{
 		SessionId: sessionID,
-		Prompt:    []api.ContentBlock{api.TextBlock(text)},
+		Prompt:    blocks,
 	}
 	await, err := conn.Go(api.AgentMethodSessionPrompt, promptReq)
 	if err != nil {
@@ -443,6 +476,124 @@ func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, text stri
 		}
 		return string(resp.StopReason), nil
 	}, nil
+}
+
+// --- B2: multimodal prompt delivery (CLIENT role) ---
+
+// buildPromptBlocks renders one outbound ChatMessage as the ACP content-block
+// array actually delivered to the connected engine. msg.ContentBlocks (IR2's
+// structured carrier, landed for exactly this) is used when the caller
+// populated it — today, only acpagent's session/prompt intake does (see
+// internal/acpagent/server.go's handlePrompt); every OTHER caller (`run
+// --structured`, oneshot Execute, the interactive pty driver — none of which
+// ever set ContentBlocks) falls back to the single flattened text block sent
+// exactly as before this slice, so their behavior is byte-for-byte unchanged
+// (the hard constraint every ACP Hub slice restates).
+//
+// Per-block degradation is CAPABILITY-GATED against the connected engine's
+// OWN advertised prompt capabilities (s.caps.Prompt, captured once in setup —
+// see engineCapabilities' doc comment, landed by the C-slice specifically for
+// this consumption): image/audio/embedded-resource ride through untouched
+// when the engine actually advertised support; otherwise the block is
+// FLATTENED to a visible placeholder text block naming what was dropped and
+// why (kind, mime type, byte count) — never a silent drop (this codebase's
+// signature bug: exit 0, success, zero bytes delivered). text and
+// resource_link are unconditional per spec (every agent MUST support them).
+func (s *chatSession) buildPromptBlocks(msg agent.ChatMessage) []api.ContentBlock {
+	if len(msg.ContentBlocks) == 0 {
+		return []api.ContentBlock{api.TextBlock(msg.Text)}
+	}
+	out := make([]api.ContentBlock, 0, len(msg.ContentBlocks))
+	for _, b := range msg.ContentBlocks {
+		out = append(out, s.deliverBlock(b))
+	}
+	return out
+}
+
+// deliverBlock renders one IR content block for delivery: image/audio/
+// resource decode their full-fidelity Raw bytes (see agent.ContentBlock's doc
+// comment — Raw is the ORIGINAL ACP block, verbatim, produced by
+// internal/acp/mapping.go's blockToIR on intake) back into a real typed ACP
+// block when the connected engine's capabilities allow it; otherwise it
+// degrades to a labeled text placeholder rather than vanishing. text and
+// resource_link are spec-mandatory for every agent, so they are never gated.
+func (s *chatSession) deliverBlock(b agent.ContentBlock) api.ContentBlock {
+	switch b.Kind {
+	case "image":
+		if s.caps.Prompt.Image {
+			if block, ok := decodeACPBlock(b.Raw); ok {
+				return block
+			}
+		}
+		return flattenedBlockWarning(b, "image")
+	case "audio":
+		if s.caps.Prompt.Audio {
+			if block, ok := decodeACPBlock(b.Raw); ok {
+				return block
+			}
+		}
+		return flattenedBlockWarning(b, "audio")
+	case "resource":
+		if s.caps.Prompt.EmbeddedContext {
+			if block, ok := decodeACPBlock(b.Raw); ok {
+				return block
+			}
+		}
+		return flattenedBlockWarning(b, "resource")
+	case "resource_link":
+		// Spec: "All agents MUST support resource links" — never gated.
+		if block, ok := decodeACPBlock(b.Raw); ok {
+			return block
+		}
+		return api.TextBlock(b.Text)
+	default: // "text" and any future/unrecognized kind
+		return api.TextBlock(b.Text)
+	}
+}
+
+// decodeACPBlock re-decodes an IR content block's full-fidelity Raw bytes
+// back into a real typed api.ContentBlock (the union's UnmarshalJSON
+// dispatches on the embedded "type" discriminator, so this round-trips
+// exactly what internal/acp/mapping.go's blockToIR marshaled on intake).
+// false on empty/malformed Raw — the caller degrades to a text placeholder
+// rather than sending a block this decode couldn't stand behind.
+func decodeACPBlock(raw json.RawMessage) (api.ContentBlock, bool) {
+	if len(raw) == 0 {
+		return api.ContentBlock{}, false
+	}
+	var block api.ContentBlock
+	if err := json.Unmarshal(raw, &block); err != nil {
+		return api.ContentBlock{}, false
+	}
+	return block, true
+}
+
+// flattenedBlockWarning renders b as a visible text placeholder when the
+// connected engine did not advertise support for its kind (or its Raw bytes
+// failed to decode) — the flatten-WITH-warning degradation the plan requires:
+// ctxloom neither silently drops the content nor lies about having delivered
+// it. Logs the same finding (operational visibility) and returns text so the
+// model — and a transcript viewer — sees that something arrived instead of
+// the turn silently missing it.
+func flattenedBlockWarning(b agent.ContentBlock, kind string) api.ContentBlock {
+	detail := mediaBlockDetail(b.Raw)
+	warnf("acp: flattening %s content block to text — the connected engine does not advertise %s support%s", kind, kind, detail)
+	return api.TextBlock(fmt.Sprintf("[%s content received but not delivered: the connected engine does not advertise %s support%s]", kind, kind, detail))
+}
+
+// mediaBlockDetail extracts a human-readable "(mimeType=..., N bytes)" detail
+// from an image/audio block's Raw bytes for the flatten-with-warning message,
+// or "" when Raw carries no recognizable mimeType (e.g. a resource block,
+// which has no data/mimeType shape).
+func mediaBlockDetail(raw json.RawMessage) string {
+	var d struct {
+		MimeType string `json:"mimeType"`
+		Data     string `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &d); err != nil || d.MimeType == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (mimeType=%s, %d bytes)", d.MimeType, len(d.Data))
 }
 
 // --- per-conversation callback handler ---
@@ -621,6 +772,17 @@ func (s *chatSession) HandleRequest(ctx context.Context, method string, params j
 		reply(s.handleFsRead(params))
 	case api.ClientMethodFsWriteTextFile:
 		reply(s.handleFsWrite(params))
+	case api.ClientMethodTerminalCreate, api.ClientMethodTerminalOutput,
+		api.ClientMethodTerminalWaitForExit, api.ClientMethodTerminalKill, api.ClientMethodTerminalRelease:
+		// B1 (gap G6): a spec-conforming engine should never call these — this
+		// client never advertised Terminal: true (see setup's doc comment for
+		// exactly why: the cross-process broker channel to the real editor
+		// doesn't exist yet). An engine that tries anyway (ignoring the
+		// advertised false, or probing) gets a SPECIFIC, actionable decline —
+		// never the generic method-not-found a truly-unrecognized method
+		// gets, and never a locally-implemented fake terminal (ctxloom must
+		// broker, not implement one of its own).
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability (no broker channel exists yet from this process to the real editor) — ctxloom brokers terminal/* to editors, it never implements one itself"})
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: method not supported: " + method})
 	}

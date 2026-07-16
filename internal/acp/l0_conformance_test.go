@@ -187,3 +187,66 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 		checkL0Client(t, v, cap)
 	}
 }
+
+// TestL0_ClientEmittedFrames_Multimodal is B2's L0 proof: when the connected
+// engine advertises image/audio/embeddedContext support, the session/prompt
+// request ctxloom actually SENDS carries real ImageBlock/AudioBlock/Resource
+// content (buildPromptBlocks/deliverBlock) — and that request is still a
+// schema-valid PromptRequest under the current spec. A capability-gated
+// degradation (the engine did NOT advertise support) is exercised in
+// TestBuildPromptBlocks_Degrades (session_test.go) with a payload assertion
+// on the flattened placeholder text; this test's job is narrower: prove the
+// UNDEGRADED path's wire shape validates.
+func TestL0_ClientEmittedFrames_Multimodal(t *testing.T) {
+	v := mustClientValidator(t)
+
+	b := NewACP()
+	fa := executeHarness(t, b)
+
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent, 32)
+	chatDone := make(chan error, 1)
+	go func() {
+		chatDone <- b.Chat(context.Background(), agent.ChatRequest{WorkDir: "/proj"}, in, out)
+	}()
+	go func() {
+		for range out {
+		}
+	}()
+
+	initReq := <-fa.requests
+	require.NoError(t, fa.respond(initReq.ID, map[string]any{
+		"protocolVersion": 1,
+		"agentCapabilities": map[string]any{
+			"promptCapabilities": map[string]any{"image": true, "audio": true, "embeddedContext": true},
+		},
+	}))
+	newReq := <-fa.requests
+	require.NoError(t, fa.respond(newReq.ID, map[string]any{"sessionId": "sess-mm"}))
+
+	in <- agent.ChatMessage{
+		Text: "describe this",
+		ContentBlocks: []agent.ContentBlock{
+			{Kind: "text", Text: "describe this", Raw: json.RawMessage(`{"type":"text","text":"describe this"}`)},
+			{Kind: "image", Raw: json.RawMessage(`{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}`)},
+			{Kind: "audio", Raw: json.RawMessage(`{"type":"audio","data":"d29ybGQ=","mimeType":"audio/wav"}`)},
+		},
+	}
+	promptReq := <-fa.requests
+	require.Equal(t, "session/prompt", promptReq.Method)
+
+	// Payload assertion: the real bytes reached the wire, not a placeholder.
+	assert.Contains(t, string(promptReq.Params), `"aGVsbG8="`, "the image's real data reached the engine")
+	assert.Contains(t, string(promptReq.Params), `"d29ybGQ="`, "the audio's real data reached the engine")
+	assert.NotContains(t, string(promptReq.Params), "not delivered", "an advertised-capable engine gets the real block, never the flatten-with-warning placeholder")
+	checkL0Client(t, v, l0ClientCapture{label: "session/prompt request (multimodal, capable engine)", defName: "PromptRequest", payload: promptReq.Params})
+
+	require.NoError(t, fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	close(in)
+	select {
+	case err := <-chatDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for Chat to return")
+	}
+}

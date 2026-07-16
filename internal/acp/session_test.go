@@ -644,6 +644,109 @@ func TestChat_ResumeSessionLoad_CapabilityMissing(t *testing.T) {
 	assert.Empty(t, events(), "no events besides the closed channel — setup never got far enough for a Session event")
 }
 
+// TestChat_ProtocolVersionMismatch fails loud (never silently continues a
+// conversation shaped by a version this SDK does not decode) when the engine
+// negotiates any protocol version other than the one this client speaks —
+// the isolation-must-not-negotiate discipline applied to protocol versions.
+func TestChat_ProtocolVersionMismatch(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.Equal(t, "initialize", initReq.Method)
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 2}))
+	}()
+
+	close(h.in)
+	err := <-h.chatErr
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "protocol version 2")
+	assert.Contains(t, err.Error(), "only speaks version 1")
+	assert.Empty(t, events(), "setup never got far enough for a Session event")
+}
+
+// TestChat_AuthRequired fails loud — never hangs — when the engine answers
+// session/new with the spec's auth_required error: ctxloom drives no
+// interactive authenticate flow yet, so the session-open error must name the
+// method(s) the engine advertised at initialize rather than leaving the
+// caller to decode a bare -32000.
+func TestChat_AuthRequired(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{
+			"protocolVersion": 1,
+			"authMethods": []map[string]any{
+				{"type": "env_var", "id": "api-key", "name": "API Key", "vars": []any{}},
+			},
+		}))
+
+		newReq := <-h.fa.requests
+		require.Equal(t, "session/new", newReq.Method)
+		require.NoError(t, h.fa.respondError(newReq.ID, -32000, "Authentication required"))
+	}()
+
+	close(h.in)
+	err := <-h.chatErr
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires authentication")
+	assert.Contains(t, err.Error(), "api-key (API Key)")
+	assert.Contains(t, err.Error(), "does not yet drive an interactive authenticate flow")
+	assert.Empty(t, events(), "setup never got far enough for a Session event")
+}
+
+// TestChat_AuthRequired_NoMethodsAdvertised covers the degenerate case: an
+// engine that answers auth_required without ever having advertised a method
+// at initialize. The error must still be loud and must not crash rendering
+// an empty method list.
+func TestChat_AuthRequired_NoMethodsAdvertised(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+
+		newReq := <-h.fa.requests
+		require.Equal(t, "session/new", newReq.Method)
+		require.NoError(t, h.fa.respondError(newReq.ID, -32000, "Authentication required"))
+	}()
+
+	close(h.in)
+	err := <-h.chatErr
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires authentication")
+	assert.Contains(t, err.Error(), "none advertised")
+	assert.Empty(t, events())
+}
+
+// TestChat_SessionNewError_NotAuthRequired pins that a session/new failure
+// for an UNRELATED reason (any code but -32000) passes through unchanged —
+// authRequiredErr must not repaint every session-open failure as an auth
+// problem.
+func TestChat_SessionNewError_NotAuthRequired(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{"protocolVersion": 1}))
+
+		newReq := <-h.fa.requests
+		require.NoError(t, h.fa.respondError(newReq.ID, -32603, "boom"))
+	}()
+
+	close(h.in)
+	err := <-h.chatErr
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+	assert.NotContains(t, err.Error(), "requires authentication")
+	assert.Empty(t, events())
+}
+
 // TestChat_TransportError surfaces a spawn failure as a Chat error (and still
 // closes out per the contract).
 func TestChat_TransportError(t *testing.T) {

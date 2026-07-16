@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -72,11 +73,12 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		<-conn.Done()
 	}
 
-	sessionID, err := b.setup(ctx, conn, req)
+	sessionID, caps, err := b.setup(ctx, conn, req)
 	if err != nil {
 		teardown()
 		return err
 	}
+	sess.caps = caps
 
 	// notifyCancel tells the agent to abandon the in-flight turn (best-effort,
 	// per-turn: the parked session/prompt then resolves with stopReason
@@ -197,23 +199,72 @@ func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
 	return env
 }
 
+// engineCapabilities is what the engine's initialize response told us it can
+// do, plus the negotiated protocol version — read once by setup and stashed
+// on chatSession (see Chat) for the rest of the conversation. A multi-engine
+// hub CANNOT advertise per-engine capabilities at ITS OWN initialize time
+// (see internal/acpagent/server.go's handleInitialize doc comment: the editor
+// picks the engine at session/new, long after ctxloom's own handshake with
+// the EDITOR completes) — this is the other half of that story: ctxloom AS A
+// CLIENT of the chosen engine reads what that specific engine actually
+// offers, so callers can degrade per-session instead of guessing.
+type engineCapabilities struct {
+	Prompt      api.PromptCapabilities
+	Mcp         api.McpCapabilities
+	Session     api.SessionCapabilities
+	Auth        api.AgentAuthCapabilities
+	AuthMethods []api.AuthMethod
+	LoadSession bool
+}
+
+// authRequiredCode is the ACP spec's JSON-RPC error code for "authentication
+// required" (agent-go-sdk's errors.go: NewAuthRequired) — an agent may answer
+// session/new or session/load with this when it needs authenticate called
+// first. ctxloom's hand-rolled jsonrpc package (internal/acp/jsonrpc) only
+// defines the three STANDARD JSON-RPC codes because it never needed an
+// application-defined one before; this is the first.
+const authRequiredCode = -32000
+
 // setup runs the initialize + session/new (or session/load, when resuming)
 // handshake, returning the session id the rest of the conversation runs
-// under.
-func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
+// under and the engine's advertised capabilities.
+//
+// Protocol version: the client FAILS LOUD on anything but the exact version
+// this SDK speaks (api.ProtocolVersionNumber) — never silently continues a
+// conversation shaped by a version this decoder does not understand. This is
+// the isolation-must-not-negotiate discipline applied to protocol versions:
+// an undetected mismatch here would silently mis-decode every frame after it.
+func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, engineCapabilities, error) {
 	initParams := api.InitializeRequest{
 		ProtocolVersion: api.ProtocolVersionNumber,
 		ClientCapabilities: api.ClientCapabilities{
 			// The client owns the cwd, so it is the natural authority for file
 			// reads/writes the agent delegates. Terminal is declined (the unstable
-			// terminal/* surface is out of scope for this increment).
+			// terminal/* surface is out of scope for this increment) — and so is
+			// auth.terminal: ctxloom drives no interactive authenticate flow yet
+			// (see the auth_required handling below), so it must not invite an
+			// engine to offer a terminal-shaped auth method it could never answer.
 			Fs: api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 		},
 		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},
 	}
 	var initResp api.InitializeResponse
 	if err := conn.Call(ctx, api.AgentMethodInitialize, initParams, &initResp); err != nil {
-		return "", err
+		return "", engineCapabilities{}, err
+	}
+	if initResp.ProtocolVersion != api.ProtocolVersionNumber {
+		return "", engineCapabilities{}, fmt.Errorf(
+			"acp: engine negotiated protocol version %d; ctxloom's ACP client only speaks version %d (schema-v1.19.0) and cannot safely continue a conversation shaped by a version it does not decode",
+			initResp.ProtocolVersion, api.ProtocolVersionNumber,
+		)
+	}
+	caps := engineCapabilities{
+		Prompt:      initResp.AgentCapabilities.PromptCapabilities,
+		Mcp:         initResp.AgentCapabilities.McpCapabilities,
+		Session:     initResp.AgentCapabilities.SessionCapabilities,
+		Auth:        initResp.AgentCapabilities.Auth,
+		AuthMethods: initResp.AuthMethods,
+		LoadSession: initResp.AgentCapabilities.LoadSession,
 	}
 
 	cwd := req.WorkDir
@@ -228,8 +279,8 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// session under the resumed id's name, discarding continuity the
 		// caller explicitly asked for — fail loud instead (adapter/SDK gap,
 		// reportable, never worked around by falling back to session/new).
-		if !initResp.AgentCapabilities.LoadSession {
-			return "", fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
+		if !caps.LoadSession {
+			return "", caps, fmt.Errorf("acp: agent does not advertise the loadSession capability; cannot resume session %q (session/new would silently start a fresh session under a resumed id's name)", req.ResumeSessionID)
 		}
 		loadReq := api.LoadSessionRequest{Cwd: cwd, McpServers: mcpServers, SessionId: api.SessionId(req.ResumeSessionID)}
 		// session/load replays the resumed conversation's history as
@@ -240,17 +291,57 @@ func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatReque
 		// running (Chat starts it before setup blocks here).
 		var loadResp json.RawMessage
 		if err := conn.Call(ctx, api.AgentMethodSessionLoad, loadReq, &loadResp); err != nil {
-			return "", fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, err)
+			return "", caps, fmt.Errorf("acp: session/load %q: %w", req.ResumeSessionID, authRequiredErr(err, caps))
 		}
-		return api.SessionId(req.ResumeSessionID), nil
+		return api.SessionId(req.ResumeSessionID), caps, nil
 	}
 
 	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: mcpServers}
 	var newResp api.NewSessionResponse
 	if err := conn.Call(ctx, api.AgentMethodSessionNew, newReq, &newResp); err != nil {
-		return "", err
+		return "", caps, authRequiredErr(err, caps)
 	}
-	return newResp.SessionId, nil
+	return newResp.SessionId, caps, nil
+}
+
+// authRequiredErr recognizes the spec's auth_required error (code -32000) on
+// a session/new or session/load failure and rewrites it into a LOUD,
+// actionable error naming the auth method(s) the engine advertised at
+// initialize — never a hang, and never a bare opaque RPC error. ctxloom
+// drives no interactive authenticate flow yet (that is future work: an
+// editor-mediated credential prompt has no seam to ride today), so the only
+// honest thing to do with an auth-required engine is fail the session open
+// and say exactly what is missing. Any other error passes through unchanged.
+func authRequiredErr(err error, caps engineCapabilities) error {
+	var rerr *jsonrpc.Error
+	if !errors.As(err, &rerr) || rerr.Code != authRequiredCode {
+		return err
+	}
+	return fmt.Errorf("acp: engine requires authentication before a session can be opened (advertised method(s): %s) — ctxloom does not yet drive an interactive authenticate flow; authenticate this engine out of band, then retry: %w", authMethodNames(caps.AuthMethods), err)
+}
+
+// authMethodNames renders an engine's advertised auth methods as
+// "id (name)" for a human-readable error; AuthMethod is a discriminated
+// union (env_var/terminal/agent), each variant carrying its own Id/Name.
+func authMethodNames(methods []api.AuthMethod) string {
+	if len(methods) == 0 {
+		return "none advertised"
+	}
+	names := make([]string, 0, len(methods))
+	for _, m := range methods {
+		switch {
+		case m.EnvVar != nil:
+			names = append(names, string(m.EnvVar.Id)+" ("+m.EnvVar.Name+")")
+		case m.Terminal != nil:
+			names = append(names, string(m.Terminal.Id)+" ("+m.Terminal.Name+")")
+		case m.Agent != nil:
+			names = append(names, string(m.Agent.Id)+" ("+m.Agent.Name+")")
+		}
+	}
+	if len(names) == 0 {
+		return "unrecognized method shape"
+	}
+	return strings.Join(names, ", ")
 }
 
 // mcpServersToACP maps the caller-supplied MCP servers onto the session/new
@@ -309,6 +400,11 @@ type chatSession struct {
 	autoApprove bool
 	forward     bool // surface permission requests upstream instead of auto-deciding
 	clock       func() time.Time
+
+	// caps is the engine's advertised initialize-time capabilities, read once
+	// in Chat right after setup() returns and never mutated afterward — safe
+	// to read from any goroutine without a lock (see setup/engineCapabilities).
+	caps engineCapabilities
 
 	// forwarded-permission state: each in-flight request parks on its channel
 	// until the caller's answer (or input close / ctx death) resolves it.

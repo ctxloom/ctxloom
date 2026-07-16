@@ -118,6 +118,12 @@ func (a *fakeAgent) respond(id json.RawMessage, result any) error {
 	return a.writeFrame(rpcMessage{ID: id, Result: marshalResult(result)})
 }
 
+// respondError answers a client request with a JSON-RPC error (e.g. the
+// spec's auth_required, code -32000 — see session.go's authRequiredCode).
+func (a *fakeAgent) respondError(id json.RawMessage, code int, message string) error {
+	return a.writeFrame(rpcMessage{ID: id, Error: &jsonrpc.Error{Code: code, Message: message}})
+}
+
 // sessionUpdate sends a session/update notification wrapping the given raw update
 // object (e.g. `{"sessionUpdate":"agent_message_chunk",...}`).
 func (a *fakeAgent) sessionUpdate(sessionID, updateJSON string) error {

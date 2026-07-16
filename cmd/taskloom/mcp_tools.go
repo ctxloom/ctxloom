@@ -14,10 +14,10 @@ import (
 // tool-tax of extra MCP entries.
 
 type taskListInput struct {
-	Statuses         []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = active tasks only (completed tasks are hidden unless include_completed is set or a completed status is named here)."`
+	Statuses         []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = active tasks only (completed Done/Archived and Deferred tasks are hidden unless include_completed is set or such a status is named here)."`
 	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
 	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter, e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". Empty = no tag filter."`
-	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include completed (Done/Archived) tasks, which are hidden by default."`
+	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones."`
 }
 
@@ -27,6 +27,13 @@ type taskListResult struct {
 	ProjectDir string         `json:"project_dir,omitempty"`
 	Tasks      []tasks.Task   `json:"tasks"`
 	Summary    *tasks.Summary `json:"summary,omitempty"`
+
+	// HiddenCompleted/HiddenDeferred count tasks that matched the requested
+	// filters but were suppressed by the default active-only view, so a
+	// filtered listing never silently truncates its answer. Zero (omitted)
+	// when include_completed or an explicit status filter was used.
+	HiddenCompleted int `json:"hidden_completed,omitempty"`
+	HiddenDeferred  int `json:"hidden_deferred,omitempty"`
 }
 
 type taskAddInput struct {
@@ -77,7 +84,7 @@ func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List the project's tasks, optionally filtered by status or text term. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
+			Description: "List the project's tasks, optionally filtered by status, text term, or tag query (tag_query). Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		handleTaskList)
 
@@ -117,11 +124,13 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 	warnTask(res.Warning)
 	out := &taskListResult{
-		Path:       res.Path,
-		ProjectID:  res.ProjectID,
-		ProjectDir: res.ProjectDir,
-		Tasks:      res.Tasks,
-		Summary:    res.Summary,
+		Path:            res.Path,
+		ProjectID:       res.ProjectID,
+		ProjectDir:      res.ProjectDir,
+		Tasks:           res.Tasks,
+		Summary:         res.Summary,
+		HiddenCompleted: res.HiddenCompleted,
+		HiddenDeferred:  res.HiddenDeferred,
 	}
 	return nil, out, nil
 }

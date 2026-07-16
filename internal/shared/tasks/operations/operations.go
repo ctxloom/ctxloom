@@ -6,6 +6,7 @@ package operations
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
@@ -28,6 +29,16 @@ type TaskListResult struct {
 	Tasks   []tasks.Task
 	Summary *tasks.Summary
 	Warning string // project-resolution notice (move/fork); the frontend surfaces it
+
+	// HiddenCompleted/HiddenDeferred count the tasks that matched every
+	// requested filter but were dropped by the default active-only view
+	// (completed = Done/Archived, i.e. Checked). Zero when includeDone or an
+	// explicit status filter disabled that view. Frontends use these so a
+	// filtered listing never silently truncates its answer — a user who
+	// tag-queries a vocabulary they applied to now-finished work would
+	// otherwise see matches vanish with no trace.
+	HiddenCompleted int
+	HiddenDeferred  int
 
 	// ProjectID/ProjectDir identify the store the listing came from. In
 	// multi-root workspaces (several .ctxloom trees under one repo) the
@@ -122,16 +133,23 @@ func listTasks(tc TaskContext, statuses []string, term, tagQuery string, include
 	// visible. Deferred tasks are parked on a trigger and are likewise hidden
 	// from the active view — surface them with `--status Deferred` (or the
 	// check-triggers command), or with includeDone.
+	var hiddenCompleted, hiddenDeferred int
 	if !includeDone && len(statuses) == 0 {
 		active := make([]tasks.Task, 0, len(list))
 		for _, t := range list {
-			if !t.Checked && t.Status != tasks.StatusDeferred {
+			switch {
+			case t.Checked:
+				hiddenCompleted++
+			case t.Status == tasks.StatusDeferred:
+				hiddenDeferred++
+			default:
 				active = append(active, t)
 			}
 		}
 		list = active
 	}
-	out := &TaskListResult{Path: store.Path(), Tasks: list, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}
+	out := &TaskListResult{Path: store.Path(), Tasks: list, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir,
+		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred}
 	if includeSummary {
 		sum, err := store.Summarize()
 		if err != nil {
@@ -227,6 +245,64 @@ func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
 		return nil, fmt.Errorf("edit task: %w", err)
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// TagCount reports one tag's usage across the project's tasks. Active counts
+// the tasks visible in the default list view (not completed, not Deferred);
+// Total counts every task carrying the tag, however parked or finished.
+// Showing both is what makes the number self-explanatory: a tag with
+// "0 active, 40 total" is a finished workstream, not a typo.
+type TagCount struct {
+	Tag    string `json:"tag"`
+	Active int    `json:"active"`
+	Total  int    `json:"total"`
+}
+
+// TagListResult is the render-agnostic result of ListTagCounts.
+type TagListResult struct {
+	Path    string
+	Tags    []TagCount
+	Warning string
+
+	ProjectID  string
+	ProjectDir string
+}
+
+// ListTagCounts enumerates the tags currently in use across ALL of the
+// project's tasks (including completed and Deferred ones), with per-tag
+// counts, sorted by tag name. This is the read side of the tag vocabulary:
+// tags are free-form on write, so without an enumeration surface the
+// vocabulary is write-only and typo-twins accumulate invisibly.
+func ListTagCounts(tc TaskContext) (*TagListResult, error) {
+	store, proj, warning, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	list, err := store.List(nil, "")
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	counts := make(map[string]*TagCount)
+	for _, t := range list {
+		active := !t.Checked && t.Status != tasks.StatusDeferred
+		for _, tag := range t.Tags {
+			c := counts[tag]
+			if c == nil {
+				c = &TagCount{Tag: tag}
+				counts[tag] = c
+			}
+			c.Total++
+			if active {
+				c.Active++
+			}
+		}
+	}
+	out := make([]TagCount, 0, len(counts))
+	for _, c := range counts {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Tag < out[j].Tag })
+	return &TagListResult{Path: store.Path(), Tags: out, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
 }
 
 // DeferredSince resolves the project's task store and returns, for every

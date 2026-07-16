@@ -82,8 +82,8 @@ var llmServeCmd = &cobra.Command{
 		// the go-plugin Chat RPC is never dialed for a delegated child;
 		// go-plugin remains only this process's spawn/kill transport.
 		var home *coord.Home
+		var engineHost *coord.EngineHost
 		if homeCfg.URL != "" && homeCfg.Token != "" {
-			var engineHost *coord.EngineHost
 			if homeCfg.RunID != "" {
 				if sc, ok := backend.(agent.StructuredChat); ok {
 					engineHost = coord.NewEngineHost(cmd.Context(), sc, backendName, homeCfg.RunID)
@@ -123,6 +123,13 @@ var llmServeCmd = &cobra.Command{
 			GRPCServer:      plugin.DefaultGRPCServer,
 		})
 
+		if engineHost != nil {
+			// Cancel and join the hosted run's own goroutines FIRST (deaf-rut):
+			// if adapt is still mid-stream, this lets it finish its terminal
+			// RunCompleted/ReportRunExited via home while home is still
+			// live, before home itself tears down below.
+			engineHost.Close()
+		}
 		if home != nil {
 			// The harness exited with the plugin: report it. docker-stop
 			// rarely gives this path a chance — synthesis covers that.

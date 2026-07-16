@@ -420,7 +420,8 @@ func authCheckClaude(realHome string) (bool, string) {
 // authCheckKiro runs `kiro-cli whoami`, a local, non-interactive status read
 // (confirmed: well under a second, no network stall observed) that exits
 // nonzero when not logged in — a genuine authentication probe, unlike the
-// file-presence heuristic authCheckAntigravity is stuck with below.
+// local-credential-file heuristic authCheckAntigravity is stuck with below
+// (agy exposes no equivalent status subcommand at all).
 func authCheckKiro(realHome string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authProbeTimeout)
 	defer cancel()
@@ -433,23 +434,94 @@ func authCheckKiro(realHome string) (bool, string) {
 	return true, strings.TrimSpace(string(out))
 }
 
-// authCheckAntigravity checks for agy's OAuth credential file.
+// authCheckAntigravity inspects agy's OAuth credential file CONTENT
+// (access_token / refresh_token / expiry_date), not merely the file's
+// presence.
 //
-// ESCALATE (installed vs. authenticated, the exact distinction whose absence
-// hid kiro's own breakage for weeks): agy's own --help-all exposes NO
-// auth-status/whoami-equivalent subcommand, so unlike claude and kiro above,
-// this is a FILE-PRESENCE heuristic, not a verified login check. An
-// oauth_creds.json that exists but holds an expired or revoked token would
-// still probe as "authenticated" here, and this probe cannot tell the
-// difference. If agy ever grows a real status subcommand, replace this.
+// ESCALATE, STILL (installed vs. authenticated, the exact distinction whose
+// absence hid kiro's own breakage for weeks): confirmed 2026-07-15, agy 1.1.2
+// exposes NO auth-status/whoami-equivalent subcommand — `agy auth`, `agy
+// whoami`, `agy status`, `agy login`, `agy account`, `agy session` and `agy
+// config` all silently fall through to the top-level `--help` text (none is
+// a real subcommand registered with the CLI), and the two subcommands that
+// DO exist and looked promising, `agy models` and `agy agent`, are static/
+// local: verified they print the identical list under a fresh, empty HOME
+// with no credential file at all as under the real authenticated HOME, so
+// neither carries any auth signal. There is no local, free, non-interactive
+// command surface to probe, unlike claude/kiro/codex above.
+//
+// So this remains a LOCAL CREDENTIAL FILE heuristic, not a verified login
+// check — but it now parses the file (matching authCheckClaude's JSON-field
+// style) instead of just calling os.Stat: a refresh_token present, or an
+// access_token whose expiry_date has not passed, is treated as evidence of a
+// live credential; an expired access_token with no refresh_token, or a file
+// that fails to parse, is treated as evidence against one. This is strictly
+// more accurate than plain presence for the "stale/revoked token still on
+// disk" case a pure file-presence check cannot distinguish.
+//
+// KNOWN, MEASURED LIMITATION THIS CANNOT FIX (2026-07-14 investigation, task
+// vast-rut): this file's existence is neither necessary nor sufficient
+// evidence of the TRUE authentication condition on this box. A FRESH HOME
+// containing no oauth_creds.json anywhere still let a real `agy -p` call
+// authenticate and correctly answer a prompt — with no API-key env var set
+// and the D-Bus/keyring session severed. Four separate probes (fresh HOME,
+// no API-key env, no D-Bus, no machine-wide config dir under /etc, /opt, or
+// ~/.local/share) could not locate where agy's actual runtime credential
+// lives. So a "false" from this function does NOT reliably mean agy is
+// unauthenticated, and a "true" is not proof the runtime path even reads
+// this file — this is the best available local, free, non-interactive
+// signal, not ground truth. Deliberately NOT "fixed" by shelling out to a
+// real `agy -p <prompt>` call instead: that would make this probe a paid,
+// possibly network-stalling model call on every opted-in acceptance run,
+// breaking the same "never a paid model call" contract authProbeTimeout's
+// doc comment states for every authCheck* in this file, and per the
+// investigation above it would not even discriminate reliably on this box.
+// If agy ever grows a real status subcommand, replace this outright.
 func authCheckAntigravity(realHome string) (bool, string) {
+	type oauthCreds struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiryDate   int64  `json:"expiry_date"` // unix millis; 0 if absent
+	}
+	const limitation = "local credential-file heuristic only, not a verified login check (agy has no auth-status subcommand) — see authCheckAntigravity doc comment for its known limits"
+	var lastReason string
 	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
 		p := filepath.Join(realHome, sub, "oauth_creds.json")
-		if _, err := os.Stat(p); err == nil {
-			return true, fmt.Sprintf("oauth credential file found (%s) — file-presence heuristic only, not a verified login check (agy has no auth-status subcommand)", p)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
 		}
+		var creds oauthCreds
+		if jerr := json.Unmarshal(data, &creds); jerr != nil {
+			lastReason = fmt.Sprintf("%s exists but is not valid JSON: %v", p, jerr)
+			continue
+		}
+		if creds.RefreshToken != "" {
+			// A refresh token lets the client mint a fresh access token past
+			// expiry_date, so its presence is the stronger liveness signal —
+			// avoids flip-flopping this probe false purely because a
+			// short-lived access token aged out between two runs.
+			return true, fmt.Sprintf("%s: refresh_token present (%s)", p, limitation)
+		}
+		if creds.AccessToken == "" {
+			lastReason = fmt.Sprintf("%s exists but has no access_token or refresh_token", p)
+			continue
+		}
+		if creds.ExpiryDate > 0 {
+			expiry := time.UnixMilli(creds.ExpiryDate)
+			if time.Now().After(expiry) {
+				lastReason = fmt.Sprintf("%s: access_token expired %s ago, no refresh_token", p, time.Since(expiry).Round(time.Second))
+				continue
+			}
+			return true, fmt.Sprintf("%s: access_token valid until %s (%s)", p, expiry.Format(time.RFC3339), limitation)
+		}
+		// access_token present with no expiry_date field to check against.
+		return true, fmt.Sprintf("%s: access_token present, no expiry_date field to verify (%s)", p, limitation)
 	}
-	return false, "no oauth_creds.json found under ~/.gemini or ~/.gemini/antigravity-cli"
+	if lastReason != "" {
+		return false, lastReason + " — NOTE: absence/expiry here is not reliable evidence of unauthenticated, see authCheckAntigravity doc comment"
+	}
+	return false, "no oauth_creds.json found under ~/.gemini or ~/.gemini/antigravity-cli — NOTE: this is not reliable evidence of unauthenticated, see authCheckAntigravity doc comment"
 }
 
 // authCheckCodex runs `codex login status`, a local, non-interactive status

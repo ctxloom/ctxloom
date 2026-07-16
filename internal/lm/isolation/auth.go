@@ -307,9 +307,12 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 }
 
 // resolveAntigravityContainerAuth always reports no available auth:
-// antigravity has no known container credential source yet — its real
-// image/auth build-out is a separate workstream (stark-wheat/bare-goes; see
-// profile.go's antigravity case). It deliberately does NOT fall back to
+// antigravity has no known container credential source yet — this stays a
+// separate open workstream (stark-wheat/bare-goes) even after task
+// sweet-fruit landed antigravity's IMAGE half (antigravityInstallFragment,
+// profile.go's antigravity case): the agy CLI is now baked into a composed
+// image, but nothing here yet knows how to authenticate it (no verified env
+// var or credential-file location). It deliberately does NOT fall back to
 // resolveClaudeContainerAuth: doing so was the paced-even security edge (a
 // containerized antigravity run silently authenticating with the user's
 // ANTHROPIC_* credentials — the wrong provider entirely). Always degrades;

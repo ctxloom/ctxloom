@@ -104,8 +104,8 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 }
 
 // TestBuildSources_Precedence pins the source order for a NON-COMPOSABLE
-// profile (no engineInstall — the legacy shape antigravity/unknown backends
-// still use): an explicit base override wins outright; else a user base
+// profile (no engineInstall — the legacy shape an unknown/unprofiled backend
+// still uses): an explicit base override wins outright; else a user base
 // Containerfile leads, the official client image overlay follows, and the
 // embedded install Containerfile is the fallback; a profile with neither
 // yields nothing.

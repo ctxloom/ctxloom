@@ -34,6 +34,12 @@ import (
 // regardless of which stage dropped the container.
 const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
 
+// antigravityNoLeverFixIt is the fix-it hint attached to the host+worktree
+// antigravity fail-loud finding (task sweet-fruit): unlike claude/codex/kiro,
+// there is no per-agent env var to point at instead, so the only real fix is
+// switching to a container boundary (or accepting the degrade).
+const antigravityNoLeverFixIt = "switch this agent to runtime:container (antigravity has no config-home env lever to isolate on the host), or pass --degraded (env CTXLOOM_DEGRADED=1) to run it on the shared host config anyway"
+
 // Approvals is the policy's approval-handling axis: whether the engine keeps its
 // in-tool approval prompt or has it bypassed because a real isolation boundary
 // contains the blast radius. It is NOT currently consumed: the run permission
@@ -353,7 +359,29 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// (prepareChain warns). This is the PURE host+worktree path
 		// (grave-prize): NewWorktree carries backend so provisionConfigHome
 		// can seed the engine's subscription credentials into the per-agent
-		// config-home.
+		// config-home. Reached both for a bare {worktree, host} request and
+		// for a {worktree, container} request that just degraded to host
+		// above (the container was dropped, worktree stays) — either way the
+		// agent ends up on the HOST with only a worktree.
+		//
+		// antigravity (task sweet-fruit) has NO config-home env lever at all
+		// (vast-rut: its settings/state/creds are cwd-relative or an
+		// unlocatable global store — no env var relocates any of them, see
+		// credentialSeedSpecs' doc in auth.go), so
+		// worktreeWorkspace.Env() contributes nothing for it and a
+		// host+worktree antigravity agent would otherwise run UN-isolated
+		// with no signal — the exact silent-no-op failure mode fail-loudly
+		// exists to catch (mirrors worktree.go's seedCredentials /
+		// gateHomeVars fail-loud pattern for claude/codex/kiro). This is the
+		// one door into the pure host+worktree posture: the container-worktree
+		// composition above (line ~333) wraps the SAME Worktree type, but a
+		// real container boundary already contains the blast radius there
+		// regardless of any config-home lever, so it is deliberately NOT
+		// gated by this check.
+		if backend == "antigravity" {
+			strictness.Fail(strictness.ClassIsolation, antigravityNoLeverFixIt,
+				"agy cannot be isolated on the host (no config-home lever) — host+worktree isolation would run it UN-isolated, sharing the host's global antigravity config; use runtime:container")
+		}
 		return []Policy{NewWorktree(nil, backend), None{}}
 	}
 	return []Policy{None{}}

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -135,11 +136,12 @@ func TestChat_FullTurn(t *testing.T) {
 	assert.Equal(t, "test-model", evs[5].Complete.Model)
 }
 
-// TestChat_TurnMetaAccounting: the out-of-SDK usage_update /
-// session_info_update variants — the ACP session-usage RFD shapes ctxloom's
-// own acp agent emits; protocol v1 itself delivers no usage anywhere — fold
-// into the turn's Complete meta instead of being dropped as malformed, and
-// the turn duration is self-measured off the clock.
+// TestChat_TurnMetaAccounting: the real usage_update variant and ctxloom's
+// own (renamed, non-colliding — see L0 checklist B3) ctxloom_session_info
+// extension — the shapes ctxloom's own acp agent emits; protocol v1 itself
+// delivers no usage anywhere else — fold into the turn's Complete meta
+// instead of being dropped as malformed, and the turn duration is
+// self-measured off the clock.
 func TestChat_TurnMetaAccounting(t *testing.T) {
 	base := time.Unix(1700000000, 0)
 	var tick atomic.Int64
@@ -151,7 +153,7 @@ func TestChat_TurnMetaAccounting(t *testing.T) {
 	go func() {
 		sid := h.fa.serveHandshake(t)
 		promptReq := <-h.fa.requests
-		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"session_info_update","model":"real-model","permissionMode":"default","contextWindow":150000}`)
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"ctxloom_session_info","model":"real-model","permissionMode":"default","contextWindow":150000}`)
 		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"usage_update","used":53000,"size":200000,"cost":{"amount":0.045,"currency":"USD"}}`)
 		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
 	}()
@@ -236,7 +238,7 @@ func TestChat_InitializeHandshake(t *testing.T) {
 	hs := <-handshake
 
 	assert.Equal(t, "initialize", hs.init.Method)
-	var init initializeParams
+	var init api.InitializeRequest
 	require.NoError(t, json.Unmarshal(hs.init.Params, &init))
 	assert.Equal(t, 1, init.ProtocolVersion)
 	assert.True(t, init.ClientCapabilities.Fs.ReadTextFile)

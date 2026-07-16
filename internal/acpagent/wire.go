@@ -1,31 +1,21 @@
 package acpagent
 
 import (
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// This file carries the HAND-ROLLED ACP wire shapes the pinned SDK
-// (joshgarnett@2025-09-02) predates: the initialize response's agentInfo, and
-// the whole session-modes surface (session/new + session/load `modes` state,
-// session/set_mode, the current_mode_update session update). The shapes mirror
-// the current ACP schema; when the SDK gains them, these collapse onto its
-// types.
-
-// initializeResult is the initialize response body: the SDK's
-// InitializeResponse plus the agentInfo identity block it predates (the
-// mirror of the client driver's clientInfo).
-type initializeResult struct {
-	ProtocolVersion   int                   `json:"protocolVersion"`
-	AgentCapabilities api.AgentCapabilities `json:"agentCapabilities"`
-	AgentInfo         agentInfoBlock        `json:"agentInfo"`
-}
-
-type agentInfoBlock struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
+// This file carries the ACP wire shapes that are NOT plain pass-throughs of
+// internal/acp/api's types: the modes/models state riding session/new and
+// session/load's response, and ctxloom's own (renamed, non-colliding)
+// session-info extension. The initialize response's agentInfo and the
+// session-modes surface (session/set_mode request/response,
+// current_mode_update) used to be hand-rolled here too, ahead of the pinned
+// SDK — SDK1 (2026-07-16) collapsed those onto internal/acp/api's
+// InitializeResponse/Implementation/SetSessionModeRequest/SessionModeState/
+// SessionMode/CurrentModeUpdate, which the current spec defines identically
+// to what H1 confirmed ctxloom already emitted.
 
 // DefaultModeID is frontend-neutral (ISO0): it lives in internal/operations
 // (engine_types.go) alongside SessionModes, which uses it as the synthetic
@@ -33,44 +23,41 @@ type agentInfoBlock struct {
 // profiles, so no single profile name can stand for it).
 const DefaultModeID = operations.DefaultModeID
 
-// newSessionResult is the session/new response body: the SDK's
-// NewSessionResponse plus the modes/models state it predates.
+// newSessionResult is the session/new response body: api.NewSessionResponse's
+// sessionId plus the modes/models state riding alongside it.
 type newSessionResult struct {
-	SessionId api.SessionId `json:"sessionId"`
-	Modes     *modeState    `json:"modes,omitempty"`
-	Models    *modelState   `json:"models,omitempty"`
+	SessionId api.SessionId         `json:"sessionId"`
+	Modes     *api.SessionModeState `json:"modes,omitempty"`
+	Models    *modelState           `json:"models,omitempty"`
 }
 
 // loadSessionResult is the session/load response body (modes + models state).
 type loadSessionResult struct {
-	Modes  *modeState  `json:"modes,omitempty"`
-	Models *modelState `json:"models,omitempty"`
-}
-
-// modeState is the ACP session-mode state block.
-type modeState struct {
-	CurrentModeId  string     `json:"currentModeId"`
-	AvailableModes []modeWire `json:"availableModes"`
-}
-
-// modeWire is one selectable session mode.
-type modeWire struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// setModeParams is the session/set_mode request body.
-type setModeParams struct {
-	SessionId api.SessionId `json:"sessionId"`
-	ModeId    string        `json:"modeId"`
+	Modes  *api.SessionModeState `json:"modes,omitempty"`
+	Models *modelState           `json:"models,omitempty"`
 }
 
 // modelState advertises the LLMs a session could run, mirroring the emerging
-// ACP model-selection shape (availableModels + currentModelId). It is
-// ADVERTISEMENT ONLY: the pinned SDK has no model surface, and ctxloom pins the
-// engine's LLM at launch (a live mid-session switch is not implemented — there
-// is no session/set_model here). A client can display the available engines and
-// the launched one; selecting a different one is not yet honored.
+// ACP model-selection shape (availableModels + currentModelId).
+//
+// L0 checklist B4: `models`/`currentModelId`/`availableModels` are NOT a
+// construct in the current spec (schema-v1.19.0) at all — model
+// advertisement+selection there rides the generic SessionConfigOption /
+// session/set_config_option mechanism (a `category: "model"` config option),
+// which this re-vendor deliberately does NOT implement (that is slice CO1;
+// see internal/acp/api/types.go's SessionConfigOption-adjacent note). DECISION:
+// KEEP this hand-rolled advertisement-only shape for now rather than migrate
+// it to SessionConfigOption in this slice — migrating is real behavior change
+// (a client would need to read a different response shape and call a
+// different request method), which is explicitly out of SDK1's scope; CO1
+// does the migration. This shape is ADVERTISEMENT ONLY: the pinned SDK never
+// had a model surface either, and ctxloom pins the engine's LLM at launch (a
+// live mid-session switch is not implemented — there is no session/set_model
+// call here, and — separately verified during this slice — the current spec
+// has no session/set_model method or MethodSessionSetModel constant to call
+// even if we wanted to; see the SDK1 report's model-delivery finding). A
+// client can display the available engines and the launched one; selecting a
+// different one is not yet honored.
 type modelState struct {
 	CurrentModelId  string      `json:"currentModelId,omitempty"`
 	AvailableModels []modelWire `json:"availableModels"`
@@ -95,37 +82,34 @@ func modelStateWire(l *SessionLLMs) *modelState {
 	return out
 }
 
-// usageUpdate is the session/update variant reporting context-window usage and
-// cumulative cost — the ACP session-usage RFD shape (`used`/`size`/`cost`). The
-// pinned SDK predates the usage_update variant, so it is hand-rolled here (it
-// collapses onto the SDK's type when the SDK gains it).
-type usageUpdate struct {
-	SessionUpdate string     `json:"sessionUpdate"` // always "usage_update"
-	Used          int        `json:"used"`          // tokens currently in context
-	Size          int        `json:"size"`          // total context-window size
-	Cost          *usageCost `json:"cost,omitempty"`
-}
-
-// usageCost is the optional cumulative cost of a usage_update.
-type usageCost struct {
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"` // ISO 4217
-}
-
-// sessionInfoUpdate is a session/update carrying one-time session metadata
-// (model, permission mode, context window, MCP server status) so a client can
-// render a model/session header. NOTE: session_info_update is NOT a variant in
-// the pinned SDK, nor a settled ACP variant — this is a best-effort
-// forward-looking shape; a client that doesn't recognize it simply ignores it.
-type sessionInfoUpdate struct {
-	SessionUpdate  string          `json:"sessionUpdate"` // always "session_info_update"
+// ctxloomSessionInfoUpdate is ctxloom's own session/update carrying one-time
+// session metadata (model, permission mode, context window, MCP server
+// status) so a client can render a model/session header.
+//
+// L0 checklist B3 (the headline finding): this used to be emitted under the
+// wire name "session_info_update". The CURRENT spec (schema-v1.19.0)
+// independently stabilized session_info_update as something COMPLETELY
+// DIFFERENT — session METADATA (title/updatedAt), not a model/context/mcp
+// header (see internal/acp/api's SessionUpdate doc comment). Both shapes are
+// schema-valid objects, so no validator catches the collision — but a
+// spec-conforming peer would silently DROP this frame's real content trying
+// to read it as a title update, and ctxloom's own client half
+// (internal/acp/mapping.go) would misread a real peer's session_info_update
+// as an (empty) ctxloom header. DECISION: rename ctxloom's own extension off
+// the colliding name rather than keep the collision — this shape is used
+// ctxloom↔ctxloom only today (no other ACP agent emits it), so renaming
+// breaks no one; re-init/reconnect is the only "migration" a client needs.
+// See internal/acp/mapping.go's sessionInfoVariant for the client-side twin.
+type ctxloomSessionInfoUpdate struct {
+	SessionUpdate  string          `json:"sessionUpdate"` // always "ctxloom_session_info" — NOT the spec's session_info_update
 	Model          string          `json:"model,omitempty"`
 	PermissionMode string          `json:"permissionMode,omitempty"`
 	ContextWindow  int             `json:"contextWindow,omitempty"`
 	McpServers     []mcpStatusWire `json:"mcpServers,omitempty"`
 }
 
-// mcpStatusWire is one MCP server's connection status in a session_info_update.
+// mcpStatusWire is one MCP server's connection status in a
+// ctxloom_session_info update.
 type mcpStatusWire struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
@@ -133,23 +117,26 @@ type mcpStatusWire struct {
 
 // modeStateWire renders the session's mode state for the wire (nil when the
 // session advertises no modes).
-func modeStateWire(m *SessionModes) *modeState {
+func modeStateWire(m *SessionModes) *api.SessionModeState {
 	if m == nil || len(m.Available) == 0 {
 		return nil
 	}
-	out := &modeState{CurrentModeId: m.Current}
+	out := &api.SessionModeState{CurrentModeId: m.Current}
 	for _, mode := range m.Available {
-		out.AvailableModes = append(out.AvailableModes, modeWire{Id: mode.ID, Name: mode.Name})
+		out.AvailableModes = append(out.AvailableModes, api.SessionMode{Id: mode.ID, Name: mode.Name})
 	}
 	return out
 }
 
-// currentModeUpdateWire is the session/update variant announcing a mode change.
+// currentModeUpdateWire is the session/update variant announcing a mode
+// change (schema $defs/CurrentModeUpdate) — H1 confirmed this hand-rolled
+// shape already matched the current spec exactly; it is now built through
+// the real api.SessionUpdate union instead of an ad hoc anonymous struct.
 func currentModeUpdateWire(modeID string) any {
-	return struct {
-		SessionUpdate string `json:"sessionUpdate"`
-		CurrentModeId string `json:"currentModeId"`
-	}{SessionUpdate: "current_mode_update", CurrentModeId: modeID}
+	return api.SessionUpdate{
+		Type:              api.SessionUpdateTypeCurrentModeUpdate,
+		CurrentModeUpdate: &api.CurrentModeUpdate{CurrentModeId: modeID},
+	}
 }
 
 // modeByID returns the session mode named by id.

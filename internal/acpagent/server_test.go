@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -675,7 +675,7 @@ func TestServe_UsageAndSessionInfo(t *testing.T) {
 	for _, u := range updates {
 		joined += string(u.Params)
 	}
-	assert.Contains(t, joined, `"session_info_update"`)
+	assert.Contains(t, joined, `"ctxloom_session_info"`, "ctxloom's own session-info extension rides under a NON-colliding name (L0 checklist B3) — the current ACP spec's session_info_update means something else (session title/timestamp metadata)")
 	assert.Contains(t, joined, "claude-sonnet")
 	assert.Contains(t, joined, "connected")
 	assert.Contains(t, joined, `"usage_update"`)

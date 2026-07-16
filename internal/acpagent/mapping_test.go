@@ -3,7 +3,7 @@ package acpagent
 import (
 	"testing"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"

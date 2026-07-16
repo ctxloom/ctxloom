@@ -12,25 +12,35 @@
 // uses — with the bonus that ACP's `agent_thought_chunk` finally surfaces
 // summarized reasoning as EntryTypeThinking (claude-code's stream-json strips it).
 //
-// # SDK decision: reuse the wire types, hand-roll the codec
+// # SDK decision: own wire types (api/), hand-rolled codec (jsonrpc.go)
 //
-// We use github.com/joshgarnett/agent-client-protocol-go/acp/api for the wire
-// types (schema-generated, comprehensive, correct discriminated-union
-// marshaling, and — verified — stdlib-only: it imports just encoding/json + fmt,
-// so it pulls none of the SDK's heavier connection dependencies into ctxloom).
+// THIS WAS RE-DECIDED in the SDK1 slice (2026-07-16). Originally we vendored
+// github.com/joshgarnett/agent-client-protocol-go/acp/api for the wire types.
+// That module turned out to be frozen: no commits to main since 2025-09-02,
+// ~10 months stale against the spec. An unmerged side branch DID update the
+// schema, but sat with no open PR for 8+ months and was, itself, already
+// stale against the CURRENT spec (missing SessionConfigOption,
+// SessionCapabilities/AgentAuthCapabilities, session_info_update; its
+// session/set_model has since been superseded by the spec's generalized
+// session/set_config_option mechanism). Rather than depend on a frozen
+// module or an abandoned, already-outdated fork, we now hand-author our own
+// wire types directly from the vendored current spec — see api/doc.go for
+// the full rationale and provenance.
 //
-// We do NOT use the SDK's connection layer. It is built on golang.org/x/exp/
-// jsonrpc2, which hardcodes the LSP-style Content-Length "HeaderFramer" with no
-// override hook — but ACP frames messages as NEWLINE-DELIMITED JSON over stdio.
-// The SDK's connection is therefore wire-INCOMPATIBLE with real ACP agents
-// (its own client↔agent tests pass only because both ends share the wrong
-// framer). So jsonrpc.go supplies a minimal newline-delimited JSON-RPC 2.0 peer.
-// This is the "minimal internal JSON-RPC 2.0 codec" fallback, taken deliberately
-// for wire-correctness while still reusing the SDK's structs.
+// The newline-delimited JSON-RPC 2.0 codec was ALREADY ours before this
+// decision, and stays exactly as it was: the SDK's connection layer is built
+// on golang.org/x/exp/jsonrpc2, which hardcodes the LSP-style Content-Length
+// "HeaderFramer" with no override hook — but ACP frames messages as
+// NEWLINE-DELIMITED JSON over stdio, making that connection layer
+// wire-INCOMPATIBLE with real ACP agents (its own client↔agent tests pass
+// only because both ends share the wrong framer). jsonrpc.go supplies the
+// minimal newline-delimited JSON-RPC 2.0 peer this needs; re-vendoring the
+// wire types changed nothing about that decision.
 //
 // # Files
 //
 //	doc.go      — this overview + the SDK decision + the registration TODO
+//	api/        — ctxloom's own ACP wire types (see api/doc.go)
 //	jsonrpc.go  — the newline-delimited JSON-RPC 2.0 codec (framing + duplex peer)
 //	mapping.go  — THE CORE: session/update → agent.ChatEvent + permission decision
 //	session.go  — the session lifecycle driver (initialize→new→prompt→cancel) and

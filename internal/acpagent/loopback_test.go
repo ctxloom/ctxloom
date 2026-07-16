@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

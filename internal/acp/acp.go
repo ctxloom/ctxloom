@@ -13,9 +13,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// clientInfo identity advertised in the initialize request (recommended by the
-// spec). The SDK's api.InitializeRequest predates the clientInfo field, so the
-// initialize params are assembled locally (see initializeParams in session.go).
+// clientInfo identity advertised in the initialize request (recommended by
+// the spec) — see api.InitializeRequest.ClientInfo, built in session.go's
+// setup.
 const (
 	clientName    = "ctxloom"
 	clientVersion = "1.0.0"

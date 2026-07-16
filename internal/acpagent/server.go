@@ -28,7 +28,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -41,11 +41,6 @@ const (
 	agentName    = "ctxloom"
 	agentVersion = "1.0.0"
 )
-
-// methodSessionSetMode is the session-modes request the pinned SDK predates
-// (its api package has no modes surface at all — see wire.go for the
-// hand-rolled mode types).
-const methodSessionSetMode = "session/set_mode"
 
 // EngineChat, OpenRequest, and the session-modes/LLM-advertisement shapes
 // they carry are frontend-neutral (ISO0): they live in internal/operations
@@ -128,10 +123,10 @@ func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error
 func (s *Server) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
 	case api.MethodInitialize:
-		reply(initializeResult{
+		reply(api.InitializeResponse{
 			ProtocolVersion:   api.ACPProtocolVersion,
 			AgentCapabilities: api.AgentCapabilities{LoadSession: true},
-			AgentInfo:         agentInfoBlock{Name: agentName, Version: agentVersion},
+			AgentInfo:         &api.Implementation{Name: agentName, Version: agentVersion},
 		}, nil)
 	case api.MethodSessionNew:
 		go s.handleSessionNew(params, reply)
@@ -139,7 +134,7 @@ func (s *Server) HandleRequest(ctx context.Context, method string, params json.R
 		go s.handleSessionLoad(params, reply)
 	case api.MethodSessionPrompt:
 		s.handlePrompt(params, reply)
-	case methodSessionSetMode:
+	case api.MethodSessionSetMode:
 		go s.handleSetMode(params, reply)
 	default:
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "ctxloom acp: method not supported: " + method})
@@ -423,7 +418,7 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 // conversation itself continues — a mode switch changes the context, not the
 // running engine (an agent mode's engine binding applies only at launch).
 func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
-	var req setModeParams
+	var req api.SetSessionModeRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
@@ -459,7 +454,7 @@ func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.
 	if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: currentModeUpdateWire(req.ModeId)}); err != nil {
 		clidiag.Warn("ctxloom", "acp agent: mode update notify failed: %v", err)
 	}
-	reply(struct{}{}, nil)
+	reply(api.SetSessionModeResponse{}, nil)
 }
 
 // cancelTurn cancels the session's in-flight TURN, per the spec: the prompt
@@ -615,21 +610,24 @@ func embeddedResourceText(r *api.ContentBlockResource) string {
 // resourceLinkText renders a `resource_link` block as one labeled reference
 // line, so a referenced resource reaches the engine as a pointer it can act on
 // rather than being dropped. A link with no uri has nothing to reference.
+// Title/Description are now PROPERLY TYPED as *string (see
+// internal/acp/api/unions.go's ContentBlockResourceLink) rather than the
+// interface{} the pinned SDK's union file left them as.
 func resourceLinkText(l *api.ContentBlockResourceLink) string {
 	if l == nil || l.Uri == "" {
 		return ""
 	}
 	label := l.Name
-	if t, ok := l.Title.(string); ok && t != "" {
-		label = t
+	if l.Title != nil && *l.Title != "" {
+		label = *l.Title
 	}
 	line := "[resource: "
 	if label != "" {
 		line += label + " — "
 	}
 	line += l.Uri + "]"
-	if d, ok := l.Description.(string); ok && d != "" {
-		line += " " + d
+	if l.Description != nil && *l.Description != "" {
+		line += " " + *l.Description
 	}
 	return line
 }
@@ -652,8 +650,8 @@ func mcpServersFromACP(servers []api.McpServer) []agent.ChatMCPServer {
 }
 
 // sessionUpdateParams is the session/update notification body. Update is any
-// wire-shaped update value (the SDK's SessionUpdate union or a hand-rolled
-// mode update).
+// wire-shaped update value (an api.SessionUpdate value, or ctxloom's own
+// session-info extension — see ctxloomSessionInfoUpdate).
 type sessionUpdateParams struct {
 	SessionId api.SessionId `json:"sessionId"`
 	Update    any           `json:"update"`

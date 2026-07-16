@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
+	"github.com/ctxloom/ctxloom/internal/acp/api"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -27,20 +27,6 @@ import (
 
 // Compile-time assertion that ACP satisfies the optional StructuredChat capability.
 var _ agent.StructuredChat = (*ACP)(nil)
-
-// initializeParams is the initialize request body. It exists because the SDK's
-// api.InitializeRequest predates the spec's clientInfo field; every other field
-// reuses the api types.
-type initializeParams struct {
-	ProtocolVersion    int                    `json:"protocolVersion"`
-	ClientCapabilities api.ClientCapabilities `json:"clientCapabilities"`
-	ClientInfo         *clientInfoBlock       `json:"clientInfo,omitempty"`
-}
-
-type clientInfoBlock struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
 
 // Chat runs one structured ACP conversation for the lifetime of the call. It
 // honors the agent.StructuredChat contract: the caller closes `in` to end input;
@@ -215,15 +201,15 @@ func (b *ACP) spawnEnv(req agent.ChatRequest) map[string]string {
 // handshake, returning the session id the rest of the conversation runs
 // under.
 func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
-	initParams := initializeParams{
+	initParams := api.InitializeRequest{
 		ProtocolVersion: api.ACPProtocolVersion,
 		ClientCapabilities: api.ClientCapabilities{
 			// The client owns the cwd, so it is the natural authority for file
 			// reads/writes the agent delegates. Terminal is declined (the unstable
 			// terminal/* surface is out of scope for this increment).
-			Fs: api.FileSystemCapability{ReadTextFile: true, WriteTextFile: true},
+			Fs: api.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
 		},
-		ClientInfo: &clientInfoBlock{Name: clientName, Version: clientVersion},
+		ClientInfo: &api.Implementation{Name: clientName, Version: clientVersion},
 	}
 	var initResp api.InitializeResponse
 	if err := conn.Call(ctx, api.MethodInitialize, initParams, &initResp); err != nil {
@@ -307,7 +293,7 @@ func (b *ACP) promptAsync(conn *jsonrpc.Conn, sessionID api.SessionId, text stri
 		if aerr := await(ctx, &resp); aerr != nil {
 			return "", aerr
 		}
-		return rawText(resp.StopReason), nil
+		return string(resp.StopReason), nil
 	}, nil
 }
 
@@ -330,13 +316,14 @@ type chatSession struct {
 	pendingPerm map[string]chan agent.PermissionAnswer
 	noInput     bool // input closed: no answers can arrive anymore
 
-	// turn accounting fed by the out-of-SDK usage_update/session_info_update
-	// variants (see consumeMetaUpdate). Guarded by metaMu: updates arrive on
-	// the read loop while completeMeta runs on the Chat loop.
+	// turn accounting fed by the real usage_update variant and ctxloom's own
+	// (renamed, non-colliding) session-info extension — see consumeMetaUpdate.
+	// Guarded by metaMu: updates arrive on the read loop while completeMeta
+	// runs on the Chat loop.
 	metaMu     sync.Mutex
-	usage      *usageUpdateWire // latest usage report (cumulative; freshest wins)
-	infoModel  string           // model the agent named in session_info_update
-	infoWindow int              // context window from session_info_update
+	usage      *api.UsageUpdate // latest usage report (cumulative; freshest wins)
+	infoModel  string           // model ctxloom's own agent named in its session-info extension
+	infoWindow int              // context window from ctxloom's own session-info extension
 }
 
 // send emits one event, stamping a receipt time when the entry lacks one (ACP
@@ -362,9 +349,9 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 		warnf("acp: dropping malformed session/update: %v", err)
 		return
 	}
-	// Accounting variants the pinned SDK's union does not model (the ACP
-	// session-usage RFD shapes — see mapping.go) fold into the turn meta
-	// instead of tripping the strict union decoder.
+	// The real usage_update variant, and ctxloom's own renamed session-info
+	// extension (see mapping.go's sessionInfoVariant), fold into the turn meta
+	// instead of running through mapSessionUpdate as an entry.
 	if s.consumeMetaUpdate(raw) {
 		return
 	}
@@ -380,16 +367,20 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 	}
 }
 
-// consumeMetaUpdate absorbs the accounting session/update variants the pinned
-// SDK does not model — usage_update and session_info_update, the shapes
-// ctxloom's own acp agent emits (internal/acpagent/wire.go) — into the turn
-// accounting. Returns true when the update was one of those (there is no
-// entry to emit); a malformed frame of a recognized variant is warned and
-// dropped, never crashing the stream.
+// consumeMetaUpdate absorbs two session/update variants into the turn
+// accounting rather than mapping them to an entry: the real spec usage_update
+// (now decoded straight into api.UsageUpdate), and ctxloom's own session-info
+// extension — emitted under a ctxloom-scoped name, NOT the spec's
+// session_info_update, which means something unrelated (session
+// title/timestamp metadata) as of schema-v1.19.0; see the emitter's doc
+// comment (internal/acpagent/wire.go) and mapping.go's sessionInfoVariant.
+// Returns true when the update was one of those (there is no entry to emit);
+// a malformed frame of a recognized variant is warned and dropped, never
+// crashing the stream.
 func (s *chatSession) consumeMetaUpdate(raw json.RawMessage) bool {
 	switch updateDiscriminator(raw) {
 	case usageUpdateVariant:
-		var u usageUpdateWire
+		var u api.UsageUpdate
 		if err := json.Unmarshal(raw, &u); err != nil {
 			warnf("acp: dropping malformed usage_update: %v", err)
 			return true
@@ -576,8 +567,11 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	return api.ReadTextFileResponse{Content: sliceLines(string(data), req.Line, req.Limit)}, nil
 }
 
-// handleFsWrite serves fs/write_text_file to the local filesystem. It returns a
-// content-less success (JSON null result).
+// handleFsWrite serves fs/write_text_file to the local filesystem. It returns
+// api.WriteTextFileResponse{} (an empty JSON OBJECT) on success — the spec's
+// WriteTextFileResponse is `"type":"object"` with no null alternative (L0
+// checklist A1); a bare `nil` here used to render as literal JSON `null` via
+// jsonrpc.marshalResult, which is schema-invalid.
 func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
@@ -586,7 +580,7 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 	if err := os.WriteFile(req.Path, []byte(req.Content), 0o644); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
-	return nil, nil
+	return api.WriteTextFileResponse{}, nil
 }
 
 // --- helpers ---

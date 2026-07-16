@@ -300,6 +300,13 @@ func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]
 	cmd := exec.CommandContext(ctx, b.BinaryPath, argv...)
 	cmd.Dir = workDir
 	cmd.Env = spawnEnv(os.Environ(), b.stripEnv, env)
+	// setpgid puts the spawned agent in its OWN, fresh process group so
+	// close's killProcessGroup can reap the whole tree — not just the
+	// immediate child — on teardown. codex-acp (moral-scorn) double-forks a
+	// worker that survives a plain Process.Kill on just the spawned pid
+	// (the worker reparents to PPID=1 but stays in the same process group);
+	// see procgroup_unix.go/procgroup_windows.go.
+	setpgid(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -318,7 +325,10 @@ func (b *ACP) spawnTransport(ctx context.Context, argv []string, env map[string]
 		close: func() error {
 			_ = stdin.Close()
 			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
+				// Kill the WHOLE process group (not just cmd.Process) — this is
+				// the moral-scorn fix: a plain Process.Kill here left codex-acp's
+				// detached worker running indefinitely after every Chat().
+				_ = killProcessGroup(cmd)
 			}
 			return cmd.Wait()
 		},

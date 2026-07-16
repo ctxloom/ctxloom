@@ -611,6 +611,43 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 	},
 }
 
+// SeedCodexHome seeds destDir/.codex (a codex "virtual project dir" —
+// cellScopedCodexHome joins ".codex" onto it, see
+// internal/codex/backend.go's resolveCodexProjectDir) with the host's codex
+// credentials, for a caller whose CODEX_HOME relocation is NOT driven by an
+// isolation Policy at all: codex ALWAYS relocates CODEX_HOME to
+// <WorkDir>/.codex even under the plain None/host axis (its own in-tree
+// fallback) — a relocated home this package's Policy machinery never sees
+// or seeds, so it starts empty and codex 401s silently (warm-yodel).
+//
+// This reuses the EXACT SAME copy-based credentialSeedSpecs["codex"]
+// descriptor and hostCredentialSeed mechanics worktree.go's
+// provisionConfigHome already uses for the fan-out path — NOT a second
+// seeding mechanism — exported here because internal/codex owns codex's own
+// relocation policy but not this package's credential registry (an import
+// from internal/codex onto this package is safe: this package imports
+// neither internal/codex nor internal/shared/agent).
+//
+// Returns (skipped=true, nil) when OPENAI_API_KEY already authenticates
+// (codex's envTrigger) — nothing to copy, not an error. Returns a
+// descriptive, actionable error when the host source (~/.codex/auth.json)
+// is missing or the copy itself fails, so the caller can fail loud instead
+// of silently launching an unauthenticated codex.
+func SeedCodexHome(destDir string) (skipped bool, err error) {
+	spec, ok := credentialSeedSpecs["codex"]
+	if !ok || spec.sourceFiles == nil {
+		return false, fmt.Errorf("codex credential seed spec is not registered (internal error)")
+	}
+	result, err := hostCredentialSeed(spec, destDir)
+	if err != nil {
+		return false, err
+	}
+	if result == seedNoSource {
+		return false, fmt.Errorf("no OPENAI_API_KEY and no host ~/.codex/auth.json credentials found to authenticate this run — run `codex login` or set OPENAI_API_KEY (or pass --degraded)")
+	}
+	return result == seedSkippedEnv, nil
+}
+
 // seedResult is hostCredentialSeed's decision, returned instead of a bare
 // bool so the caller (worktree.go) can tell "nothing to do" (seedSkippedEnv,
 // seedNotApplicable) apart from "nothing WAS seedable" (seedNoSource) — only

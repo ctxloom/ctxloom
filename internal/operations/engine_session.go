@@ -273,27 +273,12 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 	}
 
-	// B5 (gap G14) — THE ONE RULE: fs follows the engine's authoritative
-	// workspace. req.FsUpstreamAddr is forwarded into the engine's env
-	// ONLY on the fully unisolated HOST axis — aw == nil (ISO2 never cut a
-	// worktree for this session) AND runtimeAxis == "" (ISO1 never
-	// containerized it). Both isolating axes are deliberately excluded:
-	// - aw != nil (worktree): the editor's own buffers describe the
-	//   MAIN checkout, a DIFFERENT tree than the one this engine runs
-	//   in — chaining there would silently serve the wrong file's
-	//   content under the right-looking path (session.go already reads
-	//   local disk at workDir, which IS the worktree — correct as-is).
-	// - runtimeAxis == RuntimeContainer: ISO1's same-path mount already
-	//   makes local disk correct from inside the "ctxloom llm serve"
-	//   subprocess (which always runs on the HOST, never in the
-	//   container — only the engine's own subprocess is containerized),
-	//   so chaining would be redundant at best and a second source of
-	//   truth at worst.
-	// Leaving env untouched on those two axes is what enforces the rule —
-	// session.go's handleFsRead/handleFsWrite simply serve local disk
-	// whenever this var is absent, with no separate per-axis branch of
-	// its own to get wrong.
-	if aw == nil && runtimeAxis == "" && req.FsUpstreamAddr != "" {
+	// B5 (gap G14): see shouldChainFsUpstream's doc for THE ONE RULE this
+	// enforces — leaving env untouched on the two isolating axes is what
+	// makes worktree/container sessions keep reading local disk, with no
+	// separate per-axis branch of their own (session.go's handleFsRead/
+	// handleFsWrite) to get wrong.
+	if req.FsUpstreamAddr != "" && shouldChainFsUpstream(aw, runtimeAxis) {
 		env[FsUpstreamEnvVar] = req.FsUpstreamAddr
 	}
 
@@ -673,6 +658,35 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 			aw.dir)
 	}
 	return aw, nil
+}
+
+// shouldChainFsUpstream decides B5's (gap G14) "one rule" — fs follows the
+// engine's authoritative workspace — for ONE session, given its already-
+// resolved workspace/runtime axes:
+//
+//   - aw != nil (ISO2 asked for a worktree — axes.WantsWorktree() gates
+//     prepareACPWorkspace's every non-nil return, see its doc): the
+//     connected editor's own buffers describe the MAIN checkout, a
+//     DIFFERENT tree from wherever this engine actually runs — chaining
+//     there would silently serve the WRONG file's content under a
+//     right-looking path, this codebase's signature failure mode. This
+//     holds even in isolation's rare "wanted a worktree but degraded to
+//     None" case (not a git repo, `git worktree add` failed): aw is still
+//     non-nil then (prepareACPWorkspace's aw.dir/aw.env are just the
+//     harmless projectDir/nil), so this function conservatively still
+//     refuses to chain — a missed optimization in that corner, never a
+//     wrong-content bug.
+//   - runtimeAxis == agent.RuntimeContainer (ISO1 containerized the
+//     ENGINE's own subprocess): ISO1's same-path mount already makes
+//     local disk correct — this "ctxloom llm serve" subprocess (where
+//     internal/acp/session.go's fs handlers actually run) is ALWAYS on
+//     the HOST, never inside that container, so req.Path is valid on
+//     both sides already; chaining would add nothing.
+//   - Otherwise (the fully unisolated default): true — this is the ONLY
+//     axis where local disk can diverge from the truth (an editor's
+//     unsaved buffer), so it's the only one that chains.
+func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
+	return aw == nil && runtimeAxis == ""
 }
 
 // announceOnFirstEvent wraps an engine's chat events so the very FIRST event

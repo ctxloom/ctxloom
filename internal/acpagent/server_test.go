@@ -33,6 +33,7 @@ type fakeEngine struct {
 	assembleMode func(ctx context.Context, mode SessionMode) (string, error)
 	replay       []agent.SessionEntry
 	llms         *SessionLLMs
+	commands     *SessionCommands
 }
 
 func newFakeEngine() *fakeEngine {
@@ -65,6 +66,7 @@ func (f *fakeEngine) chat(contextText string) *EngineChat {
 		AssembleMode: f.assembleMode,
 		Replay:       f.replay,
 		LLMs:         f.llms,
+		Commands:     f.commands,
 	}
 }
 

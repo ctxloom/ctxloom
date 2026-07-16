@@ -110,6 +110,9 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	}
 	eng.assembleMode = func(context.Context, SessionMode) (string, error) { return "REVIEW CTX", nil }
 	eng.llms = &SessionLLMs{Current: "primary", Available: []LLMInfo{{ID: "primary", Name: "primary"}}}
+	// B4 (gap G5): ctxloom's own available_commands_update, captured below
+	// alongside every other session/new-time notification.
+	eng.commands = &SessionCommands{Available: []CommandInfo{{Name: "code-review", Description: "Review code for issues"}}}
 	go eng.pump()
 
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat("LEAD CONTEXT"), nil })
@@ -120,7 +123,7 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	capture("initialize response", "InitializeResponse", resp.Result)
 
 	// session/new (with modes + models both populated)
-	resp, _ = c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
+	resp, newUpdates := c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
 	require.Nil(t, resp.Error)
 	capture("session/new response", "NewSessionResponse", resp.Result)
 	var newResp struct {
@@ -128,6 +131,12 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	}
 	require.NoError(t, json.Unmarshal(resp.Result, &newResp))
 	sid := newResp.SessionId
+	// B4 (gap G5): available_commands_update rides a session/update
+	// notification (session/new's response schema has no field for it,
+	// unlike modes/models) — captured here, right where it's emitted.
+	require.Len(t, newUpdates, 1)
+	capture("available_commands_update", "SessionNotification", newUpdates[0].Params)
+	assert.Contains(t, string(newUpdates[0].Params), `"code-review"`)
 
 	// session/set_mode -> response + current_mode_update AND configOptionUpdate
 	// notifications (CO1 COMPAT: switchProfile fires both surfaces on every

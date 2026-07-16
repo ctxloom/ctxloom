@@ -745,8 +745,19 @@ var (
 )
 
 // ambientStamp returns a cheap identity for the config file the ambient memo
-// was built from: path + mtime + size. An empty stamp (no discoverable config)
-// never matches a populated one, so the no-config case simply doesn't cache.
+// was built from: path + mtime + size. A found-but-configless app dir (an
+// app dir exists — e.g. bundle content was seeded — but no config.yaml has
+// been written into it yet) is still keyed by its OWN appPath ("missing:" +
+// appPath), not a bare constant: two DIFFERENT app dirs that both currently
+// lack a config.yaml must never collide on the same stamp and serve each
+// other's stale memoized *Config (deaf-rut S5: this collision made
+// TestShowItem_NonInteractiveStdoutUnchanged serve a PRIOR test iteration's
+// already-cleaned-up t.TempDir config on ~every rerun once memoized, in the
+// same process, at -count>1 — GetConfig()'s ambient memo is a package-level
+// var shared across every test in the binary). No discoverable app dir at
+// all ("" from findAppDir) stays a bare "" — that state has no path to key
+// on, and is legitimately shared (loadUncached's own fallback resolves the
+// identical way for any cwd with no project at all).
 func ambientStamp() string {
 	fs := afero.NewOsFs()
 	appPath, _ := findAppDir(fs)
@@ -756,7 +767,7 @@ func ambientStamp() string {
 	path := paths.ConfigPath(appPath)
 	info, err := fs.Stat(path)
 	if err != nil {
-		return ""
+		return "missing:" + appPath
 	}
 	return fmt.Sprintf("%s|%d|%d", path, info.ModTime().UnixNano(), info.Size())
 }

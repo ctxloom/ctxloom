@@ -106,16 +106,34 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 	return ""
 }
 
-// GetSession resolves sessionID (backend-native) to its harp and prefers the
-// canonical transcript when that harp has one captured; otherwise (no bound
-// harp, or the harp predates capture) falls back to the legacy source keyed
-// directly by sessionID, unchanged from pre-S4 behavior. When legacy is nil
-// (S5, a RetiredScraperBackends entry) there is nothing to fall back to: a
-// harp with no canonical transcript, or an unresolvable sessionID, is a
+// GetSession resolves id — which callers pass as EITHER a harp OR a
+// backend-native session id, see below — and prefers the canonical
+// transcript when one is captured; otherwise falls back to the legacy source
+// keyed directly by id, unchanged from pre-S4 behavior. When legacy is nil
+// (S5, a RetiredScraperBackends entry) there is nothing to fall back to: no
+// canonical transcript for a resolvable harp, or an unresolvable id, is a
 // genuine "no session" rather than a scrape attempt.
-func (f *CanonicalFallbackSource) GetSession(ctx context.Context, sessionID string) (*agent.Session, error) {
+//
+// early-crane: id is resolved HARP-FIRST, not just as a backend-native
+// session id. `memory list`'s SESSION ID column literally displays the harp
+// for any canonical-backed session (CanonicalHistory.ListSessions sets
+// meta.ID = harp — the sessionID field never surfaces to a user at all), so
+// `memory show <that value>` must resolve it — the direct harp lookup
+// session/distill already do successfully via the index, unlike the reverse
+// sessionID->harp lookup below, which only ever matches a genuine
+// backend-native id. A harp and a backend-native session id never collide in
+// practice (harps are ctxloom's own three-word names; native ids are
+// engine-specific UUIDs/opaque strings), so trying id-as-harp first costs
+// only one cheap failed stat on the (far more common) sessionID-first path
+// and changes nothing about which session an already-working call resolves
+// to.
+func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*agent.Session, error) {
+	if sess, err := f.canonical.GetSession(ctx, id); err == nil {
+		return sess, nil
+	}
+
 	var lastErr error
-	if harp := f.harpForSessionID(sessionID); harp != "" {
+	if harp := f.harpForSessionID(id); harp != "" {
 		sess, err := f.canonical.GetSession(ctx, harp)
 		if err == nil {
 			return sess, nil
@@ -132,9 +150,9 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, sessionID stri
 		if lastErr != nil {
 			return nil, lastErr
 		}
-		return nil, fmt.Errorf("no canonical transcript for session %q (legacy scraper reader retired)", sessionID)
+		return nil, fmt.Errorf("no canonical transcript for session %q (legacy scraper reader retired)", id)
 	}
-	return f.legacy.GetSession(ctx, sessionID)
+	return f.legacy.GetSession(ctx, id)
 }
 
 // CurrentSession prefers the project's most-recently-active canonical-backed

@@ -275,8 +275,38 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	events := make(chan agent.ChatEvent)
 	errs := make(chan error, 1)
 
+	// Tough-cloud S2: capture this conversation's canonical transcript at the
+	// host boundary — this is THE host seam behind `ctxloom run --structured`
+	// and `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]:
+	// acp_cmd.go already stamps it there for the engine subprocess's own env,
+	// and it is equally available here without any ChatRequest field addition.
+	//
+	// S4 verified this env-var plumbing rather than adding to it: run.go's
+	// AssignSession (cmd/run.go, unconditional since well before S2/S4) mints
+	// activeHarp and stamps runEnv["CTXLOOM_SESSION_HARP"] regardless of
+	// --structured, and that env rides req.Options.Env straight into
+	// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
+	// already populated on this path today. Confirmed end to end: a real
+	// `ctxloom run --structured` session mints a harp and writes a non-empty
+	// persist/transcript.acp.jsonl.
+	//
+	// edgy-ivory: the recorder is opened HERE, once, and shared by both the
+	// inbound pump below (records the user's own turns — Tee only ever sees
+	// the OUTBOUND events channel, so without this tap a structured
+	// transcript carried assistant output but no `user` entries at all) and
+	// the outbound tee (records everything else). One Recorder, one seq
+	// counter, one file — a second NewRecorder here would race the first for
+	// the file and reset Seq to 0.
+	var rec transcript.Recorder
+	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
+		rec = c.openRecorder(ctx, harp)
+	}
+
 	go func() {
 		for msg := range in {
+			if msg.Permission == nil && !msg.CancelTurn {
+				transcript.RecordUserText(rec, msg.Text)
+			}
 			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
 				break
 			}
@@ -304,55 +334,38 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 		}
 	}()
 
-	// Tough-cloud S2: capture this conversation's canonical transcript at the
-	// host boundary — this is THE host seam behind `ctxloom run --structured`
-	// and `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]:
-	// acp_cmd.go already stamps it there for the engine subprocess's own env,
-	// and it is equally available here without any ChatRequest field addition.
-	//
-	// S4 verified this env-var plumbing rather than adding to it: run.go's
-	// AssignSession (cmd/run.go, unconditional since well before S2/S4) mints
-	// activeHarp and stamps runEnv["CTXLOOM_SESSION_HARP"] regardless of
-	// --structured, and that env rides req.Options.Env straight into
-	// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
-	// already populated on this path today. Confirmed end to end: a real
-	// `ctxloom run --structured` session mints a harp and writes a non-empty
-	// persist/transcript.acp.jsonl. (The plan's §8 risk 2 — "run_structured.go
-	// mints no harp" — did not hold against this base; nothing left to do
-	// here.)
 	outEvents := (<-chan agent.ChatEvent)(events)
-	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
-		outEvents = c.teeCapture(ctx, harp, events)
+	if rec != nil {
+		outEvents = transcript.TeeAndClose(rec, events)
 	}
 
 	return in, outEvents, errs, nil
 }
 
-// teeCapture opens a transcript.Recorder for harp — keyed by the engine name
-// the plugin's own Info RPC reports, so the recorder never has to guess or
-// duplicate a backend-name lookup the caller already resolved elsewhere — and
-// wraps events with transcript.TeeAndClose. Capture is best-effort end to
-// end: an Info failure, an empty engine name, or a NewRecorder failure all
-// log a warning and fall back to returning events unwrapped. A transcript we
+// openRecorder opens a transcript.Recorder for harp — keyed by the engine
+// name the plugin's own Info RPC reports, so the recorder never has to guess
+// or duplicate a backend-name lookup the caller already resolved elsewhere.
+// Capture is best-effort end to end: an Info failure, an empty engine name,
+// or a NewRecorder failure all log a warning and return nil. A transcript we
 // failed to open is not a reason to fail, delay, or alter the chat it would
 // have shadowed.
-func (c *GRPCClient) teeCapture(ctx context.Context, harp string, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
+func (c *GRPCClient) openRecorder(ctx context.Context, harp string) transcript.Recorder {
 	info, err := c.client.Info(ctx, &Empty{})
 	if err != nil {
 		clidiag.Warn("ctxloom", "transcript capture: resolve engine name for harp %s: %v", harp, err)
-		return events
+		return nil
 	}
 	engine := info.GetName()
 	if engine == "" {
 		clidiag.Warn("ctxloom", "transcript capture: plugin reported no engine name for harp %s; skipping capture", harp)
-		return events
+		return nil
 	}
 	rec, err := transcript.NewRecorder(harp, engine)
 	if err != nil {
 		clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", harp, engine, err)
-		return events
+		return nil
 	}
-	return transcript.TeeAndClose(rec, events)
+	return rec
 }
 
 // chatMessageToInput maps one host-side chat message onto its ChatInput frame.

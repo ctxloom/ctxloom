@@ -146,6 +146,31 @@ func (r *fileRecorder) Close() error {
 	return err
 }
 
+// RecordUserText appends one `user` canonical entry for text to rec — the
+// case Tee/TeeAndClose structurally cannot reach, because they only ever
+// wrap the OUTBOUND ChatEvent stream. Text entered by the caller travels the
+// INBOUND ChatMessage channel instead, so without an explicit tap at each
+// host seam (GRPCClient.Chat's `in` pump, coord/enginehost.go's SetTurnSink
+// and briefing sends) a structured session's canonical transcript carries
+// assistant output but no user turns at all (edgy-ivory). Mirrors the `user`
+// entry oneshot.RecordOneshot synthesizes for the oneshot-Execute regime.
+//
+// rec may be nil (no harp / capture disabled) and text may be empty (a
+// permission answer or turn-cancel control message, or a genuinely blank
+// turn) — both are silent no-ops, the same empty-input discipline every
+// other capture path in this package follows. A Record error is swallowed
+// for the same reason Tee swallows its own: transcript capture must never be
+// visible to, or perturb, the live chat it shadows.
+func RecordUserText(rec Recorder, text string) {
+	if rec == nil || text == "" {
+		return
+	}
+	_ = rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:    agent.EntryTypeUser,
+		Content: text,
+	}})
+}
+
 // Tee wraps events with a passthrough goroutine that calls rec.Record on every
 // event before forwarding it unchanged, and returns the forwarding channel.
 // This is the exact shape S2 drops in at its two host seams

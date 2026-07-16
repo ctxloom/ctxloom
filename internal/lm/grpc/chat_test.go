@@ -315,6 +315,94 @@ func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 	assert.Equal(t, transcript.KindComplete, recs[2].Kind)
 }
 
+// TestGRPCClient_Chat_CapturesUserTurn pins edgy-ivory: the canonical
+// transcript must carry the USER's own turns, not just the backend's
+// outbound events. Tee only ever wraps the OUTBOUND events channel, so
+// without a tap on the INBOUND `in` channel a structured session's
+// transcript.acp.jsonl had assistant output but no `user` entries at all.
+func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "grpc-chat-tee-user-turn-harp"
+
+	cs := newFakeChatClientStream([]*ChatEvent{
+		{Event: &ChatEvent_Session{Session: &ChatSessionInfo{Model: "m"}}},
+		{Event: &ChatEvent_Entry{Entry: &SessionEntry{Type: "assistant", Content: "hi there"}}},
+	})
+	c := &GRPCClient{client: &fakeLLMClient{
+		chatStream: cs,
+		infoResp:   &LLMInfo{Name: "codex"},
+	}}
+
+	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
+	in, events, errs, err := c.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	in <- agent.ChatMessage{Text: "what does this function do?"}
+	close(in)
+	<-cs.closeSendDone
+
+	var forwarded []agent.ChatEvent
+	for ev := range events {
+		forwarded = append(forwarded, ev)
+	}
+	require.NoError(t, <-errs)
+
+	// The user's own text must NEVER be echoed back through the outbound
+	// events stream that drives the live display — only the backend's own
+	// events (session + assistant entry here) may appear there.
+	require.Len(t, forwarded, 2, "the user turn must not be double-rendered onto the live events stream")
+	require.NotNil(t, forwarded[0].Session)
+	require.NotNil(t, forwarded[1].Entry)
+	assert.Equal(t, "hi there", forwarded[1].Entry.Content)
+
+	// But the canonical transcript must carry it, as a `user` entry, with the
+	// real prompt text — this is the whole point of the fix.
+	recs := readCanonicalTranscript(t, harp)
+	require.Len(t, recs, 3)
+	require.NotNil(t, recs[0].Entry, "the user's turn must be recorded to the canonical transcript")
+	assert.Equal(t, "user", recs[0].Entry.Type)
+	assert.Equal(t, "what does this function do?", recs[0].Entry.Content)
+	assert.Equal(t, harp, recs[0].Harp)
+	assert.Equal(t, "codex", recs[0].Engine)
+
+	assert.Equal(t, transcript.KindSession, recs[1].Kind)
+	require.NotNil(t, recs[2].Entry)
+	assert.Equal(t, "hi there", recs[2].Entry.Content)
+}
+
+// TestGRPCClient_Chat_PermissionAndCancelMessagesNotRecordedAsUserTurns
+// proves the inbound tap discriminates: a permission answer or a turn-cancel
+// control message on `in` must never be recorded as a `user` conversation
+// entry — only genuine text turns are.
+func TestGRPCClient_Chat_PermissionAndCancelMessagesNotRecordedAsUserTurns(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "grpc-chat-tee-control-msgs-harp"
+
+	cs := newFakeChatClientStream(nil)
+	c := &GRPCClient{client: &fakeLLMClient{
+		chatStream: cs,
+		infoResp:   &LLMInfo{Name: "codex"},
+	}}
+
+	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
+	in, events, errs, err := c.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: "p1", OptionID: "allow_once"}}
+	in <- agent.ChatMessage{CancelTurn: true}
+	close(in)
+	<-cs.closeSendDone
+
+	for range events {
+	}
+	require.NoError(t, <-errs)
+
+	path, perr := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, perr)
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "a permission answer / cancel-turn control message must never open (or write to) the transcript")
+}
+
 // TestGRPCClient_Chat_NoHarpSkipsCapture pins the documented S4 gap: with no
 // harp on the request (run_structured.go mints none today), Chat must not
 // attempt capture at all — no Info RPC, no transcript file — and must still

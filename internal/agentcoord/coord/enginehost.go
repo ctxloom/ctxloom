@@ -270,11 +270,6 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		ParentRunId: sr.GetParentRunId(),
 	}}})
 
-	chatErr := make(chan error, 1)
-	eh.goTracked(func() {
-		chatErr <- eh.backend.Chat(ctx, dec.Chat, in, out)
-	})
-
 	// Tough-cloud S2: capture this delegated child's canonical transcript on
 	// the runner process that hosts it — the in-process backend.Chat seam
 	// (plan §2c seam 2). dec.SessionHarp is the child's own harp (decoded from
@@ -284,21 +279,50 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// GRPCClient.Chat seam this is not expected to hit the no-harp gap in
 	// practice; the emptiness check stays as defensive degrade-gracefully
 	// discipline, not a documented live gap.
-	adaptOut := (<-chan agent.ChatEvent)(out)
+	//
+	// edgy-ivory: rec is opened HERE, before backend.Chat is ever dispatched,
+	// so it can ALSO record the user turns this host writes to `in` below —
+	// the briefing prompt and any later coordinator-delivered mail
+	// (SetTurnSink). TeeAndClose only ever sees the outbound `out`/ChatEvent
+	// stream, so without this a delegated child's canonical transcript
+	// carried assistant output but no user turns at all, same as the
+	// GRPCClient.Chat seam. The briefing is recorded synchronously right
+	// below, strictly before backend.Chat's own goroutine starts — the one
+	// case here where we know the full user text up front, so there is no
+	// need to race it against the backend's own first ChatEvent (its Session
+	// event, typically) the way a later, dynamically-arriving SetTurnSink
+	// message necessarily does.
+	var rec transcript.Recorder
 	if dec.SessionHarp != "" {
-		if rec, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness); rerr != nil {
+		r, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness)
+		if rerr != nil {
 			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", dec.SessionHarp, eh.harness, rerr)
 		} else {
-			adaptOut = transcript.TeeAndClose(rec, out)
+			rec = r
 		}
+	}
+	if prompt != "" {
+		transcript.RecordUserText(rec, prompt)
+	}
+
+	chatErr := make(chan error, 1)
+	eh.goTracked(func() {
+		chatErr <- eh.backend.Chat(ctx, dec.Chat, in, out)
+	})
+
+	adaptOut := (<-chan agent.ChatEvent)(out)
+	if rec != nil {
+		adaptOut = transcript.TeeAndClose(rec, out)
 	}
 	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
 
 	// The engine turn-delivery seam: coordinator mail lands as new turns
 	// (the driver's own loop queues mid-turn arrivals to the next boundary).
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
+		text := frameCoordinatorMessage(pm)
 		select {
-		case in <- agent.ChatMessage{Text: frameCoordinatorMessage(pm)}:
+		case in <- agent.ChatMessage{Text: text}:
+			transcript.RecordUserText(rec, text)
 			return true
 		case <-ctx.Done():
 			return false

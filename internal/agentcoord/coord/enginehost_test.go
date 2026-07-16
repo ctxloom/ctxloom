@@ -378,36 +378,43 @@ func TestEngineHost_StartRun_CapturesTranscript(t *testing.T) {
 	assert.Contains(t, kinds, "tool_call_started")
 
 	// testStartRun's HarnessSpec carries SessionHarp "child-harp-1"; the
-	// scriptedChat backend for one turn emits session, thinking, assistant,
-	// tool_use, tool_result, complete — six events, six recorded lines.
+	// briefing prompt is recorded first (edgy-ivory: eagerly, before
+	// backend.Chat is even dispatched — see startRun), then the scriptedChat
+	// backend for one turn emits session, thinking, assistant, tool_use,
+	// tool_result, complete — seven events, seven recorded lines.
 	recs := readCanonicalTranscript(t, "child-harp-1")
-	require.Len(t, recs, 6)
+	require.Len(t, recs, 7)
 	for _, r := range recs {
 		assert.Equal(t, "child-harp-1", r.Harp)
 		assert.Equal(t, "claude-code", r.Engine, "engine must be eh.harness, the RunnerHello-advertised backend name")
 	}
-	assert.Equal(t, transcript.KindSession, recs[0].Kind)
-	assert.Equal(t, "native-sess-42", recs[0].SessionID, "the native ACP session id from ChatEvent.Session must be recorded")
 
-	require.NotNil(t, recs[1].Entry)
-	assert.Equal(t, "thinking", recs[1].Entry.Type)
-	assert.Equal(t, "pondering", recs[1].Entry.Content)
+	require.NotNil(t, recs[0].Entry)
+	assert.Equal(t, "user", recs[0].Entry.Type)
+	assert.Equal(t, "CTX\n\ndo the thing", recs[0].Entry.Content, "the briefing prompt must be recorded as a user entry (edgy-ivory)")
+
+	assert.Equal(t, transcript.KindSession, recs[1].Kind)
+	assert.Equal(t, "native-sess-42", recs[1].SessionID, "the native ACP session id from ChatEvent.Session must be recorded")
 
 	require.NotNil(t, recs[2].Entry)
-	assert.Equal(t, "assistant", recs[2].Entry.Type)
-	assert.Equal(t, "echo: CTX\n\ndo the thing", recs[2].Entry.Content)
+	assert.Equal(t, "thinking", recs[2].Entry.Type)
+	assert.Equal(t, "pondering", recs[2].Entry.Content)
 
 	require.NotNil(t, recs[3].Entry)
-	assert.Equal(t, "tool_use", recs[3].Entry.Type)
-	assert.Equal(t, "grep", recs[3].Entry.ToolName)
-	assert.Contains(t, string(recs[3].Entry.ToolInput), "\"q\":\"x\"")
+	assert.Equal(t, "assistant", recs[3].Entry.Type)
+	assert.Equal(t, "echo: CTX\n\ndo the thing", recs[3].Entry.Content)
 
 	require.NotNil(t, recs[4].Entry)
-	assert.Equal(t, "tool_result", recs[4].Entry.Type)
-	assert.Equal(t, "found", recs[4].Entry.ToolOutput)
+	assert.Equal(t, "tool_use", recs[4].Entry.Type)
+	assert.Equal(t, "grep", recs[4].Entry.ToolName)
+	assert.Contains(t, string(recs[4].Entry.ToolInput), "\"q\":\"x\"")
 
-	require.NotNil(t, recs[5].Complete)
-	assert.Equal(t, "end_turn", recs[5].Complete.StopReason)
+	require.NotNil(t, recs[5].Entry)
+	assert.Equal(t, "tool_result", recs[5].Entry.Type)
+	assert.Equal(t, "found", recs[5].Entry.ToolOutput)
+
+	require.NotNil(t, recs[6].Complete)
+	assert.Equal(t, "end_turn", recs[6].Complete.StopReason)
 }
 
 // TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully pins the defensive

@@ -119,6 +119,57 @@ func TestCanonicalFallbackSource_GetSession_FallsBackWhenNoCanonical(t *testing.
 	assert.Equal(t, "REAL-LEGACY-PAYLOAD", sess.Entries[0].Content)
 }
 
+// TestCanonicalFallbackSource_GetSession_ResolvesHarpDirectly is the
+// early-crane proof: `memory list`'s SESSION ID column literally displays the
+// HARP for a canonical-backed session (CanonicalHistory.ListSessions sets
+// meta.ID = harp, never the backend-native session id), so `memory show
+// <that harp>` must resolve — not just the never-surfaced backend-native id
+// the old sessionID-only reverse lookup required. The legacy source is wired
+// to fail the test if consulted at all, proving the harp resolves via the
+// canonical leg directly, without ever needing the index's reverse
+// SessionID->harp lookup.
+func TestCanonicalFallbackSource_GetSession_ResolvesHarpDirectly(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-direct", "/proj", "backend-uuid-direct")
+	writeCanonicalFixture(t, "harp-direct", "codex", "DIRECT-HARP-PAYLOAD")
+
+	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when the harp resolves directly")}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	// The caller passes the HARP, exactly what `memory list` shows — not the
+	// backend-native session id ("backend-uuid-direct") the pre-fix code
+	// required.
+	sess, err := src.GetSession(ctx, "harp-direct")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "DIRECT-HARP-PAYLOAD", sess.Entries[0].Content)
+}
+
+// TestCanonicalFallbackSource_GetSession_HarpFirstDoesNotBreakSessionIDPath
+// proves the harp-first attempt is purely additive: a genuine backend-native
+// session id (which will never resolve as a harp) must still fall through to
+// the existing reverse-index resolution, unchanged.
+func TestCanonicalFallbackSource_GetSession_HarpFirstDoesNotBreakSessionIDPath(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-canonical-2", "/proj", "backend-uuid-still-works")
+	writeCanonicalFixture(t, "harp-canonical-2", "codex", "STILL-WORKS-PAYLOAD")
+
+	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when canonical exists")}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	sess, err := src.GetSession(ctx, "backend-uuid-still-works")
+	require.NoError(t, err)
+	require.Len(t, sess.Entries, 1)
+	assert.Equal(t, "STILL-WORKS-PAYLOAD", sess.Entries[0].Content)
+}
+
 // TestCanonicalFallbackSource_GetSession_UnboundIDFallsBack covers a session
 // id the index has no entry for at all (e.g. --session <uuid> pasted from a
 // legacy `memory list` row) — resolveHarp finds nothing, so this must still

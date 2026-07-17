@@ -16,7 +16,7 @@ import (
 // pinned in internal/acp (TestChatArgv_ModelConfigKey).
 func TestChatACPConfig_ModelConfigKey(t *testing.T) {
 	cfg := chatACPConfig(map[string]string{"FOO": "bar"}, agent.ThinkingMedium)
-	assert.Equal(t, codexACPAdapter, cfg.Command)
+	assert.Equal(t, CodexACPAdapter, cfg.Command)
 	assert.Equal(t, map[string]string{"FOO": "bar"}, cfg.Env, "backend env overlay passes through")
 	assert.Equal(t, "model", cfg.ModelConfigKey)
 	assert.Empty(t, cfg.Agent, "codex-acp rejects --agent too (verified live); never set it")

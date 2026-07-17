@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/claude"
 )
 
 // fakeBinDir builds a directory containing only symlinks to the REAL
@@ -54,7 +56,7 @@ func TestCheckSystemDeps_GitMissing_FailsLoud(t *testing.T) {
 	isolateSignKeyEnv(t)
 	t.Setenv("PATH", t.TempDir()) // empty: no git, no ssh-keygen, no docker/podman
 
-	err := checkSystemDeps()
+	err := checkSystemDeps("claude-code")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "git")
 	assert.Contains(t, err.Error(), "ctxloom init", "the fix must tell the user to re-run init")
@@ -72,11 +74,13 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps()
+		err = checkSystemDeps("claude-code")
 	})
 
 	require.NoError(t, err, "missing ssh-keygen/container runtime must not block init")
 	assert.Contains(t, stderr, "ssh-keygen")
+	assert.Contains(t, stderr, "recommended, not required", "the ssh-keygen warning must not imply it's a hard requirement")
+	assert.NotContains(t, stderr, "you'll need it later to sign your own bundles", "must not claim signing needs ssh-keygen — it's pure Go and never execs it")
 	assert.Contains(t, stderr, "container runtime")
 	assert.Contains(t, stderr, "no signing key resolves", "an absent signing key must warn too, informational-only like the others")
 	assert.Contains(t, stderr, "ctxloom review", "must say WHY: approving reviewed content needs a key too, not just publishing")
@@ -84,18 +88,22 @@ func TestCheckSystemDeps_GitPresent_MissingExtrasWarnButDoNotBlock(t *testing.T)
 	assert.Contains(t, stderr, "git commit identity not fully set", "a missing git identity must warn too, informational-only like the others")
 	assert.Contains(t, stderr, "user.name")
 	assert.Contains(t, stderr, "user.email")
+	assert.Contains(t, stderr, "missing ACP adapter", "a missing claude-code-acp for the resolved engine must warn too")
+	assert.Contains(t, stderr, "claude-code-acp")
+	assert.Contains(t, stderr, "containerized agents", "must acknowledge container-runtime agents get the adapter from their image")
 }
 
 // TestCheckSystemDeps_AllPresent_Succeeds is the control case: with git,
-// ssh-keygen on PATH (this dev/CI environment's real ones), the git+ssh-keygen
-// half of the gate is silent — this only pins that having them present never
-// itself trips an error.
+// ssh-keygen, AND the resolved engine's ACP adapter all on PATH, the whole
+// gate is silent — this only pins that having them present never itself
+// trips an error.
 func TestCheckSystemDeps_AllPresent_Succeeds(t *testing.T) {
 	isolateSignKeyEnv(t)
 	dir := fakeBinDir(t, "git", "ssh-keygen")
+	writeFakeExecutable(t, dir, claude.ClaudeACPAdapter)
 	t.Setenv("PATH", dir)
 
-	err := checkSystemDeps()
+	err := checkSystemDeps("claude-code")
 	require.NoError(t, err)
 }
 
@@ -113,7 +121,7 @@ func TestCheckSystemDeps_SignKeyResolves_NoWarn(t *testing.T) {
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps()
+		err = checkSystemDeps("claude-code")
 	})
 
 	require.NoError(t, err)
@@ -137,9 +145,44 @@ func TestCheckSystemDeps_GitIdentitySet_NoWarn(t *testing.T) {
 
 	var err error
 	stderr := captureStderr(t, func() {
-		err = checkSystemDeps()
+		err = checkSystemDeps("claude-code")
 	})
 
 	require.NoError(t, err)
 	assert.NotContains(t, stderr, "git commit identity not fully set", "a fully resolved identity must never warn")
+}
+
+// TestCheckSystemDeps_ACPAdapterPresent_NoWarn proves warnIfACPAdapterMissing
+// stays silent when the resolved engine's ACP adapter IS on PATH — mirroring
+// TestCheckSystemDeps_SignKeyResolves_NoWarn's shape for this sibling check.
+func TestCheckSystemDeps_ACPAdapterPresent_NoWarn(t *testing.T) {
+	isolateSignKeyEnv(t)
+	dir := fakeBinDir(t, "git", "ssh-keygen")
+	writeFakeExecutable(t, dir, claude.ClaudeACPAdapter)
+	t.Setenv("PATH", dir)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = checkSystemDeps("claude-code")
+	})
+
+	require.NoError(t, err)
+	assert.NotContains(t, stderr, "missing ACP adapter", "a resolvable adapter must never warn")
+}
+
+// TestCheckSystemDeps_ACPAdapterEngineWithNoAdapter_NoWarn proves an engine
+// with no separate ACP adapter (kiro speaks ACP natively) never warns here
+// regardless of PATH.
+func TestCheckSystemDeps_ACPAdapterEngineWithNoAdapter_NoWarn(t *testing.T) {
+	isolateSignKeyEnv(t)
+	dir := fakeBinDir(t, "git", "ssh-keygen")
+	t.Setenv("PATH", dir)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		err = checkSystemDeps("kiro")
+	})
+
+	require.NoError(t, err)
+	assert.NotContains(t, stderr, "missing ACP adapter", "kiro speaks ACP natively; there is no adapter to be missing")
 }

@@ -11,11 +11,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// claudeACPAdapter is the ACP adapter binary that wraps claude for structured
+// ClaudeACPAdapter is the ACP adapter binary that wraps claude for structured
 // chat (Zed's adapter; claude-code has no native ACP mode). Located on PATH;
 // ctxloom never installs binaries — an absent adapter yields the install hint
-// below.
-const claudeACPAdapter = "claude-code-acp"
+// below. Exported so `ctxloom doctor`'s DOCTOR-CHECK-ACPADAPTER-m3 (internal/
+// cli/doctor_cmd.go) and init PRIME's mirror of it can check the SAME binary
+// name this Chat() gate itself checks, rather than a second, duplicated
+// string literal that could drift from this one.
+const ClaudeACPAdapter = "claude-code-acp"
 
 // Compile-time assertion that ClaudeCode offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*ClaudeCode)(nil)
@@ -41,9 +44,9 @@ func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan 
 	// carries the adapter — checking THIS process's PATH would wrongly
 	// refuse a session whose adapter the host never needs.
 	if req.Runtime != agent.RuntimeContainer {
-		if _, err := exec.LookPath(claudeACPAdapter); err != nil {
+		if _, err := exec.LookPath(ClaudeACPAdapter); err != nil {
 			close(out) // honor the StructuredChat contract: producer closes out exactly once
-			return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", claudeACPAdapter)
+			return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", ClaudeACPAdapter)
 		}
 	}
 	// req.Env carries this call's caller-supplied env straight through to the
@@ -178,7 +181,7 @@ var claudeModelSelectionQuirk = &agent.ModelDeliveryQuirk{
 // path keeps the guard: there, nesting is real and the user's call.
 func chatACPConfig(env map[string]string) acp.ACPConfig {
 	return acp.ACPConfig{
-		Command:  claudeACPAdapter,
+		Command:  ClaudeACPAdapter,
 		Env:      env,
 		StripEnv: []string{"CLAUDECODE"},
 		// The requested model must ALSO ride the adapter env as the claude

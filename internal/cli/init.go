@@ -568,10 +568,18 @@ func pickDefaultEngine(selected string, primary []string) string {
 // loud here, with a named fix, beats letting the clone step surface a raw
 // "executable file not found" error with no guidance.
 //
-// ssh-keygen (needed later to sign bundles, `ctxloom sign`) and a container
-// runtime (needed later for containerized agents) are INFORMATIONAL ONLY:
-// nothing PRIME itself does needs them yet, so their absence surfaces as a
-// warning, not a block.
+// ssh-keygen and a container runtime (needed later for containerized
+// agents) are INFORMATIONAL ONLY: nothing PRIME itself does needs them yet,
+// so their absence surfaces as a warning, not a block. ssh-keygen is NOT a
+// signing dependency — an earlier version of this warning wrongly implied
+// it was; ctxloom's signing is pure Go over the ssh-agent protocol
+// (internal/signing/agentkey/agentkey.go, internal/signing/sign.go — never
+// shells out to ssh-keygen) — it is only useful, by hand, to GENERATE a new
+// key if you don't already have one (`ssh-keygen -t ed25519-sk`).
+//
+// engine is the resolved backend this init is configuring (e.g.
+// "claude-code", "codex") — used only to know which ACP adapter, if any,
+// warnIfACPAdapterMissing should check for.
 //
 // A sibling slice adds git to `ctxloom doctor`'s own comprehensive dependency
 // check on a separate, unmerged branch; the couple of lines of overlap
@@ -579,16 +587,17 @@ func pickDefaultEngine(selected string, primary []string) string {
 // intentional (they serve different moments — doctor is a health report,
 // this is a "can PRIME even proceed" gate), not something to fold into a
 // shared helper here.
-func checkSystemDeps() error {
+func checkSystemDeps(engine string) error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("git is required (ctxloom is about to clone/pull remote content, and worktree isolation shells out to it later) but was not found on PATH — install it (e.g. `apt install git`, `brew install git`, `winget install Git.Git`) and re-run `ctxloom init`")
 	}
 
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — you'll need it later to sign your own bundles (`ctxloom sign`)")
+		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — recommended, not required (`ctxloom sign` itself is pure Go and never execs ssh-keygen): it's the tool you'd run by hand to generate a new SSH key if you don't already have one to sign with (`ssh-keygen -t ed25519-sk`)")
 	}
 	warnIfNoSignKey()
 	warnIfGitIdentityMissing()
+	warnIfACPAdapterMissing(engine)
 	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
 	}
@@ -637,6 +646,25 @@ func warnIfGitIdentityMissing() {
 	}
 }
 
+// warnIfACPAdapterMissing is checkSystemDeps' companion probe for the ACP
+// adapter binary (claude-code-acp/codex-acp) the resolved engine's
+// HOST-runtime structured chat needs (see DOCTOR-CHECK-ACPADAPTER-m3,
+// doctor_cmd.go, for the full rationale) — reusing the SAME shared
+// acpAdapterDetail (doctor_cmd.go) so this warn says the exact same thing
+// `ctxloom doctor --deps` reports. Informational only, like the other warns
+// beside it: the raw-CLI bootstrap interview this gate protects never
+// touches structured chat, so a missing adapter here is a heads-up for
+// LATER (agent_run cross-engine delegation, `ctxloom acp`), not a block on
+// init completing now — and it's a non-issue entirely for an agent that
+// ends up configured with runtime: container, whose image carries its own
+// adapter (the detail text says so).
+func warnIfACPAdapterMissing(engine string) {
+	ok, detail := acpAdapterDetail([]string{engine})
+	if !ok {
+		clidiag.Warn("ctxloom", "%s", detail)
+	}
+}
+
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
 // resolve the engine (with interactive prompts), write the skeleton, register
 // personal/discovery remotes, apply hooks, and update .gitignore. Returns the
@@ -663,7 +691,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// a raw git error out of the clone machinery. Runs on both the
 	// interactive and --non-interactive paths (both reach this same call) —
 	// a scripted init still needs git to clone.
-	if err := checkSystemDeps(); err != nil {
+	if err := checkSystemDeps(engine); err != nil {
 		return "", err
 	}
 

@@ -208,6 +208,48 @@ func TestListForProject_FallsBackToStartedAt(t *testing.T) {
 	assert.Equal(t, "older-no-transcript", list[2].HarpName)
 }
 
+// TestListAll_SpansProjectsSortedByActivity pins the `session list --all`
+// contract: ListAll returns every project's sessions (no project filter) and,
+// like ListForProject, orders them by last-activity descending (transcript
+// mtime, StartedAt fallback). The old --all path (operations.ListSessions →
+// raw Reconcile) returned index order unsorted and unenriched; this locks the
+// enriched+sorted behavior across project dirs. (Canonical-transcript mtime
+// preference is a computed-on-read field that doesn't survive the disk
+// round-trip, so it's pinned separately by TestActivityTime_Prefers…; here the
+// activity signal is a persisted TranscriptPath.)
+func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
+	testsupport.Isolate(t)
+	m := newManager(t)
+	dir := t.TempDir()
+
+	// proj-a: transcript worked 5 minutes ago.
+	worked := filepath.Join(dir, "a.jsonl")
+	require.NoError(t, os.WriteFile(worked, []byte("{}\n"), 0o644))
+	recent := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(worked, recent, recent))
+
+	now := time.Now().UTC().Truncate(time.Second)
+	idx := &Index{Sessions: []Entry{
+		// proj-b, created an hour ago, never touched since → activity = StartedAt
+		// (an hour ago), which is OLDER than a-worked's 5-min-ago transcript.
+		{HarpName: "b-untouched", ProjectDir: "/proj-b", StartedAt: now.Add(-time.Hour)},
+		// proj-a, created a day ago but worked 5 min ago → transcript mtime wins,
+		// so it must outrank the more-recently-created-but-untouched b-untouched.
+		{HarpName: "a-worked", ProjectDir: "/proj-a", StartedAt: now.Add(-24 * time.Hour), TranscriptPath: worked},
+		// proj-c, oldest, no activity signal.
+		{HarpName: "c-old", ProjectDir: "/proj-c", StartedAt: now.Add(-48 * time.Hour)},
+	}}
+	require.NoError(t, m.saveLocked(idx))
+
+	list, err := m.ListAll()
+	require.NoError(t, err)
+	require.Len(t, list, 3, "ListAll spans every project")
+	assert.Equal(t, "a-worked", list[0].HarpName, "worked-5-min-ago (transcript mtime) ranks first across projects")
+	assert.Equal(t, "b-untouched", list[1].HarpName)
+	assert.Equal(t, "c-old", list[2].HarpName)
+	assert.False(t, list[0].LastActivity.IsZero(), "ListAll enriches LastActivity like ListForProject")
+}
+
 // TestActivityTime_PrefersCanonicalTranscriptPath pins the ACP-resume
 // ordering fix: an ACP/coordinator session records ONLY a canonical
 // transcript (paths.HarpCanonicalTranscriptPath) and never a legacy

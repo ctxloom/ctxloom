@@ -9,23 +9,40 @@ This page is generated from `ctxloom doctor --help`.
 
 ## ctxloom doctor
 
-Run deterministic setup checks (deps, agents, hooks, trust)
+Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 
 ### Synopsis
 
-Run ctxloom's deterministic setup checks: required binaries on PATH
-(signing tools, each configured engine's own client, and a container
-runtime), whether every configured agent resolves, whether hooks look
-installed for the engines in use, and whether the trust store carries
-signers. Each line is prefixed with a DOCTOR-CHECK-* marker — the SAME
-vocabulary the "ctxloom-doctor" Agent Skill uses, so a human or an LLM
+Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
+skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
+.ctxloom marker + config validity; required binaries on PATH (signing tools,
+git, each configured engine's own client, and a container runtime); whether every
+configured agent resolves (profile composition + engine/runtime) and the
+roster is non-empty; the seeded dependency lockfile parses and a real context
+assembly succeeds; hooks AND MCP registration per configured backend; the
+trust store's signers; and companion detection + loadout probing
+(taskloom/ltk/...). Each line is prefixed with a DOCTOR-CHECK-* marker — the
+SAME vocabulary the "ctxloom-doctor" Agent Skill uses, so a human or an LLM
 reading either surface sees one language.
 
 Version currency has no dedicated check here (best-effort, skill-guided):
 compare 'ctxloom version' against your remote's newest tag by hand, or ask
 an assistant carrying the ctxloom-doctor skill to do it.
 
-Diagnostic only: always exits 0, never blocks or changes anything.
+Deliberately does NOT parse any third-party ACP client config (Zed settings,
+Nori's config.toml, VSCode acp-client, Toad, ...): client verification is
+that config's own AGENT's re-read + live connect, never this command's job —
+ctxloom stays unbound to any one frontend (init-as-skill.plan.md §6).
+
+--deps scopes the report to ONLY the system-binary dependency probe (git,
+ssh/ssh-keygen, a container runtime, and any already-configured engine's
+client) — no agents/profiles/hooks/trust checks, so it reads clean on a
+project that hasn't been set up yet. This is the mode init's PRIME and the
+setup skill's phase 1 use, before there's anything else to check.
+
+Diagnostic only: always exits 0, never blocks or changes anything. A "warn"
+status IS this command's fail-loud signal — read the report, don't grep the
+exit code.
 
 ```
 ctxloom doctor [flags]
@@ -34,6 +51,7 @@ ctxloom doctor [flags]
 ### Options
 
 ```
+      --deps   check ONLY system-binary dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients) — skips agents/profiles/hooks/trust, for use before a project has been set up
   -h, --help   help for doctor
 ```
 

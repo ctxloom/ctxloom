@@ -15,12 +15,21 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// agentSetupPrompt is the agent-assisted setup prompt `agent setup` emits
-// for the LLM to follow: SCAN available engines/profiles → DISCUSS roles with the
-// user → SET the chosen engine↔profile bindings. It is deliberately a markdown
-// RESOURCE, not Go: the role palette, steering, and example names are data the
-// taxonomy can evolve without a code change (see resources/prompts/agent-setup.md).
-var agentSetupPrompt = resources.MustGetPromptText("agent-setup")
+// ctxloomInitPrompt is ctxloom's built-in SIX-PHASE setup body (orient+scan,
+// ACP client(s), companions, profiles+content, agents, close) — ONE text
+// used by THREE doors (init-as-skill plan §4.2/ADDITION "one body, N doors"):
+// `ctxloom init`'s discovery launch (discoverySessionPrompt, init.go), `ctxloom
+// agent setup`'s re-entry pointer below, and the `/ctxloom-init` slash command
+// available in every ordinary session (resources/commands/ctxloom-init.md,
+// exported via internal/lm/backends.builtinCommands — unconditional, on ALL
+// backends' command catalogs, loaded by the engine only on invocation, never
+// injected into always-on assembled context). It is deliberately a markdown
+// RESOURCE, not Go: the client roster, role palette, and example names are
+// data that can evolve (e.g. via a ctxloom-default augmentation) without a
+// code change. Read via GetBuiltinCommandBody (not GetPromptText) because the
+// SAME file also carries the frontmatter `description:` the slash-command
+// export uses — one file, two consumption paths, never two copies to drift.
+var ctxloomInitPrompt = resources.MustGetBuiltinCommandBody("ctxloom-init")
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -158,24 +167,24 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	return w.Err()
 }
 
-// agentSetupCmd surfaces the agent-assisted setup prompt for the LLM to run.
-// It writes the prompt to stdout; the agent (which has shell access) runs
-// `ctxloom agent setup`, reads the emitted instructions, and follows them
-// (scan engines/profiles → discuss roles with the user → `agent set`). This is
-// the same surface the SessionStart nudge points the user at.
+// agentSetupCmd surfaces the full six-phase ctxloom setup prompt for the LLM
+// to run. It writes the prompt to stdout; the agent (which has shell access)
+// runs `ctxloom agent setup`, reads the emitted instructions, and follows
+// them. This is a re-entry POINTER onto the SAME body `/ctxloom-init` and the
+// `ctxloom init` discovery launch use (ctxloomInitPrompt) — not a
+// separate/duplicated prompt — so all three doors evolve together.
 var agentSetupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Print the agent-assisted agent-setup prompt for the LLM to follow",
-	Long: `Emit the agent-setup prompt: instructions for the LLM to interview you and
-configure agents (engine↔profile bindings) collaboratively.
+	Short: "Print ctxloom's setup prompt (clients, companions, profiles, agents) for the LLM to follow",
+	Long: `Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
+you and configure ctxloom collaboratively — ACP client(s), companions
+(taskloom/ltk), profiles/content, and agents (engine↔profile bindings).
 
-Agents are a general orchestration primitive — cheap finders, code-review
-lenses, escalating developers, and more — that map/weave fan across. The prompt
-has the agent SCAN what's available (engines via 'ctxloom llm list', profiles via
-'ctxloom profile list' + search_library), DISCUSS which roles you want, then write
-them with 'ctxloom agent set'. Engine choice stays yours.
+This is the same body 'ctxloom init' hands to your engine at bootstrap and
+'/ctxloom-init' loads in any ordinary session — this command is just a
+re-entry pointer onto it, for a shell/script that wants the raw prompt text.
 
-Run this (or ask your agent to) when you have profiles but no agents yet.`,
+Run this (or ask your agent to) any time you want to reconfigure.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// A bundle (or installed companion) can ship its own `agent-setup` command
@@ -183,9 +192,9 @@ Run this (or ask your agent to) when you have profiles but no agents yet.`,
 		// baked into the binary); every match's content adds to the built-in,
 		// never replaces it. Falls back to the built-in alone when none is
 		// installed or config can't load.
-		prompt := agentSetupPrompt
+		prompt := ctxloomInitPrompt
 		if cfg, err := GetConfig(); err == nil {
-			prompt = operations.ResolveSetupPrompt(cfg, agentSetupPrompt)
+			prompt = operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Println(prompt)

@@ -660,6 +660,40 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 	}
 }
 
+// TestAssembleContext_ExcludesCtxloomInitCommandBody is the OTHER half of the
+// init-as-skill slice 3 load-bearing proof (see
+// internal/lm/backends.TestLoadCommandExports_CtxloomInitAlwaysPresent for the
+// "invocable" half): ctxloom's six-phase setup body
+// (resources/commands/ctxloom-init.md) must NEVER be part of an ordinary
+// session's always-on ASSEMBLED CONTEXT, no matter how bare the request is.
+// AssembleContext only ever folds in FRAGMENTS (profile fragments, explicit
+// asks, tag matches, and the unconditional builtin-BUNDLE fragments like
+// isolation.yaml's isolation-axes) — it has no code path that reads
+// resources/commands/ at all, so this is a structural guarantee, not a flag
+// that could be flipped. This test still exercises the REAL embedded body
+// (not a stand-in string) so a future refactor that accidentally wires
+// commands into context assembly would be caught here rather than silently
+// taxing every session forever.
+func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
+	body, err := resources.GetBuiltinCommandBody("ctxloom-init")
+	require.NoError(t, err, "resources/commands/ctxloom-init.md must be embedded")
+	require.Contains(t, body, "Phase 2", "sanity: this is really the six-phase body")
+
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	// Deliberately bare: no profile, no fragments, no tags — the same
+	// zero-ask shape TestAssembleContext_InjectsBuiltinIsolationFragment uses
+	// to prove the OPPOSITE fact about the isolation fragment.
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+	require.NoError(t, err)
+
+	assert.NotContains(t, result.Context, "Phase 2 — ACP client",
+		"ctxloom-init's setup body must never be injected into always-on assembled context (it is a COMMAND, invoked on demand — not a fragment)")
+	assert.NotContains(t, result.Context, strings.TrimSpace(body),
+		"the setup body's exact bytes must not appear in assembled context at all")
+}
+
 func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

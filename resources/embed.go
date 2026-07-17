@@ -85,6 +85,67 @@ func GetBuiltinCommand(name string) ([]byte, error) {
 	return resourcesFS.ReadFile("commands/" + name + ".md")
 }
 
+// GetBuiltinCommandBody returns an embedded builtin command's BODY — the
+// content after its "---\ndescription: ...\n---" frontmatter is stripped —
+// for callers that want to consume the command's own prompt text directly
+// (e.g. composing it into another session's prompt) rather than exporting it
+// as a slash-command file. This is a second consumption path onto the SAME
+// embedded file `internal/lm/backends.builtinCommands` exports as a slash
+// command; the two must never drift, so both read the identical bytes from
+// this package rather than each keeping their own copy.
+func GetBuiltinCommandBody(name string) (string, error) {
+	raw, err := GetBuiltinCommand(name)
+	if err != nil {
+		return "", err
+	}
+	_, body := splitCommandFrontmatter(string(raw))
+	return body, nil
+}
+
+// MustGetBuiltinCommandBody is GetBuiltinCommandBody for package-level
+// initialization, where a missing embedded command is a build-time bug (the
+// file is compiled in), not a runtime condition. It panics rather than
+// shipping an empty prompt — mirrors MustGetPromptText.
+func MustGetBuiltinCommandBody(name string) string {
+	body, err := GetBuiltinCommandBody(name)
+	if err != nil {
+		panic(fmt.Sprintf("resources: embedded command %q: %v", name, err))
+	}
+	return body
+}
+
+// splitCommandFrontmatter extracts a builtin command's optional YAML
+// frontmatter ("---\ndescription: ...\n---\n<body>") and returns
+// (description, body). A file with no frontmatter returns ("", the whole
+// content) unchanged. Deliberately minimal (only the description key) —
+// mirrors internal/lm/backends.parseMarkdownFrontmatter, which does the same
+// parse for slash-command export; kept as a small separate copy here rather
+// than an import (that package already imports resources, so the reverse
+// would cycle).
+func splitCommandFrontmatter(content string) (description, body string) {
+	if !strings.HasPrefix(content, "---\n") {
+		return "", content
+	}
+	rest := content[4:]
+	endIdx := strings.Index(rest, "\n---")
+	if endIdx == -1 {
+		return "", content
+	}
+	frontmatter := rest[:endIdx]
+	body = strings.TrimPrefix(rest[endIdx+4:], "\n")
+	for _, line := range strings.Split(frontmatter, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "description:") {
+			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			if len(description) >= 2 && description[0] == '"' && description[len(description)-1] == '"' {
+				description = description[1 : len(description)-1]
+			}
+			break
+		}
+	}
+	return description, body
+}
+
 // ListBuiltinCommands returns the names of all embedded builtin commands.
 func ListBuiltinCommands() ([]string, error) {
 	entries, err := resourcesFS.ReadDir("commands")

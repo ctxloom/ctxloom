@@ -9,20 +9,19 @@ This page is generated from `ctxloom agent setup --help`.
 
 ## ctxloom agent setup
 
-Print the agent-assisted agent-setup prompt for the LLM to follow
+Print ctxloom's setup prompt (clients, companions, profiles, agents) for the LLM to follow
 
 ### Synopsis
 
-Emit the agent-setup prompt: instructions for the LLM to interview you and
-configure agents (engine↔profile bindings) collaboratively.
+Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
+you and configure ctxloom collaboratively — ACP client(s), companions
+(taskloom/ltk), profiles/content, and agents (engine↔profile bindings).
 
-Agents are a general orchestration primitive — cheap finders, code-review
-lenses, escalating developers, and more — that map/weave fan across. The prompt
-has the agent SCAN what's available (engines via 'ctxloom llm list', profiles via
-'ctxloom profile list' + search_library), DISCUSS which roles you want, then write
-them with 'ctxloom agent set'. Engine choice stays yours.
+This is the same body 'ctxloom init' hands to your engine at bootstrap and
+'/ctxloom-init' loads in any ordinary session — this command is just a
+re-entry pointer onto it, for a shell/script that wants the raw prompt text.
 
-Run this (or ask your agent to) when you have profiles but no agents yet.
+Run this (or ask your agent to) any time you want to reconfigure.
 
 ```
 ctxloom agent setup [flags]

@@ -78,7 +78,11 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	assert.Contains(t, res.Context, "solid body", "accepted sibling must be present")
 	assert.NotContains(t, res.Context, "evil body", "rejected fragment must be withheld")
 	assert.NotContains(t, res.Context, "swapped body", "pending (unreviewed) fragment must be withheld")
-	assert.Len(t, res.FragmentsLoaded, 1)
+	// The always-on builtin isolation fragment (resources/builtin_bundles/
+	// isolation.yaml) injects unconditionally alongside the loader-resolved
+	// set, through this same gate — it is exempt from review (builtin), not
+	// exempt from appearing.
+	assert.ElementsMatch(t, []string{solidRef, builtinIsolationFragmentRef}, res.FragmentsLoaded)
 
 	withheld := loader.Withheld()
 	assert.ElementsMatch(t, []string{evilRef, swapRef}, withheld,

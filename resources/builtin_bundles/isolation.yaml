@@ -1,0 +1,59 @@
+# ctxloom's first genuinely-built-in bundle (resources/builtin_bundles/README.md):
+# core guidance with no companion binary of its own, so it ships compiled into
+# the ctxloom binary itself rather than as a discoverable companion's loadout.
+#
+# One always-on FRAGMENT, not a skill: the ask is that an agent creating,
+# configuring, or delegating to a ctxloom agent SPECIFY its isolation axes
+# rather than silently accepting defaults — a standing habit to hold on every
+# such turn, not a task the model opts into on demand. A skill is discovered
+# and invoked when its description matches; that only helps if the model
+# already suspects isolation is in play. The failure this guards against is
+# exactly the case where it doesn't (agent_run/agent-set called without a
+# second thought about runtime/workspace) — which only an unconditional
+# fragment reaches. It is short by design: ResolveBuiltinBundleFragments
+# injects it into EVERY assembled session's context, so every session pays
+# its token cost forever.
+
+version: 1.0.0
+tags:
+  - isolation
+  - core
+author: ctxloom
+description: |
+  Always-on guidance: specify both isolation axes (runtime, workspace)
+  explicitly when creating, configuring, or delegating to a ctxloom agent.
+
+fragments:
+  isolation-axes:
+    tags:
+      - isolation
+      - core
+    content: |
+      ## Isolation: specify both axes
+
+      Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+      set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+      on the default:
+
+      - **runtime** (`host`|`container`, the agent binding's `runtime:`)
+        isolates the PROCESS.
+      - **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+        `agent_run`'s `workspace`) isolates the FILES.
+
+      They're independent: `container` can still mount the workspace at the
+      SAME absolute path as the live project (process isolated, edits still
+      land where the editor already looks); `worktree` still runs the engine
+      on the host (the editor goes blind to that tree by design — results
+      return via the delegated-agent merge flow, not live edits). Picking one
+      says nothing about the other.
+
+      Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+      default, not a decision.
+
+      Containers make isolation a property of the runtime, not a request to
+      the engine: some vendor CLIs ignore env-var isolation hints and write
+      credentials/state to a global path regardless.
+
+      A bad or missing agent name silently degrades to `host`+`none` with only
+      a stderr warning, discarding the runtime and permissions you asked for —
+      confirm the name resolves before trusting the isolation you requested.

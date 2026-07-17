@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -161,13 +162,14 @@ func TestGetBuiltinBundle_Unknown(t *testing.T) {
 	}
 }
 
-// TestListBuiltinBundles_NoneEmbeddedByDefault replaces the old assertion
-// that "taskloom" is always present. S8 deleted the last two embedded
-// bundles (ltk, taskloom); resources/builtin_bundles/ now carries only a
-// README (see its doc comment) so the go:embed directive has a file to
-// embed. ListBuiltinBundles must therefore report none, and must still
-// strip the .yaml extension for whatever it DOES find (future builtins).
-func TestListBuiltinBundles_NoneEmbeddedByDefault(t *testing.T) {
+// TestListBuiltinBundles_OnlyIsolation pins the current embedded set. S8
+// deleted the last two embedded bundles (ltk, taskloom) — their content now
+// ships from the companions' own loadouts — leaving resources/builtin_bundles/
+// with only a README (see its doc comment) until "isolation" became the first
+// bundle that genuinely needs to ship compiled into the binary itself (no
+// companion of its own). ListBuiltinBundles must report exactly that one name,
+// and must still strip the .yaml extension for whatever it finds.
+func TestListBuiltinBundles_OnlyIsolation(t *testing.T) {
 	names, err := ListBuiltinBundles()
 	if err != nil {
 		t.Fatalf("ListBuiltinBundles: %v", err)
@@ -177,8 +179,8 @@ func TestListBuiltinBundles_NoneEmbeddedByDefault(t *testing.T) {
 			t.Errorf("ListBuiltinBundles must strip the .yaml extension; got %q", n)
 		}
 	}
-	if len(names) != 0 {
-		t.Errorf("expected no embedded builtin bundles (ltk/taskloom moved to their own loadouts), got %v", names)
+	if want := []string{"isolation"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("expected embedded builtin bundles %v, got %v", want, names)
 	}
 }
 

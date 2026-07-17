@@ -97,6 +97,13 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		model           string
 		mcpServers      []agent.ChatMCPServer
 		runtimeAxis     string
+		// requestedAgent is the RAW name resolution was attempted against
+		// (flagAgent, or the project's cfg.DefaultAgent when flagAgent was
+		// empty) — hoisted alongside currentAgent so the ISO3 announcement
+		// built after this closure returns can tell "no agent was ever asked
+		// for" (requestedAgent == "") apart from "one was asked for and
+		// resolution FAILED" (requestedAgent != "" but currentAgent == "").
+		requestedAgent string
 	)
 	// Fail-loudly gate, per session: checkpoint before config load + assembly
 	// so this session's fatal findings don't bleed across sessions (the process
@@ -131,6 +138,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		if resolveAgent == "" {
 			resolveAgent = cfg.DefaultAgent
 		}
+		requestedAgent = resolveAgent
 		if resolveAgent != "" {
 			if rs, rerr := ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
 				clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
@@ -311,16 +319,19 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		return nil, err
 	}
-	if aw != nil && aw.announce != "" {
-		// D-ISO (announce-only, USER-DECIDED): the editor is otherwise BLIND to
-		// the isolated worktree — no ACP method lets an agent make a client open
-		// a folder. This is the mechanism available today: a synthetic system
-		// entry riding as the FIRST event of the FIRST turn, ahead of the
-		// engine's own output, rendering as a visible agent_message_chunk in
-		// the client (mapping.go's EntryTypeSystem case — no wire/mapping
-		// changes needed here, only the event this opener hands the server).
-		events = announceOnFirstEvent(ctx, events, aw.announce)
-	}
+	// ISO3 (runtime-axis honesty, on top of D-ISO): the editor is structurally
+	// blind to BOTH isolation axes — it handed ctxloom a cwd and got a session
+	// back, with no way to see whether the engine runs in a container or
+	// against a worktree copy. D-ISO already covers the WORKSPACE axis
+	// (aw.announce, worktree-only); this extends the SAME announce-only
+	// mechanism to also always state the RESOLVED posture on every session,
+	// not just the isolated ones — see buildSessionAnnouncement's doc for the
+	// always-vs-only-when-isolated argument. The message rides as the FIRST
+	// event of the FIRST turn, ahead of the engine's own output, rendering as
+	// a visible agent_message_chunk in the client (mapping.go's
+	// EntryTypeSystem case — no wire/mapping changes needed here, only the
+	// event this opener hands the server).
+	events = announceOnFirstEvent(ctx, events, buildSessionAnnouncement(cfg, backendName, requestedAgent, currentAgent, label, runtimeAxis, aw))
 
 	closeOnce := sync.OnceFunc(func() {
 		client.Kill()
@@ -692,6 +703,81 @@ func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation
 //     unsaved buffer), so it's the only one that chains.
 func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
 	return aw == nil && runtimeAxis == ""
+}
+
+// buildSessionAnnouncement composes ISO3's first-turn honesty message: the
+// RESOLVED posture for this session — which agent bound (or didn't), the
+// RUNTIME axis (host process vs container), and the WORKSPACE axis (the
+// editor's live cwd vs an isolated worktree) — as ONE string handed to
+// announceOnFirstEvent. It is called unconditionally by OpenEngineSession;
+// this function alone decides how much to say.
+//
+// ALWAYS vs only-when-isolated: this fires on EVERY session, including the
+// fully unisolated host+cwd case — the design judgment ISO3 makes is that
+// "you are NOT isolated" is itself the safety-relevant fact (see the
+// `coder`-typo scenario in engine_session_iso3_test.go: a user who believes
+// they are sandboxed but silently is not cannot infer that belief is wrong
+// from anything else in the transcript), and a user cannot infer their own
+// posture — the editor that hosts this chat is structurally blind to both
+// axes, per this file's package doc. But an ignored announcement is a
+// worthless one, so the unisolated case — the overwhelming common case —
+// collapses to ONE concise line; only a session that is ACTUALLY isolated
+// (worktree and/or container), or one whose --agent request silently
+// degraded, earns the fuller paragraph.
+//
+// The agent-not-found case returns EARLY with its own dedicated message and
+// never falls through to the axis reporting below: a failed agent
+// resolution (see OpenEngineSession's resolveAgent fallback) never sets
+// currentAgent, sessionProfiles, or runtimeAxis, so there is no isolation
+// axis to report — the session runs the bare, unbound profile flow on the
+// host. This is exactly the ctxloom-acp-2026-07-16 incident this slice
+// exists to stop being invisible: `--agent <typo>` degraded to an unbound
+// session with ONE buried stderr line editors never surface; this makes the
+// SAME degrade impossible to miss in the chat itself. Whether the degrade
+// should instead be a hard failure is task `sandy-boxer`'s decision, not
+// this one — this function only makes today's degrade loud.
+func buildSessionAnnouncement(cfg *config.Config, backendName, requestedAgent, currentAgent, label, runtimeAxis string, aw *acpWorkspace) string {
+	if requestedAgent != "" && currentAgent == "" {
+		return fmt.Sprintf(
+			"ctxloom: WARNING — agent %q was requested but NOT FOUND; this session fell "+
+				"back to the plain profile flow instead of refusing to open. NONE of that "+
+				"agent's engine override, composed profiles, permissions posture, or runtime "+
+				"isolation apply — it is running on the HOST, unisolated, against this "+
+				"project's live working directory. Check the agent name (see `ctxloom acp "+
+				"agents`) and reconnect.",
+			requestedAgent)
+	}
+
+	agentDesc := "no agent bound (profile flow)"
+	if currentAgent != "" {
+		agentDesc = fmt.Sprintf("agent %q (engine %s)", currentAgent, label)
+	}
+
+	isolatedWorktree := aw != nil && aw.announce != ""
+	isolatedContainer := runtimeAxis == agent.RuntimeContainer
+
+	if !isolatedWorktree && !isolatedContainer {
+		// The common case: ONE line, so a session that opens dozens of times a
+		// day never turns into noise a user learns to ignore.
+		return fmt.Sprintf("ctxloom: %s — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.", agentDesc)
+	}
+
+	var runtimeDesc, workspaceDesc string
+	if isolatedContainer {
+		imgDesc := "an auto-selected image"
+		if image := IsolationImageConfig(cfg, backendName).Image; image != "" {
+			imgDesc = "image " + image
+		}
+		runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — this engine process is NOT running directly on your host", imgDesc)
+	} else {
+		runtimeDesc = "RUNTIME: a HOST process (no container)"
+	}
+	if isolatedWorktree {
+		workspaceDesc = fmt.Sprintf("WORKSPACE isolated to its own git worktree — %s. Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.", aw.dir)
+	} else {
+		workspaceDesc = "WORKSPACE: this project's live working directory (no worktree) — the container mounts it at the same path, so edits still land where your editor can see them."
+	}
+	return fmt.Sprintf("ctxloom: %s — %s. %s", agentDesc, runtimeDesc, workspaceDesc)
 }
 
 // announceOnFirstEvent wraps an engine's chat events so the very FIRST event

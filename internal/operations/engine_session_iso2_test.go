@@ -311,6 +311,13 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 // explicit --agent session). isolation.Prepare is stubbed to fail the test if
 // called at all — proving the plain entry doesn't even ATTEMPT isolation —
 // and the engine's real WorkDir is asserted to be the untouched repo root.
+//
+// ISO3: the plain entry now ALSO gets the always-on one-line posture
+// announcement ahead of the engine's own first event — see
+// engine_session_iso3_test.go's TestOpenEngineSession_UnisolatedAnnouncesOnce
+// for the payload assertion on that text; this test stays focused on its
+// original WorkDir/isolation.Prepare proof and only adjusts the event-order
+// assertion to skip past the (now expected) announcement.
 func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
@@ -337,8 +344,12 @@ func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	assert.Equal(t, repo, client.gotReq.WorkDir, "the plain entry's engine cwd must stay the live project dir")
 
 	first := <-chat.Events
-	require.NotNil(t, first.Entry)
-	assert.Equal(t, "engine-marker", first.Entry.Content, "no announcement was spliced in: this is the engine's own first event")
+	require.NotNil(t, first.Entry, "ISO3: the always-on posture announcement is now the first event")
+	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
+
+	second := <-chat.Events
+	require.NotNil(t, second.Entry)
+	assert.Equal(t, "engine-marker", second.Entry.Content, "the engine's own event still follows the announcement, unaltered")
 
 	chat.Close()
 }
@@ -361,6 +372,12 @@ func TestOpenEngineSession_ExplicitAgentWithoutWorktreeRequest(t *testing.T) {
 	require.NotNil(t, chat)
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir, "an --agent session that never asked for a worktree stays on the host cwd")
+
+	first := <-chat.Events
+	require.NotNil(t, first.Entry, "ISO3: the always-on posture announcement is still the first event")
+	assert.Equal(t, `ctxloom: agent "reviewer" (engine mock) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, first.Entry.Content)
+	<-chat.Events // drain the engine's own marker event too
+
 	chat.Close()
 }
 
@@ -389,6 +406,15 @@ func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 	require.NotNil(t, chat)
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir)
+
+	// ISO3: the fail-soft this test drives (an unresolvable --agent) is
+	// exactly the case that must be LOUD in the chat — see
+	// engine_session_iso3_test.go's TestOpenEngineSession_UnknownAgentAnnouncementIsLoud
+	// for the full payload assertion; drain both events here so this test
+	// doesn't leak the announce goroutine.
+	<-chat.Events
+	<-chat.Events
+
 	chat.Close()
 }
 

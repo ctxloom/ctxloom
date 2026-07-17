@@ -95,11 +95,13 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 	// stdin.Read; it exits when that read returns (error, or a stray byte the
 	// dead stream rejects). For the one-shot `ctxloom run` process the parked
 	// read is moot — the process exits. A caller that keeps reading stdin in
-	// the same process after Run returns (e.g. init's post-discovery relaunch
-	// prompt) must NOT pass the raw os.Stdin here: the parked read would
-	// swallow the next reader's input. Such callers pass a detachable lease
-	// (see cmd's stdinHandoff) and detach it once Run returns, which unblocks
-	// this goroutine and hands any in-flight bytes to the next reader.
+	// the same process after Run returns must NOT pass the raw os.Stdin here:
+	// the parked read would swallow the next reader's input — it would need a
+	// detachable lease over the shared source instead, detached once Run
+	// returns, to unblock this goroutine and hand any in-flight bytes to the
+	// next reader. No caller in this codebase needs that today (init hands
+	// off and exits once its interactive run ends, rather than reading stdin
+	// again afterward), but the hazard is real for the next one that does.
 	if stdin != nil {
 		go func() {
 			buf := make([]byte, 4096)

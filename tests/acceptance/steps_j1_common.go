@@ -236,10 +236,12 @@ func addMockAlongside(w *World) (recordFile string, err error) {
 // runFreshMockSession points the "default" agent at the mock backend (added
 // via addMockAlongside) and runs a plain `ctxloom run` — a freshly launched
 // engine process, precisely what a restart is — returning the mock's
-// recorded input. This is the harness's stand-in for driving init's real
-// interactive discovery-then-restart flow (offerSessionRelaunch): see the
-// scenario-level comments in steps_j1_setup.go for why the substitution was
-// made and what it still proves.
+// recorded input. This is the harness's stand-in for a "restart into the
+// newly configured session": init itself no longer offers a relaunch prompt
+// at all (offerSessionRelaunch was deleted, init-as-skill slice ④ — init
+// hands off to the setup session and exits, full stop), so there is nothing
+// left to drive interactively here even in principle. See the scenario-level
+// comments in steps_j1_setup.go for what this substitution still proves.
 func runFreshMockSession(w *World) (string, error) {
 	recordFile, err := addMockAlongside(w)
 	if err != nil {
@@ -267,27 +269,21 @@ func runFreshMockSession(w *World) (string, error) {
 // ptyRunTimeout — can take over a second under CI load.
 const ptyWaitTimeout = 20 * time.Second
 
-// reviewPromptProbe is how long driveDiscoverySessionViaMock waits to see
-// whether offerInitReview's "Review now?" prompt appears at all. A companion
-// or bundle loadout that is NOT signed-and-trusted lands pending review, and
-// init.go's offerInitReview asks about it BEFORE offerSessionRelaunch's own
-// prompt — a scenario whose sources are all trusted never sees this prompt,
-// so the wait must be short (not the full ptyWaitTimeout) to avoid taxing
-// every OTHER scenario's run with a needless timeout-length pause.
-const reviewPromptProbe = 2 * time.Second
-
 // driveDiscoverySessionViaMock drives a REAL `ctxloom init` (on an
 // ALREADY-initialized .ctxloom dir, so init.go's alreadyExists branch runs —
 // no network clone) over a real pty: the project's LLM default must already
 // be the mock backend (see addMockAlongside / buildJ1Config) with
-// CTXLOOM_MOCK_RECORD_FILE set (via TestEnvironment.SetEnv), so init.go's
-// launchDiscovery actually spawns the mock and hands it
-// discoverySessionPrompt(cfg) — the composed built-in + every installed
+// CTXLOOM_MOCK_RECORD_FILE set (via TestEnvironment.SetEnv). init.go's
+// launchDiscovery pings the mock backend's auth (a cheap oneshot the mock
+// backend answers immediately) before it launches the interactive session, so
+// the FINAL record-file write — the one this function reads back — is the
+// interactive launch's, not the ping's; then it spawns the mock and hands it
+// discoverySessionPrompt(cfg): the composed built-in + every installed
 // agent-setup command (repo bundle or companion loadout) this harness is
-// proving delivery of. Declines both the (possible) inline review offer and
-// the post-discovery relaunch offer (this call proves the INTERVIEW prompt,
-// not the restart — see runFreshMockSession for that). Returns the mock's
-// full recorded-input file.
+// proving delivery of. init now hands off and exits with no further prompt
+// (the post-discovery relaunch offer and the inline review offer are both
+// deleted — init-as-skill slice ④), so this just waits for the process to
+// exit. Returns the mock's full recorded-input file.
 func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
 	sess, err := w.env.RunPTY(100, 30, "init")
 	if err != nil {
@@ -295,24 +291,6 @@ func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
 	}
 	defer sess.Close()
 
-	if sess.WaitForOutput(reviewPromptProbe, func(out string) bool {
-		return strings.Contains(out, "Review now?")
-	}) {
-		if _, err := sess.Write([]byte("n\n")); err != nil {
-			return "", fmt.Errorf("decline inline review: %w", err)
-		}
-	}
-
-	reachedRelaunchPrompt := sess.WaitForOutput(ptyWaitTimeout, func(out string) bool {
-		return strings.Contains(out, "Start your session now")
-	})
-	if !reachedRelaunchPrompt {
-		return "", fmt.Errorf("discovery session never reached the post-discovery relaunch prompt within %s; captured output:\n%s",
-			ptyWaitTimeout, sess.Output())
-	}
-	if _, err := sess.Write([]byte("n\n")); err != nil {
-		return "", fmt.Errorf("decline relaunch: %w", err)
-	}
 	exited, waitErr := sess.Wait(ptyWaitTimeout)
 	if !exited {
 		return "", fmt.Errorf("ctxloom init did not exit within %s; captured output:\n%s", ptyWaitTimeout, sess.Output())

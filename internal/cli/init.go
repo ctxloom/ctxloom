@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,8 +20,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
@@ -117,9 +116,8 @@ func newInitPrompts() *initPrompts {
 	return newInitPromptsFrom(os.Stdin)
 }
 
-// newInitPromptsFrom is newInitPrompts reading from r instead of os.Stdin
-// directly — used after a discovery run, when stdin is owned by the shared
-// handoff and must be read through a lease (see stdinHandoff).
+// newInitPromptsFrom is newInitPrompts reading from an arbitrary r instead of
+// os.Stdin directly.
 func newInitPromptsFrom(r io.Reader) *initPrompts {
 	p := &initPrompts{reader: bufio.NewReader(r)}
 
@@ -394,10 +392,13 @@ func discoverySessionPrompt(cfg *config.Config) string {
 	return operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
 }
 
-// launchEngineWithPrompt starts the AI with the merged discovery + agent-setup
-// prompt. Errors (failed launch, errored session) are returned for the caller
-// to degrade on — init never fails because of them, but a clean return is the
-// signal that offering a relaunch into `ctxloom run` is safe.
+// launchEngineWithPrompt starts the engine's own raw CLI/TUI with the merged
+// setup-skill prompt (pty passthrough — the vendor's real interactive binary
+// on this terminal, exactly as `ctxloom run`'s interactive path). Errors
+// (failed launch, errored session) are returned for the caller to degrade on
+// — a session ending badly (an interrupted setup, a crashed engine) warns and
+// init still exits cleanly; there is no relaunch loop or review offer to gate
+// on a clean return anymore (both deleted — init hands off once and is done).
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	client, err := pb.NewSelfInvokingClient(engine, 0)
 	if err != nil {
@@ -413,12 +414,19 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 		cfg = c
 	}
 
+	// No PermissionMode is set: the zero value rides the wire as "" and
+	// resolves (agent.WireMode) to PermissionDefault — the engine's OWN normal
+	// in-tool approval prompting, not another bypass. This session runs
+	// entirely inside the vendor's raw CLI/TUI (init's whole reason for
+	// launching it this way), so the vendor TUI's native edit-approval prompts
+	// ARE the consent surface for whatever the setup skill's tool calls (incl.
+	// client-config writes, §6) attempt — exactly the right gate, and the same
+	// one the user gets in every other engine session.
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
 		Options: &pb.RunOptions{
-			WorkDir:        workDir,
-			PermissionMode: agent.PermissionBypass.String(),
-			Mode:           pb.ExecutionMode_INTERACTIVE,
+			WorkDir: workDir,
+			Mode:    pb.ExecutionMode_INTERACTIVE,
 		},
 	}
 
@@ -431,19 +439,6 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	defer restoreTerm()
 	if stdin == nil {
 		clidiag.Warn("ctxloom", "stdin is not a terminal; discovery session will not accept input")
-	}
-
-	// Unlike one-shot `ctxloom run`, init keeps prompting on stdin after this
-	// run ends (offerSessionRelaunch). The client's stdin pump would otherwise
-	// stay parked in os.Stdin.Read and swallow the user's first answer line,
-	// so the pump reads through a detachable lease on the shared handoff and
-	// is detached as soon as the run returns — any byte it had in flight is
-	// then delivered to the relaunch prompt instead of being lost.
-	var runStdin io.Reader
-	if stdin != nil {
-		lease := sharedStdinHandoff().Attach()
-		defer lease.Detach()
-		runStdin = lease
 	}
 
 	// Restore the terminal before dying on an interrupt delivered from
@@ -466,7 +461,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	// go-plugin-wrapping goplugin.Launcher `ctxloom run`'s interactive path
 	// uses, so both callers share one transport implementation.
 	session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
-		Stdin:  runStdin,
+		Stdin:  stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})
@@ -510,18 +505,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	primary, _ := getAvailableEngines()
 	selectedEngine = pickDefaultEngine(selectedEngine, primary)
 
-	ranDiscovery := launchDiscovery(cmd, selectedEngine, appDir, interactive)
-
-	// The interview ends with a review session when pending items exist
-	// (trust-simplify slice 2): after the first pull/sync AND the discovery
-	// session (whose installs can add pending items), before the real session
-	// starts. Fault tolerant — a review failure never aborts init.
-	offerInitReview(cmd, interactive)
-
-	if ranDiscovery {
-		return offerSessionRelaunch()
-	}
-	return nil
+	return launchDiscovery(cmd, selectedEngine, appDir, interactive)
 }
 
 // resolveAppDir returns the .ctxloom directory to operate on: under the user's
@@ -571,6 +555,43 @@ func pickDefaultEngine(selected string, primary []string) string {
 	return "claude-code"
 }
 
+// checkSystemDeps is PRIME's targeted, deterministic system-dependency gate —
+// NOT `ctxloom doctor` (which comprehensively checks engines/agents/hooks/
+// trust; overkill and partly irrelevant this early). This just asks "does the
+// machine have what THIS call is about to need."
+//
+// git is a HARD BLOCK: cloneConfiguredRemotes (called right after this,
+// within the same setupNewCtxloomDir call) shells out to git to clone the
+// seeded remote, and worktree isolation shells out to it later still — a
+// git-less machine cannot complete init's own deterministic steps. Failing
+// loud here, with a named fix, beats letting the clone step surface a raw
+// "executable file not found" error with no guidance.
+//
+// ssh-keygen (needed later to sign bundles, `ctxloom sign`) and a container
+// runtime (needed later for containerized agents) are INFORMATIONAL ONLY:
+// nothing PRIME itself does needs them yet, so their absence surfaces as a
+// warning, not a block.
+//
+// A sibling slice adds git to `ctxloom doctor`'s own comprehensive dependency
+// check on a separate, unmerged branch; the couple of lines of overlap
+// between that comprehensive report and this narrow up-front gate are
+// intentional (they serve different moments — doctor is a health report,
+// this is a "can PRIME even proceed" gate), not something to fold into a
+// shared helper here.
+func checkSystemDeps() error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git is required (ctxloom is about to clone/pull remote content, and worktree isolation shells out to it later) but was not found on PATH — install it (e.g. `apt install git`, `brew install git`, `winget install Git.Git`) and re-run `ctxloom init`")
+	}
+
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — you'll need it later to sign your own bundles (`ctxloom sign`)")
+	}
+	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
+		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
+	}
+	return nil
+}
+
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
 // resolve the engine (with interactive prompts), write the skeleton, register
 // personal/discovery remotes, apply hooks, and update .gitignore. Returns the
@@ -589,6 +610,17 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	fmt.Printf("Default AI engine: %s\n", engine)
 	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo). Its bundles are signed")
 	fmt.Println("by ctxloom's publishing key, which this binary trusts, so they need no review.")
+
+	// Targeted system-dependency gate, right after the marker dir/minimal
+	// config and BEFORE the clone two lines down: git is a hard prerequisite
+	// of THIS call (cloneConfiguredRemotes shells out to it next), so a
+	// missing git fails loud here, with a named fix, instead of surfacing as
+	// a raw git error out of the clone machinery. Runs on both the
+	// interactive and --non-interactive paths (both reach this same call) —
+	// a scripted init still needs git to clone.
+	if err := checkSystemDeps(); err != nil {
+		return "", err
+	}
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
@@ -783,79 +815,116 @@ func applyInitHooks(cmd *cobra.Command) {
 	fmt.Printf("Applied hooks for: %v\n", result.Backends)
 }
 
-// launchDiscovery auto-launches the engine with a profile-discovery prompt in
-// interactive mode (unless --skip-launch). A launch failure warns, never fatal.
-// Returns true only when a discovery session ran and ended cleanly — the
-// signal that offering a relaunch into `ctxloom run` is safe; an errored
-// session must not chain into a possibly-broken setup.
-func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) bool {
+// authPingTask is the smallest possible prompt sent to probe the selected
+// engine's auth before init hands off to its raw CLI/TUI — just enough to
+// prove a live, authenticated round trip happened.
+const authPingTask = "Reply with exactly: ok"
+
+// engineAuthFix names, per engine, the fix for a failed auth probe: the
+// subscription-login and API-key-env paths each backend actually offers
+// (internal/lm/isolation/auth.go's envTrigger constants are the verified
+// source for the env var names). Keyed by backend name (backends.List()); an
+// engine this map doesn't (yet) name gets engineAuthFixHint's generic
+// fallback rather than blocking on a missing entry.
+var engineAuthFix = map[string]string{
+	"claude-code": "run `claude login` (or set ANTHROPIC_API_KEY)",
+	"antigravity": "run `agy` and complete its sign-in flow (OAuth only — no API-key path)",
+	"codex":       "run `codex login` (or set OPENAI_API_KEY)",
+	"kiro":        "run `kiro-cli login` (or set KIRO_API_KEY)",
+	"opencode":    "authenticate opencode (see its `auth` subcommand) or set OPENROUTER_API_KEY",
+}
+
+// engineAuthFixHint returns engine's named fix, or a generic fallback for an
+// engine not (yet) in engineAuthFix.
+func engineAuthFixHint(engine string) string {
+	if fix, ok := engineAuthFix[engine]; ok {
+		return fix
+	}
+	return "authenticate the engine (subscription login or its API-key env var) and try again"
+}
+
+// authPingFactory is a test seam: nil self-invokes the compiled-in backend
+// (operations.RunOneshot's normal path); tests inject a stub pb.ClientFactory
+// so no real engine binary or credential is required to exercise the gate.
+var authPingFactory pb.ClientFactory
+
+// pingEngineAuth probes the selected engine with the smallest possible
+// oneshot run BEFORE init hands off to its raw CLI/TUI (§12 Q1, user-approved:
+// "a dead first session inside a vendor TUI is invisible failure; catch it in
+// code"). It reuses operations.RunOneshot — the SAME oneshot Execute surface
+// `ctxloom run --print` and map/weave already ride — rather than a bespoke
+// engine-ping path: no explicit profile (falls back to the configured
+// defaults, which is a fault-tolerant no-op if none resolve) and the smallest
+// possible task. Any failure (missing binary, no credentials, a dead
+// subscription token, a real backend error) fails loud, naming the fix for
+// THIS engine; auth itself stays ambient — this is a liveness gate, not a
+// login flow.
+func pingEngineAuth(ctx context.Context, cfg *config.Config, engine, workDir string) error {
+	_, err := operations.RunOneshot(ctx, cfg, operations.RunOneshotRequest{
+		Task:    authPingTask,
+		LLM:     engine,
+		WorkDir: workDir,
+		Factory: authPingFactory,
+	})
+	if err != nil {
+		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
+	}
+	return nil
+}
+
+// launchEngineWithPromptFn is a package var seam over launchEngineWithPrompt:
+// tests stub it to verify launchDiscovery's branching (the ping gates the
+// launch; a successful ping proceeds to it) without spawning a real engine
+// subprocess. Defaults to the real function.
+var launchEngineWithPromptFn = launchEngineWithPrompt
+
+// launchDiscovery pings the selected engine's auth, then — unless
+// --skip-launch or non-interactive — launches it with the setup skill in
+// context via its own raw CLI/TUI (launchEngineWithPrompt). A failed ping
+// fails init loud (returned as an error) rather than dropping the user into a
+// dead vendor-TUI session; a session that starts but ends in error (an
+// interrupted setup, a crashed engine) only warns — init still hands off and
+// exits cleanly. There is no relaunch loop and no review offer afterward
+// (both deleted: re-entry is `/ctxloom-init` or `ctxloom agent setup`, and
+// review is the setup skill's own phase 4/6).
+func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
 	if !interactive || initSkipLaunch {
-		return false
-	}
-	fmt.Printf("\nLaunching %s to help you discover profiles...\n", engine)
-	fmt.Println("(Exit the AI session when done — ctxloom will then offer to start your configured session)")
-	fmt.Println()
-
-	workDir := filepath.Dir(appDir)
-	if launchErr := launchEngineWithPrompt(cmd.Context(), engine, workDir); launchErr != nil {
-		clidiag.Warn("ctxloom", "%v", launchErr)
-		return false
-	}
-	return true
-}
-
-// wantsRelaunch interprets the answer to the post-discovery relaunch prompt.
-// Empty input means yes (the default); only an explicit n/no declines, so a
-// typo lands the user in their session rather than silently back at the shell.
-func wantsRelaunch(input string) bool {
-	answer := strings.ToLower(strings.TrimSpace(input))
-	return answer != "n" && answer != "no"
-}
-
-// printRunHint tells the user how to pick up the new configuration later, and
-// points at agent setup as the re-entry for a skipped/interrupted interview
-// (the discovery session covers agent binding itself; this hint is the
-// backstop, alongside the SessionStart nudge).
-func printRunHint() {
-	fmt.Println("Run `ctxloom run` when ready — it picks up everything init installed.")
-	fmt.Println("Skipped agent setup during discovery? `ctxloom agent setup` (or ask your")
-	fmt.Println("agent to run it) re-enters that interview any time.")
-}
-
-// offerSessionRelaunch asks whether to start the configured session now and,
-// on yes, runs `ctxloom run` as a child on this terminal. Discovery installs
-// profiles, hooks, and MCP servers that the discovery session itself cannot
-// see; a fresh run assembles them into the launch config. Declining — or any
-// failure on the way to the launch — degrades to a hint (fault tolerant);
-// only the child session's own exit code propagates, as ExitError, matching
-// `ctxloom run` itself.
-func offerSessionRelaunch() error {
-	fmt.Print("\nStart your session now to pick up the new configuration? (Y/n): ")
-	// Read through the shared stdin handoff: the discovery run's stdin pump
-	// read through it too, so a byte it had in flight when the run ended is
-	// delivered here rather than lost (see stdinHandoff). The lease is
-	// detached before the relaunch so the child owns os.Stdin uncontested —
-	// demand-driven reads leave no fd read outstanding once the answer line
-	// is consumed.
-	lease := sharedStdinHandoff().Attach()
-	input, err := newInitPromptsFrom(lease).readCleanLine()
-	lease.Detach()
-	if err != nil || !wantsRelaunch(input) {
-		printRunHint()
 		return nil
 	}
 
-	run := exec.Command(resolveSelfExecutable(), "run")
-	run.Stdin = os.Stdin
-	run.Stdout = os.Stdout
-	run.Stderr = os.Stderr
-	if runErr := run.Run(); runErr != nil {
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			return &ExitError{Code: childExitCode(exitErr)}
-		}
-		clidiag.Warn("ctxloom", "failed to start session: %v", runErr)
-		printRunHint()
+	workDir := filepath.Dir(appDir)
+
+	// Config is best-effort here (same pattern as launchEngineWithPrompt): a
+	// load failure must not block the ping — RunOneshot degrades a nil config
+	// to no configured-defaults profile, which is itself fault-tolerant.
+	var cfg *config.Config
+	if c, cerr := GetConfig(); cerr == nil {
+		cfg = c
 	}
+	if err := pingEngineAuth(cmd.Context(), cfg, engine, workDir); err != nil {
+		return err
+	}
+
+	fmt.Printf("\nLaunching %s for setup...\n", engine)
+	fmt.Println("(Exit the session when done)")
+	fmt.Println()
+
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), engine, workDir); launchErr != nil {
+		clidiag.Warn("ctxloom", "%v", launchErr)
+		return nil
+	}
+
+	printReentryHint()
 	return nil
+}
+
+// printReentryHint tells the user how to reach ctxloom once the raw-CLI setup
+// session has ended: connect via whichever ACP client the setup skill
+// configured, or reconfigure any time via `/ctxloom-init` (from any session)
+// or `ctxloom agent setup`. Printed once, after the session — init then
+// returns and the process exits; there is no relaunch loop.
+func printReentryHint() {
+	fmt.Println("\nSetup session ended. Connect via the ACP client you configured during setup")
+	fmt.Println("to keep working with ctxloom (`ctxloom acp` is the connection ctxloom exposes).")
+	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom agent setup`) to reconfigure any time.")
 }

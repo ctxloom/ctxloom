@@ -932,6 +932,36 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	assert.True(t, env.FileExists(".ctxloom/config.yaml"), "Expected .ctxloom/config.yaml to exist")
 }
 
+// TestInit_GitMissing_FailsLoudBeforeClone pins PRIME's targeted
+// system-dependency gate (init-as-skill slice ④, coordinator addendum): a
+// machine with no `git` on PATH must fail init loud, naming git, BEFORE the
+// remote-clone step ever runs — never a raw, unguided git error out of the
+// clone machinery, and never a silent partial success. `--non-interactive`
+// still runs this gate (a scripted init still needs git to clone).
+func TestInit_GitMissing_FailsLoudBeforeClone(t *testing.T) {
+	env, err := testenv.NewTestEnvironment()
+	require.NoError(t, err)
+	require.NoError(t, env.Setup())
+	t.Cleanup(func() { _ = env.Cleanup() })
+
+	// The ctxloom binary itself is invoked by its absolute path (testenv.Run
+	// execs env.AppBinary directly), so it needs nothing on PATH to start;
+	// only checkSystemDeps' own exec.LookPath probes see this empty PATH.
+	env.SetEnv("PATH", t.TempDir())
+
+	_ = env.Run("init", "--non-interactive")
+
+	assert.NotEqual(t, 0, env.LastExitCode(), "init must fail loud (nonzero exit) when git is missing")
+	assert.Contains(t, env.LastOutput(), "git", "the failure must name git")
+
+	// PRIME reached the marker dir/config write (the dep gate runs right
+	// after it) ...
+	assert.True(t, env.FileExists(".ctxloom/config.yaml"), "marker dir/config is written before the dep gate")
+	// ... but never reached the clone step the dep gate sits in front of: no
+	// remote was ever cloned into the repo cache.
+	assert.False(t, env.FileExists(".ctxloom/cache/repos"), "no remote should have been cloned once the git gate failed")
+}
+
 // =============================================================================
 // Config Command
 // =============================================================================

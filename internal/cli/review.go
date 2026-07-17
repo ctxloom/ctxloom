@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -446,78 +445,3 @@ func printReviewSummary(w io.Writer, sum reviewSummary) {
 		sum.accepted, sum.rejected, sum.skipped, sum.stillPending())
 }
 
-// --- init wiring -----------------------------------------------------------------
-
-// offerInitReview closes init's interactive path (trust-simplify slice 2):
-// after remotes are configured and the first pull/sync has run — and after the
-// discovery session, whose installs can add pending items — it offers one
-// inline review session when anything is pending. Non-interactive init prints
-// the count and the command instead. Fault-tolerant throughout: no failure in
-// here may abort init (CLAUDE.md), so every error degrades to a warning.
-//
-// Interactive reads go through a shared-stdin-handoff lease (not the global
-// promptLine reader) so a byte the discovery session's stdin pump had in
-// flight when its run ended is delivered to the first prompt here instead of
-// being lost — the same pattern as offerSessionRelaunch.
-func offerInitReview(cmd *cobra.Command, interactive bool) {
-	cfg, err := config.Load()
-	if err != nil {
-		clidiag.Warn("ctxloom", "skipping review offer (config unreadable): %v", err)
-		return
-	}
-	res, err := operations.PendingReview(cfg, operations.PendingReviewRequest{})
-	if err != nil {
-		clidiag.Warn("ctxloom", "could not enumerate items pending review: %v", err)
-		return
-	}
-	if res.Total == 0 {
-		return
-	}
-	if !interactive {
-		fmt.Printf("%d item(s) await review — run 'ctxloom review' to accept or reject them.\n", res.Total)
-		return
-	}
-
-	lease := sharedStdinHandoff().Attach()
-	defer lease.Detach()
-	reader := bufio.NewReader(lease)
-	prompt := func(p string) (string, error) {
-		fmt.Fprint(os.Stderr, p)
-		line, rerr := reader.ReadString('\n')
-		if rerr != nil {
-			return "", rerr
-		}
-		return strings.TrimSpace(line), nil
-	}
-
-	answer, err := prompt(fmt.Sprintf("\n%d item(s) await review. Review now? [Y/n] ", res.Total))
-	if err != nil || !wantsInitReview(answer) {
-		fmt.Println("Run 'ctxloom review' any time to review them.")
-		return
-	}
-	signer, unsigned, serr := resolveReviewSigner(cmd.Context(), false)
-	if serr != nil {
-		clidiag.Warn("ctxloom", "skipping inline review (%v) — run 'ctxloom review' later", serr)
-		return
-	}
-	if unsigned && !confirmUnsignedReview(os.Stdout) {
-		fmt.Println("Run 'ctxloom review' any time to review them.")
-		return
-	}
-	if !unsigned && !warnIfSoftwareKey(os.Stdout, signer) {
-		fmt.Println("Run 'ctxloom review' any time to review them.")
-		return
-	}
-	sum := runReviewWalk(os.Stdout, prompt, res, reviewApplier(cfg, false, signer))
-	printReviewSummary(os.Stdout, sum)
-	if sum.accepted+sum.rejected > 0 {
-		refreshManagedArtifacts(cmd.Context(), cfg)
-	}
-}
-
-// wantsInitReview interprets the Y/n answer: empty means yes (the default);
-// only an explicit n/no declines — mirroring wantsRelaunch.
-func wantsInitReview(answer string) bool {
-	a := strings.ToLower(strings.TrimSpace(answer))
-	return a != "n" && a != "no"
-}

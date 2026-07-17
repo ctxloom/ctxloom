@@ -19,9 +19,11 @@ import (
 
 // ISO2 (v0.7.0 ACP Hub plan): tests for the ACP-hosted WORKSPACE axis —
 // acpWorkspaceAxis (the posture gate), prepareACPWorkspace (the real
-// isolation.Prepare wiring), announceOnFirstEvent (the D-ISO announce-only
-// mechanism), and OpenEngineSession end to end via the newACPEngineClient
-// seam (a fake pb.Client, so no real subprocess is spawned).
+// isolation.Prepare wiring), and OpenEngineSession end to end via the
+// newACPEngineClient seam (a fake pb.Client, so no real subprocess is
+// spawned). The ISO3 posture announcement itself now rides
+// EngineChat.Announcement (plain session data, not an Events entry) — see
+// engine_session_iso3_test.go for its payload proofs.
 
 // --- acpWorkspaceAxis: the posture gate, in isolation -----------------------
 
@@ -149,36 +151,6 @@ func TestPrepareACPWorkspace_NonGitDegradesSilently(t *testing.T) {
 	assert.Empty(t, aw.announce, "no announcement over a workspace that never actually isolated")
 }
 
-// --- announceOnFirstEvent: the D-ISO delivery mechanism ---------------------
-
-// TestAnnounceOnFirstEvent proves the announcement reaches the wrapped
-// channel as the FIRST event, verbatim, ahead of — and without altering —
-// whatever the engine itself emits afterward.
-func TestAnnounceOnFirstEvent(t *testing.T) {
-	src := make(chan agent.ChatEvent, 2)
-	src <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "engine says hi"}}
-	src <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
-	close(src)
-
-	out := announceOnFirstEvent(context.Background(), src, "ctxloom: isolated to /fake/worktree")
-
-	first := <-out
-	require.NotNil(t, first.Entry, "the first event must be a synthetic entry, not the engine's own")
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
-	assert.Equal(t, "ctxloom: isolated to /fake/worktree", first.Entry.Content)
-
-	second := <-out
-	require.NotNil(t, second.Entry)
-	assert.Equal(t, "engine says hi", second.Entry.Content, "the engine's own event forwards unchanged")
-
-	third := <-out
-	require.NotNil(t, third.Complete)
-	assert.Equal(t, "end_turn", third.Complete.StopReason)
-
-	_, ok := <-out
-	assert.False(t, ok, "the wrapped channel closes once the source closes")
-}
-
 // --- OpenEngineSession end to end (fake pb.Client, no real subprocess) -----
 
 // fakeACPEngineClient is a minimal pb.Client that records the ChatRequest it
@@ -268,9 +240,11 @@ func writeACPTestProject(t *testing.T, workspaceDefault string) string {
 // default set to "worktree", actually runs the engine in a fresh git
 // worktree — proven by inspecting the REAL ChatRequest.WorkDir the fake
 // engine client received (a real directory, distinct from the repo, that is
-// a genuine git checkout) — and the announcement reaches the client as the
-// FIRST event on the session's Events channel, naming that exact path. On
-// Close, the worktree is removed from disk (WIP-safe teardown ran).
+// a genuine git checkout) — and the resolved-posture announcement
+// (EngineChat.Announcement, plain session data — not spliced into Events;
+// see engine_session_iso3_test.go for the at-connect delivery proof) names
+// that exact path. On Close, the worktree is removed from disk (WIP-safe
+// teardown ran).
 func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 	requireGit(t)
 	resetStrictness(t)
@@ -291,14 +265,11 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 	assert.FileExists(t, filepath.Join(client.gotReq.WorkDir, "README.md"), "the worktree is a real checkout")
 	wtDir := client.gotReq.WorkDir
 
-	first := <-chat.Events
-	require.NotNil(t, first.Entry, "the FIRST event on the client-facing channel must be the announcement")
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
-	assert.Contains(t, first.Entry.Content, wtDir, "the announcement must name the real worktree path")
+	assert.Contains(t, chat.Announcement, wtDir, "the announcement must name the real worktree path")
 
-	second := <-chat.Events
-	require.NotNil(t, second.Entry)
-	assert.Equal(t, "engine-marker", second.Entry.Content, "the engine's own event still follows, unaltered")
+	first := <-chat.Events
+	require.NotNil(t, first.Entry)
+	assert.Equal(t, "engine-marker", first.Entry.Content, "the Events channel carries ONLY the engine's own output now — the announcement no longer rides it")
 
 	chat.Close()
 	assert.NoDirExists(t, wtDir, "closing the session tears the worktree down (WIP-safe)")
@@ -313,11 +284,10 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 // and the engine's real WorkDir is asserted to be the untouched repo root.
 //
 // ISO3: the plain entry now ALSO gets the always-on one-line posture
-// announcement ahead of the engine's own first event — see
+// announcement — see
 // engine_session_iso3_test.go's TestOpenEngineSession_UnisolatedAnnouncesOnce
-// for the payload assertion on that text; this test stays focused on its
-// original WorkDir/isolation.Prepare proof and only adjusts the event-order
-// assertion to skip past the (now expected) announcement.
+// for the payload assertion on that text (EngineChat.Announcement); this
+// test stays focused on its original WorkDir/isolation.Prepare proof.
 func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
@@ -343,13 +313,11 @@ func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir, "the plain entry's engine cwd must stay the live project dir")
 
-	first := <-chat.Events
-	require.NotNil(t, first.Entry, "ISO3: the always-on posture announcement is now the first event")
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
+	assert.NotEmpty(t, chat.Announcement, "ISO3: the always-on posture announcement is set even for the plain entry")
 
-	second := <-chat.Events
-	require.NotNil(t, second.Entry)
-	assert.Equal(t, "engine-marker", second.Entry.Content, "the engine's own event still follows the announcement, unaltered")
+	first := <-chat.Events
+	require.NotNil(t, first.Entry)
+	assert.Equal(t, "engine-marker", first.Entry.Content, "the Events channel carries ONLY the engine's own output now")
 
 	chat.Close()
 }
@@ -373,10 +341,8 @@ func TestOpenEngineSession_ExplicitAgentWithoutWorktreeRequest(t *testing.T) {
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir, "an --agent session that never asked for a worktree stays on the host cwd")
 
-	first := <-chat.Events
-	require.NotNil(t, first.Entry, "ISO3: the always-on posture announcement is still the first event")
-	assert.Equal(t, `ctxloom: agent "reviewer" (engine mock) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, first.Entry.Content)
-	<-chat.Events // drain the engine's own marker event too
+	assert.Equal(t, `ctxloom: agent "reviewer" (engine mock) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, chat.Announcement)
+	<-chat.Events // drain the engine's own marker event
 
 	chat.Close()
 }
@@ -410,9 +376,8 @@ func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 	// ISO3: the fail-soft this test drives (an unresolvable --agent) is
 	// exactly the case that must be LOUD in the chat — see
 	// engine_session_iso3_test.go's TestOpenEngineSession_UnknownAgentAnnouncementIsLoud
-	// for the full payload assertion; drain both events here so this test
-	// doesn't leak the announce goroutine.
-	<-chat.Events
+	// for the full payload assertion (chat.Announcement); drain the engine's
+	// own event here so this test doesn't leak it.
 	<-chat.Events
 
 	chat.Close()

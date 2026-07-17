@@ -74,22 +74,23 @@ func TestPersonalRemoteRequests(t *testing.T) {
 }
 
 // TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup pins the collapsed
-// init interview: the ONE prompt the discovery session receives is profile
-// discovery followed by the agent-setup interview (discovery first), so
-// profile selection and agent binding happen in a single continuous
-// conversation. A nil config (load failure at launch) must still compose both
-// halves from the built-in texts — fault tolerance, never a truncated prompt.
-// (Bundle- or companion-shipped `agent-setup` commands AUGMENT the setup half
-// via operations.ResolveSetupPrompt, whose composition contract is covered in
+// init interview: the ONE prompt the discovery session receives is ctxloom's
+// built-in six-phase setup body (ctxloomInitPrompt, init-as-skill slice 3),
+// where profile discovery (phase 4) precedes the agent-setup interview
+// (phase 5) so profile selection and agent binding happen in a single
+// continuous conversation. A nil config (load failure at launch) must still
+// return the built-in text verbatim — fault tolerance, never a truncated
+// prompt. (Bundle- or companion-shipped `agent-setup` commands AUGMENT it via
+// operations.ResolveSetupPrompt, whose composition contract is covered in
 // internal/operations/setup_prompt_test.go.)
 func TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup(t *testing.T) {
 	got := discoverySessionPrompt(nil)
 
-	di := strings.Index(got, "search_library")       // discovery-half marker
-	si := strings.Index(got, "SCAN → DISCUSS → SET") // setup-half marker
-	require.GreaterOrEqual(t, di, 0, "discovery half missing from the merged prompt")
-	require.GreaterOrEqual(t, si, 0, "agent-setup half missing from the merged prompt")
-	assert.Less(t, di, si, "discovery must precede agent setup — profiles are the setup's inputs")
-	assert.Equal(t, got, profileDiscoveryPrompt+"\n\n---\n\n"+agentSetupPrompt,
-		"nil config composes the two built-in texts verbatim")
+	di := strings.Index(got, "search_library")       // profiles-phase marker
+	si := strings.Index(got, "SCAN → DISCUSS → SET") // agents-phase marker
+	require.GreaterOrEqual(t, di, 0, "profiles phase missing from the setup body")
+	require.GreaterOrEqual(t, si, 0, "agent-setup phase missing from the setup body")
+	assert.Less(t, di, si, "profiles must precede agent setup — profiles are the setup's inputs")
+	assert.Equal(t, got, ctxloomInitPrompt,
+		"nil config returns the built-in six-phase body verbatim")
 }

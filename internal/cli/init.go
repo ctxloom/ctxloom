@@ -26,7 +26,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 var initCmd = &cobra.Command{
@@ -379,27 +378,20 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 
 // generateConfig creates a config.yaml with the selected engine and options.
 
-// profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
-// It uses only the real ctxloom surface: the search_library MCP tool (which
-// reads the local clones init just made), the ctxloom://remotes resource, and
-// CLI install commands. Do not reference list_remotes / browse_remote /
-// list_profiles / create_profile / update_profile — those are not MCP tools.
-var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
-
-// discoverySessionPrompt composes the ONE prompt the init discovery session
-// receives: profile discovery followed by the agent-setup interview, so
-// content selection and agent binding happen in a single continuous
-// conversation (profiles are chosen, then the agents that use them are bound —
-// no mid-session prompt fetch). The agent-setup half resolves through
+// discoverySessionPrompt returns the ONE prompt the init discovery session
+// receives: ctxloom's built-in six-phase setup body (ctxloomInitPrompt, see
+// agent.go) — orient+scan, ACP client(s), companions, profiles+content,
+// agents, close — so content selection and agent binding happen in a single
+// continuous conversation (no mid-session prompt fetch). Resolves through
 // ResolveSetupPrompt so every bundle- or companion-shipped `agent-setup`
-// command is composed in at init exactly as it is for `ctxloom agent setup`; a
-// nil config degrades to the built-in text alone (CLAUDE.md fault tolerance).
+// command is composed in at init exactly as it is for `ctxloom agent setup`
+// and for the `/ctxloom-init` slash command; a nil config degrades to the
+// built-in text alone (CLAUDE.md fault tolerance).
 func discoverySessionPrompt(cfg *config.Config) string {
-	setup := agentSetupPrompt
-	if cfg != nil {
-		setup = operations.ResolveSetupPrompt(cfg, agentSetupPrompt)
+	if cfg == nil {
+		return ctxloomInitPrompt
 	}
-	return profileDiscoveryPrompt + "\n\n---\n\n" + setup
+	return operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
 }
 
 // launchEngineWithPrompt starts the AI with the merged discovery + agent-setup

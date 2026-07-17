@@ -188,10 +188,11 @@ func TestListBuiltinBundles_OnlyIsolation(t *testing.T) {
 // trims its trailing newline, and that a missing name errors. These prompts
 // back package-level vars via MustGetPromptText, so a renamed or unembedded
 // file would otherwise only surface as an init-time panic at runtime.
+// "profile-discovery" and "agent-setup" moved out of prompts/ entirely (their
+// content merged into resources/commands/ctxloom-init.md's six-phase body,
+// init-as-skill slice 3) — see TestGetBuiltinCommandBody_CtxloomInit below.
 func TestGetPromptText(t *testing.T) {
 	for _, name := range []string{
-		"profile-discovery",
-		"agent-setup",
 		"tooling",
 		"distill-default",
 		"mcp-server-instructions",
@@ -217,32 +218,10 @@ func TestGetPromptText(t *testing.T) {
 }
 
 // TestSetupPrompts_ContentContract pins the tokens the collapsed init
-// interview depends on: the agent-setup prompt must lead with the standard
-// trio and teach the write surface (`agent set`, `--isolation`), and the
-// profile-discovery prompt must bridge into agent setup rather than ending
-// the conversation after profiles. A drift here silently breaks the merged
-// discovery session (internal/cli.discoverySessionPrompt) without any
-// compile-time signal.
+// interview depends on: the tooling prompt must teach the gated Containerfile
+// workflow. (The agent-setup/profile-discovery tokens moved into
+// TestGetBuiltinCommandBody_CtxloomInit below, alongside the six-phase body.)
 func TestSetupPrompts_ContentContract(t *testing.T) {
-	setup, err := GetPromptText("agent-setup")
-	if err != nil {
-		t.Fatalf("GetPromptText(agent-setup): %v", err)
-	}
-	for _, want := range []string{
-		"coordinator",
-		"developer",
-		"finder",
-		"--runtime container",
-		"--workspace worktree",
-		"ctxloom container check",
-		"ctxloom agent set",
-		"ctxloom agent list",
-	} {
-		if !strings.Contains(setup, want) {
-			t.Errorf("agent-setup prompt lost required token %q", want)
-		}
-	}
-
 	tooling, err := GetPromptText("tooling")
 	if err != nil {
 		t.Fatalf("GetPromptText(tooling): %v", err)
@@ -257,17 +236,74 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 			t.Errorf("tooling prompt lost required token %q", want)
 		}
 	}
+}
 
-	discovery, err := GetPromptText("profile-discovery")
+// TestGetBuiltinCommandBody_CtxloomInit pins the contents of ctxloom's
+// six-phase setup body (init-as-skill plan §4.3/§4.4, "the skill text is
+// load-bearing"): every phase must be present, the agent-setup tokens the old
+// TestSetupPrompts_ContentContract pinned must have survived the merge, the
+// §4.4 client-write discipline (priority order, the util config-write
+// fallback, the neutral `acp agents --format json` emit, never-both-paths)
+// must be encoded, and the body must carry NO literal "{{" (the mustache
+// trap: fragment assembly silently blanks an unescaped "{{...}}", and the
+// command-export path rewrites a bare "{{word}}" to a positional shell arg —
+// either way, a stray "{{" here would corrupt every door this body reaches).
+func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
+	body, err := GetBuiltinCommandBody("ctxloom-init")
 	if err != nil {
-		t.Fatalf("GetPromptText(profile-discovery): %v", err)
+		t.Fatalf("GetBuiltinCommandBody(ctxloom-init): %v", err)
 	}
+	if strings.TrimSpace(body) == "" {
+		t.Fatal("ctxloom-init body is empty")
+	}
+	if strings.Contains(body, "{{") {
+		t.Error("ctxloom-init body contains a literal \"{{\" — the mustache trap; escape or remove it")
+	}
+
 	for _, want := range []string{
-		"agent setup",
-		"one continuous setup interview",
+		// The six phases, in order.
+		"Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6",
+		// Phase 2 (ACP clients) is a required exit criterion, first after orient.
+		"REQUIRED",
+		// §4.4 write-priority order.
+		"OWN configuration CLI",
+		"ctxloom util config-write",
+		"ctxloom acp agents --format json",
+		// Phase 5 (agents), carried over from the old agent-setup.md prompt.
+		"SCAN → DISCUSS → SET",
+		"coordinator",
+		"developer",
+		"finder",
+		"--runtime container",
+		"--workspace worktree",
+		"ctxloom container check",
+		"ctxloom agent set",
+		"ctxloom agent list",
 	} {
-		if !strings.Contains(discovery, want) {
-			t.Errorf("profile-discovery prompt lost the agent-setup bridge token %q", want)
+		if !strings.Contains(body, want) {
+			t.Errorf("ctxloom-init body lost required token %q", want)
 		}
 	}
+
+	// Frontmatter must be stripped, not leaked into the composed prompt.
+	if strings.Contains(body, "description:") {
+		t.Error("ctxloom-init body still contains frontmatter; GetBuiltinCommandBody must strip it")
+	}
+}
+
+// TestListBuiltinCommands_IncludesCtxloomInit pins that the setup body is
+// discoverable as an ordinary builtin command (not just readable by name) —
+// the same listing internal/lm/backends.builtinCommands walks to build every
+// session's slash-command catalog.
+func TestListBuiltinCommands_IncludesCtxloomInit(t *testing.T) {
+	names, err := ListBuiltinCommands()
+	if err != nil {
+		t.Fatalf("ListBuiltinCommands: %v", err)
+	}
+	for _, n := range names {
+		if n == "ctxloom-init" {
+			return
+		}
+	}
+	t.Errorf("ListBuiltinCommands missing \"ctxloom-init\"; got %v", names)
 }

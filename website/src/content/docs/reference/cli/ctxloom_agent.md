@@ -43,6 +43,6 @@ They are never shipped in bundles or remotes: the engine choice is yours.
 * [ctxloom agent list](/reference/cli/ctxloom_agent_list/)	 - List all local agents
 * [ctxloom agent remove](/reference/cli/ctxloom_agent_remove/)	 - Remove a local agent from config.yaml
 * [ctxloom agent set](/reference/cli/ctxloom_agent_set/)	 - Add or update a local agent (engine↔profile binding)
-* [ctxloom agent setup](/reference/cli/ctxloom_agent_setup/)	 - Print the agent-assisted agent-setup prompt for the LLM to follow
+* [ctxloom agent setup](/reference/cli/ctxloom_agent_setup/)	 - Print ctxloom's setup prompt (clients, companions, profiles, agents) for the LLM to follow
 * [ctxloom agent show](/reference/cli/ctxloom_agent_show/)	 - Show an agent and its resolved engine
 

@@ -65,6 +65,21 @@ type EngineChat struct {
 	// configured (the session advertises none). See SessionCommands's doc
 	// for how this differs from IR3's engine-side passthrough.
 	Commands *SessionCommands
+	// Announcement is ISO3's resolved-posture text (buildSessionAnnouncement,
+	// engine_session.go) for this session — never "" in production
+	// (OpenEngineSession computes it unconditionally for every posture,
+	// including the fully unisolated common case). It crosses the
+	// operations→acpagent boundary as plain data on this struct, the same
+	// way Modes/LLMs/Commands already do, rather than riding the Events
+	// channel: the posture is a fact about the SESSION, known before the
+	// engine is even dialed, not a fact about any one TURN — and a frontend
+	// (acpagent) that only ever drains Events from inside a turn (see
+	// server.go's runTurn) would otherwise never see it until session/prompt
+	// ran once, exactly the bug this field exists to fix. A frontend decides
+	// how (and whether) to deliver it; acpagent emits it as a session/update
+	// notification immediately after session/new|load, before replying —
+	// see its emitSessionAnnouncement (announce.go).
+	Announcement string
 }
 
 // SessionCommands surfaces ctxloom's OWN command system (bundle "commands" —

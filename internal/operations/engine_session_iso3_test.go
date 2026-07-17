@@ -98,9 +98,9 @@ func TestBuildSessionAnnouncement_DegradedWorktreeNeverClaimsIsolation(t *testin
 
 // TestOpenEngineSession_UnisolatedAnnouncesOnce proves the ALWAYS decision:
 // even the fully unisolated, no-agent, plain `ctxloom acp` entry gets the
-// concise one-line posture statement as the first event — it no longer skips
-// straight to the engine's own first event the way D-ISO's worktree-only
-// mechanism used to.
+// concise one-line posture statement — set unconditionally on
+// EngineChat.Announcement, independent of the engine's own Events, which
+// carry ONLY the engine's real output now (no synthetic entry spliced in).
 func TestOpenEngineSession_UnisolatedAnnouncesOnce(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
@@ -121,14 +121,11 @@ func TestOpenEngineSession_UnisolatedAnnouncesOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, chat)
 
-	first := <-chat.Events
-	require.NotNil(t, first.Entry, "the FIRST event must be the always-on ISO3 announcement")
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
-	assert.Equal(t, `ctxloom: no agent bound (profile flow) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, first.Entry.Content)
+	assert.Equal(t, `ctxloom: no agent bound (profile flow) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, chat.Announcement)
 
-	second := <-chat.Events
-	require.NotNil(t, second.Entry)
-	assert.Equal(t, "engine-marker", second.Entry.Content, "the engine's own event still follows, unaltered")
+	first := <-chat.Events
+	require.NotNil(t, first.Entry)
+	assert.Equal(t, "engine-marker", first.Entry.Content, "Events carries only the engine's own output — the announcement rides Announcement instead")
 
 	chat.Close()
 }
@@ -150,11 +147,12 @@ func TestOpenEngineSession_UnknownAgentAnnouncementIsLoud(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, chat)
 
+	assert.Contains(t, chat.Announcement, `agent "no-such-agent" was requested but NOT FOUND`)
+	assert.Contains(t, chat.Announcement, "running on the HOST, unisolated")
+
 	first := <-chat.Events
-	require.NotNil(t, first.Entry, "the FIRST event must be the agent-not-found announcement")
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
-	assert.Contains(t, first.Entry.Content, `agent "no-such-agent" was requested but NOT FOUND`)
-	assert.Contains(t, first.Entry.Content, "running on the HOST, unisolated")
+	require.NotNil(t, first.Entry, "Events still carries the engine's own event; the agent-not-found warning rides Announcement instead")
+	assert.Equal(t, "engine-marker", first.Entry.Content)
 
 	chat.Close()
 }
@@ -184,12 +182,9 @@ func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, agent.RuntimeContainer, client.gotReq.Runtime, "sanity: the runtime axis actually reached the ChatRequest")
 
-	first := <-chat.Events
-	require.NotNil(t, first.Entry)
-	assert.Equal(t, agent.EntryTypeSystem, first.Entry.Type)
-	assert.Contains(t, first.Entry.Content, `agent "builder"`)
-	assert.Contains(t, first.Entry.Content, "RUNTIME isolated inside a container")
-	assert.Contains(t, first.Entry.Content, "NOT running directly on your host")
+	assert.Contains(t, chat.Announcement, `agent "builder"`)
+	assert.Contains(t, chat.Announcement, "RUNTIME isolated inside a container")
+	assert.Contains(t, chat.Announcement, "NOT running directly on your host")
 
 	chat.Close()
 }

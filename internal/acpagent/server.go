@@ -387,6 +387,15 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, rerr)
 		return
 	}
+	// ISO3: the resolved-posture announcement, sent BEFORE the reply — and
+	// therefore before the editor can possibly send session/prompt — so
+	// "you are/aren't isolated" is known at connect, not gated behind a
+	// turn. See announce.go's emitSessionAnnouncement doc for why this can't
+	// ride the engine's Events channel instead.
+	if rerr := s.emitSessionAnnouncement(sess); rerr != nil {
+		reply(nil, rerr)
+		return
+	}
 	// B4 (gap G5): available_commands_update has no field on session/new's
 	// response (unlike modes/models) — the spec requires it as a
 	// session/update notification instead. Sent before the reply so a
@@ -424,6 +433,14 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		ForwardTerminal: s.editorAdvertisedTerminal(),
 	}, req.SessionId)
 	if rerr != nil {
+		reply(nil, rerr)
+		return
+	}
+	// ISO3: see handleSessionNew's identical call — the resumed session's
+	// (freshly re-dialed engine's) resolved posture announces before
+	// anything else, including the history replay just below: this run's
+	// posture is current-session information, not part of the recorded past.
+	if rerr := s.emitSessionAnnouncement(sess); rerr != nil {
 		reply(nil, rerr)
 		return
 	}

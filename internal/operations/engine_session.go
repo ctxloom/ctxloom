@@ -323,15 +323,22 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// blind to BOTH isolation axes — it handed ctxloom a cwd and got a session
 	// back, with no way to see whether the engine runs in a container or
 	// against a worktree copy. D-ISO already covers the WORKSPACE axis
-	// (aw.announce, worktree-only); this extends the SAME announce-only
-	// mechanism to also always state the RESOLVED posture on every session,
-	// not just the isolated ones — see buildSessionAnnouncement's doc for the
-	// always-vs-only-when-isolated argument. The message rides as the FIRST
-	// event of the FIRST turn, ahead of the engine's own output, rendering as
-	// a visible agent_message_chunk in the client (mapping.go's
-	// EntryTypeSystem case — no wire/mapping changes needed here, only the
-	// event this opener hands the server).
-	events = announceOnFirstEvent(ctx, events, buildSessionAnnouncement(cfg, backendName, requestedAgent, currentAgent, label, runtimeAxis, aw))
+	// (aw.announce, worktree-only); this extends the SAME always-on judgment
+	// to also always state the RESOLVED posture on every session, not just
+	// the isolated ones — see buildSessionAnnouncement's doc for the
+	// always-vs-only-when-isolated argument.
+	//
+	// AT-CONNECT (not per-turn): this used to ride the Events channel as a
+	// synthetic first entry (announceOnFirstEvent, since deleted) — which
+	// only ever reached the client once a session/prompt actually ran a turn
+	// (acpagent's runTurn is the only Events reader), so a connected editor
+	// that hadn't sent its first prompt yet saw nothing. The text is plain
+	// session data instead: EngineChat.Announcement, delivered by whatever
+	// frontend hosts this opener as soon as the session itself exists — for
+	// ACP that is a session/update notification emitted right after
+	// session/new|load, before the editor ever gets to send session/prompt
+	// (see acpagent's emitSessionAnnouncement, announce.go).
+	announcement := buildSessionAnnouncement(cfg, backendName, requestedAgent, currentAgent, label, runtimeAxis, aw)
 
 	closeOnce := sync.OnceFunc(func() {
 		client.Kill()
@@ -366,6 +373,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		LLMs:          buildSessionLLMs(cfg, label),
 		WatchChildren: watchChildren,
 		Commands:      buildSessionCommands(ctx, cfg),
+		Announcement:  announcement,
 	}, nil
 }
 
@@ -705,11 +713,11 @@ func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
 	return aw == nil && runtimeAxis == ""
 }
 
-// buildSessionAnnouncement composes ISO3's first-turn honesty message: the
+// buildSessionAnnouncement composes ISO3's at-connect honesty message: the
 // RESOLVED posture for this session — which agent bound (or didn't), the
 // RUNTIME axis (host process vs container), and the WORKSPACE axis (the
-// editor's live cwd vs an isolated worktree) — as ONE string handed to
-// announceOnFirstEvent. It is called unconditionally by OpenEngineSession;
+// editor's live cwd vs an isolated worktree) — as the ONE string carried on
+// EngineChat.Announcement. It is called unconditionally by OpenEngineSession;
 // this function alone decides how much to say.
 //
 // ALWAYS vs only-when-isolated: this fires on EVERY session, including the
@@ -778,42 +786,4 @@ func buildSessionAnnouncement(cfg *config.Config, backendName, requestedAgent, c
 		workspaceDesc = "WORKSPACE: this project's live working directory (no worktree) — the container mounts it at the same path, so edits still land where your editor can see them."
 	}
 	return fmt.Sprintf("ctxloom: %s — %s. %s", agentDesc, runtimeDesc, workspaceDesc)
-}
-
-// announceOnFirstEvent wraps an engine's chat events so the very FIRST event
-// delivered is a synthetic system entry carrying msg — rendering as a visible
-// agent_message_chunk in the ACP client (acpagent/mapping.go's
-// EntryTypeSystem case) ahead of anything the engine itself says on the
-// session's first turn. This is the ANNOUNCE-ONLY mechanism D-ISO settled on:
-// no ACP method lets an agent make a client open a folder, so a visible
-// message on the first turn is what's available today (a dedicated
-// session-info surface is a later slice). ctx bounds the forwarding
-// goroutine to the session's own lifetime, so a session closed before any
-// prompt arrives never leaks it.
-func announceOnFirstEvent(ctx context.Context, events <-chan agent.ChatEvent, msg string) <-chan agent.ChatEvent {
-	out := make(chan agent.ChatEvent)
-	go func() {
-		defer close(out)
-		select {
-		case out <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeSystem, Content: msg}}:
-		case <-ctx.Done():
-			return
-		}
-		for {
-			select {
-			case ev, ok := <-events:
-				if !ok {
-					return
-				}
-				select {
-				case out <- ev:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return out
 }

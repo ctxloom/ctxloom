@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 func TestMock_History(t *testing.T) {
@@ -27,4 +29,45 @@ func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.False(t, EnforcesReadOnlyPlan("antigravity"), "agy's --mode plan is live-verified NOT to enforce read-only headlessly")
 	assert.False(t, EnforcesReadOnlyPlan("acp"), "acp only distinguishes bypass")
 	assert.False(t, EnforcesReadOnlyPlan("unknown"), "unregistered backend cannot enforce anything")
+}
+
+// TestACPTransportFor pins every registered backend's single ACP-transport
+// declaration (agent.ACPTransport): claude-code/codex need a SEPARATE
+// third-party adapter binary (ACPAdapter, with the exact Binary/InstallCmd
+// literal each engine's own chat.go const carries, plus Zed Industries
+// provenance derived from the adapter's own npm scope — see registry.go's
+// claudeACPTransport/codexACPTransport docs); kiro/opencode speak ACP
+// natively (ACPNative, the zero value, no adapter fields); antigravity has
+// no ACP transport at all, only its bespoke `agy -p` prose driver
+// (ACPBespoke); an unregistered name reports the zero value (ACPNative,
+// everything else empty) — "needs nothing" is the safe default.
+func TestACPTransportFor(t *testing.T) {
+	claudeT := ACPTransportFor("claude-code")
+	assert.Equal(t, agent.ACPAdapter, claudeT.Kind, "claude-code has no native ACP mode")
+	assert.Equal(t, "claude-code-acp", claudeT.Binary)
+	assert.Equal(t, "npm install -g @zed-industries/claude-code-acp", claudeT.InstallCmd)
+	assert.Equal(t, "Zed Industries", claudeT.Publisher)
+	assert.Equal(t, "https://github.com/zed-industries/claude-code-acp", claudeT.SourceRepo)
+
+	codexT := ACPTransportFor("codex")
+	assert.Equal(t, agent.ACPAdapter, codexT.Kind, "codex has no native ACP mode")
+	assert.Equal(t, "codex-acp", codexT.Binary)
+	assert.Equal(t, "npm install -g @zed-industries/codex-acp", codexT.InstallCmd)
+	assert.Equal(t, "Zed Industries", codexT.Publisher)
+	assert.Equal(t, "https://github.com/zed-industries/codex-acp", codexT.SourceRepo)
+
+	kiroT := ACPTransportFor("kiro")
+	assert.Equal(t, agent.ACPNative, kiroT.Kind, "kiro-cli acp is native")
+	assert.Empty(t, kiroT.Binary, "no separate adapter binary for a native engine")
+	assert.Empty(t, kiroT.InstallCmd)
+
+	opencodeT := ACPTransportFor("opencode")
+	assert.Equal(t, agent.ACPNative, opencodeT.Kind, "opencode acp is native")
+	assert.Empty(t, opencodeT.Binary)
+
+	antigravityT := ACPTransportFor("antigravity")
+	assert.Equal(t, agent.ACPBespoke, antigravityT.Kind, "agy -p is a bespoke prose driver, not ACP")
+	assert.Empty(t, antigravityT.Binary, "bespoke transport has no adapter binary either")
+
+	assert.Equal(t, agent.ACPTransport{}, ACPTransportFor("unknown"), "unregistered backend reports the zero value")
 }

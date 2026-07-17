@@ -1,9 +1,12 @@
 package claude
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -15,7 +18,7 @@ import (
 // session/new with an opaque -32603 before its first turn. The chat driver
 // must strip the guard variable for its deliberate, independent engine spawn.
 func TestChatACPConfig_StripsNestedSessionGuard(t *testing.T) {
-	cfg := chatACPConfig(map[string]string{"FOO": "bar"})
+	cfg := chatACPConfig(map[string]string{"FOO": "bar"}, ClaudeACPAdapter)
 	assert.Equal(t, ClaudeACPAdapter, cfg.Command)
 	assert.Equal(t, map[string]string{"FOO": "bar"}, cfg.Env, "backend env overlay passes through")
 	assert.Contains(t, cfg.StripEnv, "CLAUDECODE", "the nested-session guard must not leak into the child engine")
@@ -72,7 +75,7 @@ func TestResolveModel_EmptyOrUnknownShapedFails(t *testing.T) {
 // default — re-opening the -32603 the resolveChatModel gate closed. The
 // driver-side delivery is pinned in internal/acp (TestChat_ModelEnvVar).
 func TestChatACPConfig_ModelEnvVar(t *testing.T) {
-	assert.Equal(t, "ANTHROPIC_MODEL", chatACPConfig(nil).ModelEnvVar)
+	assert.Equal(t, "ANTHROPIC_MODEL", chatACPConfig(nil, ClaudeACPAdapter).ModelEnvVar)
 }
 
 // TestClaudeThinkingTokens pins the enum -> MAX_THINKING_TOKENS mapping:
@@ -125,4 +128,74 @@ func TestWithThinkingEnv_CallerOverrideWins(t *testing.T) {
 	callerEnv := map[string]string{"MAX_THINKING_TOKENS": "99"}
 	got := withThinkingEnv(callerEnv, agent.ThinkingMedium)
 	assert.Equal(t, "99", got["MAX_THINKING_TOKENS"])
+}
+
+// TestChat_ACPTransportGate_AdapterMissing pins that Chat() gates on the
+// backend's OWN injected agent.ACPTransport (SetACPTransport — the same seam
+// internal/lm/backends' registry uses at construction), not a hardcoded
+// ClaudeACPAdapter reference: an adapter absent from PATH fails loud, naming
+// the declaration's Binary and InstallCmd, and closes `out` exactly once
+// per the StructuredChat contract.
+func TestChat_ACPTransportGate_AdapterMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // guaranteed empty
+	b := NewClaudeCode()
+	b.SetACPTransport(agent.ACPTransport{
+		Kind:       agent.ACPAdapter,
+		Binary:     "definitely-not-a-real-adapter-xyz",
+		InstallCmd: "npm install -g @zed-industries/definitely-not-a-real-adapter-xyz",
+	})
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent)
+	close(in)
+
+	err := b.Chat(context.Background(), agent.ChatRequest{}, in, out)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "definitely-not-a-real-adapter-xyz")
+	assert.Contains(t, err.Error(), "npm install -g @zed-industries/definitely-not-a-real-adapter-xyz")
+
+	select {
+	case _, open := <-out:
+		assert.False(t, open, "out must be closed by the producer on this error path")
+	case <-time.After(time.Second):
+		t.Fatal("out was never closed")
+	}
+}
+
+// TestChat_ACPTransportGate_ContainerRuntimeExempt pins that a
+// runtime:container chat is exempt from the host-PATH check even when the
+// declared adapter binary genuinely resolves nowhere — the agent image is
+// trusted to carry its own adapter, so Chat() must proceed past the gate
+// (whatever error a real subprocess spawn eventually returns is NOT this
+// "needs the adapter on PATH" error).
+func TestChat_ACPTransportGate_ContainerRuntimeExempt(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	b := NewClaudeCode()
+	b.SetACPTransport(agent.ACPTransport{
+		Kind:       agent.ACPAdapter,
+		Binary:     "definitely-not-a-real-adapter-xyz",
+		InstallCmd: "npm install -g whatever",
+	})
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent)
+	close(in)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- b.Chat(ctx, agent.ChatRequest{Runtime: agent.RuntimeContainer}, in, out)
+	}()
+	go func() { //nolint:revive // drain so Chat never blocks on a send
+		for range out {
+		}
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			assert.NotContains(t, err.Error(), "adapter on PATH", "the container-runtime exemption must skip the host-PATH gate entirely")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Chat did not return")
+	}
 }

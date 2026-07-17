@@ -71,6 +71,14 @@ type agentDescriptor struct {
 	// unrestrained — the run resolver collapses plan to default for them. Keep in
 	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
 	enforcesReadOnlyPlan bool
+	// acpTransport is this backend's single ACP-transport declaration (see
+	// agent.ACPTransport's doc): native/adapter/bespoke, and — for an adapter
+	// engine — the binary, install command, and provenance. Read by
+	// ACPTransportFor (consumers with no backend instance, e.g. doctor_cmd.go)
+	// and injected into the constructed instance via SetACPTransport in
+	// newBackend (consumers that ARE the instance, e.g. claude/codex's Chat()
+	// gate) — ONE value, two read paths, never a third hardcoded copy.
+	acpTransport agent.ACPTransport
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -143,6 +151,21 @@ func EnforcesReadOnlyPlan(name string) bool {
 	return ok && d.enforcesReadOnlyPlan
 }
 
+// ACPTransportFor returns the named backend's declared ACP transport (see
+// agent.ACPTransport) — the single source every consumer without a live
+// backend instance reads (doctor's DOCTOR-CHECK-ACPADAPTER-m3, init PRIME's
+// mirror of it, container-image install-fragment generation), instead of a
+// second hardcoded claude/codex name switch. An unregistered name reports the
+// zero value (agent.ACPNative, everything else empty) — "needs nothing" is
+// the safe default for a name this registry doesn't know.
+func ACPTransportFor(name string) agent.ACPTransport {
+	d, ok := descriptors[name]
+	if !ok {
+		return agent.ACPTransport{}
+	}
+	return d.acpTransport
+}
+
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so every
 // backend embedding it is a provider.
@@ -171,6 +194,44 @@ func IsAvailable(name string) bool {
 	_, err := exec.LookPath(binary)
 	return err == nil
 }
+
+// Per-engine ACP-transport declarations (agent.ACPTransport) — the single
+// source registerDescriptor's acpTransport field AND each constructed
+// backend's SetACPTransport injection both read, so a claude/codex Chat()
+// gate, DOCTOR-CHECK-ACPADAPTER-m3, and (isolation/profile.go, separately,
+// since that package deliberately does not import this one — see its own
+// doc) the Containerfile install fragment can never disagree about the
+// binary name or install command for the same engine.
+var (
+	// The two ADAPTER engines declare their transport in their OWN packages
+	// (claude.ClaudeACPTransport, codex.CodexACPTransport) so their
+	// constructors set it on every instance — including direct construction
+	// outside this registry — instead of relying on registry-only injection
+	// (which left an un-injected instance defaulting to ACPNative and skipping
+	// its adapter). This block declares only the engines whose transport has
+	// no package-level home to live in: the native/bespoke cases below, whose
+	// zero-ish values are correct by construction and whose Chat() either has
+	// no adapter gate (native) or bypasses the acp package entirely (bespoke).
+	//
+	// kiroACPTransport: kiro-cli speaks ACP natively (`kiro-cli acp` —
+	// internal/kiro/chat.go) — no separate adapter binary.
+	kiroACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
+	// opencodeACPTransport: opencode speaks ACP natively (`opencode acp` —
+	// internal/opencode/chat.go) — no separate adapter binary.
+	opencodeACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
+	// antigravityACPTransport: agy has neither a native ACP mode nor a
+	// first-party adapter; its StructuredChat is a bespoke prose driver over
+	// `agy -p` (internal/antigravity/chat.go) — no adapter to install or
+	// probe.
+	antigravityACPTransport = agent.ACPTransport{Kind: agent.ACPBespoke}
+	// acpGenericACPTransport: the generic "acp" backend drives WHATEVER
+	// ACP-speaking command config supplies (`command: "kiro-cli acp"`,
+	// `claude-code-acp`, ...) — from this backend's own point of view that
+	// command is a native passthrough, not an adapter it manages; provenance
+	// vetting for a THIRD-PARTY command configured here is the user's own
+	// job, same posture as any other config value.
+	acpGenericACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
+)
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
 // binary (claude, codex, kiro-cli, agy) or that vendor's ACP adapter. ctxloom holds no
@@ -202,7 +263,7 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "claude-code",
 		newBackend: func() agent.Backend {
-			b := claude.NewClaudeCode()
+			b := claude.NewClaudeCode() // sets its own ACPTransport intrinsically
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
@@ -230,6 +291,7 @@ func init() {
 		exports:              claudeExports,
 		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
+		acpTransport:         claude.ClaudeACPTransport,
 	})
 
 	registerDescriptor(agentDescriptor{
@@ -237,6 +299,7 @@ func init() {
 		newBackend: func() agent.Backend {
 			b := antigravity.NewAntigravity()
 			b.SetLauncher(RunLaunchSpec)
+			b.SetACPTransport(antigravityACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -246,6 +309,7 @@ func init() {
 		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
 		exports:      antigravityExports,
 		skillExports: antigravitySkillExports,
+		acpTransport: antigravityACPTransport,
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -254,14 +318,14 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
-			b := codex.NewCodex()
+			b := codex.NewCodex() // sets its own ACPTransport intrinsically
 			b.SetLauncher(RunLaunchSpec)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &codex.CodexConfig{})
 		},
-		newWriter:            codex.NewWriter,
+		newWriter: codex.NewWriter,
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet {
 			// The static apply/materialize path has no isolation context — no
 			// homeOverride/trustAbsPath, exactly as before those params existed
@@ -272,6 +336,7 @@ func init() {
 		exports:              codexExports,
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
+		acpTransport:         codex.CodexACPTransport,
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
@@ -288,6 +353,7 @@ func init() {
 		newBackend: func() agent.Backend {
 			b := kiro.NewKiro()
 			b.SetLauncher(RunLaunchSpec)
+			b.SetACPTransport(kiroACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -305,6 +371,7 @@ func init() {
 		// and `--trust-all-tools` (positive controls) both let the same write
 		// land. See kiro.buildArgs (backend.go) for the mapping.
 		enforcesReadOnlyPlan: true,
+		acpTransport:         kiroACPTransport,
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
@@ -318,14 +385,19 @@ func init() {
 	// target's own writer; that is the settings-delegation answer, so no
 	// per-target "acp-<agent>" descriptors exist.
 	registerDescriptor(agentDescriptor{
-		name:       "acp",
-		newBackend: func() agent.Backend { return acp.NewACP() },
+		name: "acp",
+		newBackend: func() agent.Backend {
+			b := acp.NewACP()
+			b.SetACPTransport(acpGenericACPTransport)
+			return b
+		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &acp.ACPConfig{})
 		},
 		// A GENERIC ACP agent has no known native config format to materialize, so
 		// it opts out with an empty surface set (mirrors its nil settings writer).
-		newSurfaces: func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
+		newSurfaces:  func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet { return agent.EmptySurfaceSet{} },
+		acpTransport: acpGenericACPTransport,
 	})
 
 	// opencode (first-party `opencode acp`, HOST-only chat spine). Slice 2 adds the
@@ -348,6 +420,7 @@ func init() {
 		newBackend: func() agent.Backend {
 			b := opencode.NewOpencode()
 			b.SetLauncher(RunLaunchSpec)
+			b.SetACPTransport(opencodeACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -358,6 +431,7 @@ func init() {
 		exports:              opencodeExports,
 		skillExports:         opencodeSkillExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
+		acpTransport:         opencodeACPTransport,
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

@@ -109,6 +109,7 @@ func NewCodex() *Codex {
 		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},
 	)
 	b.SetExecuteEnv(b.cellCodexHomeEnv)
+	b.SetACPTransport(CodexACPTransport) // intrinsic: every construction path (incl. direct) gets it
 	return b
 }
 

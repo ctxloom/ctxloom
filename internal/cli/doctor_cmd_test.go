@@ -344,8 +344,8 @@ func TestDoctorCheckACPAdapter_WrongState_CodexAdapterMissing(t *testing.T) {
 }
 
 // TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone proves kiro
-// (which speaks ACP natively — no separate adapter subprocess, see
-// doctorACPAdapterBinaries' doc) never warns here regardless of PATH.
+// (which declares agent.ACPNative — no separate adapter subprocess, see
+// backends.ACPTransportFor("kiro")) never warns here regardless of PATH.
 func TestDoctorCheckACPAdapter_RightState_NativeACPEngineNeedsNone(t *testing.T) {
 	dir := t.TempDir() // empty PATH is irrelevant: kiro has no adapter to look up
 	t.Setenv("PATH", dir)

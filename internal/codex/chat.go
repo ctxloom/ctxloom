@@ -2,8 +2,6 @@ package codex
 
 import (
 	"context"
-	"fmt"
-	"os/exec"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -11,12 +9,22 @@ import (
 
 // CodexACPAdapter is the ACP adapter binary that wraps codex (codex has no
 // native ACP mode). Located on PATH; ctxloom never installs binaries — an
-// absent adapter yields the install hint below. Exported so `ctxloom
-// doctor`'s DOCTOR-CHECK-ACPADAPTER-m3 (internal/cli/doctor_cmd.go) and init
-// PRIME's mirror of it can check the SAME binary name this Chat() gate
-// itself checks, rather than a second, duplicated string literal that could
-// drift from this one.
+// absent adapter yields the install hint Chat() reports below.
 const CodexACPAdapter = "codex-acp"
+
+// CodexACPTransport is this engine's ONE ACP-transport declaration. It lives
+// in this package so NewCodex sets it on every instance (incl. direct
+// construction) via SetACPTransport, closing the zero-value footgun. The
+// registry's agentDescriptor reads codex.CodexACPTransport for
+// DOCTOR-CHECK-ACPADAPTER-m3; the Chat() gate reads it off the injected
+// instance. No import cycle: backends imports codex, never the reverse.
+var CodexACPTransport = agent.ACPTransport{
+	Kind:       agent.ACPAdapter,
+	Binary:     CodexACPAdapter,
+	InstallCmd: "npm install -g @zed-industries/codex-acp",
+	Publisher:  "Zed Industries",
+	SourceRepo: "https://github.com/zed-industries/codex-acp",
+}
 
 // Compile-time assertion that Codex offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*Codex)(nil)
@@ -33,13 +41,21 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 	// (ISO1's container transport, internal/acp), where the image carries
 	// the adapter — checking THIS process's PATH would wrongly refuse a
 	// session whose adapter the host never needs.
-	if req.Runtime != agent.RuntimeContainer {
-		if _, err := exec.LookPath(CodexACPAdapter); err != nil {
-			close(out) // honor the StructuredChat contract: producer closes out exactly once
-			return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", CodexACPAdapter)
-		}
+	//
+	// transport is this backend's ONE ACP-transport declaration (agent.
+	// ACPTransport), injected at construction by internal/lm/backends'
+	// registry (SetACPTransport) — the SAME value ACPTransportFor("codex")
+	// reports to callers with no backend instance (doctor_cmd.go). This
+	// package cannot import backends itself (backends already imports codex
+	// to register it — that would cycle), so the value arrives by injection
+	// instead of a cross-package accessor call. RequireOnHost is the shared
+	// gate every ACPAdapter engine runs (agent.ACPTransport's doc).
+	transport := b.ACPTransport()
+	if err := transport.RequireOnHost(req.Runtime, "codex"); err != nil {
+		close(out) // honor the StructuredChat contract: producer closes out exactly once
+		return err
 	}
-	drv := acp.NewChatDriver(chatACPConfig(b.Env, b.thinking))
+	drv := acp.NewChatDriver(chatACPConfig(b.Env, b.thinking, transport.Binary))
 	return drv.Chat(ctx, req, in, out)
 }
 
@@ -65,9 +81,14 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 // per-request override: level is resolved from the LABELED config's static
 // `thinking` value (Configure, backend.go), so the concrete strings are
 // computed once, here, not per turn.
-func chatACPConfig(env map[string]string, level agent.ThinkingLevel) acp.ACPConfig {
+//
+// binary is the adapter command to spawn — Chat() passes its own
+// b.ACPTransport().Binary rather than this function reading CodexACPAdapter
+// directly, so every caller (including tests) says explicitly which
+// transport declaration it's exercising.
+func chatACPConfig(env map[string]string, level agent.ThinkingLevel, binary string) acp.ACPConfig {
 	cfg := acp.ACPConfig{
-		Command:            CodexACPAdapter,
+		Command:            binary,
 		Env:                env,
 		ModelConfigKey:     "model",
 		ReasoningConfigKey: "model_reasoning_effort",

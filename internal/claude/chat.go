@@ -2,9 +2,7 @@ package claude
 
 import (
 	"context"
-	"fmt"
 	"maps"
-	"os/exec"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
@@ -14,11 +12,26 @@ import (
 // ClaudeACPAdapter is the ACP adapter binary that wraps claude for structured
 // chat (Zed's adapter; claude-code has no native ACP mode). Located on PATH;
 // ctxloom never installs binaries — an absent adapter yields the install hint
-// below. Exported so `ctxloom doctor`'s DOCTOR-CHECK-ACPADAPTER-m3 (internal/
-// cli/doctor_cmd.go) and init PRIME's mirror of it can check the SAME binary
-// name this Chat() gate itself checks, rather than a second, duplicated
-// string literal that could drift from this one.
+// Chat() reports below.
 const ClaudeACPAdapter = "claude-code-acp"
+
+// ClaudeACPTransport is this engine's ONE ACP-transport declaration. It lives
+// in this package (not internal/lm/backends) so NewClaudeCode can set it on
+// every instance it constructs — including direct construction outside the
+// registry (delegation, tests) — via SetACPTransport, closing the zero-value
+// footgun (an un-injected backend would default to ACPNative and skip the
+// adapter). Every consumer reads the SAME value: this package's Chat() gate
+// off the injected instance, and the registry's agentDescriptor (which reads
+// claude.ClaudeACPTransport) for `ctxloom doctor`'s DOCTOR-CHECK-ACPADAPTER-m3
+// and init PRIME's mirror. There is no import cycle: this package owns the
+// value, and backends imports claude (never the reverse).
+var ClaudeACPTransport = agent.ACPTransport{
+	Kind:       agent.ACPAdapter,
+	Binary:     ClaudeACPAdapter,
+	InstallCmd: "npm install -g @zed-industries/claude-code-acp",
+	Publisher:  "Zed Industries",
+	SourceRepo: "https://github.com/zed-industries/claude-code-acp",
+}
 
 // Compile-time assertion that ClaudeCode offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*ClaudeCode)(nil)
@@ -43,11 +56,19 @@ func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan 
 	// instead (ISO1's container transport, internal/acp), where the image
 	// carries the adapter — checking THIS process's PATH would wrongly
 	// refuse a session whose adapter the host never needs.
-	if req.Runtime != agent.RuntimeContainer {
-		if _, err := exec.LookPath(ClaudeACPAdapter); err != nil {
-			close(out) // honor the StructuredChat contract: producer closes out exactly once
-			return fmt.Errorf("structured chat for claude needs the %s adapter on PATH; install it with: npm install -g @zed-industries/claude-code-acp", ClaudeACPAdapter)
-		}
+	//
+	// transport is this backend's ONE ACP-transport declaration (agent.
+	// ACPTransport), injected at construction by internal/lm/backends'
+	// registry (SetACPTransport) — the SAME value ACPTransportFor("claude-code")
+	// reports to callers with no backend instance (doctor_cmd.go). This
+	// package cannot import backends itself (backends already imports claude
+	// to register it — that would cycle), so the value arrives by injection
+	// instead of a cross-package accessor call. RequireOnHost is the shared
+	// gate every ACPAdapter engine runs (agent.ACPTransport's doc).
+	transport := b.ACPTransport()
+	if err := transport.RequireOnHost(req.Runtime, "claude"); err != nil {
+		close(out) // honor the StructuredChat contract: producer closes out exactly once
+		return err
 	}
 	// req.Env carries this call's caller-supplied env straight through to the
 	// spawned adapter (internal/acp/session.go's spawnEnv method merges it
@@ -61,7 +82,7 @@ func (b *ClaudeCode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan 
 	// claudeModelSelectionQuirk's doc comment for the full defect and its
 	// removal condition). Every OTHER backend's ChatRequest never sets this.
 	req.ModelQuirk = claudeModelSelectionQuirk
-	drv := acp.NewChatDriver(chatACPConfig(b.Env))
+	drv := acp.NewChatDriver(chatACPConfig(b.Env, transport.Binary))
 	return drv.Chat(ctx, req, in, out)
 }
 
@@ -166,6 +187,10 @@ var claudeModelSelectionQuirk = &agent.ModelDeliveryQuirk{
 }
 
 // chatACPConfig is the adapter config for one claude structured-chat spawn.
+// binary is the adapter command to spawn — Chat() passes its own
+// b.ACPTransport().Binary rather than this function reading ClaudeACPAdapter
+// directly, so every caller (including tests) says explicitly which
+// transport declaration it's exercising.
 //
 // It strips claude's nested-session guard variable (CLAUDECODE) from the
 // adapter's inherited environment. The agentcoord delegation topology spawns
@@ -179,9 +204,9 @@ var claudeModelSelectionQuirk = &agent.ModelDeliveryQuirk{
 // session — not a nested interactive session — and the guard's own message
 // names unsetting the variable as the sanctioned bypass. The interactive pty
 // path keeps the guard: there, nesting is real and the user's call.
-func chatACPConfig(env map[string]string) acp.ACPConfig {
+func chatACPConfig(env map[string]string, binary string) acp.ACPConfig {
 	return acp.ACPConfig{
-		Command:  ClaudeACPAdapter,
+		Command:  binary,
 		Env:      env,
 		StripEnv: []string{"CLAUDECODE"},
 		// The requested model must ALSO ride the adapter env as the claude

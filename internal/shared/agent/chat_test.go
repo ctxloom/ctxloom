@@ -112,6 +112,44 @@ func TestStructuredChat_ContextCancelReturns(t *testing.T) {
 	}
 }
 
+// TestACPTransport_RequireOnHost_AdapterMissing pins the gate every
+// ACPAdapter engine's Chat() shares: a host-runtime chat (runtime != "")
+// with the declared adapter binary NOT on PATH fails loud, naming both the
+// binary and the exact InstallCmd from the declaration — never a second,
+// hardcoded copy of the install string.
+func TestACPTransport_RequireOnHost_AdapterMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // guaranteed empty: the binary cannot resolve
+	transport := ACPTransport{
+		Kind:       ACPAdapter,
+		Binary:     "definitely-not-a-real-binary-xyz",
+		InstallCmd: "npm install -g @zed-industries/definitely-not-a-real-binary-xyz",
+	}
+	err := transport.RequireOnHost("", "testengine")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "testengine", "must name the engine")
+	assert.Contains(t, err.Error(), transport.Binary, "must name the missing binary")
+	assert.Contains(t, err.Error(), transport.InstallCmd, "must give the exact install command from the declaration")
+}
+
+// TestACPTransport_RequireOnHost_ContainerRuntimeExempt pins the container
+// exemption: RuntimeContainer means the AGENT IMAGE carries its own adapter,
+// so this host process's PATH is irrelevant — RequireOnHost must return nil
+// even though the binary genuinely resolves nowhere on this PATH.
+func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	transport := ACPTransport{Kind: ACPAdapter, Binary: "definitely-not-a-real-binary-xyz", InstallCmd: "npm install -g whatever"}
+	assert.NoError(t, transport.RequireOnHost(RuntimeContainer, "testengine"))
+}
+
+// TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate pins that a
+// native (ACPNative) or bespoke (ACPBespoke) transport is never gated by
+// this check regardless of PATH — there is no adapter binary to look up.
+func TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	assert.NoError(t, ACPTransport{Kind: ACPNative}.RequireOnHost("", "kiro"))
+	assert.NoError(t, ACPTransport{Kind: ACPBespoke}.RequireOnHost("", "antigravity"))
+}
+
 // TestChatEvent_ExactlyOneVariant documents that a ChatEvent carries exactly one
 // of Entry / Complete / Session.
 func TestChatEvent_ExactlyOneVariant(t *testing.T) {

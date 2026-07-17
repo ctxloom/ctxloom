@@ -204,6 +204,20 @@ func TestComposeAgentContainerfile_EngineOrderAndGates(t *testing.T) {
 	assert.NotContains(t, single, "kiro-cli", "only the requested engine's fragment is baked")
 }
 
+// TestComposeAgentContainerfile_CodexIncludesACPAdapter pins the real gap
+// this ACP-transport generalization found: codexInstallFragment previously
+// installed the `codex` client only, never the `codex-acp` adapter, so a
+// containerized codex agent's structured chat (internal/codex/chat.go's
+// Chat(), gated by req.Runtime != agent.RuntimeContainer, trusts the IMAGE
+// to already carry the adapter) silently had no adapter to spawn. Mirrors
+// claude's fragment, which has always installed BOTH claude and
+// claude-code-acp in one npm line.
+func TestComposeAgentContainerfile_CodexIncludesACPAdapter(t *testing.T) {
+	cf := string(composeAgentContainerfile([]string{"codex"}))
+	assert.Contains(t, cf, "codex-acp", "the codex-acp adapter must be installed alongside codex itself")
+	assert.Contains(t, cf, "command -v codex-acp", "a hard validate gate must prove the adapter actually landed, not just be requested")
+}
+
 // TestResolveEngines pins the default/override/unknown-filtering behaviour:
 // empty config = every known fragment; a configured subset is reordered to
 // composableEngines()'s DETERMINISTIC order (never the caller's order); an

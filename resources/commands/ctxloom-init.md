@@ -148,6 +148,17 @@ way:
   adding alongside whichever working agent(s) the user wants to reach day to
   day.
 
+  The `command`/`args` pair the entry names doesn't have to be the local
+  `ctxloom` binary. Two options, and it's the user's call which:
+  - The local binary — what `--format json` reports — if `ctxloom` is on
+    the user's PATH already.
+  - **`npx -y ctxloom acp`** — zero-install: no local binary, nothing on
+    PATH, and no version skew between what the client spawns and whatever
+    actually shipped, once ctxloom is published to npm. Treat that "once
+    published" as real — verify it's actually on npm before promising this
+    works, the same live-check discipline as the client roster above; if
+    it isn't yet, say so and fall back to the local-binary form.
+
 - Standing rules regardless of path taken: never write anything the user
   hasn't agreed to; treat empty or failed output as a failure to surface
   (never claim a write happened without proof); on a re-run, merge with what
@@ -188,208 +199,111 @@ hooks install` pass that wires ctxloom's own MCP server.
 
 ## Phase 4 — Profiles + content
 
-I'll help you discover and set up context profiles, fragments, and commands
-for your development workflow — and then bind the agents that will run them
-(phase 5).
+Find and reference the context this project needs — profiles, fragments,
+commands — then move straight into phase 5 to bind the agents that use it;
+don't break the conversation between the two, profiles are only half the
+picture. Four beats, the same shape as phase 2:
 
-**Surface (read this first):**
-- The configured remotes have already been cloned locally during init. Read
-  the `ctxloom://remotes` MCP resource to see them.
-- Use the **search_library** MCP tool to find matching bundles/profiles
-  across ALL remotes. It reads the local clones (no network).
-  - Search by tag: `tag:golang`, `tag:react`, `tag:docker`
-  - Search by text: `security`, `testing`, `ci-cd`
-  - Optionally pass item_type ("bundle" or "profile") to narrow.
-  - Each result carries a `pull_ref` (e.g. `ctxloom-default/go-developer`) —
-    that is the remote ref you reference from a local profile.
-- `search_content` is for content ALREADY installed in this project; it does
-  NOT reach remotes. Use search_library for discovery.
+### 4a. Discover
 
-**Present your findings:**
-1. What project type/stack you detected (phase 1 already scanned for this —
-   reuse it, don't rescan)
-2. Matching content (grouped by remote):
-   - **Profiles**: Development workflow configurations
-   - **Bundles**: Collections of fragments (context) and commands (reusable
-     commands)
-3. Ask the user which items to reference
+Remotes are already cloned locally — read `ctxloom://remotes`, then search
+with the **search_library** MCP tool (by tag, e.g. `tag:golang`, or free
+text) using the stack phase 1 already found; each result carries a
+`pull_ref`. (`search_content` only reaches what's ALREADY installed — use
+search_library for anything new.) Present a short, relevant list and ask
+what to reference — a conversation, not a catalog to exhaustively enumerate.
 
-**Reference selected items** by authoring a local profile, then pull. You
-don't "install" remote content — you create a local profile that references
-it:
-- Inherit a remote **profile**: `ctxloom profile create <name> --parent
-  <pull_ref>` (e.g. `ctxloom profile create go-dev --parent
-  ctxloom-default/go-developer`)
-- Reference a remote **bundle** (or one fragment): `ctxloom profile create
-  <name> -b <pull_ref>` (optionally `#fragments/<frag>`)
-- Then run `ctxloom remote pull` so every bundle/profile a profile references
-  is fetched into the cache and the lockfile is updated.
-- To pin a content version, append `@<git-tag-or-sha>` to the ref (e.g.
-  `ctxloom-default/go-developer@v1.2.0`). Unpinned refs track the remote's
-  default branch.
+### 4b. Reference
 
-**Defaults:** the default context is the **default agent**'s composed
-profiles. Bind a profile into an agent and point `default_agent` at it — e.g.
-`ctxloom agent set dev --profiles <name>` then `ctxloom agent default dev` —
-so a bare `ctxloom run` loads it automatically. An agent's profiles are a
-list; each may be a local name or a remote ref. Confirm the final default
-agent with the user.
+Author a local profile that points at what they picked — you don't
+"install" remote content. `ctxloom profile create <name> --parent
+<pull_ref>` inherits a remote profile; `-b <pull_ref>` pulls in a bundle (or
+one fragment of it); a `@<tag-or-sha>` suffix on the ref pins a version. Then
+`ctxloom remote pull` so the reference actually resolves and the lockfile
+updates. `ctxloom profile create --help` has the exact flags.
 
-**Review pending content:** anything pulled from a remote the user hasn't
-seen before is held for review, not silently active. Run `ctxloom review`
-(or `ctxloom review --list` to just see what's pending) and walk the user
-through accepting or rejecting each item — this is the same review surface
-you'd point them at any other time, not a separate setup-only step, so it's
-fine to point it out again on a later reconfigure too.
+### 4c. Default
 
-**Then continue straight into agent setup (phase 5)** — profiles are only
-half the picture: agents are named engine↔profile bindings that ctxloom
-orchestrates (`ctxloom run --agent`, `ctxloom map`/`weave`), and the stack you
-just detected plus the profiles you just created are their inputs. Don't end
-the conversation between the two — keep it one continuous interview.
+Bind the chosen profile(s) into an agent and point `default_agent` there
+(`ctxloom agent set dev --profiles <name>`, `ctxloom agent default dev`) so
+a bare `ctxloom run` picks it up — confirm the choice with the user.
+
+### 4d. Review
+
+Anything pulled from a remote the user hasn't seen before is held, not
+silently active. Run `ctxloom review` (`--list` for just the queue) and walk
+them through accept/reject — a standing surface, not a one-time setup step,
+so it's fine to point it out again on a later reconfigure too.
 
 ## Phase 5 — Agents
 
-You are helping the user set up **ctxloom agents** — named, LOCAL bindings of
-an **engine** (an LLM backend/model) to one or more **profiles** (composed
-context), optionally with a **runtime** (host | container): where that
-agent's engine process executes. Agents are what ctxloom orchestrates:
-`ctxloom run --agent <name>` drives one interactively, and `ctxloom
-map`/`ctxloom weave` fan a task across several in parallel. (Workspace
-isolation — a git worktree per session — is NOT an agent property: it is
-chosen per invocation with `--workspace` on run/map/weave, or the project
-`workspace:` default.)
+Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
+backend/model) to one or more **profiles**, optionally a **runtime**
+(host | container) — right after phase 4, same conversation. `ctxloom run
+--agent <name>` drives one; `ctxloom map`/`weave` fan a task across several.
+Agents live only in this project's `.ctxloom` — never shipped in bundles or
+remotes; engine choice is always the user's, you facilitate. (Workspace
+isolation is a separate, per-invocation choice — `--workspace worktree` on
+run/map/weave — not an agent property.) Work this the same shape as phase 2:
+**SCAN → DISCUSS → SET**.
 
-The **primary shape** is a small containerized ensemble: a **coordinator**
-the user drives, plus **developer** and **finder** members it fans work to —
-each member running in its own container. Lead with that shape, but the
-palette is open and engine choice is the **user's** — you facilitate; you do
-not impose a fixed recipe.
+### 5a. Scan
 
-Agents are **local-only**: they live solely in this project's `.ctxloom`
-(the `agents:` config key), are never shipped in bundles or remotes, and the
-engine assignment is a cost/environment decision the user owns.
+Don't guess — you have this already from phase 1 (engines via `ctxloom llm
+list`, existing agents via `ctxloom agent list`, container viability via
+`ctxloom container check`) and phase 4 (profiles). If containers would
+degrade here, plan on `--runtime host` and say why. If they're viable and a
+bundle declares tooling needs, `ctxloom tooling` shows the proposed
+Containerfile diff — apply only what's approved, then `ctxloom container
+build`.
 
-### Do this in three steps: SCAN → DISCUSS → SET
+### 5b. Discuss
 
-#### 1. SCAN what is actually available (don't guess; enumerate at runtime)
+Lead with the standard trio, bound to the phase-4 profiles:
+- **coordinator** — the session the user drives, delegating via
+  `map`/`weave`. Most powerful engine.
+- **developer** — the implementer the coordinator delegates to. Powerful
+  engine, `--runtime container`, plus an escalation-discipline fragment
+  (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
+  author an equivalent) so structural/interface changes get escalated back
+  up rather than decided alone.
+- **finder** — cheap, parallel, terse: look something up and report
+  straight back, no elaboration. Cheap engine, the
+  `agent-roles#fragments/finder` fragment (or an equivalent).
 
-You already scanned engines/agents/containers in phase 1 and profiles in
-phase 4 — reuse what you learned, don't re-scan the repo. Enumerate only what
-is live config:
+Then the open palette. **Code-review agents** are the notable one: build the
+ensemble THIS project needs now and persist it, so `weave-review` can fan it
+later. The pattern is one tight, single-lens profile per lens × language
+present — composed from the code-review base fragment plus that lens's and
+that language's fragments (search_library surfaces the exact refs) — plus a
+`cr-synthesis` reduce step on a high-power engine. Prefer many narrow lenses
+over one broad reviewer. Beyond that: docs writer, migration runner, test
+author, whatever the user wants — same pattern each time: tight scope, a
+composed profile, a fitting engine.
 
-- **Engines** the user can assign: `ctxloom llm list` (the configured LLM
-  labels/backends; the default is marked). These are the candidate
-  `--engine` values.
-- **Existing agents:** `ctxloom agent list` (don't duplicate; offer to
-  refine what's there).
-- **Container capability:** `ctxloom container check` — read its guidance.
-  If it reports that containerized agents would degrade here (no runtime, or
-  a dev container talking to the host's daemon), bind agents with `--runtime
-  host` instead and tell the user what would enable containers (e.g. the dev
-  container docker-in-docker feature).
-- **Bundle tooling** (only if containers are viable): `ctxloom tooling` —
-  trusted bundles may declare tools the agent image needs. Follow its
-  instructions: show the user the proposed Containerfile diff and apply only
-  what they explicitly approve, then `ctxloom container build`.
+Steer HARD toward tight, single-responsibility agents — many small focused
+members keep map/weave fan-out cheap and accurate; push back if the user
+proposes one big do-everything agent. As a rule of thumb: cheap engine →
+finders and breadth review; powerful → coordinator/developers; per-lens →
+code review (often cheaper than the developer).
 
-#### 2. DISCUSS — decide WITH the user which agents they want
+### 5c. Set
 
-**Start with the standard trio** — the ensemble the container-first workflow
-expects. Propose all three, bound to the profiles from phase 4, and agree on
-an engine for each:
-
-- **coordinator** — the session the user actually drives; it plans,
-  delegates, and fans `ctxloom map`/`ctxloom weave` across the other
-  members. Bind the **most powerful** engine. Compose the local default
-  coding profile. Launched with `ctxloom run --agent coordinator`.
-- **developer** — the heavy implementer the coordinator delegates changes
-  to. Bind a **powerful** engine and `--runtime container` so its engine
-  runs contained. Compose the coding profile + the escalation-discipline
-  fragment: significant changes (restructuring, interface/contract/API
-  changes) get **escalated up to the coordinator** rather than decided
-  autonomously. ctxloom-default ships that rule as
-  `agent-roles#fragments/developer-escalation` — include it (or author an
-  equivalent if unavailable).
-- **finder** (locator/researcher) — cheap, parallel lookups that *find a
-  thing by name and report findings straight back* (terse, no elaboration).
-  Bind a **cheap** engine. The find-and-report-directly behavior is a
-  profile fragment: ctxloom-default ships it as
-  `agent-roles#fragments/finder` — include it (or author an equivalent
-  short fragment if unavailable).
-
-**Then offer the open palette** for anything else the user wants:
-
-- **Code-review agents** — BUILD the review ensemble this project needs NOW
-  and PERSIST it locally, so the `weave-review` command can fan it later.
-  For each relevant lens × each language present in the repo, compose a
-  tight, single-lens LOCAL review profile from the code-review FRAGMENT
-  bundles — `code-review-base#fragments/conduct` +
-  `code-review-base#fragments/thorough` +
-  `code-review-<lens>#fragments/general` +
-  `code-review-<lens>#fragments/<language>` (the `thorough` fragment makes
-  the reviewer read every file rather than trust summaries/memories/names)
-  (e.g. `ctxloom profile create cr-correctness-go -b <conduct-ref> -b
-  <general-ref> -b <golang-ref>`). Prefer many small single-lens members
-  (correctness / security / reliability / performance / testing / idioms /
-  structural / …) over one giant reviewer. Bind an engine per lens (often a
-  **cheaper** one — breadth over depth per lens); a bare profile name also
-  works as a default-engine member. Also compose `cr-synthesis` as the
-  reduce step (bind a high-power engine). These persist in the project's
-  `.ctxloom`; `weave-review` then just fans them.
-- **…and more** — docs writer, migration runner, test author, spec
-  extractor, … Build each the same way: tight scope, a composed profile, an
-  appropriate engine.
-
-**Steer HARD toward tightly-scoped, single-responsibility members.** Many
-small focused agents (one lens × language, one finder job) keep map/weave
-fan-out cheap, parallel, and accurate. Actively discourage broad catch-all
-agents — if the user proposes one big "do-everything" member, suggest
-splitting it.
-
-Match engines to roles as guidance, but it is the user's decision:
-- cheap engine → finders/researchers and breadth review lenses,
-- powerful engine → coordinator and developers/implementers,
-- per-lens engine → code review (often cheaper than the developer).
-
-#### 3. SET — write the agreed bindings
-
-For each agent the user confirmed, write it to the local config:
+Write what's agreed:
 
 ```
-ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...> [--runtime host|container]
+ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container
 ```
 
-For example, the standard trio:
+(`ctxloom agent set --help` has the full flag list.) Worth knowing beyond
+the syntax: `--profiles` composes several into one context; `--runtime
+container` needs a reachable container runtime, else fall back to host and
+say why; re-running `set` upserts, `agent remove <name>` deletes. Confirm
+with `ctxloom agent list`, then tell the user how to use what they built
+(`ctxloom run --agent coordinator`, `weave-review` for the review ensemble).
 
-```
-ctxloom agent set coordinator --engine <powerful> --profiles default
-ctxloom agent set developer --engine <powerful> --profiles default,<developer-escalation profile> --runtime container
-ctxloom agent set finder --engine <cheap> --profiles <finder profile>
-```
-
-- `--engine` is one of the labels from `ctxloom llm list` (omit it to use the
-  project default / the profiles' own llm).
-- `--profiles` is a comma-separated list of profile names/refs from the scan;
-  they compose into one assembled context for that agent.
-- `--runtime` sets where the agent's engine executes (omit to inherit the
-  project default). `container` needs a reachable container runtime; if one
-  isn't available here, leave the agent on the host and tell the user why.
-- Workspace isolation is NOT set on agents: when the user fans parallel
-  members that edit files, tell them to pass `--workspace worktree` to
-  `ctxloom map`/`weave` (or set the project `workspace:` default) so each
-  member session gets its own worktree.
-- Re-running `set` with the same name updates the binding; `ctxloom agent
-  remove <name>` deletes one.
-
-Use names the user understands (e.g. a role name or language+lens). After
-writing, run `ctxloom agent list` to confirm, and tell the user how to use
-them: `ctxloom run --agent coordinator` to drive the coordinator, `ctxloom
-map`/`ctxloom weave` to fan members (the `weave-review` command fans the
-review members for the language(s) present).
-
-If the user wants to stop, that's fine — they can run `/ctxloom-init` again
-any time. Don't write any agent the user didn't agree to.
+If they want to stop, that's fine — `/ctxloom-init` reconfigures any time.
+Don't write anything the user didn't agree to.
 
 ## Phase 6 — Close
 

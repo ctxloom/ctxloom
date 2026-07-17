@@ -54,17 +54,69 @@ func TestACPAgent_SelfConformance(t *testing.T) {
 	require.NoError(t, <-done, "the loopback ACP conversation must complete cleanly")
 
 	// ISO3: every session now opens with the always-on posture announcement
-	// (internal/operations/engine_session.go's buildSessionAnnouncement) as a
-	// synthetic FIRST agent_message_chunk — the outer driver has no wire-level
-	// way to tell it apart from real engine content (that's the whole point:
-	// no ACP method lets ctxloom mark a message "system"), so it arrives here
-	// as just another assistant text entry ahead of the two real turns.
+	// (internal/operations/engine_session.go's buildSessionAnnouncement),
+	// delivered as a session/update notification right after session/new —
+	// the outer driver has no wire-level way to tell it apart from real
+	// engine content (that's the whole point: no ACP method lets ctxloom
+	// mark a message "system"), so it arrives here as just another assistant
+	// text entry ahead of the two real turns. See
+	// TestACPAgent_AnnouncementArrivesAtConnect_NoPromptSent below for the
+	// STRONGER proof that it needs no prompt at all — this test only proves
+	// it survives alongside real turns, in order.
 	require.Len(t, texts, 3, "the ISO3 posture announcement, then one assistant entry per turn")
 	assert.Contains(t, texts[0], "ctxloom:", "the first entry is the always-on isolation-posture announcement")
 	assert.Contains(t, texts[1], "mock chat: ", "the mock engine's echo came back through both protocol halves")
 	assert.Contains(t, texts[1], "conformance ping")
 	assert.Equal(t, "mock chat: second turn", texts[2], "the second turn carries no context prefix")
 	assert.Equal(t, 2, completes, "one completion marker per turn")
+}
+
+// TestACPAgent_AnnouncementArrivesAtConnect_NoPromptSent is the headline
+// proof for moving the ISO3 posture announcement off the per-turn Events
+// channel and onto a session/new-time session/update notification: it opens
+// a real `ctxloom acp` subprocess, closes the input channel WITHOUT EVER
+// SENDING A PROMPT, and asserts the announcement still arrives.
+//
+// Before this slice this was impossible to observe passing for the right
+// reason: the old mechanism (announceOnFirstEvent) spliced the announcement
+// onto the engine's Events channel, which acpagent's server only ever drains
+// from inside runTurn — the code path session/prompt starts. With zero
+// prompts sent, runTurn never runs, so the old server would have delivered
+// nothing at all here and this test would time out / see an empty texts
+// slice. Seeing the announcement land with session/prompt never even
+// invoked is the proof that delivery now happens at connect (session/new),
+// not gated behind a turn.
+func TestACPAgent_AnnouncementArrivesAtConnect_NoPromptSent(t *testing.T) {
+	env := setupTestEnv(t)
+	_, err := env.SetupMockLM()
+	require.NoError(t, err)
+
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// No message ever written to `in` — closed immediately, so
+	// session/prompt is NEVER called on this connection.
+	in := make(chan agent.ChatMessage)
+	close(in)
+	out := make(chan agent.ChatEvent, 64)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- drv.Chat(ctx, agent.ChatRequest{WorkDir: env.ProjectDir}, in, out)
+	}()
+
+	var texts []string
+	for ev := range out {
+		if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
+			texts = append(texts, ev.Entry.Content)
+		}
+	}
+	require.NoError(t, <-done, "the conversation completes cleanly even though session/prompt was never called")
+
+	require.Len(t, texts, 1, "the posture announcement — and ONLY the announcement — arrives, despite no prompt ever being sent")
+	assert.Contains(t, texts[0], "ctxloom:", "delivered at connect (session/new), not gated behind a turn")
 }
 
 // TestACPAgent_PermissionPassThrough drives the WHOLE permission loop over

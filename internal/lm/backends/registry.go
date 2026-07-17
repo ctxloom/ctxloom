@@ -203,33 +203,16 @@ func IsAvailable(name string) bool {
 // doc) the Containerfile install fragment can never disagree about the
 // binary name or install command for the same engine.
 var (
-	// claudeACPTransport: claude-code has no native ACP mode, so structured
-	// chat rides Zed's third-party claude-code-acp adapter (internal/claude/
-	// chat.go). Binary/InstallCmd are the exact literals that chat.go's
-	// Chat() gate and error text used before this generalization (claude.
-	// ClaudeACPAdapter, "npm install -g @zed-industries/claude-code-acp").
-	// Publisher/SourceRepo are derived from the adapter's own npm scope
-	// (@zed-industries/...) and confirmed live: github.com/zed-industries/
-	// claude-code-acp.
-	claudeACPTransport = agent.ACPTransport{
-		Kind:       agent.ACPAdapter,
-		Binary:     claude.ClaudeACPAdapter,
-		InstallCmd: "npm install -g @zed-industries/claude-code-acp",
-		Publisher:  "Zed Industries",
-		SourceRepo: "https://github.com/zed-industries/claude-code-acp",
-	}
-	// codexACPTransport: codex has no native ACP mode either, wrapped by
-	// Zed's codex-acp adapter (internal/codex/chat.go). Same npm scope as
-	// claude's (@zed-industries/codex-acp — verified live: github.com/
-	// zed-industries/codex-acp), so Publisher/SourceRepo mirror claude's
-	// shape rather than being left empty.
-	codexACPTransport = agent.ACPTransport{
-		Kind:       agent.ACPAdapter,
-		Binary:     codex.CodexACPAdapter,
-		InstallCmd: "npm install -g @zed-industries/codex-acp",
-		Publisher:  "Zed Industries",
-		SourceRepo: "https://github.com/zed-industries/codex-acp",
-	}
+	// The two ADAPTER engines declare their transport in their OWN packages
+	// (claude.ClaudeACPTransport, codex.CodexACPTransport) so their
+	// constructors set it on every instance — including direct construction
+	// outside this registry — instead of relying on registry-only injection
+	// (which left an un-injected instance defaulting to ACPNative and skipping
+	// its adapter). This block declares only the engines whose transport has
+	// no package-level home to live in: the native/bespoke cases below, whose
+	// zero-ish values are correct by construction and whose Chat() either has
+	// no adapter gate (native) or bypasses the acp package entirely (bespoke).
+	//
 	// kiroACPTransport: kiro-cli speaks ACP natively (`kiro-cli acp` —
 	// internal/kiro/chat.go) — no separate adapter binary.
 	kiroACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
@@ -280,9 +263,8 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "claude-code",
 		newBackend: func() agent.Backend {
-			b := claude.NewClaudeCode()
+			b := claude.NewClaudeCode() // sets its own ACPTransport intrinsically
 			b.SetLauncher(RunLaunchSpec)
-			b.SetACPTransport(claudeACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -309,7 +291,7 @@ func init() {
 		exports:              claudeExports,
 		skillExports:         claudeSkillExports,
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
-		acpTransport:         claudeACPTransport,
+		acpTransport:         claude.ClaudeACPTransport,
 	})
 
 	registerDescriptor(agentDescriptor{
@@ -336,9 +318,8 @@ func init() {
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
-			b := codex.NewCodex()
+			b := codex.NewCodex() // sets its own ACPTransport intrinsically
 			b.SetLauncher(RunLaunchSpec)
-			b.SetACPTransport(codexACPTransport)
 			return b
 		},
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
@@ -355,7 +336,7 @@ func init() {
 		exports:              codexExports,
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
-		acpTransport:         codexACPTransport,
+		acpTransport:         codex.CodexACPTransport,
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the

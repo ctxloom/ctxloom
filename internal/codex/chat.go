@@ -9,14 +9,22 @@ import (
 
 // CodexACPAdapter is the ACP adapter binary that wraps codex (codex has no
 // native ACP mode). Located on PATH; ctxloom never installs binaries — an
-// absent adapter yields the install hint Chat() reports below. This is the
-// ONE literal declaration of the binary name: internal/lm/backends' registry
-// reads it to build this engine's agent.ACPTransport (codexACPTransport),
-// which is then the SINGLE thing every consumer — this Chat() gate (via
-// SetACPTransport injection, since this package cannot import backends
-// back), `ctxloom doctor`'s DOCTOR-CHECK-ACPADAPTER-m3, and init PRIME's
-// mirror of it — actually reads.
+// absent adapter yields the install hint Chat() reports below.
 const CodexACPAdapter = "codex-acp"
+
+// CodexACPTransport is this engine's ONE ACP-transport declaration. It lives
+// in this package so NewCodex sets it on every instance (incl. direct
+// construction) via SetACPTransport, closing the zero-value footgun. The
+// registry's agentDescriptor reads codex.CodexACPTransport for
+// DOCTOR-CHECK-ACPADAPTER-m3; the Chat() gate reads it off the injected
+// instance. No import cycle: backends imports codex, never the reverse.
+var CodexACPTransport = agent.ACPTransport{
+	Kind:       agent.ACPAdapter,
+	Binary:     CodexACPAdapter,
+	InstallCmd: "npm install -g @zed-industries/codex-acp",
+	Publisher:  "Zed Industries",
+	SourceRepo: "https://github.com/zed-industries/codex-acp",
+}
 
 // Compile-time assertion that Codex offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*Codex)(nil)

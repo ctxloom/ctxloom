@@ -12,13 +12,26 @@ import (
 // ClaudeACPAdapter is the ACP adapter binary that wraps claude for structured
 // chat (Zed's adapter; claude-code has no native ACP mode). Located on PATH;
 // ctxloom never installs binaries — an absent adapter yields the install hint
-// Chat() reports below. This is the ONE literal declaration of the binary
-// name: internal/lm/backends' registry reads it to build this engine's
-// agent.ACPTransport (claudeACPTransport), which is then the SINGLE thing
-// every consumer — this Chat() gate (via SetACPTransport injection, since
-// this package cannot import backends back), `ctxloom doctor`'s
-// DOCTOR-CHECK-ACPADAPTER-m3, and init PRIME's mirror of it — actually reads.
+// Chat() reports below.
 const ClaudeACPAdapter = "claude-code-acp"
+
+// ClaudeACPTransport is this engine's ONE ACP-transport declaration. It lives
+// in this package (not internal/lm/backends) so NewClaudeCode can set it on
+// every instance it constructs — including direct construction outside the
+// registry (delegation, tests) — via SetACPTransport, closing the zero-value
+// footgun (an un-injected backend would default to ACPNative and skip the
+// adapter). Every consumer reads the SAME value: this package's Chat() gate
+// off the injected instance, and the registry's agentDescriptor (which reads
+// claude.ClaudeACPTransport) for `ctxloom doctor`'s DOCTOR-CHECK-ACPADAPTER-m3
+// and init PRIME's mirror. There is no import cycle: this package owns the
+// value, and backends imports claude (never the reverse).
+var ClaudeACPTransport = agent.ACPTransport{
+	Kind:       agent.ACPAdapter,
+	Binary:     ClaudeACPAdapter,
+	InstallCmd: "npm install -g @zed-industries/claude-code-acp",
+	Publisher:  "Zed Industries",
+	SourceRepo: "https://github.com/zed-industries/claude-code-acp",
+}
 
 // Compile-time assertion that ClaudeCode offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*ClaudeCode)(nil)

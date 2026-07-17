@@ -138,11 +138,35 @@ var claudeCodeInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (
 // codexInstallFragment installs the codex CLI via its npm package (the
 // official installer table also lists the chatgpt.com/codex/install.sh shell
 // script; npm is used here to mirror claude's prereq/validate shape and keep
-// the fragment self-contained). Its own auth resolver is
-// resolveCodexContainerAuth (auth.go, bony-spoof) — see the codex case below.
+// the fragment self-contained), PLUS the codex-acp adapter ctxloom's
+// structured chat needs on the container-runtime axis (internal/codex/
+// chat.go's `req.Runtime != agent.RuntimeContainer` gate is what makes this
+// image-time install load-bearing instead of merely convenient — without it
+// a containerized codex agent's structured chat fails at LookPath, exactly
+// the CodexACPAdapter-missing error the host-PATH gate would report, just
+// inside the container instead of on the host).
+//
+// Mirrors claudeCodeInstallFragment's shape (single `npm install -g` line
+// carrying BOTH the client and its adapter, one hard validate gate at the
+// end) — closes the real gap this generalization found: this fragment
+// previously installed `codex` only, never `codex-acp`, so EVERY
+// containerized codex agent's structured chat was silently broken.
+//
+// TODO(acp-transport-generalization): this literal ("codex-acp") is NOT yet
+// sourced from the SAME single declaration internal/codex/chat.go's Chat()
+// gate and DOCTOR-CHECK-ACPADAPTER-m3 read (internal/lm/backends'
+// agent.ACPTransport, ACPTransportFor("codex")) — this package deliberately
+// does not import internal/lm/backends (containerProfile's own doc, above:
+// "it would drag the whole backend tree into the seam"), so wiring this
+// fragment onto that descriptor is a separate, more invasive slice (e.g.
+// threading the resolved InstallCmd through composeAgentContainerfile's
+// caller instead of a package-level []byte var). Until then, keep this
+// binary name in sync BY HAND with codex.CodexACPAdapter/CodexACPTransport's
+// InstallCmd if either ever changes.
 var codexInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*) || true) \
-    && npm install -g @openai/codex \
-    && codex --version
+    && npm install -g @openai/codex @zed-industries/codex-acp \
+    && codex --version \
+    && command -v codex-acp
 `)
 
 // kiroInstallFragment installs kiro-cli via its official installer script,

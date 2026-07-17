@@ -11,12 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
@@ -66,25 +66,18 @@ var doctorEngineBinaries = map[string]string{
 	"opencode":    "opencode",
 }
 
-// doctorACPAdapterBinaries maps each backend name to its SEPARATE, npm-
-// installed ACP adapter binary — DISTINCT from doctorEngineBinaries' own
-// client binary above. References the SAME exported constants internal/
-// claude/chat.go and internal/codex/chat.go check host PATH against at
-// Chat() time (claude.ClaudeACPAdapter, codex.CodexACPAdapter) rather than
-// duplicating the string literal a second time here.
-//
-// kiro and opencode carry NO entry: both speak ACP NATIVELY (`kiro-cli acp`
-// — internal/kiro/chat.go; `opencode acp` — internal/opencode/chat.go), so
-// there is no separate adapter binary for this check to probe — their own
-// client binary (doctorEngineBinaries) is the only thing structured chat
-// needs from them. antigravity ALSO carries no entry: its Chat()
-// (internal/antigravity/chat.go) is a bespoke prose driver over `agy -p`
-// directly — no ACP, no adapter subprocess at all, just the same `agy`
-// client binary doctorEngineBinaries already checks.
-var doctorACPAdapterBinaries = map[string]string{
-	"claude-code": claude.ClaudeACPAdapter,
-	"codex":       codex.CodexACPAdapter,
-}
+// ACP-adapter probing no longer keys off a hardcoded name->binary map here.
+// Every registered backend declares its own transport once
+// (agent.ACPTransport, set on its internal/lm/backends agentDescriptor) —
+// acpAdapterDetail below reads that ONE declaration via
+// backends.ACPTransportFor, asking only "is this engine's Kind ==
+// agent.ACPAdapter" instead of consulting a second, hand-maintained table
+// that could drift from what claude/codex's Chat() gates themselves check.
+// kiro/opencode declare agent.ACPNative (they speak ACP natively — no
+// separate adapter to probe) and antigravity declares agent.ACPBespoke (no
+// ACP at all) — both are correctly skipped by that Kind check, the same
+// outcome the old map's absence produced, but derived from the SAME source
+// of truth as the Chat() gate instead of a second copy of it.
 
 // DoctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
 // vocabulary this command shares with the "ctxloom-doctor" Agent Skill, so a
@@ -441,9 +434,10 @@ func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, d
 // missing adapter silently breaks both even though the raw-CLI bootstrap
 // interview never touches this path.
 //
-// For every CONFIGURED engine with a known separate adapter
-// (doctorACPAdapterBinaries; kiro/opencode/antigravity need none — see that
-// map's doc), this checks the adapter resolves on PATH — reusing the SAME
+// For every CONFIGURED engine whose declared agent.ACPTransport.Kind is
+// agent.ACPAdapter (backends.ACPTransportFor; kiro/opencode declare
+// ACPNative and antigravity ACPBespoke — none of the three need a probe),
+// this checks the adapter resolves on PATH — reusing the SAME
 // configured-engine enumeration doctorCheckDeps uses for the client binary
 // (doctorConfiguredEngines), never re-deriving "which engines are
 // configured" a second way.
@@ -463,25 +457,26 @@ func doctorCheckACPAdapter(cfg *config.Config) DoctorCheck {
 	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
 }
 
-// acpAdapterDetail checks, for every engine in configuredEngines that has a
-// known separate ACP adapter (doctorACPAdapterBinaries), whether that
-// adapter binary resolves on PATH, and renders the outcome as a short,
-// actionable line. Shared between doctorCheckACPAdapter and init PRIME's
+// acpAdapterDetail checks, for every engine in configuredEngines whose
+// declared agent.ACPTransport.Kind is agent.ACPAdapter
+// (backends.ACPTransportFor), whether that adapter binary resolves on PATH,
+// and renders the outcome as a short, actionable line. Shared between
+// doctorCheckACPAdapter and init PRIME's
 // checkSystemDeps (init.go) so both surfaces say the exact same thing about
 // the exact same binaries, rather than drifting apart — mirrors
 // signKeyResolutionDetail/gitIdentityDetail's shared-detail shape above.
 func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
-	type gap struct{ engine, bin string }
+	type gap struct{ engine, bin, installCmd string }
 	var applicable []string
 	var gaps []gap
 	for _, engine := range configuredEngines {
-		bin, known := doctorACPAdapterBinaries[engine]
-		if !known {
+		transport := backends.ACPTransportFor(engine)
+		if transport.Kind != agent.ACPAdapter {
 			continue
 		}
 		applicable = append(applicable, engine)
-		if _, err := exec.LookPath(bin); err != nil {
-			gaps = append(gaps, gap{engine, bin})
+		if _, err := exec.LookPath(transport.Binary); err != nil {
+			gaps = append(gaps, gap{engine, transport.Binary, transport.InstallCmd})
 		}
 	}
 	if len(applicable) == 0 {
@@ -494,7 +489,7 @@ func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
 	var missing, installs []string
 	for _, g := range gaps {
 		missing = append(missing, fmt.Sprintf("%s (%s)", g.bin, g.engine))
-		installs = append(installs, fmt.Sprintf("npm install -g @zed-industries/%s", g.bin))
+		installs = append(installs, g.installCmd)
 	}
 	return false, fmt.Sprintf(
 		"missing ACP adapter: %s — install: %s; needed for HOST-runtime structured chat (agent_run cross-engine delegation and the `ctxloom acp` client surface) — containerized agents (runtime: container) get the adapter from their own image, not host PATH, so this is not a problem for them",

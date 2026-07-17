@@ -44,19 +44,39 @@ type Launcher func(ctx context.Context, spec LaunchSpec, stdin io.Reader, stdout
 // BaseBackend provides common functionality for all AI backends.
 // Embed this struct in concrete backend implementations.
 type BaseBackend struct {
-	name       string
-	version    string
-	BinaryPath string
-	Args       []string
-	Env        map[string]string
-	workDir    string
-	launcher   Launcher
+	name         string
+	version      string
+	BinaryPath   string
+	Args         []string
+	Env          map[string]string
+	workDir      string
+	launcher     Launcher
+	acpTransport ACPTransport
 }
 
 // SetLauncher injects the process launcher. ctxloom sets a pty-backed launcher at
 // registry construction; a backend with no launcher cannot run a local process.
 func (b *BaseBackend) SetLauncher(l Launcher) {
 	b.launcher = l
+}
+
+// SetACPTransport injects this backend's declared ACP transport (see
+// ACPTransport's doc). internal/lm/backends' registry calls this at
+// construction time, right beside SetLauncher, with the SAME value it
+// records in the backend's agentDescriptor (backends.ACPTransportFor) — this
+// is how a StructuredChat implementation (e.g. claude/codex's Chat()) reads
+// its own declared transport WITHOUT importing the backends package back
+// (which would cycle: backends already imports every engine package to
+// register it).
+func (b *BaseBackend) SetACPTransport(t ACPTransport) {
+	b.acpTransport = t
+}
+
+// ACPTransport returns this backend's declared ACP transport, as injected by
+// SetACPTransport. Zero value (ACPNative, everything else empty) for a
+// backend nothing ever set it on.
+func (b *BaseBackend) ACPTransport() ACPTransport {
+	return b.acpTransport
 }
 
 // NewBaseBackend creates a new BaseBackend with the given name and version.

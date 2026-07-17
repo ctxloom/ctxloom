@@ -323,11 +323,15 @@ Don't write anything the user didn't agree to.
 
 ## Phase 6 — Close
 
-Run `ctxloom setup verify` if it exists in this build and show the user its
-report. (If the command isn't available yet, say so plainly and instead walk
-through a manual checklist: `ctxloom manage status`, `ctxloom agent list`,
-`ctxloom profile list`, `ctxloom llm list`, `ctxloom container check`, and the
-client entry from phase 2 re-read.)
+Run `ctxloom doctor` and show the user its report. This is the full
+postcondition check — marker dir and config validity, the engine resolving
+and authenticating, seeded deps locked and context assembling, hooks/MCP
+registered, companions detected, and agents present with resolvable
+profiles. Now that phases 1–5 have built real configured state, `doctor`
+describes it end to end (unlike phase 1's scoped `--deps`, which only asked
+"are the system tools present"). Walk the user through any `warn` lines and
+help resolve them; then re-read the client entry from phase 2 to confirm it
+landed.
 
 Then tell the user, plainly:
 - **Exit this session.** This vendor CLI/TUI session was the bootstrap

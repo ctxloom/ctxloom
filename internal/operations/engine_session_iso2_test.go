@@ -283,10 +283,10 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 // called at all — proving the plain entry doesn't even ATTEMPT isolation —
 // and the engine's real WorkDir is asserted to be the untouched repo root.
 //
-// ISO3: the plain entry now ALSO gets the always-on one-line posture
-// announcement — see
+// ISO3/ISO4: the plain entry now ALSO gets the always-on session
+// initialization summary — see
 // engine_session_iso3_test.go's TestOpenEngineSession_UnisolatedAnnouncesOnce
-// for the payload assertion on that text (EngineChat.Announcement); this
+// for the payload assertion on that text (EngineChat.InitSummary); this
 // test stays focused on its original WorkDir/isolation.Prepare proof.
 func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	resetStrictness(t)

@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +119,97 @@ func TestACPAgent_AnnouncementArrivesAtConnect_NoPromptSent(t *testing.T) {
 
 	require.Len(t, texts, 1, "the posture announcement — and ONLY the announcement — arrives, despite no prompt ever being sent")
 	assert.Contains(t, texts[0], "ctxloom:", "delivered at connect (session/new), not gated behind a turn")
+}
+
+// TestACPAgent_InitSummaryRealMultiFieldOverSubprocess is the integration
+// counterpart to internal/operations' unit-level buildSessionInitSummary
+// proofs: it drives a REAL `ctxloom acp --agent <name>` subprocess (real
+// binary, real config.yaml/profile/bundle on disk, real ACP wire protocol)
+// and asserts the connect-time summary names several REAL, resolved facts at
+// once — the bound agent + its engine, the configured model, the composed
+// profile, the profile's own bundle fragment, and ctxloom's auto-registered
+// MCP server — rather than merely checking the generic "ctxloom:" prefix
+// every other test here settles for. This is the "at least one integration
+// test asserts a REAL multi-field summary, not just presence" proof.
+func TestACPAgent_InitSummaryRealMultiFieldOverSubprocess(t *testing.T) {
+	env := setupTestEnv(t)
+	_, err := env.SetupMockLM()
+	require.NoError(t, err)
+
+	writeFragment(t, env, "onboarding", []string{"onboarding"}, "Onboarding fragment content.")
+	writeProfile(t, env, "reviewer-profile", `name: reviewer-profile
+description: Reviewer profile
+bundles:
+  - local#fragments/onboarding
+`)
+
+	// SetupMockLM already wrote a working `llm.configs.mock` entry (record
+	// file + response wiring) plus `llm.defaults.primary: mock` — extend that
+	// SAME file (not replace it) with a real `model:` value and an agent
+	// binding to the profile above, so the summary has real, non-default
+	// values to report for BOTH fields at once.
+	cfgPath := ".ctxloom/config.yaml"
+	existing, rerr := env.ReadFile(cfgPath)
+	require.NoError(t, rerr)
+	existing = strings.Replace(existing, "type: mock\n", "type: mock\n      model: mock-model-v1\n", 1)
+	existing += "agents:\n  reviewer:\n    engine: mock\n    profiles: [reviewer-profile]\n"
+	require.NoError(t, env.WriteFile(cfgPath, existing))
+
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp --agent reviewer"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	in := make(chan agent.ChatMessage, 1)
+	in <- agent.ChatMessage{Text: "hello"}
+	close(in)
+	out := make(chan agent.ChatEvent, 64)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- drv.Chat(ctx, agent.ChatRequest{WorkDir: env.ProjectDir}, in, out)
+	}()
+
+	var texts []string
+	for ev := range out {
+		if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
+			texts = append(texts, ev.Entry.Content)
+		}
+	}
+	require.NoError(t, <-done)
+	require.Len(t, texts, 2, "the init summary, then the one real turn")
+
+	summary := texts[0]
+	assert.Contains(t, summary, `agent     : agent "reviewer" (engine mock)`, "the REAL bound agent + its engine")
+	assert.Contains(t, summary, "model     : mock-model-v1", "the REAL configured model, not the generic default text")
+	assert.Contains(t, summary, "profiles  : [reviewer-profile]", "the REAL composed profile")
+	// The fragments/mcp lines are asserted by extracting the ONE real line
+	// (rather than the whole summary substring) because this dev host also
+	// has ltk/taskloom companions on PATH, which auto-inject their OWN
+	// builtin fragments/MCP server alongside the profile's — real,
+	// environment-dependent facts this test must not assume away, but the
+	// profile's own contribution must still be present among them.
+	assert.Contains(t, summaryFieldLine(t, summary, "fragments"), "local#fragments/onboarding",
+		"the REAL fragment the profile's own bundle contributed, among whatever else this host auto-injects")
+	assert.Contains(t, summaryFieldLine(t, summary, "mcp"), "ctxloom",
+		"ctxloom's own auto-registered MCP server, a real resolved fact this project never disabled")
+	assert.Contains(t, texts[1], "hello", "the real turn still runs after the summary")
+}
+
+// summaryFieldLine returns the single "  <label>" line from a rendered
+// session init summary (buildSessionInitSummary's fixed field-per-line
+// shape), failing the test if the field is missing — a focused assertion
+// surface so a field's line can be checked without the whole summary text
+// needing to match verbatim.
+func summaryFieldLine(t *testing.T, summary, label string) string {
+	t.Helper()
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), label) {
+			return line
+		}
+	}
+	t.Fatalf("summary has no %q field line:\n%s", label, summary)
+	return ""
 }
 
 // TestACPAgent_PermissionPassThrough drives the WHOLE permission loop over

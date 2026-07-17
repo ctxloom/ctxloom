@@ -174,9 +174,11 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home) (*mcp
 		relayTyped[recoverSessionInput](home, "recover_session"))
 	mcp.AddTool(server, &mcp.Tool{Name: "get_previous_session", Description: relayGetPreviousSessionDesc},
 		relayTyped[getPreviousSessionInput](home, "get_previous_session"))
+	mcp.AddTool(server, &mcp.Tool{Name: "list_sessions", Description: relayListSessionsDesc},
+		relayTyped[listSessionsInput](home, "list_sessions"))
 	mcp.AddTool(server, &mcp.Tool{Name: "evaluate_triggers", Description: relayEvaluateTriggersDesc},
 		relayTyped[evaluateTriggersInput](home, "evaluate_triggers"))
-	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "evaluate_triggers"} {
+	for _, name := range []string{"compact_session", "load_session", "recover_session", "get_previous_session", "list_sessions", "evaluate_triggers"} {
 		if routes[name] != mcpschema.RouteHostRelay {
 			return nil, fmt.Errorf("runner MCP: tool %q registered as host-relay but classified otherwise — fix mcpschema.Routes", name)
 		}
@@ -232,6 +234,7 @@ const (
 	relayLoadSessionDesc        = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
 	relayRecoverSessionDesc     = "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session)."
 	relayGetPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
+	relayListSessionsDesc       = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
 	relayEvaluateTriggersDesc   = evaluateTriggersDesc
 )
 

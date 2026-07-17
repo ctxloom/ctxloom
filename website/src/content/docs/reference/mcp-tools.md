@@ -121,6 +121,15 @@ Distill and load an EARLIER session's content — the most recent session BEFORE
 |------|------|----------|-------------|
 | `model` | string | No | LLM model to use for distillation if needed |
 
+### list_sessions
+
+List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `all_projects` | boolean | No | List sessions from every project instead of only the current working directory's project (mirrors session list --all) |
+| `distill_missing` | boolean | No | Distill sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions distill, legacy-only sessions are skipped. |
+
 ### load_session
 
 Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.

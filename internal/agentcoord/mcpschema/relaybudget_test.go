@@ -21,6 +21,7 @@ func TestRelayBudget_DistillationToolsOutrunTheCoordinationDefault(t *testing.T)
 		"load_session",
 		"compact_session",
 		"get_previous_session",
+		"list_sessions",
 	} {
 		budget := RelayBudget(tool)
 		assert.Greater(t, budget, coordinationDefault,

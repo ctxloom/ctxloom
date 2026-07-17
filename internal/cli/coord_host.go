@@ -76,6 +76,10 @@ func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]co
 			_, out, err := s.handleGetPreviousSession(ctx, nil, in)
 			return out, err
 		}),
+		coord.CustomToolPrefix + "list_sessions": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in listSessionsInput) (any, error) {
+			_, out, err := s.handleListSessions(ctx, nil, in)
+			return out, err
+		}),
 		coord.CustomToolPrefix + "evaluate_triggers": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in evaluateTriggersInput) (any, error) {
 			_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
 			return out, err

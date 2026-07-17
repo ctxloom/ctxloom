@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -55,6 +56,11 @@ type getPreviousSessionInput struct {
 	Model string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
 }
 
+type listSessionsInput struct {
+	AllProjects    bool `json:"all_projects,omitempty" jsonschema:"List sessions from every project instead of only the current working directory's project (mirrors session list --all)"`
+	DistillMissing bool `json:"distill_missing,omitempty" jsonschema:"Distill sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions distill, legacy-only sessions are skipped."`
+}
+
 // Result types. Each handler returns a different shape, so they each have
 // a dedicated struct rather than sharing a generic "memory response" type.
 
@@ -66,6 +72,22 @@ type compactSessionResult struct {
 	Reduction       string `json:"reduction"`
 	Duration        string `json:"duration"`
 	OutputPath      string `json:"output_path"`
+}
+
+// sessionSummary is one row of list_sessions: the harp name to pass to
+// load_session, its backend, the distilled title (empty when never distilled),
+// the last-activity timestamp (local, second granularity — same format the CLI
+// listing uses), and whether an essence exists on disk.
+type sessionSummary struct {
+	Harp         string `json:"harp"`
+	Backend      string `json:"backend"`
+	Title        string `json:"title"`
+	LastActivity string `json:"last_activity"`
+	Distilled    bool   `json:"distilled"`
+}
+
+type listSessionsResult struct {
+	Sessions []sessionSummary `json:"sessions"`
 }
 
 // loadSessionResult covers both the "loaded" success shape and the
@@ -105,9 +127,17 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		},
 		s.handleCompactSession)
 
-	// Phase 4 Lever A: list_sessions and browse_session_history moved to
-	// resources. Use ctxloom://sessions (all projects) or
-	// ctxloom://sessions/recent (cwd-filtered, AI-friendly summary).
+	// browse_session_history remains a resource (ctxloom://sessions/recent).
+	// list_sessions is back as a TOOL, not a resource: a caller deciding which
+	// harp to resume needs to name it in a following load_session call, and
+	// distill_missing has a side effect (it runs the compactor) — neither fits
+	// the read-only resource model.
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "list_sessions",
+			Description: "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title.",
+		},
+		s.handleListSessions)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -183,8 +213,78 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	}, nil
 }
 
-// handleListSessions and listSessionsInput / listSessionsResult removed
-// in Phase 4 Lever A — replaced by the ctxloom://sessions resource.
+// handleListSessions returns the harp-session menu a caller picks from before
+// load_session. Default scope is the server's working-directory project;
+// all_projects spans every project. Both paths return rows enriched and
+// activity-sorted by operations.ListSessionsForProject / ListAllSessions —
+// same ordering and formatting as `ctxloom session list`.
+//
+// distill_missing compacts title-less/stale rows first. Unlike the CLI, the
+// long-lived MCP server must NOT chdir, so it calls compactEntry in place:
+// canonical-transcript and preloaded-transcript sessions distill
+// cwd-independently; a legacy session that needs the cwd-bound engine reader
+// is skipped with a warning rather than corrupting the server's cwd.
+func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolRequest, in listSessionsInput) (*mcp.CallToolResult, *listSessionsResult, error) {
+	loadEntries := func() ([]sessions.Entry, error) {
+		if in.AllProjects {
+			return operations.ListAllSessions()
+		}
+		workDir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("get working directory: %w", err)
+		}
+		return operations.ListSessionsForProject(workDir)
+	}
+
+	entries, err := loadEntries()
+	if err != nil {
+		return nil, nil, fmt.Errorf("list sessions: %w", err)
+	}
+
+	if in.DistillMissing {
+		s.distillMissingForList(ctx, entries)
+		// Re-read so freshly-written summaries render in the returned rows.
+		if refreshed, rerr := loadEntries(); rerr == nil {
+			entries = refreshed
+		}
+	}
+
+	rows := make([]sessionSummary, 0, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.AppDir)
+		last := e.LastActivity
+		if last.IsZero() {
+			last = sessions.ActivityTime(*e)
+		}
+		rows = append(rows, sessionSummary{
+			Harp:         e.HarpName,
+			Backend:      e.Backend,
+			Title:        e.Summary,
+			LastActivity: last.Local().Format("2006-01-02 15:04:05"),
+			Distilled:    distilled,
+		})
+	}
+	return nil, &listSessionsResult{Sessions: rows}, nil
+}
+
+// distillMissingForList compacts every entry whose essence is missing or stale,
+// in place (no chdir — see handleListSessions). Per-entry failures are warned
+// and skipped: a session that can't be distilled here (e.g. a legacy session
+// whose engine reader needs the cwd we deliberately don't change) must not fail
+// the whole listing.
+func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
+	for i := range entries {
+		e := &entries[i]
+		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.AppDir)
+		if stale, known := e.SourceStale(); distilled && !(known && stale) {
+			continue // fresh essence already present
+		}
+		if _, err := compactEntry(ctx, e, s.cfg, io.Discard); err != nil {
+			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
+		}
+	}
+}
 
 func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolRequest, in loadSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
 	if in.HarpName != "" {

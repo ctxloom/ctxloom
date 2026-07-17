@@ -73,6 +73,24 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	return mgr.ListForProject(projectDir)
 }
 
+// ListAllSessions returns every recorded session across all projects,
+// most-recent-first by last-worked time (ActivityTime), after reconciling the
+// index so unrecoverable sessions are dropped here too. Mirrors
+// ListSessionsForProject without the project filter — the ordered all-projects
+// listing (`session list --all`, the list_sessions MCP tool). ListSessions
+// (unsorted) stays for order-insensitive callers (HarpForSession, the raw
+// ctxloom://sessions resource dump).
+func ListAllSessions() ([]sessions.Entry, error) {
+	mgr, err := openSessions()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
+		return nil, err
+	}
+	return mgr.ListAll()
+}
+
 // PreviousSessionRef identifies a prior session to materialize: which backend
 // produced it (agent-of-origin, enabling cross-agent handoff) and the
 // agent-agnostic session id the owning agent server reassembles.

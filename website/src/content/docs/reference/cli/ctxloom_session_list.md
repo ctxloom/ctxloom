@@ -18,8 +18,9 @@ ctxloom session list [flags]
 ### Options
 
 ```
-      --all    Include sessions from every project (default: filter to cwd)
-  -h, --help   help for list
+      --all       Include sessions from every project (default: filter to cwd)
+      --distill   Distill sessions whose essence is missing or stale before listing, so every row shows a title
+  -h, --help      help for list
 ```
 
 ### Options inherited from parent commands

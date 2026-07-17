@@ -512,22 +512,45 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
-			fillTranscriptByLocation(&e)
-			fillCanonicalTranscript(&e)
-			// Computed once per entry here, not inside the sort comparator.
-			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
+	return enrichAndSortByActivity(out), nil
+}
+
+// ListAll returns every entry in the index — no project filter — enriched and
+// ordered identically to ListForProject (most-recent-first by ActivityTime).
+// Backs the all-projects listings (`session list --all`, the list_sessions MCP
+// tool) so project-scoped and cross-project views sort the same way.
+func (m *Manager) ListAll() ([]Entry, error) {
+	idx, err := m.Load()
+	if err != nil {
+		return nil, err
+	}
+	return enrichAndSortByActivity(append([]Entry(nil), idx.Sessions...)), nil
+}
+
+// enrichAndSortByActivity fills each entry's computed transcript/canonical
+// paths and LastActivity, then sorts most-recent-first by last-worked time
+// (ActivityTime), with StartedAt as a deterministic tiebreak. Shared by
+// ListForProject and ListAll so scoped and all-projects listings order
+// identically. Mutates and returns the given slice.
+func enrichAndSortByActivity(entries []Entry) []Entry {
+	for i := range entries {
+		fillTranscriptByLocation(&entries[i])
+		fillCanonicalTranscript(&entries[i])
+		// Computed once per entry here, not inside the sort comparator.
+		entries[i].LastActivity = ActivityTime(entries[i])
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if !entries[i].LastActivity.Equal(entries[j].LastActivity) {
+			return entries[i].LastActivity.After(entries[j].LastActivity)
 		}
 		// Deterministic tiebreak: same activity time (e.g. both fell back to
 		// StartedAt, or transcripts stat'd to the same mtime granularity).
-		return out[i].StartedAt.After(out[j].StartedAt)
+		return entries[i].StartedAt.After(entries[j].StartedAt)
 	})
-	return out, nil
+	return entries
 }
 
 // TranscriptStale compares a transcript file's current byte size to the size

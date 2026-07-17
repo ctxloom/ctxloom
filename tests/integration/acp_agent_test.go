@@ -53,10 +53,17 @@ func TestACPAgent_SelfConformance(t *testing.T) {
 	}
 	require.NoError(t, <-done, "the loopback ACP conversation must complete cleanly")
 
-	require.Len(t, texts, 2, "one assistant entry per turn")
-	assert.Contains(t, texts[0], "mock chat: ", "the mock engine's echo came back through both protocol halves")
-	assert.Contains(t, texts[0], "conformance ping")
-	assert.Equal(t, "mock chat: second turn", texts[1], "the second turn carries no context prefix")
+	// ISO3: every session now opens with the always-on posture announcement
+	// (internal/operations/engine_session.go's buildSessionAnnouncement) as a
+	// synthetic FIRST agent_message_chunk — the outer driver has no wire-level
+	// way to tell it apart from real engine content (that's the whole point:
+	// no ACP method lets ctxloom mark a message "system"), so it arrives here
+	// as just another assistant text entry ahead of the two real turns.
+	require.Len(t, texts, 3, "the ISO3 posture announcement, then one assistant entry per turn")
+	assert.Contains(t, texts[0], "ctxloom:", "the first entry is the always-on isolation-posture announcement")
+	assert.Contains(t, texts[1], "mock chat: ", "the mock engine's echo came back through both protocol halves")
+	assert.Contains(t, texts[1], "conformance ping")
+	assert.Equal(t, "mock chat: second turn", texts[2], "the second turn carries no context prefix")
 	assert.Equal(t, 2, completes, "one completion marker per turn")
 }
 
@@ -104,8 +111,13 @@ func TestACPAgent_PermissionPassThrough(t *testing.T) {
 				}
 			}
 			require.NoError(t, <-done)
-			require.Len(t, texts, 1)
-			assert.Equal(t, tc.want, texts[0], "the driver's decision must round-trip to the engine")
+			// ISO3: the always-on posture announcement is now the first
+			// assistant-shaped entry on every session — see
+			// TestACPAgent_SelfConformance's comment for why the outer driver
+			// can't tell it apart from real content.
+			require.Len(t, texts, 2)
+			assert.Contains(t, texts[0], "ctxloom:", "the first entry is the always-on isolation-posture announcement")
+			assert.Equal(t, tc.want, texts[1], "the driver's decision must round-trip to the engine")
 		})
 	}
 }
@@ -150,6 +162,11 @@ func TestACPAgent_PerTurnCancel(t *testing.T) {
 	require.Len(t, stops, 2, "the cancelled turn and the follow-up both complete")
 	assert.Equal(t, "cancelled", stops[0], "the hung turn resolves with the spec's required stop reason")
 	assert.Equal(t, "end_turn", stops[1])
-	require.Len(t, texts, 1)
-	assert.Contains(t, texts[0], "still alive?", "the session survives a per-turn cancel")
+	// ISO3: the always-on posture announcement is now the first
+	// assistant-shaped entry on every session — see
+	// TestACPAgent_SelfConformance's comment for why the outer driver can't
+	// tell it apart from real content.
+	require.Len(t, texts, 2)
+	assert.Contains(t, texts[0], "ctxloom:", "the first entry is the always-on isolation-posture announcement")
+	assert.Contains(t, texts[1], "still alive?", "the session survives a per-turn cancel")
 }

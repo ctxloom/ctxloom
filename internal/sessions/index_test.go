@@ -208,6 +208,45 @@ func TestListForProject_FallsBackToStartedAt(t *testing.T) {
 	assert.Equal(t, "older-no-transcript", list[2].HarpName)
 }
 
+// TestActivityTime_PrefersCanonicalTranscriptPath pins the ACP-resume
+// ordering fix: an ACP/coordinator session records ONLY a canonical
+// transcript (paths.HarpCanonicalTranscriptPath) and never a legacy
+// TranscriptPath, so ActivityTime must read the canonical file's mtime for
+// its last-activity signal. Statting only TranscriptPath (the old behavior)
+// pinned every ACP session to StartedAt and mis-ranked it below stale legacy
+// false-starts (the viral-equal / icy-apron ordering bug). Mirrors
+// SourceStale's canonical-first preference so ordering and staleness agree on
+// which file is the source of truth.
+func TestActivityTime_PrefersCanonicalTranscriptPath(t *testing.T) {
+	dir := t.TempDir()
+	started := time.Now().UTC().Add(-24 * time.Hour)
+
+	canonicalPath := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(canonicalPath, []byte("{}\n"), 0o644))
+	activity := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(canonicalPath, activity, activity))
+
+	// ACP session: only the canonical transcript, no legacy TranscriptPath.
+	e := Entry{StartedAt: started, CanonicalTranscriptPath: canonicalPath}
+	assert.True(t, ActivityTime(e).Equal(activity),
+		"ActivityTime must use the canonical transcript mtime (%s), got %s", activity, ActivityTime(e))
+
+	// When both exist, the canonical file wins (it is what the compactor
+	// distills and what SourceStale fingerprints — same preference).
+	legacyPath := filepath.Join(dir, "legacy.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, []byte("{}\n"), 0o644))
+	legacyActivity := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(legacyPath, legacyActivity, legacyActivity))
+	both := Entry{StartedAt: started, TranscriptPath: legacyPath, CanonicalTranscriptPath: canonicalPath}
+	assert.True(t, ActivityTime(both).Equal(activity),
+		"with both transcripts present, canonical mtime is preferred")
+
+	// A canonical path that no longer stats degrades to the legacy transcript.
+	dangling := Entry{StartedAt: started, TranscriptPath: legacyPath, CanonicalTranscriptPath: "/nonexistent/gone.acp.jsonl"}
+	assert.True(t, ActivityTime(dangling).Equal(legacyActivity),
+		"a dangling canonical path degrades to the legacy transcript mtime")
+}
+
 func TestMarkEnded(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.AssignHarp("/proj", "claude-code")

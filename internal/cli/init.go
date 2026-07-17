@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
@@ -586,10 +587,54 @@ func checkSystemDeps() error {
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		clidiag.Warn("ctxloom", "ssh-keygen not found on PATH — you'll need it later to sign your own bundles (`ctxloom sign`)")
 	}
+	warnIfNoSignKey()
+	warnIfGitIdentityMissing()
 	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
 	}
 	return nil
+}
+
+// warnIfNoSignKey is checkSystemDeps' companion to the ssh-keygen PATH probe
+// above: even with ssh-keygen present, a resolvable signing IDENTITY is
+// needed both to approve reviewed content (`ctxloom review` countersigns an
+// approval with it — spec §9.5, and review is a normal part of ordinary
+// setup, not a publishing-only step) and to publish or sign your own content
+// (`ctxloom sign`). It runs the SAME resolver both of those use
+// (internal/signing/agentkey.Discoverer.Discover — see review.go's
+// resolveReviewSigner and sign.go's runSign) and reuses
+// signKeyResolutionDetail (doctor_cmd.go) so this warn says the exact same
+// thing `ctxloom doctor --deps`'s DOCTOR-CHECK-SIGNKEY-k1 check reports —
+// one resolver, one message, two surfaces. explicit is always "" here: a
+// brand-new init has no sign.key configured yet, so this checks the
+// zero-config chain (git config user.signingkey, then ssh-agent's sole
+// identity) exactly as `ctxloom review`/`ctxloom sign` would try it today.
+// Informational only, like ssh-keygen/container-runtime above — never blocks
+// init: a project that only ever consumes already-trusted/embedded content
+// has nothing to approve and genuinely needs no key.
+func warnIfNoSignKey() {
+	ok, detail := signKeyResolutionDetail(context.Background(), agentkey.NewDiscoverer(), "")
+	if !ok {
+		clidiag.Warn("ctxloom", "%s", detail)
+	}
+}
+
+// warnIfGitIdentityMissing is checkSystemDeps' companion probe for git's
+// commit identity (user.name/user.email), same shape and posture as
+// warnIfNoSignKey above: informational only, reusing the SAME shared
+// gitIdentityDetail (doctor_cmd.go) and the SAME `git config --get` reader
+// (internal/signing/agentkey.Discoverer.GitConfig, defaulted by
+// agentkey.NewDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
+// says the exact same thing `ctxloom doctor --deps` reports. Agents ctxloom
+// launches commit their own work inside isolated worktrees (internal/lm/
+// isolation/worktree.go's teardown), so an incomplete identity here can
+// surface later as a failed or mis-attributed commit deep inside a run —
+// surfacing it at init time, before that happens, beats discovering it then.
+func warnIfGitIdentityMissing() {
+	ok, detail := gitIdentityDetail(context.Background(), agentkey.NewDiscoverer().GitConfig)
+	if !ok {
+		clidiag.Warn("ctxloom", "%s", detail)
+	}
 }
 
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:

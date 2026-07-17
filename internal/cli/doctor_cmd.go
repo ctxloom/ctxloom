@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
 // doctorDepBinaries are the non-engine binaries ctxloom's own features rely
@@ -101,11 +103,17 @@ exit code.`,
 		cfg, cfgErr := GetConfig()
 		var checks []DoctorCheck
 		if doctorDepsOnlyFlag {
-			checks = []DoctorCheck{doctorCheckDeps(cfg)}
+			checks = []DoctorCheck{
+				doctorCheckDeps(cfg),
+				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+			}
 		} else {
 			checks = []DoctorCheck{
 				doctorCheckSetupMarker(cfg, cfgErr),
 				doctorCheckDeps(cfg),
+				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
 				doctorCheckAgents(ctx, cfg, cfgErr),
 				doctorCheckVersion(),
 				doctorCheckHooksTrust(ctx, cfg, cfgErr),
@@ -171,6 +179,184 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 	sort.Strings(missing)
 	return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn",
 		Detail: "missing: " + strings.Join(missing, ", ")}
+}
+
+// doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
+// (included in --deps scope): it asks whether a signing IDENTITY would
+// resolve right now, using the EXACT SAME resolver `ctxloom review`'s
+// approve path AND `ctxloom sign`/`--sign` both use (internal/signing/
+// agentkey.Discoverer.Discover — see review.go's resolveReviewSigner and
+// sign.go's runSign) rather than re-deriving discovery here. Read-only:
+// Discover only lists ssh-agent identities (agent.Agent.Signers/List over
+// SSH_AUTH_SOCK), it never signs or reads private key bytes.
+//
+// This is NOT publishing-only: approving reviewed content (`ctxloom review`)
+// countersigns the approval record with this same identity, and review is a
+// normal part of setup (pulling/approving a seeded remote's content), not
+// something only publishers do. Absence is still never a hard failure —
+// review degrades to an explicit unsigned-approval confirmation rather than
+// blocking (spec §9.5) — but it is a WARN, not silent, because a project that
+// only ever consumes ALREADY-trusted/embedded content (the common case: the
+// seeded ctxloom-default remote is pre-trusted, nothing to approve) genuinely
+// has no need for one; this is advisory, same posture as the ssh-keygen/
+// container-runtime warns beside it. Surfacing it here (and in init PRIME's
+// checkSystemDeps, see init.go) beats a user hitting agentkey.NoKeyError or
+// the unsigned-approval prompt cold at their first real `ctxloom review`/
+// `ctxloom sign`.
+func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
+	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
+	explicit := ""
+	if cfg != nil {
+		explicit = cfg.SignKey()
+	}
+	ok, detail := signKeyResolutionDetail(ctx, discoverer, explicit)
+	if ok {
+		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+	}
+	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+}
+
+// signKeyResolutionDetail runs internal/signing/agentkey's real resolution
+// chain (explicit --key/sign.key, then `git config user.signingkey`, then
+// ssh-agent's sole identity — agentkey.go's package doc) and renders the
+// outcome as a short, actionable line. Shared between doctorCheckSignKey and
+// init PRIME's checkSystemDeps (init.go) so both surfaces say the exact same
+// thing about the exact same resolver, rather than drifting apart.
+//
+// ok=true names the resolved key the way sign.go's printSignResult already
+// does ("<source> (<fingerprint>)") — the same presentation `ctxloom sign`
+// itself prints when it actually signs something.
+//
+// ok=false distinguishes the three shapes agentkey.Discover can fail with,
+// observed directly from agentkey_test.go / this package's own tests:
+//   - AmbiguousKeyError: ssh-agent holds MULTIPLE identities and nothing
+//     (git config user.signingkey, sign.key) narrowed the choice — Discover
+//     deliberately never guesses, it names every candidate instead.
+//   - AmbiguousKeyNameError: an explicit --key/sign.key NAME matched more
+//     than one agent identity's comment.
+//   - NoKeyError (or any other error, e.g. an unreadable git-configured key
+//     file): nothing resolves at all.
+// In every failure shape, the WHY (approving reviewed content and
+// publishing/signing your own content both need an identity; merely
+// consuming already-trusted/embedded content does not) is stated once,
+// alongside the concrete fix.
+func signKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discoverer, explicit string) (ok bool, detail string) {
+	discovered, err := discoverer.Discover(ctx, explicit)
+	if err == nil {
+		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
+	}
+
+	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom sign`) — merely consuming already-trusted/embedded content does not require a signing key"
+
+	var ambig *agentkey.AmbiguousKeyError
+	if errors.As(err, &ambig) {
+		names := make([]string, 0, len(ambig.Candidates))
+		for _, c := range ambig.Candidates {
+			name := c.Fingerprint
+			if c.Comment != "" {
+				name = c.Comment + " (" + c.Fingerprint + ")"
+			}
+			names = append(names, name)
+		}
+		return false, fmt.Sprintf(
+			"ambiguous: ssh-agent holds %d identities and none is picked by `git config user.signingkey` or `sign.key` — %s; disambiguate with `ctxloom config set sign.key <name>` or `git config user.signingkey <path>`: %s",
+			len(ambig.Candidates), why, strings.Join(names, ", "))
+	}
+
+	var ambigName *agentkey.AmbiguousKeyNameError
+	if errors.As(err, &ambigName) {
+		return false, fmt.Sprintf(
+			"ambiguous: sign.key %q matches %d ssh-agent identities — %s; narrow the name or use a SHA256: fingerprint instead",
+			ambigName.Name, len(ambigName.Candidates), why)
+	}
+
+	var noKey *agentkey.NoKeyError
+	if errors.As(err, &noKey) {
+		reason := ""
+		if noKey.Detail != "" {
+			reason = " (" + noKey.Detail + ")"
+		}
+		return false, fmt.Sprintf(
+			"no signing key resolves%s — %s; run `ssh-add ~/.ssh/<key>` with your intended key loaded, set `sign.key` (`ctxloom config set sign.key <name>`) or `git config user.signingkey <path>`, or generate one: `ssh-keygen -t ed25519`",
+			reason, why)
+	}
+
+	return false, fmt.Sprintf("signing key resolution failed: %s — %s", err.Error(), why)
+}
+
+// gitConfigFunc is agentkey.Discoverer.GitConfig's shape: the one existing
+// generic `git config --get <key>` reader in this codebase (internal/
+// signing/agentkey/agentkey.go's execGitConfig, defaulted by
+// agentkey.NewDiscoverer()) — already used to resolve user.signingkey.
+// doctorCheckGitIdentity reuses it verbatim for user.name/user.email rather
+// than shelling out to git a second, bespoke way.
+type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, ok bool, err error)
+
+// doctorCheckGitIdentity is a machine-capability probe like DOCTOR-CHECK-
+// DEPS-a1/SIGNKEY-k1 (included in --deps scope): it verifies git's commit
+// identity — BOTH user.name AND user.email — is explicitly resolvable via
+// `git config` (any scope: local/global/system; `git config --get` already
+// searches all three, so this asks nothing beyond what git itself would use
+// right now). WHY: agents ctxloom launches do their own work — including
+// their own `git commit` — inside isolated worktrees (internal/lm/isolation/
+// worktree.go's teardown guards, e.g. IsDirty/WorktreeRemove around lines
+// 391/401, exist BECAUSE that uncommitted work must survive teardown; an
+// agent is expected to commit there). Without an explicit identity, a commit
+// either fails outright or git silently derives one from the OS account —
+// misattributing the work to the wrong identity is the actual danger, so
+// "something resolves" is not the bar; "explicitly set" is.
+//
+// Read-only, informational only: like DOCTOR-CHECK-SIGNKEY-k1 beside it,
+// this never blocks — a project that never runs agent worktrees at all has
+// no immediate need, so a bare `ctxloom doctor` there must not manufacture a
+// false alarm.
+func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) DoctorCheck {
+	const marker = "DOCTOR-CHECK-GITIDENT-l2"
+	ok, detail := gitIdentityDetail(ctx, gitConfig)
+	if ok {
+		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+	}
+	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+}
+
+// gitIdentityDetail runs gitConfig for user.name and user.email and renders
+// the outcome as a short, actionable line. Shared between
+// doctorCheckGitIdentity and init PRIME's checkSystemDeps (init.go) so both
+// surfaces say the exact same thing, rather than drifting apart.
+func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, detail string) {
+	name, nameOK, nameErr := gitConfig(ctx, "", "user.name")
+	email, emailOK, emailErr := gitConfig(ctx, "", "user.email")
+
+	if nameErr != nil || emailErr != nil {
+		var errs []string
+		if nameErr != nil {
+			errs = append(errs, nameErr.Error())
+		}
+		if emailErr != nil {
+			errs = append(errs, emailErr.Error())
+		}
+		return false, "reading git identity failed: " + strings.Join(errs, "; ")
+	}
+
+	nameSet := nameOK && strings.TrimSpace(name) != ""
+	emailSet := emailOK && strings.TrimSpace(email) != ""
+	if nameSet && emailSet {
+		return true, fmt.Sprintf("git identity resolves: %s <%s>", name, email)
+	}
+
+	var missing []string
+	var fixes []string
+	if !nameSet {
+		missing = append(missing, "user.name")
+		fixes = append(fixes, `git config --global user.name "Your Name"`)
+	}
+	if !emailSet {
+		missing = append(missing, "user.email")
+		fixes = append(fixes, "git config --global user.email you@example.com")
+	}
+	return false, fmt.Sprintf(
+		"git commit identity not fully set (missing: %s) — agents ctxloom launches commit their own work inside isolated worktrees, and without an explicit identity a commit fails or git silently mis-attributes it to whatever the OS account derives; set it: %s",
+		strings.Join(missing, ", "), strings.Join(fixes, "; "))
 }
 
 // doctorCheckAgents resolves every configured agent (profile composition +

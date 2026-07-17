@@ -3,8 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,10 +16,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
 // writeFakeExecutable creates an executable regular file named name inside
@@ -100,6 +106,139 @@ func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 
 func TestDoctorDepBinaries_IncludesGit(t *testing.T) {
 	assert.Contains(t, doctorDepBinaries, "git", "worktree isolation and remote pull hard-depend on git")
+}
+
+// --- DOCTOR-CHECK-SIGNKEY-k1: reuses agentkey.Discoverer, the SAME
+// resolver `ctxloom sign` itself uses (internal/signing/agentkey), via an
+// in-memory ssh-agent keyring (agent.NewKeyring — no socket, no real
+// SSH_AUTH_SOCK, no host ssh-agent state leaks in) mirroring sign_test.go's
+// discovererWithSoleAgentIdentity pattern.
+
+// signKeyDiscoverer wires an agentkey.Discoverer to an in-memory ssh-agent
+// keyring holding exactly the given comments (0, 1, or many identities) and
+// no git config value, so doctorCheckSignKey is exercisable without a real
+// ssh-agent or git binary.
+func signKeyDiscoverer(t *testing.T, comments ...string) (*agentkey.Discoverer, []ssh.Signer) {
+	t.Helper()
+	kr := agent.NewKeyring()
+	for _, comment := range comments {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: priv, Comment: comment}))
+	}
+	signers, err := kr.Signers()
+	require.NoError(t, err)
+	return &agentkey.Discoverer{
+		GitConfig: func(ctx context.Context, dir, key string) (string, bool, error) { return "", false, nil },
+		DialAgent: func() (agent.Agent, error) { return kr, nil },
+		ReadFile:  func(path string) ([]byte, error) { return nil, assert.AnError },
+	}, signers
+}
+
+func TestDoctorCheckSignKey_RightState_SoleIdentityResolves(t *testing.T) {
+	disc, signers := signKeyDiscoverer(t, "ben@abbitt.me")
+	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
+	assert.Equal(t, "ok", check.Status)
+	assert.Contains(t, check.Detail, "ssh-agent (sole identity)", "must name the SAME Source agentkey.Discovered reports")
+	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[0].PublicKey()), "must name the resolved key's fingerprint")
+}
+
+func TestDoctorCheckSignKey_WrongState_NothingResolvable(t *testing.T) {
+	disc, _ := signKeyDiscoverer(t) // empty agent, no git config, no explicit key
+	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "no signing key resolves")
+	assert.Contains(t, check.Detail, "ctxloom review", "must lead with approve — a missing key blocks ordinary review, not just publishing")
+	assert.Contains(t, check.Detail, "ctxloom sign", "must also name the publishing feature this gap affects")
+	assert.Contains(t, check.Detail, "ssh-add", "must give an actionable fix")
+}
+
+// TestDoctorCheckSignKey_WrongState_Ambiguous observes agentkey's REAL
+// multi-identity behavior directly: with no git config user.signingkey and
+// no explicit sign.key, ssh-agent holding MORE than one identity resolves to
+// agentkey.AmbiguousKeyError (agentkey.go resolveSoleAgentIdentity) — it
+// never silently picks one. The warn message must reflect that specific
+// situation, not the generic "no key" wording.
+func TestDoctorCheckSignKey_WrongState_Ambiguous(t *testing.T) {
+	disc, _ := signKeyDiscoverer(t, "one@example.com", "two@example.com")
+	check := doctorCheckSignKey(context.Background(), &config.Config{}, disc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "ambiguous", "must name the specific ambiguous-choice situation, not generic absence")
+	assert.Contains(t, check.Detail, "one@example.com")
+	assert.Contains(t, check.Detail, "two@example.com")
+}
+
+// TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates proves the check
+// honors cfg.SignKey() (sign.key config) exactly like runSign does (sign.go:
+// "explicit := keyFlag; if explicit == "" ... explicit = cfg.SignKey()"): an
+// agent holding multiple identities resolves cleanly once sign.key names one
+// by comment.
+func TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates(t *testing.T) {
+	disc, signers := signKeyDiscoverer(t, "other@example.com", "ben@abbitt.me")
+	cfg := &config.Config{Settings: config.SettingsConfig{Sign: &config.SignConfig{Key: "ben@abbitt.me"}}}
+	check := doctorCheckSignKey(context.Background(), cfg, disc)
+	assert.Equal(t, "ok", check.Status)
+	// The comment-matched signer is the second one added.
+	assert.Contains(t, check.Detail, ssh.FingerprintSHA256(signers[1].PublicKey()))
+}
+
+// --- DOCTOR-CHECK-GITIDENT-l2: reuses agentkey's git-config plumbing (the
+// one existing generic `git config --get <key>` reader in this codebase,
+// already used to resolve user.signingkey) rather than shelling out a
+// second, bespoke way. A fake gitConfigFunc closure isolates every test from
+// the host's real git config (no ~/.gitconfig read, no real git binary
+// call), same discipline as signKeyDiscoverer above.
+
+// fakeGitConfig returns a gitConfigFunc backed by an in-memory map — set
+// values resolve, everything else is "unset" ("", false, nil), exactly
+// execGitConfig's contract for a key `git config --get` doesn't find.
+func fakeGitConfig(values map[string]string) gitConfigFunc {
+	return func(ctx context.Context, dir, key string) (string, bool, error) {
+		v, ok := values[key]
+		return v, ok, nil
+	}
+}
+
+func TestDoctorCheckGitIdentity_RightState_BothSet(t *testing.T) {
+	gc := fakeGitConfig(map[string]string{"user.name": "Ben", "user.email": "ben@abbitt.me"})
+	check := doctorCheckGitIdentity(context.Background(), gc)
+	assert.Equal(t, "ok", check.Status)
+	assert.Contains(t, check.Detail, "Ben <ben@abbitt.me>", "must name the resolved identity")
+}
+
+func TestDoctorCheckGitIdentity_WrongState_NameUnset(t *testing.T) {
+	gc := fakeGitConfig(map[string]string{"user.email": "ben@abbitt.me"})
+	check := doctorCheckGitIdentity(context.Background(), gc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "user.name", "must name which field is missing")
+	assert.NotContains(t, check.Detail, "git config --global user.email", "must not falsely also offer an email fix")
+	assert.Contains(t, check.Detail, "git config --global user.name", "must give the actionable fix")
+}
+
+func TestDoctorCheckGitIdentity_WrongState_EmailUnset(t *testing.T) {
+	gc := fakeGitConfig(map[string]string{"user.name": "Ben"})
+	check := doctorCheckGitIdentity(context.Background(), gc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "user.email", "must name which field is missing")
+	assert.Contains(t, check.Detail, "git config --global user.email", "must give the actionable fix")
+}
+
+func TestDoctorCheckGitIdentity_WrongState_BothUnset(t *testing.T) {
+	gc := fakeGitConfig(map[string]string{})
+	check := doctorCheckGitIdentity(context.Background(), gc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "user.name")
+	assert.Contains(t, check.Detail, "user.email")
+}
+
+// TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset guards
+// against a git config value that's present but empty/whitespace-only (e.g.
+// `git config user.name ""`) being mistaken for a real identity.
+func TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset(t *testing.T) {
+	gc := fakeGitConfig(map[string]string{"user.name": "  ", "user.email": "ben@abbitt.me"})
+	check := doctorCheckGitIdentity(context.Background(), gc)
+	assert.Equal(t, "warn", check.Status)
+	assert.Contains(t, check.Detail, "user.name")
 }
 
 // --- DOCTOR-CHECK-AGENTS-b2: promoted to WARN on an empty roster ---
@@ -204,7 +343,70 @@ func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
 // doctorCmd's OWN FlagSet (currently just --deps) is added by reference, so
 // --deps here binds the SAME doctorDepsOnlyFlag var doctorCmd.RunE reads;
 // t.Cleanup resets it so one test's --deps never bleeds into the next.
+//
+// SSH_AUTH_SOCK is forced empty: doctorCmd.RunE wires DOCTOR-CHECK-SIGNKEY-k1
+// to the REAL agentkey.NewDiscoverer(), which dials the host's actual
+// ssh-agent. Without this, every full-command test here would depend on
+// whatever ssh-agent identities happen to be loaded on the machine running
+// the suite — exactly the kind of host-state leak that must never happen.
+// runDoctorWithSSHAgentSock lets a test opt into a specific, hermetic
+// in-process agent instead when it needs the "ok" resolution path.
 func runDoctor(t *testing.T, root string, args ...string) (string, error) {
+	t.Helper()
+	return runDoctorWithSSHAgentSock(t, root, "", args...)
+}
+
+// runDoctorWithSSHAgentSock is runDoctor with SSH_AUTH_SOCK pointed at a
+// caller-supplied socket (see startFakeSSHAgent) instead of forced empty —
+// for a full-command test that needs `ctxloom doctor` to actually resolve a
+// signing key end to end. Git identity (user.name/user.email) is left
+// unresolvable (fresh, empty HOME) — see runDoctorClean for a test that
+// needs BOTH checks to land "ok".
+func runDoctorWithSSHAgentSock(t *testing.T, root, sshAuthSock string, args ...string) (string, error) {
+	t.Helper()
+	isolateGitHostState(t, sshAuthSock, t.TempDir())
+	return execDoctor(t, root, args...)
+}
+
+// runDoctorClean is runDoctor with BOTH host-dependent checks forced to
+// resolve cleanly: a hermetic ssh-agent holding one identity (sock) and a
+// real, minimal ~/.gitconfig (in the isolated HOME) naming a git identity —
+// for the one full-command test that asserts a fully-wired project shows NO
+// warn lines anywhere, including the two new checks.
+func runDoctorClean(t *testing.T, root, sshAuthSock string, args ...string) (string, error) {
+	t.Helper()
+	home := t.TempDir()
+	gitconfig := "[user]\n\tname = Ben\n\temail = ben@abbitt.me\n"
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(gitconfig), 0644))
+	isolateGitHostState(t, sshAuthSock, home)
+	return execDoctor(t, root, args...)
+}
+
+// isolateGitHostState points SSH_AUTH_SOCK and git's config search path at
+// caller-controlled locations so `ctxloom doctor`'s DOCTOR-CHECK-SIGNKEY-k1
+// and DOCTOR-CHECK-GITIDENT-l2 — both wired to the REAL
+// agentkey.NewDiscoverer() in doctorCmd.RunE, which shells out to the real
+// git binary and dials the real ssh-agent — never depend on whatever is
+// loaded/configured on the machine running the suite. A developer machine
+// that already has SSH commit signing AND a git identity configured (exactly
+// the population these features are FOR) would otherwise make every
+// full-command test's outcome depend on that machine's state — GIT_CONFIG_
+// NOSYSTEM additionally excludes /etc/gitconfig, which HOME can't reach.
+func isolateGitHostState(t *testing.T, sshAuthSock, home string) {
+	t.Helper()
+	t.Setenv("SSH_AUTH_SOCK", sshAuthSock)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+}
+
+// execDoctor builds and executes the real doctorCmd (not a hand-rolled
+// reimplementation) with the given args, in root, returning its stdout and
+// any RunE error. doctorCmd's OWN FlagSet (currently just --deps) is added
+// by reference, so --deps here binds the SAME doctorDepsOnlyFlag var
+// doctorCmd.RunE reads; t.Cleanup resets it so one test's --deps never
+// bleeds into the next.
+func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 	t.Helper()
 	t.Chdir(root)
 	t.Cleanup(func() { doctorDepsOnlyFlag = false })
@@ -219,6 +421,37 @@ func runDoctor(t *testing.T, root string, args ...string) (string, error) {
 	c.SetArgs(args)
 	err := c.Execute()
 	return buf.String(), err
+}
+
+// startFakeSSHAgent starts a REAL ssh-agent-protocol server (agent.ServeAgent
+// over a unix socket — the same wire protocol agentkey's production
+// dialEnvAgent speaks) backed by an in-memory keyring holding exactly the
+// given comments, so a full-command `ctxloom doctor` test can exercise
+// DOCTOR-CHECK-SIGNKEY-k1's "ok" path without ever touching the host
+// machine's real ssh-agent. Returns the socket path to set SSH_AUTH_SOCK to;
+// the listener is torn down via t.Cleanup.
+func startFakeSSHAgent(t *testing.T, comments ...string) string {
+	t.Helper()
+	kr := agent.NewKeyring()
+	for _, comment := range comments {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: priv, Comment: comment}))
+	}
+	sock := filepath.Join(t.TempDir(), "agent.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			conn, acceptErr := l.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() { _ = agent.ServeAgent(kr, conn) }()
+		}
+	}()
+	return sock
 }
 
 func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
@@ -238,19 +471,30 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := runDoctor(t, root)
+	// A fully-wired project must show no warn lines at all, including the two
+	// new host-dependent checks — so it needs a hermetic ssh-agent with a
+	// resolvable sole identity AND a real git identity, not the empty
+	// defaults runDoctor/runDoctorWithSSHAgentSock otherwise force.
+	sock := startFakeSSHAgent(t, "ben@abbitt.me")
+	out, err := runDoctorClean(t, root, sock)
 	require.NoError(t, err)
 	assert.Contains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5 [ok]")
+	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1 [ok]")
+	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4 [ok]")
 	assert.NotContains(t, out, "[warn]", "a fully-wired project must show no warn lines")
 }
 
 // TestDoctorCmd_DepsFlag_ScopesToDepsAlone proves `ctxloom doctor --deps`
-// runs ONLY DOCTOR-CHECK-DEPS-a1: on a project with an empty agent roster
-// (which unscoped `doctor` reports as a WARN — see
-// TestDoctorCheckAgents_WrongState_EmptyRoster), the scoped invocation must
-// show none of that noise, matching what init's PRIME/setup skill's phase 1
-// need — a clean machine-capability check before anything is configured yet.
+// runs ONLY the machine-capability probes — DOCTOR-CHECK-DEPS-a1,
+// DOCTOR-CHECK-SIGNKEY-k1, and DOCTOR-CHECK-GITIDENT-l2 (signing-key and git-
+// identity readiness both belong beside DEPS-a1: they're dep/capability
+// questions too, true-or-false regardless of project setup) — on a project
+// with an empty agent roster (which unscoped `doctor` reports as a WARN —
+// see TestDoctorCheckAgents_WrongState_EmptyRoster), the scoped invocation
+// must show none of that noise, matching what init's PRIME/setup skill's
+// phase 1 need — a clean machine-capability check before anything is
+// configured yet.
 func TestDoctorCmd_DepsFlag_ScopesToDepsAlone(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
 	cfg.Agents = map[string]agents.Agent{} // would otherwise WARN unscoped
@@ -264,8 +508,10 @@ func TestDoctorCmd_DepsFlag_ScopesToDepsAlone(t *testing.T) {
 			lines++
 		}
 	}
-	assert.Equal(t, 1, lines, "--deps must emit exactly one check line")
+	assert.Equal(t, 3, lines, "--deps must emit exactly the three machine-capability check lines")
 	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1")
+	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1", "signing-key readiness is a dep/capability check, must be included in --deps scope")
+	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2", "git-identity readiness is a dep/capability check, must be included in --deps scope")
 	assert.NotContains(t, out, "DOCTOR-CHECK-AGENTS-b2", "--deps must not surface the empty-roster warn")
 	assert.NotContains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5")
 	assert.NotContains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4")
@@ -279,17 +525,22 @@ func TestDoctorCmd_DepsFlag_WorksBeforeAnySetup(t *testing.T) {
 	out, err := runDoctor(t, root, "--deps")
 	require.NoError(t, err)
 	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1")
+	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1")
+	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2")
 	assert.NotContains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5")
 }
 
-func TestDoctorCmd_DepsFlag_JSONShapeIsSingleCheck(t *testing.T) {
+func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyAndGitIdentity(t *testing.T) {
 	root := t.TempDir()
 	out, err := runDoctor(t, root, "--deps", "--format", "json")
 	require.NoError(t, err)
 	var report DoctorReport
 	require.NoError(t, json.Unmarshal([]byte(out), &report))
-	require.Len(t, report.Checks, 1)
-	assert.Equal(t, "DOCTOR-CHECK-DEPS-a1", report.Checks[0].Marker)
+	require.Len(t, report.Checks, 3)
+	markers := []string{report.Checks[0].Marker, report.Checks[1].Marker, report.Checks[2].Marker}
+	assert.Contains(t, markers, "DOCTOR-CHECK-DEPS-a1")
+	assert.Contains(t, markers, "DOCTOR-CHECK-SIGNKEY-k1")
+	assert.Contains(t, markers, "DOCTOR-CHECK-GITIDENT-l2")
 }
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
@@ -316,6 +567,8 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 	for _, want := range []string{
 		"DOCTOR-CHECK-SETUP-MARKER-e5",
 		"DOCTOR-CHECK-DEPS-a1",
+		"DOCTOR-CHECK-SIGNKEY-k1",
+		"DOCTOR-CHECK-GITIDENT-l2",
 		"DOCTOR-CHECK-AGENTS-b2",
 		"DOCTOR-CHECK-HOOKS-TRUST-d4",
 		"DOCTOR-CHECK-SETUP-DEPS-h8",

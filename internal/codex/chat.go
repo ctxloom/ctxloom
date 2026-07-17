@@ -9,10 +9,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// codexACPAdapter is the ACP adapter binary that wraps codex (codex has no
+// CodexACPAdapter is the ACP adapter binary that wraps codex (codex has no
 // native ACP mode). Located on PATH; ctxloom never installs binaries — an
-// absent adapter yields the install hint below.
-const codexACPAdapter = "codex-acp"
+// absent adapter yields the install hint below. Exported so `ctxloom
+// doctor`'s DOCTOR-CHECK-ACPADAPTER-m3 (internal/cli/doctor_cmd.go) and init
+// PRIME's mirror of it can check the SAME binary name this Chat() gate
+// itself checks, rather than a second, duplicated string literal that could
+// drift from this one.
+const CodexACPAdapter = "codex-acp"
 
 // Compile-time assertion that Codex offers the optional StructuredChat capability.
 var _ agent.StructuredChat = (*Codex)(nil)
@@ -30,9 +34,9 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 	// the adapter — checking THIS process's PATH would wrongly refuse a
 	// session whose adapter the host never needs.
 	if req.Runtime != agent.RuntimeContainer {
-		if _, err := exec.LookPath(codexACPAdapter); err != nil {
+		if _, err := exec.LookPath(CodexACPAdapter); err != nil {
 			close(out) // honor the StructuredChat contract: producer closes out exactly once
-			return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", codexACPAdapter)
+			return fmt.Errorf("structured chat for codex needs the %s adapter on PATH; install it with: npm install -g @zed-industries/codex-acp", CodexACPAdapter)
 		}
 	}
 	drv := acp.NewChatDriver(chatACPConfig(b.Env, b.thinking))
@@ -63,7 +67,7 @@ func (b *Codex) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent
 // computed once, here, not per turn.
 func chatACPConfig(env map[string]string, level agent.ThinkingLevel) acp.ACPConfig {
 	cfg := acp.ACPConfig{
-		Command:            codexACPAdapter,
+		Command:            CodexACPAdapter,
 		Env:                env,
 		ModelConfigKey:     "model",
 		ReasoningConfigKey: "model_reasoning_effort",

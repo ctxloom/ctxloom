@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -10,22 +11,49 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
-// doctorDepBinaries are the non-engine binaries ctxloom's own features rely
-// on regardless of which engines are configured: ssh/ssh-keygen for signing
-// (sheer-spray's prereqs), and git — worktree isolation shells `git
-// worktree` (internal/lm/isolation), remote clone/pull reads/writes real
-// git repos (internal/remote/repo_cache.go, internal/git/exec.go), and
-// `ctxloom init`/`manage install` themselves clone the default remote. A
-// machine without git silently can't do worktrees or pull content; this
-// makes that a visible DOCTOR-CHECK-DEPS-a1 warn instead.
-var doctorDepBinaries = []string{"ssh", "ssh-keygen", "git"}
+// doctorDepBinariesRequired are the non-engine binaries ctxloom's own
+// features genuinely hard-depend on regardless of which engines are
+// configured: git — worktree isolation shells `git worktree` (internal/lm/
+// isolation), remote clone/pull reads/writes real git repos (internal/
+// remote/repo_cache.go, internal/git/exec.go), and `ctxloom init`/`manage
+// install` themselves clone the default remote. A machine without git
+// silently can't do worktrees or pull content; this makes that a visible
+// DOCTOR-CHECK-DEPS-a1 warn instead.
+var doctorDepBinariesRequired = []string{"git"}
+
+// doctorDepBinariesRecommended are binaries ctxloom ITSELF never execs —
+// grepped repo-wide: no exec.Command/LookPath("ssh") or ("ssh-keygen")
+// anywhere but this probe and init PRIME's mirror of it (checkSystemDeps,
+// init.go) — but that are still worth flagging present:
+//
+//   - ssh is what `git` ITSELF shells out to for an ssh:// or git@host:
+//     remote (irrelevant for the default HTTPS remote ctxloom seeds).
+//   - ssh-keygen is the tool a user without an existing SSH key would run BY
+//     HAND to make one (`ssh-keygen -t ed25519-sk` — the fix review.go's/
+//     agentkey.go's own messages already suggest); ctxloom never runs it
+//     for them.
+//
+// NEITHER is a signing dependency (an earlier version of this comment/the
+// Detail below wrongly implied both were "for signing" — an audit caught
+// it): ctxloom's signing is pure Go over the ssh-agent protocol
+// (SSH_AUTH_SOCK — internal/signing/agentkey/agentkey.go's dialEnvAgent
+// net.Dial("unix", ...), never exec) and pure-Go sshsig cryptography
+// (internal/signing/sign.go's Sign/Verify, internal/signing/publisher.go's
+// VerifyPublisher — both explicitly documented "no ssh-keygen binary" in
+// their own doc comments). Their absence still warns (worth having,
+// especially ssh-keygen if you don't yet have a key to sign with) but the
+// Detail text below says what they're actually for, not "signing".
+var doctorDepBinariesRecommended = []string{"ssh", "ssh-keygen"}
 
 // doctorEngineBinaries maps each registered engine backend name to the
 // native CLI ctxloom would launch for it, for the DOCTOR-CHECK-DEPS-a1 PATH
@@ -36,6 +64,26 @@ var doctorEngineBinaries = map[string]string{
 	"kiro":        "kiro-cli",
 	"antigravity": "agy",
 	"opencode":    "opencode",
+}
+
+// doctorACPAdapterBinaries maps each backend name to its SEPARATE, npm-
+// installed ACP adapter binary — DISTINCT from doctorEngineBinaries' own
+// client binary above. References the SAME exported constants internal/
+// claude/chat.go and internal/codex/chat.go check host PATH against at
+// Chat() time (claude.ClaudeACPAdapter, codex.CodexACPAdapter) rather than
+// duplicating the string literal a second time here.
+//
+// kiro and opencode carry NO entry: both speak ACP NATIVELY (`kiro-cli acp`
+// — internal/kiro/chat.go; `opencode acp` — internal/opencode/chat.go), so
+// there is no separate adapter binary for this check to probe — their own
+// client binary (doctorEngineBinaries) is the only thing structured chat
+// needs from them. antigravity ALSO carries no entry: its Chat()
+// (internal/antigravity/chat.go) is a bespoke prose driver over `agy -p`
+// directly — no ACP, no adapter subprocess at all, just the same `agy`
+// client binary doctorEngineBinaries already checks.
+var doctorACPAdapterBinaries = map[string]string{
+	"claude-code": claude.ClaudeACPAdapter,
+	"codex":       codex.CodexACPAdapter,
 }
 
 // DoctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
@@ -52,14 +100,15 @@ type DoctorReport struct {
 	Checks []DoctorCheck `json:"checks"`
 }
 
-// doctorDepsOnlyFlag backs --deps: scopes the report to ONLY the DEPS-a1
-// system-binary probe (git/ssh/ssh-keygen/container runtime/each configured
-// engine's client) — the machine-level question that's true-or-false
-// regardless of whether a project has been set up yet. init's PRIME and the
-// setup skill's phase 1 run in THIS mode: full `doctor` on a brand-new,
-// never-set-up project is a wall of expected-missing state (no agents, no
-// profiles, no hooks wired) that would needlessly alarm a user at the very
-// start of the setup that's about to configure those things.
+// doctorDepsOnlyFlag backs --deps: scopes the report to ONLY the machine-
+// capability probes (DEPS-a1's git/ssh/ssh-keygen/container runtime/each
+// configured engine's client, SIGNKEY-k1, GITIDENT-l2, and ACPADAPTER-m3) —
+// questions that are true-or-false regardless of whether a project has been
+// set up yet. init's PRIME and the setup skill's phase 1 run in THIS mode:
+// full `doctor` on a brand-new, never-set-up project is a wall of
+// expected-missing state (no agents, no profiles, no hooks wired) that
+// would needlessly alarm a user at the very start of the setup that's about
+// to configure those things.
 var doctorDepsOnlyFlag bool
 
 var doctorCmd = &cobra.Command{
@@ -67,15 +116,18 @@ var doctorCmd = &cobra.Command{
 	Short: "Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)",
 	Long: `Run ctxloom's deterministic setup checks — this IS the init-as-skill setup
 skill's Phase 6 postcondition check (init-as-skill.plan.md §8.2): the
-.ctxloom marker + config validity; required binaries on PATH (signing tools,
-git, each configured engine's own client, and a container runtime); whether every
-configured agent resolves (profile composition + engine/runtime) and the
-roster is non-empty; the seeded dependency lockfile parses and a real context
-assembly succeeds; hooks AND MCP registration per configured backend; the
-trust store's signers; and companion detection + loadout probing
-(taskloom/ltk/...). Each line is prefixed with a DOCTOR-CHECK-* marker — the
-SAME vocabulary the "ctxloom-doctor" Agent Skill uses, so a human or an LLM
-reading either surface sees one language.
+.ctxloom marker + config validity; required binaries on PATH (git, each
+configured engine's own client, a container runtime, and — recommended, not
+required — ssh/ssh-keygen); whether the ACP adapter binary (claude-code-acp/
+codex-acp) each configured claude-code/codex engine needs for HOST-runtime
+structured chat is present; whether every configured agent resolves (profile
+composition + engine/runtime) and the roster is non-empty; the seeded
+dependency lockfile parses and a real context assembly succeeds; hooks AND
+MCP registration per configured backend; the trust store's signers; and
+companion detection + loadout probing (taskloom/ltk/...). Each line is
+prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
+"ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
+surface sees one language.
 
 Version currency has no dedicated check here (best-effort, skill-guided):
 compare 'ctxloom version' against your remote's newest tag by hand, or ask
@@ -86,11 +138,12 @@ Nori's config.toml, VSCode acp-client, Toad, ...): client verification is
 that config's own AGENT's re-read + live connect, never this command's job —
 ctxloom stays unbound to any one frontend (init-as-skill.plan.md §6).
 
---deps scopes the report to ONLY the system-binary dependency probe (git,
-ssh/ssh-keygen, a container runtime, and any already-configured engine's
-client) — no agents/profiles/hooks/trust checks, so it reads clean on a
-project that hasn't been set up yet. This is the mode init's PRIME and the
-setup skill's phase 1 use, before there's anything else to check.
+--deps scopes the report to ONLY the machine-capability probes (git/ssh/
+ssh-keygen, a container runtime, any already-configured engine's client and
+its ACP adapter if it needs one, signing-key readiness, and git identity) —
+no agents/profiles/hooks/trust checks, so it reads clean on a project that
+hasn't been set up yet. This is the mode init's PRIME and the setup skill's
+phase 1 use, before there's anything else to check.
 
 Diagnostic only: always exits 0, never blocks or changes anything. A "warn"
 status IS this command's fail-loud signal — read the report, don't grep the
@@ -101,11 +154,19 @@ exit code.`,
 		cfg, cfgErr := GetConfig()
 		var checks []DoctorCheck
 		if doctorDepsOnlyFlag {
-			checks = []DoctorCheck{doctorCheckDeps(cfg)}
+			checks = []DoctorCheck{
+				doctorCheckDeps(cfg),
+				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+				doctorCheckACPAdapter(cfg),
+			}
 		} else {
 			checks = []DoctorCheck{
 				doctorCheckSetupMarker(cfg, cfgErr),
 				doctorCheckDeps(cfg),
+				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+				doctorCheckACPAdapter(cfg),
 				doctorCheckAgents(ctx, cfg, cfgErr),
 				doctorCheckVersion(),
 				doctorCheckHooksTrust(ctx, cfg, cfgErr),
@@ -142,14 +203,24 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 	return out
 }
 
-// doctorCheckDeps probes PATH for ssh/ssh-keygen (signing), git (worktree
-// isolation + remote clone/pull + init/manage install's own clone), each
-// configured engine's native client, and a reachable container runtime.
+// doctorCheckDeps probes PATH for git (worktree isolation + remote clone/
+// pull + init/manage install's own clone), each configured engine's native
+// client, and a reachable container runtime — all genuinely REQUIRED — plus
+// ssh/ssh-keygen, which are RECOMMENDED but not required (see
+// doctorDepBinariesRecommended's doc for why: ctxloom never execs either;
+// signing is pure Go). The two buckets are reported separately so "missing"
+// never conflates an optional convenience with a real hard dependency.
 func doctorCheckDeps(cfg *config.Config) DoctorCheck {
-	var missing []string
-	for _, bin := range doctorDepBinaries {
+	var missingRequired []string
+	for _, bin := range doctorDepBinariesRequired {
 		if _, err := exec.LookPath(bin); err != nil {
-			missing = append(missing, bin)
+			missingRequired = append(missingRequired, bin)
+		}
+	}
+	var missingRecommended []string
+	for _, bin := range doctorDepBinariesRecommended {
+		if _, err := exec.LookPath(bin); err != nil {
+			missingRecommended = append(missingRecommended, bin)
 		}
 	}
 	for _, engine := range doctorConfiguredEngines(cfg) {
@@ -158,19 +229,276 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 			continue
 		}
 		if _, err := exec.LookPath(bin); err != nil {
-			missing = append(missing, fmt.Sprintf("%s (%s)", bin, engine))
+			missingRequired = append(missingRequired, fmt.Sprintf("%s (%s)", bin, engine))
 		}
 	}
 	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
-		missing = append(missing, "docker/podman (container runtime)")
+		missingRequired = append(missingRequired, "docker/podman (container runtime)")
 	}
-	if len(missing) == 0 {
+	if len(missingRequired) == 0 && len(missingRecommended) == 0 {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "ok",
-			Detail: "ssh/ssh-keygen, git, every configured engine's client, and a container runtime are all on PATH"}
+			Detail: "git, every configured engine's client, and a container runtime are all on PATH (required); ssh and ssh-keygen are also present (recommended: ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand — signing itself is pure Go and never execs either)"}
 	}
-	sort.Strings(missing)
-	return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn",
-		Detail: "missing: " + strings.Join(missing, ", ")}
+	sort.Strings(missingRequired)
+	sort.Strings(missingRecommended)
+	var parts []string
+	if len(missingRequired) > 0 {
+		parts = append(parts, "missing (required): "+strings.Join(missingRequired, ", "))
+	}
+	if len(missingRecommended) > 0 {
+		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
+	}
+	return DoctorCheck{Marker: "DOCTOR-CHECK-DEPS-a1", Status: "warn", Detail: strings.Join(parts, "; ")}
+}
+
+// doctorCheckSignKey is a machine-capability probe like DOCTOR-CHECK-DEPS-a1
+// (included in --deps scope): it asks whether a signing IDENTITY would
+// resolve right now, using the EXACT SAME resolver `ctxloom review`'s
+// approve path AND `ctxloom sign`/`--sign` both use (internal/signing/
+// agentkey.Discoverer.Discover — see review.go's resolveReviewSigner and
+// sign.go's runSign) rather than re-deriving discovery here. Read-only:
+// Discover only lists ssh-agent identities (agent.Agent.Signers/List over
+// SSH_AUTH_SOCK), it never signs or reads private key bytes.
+//
+// This is NOT publishing-only: approving reviewed content (`ctxloom review`)
+// countersigns the approval record with this same identity, and review is a
+// normal part of setup (pulling/approving a seeded remote's content), not
+// something only publishers do. Absence is still never a hard failure —
+// review degrades to an explicit unsigned-approval confirmation rather than
+// blocking (spec §9.5) — but it is a WARN, not silent, because a project that
+// only ever consumes ALREADY-trusted/embedded content (the common case: the
+// seeded ctxloom-default remote is pre-trusted, nothing to approve) genuinely
+// has no need for one; this is advisory, same posture as the ssh-keygen/
+// container-runtime warns beside it. Surfacing it here (and in init PRIME's
+// checkSystemDeps, see init.go) beats a user hitting agentkey.NoKeyError or
+// the unsigned-approval prompt cold at their first real `ctxloom review`/
+// `ctxloom sign`.
+func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
+	const marker = "DOCTOR-CHECK-SIGNKEY-k1"
+	explicit := ""
+	if cfg != nil {
+		explicit = cfg.SignKey()
+	}
+	ok, detail := signKeyResolutionDetail(ctx, discoverer, explicit)
+	if ok {
+		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+	}
+	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+}
+
+// signKeyResolutionDetail runs internal/signing/agentkey's real resolution
+// chain (explicit --key/sign.key, then `git config user.signingkey`, then
+// ssh-agent's sole identity — agentkey.go's package doc) and renders the
+// outcome as a short, actionable line. Shared between doctorCheckSignKey and
+// init PRIME's checkSystemDeps (init.go) so both surfaces say the exact same
+// thing about the exact same resolver, rather than drifting apart.
+//
+// ok=true names the resolved key the way sign.go's printSignResult already
+// does ("<source> (<fingerprint>)") — the same presentation `ctxloom sign`
+// itself prints when it actually signs something.
+//
+// ok=false distinguishes the three shapes agentkey.Discover can fail with,
+// observed directly from agentkey_test.go / this package's own tests:
+//   - AmbiguousKeyError: ssh-agent holds MULTIPLE identities and nothing
+//     (git config user.signingkey, sign.key) narrowed the choice — Discover
+//     deliberately never guesses, it names every candidate instead.
+//   - AmbiguousKeyNameError: an explicit --key/sign.key NAME matched more
+//     than one agent identity's comment.
+//   - NoKeyError (or any other error, e.g. an unreadable git-configured key
+//     file): nothing resolves at all.
+// In every failure shape, the WHY (approving reviewed content and
+// publishing/signing your own content both need an identity; merely
+// consuming already-trusted/embedded content does not) is stated once,
+// alongside the concrete fix.
+func signKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discoverer, explicit string) (ok bool, detail string) {
+	discovered, err := discoverer.Discover(ctx, explicit)
+	if err == nil {
+		return true, fmt.Sprintf("signing key resolves via %s (%s)", discovered.Source, discovered.Fingerprint)
+	}
+
+	const why = "needed to approve reviewed content (`ctxloom review`) and to publish or sign your own content (`ctxloom sign`) — merely consuming already-trusted/embedded content does not require a signing key"
+
+	var ambig *agentkey.AmbiguousKeyError
+	if errors.As(err, &ambig) {
+		names := make([]string, 0, len(ambig.Candidates))
+		for _, c := range ambig.Candidates {
+			name := c.Fingerprint
+			if c.Comment != "" {
+				name = c.Comment + " (" + c.Fingerprint + ")"
+			}
+			names = append(names, name)
+		}
+		return false, fmt.Sprintf(
+			"ambiguous: ssh-agent holds %d identities and none is picked by `git config user.signingkey` or `sign.key` — %s; disambiguate with `ctxloom config set sign.key <name>` or `git config user.signingkey <path>`: %s",
+			len(ambig.Candidates), why, strings.Join(names, ", "))
+	}
+
+	var ambigName *agentkey.AmbiguousKeyNameError
+	if errors.As(err, &ambigName) {
+		return false, fmt.Sprintf(
+			"ambiguous: sign.key %q matches %d ssh-agent identities — %s; narrow the name or use a SHA256: fingerprint instead",
+			ambigName.Name, len(ambigName.Candidates), why)
+	}
+
+	var noKey *agentkey.NoKeyError
+	if errors.As(err, &noKey) {
+		reason := ""
+		if noKey.Detail != "" {
+			reason = " (" + noKey.Detail + ")"
+		}
+		return false, fmt.Sprintf(
+			"no signing key resolves%s — %s; run `ssh-add ~/.ssh/<key>` with your intended key loaded, set `sign.key` (`ctxloom config set sign.key <name>`) or `git config user.signingkey <path>`, or generate one: `ssh-keygen -t ed25519`",
+			reason, why)
+	}
+
+	return false, fmt.Sprintf("signing key resolution failed: %s — %s", err.Error(), why)
+}
+
+// gitConfigFunc is agentkey.Discoverer.GitConfig's shape: the one existing
+// generic `git config --get <key>` reader in this codebase (internal/
+// signing/agentkey/agentkey.go's execGitConfig, defaulted by
+// agentkey.NewDiscoverer()) — already used to resolve user.signingkey.
+// doctorCheckGitIdentity reuses it verbatim for user.name/user.email rather
+// than shelling out to git a second, bespoke way.
+type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, ok bool, err error)
+
+// doctorCheckGitIdentity is a machine-capability probe like DOCTOR-CHECK-
+// DEPS-a1/SIGNKEY-k1 (included in --deps scope): it verifies git's commit
+// identity — BOTH user.name AND user.email — is explicitly resolvable via
+// `git config` (any scope: local/global/system; `git config --get` already
+// searches all three, so this asks nothing beyond what git itself would use
+// right now). WHY: agents ctxloom launches do their own work — including
+// their own `git commit` — inside isolated worktrees (internal/lm/isolation/
+// worktree.go's teardown guards, e.g. IsDirty/WorktreeRemove around lines
+// 391/401, exist BECAUSE that uncommitted work must survive teardown; an
+// agent is expected to commit there). Without an explicit identity, a commit
+// either fails outright or git silently derives one from the OS account —
+// misattributing the work to the wrong identity is the actual danger, so
+// "something resolves" is not the bar; "explicitly set" is.
+//
+// Read-only, informational only: like DOCTOR-CHECK-SIGNKEY-k1 beside it,
+// this never blocks — a project that never runs agent worktrees at all has
+// no immediate need, so a bare `ctxloom doctor` there must not manufacture a
+// false alarm.
+func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) DoctorCheck {
+	const marker = "DOCTOR-CHECK-GITIDENT-l2"
+	ok, detail := gitIdentityDetail(ctx, gitConfig)
+	if ok {
+		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+	}
+	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+}
+
+// gitIdentityDetail runs gitConfig for user.name and user.email and renders
+// the outcome as a short, actionable line. Shared between
+// doctorCheckGitIdentity and init PRIME's checkSystemDeps (init.go) so both
+// surfaces say the exact same thing, rather than drifting apart.
+func gitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, detail string) {
+	name, nameOK, nameErr := gitConfig(ctx, "", "user.name")
+	email, emailOK, emailErr := gitConfig(ctx, "", "user.email")
+
+	if nameErr != nil || emailErr != nil {
+		var errs []string
+		if nameErr != nil {
+			errs = append(errs, nameErr.Error())
+		}
+		if emailErr != nil {
+			errs = append(errs, emailErr.Error())
+		}
+		return false, "reading git identity failed: " + strings.Join(errs, "; ")
+	}
+
+	nameSet := nameOK && strings.TrimSpace(name) != ""
+	emailSet := emailOK && strings.TrimSpace(email) != ""
+	if nameSet && emailSet {
+		return true, fmt.Sprintf("git identity resolves: %s <%s>", name, email)
+	}
+
+	var missing []string
+	var fixes []string
+	if !nameSet {
+		missing = append(missing, "user.name")
+		fixes = append(fixes, `git config --global user.name "Your Name"`)
+	}
+	if !emailSet {
+		missing = append(missing, "user.email")
+		fixes = append(fixes, "git config --global user.email you@example.com")
+	}
+	return false, fmt.Sprintf(
+		"git commit identity not fully set (missing: %s) — agents ctxloom launches commit their own work inside isolated worktrees, and without an explicit identity a commit fails or git silently mis-attributes it to whatever the OS account derives; set it: %s",
+		strings.Join(missing, ", "), strings.Join(fixes, "; "))
+}
+
+// doctorCheckACPAdapter is a machine-capability probe like DOCTOR-CHECK-
+// DEPS-a1/SIGNKEY-k1/GITIDENT-l2 (included in --deps scope): the ACP
+// adapter (claude-code-acp, codex-acp) is a SEPARATE npm-installed CLI
+// (needs node), distinct from the engine's own client binary DEPS-a1
+// already checks (doctorEngineBinaries) — internal/claude/chat.go's Chat()
+// (mirrored by internal/codex/chat.go's) HARD-FAILS host-runtime
+// structured chat if the adapter is missing on PATH. Structured chat is the
+// transport for BOTH agent_run cross-engine delegation AND the `ctxloom
+// acp` client surface (the steady-state surface users are pointed at), so a
+// missing adapter silently breaks both even though the raw-CLI bootstrap
+// interview never touches this path.
+//
+// For every CONFIGURED engine with a known separate adapter
+// (doctorACPAdapterBinaries; kiro/opencode/antigravity need none — see that
+// map's doc), this checks the adapter resolves on PATH — reusing the SAME
+// configured-engine enumeration doctorCheckDeps uses for the client binary
+// (doctorConfiguredEngines), never re-deriving "which engines are
+// configured" a second way.
+//
+// Read-only, never blocks: like SIGNKEY-k1/GITIDENT-l2 beside it, a missing
+// adapter is advisory only, and specifically NOT a problem for every agent:
+// a runtime:container agent's image carries its own adapter (chat.go's
+// `req.Runtime != agent.RuntimeContainer` gate — the host process's PATH is
+// never consulted for a containerized run), so the warn below says so
+// explicitly rather than reading as a universal blocker.
+func doctorCheckACPAdapter(cfg *config.Config) DoctorCheck {
+	const marker = "DOCTOR-CHECK-ACPADAPTER-m3"
+	ok, detail := acpAdapterDetail(doctorConfiguredEngines(cfg))
+	if ok {
+		return DoctorCheck{Marker: marker, Status: "ok", Detail: detail}
+	}
+	return DoctorCheck{Marker: marker, Status: "warn", Detail: detail}
+}
+
+// acpAdapterDetail checks, for every engine in configuredEngines that has a
+// known separate ACP adapter (doctorACPAdapterBinaries), whether that
+// adapter binary resolves on PATH, and renders the outcome as a short,
+// actionable line. Shared between doctorCheckACPAdapter and init PRIME's
+// checkSystemDeps (init.go) so both surfaces say the exact same thing about
+// the exact same binaries, rather than drifting apart — mirrors
+// signKeyResolutionDetail/gitIdentityDetail's shared-detail shape above.
+func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
+	type gap struct{ engine, bin string }
+	var applicable []string
+	var gaps []gap
+	for _, engine := range configuredEngines {
+		bin, known := doctorACPAdapterBinaries[engine]
+		if !known {
+			continue
+		}
+		applicable = append(applicable, engine)
+		if _, err := exec.LookPath(bin); err != nil {
+			gaps = append(gaps, gap{engine, bin})
+		}
+	}
+	if len(applicable) == 0 {
+		return true, "no configured engine needs a separate ACP adapter (kiro/opencode speak ACP natively, antigravity has no adapter subprocess at all; claude-code/codex — the only engines that DO need one — are not configured)"
+	}
+	if len(gaps) == 0 {
+		return true, fmt.Sprintf("ACP adapter present for every configured engine that needs one (%s)", strings.Join(applicable, ", "))
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i].engine < gaps[j].engine })
+	var missing, installs []string
+	for _, g := range gaps {
+		missing = append(missing, fmt.Sprintf("%s (%s)", g.bin, g.engine))
+		installs = append(installs, fmt.Sprintf("npm install -g @zed-industries/%s", g.bin))
+	}
+	return false, fmt.Sprintf(
+		"missing ACP adapter: %s — install: %s; needed for HOST-runtime structured chat (agent_run cross-engine delegation and the `ctxloom acp` client surface) — containerized agents (runtime: container) get the adapter from their own image, not host PATH, so this is not a problem for them",
+		strings.Join(missing, ", "), strings.Join(installs, "; "))
 }
 
 // doctorCheckAgents resolves every configured agent (profile composition +
@@ -420,6 +748,6 @@ func renderDoctorReport(out io.Writer, report DoctorReport) error {
 
 func init() {
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
-		"check ONLY system-binary dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients) — skips agents/profiles/hooks/trust, for use before a project has been set up")
+		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients and ACP adapters/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
 	rootCmd.AddCommand(doctorCmd)
 }

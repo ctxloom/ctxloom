@@ -237,13 +237,3 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(dropRef)))
 	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")))
 }
-
-// TestWantsInitReview: empty answer defaults to yes; only an explicit n/no
-// declines.
-func TestWantsInitReview(t *testing.T) {
-	assert.True(t, wantsInitReview(""))
-	assert.True(t, wantsInitReview("y"))
-	assert.True(t, wantsInitReview("sure"))
-	assert.False(t, wantsInitReview("n"))
-	assert.False(t, wantsInitReview(" NO "))
-}

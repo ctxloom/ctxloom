@@ -89,16 +89,16 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	// --- Scenario 2: setup configures, a restart delivers -------------------
 	//
-	// LOCKED text says init's discovery session composes fragments and
-	// offerSessionRelaunch restarts into them. Driving that exact interactive
-	// sequence (a real pty through the whole discovery interview AND the
-	// post-discovery relaunch prompt) was judged not worth the harness
-	// complexity for what these two steps actually need to prove: the
-	// SUBSTITUTED mechanism is a freshly launched `ctxloom run` against the
-	// project the sources were added to — which IS a restart in every
-	// observable sense (a brand-new engine subprocess, resolving the SAME
-	// composed profile fresh) — via runFreshMockSession. See that function's
-	// doc for the exact substitution.
+	// LOCKED text says init's discovery session composes fragments and a
+	// restart delivers them into a real session. init itself has no relaunch
+	// prompt to drive anymore (offerSessionRelaunch was deleted, init-as-skill
+	// slice ④ — init hands off to the setup session's raw CLI/TUI and exits;
+	// re-entry is `/ctxloom-init` or an ACP client, not a relaunch loop), so
+	// what these two steps need to prove is narrower than it once was: a
+	// freshly launched `ctxloom run` against the project the sources were
+	// added to IS a restart in every observable sense (a brand-new engine
+	// subprocess, resolving the SAME composed profile fresh) — via
+	// runFreshMockSession. See that function's doc for the exact substitution.
 	ctx.Step(`^the setup interview composes her agents' profiles from the sources' fragments$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := runOK(w, "profile", "show", "default"); err != nil {

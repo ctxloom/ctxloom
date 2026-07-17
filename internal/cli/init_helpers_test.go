@@ -34,35 +34,6 @@ func TestPickDefaultEngine(t *testing.T) {
 	}
 }
 
-// wantsRelaunch gates the post-discovery handoff into `ctxloom run`. Yes is
-// the default (plain Enter relaunches); only an explicit n/no declines, and
-// unrecognized input falls through to the default rather than aborting.
-func TestWantsRelaunch(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{"empty input defaults to yes", "", true},
-		{"whitespace only defaults to yes", "   ", true},
-		{"explicit yes", "y", true},
-		{"explicit yes word", "yes", true},
-		{"uppercase yes", "Y", true},
-		{"explicit no", "n", false},
-		{"explicit no word", "no", false},
-		{"uppercase no", "N", false},
-		{"no with surrounding whitespace", "  no \n", false},
-		{"unrecognized input falls back to yes", "maybe", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := wantsRelaunch(tt.input); got != tt.want {
-				t.Fatalf("wantsRelaunch(%q) = %v, want %v", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 // selectSoleEngine announces and returns the single available engine. It must
 // consult primary before indexing secondary: when the only engine is a primary
 // one (the common claude-code-only setup) secondary is empty, and indexing it

@@ -23,9 +23,35 @@ in place unless the user actually wants to change it. If the user says
 "skip", acknowledge and move on (or end here) — nothing below is mandatory
 except what phase 2 calls out as required.
 
-## Phase 1 — Orient + scan
+## Phase 1 — Open, orient, scan
 
-**First, scan the current directory** for project indicators:
+**Open the interview by orienting the user** — this is the first thing they
+see, and they may never have used ctxloom. Lead with this (say it in your own
+voice, but keep the substance and the specifics; deliver it briefly, don't
+belabor it):
+
+> I'll help you set ctxloom up for this project. **ctxloom is ACP
+> middleware** — it speaks the Agent Client Protocol on both sides, sitting
+> between the AI client in your editor (Zed, VS Code, and other ACP clients)
+> and the coding engine that actually runs the work (Claude Code, Codex, and
+> others). That middle seat is what lets it add what a bare engine can't:
+> **assembled context** — your standards, tools, and commands as versioned,
+> shareable *profiles* and *bundles* composed into every session, not a
+> hand-kept CLAUDE.md; **many engines behind one interface** — bind different
+> agents to different engines and models and switch without relearning each
+> vendor's CLI; **per-agent isolation** — agents run in containers or git
+> worktrees, so a delegated agent can't reach your host or another agent's
+> state; **cross-engine delegation** — a coordinator agent spawns and collects
+> work from child agents, even ones on a different engine; and **signed,
+> trust-verified context** — bundles pulled from shared remotes carry
+> signatures from publishers you've chosen to trust.
+>
+> Setup takes a few minutes: we'll pick a client to connect through, wire up
+> companions, choose your profiles and agents, and verify it all.
+
+Then lead straight into the scan — don't recite the phase list mechanically.
+
+**Scan the current directory** for project indicators:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
 - Dockerfile, docker-compose.yml, Makefile, justfile
 - .github/ and other CI/CD configs
@@ -180,7 +206,49 @@ way:
   (never claim a write happened without proof); on a re-run, merge with what
   you find rather than re-scaffolding.
 
-### 2d. Verify — the exit criterion
+### 2d. The engine's ACP bridge — third-party code; vet it before installing
+
+An engine that doesn't speak ACP natively (claude, codex) is reached through
+an **ACP bridge**: a separate binary that wraps the engine and translates ACP
+(e.g. `claude-code-acp`, published by Zed Industries; `codex-acp`).
+Native-ACP engines (kiro, opencode) need no bridge. `ctxloom doctor --deps`
+(phase 1) tells you which configured engine is missing its bridge.
+
+**These bridges are NOT ctxloom's code, and ctxloom does not sign or vouch
+for them.** A bridge sits on the ctxloom↔engine seam — it sees the whole
+session: every prompt, every tool call, and whatever credentials or tokens
+live in the engine's environment. That is a higher-trust supply-chain surface
+than a client the user picked for their own editor. So don't install one
+blind — **prompt the user, and vet it first:**
+
+1. **Read the source before installing.** For the specific bridge AND version
+   you'd install, fetch and read its actual source (the npm package contents
+   / its repository at that version) and review it for what a translator has
+   no business doing: network calls to hosts other than the local engine;
+   reading credentials or env beyond what it forwards to the engine; spawning
+   unexpected processes; install/postinstall scripts; code shipped only
+   minified/obfuscated with no readable source. Summarize what you found for
+   the user, plainly — including "I could not fully review X."
+2. **Be honest about the limit.** Reading the repo source does not prove the
+   published package matches it, and you are not a safety guarantee — you are
+   surfacing risk for the user's informed decision. **Pin a specific
+   version** (never a floating `latest`) so what you reviewed is what
+   installs.
+3. **The user installs — never ctxloom, never you silently.** Give the exact
+   pinned command; the user runs or approves it. Same rule as a client
+   binary, plus the vetting step because of where the bridge sits.
+4. **Containers change the exposure, not the trust.** A containerized agent
+   gets its bridge baked into the image, so the bridge runs inside that
+   container's isolation boundary — real containment for the host, though it
+   still sees that session's traffic. A host-runtime agent runs the bridge
+   with the user's full privileges: that's where scrutiny matters most.
+
+If a bridge doesn't clear the user's bar, say so and name the trade rather
+than pushing the install: that engine is still usable host-side via its raw
+CLI, and native-ACP engines (kiro, opencode) need no bridge at all for
+client and delegation work.
+
+### 2e. Verify — the exit criterion
 
 Before moving on: at least one client entry must be **written, re-read back,
 and confirmed well-formed** — and, if practical in this session, proven with

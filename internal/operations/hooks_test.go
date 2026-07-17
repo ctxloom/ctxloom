@@ -746,7 +746,11 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Empty(t, result.ContextHash) // No context hash since no fragments
+	// No PROFILE-sourced fragments, but the always-on builtin isolation
+	// fragment still injects unconditionally (see
+	// TestAssembleContext_InjectsBuiltinIsolationFragment), so a context file
+	// is still written and hashed.
+	assert.NotEmpty(t, result.ContextHash)
 }
 
 // TestApplyHooks_RegenerateContextWithTags tests regenerateContext with profile tags.
@@ -1291,6 +1295,8 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	// No context hash since no fragments were found
-	assert.Empty(t, result.ContextHash)
+	// No profile-tag-matched fragments were found, but the always-on builtin
+	// isolation fragment still injects unconditionally, so a context file is
+	// still written and hashed.
+	assert.NotEmpty(t, result.ContextHash)
 }

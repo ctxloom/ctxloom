@@ -87,3 +87,44 @@ func TestRenderACPAgents_NoAgents(t *testing.T) {
 	assert.Contains(t, buf.String(), "ctxloom")
 	assert.Contains(t, buf.String(), "agent")
 }
+
+// TestAcpAgentsCmd_FormatJSON_EmitsMachineReadableEntries proves the
+// frontend-neutral connection facts (init-as-skill plan §6/§10②) are
+// available as structured JSON via the repo's standard --format json
+// convention (internal/cli/format.go's emit, the same mechanism every other
+// command uses) — a consuming agent parses THIS, not the human/Zed-block
+// text render. This exercises the real emit() path the command's RunE calls
+// (buildACPAgentEntries -> emit), matching the global --format flag's
+// existing json/text branching rather than inventing a parallel --json flag.
+func TestAcpAgentsCmd_FormatJSON_EmitsMachineReadableEntries(t *testing.T) {
+	entries := buildACPAgentEntries([]operations.AgentEntry{
+		{Name: "docs", Engine: "fast", Profiles: []string{"d1", "d2"}},
+		{Name: "reviewer"},
+	}, "/usr/local/bin/ctxloom")
+
+	cmd, buf := formatCmd(formatJSON)
+	require.NoError(t, emit(cmd, entries, func() error {
+		t.Fatal("text renderer must not run in json mode")
+		return nil
+	}))
+
+	var got []acpAgentEntry
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got), "output must be the entries as JSON: %s", buf.String())
+	require.Len(t, got, 3)
+
+	assert.Equal(t, "ctxloom", got[0].Name)
+	assert.Equal(t, "/usr/local/bin/ctxloom", got[0].Command)
+	assert.Equal(t, []string{"acp"}, got[0].Args)
+	assert.Empty(t, got[0].Agent, "the default entry carries no agent name")
+
+	assert.Equal(t, "ctxloom: docs", got[1].Name)
+	assert.Equal(t, "docs", got[1].Agent, "machine consumer reads the agent name from this field")
+	assert.Equal(t, "/usr/local/bin/ctxloom", got[1].Command)
+	assert.Equal(t, []string{"acp", "--agent", "docs"}, got[1].Args, "exact command+args a client would configure")
+	assert.Equal(t, "fast", got[1].Engine)
+	assert.Equal(t, []string{"d1", "d2"}, got[1].Profiles)
+
+	assert.Equal(t, "ctxloom: reviewer", got[2].Name)
+	assert.Equal(t, []string{"acp", "--agent", "reviewer"}, got[2].Args)
+	assert.Empty(t, got[2].Engine, "unset engine stays empty, not a synthesized default")
+}

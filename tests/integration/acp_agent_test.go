@@ -53,9 +53,10 @@ func TestACPAgent_SelfConformance(t *testing.T) {
 	}
 	require.NoError(t, <-done, "the loopback ACP conversation must complete cleanly")
 
-	// ISO3: every session now opens with the always-on posture announcement
-	// (internal/operations/engine_session.go's buildSessionAnnouncement),
-	// delivered as a session/update notification right after session/new —
+	// ISO3/ISO4: every session now opens with the always-on session
+	// initialization summary (internal/operations/engine_session.go's
+	// buildSessionInitSummary), delivered as a session/update notification
+	// right after session/new —
 	// the outer driver has no wire-level way to tell it apart from real
 	// engine content (that's the whole point: no ACP method lets ctxloom
 	// mark a message "system"), so it arrives here as just another assistant

@@ -34,7 +34,7 @@ type fakeEngine struct {
 	replay       []agent.SessionEntry
 	llms         *SessionLLMs
 	commands     *SessionCommands
-	announcement string
+	initSummary  string
 }
 
 func newFakeEngine() *fakeEngine {
@@ -68,7 +68,7 @@ func (f *fakeEngine) chat(contextText string) *EngineChat {
 		Replay:       f.replay,
 		LLMs:         f.llms,
 		Commands:     f.commands,
-		Announcement: f.announcement,
+		InitSummary:  f.initSummary,
 	}
 }
 

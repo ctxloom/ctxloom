@@ -16,6 +16,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,12 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		model           string
 		mcpServers      []agent.ChatMCPServer
 		runtimeAxis     string
+		// fragmentsLoaded names what actually loaded into contextText — set
+		// from ResolvedAgent.Fragments (agent path) or
+		// AssembleContextResult.FragmentsLoaded (bare profile-flow path) below.
+		// Carried through to buildSessionInitSummary (ISO4), which renders it
+		// via namesOrCount (names when short, a count + CLI pointer when long).
+		fragmentsLoaded []string
 		// requestedAgent is the RAW name resolution was attempted against
 		// (flagAgent, or the project's cfg.DefaultAgent when flagAgent was
 		// empty) — hoisted alongside currentAgent so the ISO3 announcement
@@ -147,6 +154,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 				label = rs.Label
 				currentAgent = resolveAgent
 				sessionProfiles = rs.Profiles
+				fragmentsLoaded = rs.Fragments
 				// ISO1: the runtime axis now rides ChatRequest.Runtime into the
 				// engine's StructuredChat call below — a container-bound agent
 				// runs its engine subprocess inside a container (same-path
@@ -171,6 +179,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 				profileLLM = ctxResult.ProfileLLM
 				defaultProfiles = ctxResult.Profiles
 				sessionProfiles = ctxResult.Profiles
+				fragmentsLoaded = ctxResult.FragmentsLoaded
 			}
 
 			label = llmOverride
@@ -319,26 +328,56 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		}
 		return nil, err
 	}
-	// ISO3 (runtime-axis honesty, on top of D-ISO): the editor is structurally
-	// blind to BOTH isolation axes — it handed ctxloom a cwd and got a session
-	// back, with no way to see whether the engine runs in a container or
-	// against a worktree copy. D-ISO already covers the WORKSPACE axis
-	// (aw.announce, worktree-only); this extends the SAME always-on judgment
-	// to also always state the RESOLVED posture on every session, not just
-	// the isolated ones — see buildSessionAnnouncement's doc for the
-	// always-vs-only-when-isolated argument.
+	// ISO3/ISO4 (runtime-axis honesty, on top of D-ISO): the editor is
+	// structurally blind to BOTH isolation axes, the resolved model, the
+	// composed profiles, and everything ctxloom assembled (fragments,
+	// commands, skills, MCP servers) — it handed ctxloom a cwd and got a
+	// session back with no visibility into any of it. D-ISO already covered
+	// the WORKSPACE axis (aw.announce, worktree-only); ISO3 extended that to
+	// always state the resolved isolation posture; ISO4 (this slice) widens
+	// it into the full session initialization summary — see
+	// buildSessionInitSummary's doc for what it reports and why.
 	//
+	// sessionCommands is built once and reused: both the summary text below
+	// and EngineChat.Commands (the ACP available_commands_update surface)
+	// need the same ListCommands result, and this avoids listing twice.
+	sessionCommands := buildSessionCommands(ctx, cfg)
+	var commandNames []string
+	if sessionCommands != nil {
+		commandNames = make([]string, 0, len(sessionCommands.Available))
+		for _, c := range sessionCommands.Available {
+			commandNames = append(commandNames, c.Name)
+		}
+	}
+	skillNames := listSessionSkillNames(ctx, cfg)
+	mcpServerNames := mcpServerNamesFor(mcpServers)
+
 	// AT-CONNECT (not per-turn): this used to ride the Events channel as a
 	// synthetic first entry (announceOnFirstEvent, since deleted) — which
 	// only ever reached the client once a session/prompt actually ran a turn
 	// (acpagent's runTurn is the only Events reader), so a connected editor
 	// that hadn't sent its first prompt yet saw nothing. The text is plain
-	// session data instead: EngineChat.Announcement, delivered by whatever
+	// session data instead: EngineChat.InitSummary, delivered by whatever
 	// frontend hosts this opener as soon as the session itself exists — for
 	// ACP that is a session/update notification emitted right after
 	// session/new|load, before the editor ever gets to send session/prompt
-	// (see acpagent's emitSessionAnnouncement, announce.go).
-	announcement := buildSessionAnnouncement(cfg, backendName, requestedAgent, currentAgent, label, runtimeAxis, aw)
+	// (see acpagent's emitSessionInitSummary, announce.go).
+	initSummary := buildSessionInitSummary(sessionInitSummaryInputs{
+		cfg:             cfg,
+		backendName:     backendName,
+		requestedAgent:  requestedAgent,
+		currentAgent:    currentAgent,
+		label:           label,
+		model:           model,
+		profiles:        sessionProfiles,
+		fragmentsLoaded: fragmentsLoaded,
+		commandNames:    commandNames,
+		skillNames:      skillNames,
+		mcpServerNames:  mcpServerNames,
+		runtimeAxis:     runtimeAxis,
+		workDir:         workDir,
+		aw:              aw,
+	})
 
 	closeOnce := sync.OnceFunc(func() {
 		client.Kill()
@@ -372,9 +411,48 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		Replay:        replay,
 		LLMs:          buildSessionLLMs(cfg, label),
 		WatchChildren: watchChildren,
-		Commands:      buildSessionCommands(ctx, cfg),
-		Announcement:  announcement,
+		Commands:      sessionCommands,
+		InitSummary:   initSummary,
 	}, nil
+}
+
+// listSessionSkillNames surfaces the cwd's installed Agent Skill names
+// (ListSkills — the skill analog of buildSessionCommands' ListCommands, B6a)
+// for the session init summary's "skills" line. Unscoped by profile, exactly
+// like buildSessionCommands' ListCommands call: both are cwd-wide "what's
+// installed" listings, not a per-profile subset — there is no per-session
+// skill-selection concept today, so this is honestly labeled "installed",
+// never "loaded". nil (degrading the summary line to "none") on a listing
+// failure — fault-tolerant like every other assembly step in this opener.
+func listSessionSkillNames(ctx context.Context, cfg *config.Config) []string {
+	res, err := ListSkills(ctx, cfg, ListSkillsRequest{})
+	if err != nil {
+		clidiag.Warn("ctxloom", "acp agent: listing skills for the session init summary: %v", err)
+		return nil
+	}
+	names := make([]string, 0, len(res.Skills))
+	for _, s := range res.Skills {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// mcpServerNamesFor extracts a sorted name list from the session's resolved
+// MCP server set (req.MCPServers plus ctxloom's own managed injection —
+// acpSessionMCPServers) for the init summary's "mcp" line. This is the
+// CONFIGURED set only — what ctxloom is asking the engine to attach — never
+// live connection status: see buildSessionInitSummary's doc for why
+// connection status is not observable at the point this summary is built.
+func mcpServerNamesFor(servers []agent.ChatMCPServer) []string {
+	if len(servers) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(servers))
+	for _, s := range servers {
+		names = append(names, s.Name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // buildSessionCommands surfaces the cwd's ctxloom commands (ListCommands/
@@ -713,77 +791,218 @@ func shouldChainFsUpstream(aw *acpWorkspace, runtimeAxis string) bool {
 	return aw == nil && runtimeAxis == ""
 }
 
-// buildSessionAnnouncement composes ISO3's at-connect honesty message: the
-// RESOLVED posture for this session — which agent bound (or didn't), the
-// RUNTIME axis (host process vs container), and the WORKSPACE axis (the
-// editor's live cwd vs an isolated worktree) — as the ONE string carried on
-// EngineChat.Announcement. It is called unconditionally by OpenEngineSession;
+// sessionInitSummaryInputs bundles every resolved fact
+// buildSessionInitSummary renders. Introduced when the message grew from
+// ISO3's single isolation-posture line into ISO4's full SESSION
+// INITIALIZATION SUMMARY: the RESOLVED engine/model, composed profiles,
+// loaded-fragment set, available commands/skills, the MCP server set
+// ctxloom configured, the permission-forwarding posture, and both isolation
+// axes with their real paths. Every field is a value ALREADY resolved
+// elsewhere in OpenEngineSession — this struct carries them to the pure
+// formatting function below without a 15-parameter signature.
+type sessionInitSummaryInputs struct {
+	cfg            *config.Config
+	backendName    string
+	requestedAgent string
+	currentAgent   string
+	label          string
+	// model is the value that actually reaches the engine (OpenEngineSession's
+	// `model` local, threaded straight onto ChatRequest.Model — see
+	// internal/acp/session.go's spawnEnv, which stamps it under the backend's
+	// OWN env var, e.g. claude's ANTHROPIC_MODEL, only when both the backend
+	// configured one AND req.Model != ""), never the raw config label: a
+	// label like "claude-sonnet" names a CONFIG ENTRY, not a model build.
+	// Empty means ctxloom pinned nothing and the engine falls back to ITS
+	// OWN saved default — said PLAINLY rather than guessed at, because a
+	// model cannot self-report its own generation (it is trained before it
+	// ships; see this package's `busy-vowel` incident notes) — ctxloom is
+	// the one party that actually knows which value was set, or that none
+	// was.
+	model    string
+	profiles []string
+	// fragmentsLoaded, commandNames, skillNames, and mcpServerNames each
+	// render through namesOrCount: short lists (nameListCap or fewer) print
+	// in full, longer ones collapse to a count plus the CLI command that
+	// lists them — the same count-vs-list judgment call applied uniformly,
+	// so a project with a large bundle catalog can't turn this summary into
+	// a wall of text, while the common small-project case still gets to see
+	// real names instead of a bare number.
+	fragmentsLoaded []string
+	commandNames    []string
+	skillNames      []string
+	// mcpServerNames is the CONFIGURED set only (what ctxloom asked the
+	// engine to attach — req.MCPServers plus acpSessionMCPServers' managed
+	// injection) — never live connection status. Status (agent.MCPStatus)
+	// rides agent.ChatSessionInfo on the Events channel, populated only once
+	// the engine's own session/new handshake completes inside internal/acp's
+	// Chat (session.go:129) — which runs in the background relative to
+	// OpenEngineSession's synchronous return here (client.Chat above hands
+	// back channels before that handshake necessarily finishes). Blocking
+	// this summary on the first Events entry to report "connected" would
+	// reintroduce the exact turn-gating bug ISO3 fixed for the isolation
+	// posture (announceOnFirstEvent); reporting "configured" is the honest,
+	// synchronously-knowable fact instead.
+	mcpServerNames []string
+	runtimeAxis    string
+	// workDir is the SAME path OpenEngineSession put on ChatRequest.WorkDir —
+	// req.Cwd for every unisolated/container-only session, or aw.dir once
+	// ISO2 has isolated the WORKSPACE axis to a worktree.
+	workDir string
+	aw      *acpWorkspace
+}
+
+// nameListCap is namesOrCount's short-list threshold: at or under this many
+// entries, print every name (worth reading in full for a typical small
+// project); beyond it, collapse to a count so the summary can't balloon on a
+// project with a large bundle catalog.
+const nameListCap = 8
+
+// namesOrCount renders an assembled name set as either its full contents
+// (short lists) or a bare count plus the CLI command that lists it in full
+// (long ones) — see sessionInitSummaryInputs' doc for why this applies
+// uniformly across fragments/commands/skills/mcp rather than each picking
+// its own convention. "none" when the set is empty (a real, distinct fact
+// from "some but too many to show").
+func namesOrCount(names []string, listCmd string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	if len(names) <= nameListCap {
+		return fmt.Sprintf("%d (%s)", len(names), strings.Join(names, ", "))
+	}
+	return fmt.Sprintf("%d (see `%s`)", len(names), listCmd)
+}
+
+// sessionPermissionsLine is the init summary's "permissions" fact. It is a
+// FIXED string, not a per-session parameter, because OpenEngineSession sets
+// ChatRequest.ForwardPermissions: true unconditionally for every ACP session
+// regardless of agent/engine/posture (see the `client.Chat` call above) — an
+// agent's own declared Permissions/EffectivePermissions (ResolvedAgent) is
+// real config but is NOT what this session actually enforces; reporting it
+// here would name a posture ctxloom never applies on this path. The one true
+// fact, for every posture, is that the connected editor decides every
+// approval in real time.
+const sessionPermissionsLine = "every tool call is forwarded to your editor for a real-time approval decision (this session never auto-bypasses)"
+
+// buildSessionInitSummary composes ISO4's at-connect SESSION INITIALIZATION
+// SUMMARY: the one artifact answering "what did ctxloom assemble on my
+// behalf for this session?" — carried as the single string on
+// EngineChat.InitSummary. It is called unconditionally by OpenEngineSession;
 // this function alone decides how much to say.
 //
-// ALWAYS vs only-when-isolated: this fires on EVERY session, including the
-// fully unisolated host+cwd case — the design judgment ISO3 makes is that
-// "you are NOT isolated" is itself the safety-relevant fact (see the
+// ORDERING is by CONSEQUENCE, not convenience: the agent-not-found WARNING
+// (a hard failure mode) returns first and alone; otherwise the block leads
+// with isolation (the two axes a wrong belief about is actively dangerous —
+// see the `coder`-typo scenario below), then identity (agent/engine/model —
+// what is actually answering your prompts), then what ctxloom assembled on
+// top of that (profiles/fragments/commands/skills/mcp), then the
+// permissions posture. A reader skimming just the first couple of lines
+// still learns the facts that can hurt them if wrong.
+//
+// ALWAYS, not only-when-isolated: this fires on EVERY session, including the
+// fully unisolated host+cwd case — the design judgment ISO3 made, kept here,
+// is that "you are NOT isolated" is itself the safety-relevant fact (see the
 // `coder`-typo scenario in engine_session_iso3_test.go: a user who believes
 // they are sandboxed but silently is not cannot infer that belief is wrong
 // from anything else in the transcript), and a user cannot infer their own
-// posture — the editor that hosts this chat is structurally blind to both
-// axes, per this file's package doc. But an ignored announcement is a
-// worthless one, so the unisolated case — the overwhelming common case —
-// collapses to ONE concise line; only a session that is ACTUALLY isolated
-// (worktree and/or container), or one whose --agent request silently
-// degraded, earns the fuller paragraph.
+// posture — the editor that hosts this chat is structurally blind to it, per
+// this file's package doc. ISO4 widens what gets said (ctxloom's ENTIRE
+// assembled configuration was equally invisible — an editor cannot see
+// resolved model/profiles/fragments/commands/skills/MCP status either, and
+// MCP status in particular has NO OTHER spec-legal home: G13 established it
+// rides `_meta`, which a foreign client may ignore by contract), but keeps
+// the same always-fire, single-artifact-per-connect shape: a session opening
+// dozens of times a day gets ONE block, not a stream of separate messages
+// worth learning to ignore.
+//
+// The container posture's workspace line renders the host→container mount
+// as an explicit MAPPING (both sides shown, not asserted equal in prose):
+// ISO1's Invariant 1 (see internal/lm/isolation/runtime.go's identityMapper,
+// unconditionally in force — no construction path in this codebase installs
+// a non-identity pathMapper today) guarantees isolation.Container's
+// containerWorkspace.dir feeds BOTH RunSpec.WorkDir (via toContainer, the
+// identity function) and the host-side mount source (ExposeIdentical) from
+// that same string — showing "path -> path" lets the reader SEE the
+// identity instead of taking prose's word for it, and can never legitimately
+// show two different strings while this invariant holds.
 //
 // The agent-not-found case returns EARLY with its own dedicated message and
-// never falls through to the axis reporting below: a failed agent
-// resolution (see OpenEngineSession's resolveAgent fallback) never sets
-// currentAgent, sessionProfiles, or runtimeAxis, so there is no isolation
-// axis to report — the session runs the bare, unbound profile flow on the
-// host. This is exactly the ctxloom-acp-2026-07-16 incident this slice
-// exists to stop being invisible: `--agent <typo>` degraded to an unbound
-// session with ONE buried stderr line editors never surface; this makes the
-// SAME degrade impossible to miss in the chat itself. Whether the degrade
-// should instead be a hard failure is task `sandy-boxer`'s decision, not
-// this one — this function only makes today's degrade loud.
-func buildSessionAnnouncement(cfg *config.Config, backendName, requestedAgent, currentAgent, label, runtimeAxis string, aw *acpWorkspace) string {
-	if requestedAgent != "" && currentAgent == "" {
+// never falls through to the summary below: a failed agent resolution (see
+// OpenEngineSession's resolveAgent fallback) never sets currentAgent, so
+// there is no resolved binding to summarize — the session runs the bare,
+// unbound profile flow on the host (workDir is still known and named,
+// though — the session really is running there). This is exactly the
+// ctxloom-acp-2026-07-16 incident this slice exists to stop being invisible:
+// `--agent <typo>` degraded to an unbound session with ONE buried stderr
+// line editors never surface; this makes the SAME degrade impossible to
+// miss in the chat itself. Whether the degrade should instead be a hard
+// failure is task `sandy-boxer`'s decision, not this one — this function
+// only makes today's degrade loud.
+func buildSessionInitSummary(in sessionInitSummaryInputs) string {
+	if in.requestedAgent != "" && in.currentAgent == "" {
 		return fmt.Sprintf(
 			"ctxloom: WARNING — agent %q was requested but NOT FOUND; this session fell "+
 				"back to the plain profile flow instead of refusing to open. NONE of that "+
 				"agent's engine override, composed profiles, permissions posture, or runtime "+
 				"isolation apply — it is running on the HOST, unisolated, against this "+
-				"project's live working directory. Check the agent name (see `ctxloom acp "+
+				"project's live working directory, %s. Check the agent name (see `ctxloom acp "+
 				"agents`) and reconnect.",
-			requestedAgent)
+			in.requestedAgent, in.workDir)
 	}
 
 	agentDesc := "no agent bound (profile flow)"
-	if currentAgent != "" {
-		agentDesc = fmt.Sprintf("agent %q (engine %s)", currentAgent, label)
+	if in.currentAgent != "" {
+		agentDesc = fmt.Sprintf("agent %q (engine %s)", in.currentAgent, in.label)
 	}
 
-	isolatedWorktree := aw != nil && aw.announce != ""
-	isolatedContainer := runtimeAxis == agent.RuntimeContainer
+	isolatedWorktree := in.aw != nil && in.aw.announce != ""
+	isolatedContainer := in.runtimeAxis == agent.RuntimeContainer
 
-	if !isolatedWorktree && !isolatedContainer {
-		// The common case: ONE line, so a session that opens dozens of times a
-		// day never turns into noise a user learns to ignore.
-		return fmt.Sprintf("ctxloom: %s — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.", agentDesc)
-	}
-
-	var runtimeDesc, workspaceDesc string
-	if isolatedContainer {
-		imgDesc := "an auto-selected image"
-		if image := IsolationImageConfig(cfg, backendName).Image; image != "" {
-			imgDesc = "image " + image
+	var isolationDesc string
+	switch {
+	case !isolatedWorktree && !isolatedContainer:
+		isolationDesc = fmt.Sprintf("HOST process (no container); working directory %s (no worktree) — NOT isolated on either axis", in.workDir)
+	default:
+		var runtimeDesc, workspaceDesc string
+		if isolatedContainer {
+			imgDesc := "an auto-selected image"
+			if image := IsolationImageConfig(in.cfg, in.backendName).Image; image != "" {
+				imgDesc = "image " + image
+			}
+			runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — NOT running directly on your host", imgDesc)
+		} else {
+			runtimeDesc = "RUNTIME: a HOST process (no container)"
 		}
-		runtimeDesc = fmt.Sprintf("RUNTIME isolated inside a container (%s) — this engine process is NOT running directly on your host", imgDesc)
-	} else {
-		runtimeDesc = "RUNTIME: a HOST process (no container)"
+		if isolatedWorktree {
+			workspaceDesc = fmt.Sprintf("WORKSPACE isolated to its own git worktree — %s. Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.", in.aw.dir)
+		} else {
+			// Same-path mount (ISO1 Invariant 1) rendered as an explicit
+			// host -> container mapping — see the doc comment above.
+			workspaceDesc = fmt.Sprintf("WORKSPACE mounted identically: host %s -> container %s (no worktree)", in.workDir, in.workDir)
+		}
+		isolationDesc = runtimeDesc + "; " + workspaceDesc
 	}
-	if isolatedWorktree {
-		workspaceDesc = fmt.Sprintf("WORKSPACE isolated to its own git worktree — %s. Your editor's view of this project is NOT touched directly: the engine's edits land in that worktree, and this window stays blind to it unless you open the path yourself. Results return through ctxloom's normal delegated-child assemble/merge flow.", aw.dir)
-	} else {
-		workspaceDesc = "WORKSPACE: this project's live working directory (no worktree) — the container mounts it at the same path, so edits still land where your editor can see them."
+
+	profilesDesc := "none"
+	if len(in.profiles) > 0 {
+		profilesDesc = "[" + strings.Join(in.profiles, ", ") + "]"
 	}
-	return fmt.Sprintf("ctxloom: %s — %s. %s", agentDesc, runtimeDesc, workspaceDesc)
+	modelDesc := "engine default (ctxloom pinned none)"
+	if in.model != "" {
+		modelDesc = in.model
+	}
+
+	lines := []string{
+		"ctxloom: session initialization summary",
+		"  isolation : " + isolationDesc,
+		"  agent     : " + agentDesc,
+		"  model     : " + modelDesc,
+		"  profiles  : " + profilesDesc,
+		"  fragments : " + namesOrCount(in.fragmentsLoaded, "ctxloom run --dry-run") + " loaded into the lead context",
+		"  commands  : " + namesOrCount(in.commandNames, "ctxloom command list") + " available",
+		"  skills    : " + namesOrCount(in.skillNames, "ctxloom skill list") + " installed",
+		"  mcp       : " + namesOrCount(in.mcpServerNames, "ctxloom mcp list") + " configured (connection status is not observable at connect)",
+		"  permissions: " + sessionPermissionsLine,
+	}
+	return strings.Join(lines, "\n")
 }

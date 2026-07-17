@@ -22,7 +22,7 @@ import (
 // isolation.Prepare wiring), and OpenEngineSession end to end via the
 // newACPEngineClient seam (a fake pb.Client, so no real subprocess is
 // spawned). The ISO3 posture announcement itself now rides
-// EngineChat.Announcement (plain session data, not an Events entry) — see
+// EngineChat.InitSummary (plain session data, not an Events entry) — see
 // engine_session_iso3_test.go for its payload proofs.
 
 // --- acpWorkspaceAxis: the posture gate, in isolation -----------------------
@@ -241,7 +241,7 @@ func writeACPTestProject(t *testing.T, workspaceDefault string) string {
 // worktree — proven by inspecting the REAL ChatRequest.WorkDir the fake
 // engine client received (a real directory, distinct from the repo, that is
 // a genuine git checkout) — and the resolved-posture announcement
-// (EngineChat.Announcement, plain session data — not spliced into Events;
+// (EngineChat.InitSummary, plain session data — not spliced into Events;
 // see engine_session_iso3_test.go for the at-connect delivery proof) names
 // that exact path. On Close, the worktree is removed from disk (WIP-safe
 // teardown ran).
@@ -265,7 +265,7 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 	assert.FileExists(t, filepath.Join(client.gotReq.WorkDir, "README.md"), "the worktree is a real checkout")
 	wtDir := client.gotReq.WorkDir
 
-	assert.Contains(t, chat.Announcement, wtDir, "the announcement must name the real worktree path")
+	assert.Contains(t, chat.InitSummary, wtDir, "the init summary must name the real worktree path")
 
 	first := <-chat.Events
 	require.NotNil(t, first.Entry)
@@ -283,10 +283,10 @@ func TestOpenEngineSession_ExplicitAgentWorktree(t *testing.T) {
 // called at all — proving the plain entry doesn't even ATTEMPT isolation —
 // and the engine's real WorkDir is asserted to be the untouched repo root.
 //
-// ISO3: the plain entry now ALSO gets the always-on one-line posture
-// announcement — see
+// ISO3/ISO4: the plain entry now ALSO gets the always-on session
+// initialization summary — see
 // engine_session_iso3_test.go's TestOpenEngineSession_UnisolatedAnnouncesOnce
-// for the payload assertion on that text (EngineChat.Announcement); this
+// for the payload assertion on that text (EngineChat.InitSummary); this
 // test stays focused on its original WorkDir/isolation.Prepare proof.
 func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	resetStrictness(t)
@@ -313,7 +313,7 @@ func TestOpenEngineSession_PlainEntryNeverWorktrees(t *testing.T) {
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir, "the plain entry's engine cwd must stay the live project dir")
 
-	assert.NotEmpty(t, chat.Announcement, "ISO3: the always-on posture announcement is set even for the plain entry")
+	assert.NotEmpty(t, chat.InitSummary, "ISO3/ISO4: the always-on init summary is set even for the plain entry")
 
 	first := <-chat.Events
 	require.NotNil(t, first.Entry)
@@ -341,7 +341,8 @@ func TestOpenEngineSession_ExplicitAgentWithoutWorktreeRequest(t *testing.T) {
 	require.NotNil(t, client.gotReq)
 	assert.Equal(t, repo, client.gotReq.WorkDir, "an --agent session that never asked for a worktree stays on the host cwd")
 
-	assert.Equal(t, `ctxloom: agent "reviewer" (engine mock) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`, chat.Announcement)
+	assert.Contains(t, chat.InitSummary, `agent     : agent "reviewer" (engine mock)`)
+	assert.Contains(t, chat.InitSummary, "HOST process (no container); working directory "+repo+" (no worktree) — NOT isolated on either axis")
 	<-chat.Events // drain the engine's own marker event
 
 	chat.Close()
@@ -376,7 +377,7 @@ func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 	// ISO3: the fail-soft this test drives (an unresolvable --agent) is
 	// exactly the case that must be LOUD in the chat — see
 	// engine_session_iso3_test.go's TestOpenEngineSession_UnknownAgentAnnouncementIsLoud
-	// for the full payload assertion (chat.Announcement); drain the engine's
+	// for the full payload assertion (chat.InitSummary); drain the engine's
 	// own event here so this test doesn't leak it.
 	<-chat.Events
 

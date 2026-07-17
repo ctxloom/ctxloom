@@ -18,7 +18,7 @@ import (
 // (e.g. from inside a turn) would leave found nil here.
 func TestServe_AnnouncementArrivesBeforeSessionNewReply(t *testing.T) {
 	eng := newFakeEngine()
-	eng.announcement = `ctxloom: agent "reviewer" (engine mock) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis.`
+	eng.initSummary = "ctxloom: session initialization summary\n  isolation : HOST process (no container); working directory /proj (no worktree) — NOT isolated on either axis"
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
 
@@ -28,7 +28,7 @@ func TestServe_AnnouncementArrivesBeforeSessionNewReply(t *testing.T) {
 
 	found := findAgentMessageChunkText(t, updates)
 	require.NotEmpty(t, found, "expected an agent_message_chunk session/update notification carrying the posture announcement, queued ahead of the session/new response")
-	assert.Equal(t, eng.announcement, found)
+	assert.Equal(t, eng.initSummary, found)
 }
 
 // TestServe_AnnouncementArrivesBeforeSessionLoadReply mirrors the above for
@@ -37,7 +37,7 @@ func TestServe_AnnouncementArrivesBeforeSessionNewReply(t *testing.T) {
 // before the recorded-history replay notifications.
 func TestServe_AnnouncementArrivesBeforeSessionLoadReply(t *testing.T) {
 	eng := newFakeEngine()
-	eng.announcement = "ctxloom: no agent bound (profile flow) — HOST process (no container), this project's live working directory (no worktree). Not isolated on either axis."
+	eng.initSummary = "ctxloom: session initialization summary\n  agent     : no agent bound (profile flow)"
 	eng.harp = "resumed-harp"
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
@@ -48,7 +48,7 @@ func TestServe_AnnouncementArrivesBeforeSessionLoadReply(t *testing.T) {
 
 	found := findAgentMessageChunkText(t, updates)
 	require.NotEmpty(t, found, "expected the resumed session's own posture announcement ahead of the session/load reply")
-	assert.Equal(t, eng.announcement, found)
+	assert.Equal(t, eng.initSummary, found)
 }
 
 // findAgentMessageChunkText scans notification frames for an
@@ -78,16 +78,16 @@ func findAgentMessageChunkText(t *testing.T, updates []frame) string {
 }
 
 // TestServe_AnnouncementAbsentWhenUnset proves the nil-safe guard
-// (sessionAnnouncementUpdateWire) never fabricates a frame: a test double
-// that leaves EngineChat.Announcement unset ("") emits no agent_message_chunk
-// at all from emitSessionAnnouncement — production always sets it, but this
+// (sessionInitSummaryUpdateWire) never fabricates a frame: a test double
+// that leaves EngineChat.InitSummary unset ("") emits no agent_message_chunk
+// at all from emitSessionInitSummary — production always sets it, but this
 // pins the no-op contract emitUpdate's nil convention promises.
 func TestServe_AnnouncementAbsentWhenUnset(t *testing.T) {
-	eng := newFakeEngine() // announcement left ""
+	eng := newFakeEngine() // init summary left ""
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
 
 	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
 	_, updates := c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
-	assert.Empty(t, findAgentMessageChunkText(t, updates), "an unset announcement must not fabricate an agent_message_chunk frame")
+	assert.Empty(t, findAgentMessageChunkText(t, updates), "an unset init summary must not fabricate an agent_message_chunk frame")
 }

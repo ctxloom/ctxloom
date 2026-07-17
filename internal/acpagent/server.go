@@ -387,12 +387,13 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, rerr)
 		return
 	}
-	// ISO3: the resolved-posture announcement, sent BEFORE the reply — and
-	// therefore before the editor can possibly send session/prompt — so
-	// "you are/aren't isolated" is known at connect, not gated behind a
-	// turn. See announce.go's emitSessionAnnouncement doc for why this can't
-	// ride the engine's Events channel instead.
-	if rerr := s.emitSessionAnnouncement(sess); rerr != nil {
+	// ISO3/ISO4: the session initialization summary, sent BEFORE the reply
+	// — and therefore before the editor can possibly send session/prompt —
+	// so isolation posture, model/profiles/fragments, and commands/skills/
+	// MCP status are all known at connect, not gated behind a turn. See
+	// announce.go's emitSessionInitSummary doc for why this can't ride the
+	// engine's Events channel instead.
+	if rerr := s.emitSessionInitSummary(sess); rerr != nil {
 		reply(nil, rerr)
 		return
 	}
@@ -436,11 +437,12 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		reply(nil, rerr)
 		return
 	}
-	// ISO3: see handleSessionNew's identical call — the resumed session's
-	// (freshly re-dialed engine's) resolved posture announces before
-	// anything else, including the history replay just below: this run's
-	// posture is current-session information, not part of the recorded past.
-	if rerr := s.emitSessionAnnouncement(sess); rerr != nil {
+	// ISO3/ISO4: see handleSessionNew's identical call — the resumed
+	// session's (freshly re-dialed engine's) initialization summary is sent
+	// before anything else, including the history replay just below: this
+	// run's summary is current-session information, not part of the
+	// recorded past.
+	if rerr := s.emitSessionInitSummary(sess); rerr != nil {
 		reply(nil, rerr)
 		return
 	}

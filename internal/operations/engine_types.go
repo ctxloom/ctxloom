@@ -65,21 +65,28 @@ type EngineChat struct {
 	// configured (the session advertises none). See SessionCommands's doc
 	// for how this differs from IR3's engine-side passthrough.
 	Commands *SessionCommands
-	// Announcement is ISO3's resolved-posture text (buildSessionAnnouncement,
-	// engine_session.go) for this session — never "" in production
-	// (OpenEngineSession computes it unconditionally for every posture,
-	// including the fully unisolated common case). It crosses the
+	// InitSummary is ISO3/ISO4's SESSION INITIALIZATION SUMMARY text
+	// (buildSessionInitSummary, engine_session.go) for this session — never
+	// "" in production (OpenEngineSession computes it unconditionally for
+	// every posture, including the fully unisolated common case). It
+	// answers "what did ctxloom assemble on my behalf for this session?":
+	// the resolved isolation posture (ISO3), and — widened in ISO4 — the
+	// resolved engine/model, composed profiles, loaded fragments, available
+	// commands/skills, and the MCP server set ctxloom configured, none of
+	// which an editor or user can otherwise see (MCP status in particular
+	// has NO other spec-legal home: it would otherwise ride `_meta`, which a
+	// foreign client may ignore by contract). It crosses the
 	// operations→acpagent boundary as plain data on this struct, the same
 	// way Modes/LLMs/Commands already do, rather than riding the Events
-	// channel: the posture is a fact about the SESSION, known before the
-	// engine is even dialed, not a fact about any one TURN — and a frontend
-	// (acpagent) that only ever drains Events from inside a turn (see
-	// server.go's runTurn) would otherwise never see it until session/prompt
-	// ran once, exactly the bug this field exists to fix. A frontend decides
-	// how (and whether) to deliver it; acpagent emits it as a session/update
+	// channel: this is a fact about the SESSION, known before the engine is
+	// even dialed, not a fact about any one TURN — and a frontend (acpagent)
+	// that only ever drains Events from inside a turn (see server.go's
+	// runTurn) would otherwise never see it until session/prompt ran once,
+	// exactly the bug this field exists to fix. A frontend decides how (and
+	// whether) to deliver it; acpagent emits it as a session/update
 	// notification immediately after session/new|load, before replying —
-	// see its emitSessionAnnouncement (announce.go).
-	Announcement string
+	// see its emitSessionInitSummary (announce.go).
+	InitSummary string
 }
 
 // SessionCommands surfaces ctxloom's OWN command system (bundle "commands" —

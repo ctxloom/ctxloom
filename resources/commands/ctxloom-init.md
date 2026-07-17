@@ -32,6 +32,15 @@ except what phase 2 calls out as required.
 - Framework-specific files (next.config.js, vite.config.ts, etc.)
 
 **Then check what ctxloom already has configured** — don't guess, enumerate:
+- `ctxloom doctor --deps` — confirm the system tools ctxloom depends on are
+  present (`git`, `ssh-keygen` for signing, a container runtime). A fresh
+  `ctxloom init` already checked this up front (init needs `git` to clone),
+  so this is mainly for the reconfigure path (`/ctxloom-init` in an existing
+  session, which skipped init) — worth re-confirming here, cheaply, before
+  anything below depends on them. (The FULL `ctxloom doctor` report — agents,
+  profiles, hooks, trust — comes at Close, phase 6, once there's real
+  configured state for it to describe; running it now would just be a wall
+  of "not set up yet" on a brand-new project.)
 - `ctxloom agent list` — existing agents (engine↔profile bindings)
 - `ctxloom profile list` — existing local profiles
 - `ctxloom llm list` — configured engines/models (the candidate `--engine`
@@ -39,6 +48,13 @@ except what phase 2 calls out as required.
 - `ctxloom container check` — whether containerized agents are viable here
 - `ctxloom manage status` — hooks/MCP/statusline wiring per backend, plus
   which first-party companions (taskloom, ltk) are on PATH
+
+If the dep check reports something missing, surface it to the user and
+guide them to install it themselves (their own package manager, or the
+tool's docs) before continuing — later phases depend on these. `git` is the
+notable one: it's close to a hard prerequisite (worktrees, and the remote
+pulls phase 4 depends on), so a missing `git` is worth resolving before
+anything else here.
 
 Present a short summary: detected stack, what's already configured, what
 looks missing. That summary is what makes the rest of this interview a

@@ -120,10 +120,10 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^ctxloom offers to restart into her newly configured session$`, func(c context.Context) error {
 		// See the scenario-level comment above: the harness substitutes a
-		// freshly launched `ctxloom run` for the real offerSessionRelaunch
-		// prompt-and-relaunch. Nothing to set up here beyond what "adds ... as
-		// sources" already did; this step and the next act as the seam where a
-		// future harness revision could swap in the real interactive flow.
+		// freshly launched `ctxloom run` for what this Gherkin line describes.
+		// Nothing to set up here beyond what "adds ... as sources" already
+		// did; this step and the next act as the seam where a future harness
+		// revision could swap in the real interactive flow.
 		return nil
 	})
 

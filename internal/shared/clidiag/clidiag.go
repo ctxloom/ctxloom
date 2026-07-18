@@ -1,7 +1,9 @@
 // Package clidiag is the ctxloom family's stderr diagnostic convention:
-// fault-tolerant warnings prefixed "<prog>: warning:". Per the fault-tolerance
+// fault-tolerant warnings prefixed "<prog>: warning:" in text/markdown
+// mode, or one clifmt.WarningEnvelope JSON-Lines object per warning when
+// structured mode is on (see SetStructured). Per the fault-tolerance
 // philosophy, components warn and continue rather than crash, so this is the
-// one place that owns the prefix format. The prog is a parameter (not hardcoded
+// one place that owns both wire shapes. The prog is a parameter (not hardcoded
 // to "ctxloom") so every binary stamps its own name.
 package clidiag
 
@@ -10,21 +12,60 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Line returns the "<prog>: warning: <msg>\n" line without writing it, for
 // callers that need the string itself — dedup keys, or emission deferred to an
-// aggregating writer. Warn and Fwarn are thin wrappers over it, so the format
-// lives in exactly one place.
+// aggregating writer. It always returns the human line, even in structured
+// mode: Warn/Fwarn's dedup key (see onceSeen below) needs one stable identity
+// per distinct message regardless of which wire shape actually gets written.
 func Line(prog, format string, args ...any) string {
 	return fmt.Sprintf(prog+": warning: "+format+"\n", args...)
 }
 
-// Fwarn writes a "<prog>: warning: <msg>" line to w. Best-effort: the write
-// error is dropped (warnings never block), but a wrapping writer that records
-// its own errors (e.g. iox.ErrWriter) still observes the failure.
+// structured gates whether Fwarn/FwarnOnce write the human "<prog>: warning:
+// <msg>" line or a clifmt.WarningEnvelope JSON-Lines object. Off by default,
+// so every existing caller — including taskloom and ltk, which don't parse a
+// --format flag yet — keeps today's plain-text stderr behavior; only the CLI
+// root command flips it on, once, after resolving --format to json/yaml/toml
+// (see cli's PersistentPreRun and clifmt.Format.Structured). A process-wide
+// flag rather than a parameter threaded through clidiag's 100+ call sites —
+// many several layers below any single command's cobra.Command, in
+// coordinator daemons, isolation runners, and background gRPC servers that
+// have no cobra.Command to read a per-invocation format from — because the
+// choice is which wire shape THIS process's stderr speaks for the lifetime
+// of one CLI invocation, not something each individual warn site decides.
+var structured atomic.Bool
+
+// SetStructured turns the process-wide structured-diagnostics channel on or
+// off. Call once, before command work starts.
+func SetStructured(on bool) {
+	structured.Store(on)
+}
+
+// Fwarn writes a "<prog>: warning: <msg>" line to w — or, when structured
+// mode is on, a clifmt.WarningEnvelope as one compact JSON object (see
+// clifmt.EncodeWarning's doc for why the channel is always JSON Lines
+// regardless of the primary --format's json/yaml/toml choice). Best-effort:
+// the write error is dropped (warnings never block), but a wrapping writer
+// that records its own errors (e.g. iox.ErrWriter) still observes the
+// failure.
 func Fwarn(w io.Writer, prog, format string, args ...any) {
-	_, _ = io.WriteString(w, Line(prog, format, args...))
+	fwarn(w, prog, fmt.Sprintf(format, args...))
+}
+
+// fwarn writes msg (already formatted) to w in whichever wire shape
+// structured mode currently selects. Shared by Fwarn and FwarnOnce so the
+// branch lives in exactly one place.
+func fwarn(w io.Writer, prog, msg string) {
+	if structured.Load() {
+		_ = clifmt.EncodeWarning(w, clifmt.WarningEnvelope{Prog: prog, Warning: msg})
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s: warning: %s\n", prog, msg)
 }
 
 // Warn prints a "<prog>: warning: <msg>" line to stderr.
@@ -39,20 +80,22 @@ var (
 	onceSeen = map[string]struct{}{}
 )
 
-// FwarnOnce writes the warning line to w at most once per process for
-// identical formatted content. Repeat diagnostics from independently
-// constructed components — e.g. every subsystem building its own profile
-// loader and re-hitting the same unresolvable parent — collapse to a single
-// line instead of spamming startup. Best-effort like Fwarn.
+// FwarnOnce writes the warning to w at most once per process for identical
+// formatted content, in whichever wire shape structured mode currently
+// selects (see Fwarn). Repeat diagnostics from independently constructed
+// components — e.g. every subsystem building its own profile loader and
+// re-hitting the same unresolvable parent — collapse to a single line
+// instead of spamming startup. Best-effort like Fwarn.
 func FwarnOnce(w io.Writer, prog, format string, args ...any) {
-	msg := Line(prog, format, args...)
+	msg := fmt.Sprintf(format, args...)
+	key := Line(prog, format, args...)
 	onceMu.Lock()
 	defer onceMu.Unlock()
-	if _, seen := onceSeen[msg]; seen {
+	if _, seen := onceSeen[key]; seen {
 		return
 	}
-	onceSeen[msg] = struct{}{}
-	_, _ = io.WriteString(w, msg)
+	onceSeen[key] = struct{}{}
+	fwarn(w, prog, msg)
 }
 
 // WarnOnce prints a "<prog>: warning: <msg>" line to stderr at most once per

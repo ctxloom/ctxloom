@@ -35,6 +35,21 @@ func (f Format) String() string {
 	return string(f)
 }
 
+// Structured reports whether f is one of the data-interchange formats a
+// script parses (json, yaml, toml) rather than one of the two meant for a
+// human terminal (text, markdown). Render uses all five; call sites that
+// gate a machine-readable side channel — clidiag's structured-diagnostics
+// switch is the first one — key off this instead of hand-rolling their own
+// three-way OR.
+func (f Format) Structured() bool {
+	switch f {
+	case FormatJSON, FormatYAML, FormatTOML:
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseFormat maps a user-supplied string (e.g. a --format flag value) to a
 // Format, accepting a couple of common aliases (yml, txt, md). Unrecognized
 // input returns an error wrapping ErrUnsupportedFormat so callers can test

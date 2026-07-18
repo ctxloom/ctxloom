@@ -55,6 +55,7 @@ Examples:
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
+* [ctxloom bundle sign](/reference/cli/ctxloom_bundle_sign/)	 - Sign a local bundle for publication
 * [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again
 * [ctxloom bundle view](/reference/cli/ctxloom_bundle_view/)	 - View bundle content
 

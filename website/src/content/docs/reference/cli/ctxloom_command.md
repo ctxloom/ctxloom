@@ -47,6 +47,5 @@ Examples:
 * [ctxloom command distill](/reference/cli/ctxloom_command_distill/)	 - Distill a command
 * [ctxloom command edit](/reference/cli/ctxloom_command_edit/)	 - Edit a command
 * [ctxloom command list](/reference/cli/ctxloom_command_list/)	 - List all commands
-* [ctxloom command push](/reference/cli/ctxloom_command_push/)	 - Push a bundle to remote
 * [ctxloom command show](/reference/cli/ctxloom_command_show/)	 - Show command content
 

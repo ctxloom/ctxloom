@@ -36,6 +36,10 @@ instead of) live members:
   --part NAME=FILE     include FILE's contents as a labeled part (repeatable)
   --parts-from DIR     include every file in DIR as a part (named by filename)
 
+--map-only is an alias for --no-synthesize: fan out and emit the labeled parts,
+skip the reduce step (the real home of the deprecated top-level 'ctxloom map',
+CLI-primary reorg plan Decision 6).
+
 The task is taken from the arguments, or from stdin when no arguments are given.
 
 Examples:
@@ -45,7 +49,7 @@ Examples:
   git diff | ctxloom weave -p reviewer/a -p reviewer/b -s synthesis
   ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
   ctxloom weave -s synth --parts-from ./collected "merge these findings"
-  ctxloom weave -p a -p b --no-synthesize "just fan out, no reduce"
+  ctxloom weave -p a -p b --map-only "just fan out, no reduce"
 
 ```
 ctxloom weave [flags] [task...]
@@ -58,6 +62,7 @@ ctxloom weave [flags] [task...]
       --concurrency int     Max members to run at once (default 4)
   -h, --help                help for weave
   -l, --llm string          Override the LLM for every member (synthesizer keeps its own llm:)
+      --map-only            Alias for --no-synthesize: emit the labeled parts only, skip synthesis
       --no-synthesize       Emit the labeled parts only; skip synthesis
       --part stringArray    Inject NAME=FILE as a part to synthesize (repeatable)
       --parts-from string   Inject every file in this directory as a part to synthesize

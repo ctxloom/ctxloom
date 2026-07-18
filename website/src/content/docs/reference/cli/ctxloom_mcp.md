@@ -33,8 +33,8 @@ RUNNING AS MCP SERVER:
   the ctxloom CLI, not MCP tools. Task tracking moved to the standalone
   taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.
 
-Manage configured MCP servers and ctxloom's own auto-registration under
-'ctxloom manage mcp'.
+Manage configured MCP servers under 'ctxloom mcp server' and ctxloom's own
+auto-registration under 'ctxloom mcp register'/'ctxloom mcp unregister'.
 
 ```
 ctxloom mcp [flags]
@@ -57,5 +57,8 @@ ctxloom mcp [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom mcp register](/reference/cli/ctxloom_mcp_register/)	 - Enable auto-registration of ctxloom's own MCP server
 * [ctxloom mcp serve](/reference/cli/ctxloom_mcp_serve/)	 - Run as MCP server over stdio
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, add, remove, or show configured MCP servers
+* [ctxloom mcp unregister](/reference/cli/ctxloom_mcp_unregister/)	 - Disable auto-registration of ctxloom's own MCP server
 

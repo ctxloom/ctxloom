@@ -24,8 +24,11 @@ command files, .gitignore, and configuration.
   ctxloom manage status       Show what ctxloom has wired in
   ctxloom manage hooks        Install/uninstall/inspect backend hooks
   ctxloom manage mcp          Manage MCP registration and server configs
-  ctxloom manage config       Show/edit ctxloom configuration
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
+
+Configuration lives at the top-level 'ctxloom config' (CLI-primary reorg plan,
+Decision 6); the duplicate 'manage init' setup entry point was removed, root
+'ctxloom init' is the sole bootstrap.
 
 ### Options
 
@@ -44,12 +47,9 @@ command files, .gitignore, and configuration.
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom manage config](/reference/cli/ctxloom_manage_config/)	 - Show or modify ctxloom configuration
 * [ctxloom manage gitignore](/reference/cli/ctxloom_manage_gitignore/)	 - Maintain ctxloom's .gitignore entries
 * [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
-* [ctxloom manage init](/reference/cli/ctxloom_manage_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and wire hooks, MCP, gitignore, and config
-* [ctxloom manage mcp](/reference/cli/ctxloom_manage_mcp/)	 - Manage ctxloom MCP registration and configured servers
 * [ctxloom manage status](/reference/cli/ctxloom_manage_status/)	 - Show what ctxloom has wired into this project
 * [ctxloom manage statusline](/reference/cli/ctxloom_manage_statusline/)	 - Enable or disable ctxloom's HUD statusline
 * [ctxloom manage uninstall](/reference/cli/ctxloom_manage_uninstall/)	 - Remove ctxloom's hooks, statusline, MCP entry, and command files

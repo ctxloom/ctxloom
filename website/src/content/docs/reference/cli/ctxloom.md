@@ -59,16 +59,15 @@ Run 'ctxloom <command> --help' for details on any command.
 
 * [ctxloom acp](/reference/cli/ctxloom_acp/)	 - ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
-* [ctxloom blacklist](/reference/cli/ctxloom_blacklist/)	 - Reject an item so it is withheld from the agent
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands
+* [ctxloom config](/reference/cli/ctxloom_config/)	 - Show or modify ctxloom configuration
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
-* [ctxloom map](/reference/cli/ctxloom_map/)	 - Run multiple agents/profiles in parallel over one task (fan-out)
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
@@ -76,10 +75,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
-* [ctxloom sign](/reference/cli/ctxloom_sign/)	 - Sign a local bundle for publication
-* [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage trusted signers (allowed_signers)
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
-* [ctxloom tooling](/reference/cli/ctxloom_tooling/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply
 * [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number
 * [ctxloom weave](/reference/cli/ctxloom_weave/)	 - Fan a task across agents/profiles in parallel, then synthesize the results

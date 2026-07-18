@@ -47,7 +47,5 @@ Examples:
 * [ctxloom fragment distill](/reference/cli/ctxloom_fragment_distill/)	 - Distill a fragment
 * [ctxloom fragment edit](/reference/cli/ctxloom_fragment_edit/)	 - Edit a fragment
 * [ctxloom fragment list](/reference/cli/ctxloom_fragment_list/)	 - List all fragments
-* [ctxloom fragment push](/reference/cli/ctxloom_fragment_push/)	 - Push a bundle to remote
-* [ctxloom fragment search](/reference/cli/ctxloom_fragment_search/)	 - Search fragments
 * [ctxloom fragment show](/reference/cli/ctxloom_fragment_show/)	 - Show fragment content
 

@@ -51,22 +51,18 @@ ctxloom run [flags] [prompt...]
 
 ```
       --agent string         Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
+  -r, --command string       Run a saved command by name
   -n, --dry-run              Show command that would be executed
   -f, --fragment strings     Context fragment(s) to include (can be repeated)
   -h, --help                 help for run
   -l, --llm string           config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default
-      --new-session          Start a fresh session without resume. Skips the picker.
-      --no-tasks             When combined with --session, skip task restoration (essence only).
       --permissions string   Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
       --plain-terminal       Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
       --print                Print response and exit (non-interactive mode)
   -p, --profile string       Profile to use (predefined fragment collection)
       --prompt string        Prompt to send to the AI (alternative to positional args)
-  -r, --run-prompt string    Run a saved prompt by name
-      --session string       Resume the named harp session (essence + tasks). Skips the picker.
       --structured           Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \n, \t and quotes are decoded within a line.
   -t, --tag strings          Include fragments with this tag (can be repeated)
-      --tasks-from string    Start a fresh session but hydrate tasks from the named harp session. Skips the picker.
   -v, --verbose count        Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string     Session workspace axis (none|worktree; empty = project default)
   -y, --yes                  Assume yes for the install-on-startup prompt

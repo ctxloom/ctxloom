@@ -1,0 +1,158 @@
+// This file wires the four per-engine importer.VendorAdapter implementations
+// (internal/transcript/importer/{codex,claude,antigravity,kiro}) into the two
+// call sites that actually need a converted transcript: the interactive-pty
+// exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
+// the oneshot exit) and the `session backfill` command (session_cmd.go),
+// which runs the identical conversion over already-indexed old sessions.
+// Closes docs/transcript-schema.md §8's "interactive-pty gap" (task
+// petty-green): an engine driven through its own interactive TUI has no
+// ctxloom memory today because the structured tee (Tee/TeeAndClose) can
+// never reach a pty — this is the missing other half, reading the engine's
+// OWN transcript back after the fact instead.
+package operations
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/transcript/importer"
+	antigravityimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/antigravity"
+	claudeimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/claude"
+	codeximporter "github.com/ctxloom/ctxloom/internal/transcript/importer/codex"
+	kiroimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/kiro"
+)
+
+// vendorLocate resolves the vendor-native transcript locator (the src string
+// importer.VendorAdapter.Convert expects — a bare file path for every engine
+// but kiro, kiro's own "<db-path>#<conversation-id>" composite for it) for
+// one indexed session entry. ok=false means "nothing to convert" — an
+// unbound session, a bind whose file has since vanished, an engine this
+// registry doesn't cover — which is the ordinary case for most entries, not
+// a failure a caller should ever warn about.
+type vendorLocate func(ctx context.Context, e sessions.Entry) (src string, ok bool)
+
+// vendorImportEntry pairs one engine's VendorAdapter with its locate func.
+type vendorImportEntry struct {
+	adapter importer.VendorAdapter
+	locate  vendorLocate
+}
+
+// vendorImportRegistry maps a backend registry name — the SAME name
+// backends.descriptors registers it under (agent.NewBaseBackend's first arg:
+// config.BackendClaudeCode "claude-code", "codex", "kiro", "antigravity"),
+// the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
+// param already carries — to its VendorAdapter + locate pair. This is
+// deliberately the REGISTRY name, not the importer packages' own short test
+// names ("claude"/"codex"/"kiro"/"antigravity" in their _test.go fixtures):
+// using anything else would make a harp's oneshot-mode entries (Engine:
+// "claude-code") and its interactive-mode entries (this file) disagree about
+// which engine wrote a canonical transcript's Engine field.
+//
+// opencode/acp/mock have no entry: opencode's own native reader
+// (internal/opencode/capabilities.go) was never broken and stays wired
+// separately (docs/transcript-schema.md §8's explicit carve-out); acp/mock
+// have no vendor-native transcript store of their own to import from.
+//
+// Three of the four engines PREFER the already-bound transcript path
+// (locateBoundTranscript): the SessionStart bind hook (claude/codex) or the
+// PreToolUse fallback (antigravity) already resolved the vendor file for
+// ctxloom's OWN index — see sessions.Manager.BindSession — so there is no
+// path-derivation logic to duplicate here, and no chance of resurrecting the
+// deleted reader's claude cwd→slug bug (docs/transcript-schema.md §8). kiro
+// is the one exception, wired separately in vendorimport_kiro.go: its bind
+// (on the rare path where one lands at all) is a session_id, not a file
+// path, because a single sqlite db holds every conversation.
+var vendorImportRegistry = map[string]vendorImportEntry{
+	config.BackendClaudeCode: {adapter: claudeimporter.New(), locate: locateBoundTranscript},
+	"codex":                  {adapter: codeximporter.New(), locate: locateBoundTranscript},
+	"antigravity":            {adapter: antigravityimporter.New(), locate: locateBoundTranscript},
+	"kiro":                   {adapter: kiroimporter.New(), locate: locateKiroConversation},
+}
+
+// locateBoundTranscript is the locate func shared by every JSONL-per-session
+// engine (claude/codex/antigravity): sessions.Entry.TranscriptPath already
+// carries the vendor file's path (bound forward by the SessionStart hook or
+// its PreToolUse-fallback equivalent), so this only stats it — a stale or
+// since-removed bind degrades to "not found" rather than handing Convert a
+// dead path to fail on.
+func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
+	if e.TranscriptPath == "" {
+		return "", false
+	}
+	if _, err := os.Stat(e.TranscriptPath); err != nil {
+		return "", false
+	}
+	return e.TranscriptPath, true
+}
+
+// ConvertVendorTranscript imports harp e's vendor-native transcript into
+// ctxloom's canonical transcript.acp.jsonl through a fresh
+// transcript.Recorder, and is the ONE function both the interactive-pty exit
+// seam and `session backfill` call — the same conversion, triggered from two
+// different moments (just-exited vs. already-indexed).
+//
+// converted reports whether an import was actually ATTEMPTED (Convert
+// invoked), not whether it produced any canonical lines — Convert's own
+// degrade-to-partial contract (importer.VendorAdapter's doc comment) means a
+// vendor file that parses to zero real entries is a legitimate outcome, not
+// a signal this function should try to distinguish from "nothing to
+// import." converted=false, err=nil covers every "nothing to do" case: e's
+// backend isn't registered, e has no locatable vendor transcript, or a
+// canonical transcript already exists for the harp.
+//
+// Idempotent BY NON-REPETITION, not by content-diffing: Convert re-reads the
+// vendor source from its own beginning every call (importer.VendorAdapter
+// has no incremental/resume concept — see adapter.go's doc comment on a
+// Recorder that "already has lines written to it"), so calling this twice
+// for the same harp after the first call actually wrote a canonical file
+// would DUPLICATE every entry, not merge them. The guard against that is
+// hasCanonicalTranscript below: once ANY canonical transcript exists for a
+// harp, this is a permanent no-op for it, by design — never "check if the
+// vendor file grew and reconvert."
+//
+// Best-effort at the CALLER's discretion: this function returns a real error
+// when Convert or Recorder construction fails (so a caller can tell "genuinely
+// nothing to import" from "tried and failed" — the two need different UX,
+// silence vs. a warning/report row) — it does not swallow errors itself.
+func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
+	reg, ok := vendorImportRegistry[e.Backend]
+	if !ok || e.HarpName == "" {
+		return false, nil
+	}
+	if hasCanonicalTranscript(e.HarpName) {
+		return false, nil
+	}
+	src, ok := reg.locate(ctx, e)
+	if !ok {
+		return false, nil
+	}
+
+	rec, err := transcript.NewRecorder(e.HarpName, e.Backend)
+	if err != nil {
+		return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
+	}
+	defer func() { _ = rec.Close() }()
+
+	if cerr := reg.adapter.Convert(ctx, rec, src); cerr != nil {
+		return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
+	}
+	return true, nil
+}
+
+// hasCanonicalTranscript reports whether harp already has a canonical
+// transcript.acp.jsonl on disk — ConvertVendorTranscript's idempotency guard
+// (see its doc comment for why presence, not a staleness/mtime comparison,
+// is the right check here).
+func hasCanonicalTranscript(harp string) bool {
+	p, err := paths.HarpCanonicalTranscriptPath(harp)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}

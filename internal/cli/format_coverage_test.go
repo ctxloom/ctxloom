@@ -298,6 +298,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
 	"session forget":      {skip: "not confirmed wired; destructive; not exercised here"},
 	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
+	"session backfill":    {skip: "wired to emit(), but needs an existing session fixture; covered directly by session_backfill_test.go instead"},
 	"config":              {skip: "not wired to emit() yet"},
 	"init":                {skip: "interactive bootstrap interview; not exercised here"},
 }

@@ -1030,12 +1030,60 @@ Examples:
 			}
 		}
 
+		// Interactive-pty exit seam for vendor-transcript import
+		// (docs/transcript-schema.md §8's "interactive-pty gap", petty-green):
+		// the structured tee (transcript.Tee/TeeAndClose) never reaches a pty,
+		// so this is the ONLY place ctxloom can turn the just-exited engine's
+		// OWN transcript into canonical memory. Mirrors oneshotCapture's own
+		// "capture even on a nonzero exit" note just above — a session that
+		// errored out mid-way still has real prior turns worth keeping.
+		// Best-effort exactly like RecordOneshot: a lookup/convert failure
+		// warns, never fails the run.
+		if mode == pb.ExecutionMode_INTERACTIVE {
+			convertVendorTranscriptOnExit(activeHarp)
+		}
+
 		if status.Code != 0 {
 			return &ExitError{Code: int(status.Code)}
 		}
 
 		return nil
 	},
+}
+
+// convertVendorTranscriptOnExit runs the vendor-transcript importer
+// (operations.ConvertVendorTranscript) for an interactive-pty session that
+// just exited. Extracted to its own small, directly-unit-testable function
+// (no goplugin/pty involved) rather than inlined at the call site above,
+// mirroring how transcript.RecordOneshot itself is a standalone function the
+// oneshot branch just calls. A blank harp (no session identity — e.g.
+// AssignSession failed earlier and the run proceeded unharped) or an
+// unindexed harp are silent no-ops; any other lookup/convert failure is
+// warned, never returned, so a transcript-import hiccup can never fail an
+// otherwise-successful interactive run.
+func convertVendorTranscriptOnExit(harp string) {
+	if harp == "" {
+		return
+	}
+	entry, err := operations.GetSession(harp)
+	if err != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
+		return
+	}
+	if entry == nil {
+		return
+	}
+	// A FRESH background context, deliberately NOT the run's own ctx: that
+	// one is signal.NotifyContext-derived (this file's RunE, `ctx, stopSignals
+	// := signal.NotifyContext(...)`), so it is already Done() by the time
+	// this runs whenever the interactive session ended via the same Ctrl-C
+	// that stops most interactive TUIs — arguably the MOST common clean-exit
+	// path. Reusing it would make Convert abort immediately
+	// (importer.VendorAdapter implementations check ctx.Err() up front) on
+	// exactly the sessions this hook most needs to capture.
+	if _, cerr := operations.ConvertVendorTranscript(context.Background(), *entry); cerr != nil {
+		clidiag.Warn("ctxloom", "vendor transcript import: %v", cerr)
+	}
 }
 
 // mergeWorkspaceEnv layers the isolation-resolved per-engine config-home env

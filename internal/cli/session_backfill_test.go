@@ -1,0 +1,109 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+)
+
+// execRootCmd runs the real cobra command tree exactly as a shell invocation
+// would (rootCmd.SetArgs + Execute), capturing stdout into a fresh buffer and
+// restoring rootCmd's IO/args afterward — mirrors session_full_test.go's own
+// TestEmitSessionRows_FullJSON_IsStructuredAndUnpaged pattern.
+func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
+	t.Helper()
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs(args)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	err = rootCmd.Execute()
+	return out.String(), err
+}
+
+// TestSessionBackfill_NoArgs_ConvertsBoundEntries covers the "backfill
+// everything" shape: one harp with a real bound vendor transcript converts,
+// one with nothing bound is skipped — both reported in the json result.
+func TestSessionBackfill_NoArgs_ConvertsBoundEntries(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+
+	converts, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(converts.HarpName, "sess-1", claudeVendorFixturePath(t)))
+
+	skips, err := mgr.AssignHarp(dir, "codex")
+	require.NoError(t, err)
+	_ = skips // never bound — nothing to locate
+
+	out, err := execRootCmd(t, "session", "backfill", "--format", "json")
+	require.NoError(t, err)
+
+	var result struct {
+		Converted []string          `json:"converted"`
+		Skipped   int               `json:"skipped"`
+		Failed    map[string]string `json:"failed"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &result), "output must be clean JSON: %s", out)
+	assert.Equal(t, []string{converts.HarpName}, result.Converted)
+	assert.Equal(t, 1, result.Skipped)
+	assert.Empty(t, result.Failed)
+	assert.True(t, canonicalTranscriptExists(t, converts.HarpName))
+}
+
+// TestSessionBackfill_NamedHarp covers backfilling a single named harp
+// rather than the whole index.
+func TestSessionBackfill_NamedHarp(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
+
+	out, err := execRootCmd(t, "session", "backfill", entry.HarpName, "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, out, "converted: "+entry.HarpName)
+	assert.Contains(t, out, "1 converted, 0 skipped, 0 failed")
+	assert.True(t, canonicalTranscriptExists(t, entry.HarpName))
+}
+
+// TestSessionBackfill_UnknownHarp errors clearly rather than silently doing
+// nothing, matching `session distill`'s convention for the same case.
+func TestSessionBackfill_UnknownHarp(t *testing.T) {
+	testsupport.ProjectDir(t)
+	_, err := execRootCmd(t, "session", "backfill", "no-such-harp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no-such-harp")
+}
+
+// TestSessionBackfill_Idempotent_ReRun covers the command's own doc-comment
+// claim ("safe to re-run at any time"): a second run over an already-fully-
+// converted index reports zero converted, and does not touch the canonical
+// file it already wrote.
+func TestSessionBackfill_Idempotent_ReRun(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
+
+	_, err = execRootCmd(t, "session", "backfill", "--format", "text")
+	require.NoError(t, err)
+
+	out, err := execRootCmd(t, "session", "backfill", "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, out, "0 converted, 1 skipped, 0 failed")
+}

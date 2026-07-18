@@ -344,18 +344,55 @@ reads opencode's own documented CLI surface rather than a private file — and
 stays wired as the fallback leg for interactive-opencode sessions (memory
 "mimic-cli-native-surfaces").
 
-The consequence, stated plainly: **a session driven through an engine's own
-interactive TUI (not through ctxloom's structured/ACP chat) has no ctxloom
-memory.** No canonical transcript is captured for it (the tee cannot reach a
-pty), and there is no importer left to backfill one from the engine's native
-file after the fact. This is a deliberate, honest scope cut for
-v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
-(interactive-session memory), deferred post-pre1. It affects only the
-interactive-pty path; every structured/ACP session (the default for `ctxloom
-run`) and every oneshot `Execute` run are captured as described in §5.
+The consequence, stated plainly (as of the scraper-removal commit): **a
+session driven through an engine's own interactive TUI (not through
+ctxloom's structured/ACP chat) has no ctxloom memory.** No canonical
+transcript is captured for it (the tee cannot reach a pty), and — at that
+point in time — there was no importer left to backfill one from the
+engine's native file after the fact. This was a deliberate, honest scope cut
+for v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
+(interactive-session memory).
+
+**Update (writer-a-wiring, closing petty-green's importer half):** the four
+per-engine `importer.VendorAdapter` implementations this section's own
+successor work built (`internal/transcript/importer/{codex,claude,
+antigravity,kiro}`) are now WIRED IN, closing the gap described above for
+the two moments that matter:
+
+- **On exit of an interactive `ctxloom run`** (`internal/cli/run.go`'s
+  `convertVendorTranscriptOnExit`, hooked right where `transcript.
+  RecordOneshot` captures the oneshot-Execute regime): if the just-exited
+  harp's backend has a resolvable vendor transcript and no canonical one yet,
+  it is converted through the SAME `transcript.Recorder` sink the live tee
+  writes through. Best-effort (a convert failure warns, never fails the
+  run) and idempotent (a harp that already has a canonical transcript is
+  never reconverted — see `operations.ConvertVendorTranscript`'s doc
+  comment for why presence, not staleness, is the right check).
+- **`ctxloom session backfill [<harp>]`** runs the identical conversion over
+  already-indexed sessions — old sessions from before this wiring existed,
+  or ones whose exit-seam import failed — instead of a just-exited one.
+  Safe to re-run at any time for the same idempotency reason.
+
+The engine→adapter+locate registry (`internal/operations/vendorimport.go`)
+prefers each harp's already-bound `sessions.Entry.TranscriptPath` (the
+SessionStart bind hook, or its PreToolUse-fallback equivalent for
+antigravity) for codex/claude/antigravity — sidestepping the very cwd→slug
+bug this section describes above. kiro is the one exception
+(`vendorimport_kiro.go`): its bind, where one lands at all, is a
+session_id, not a file path, so its locate falls back to
+`kiroimporter.EnumerateConversations` matched by project dir — a
+best-effort heuristic, not a guarantee (two concurrent kiro-cli sessions in
+the same project dir within the same window are indistinguishable by that
+signal).
+
+**opencode remains excluded** from all of the above, unchanged from this
+section's original scope: it never had a broken reader to replace and keeps
+its own native `opencode session list`/`opencode export` reader as the
+interactive-session fallback.
 
 Sessions indexed before this release, or created only through an
-interactive-pty run, have no canonical transcript and therefore nothing to
-distill, recover, or browse via `ctxloom session`/the memory MCP tools — that
-memory is gone, not migrated. There is no automatic backfill from the old
-per-engine files.
+interactive-pty run, had no canonical transcript and nothing to distill,
+recover, or browse via `ctxloom session`/the memory MCP tools — until the
+backfill command above is run against them. `session backfill` (with no
+harp argument) is the automatic backfill from the old per-engine files this
+section originally said did not exist.

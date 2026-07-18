@@ -62,6 +62,20 @@ var (
 	runAssumeYes     bool
 	runSeedTask      string
 	runSeedStatus    string
+	// runResumeSession/runResumeDistill are the two deterministic-resume flags
+	// (restored after WS-4/5 removed all flag-based resume + the interactive
+	// picker — see resolveResumeIntentWith's deletion in c7cddd9). Unlike the
+	// old picker-era flags (--tasks-from/--new-session/--no-tasks), this is a
+	// single axis with two modes:
+	//   --session <harp>            full resume: the harp's full recorded
+	//                                transcript is folded into THIS run's
+	//                                assembled context (resumeFullContext).
+	//   --session <harp> --distill  distilled resume: the harp's essence
+	//                                (distilling on demand if missing) rides
+	//                                the CTXLOOM_RESUMED_FROM/PARTS + SessionStart
+	//                                -hook essence path (resumeDistillEnv).
+	runResumeSession string
+	runResumeDistill bool
 )
 
 // dryRunJSON is the --format json shape for `run --dry-run`: the resolved
@@ -205,6 +219,67 @@ func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(st
 	}
 }
 
+// validateResumeFlags rejects --distill without --session up front (friction
+// like an unknown --llm/--permissions): --distill only modifies HOW --session
+// resumes, so it is meaningless on its own.
+func validateResumeFlags(session string, distill bool) error {
+	if distill && session == "" {
+		return fmt.Errorf("--distill requires --session <harp>")
+	}
+	return nil
+}
+
+// resumeFullContext is the full-resume mode's context source: it folds the
+// resumed harp's full recorded transcript into the assembled context BEFORE
+// it is split into fragments, via the SAME primitives the ACP resume path
+// already uses (operations.RecordedSessionEntries + RenderResumedTranscript +
+// JoinLeadBlocks — see internal/operations/engine_session.go's acp resume and
+// coord/spawner.go's ResumeContext). entriesFn is the IoC seam (production:
+// operations.RecordedSessionEntries bound to the run's ctx) so this is
+// testable without a live session index or backend transcript reader.
+//
+// Fault-tolerant (CLAUDE.md): an unresolvable or unbound harp (unknown to the
+// index, no bound transcript) warns and returns existing unchanged — a typo'd
+// or stale --session must never block the launch.
+func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.SessionEntry, error)) string {
+	entries, err := entriesFn(harp)
+	if err != nil {
+		clidiag.Warn("ctxloom", "resume %s: no recorded history to prime (%v); starting with the assembled context only", harp, err)
+		return existing
+	}
+	return operations.JoinLeadBlocks(existing, operations.RenderResumedTranscript(harp, entries))
+}
+
+// resumeDistillEnv is the distilled-resume mode's env source: the
+// CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that hook_inject_context.go's
+// resumedEssenceForInjection (SessionStart hook) and mcp_server.go's
+// sessionInstructions already know how to consume — the exact mechanism the
+// pre-WS-4/5 picker-driven --session resume used. PARTS is "session" (not
+// "tasks" — task restoration was removed along with the picker and is not
+// coming back here) so resumePartsIncludeSession's essence gate opens.
+//
+// essenceFn/distillFn mirror distillSessionOnExit's own injection (production:
+// readHarpEssence/shellOutDistill — the SAME `session distill` compactor path
+// as the exit-time auto-distill, session_cmd.go's runSessionDistill/
+// compactEntry/memory.NewCompactor) so distill-on-demand is unit-testable
+// without shelling out. A distill failure warns rather than blocking launch;
+// the SessionStart hook's own readHarpEssence call then simply finds nothing
+// and omits the essence block.
+func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error) map[string]string {
+	if _, err := essenceFn(harp); err != nil {
+		// Unbounded context.Background(): unlike the exit-path distill
+		// (FINDING #3), this runs before the session's terminal is handed to
+		// the user, not after process exit — no shell to unblock.
+		if dErr := distillFn(context.Background(), harp); dErr != nil {
+			clidiag.Warn("ctxloom", "could not distill %s for resume essence: %v", harp, dErr)
+		}
+	}
+	return map[string]string{
+		"CTXLOOM_RESUMED_FROM":  harp,
+		"CTXLOOM_RESUMED_PARTS": "session",
+	}
+}
+
 // resolveSelfExecutable returns the path to use when re-invoking ctxloom
 // from inside a running ctxloom process, surviving in-place upgrades that
 // unlink the executing inode. The logic lives in internal/selfexec so the
@@ -263,12 +338,19 @@ Verbosity levels (-v can be repeated):
   -vv     Show command arguments
   -vvv    Show debug output
 
+Use --session <harp> to deterministically resume a prior harp-named session:
+its full recorded transcript is folded into this run's assembled context.
+Add --distill to resume via the session's distilled essence instead
+(distilling on demand first if one doesn't exist yet).
+
 Examples:
   ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"
   ctxloom run -p reviewer -f extra-rules "review this PR"
   ctxloom run -t security "check for vulnerabilities"
-  ctxloom run -vv -p developer "debug mode"`,
+  ctxloom run -vv -p developer "debug mode"
+  ctxloom run --session swift-amber-falcon
+  ctxloom run --session swift-amber-falcon --distill`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Fail-loudly gate: checkpoint before any startup choke fires, so every
 		// fatal finding collected across config load, sync, and assembly is
@@ -280,6 +362,9 @@ Examples:
 		// is a hard error before any work, so a typo can't silently resolve to a
 		// more permissive default. Config-sourced postures stay fault-tolerant.
 		if err := validatePermissionFlag(runPermissions); err != nil {
+			return err
+		}
+		if err := validateResumeFlags(runResumeSession, runResumeDistill); err != nil {
 			return err
 		}
 
@@ -508,6 +593,23 @@ Examples:
 			sessionWorkspace = cfg.Workspace
 		}
 
+		// --session (full resume — no --distill): prime the assembled context
+		// with the resumed harp's full recorded transcript before it's split
+		// into fragments below. This rides the SAME assembled-context path
+		// every other context source (--agent/default agent/-p/-f/-t) already
+		// goes through — the SessionStart hook's inject-context reads it back
+		// from the content-addressed cache file this context ultimately
+		// writes to (agent.WriteContextFile), same as a normal launch.
+		// --distill takes the essence path instead (below, once activeHarp is
+		// assigned) — the two are mutually exclusive per validateResumeFlags'
+		// sibling gate (neither flag depends on the other's outcome, so no
+		// gate is needed here beyond the runResumeDistill check itself).
+		if runResumeSession != "" && !runResumeDistill {
+			ctxResult.Context = resumeFullContext(ctxResult.Context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
+				return operations.RecordedSessionEntries(ctx, h)
+			})
+		}
+
 		// Convert context content to proto fragments
 		var protoFragments []*pb.Fragment
 		if ctxResult.Context != "" {
@@ -631,6 +733,28 @@ Examples:
 		} else {
 			activeHarp = entry.HarpName
 			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+			// --session --distill: distilled resume via the harp's essence
+			// (distilling on demand first if missing) — see resumeDistillEnv's
+			// doc for the full mechanism. Full resume (--session without
+			// --distill) already folded its transcript into ctxResult.Context
+			// above, so it doesn't ride this env pair for content — it still
+			// sets CTXLOOM_RESUMED_FROM/PARTS="transcript" so
+			// mcp_server.go's sessionInstructions surfaces the "resumed
+			// from" note, but with a PARTS value resumePartsIncludeSession
+			// rejects, so the SessionStart hook's essence injection stays a
+			// no-op for this mode (the content already rode the context
+			// path, not the essence path — no double-injection).
+			switch {
+			case runResumeSession != "" && runResumeDistill:
+				for k, v := range resumeDistillEnv(runResumeSession, readHarpEssence, shellOutDistill) {
+					runEnv[k] = v
+				}
+				fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)
+			case runResumeSession != "":
+				runEnv["CTXLOOM_RESUMED_FROM"] = runResumeSession
+				runEnv["CTXLOOM_RESUMED_PARTS"] = "transcript"
+				fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
+			}
 			// Start-session display (WS-5): a read-only summary of this session,
 			// printed BEFORE the engine spawns. previous, below, is resolved via
 			// the SAME primitive the get_previous_session MCP tool reads — never
@@ -1295,6 +1419,13 @@ func init() {
 	runCmd.MarkFlagsMutuallyExclusive("structured", "print")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
+
+	// Deterministic resume (two modes; see resumeFullContext/resumeDistillEnv):
+	// bare --session folds the harp's full recorded transcript into this run's
+	// assembled context; --session --distill resumes via its distilled essence
+	// instead, distilling on demand first if one doesn't exist yet.
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.")
+	runCmd.Flags().BoolVar(&runResumeDistill, "distill", false, "With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.

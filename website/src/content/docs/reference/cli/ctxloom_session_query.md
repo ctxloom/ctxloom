@@ -33,6 +33,7 @@ ctxloom session query <word>... [flags]
 
 ```
       --all    Search sessions from every project (default: filter to cwd)
+      --full   Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)
   -h, --help   help for query
 ```
 

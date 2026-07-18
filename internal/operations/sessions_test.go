@@ -62,11 +62,27 @@ func TestSelectPreviousEntry(t *testing.T) {
 	t.Run("skips entries not yet bound to a session id", func(t *testing.T) {
 		ref := selectPreviousEntry([]sessions.Entry{
 			{HarpName: "self", SessionID: "s-self"},
-			{HarpName: "pending", SessionID: ""}, // bound harp, no session yet
+			{HarpName: "pending", SessionID: ""}, // bound harp, no session AND no canonical yet
 			{HarpName: "prev", SessionID: "s-prev", Backend: "claude-code"},
 		}, "self")
 		require.NotNil(t, ref)
 		assert.Equal(t, "s-prev", ref.SessionID)
+	})
+
+	t.Run("selects canonical-only (ACP) entry and carries its harp", func(t *testing.T) {
+		// An ACP-launched session never binds a backend SessionID; its only
+		// materialization key is the harp's own canonical transcript. Such an
+		// entry must be selectable (not treated as still-pending), and the harp
+		// must ride through so the caller can distill by harp.
+		ref := selectPreviousEntry([]sessions.Entry{
+			{HarpName: "self", SessionID: "s-self"},
+			{HarpName: "acp-prev", SessionID: "", Backend: "opencode",
+				CanonicalTranscriptPath: "/home/u/.ctxloom/sessions/acp-prev/transcript.acp.jsonl"},
+		}, "self")
+		require.NotNil(t, ref)
+		assert.Equal(t, "acp-prev", ref.Harp, "canonical entry must carry its harp for by-harp distillation")
+		assert.Empty(t, ref.SessionID, "ACP entry has no backend session id")
+		assert.Equal(t, "opencode", ref.Backend)
 	})
 
 	t.Run("nil when only the active harp exists", func(t *testing.T) {

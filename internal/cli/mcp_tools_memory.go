@@ -427,6 +427,15 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	// calling through the shared coordinator server resolves ITS previous
 	// session, not the host process's.
 	if ref, rerr := operations.ResolvePreviousSession(workDir, s.self.Harp); rerr == nil && ref != nil {
+		// Canonical/ACP previous session: no backend session id was ever bound
+		// (an ACP engine records only the harp's own captured transcript), so
+		// there is nothing for a backend store to reassemble. Materialize it by
+		// harp — the backend GetSession path can't read a canonical transcript,
+		// and ref.Backend here may be an ACP engine that isn't a registered
+		// backend at all, so it must not reach the backends.Exists gate below.
+		if ref.SessionID == "" && ref.Harp != "" {
+			return s.previousSessionByHarp(ctx, ref.Harp)
+		}
 		sessionID = ref.SessionID
 		if ref.Backend != "" {
 			backendName = ref.Backend
@@ -470,6 +479,88 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	}
 
 	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, false)
+}
+
+// previousSessionByHarp materializes a canonical/ACP previous session — one
+// with no backend SessionID, whose only source is the harp's own captured
+// transcript and whose essence lives at ~/.ctxloom/sessions/<harp>/essence.md
+// (NOT the legacy sessionID-keyed <sessionsDir>/<id>.md the backend path reads
+// via LoadDistilledSession). It mirrors loadOrDistillSession's cache-then-
+// distill shape, keyed by harp instead of session id:
+//
+//   - fresh essence on disk (source transcript hasn't grown past it) -> reuse
+//   - missing or stale essence                                        -> distill
+//
+// Distillation goes through compactEntry, which resolves the canonical
+// transcript by HarpName and writes essence under the harp dir — fixing the
+// old bug where a canonical session's essence was written to a sessionID-keyed
+// path under the project workdir (viral-equal). get_previous_session keeps an
+// indeterminate cache (a finished session rarely changes), the same bias the
+// backend path applies with redistillWhenUnknown=false.
+//
+// The caller's in.Model override is intentionally NOT threaded here: compactEntry
+// distills with cfg.GetCompactionModel(), and plumbing a per-call model through
+// it is out of this fix's scope (deferred — see the task log).
+func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp string) (*mcp.CallToolResult, *loadSessionResult, error) {
+	entry, err := operations.GetSession(harp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lookup harp %q: %w", harp, err)
+	}
+	if entry == nil {
+		return nil, &loadSessionResult{
+			Loaded:  false,
+			Message: "No previous session found for this project.",
+		}, nil
+	}
+
+	// Cached path: reuse the essence unless the source transcript has grown past
+	// the size stamped at distill time. SourceStale compares against the
+	// canonical transcript (enriched onto the entry by operations.GetSession/
+	// Find), the same file compactEntry distills from.
+	if data, rerr := readHarpEssence(harp); rerr == nil {
+		if stale, known := entry.SourceStale(); !(known && stale) {
+			return nil, &loadSessionResult{
+				Loaded:    true,
+				SessionID: entry.SessionID, // empty for ACP; not load-bearing
+				Content:   string(data),
+				WasCached: true,
+				CreatedAt: entry.StartedAt.Format("2006-01-02 15:04:05"),
+			}, nil
+		}
+	}
+
+	// On the host-relay path this runs on the coordinator's deadline-less base
+	// context; bound the work to the relay's distill budget so a wedged LLM
+	// subprocess can't hold the singleflight entry open forever (see
+	// distillSession for the full rationale).
+	if _, has := ctx.Deadline(); !has {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
+		defer cancel()
+	}
+	res, err := s.singleflightDistill(harp+"\x00canonical", func() (*loadSessionResult, error) {
+		if _, derr := compactEntry(ctx, entry, s.cfg, io.Discard); derr != nil {
+			return &loadSessionResult{
+				Loaded:  false,
+				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
+			}, nil
+		}
+		data, rerr := readHarpEssence(harp)
+		if rerr != nil {
+			return &loadSessionResult{
+				Loaded:  false,
+				Message: fmt.Sprintf("Distilled %s but couldn't read its essence back: %v", harp, rerr),
+			}, nil
+		}
+		return &loadSessionResult{
+			Loaded:    true,
+			SessionID: entry.SessionID,
+			Content:   string(data),
+			WasCached: false,
+			CreatedAt: entry.StartedAt.Format("2006-01-02 15:04:05"),
+		}, nil
+	})
+	return nil, res, err
 }
 
 // previousSessionFromMtime is the last-resort pick for get_previous_session

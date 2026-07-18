@@ -277,7 +277,9 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.AppDir)
-		if stale, known := e.SourceStale(); distilled && !(known && stale) {
+		stale, known := e.SourceStale()
+		knownStale := known && stale
+		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
 		if _, err := compactEntry(ctx, e, s.cfg, io.Discard); err != nil {
@@ -518,7 +520,9 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp string) (*mc
 	// canonical transcript (enriched onto the entry by operations.GetSession/
 	// Find), the same file compactEntry distills from.
 	if data, rerr := readHarpEssence(harp); rerr == nil {
-		if stale, known := entry.SourceStale(); !(known && stale) {
+		stale, known := entry.SourceStale()
+		knownStale := known && stale
+		if !knownStale {
 			return nil, &loadSessionResult{
 				Loaded:    true,
 				SessionID: entry.SessionID, // empty for ACP; not load-bearing

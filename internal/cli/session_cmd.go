@@ -436,7 +436,9 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := sessionEssenceInfo(e.HarpName, e, appDir)
-		if stale, known := e.SourceStale(); distilled && !(known && stale) {
+		stale, known := e.SourceStale()
+		knownStale := known && stale
+		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
 		// Situate in the entry's project dir before loading config / reading the

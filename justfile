@@ -332,6 +332,9 @@ test-vendor-antigravity:
 test-vendor-kiro:
     go test -race ./internal/transcript/importer/kiro/...
 
+test-vendor-claude:
+    go test -race ./internal/transcript/importer/claude/...
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

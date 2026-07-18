@@ -24,45 +24,69 @@ var (
 // between the flag registration and anywhere else this needs restating.
 const signKeyFlagHelp = "explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)"
 
-var signCmd = &cobra.Command{
-	Use:   "sign [ref]",
-	Short: "Sign a local bundle for publication",
-	Long: `Sign a local bundle file, writing a detached <bundle>.yaml.sig sibling that
+// signCmdLong is shared by signCmd (deprecated top-level alias) and
+// bundleSignCmd (the real home, Decision 1/4: `sign` -> `bundle sign`).
+const signCmdLong = `Sign a local bundle file, writing a detached <bundle>.yaml.sig sibling that
 lets anyone who trusts your key verify the bundle came from you (signature-
 envelope spec §3.1, §4.2).
 
-ref is a bundle ref or an item ref — the same grammar 'ctxloom trust' uses.
-A publisher signature covers the whole bundle FILE, so an item ref
+ref is a bundle ref or an item ref — the same grammar 'ctxloom trust accept'
+uses. A publisher signature covers the whole bundle FILE, so an item ref
 ("<bundle>#fragments/<name>") resolves to its CONTAINING bundle and signs
-that; ctxloom sign says so.
+that; ctxloom bundle sign says so.
 
 Key discovery is zero-config: it tries 'git config user.signingkey' first
 (anyone who already signs commits with SSH needs no ctxloom setup at all),
 then the sole identity in ssh-agent when there is exactly one. --key (or
-'ctxloom manage config set sign.key') overrides both, and accepts a
+'ctxloom config get sign.key') overrides both, and accepts a
 SHA256:... fingerprint, a path to a public key, or a ssh-agent key's
 comment/name (matched case-insensitively, substring OK — e.g. "ben@abbitt"
 for "ben@abbitt.me"). ctxloom never reads, generates, or stores private key
 material — every signature is produced by your existing ssh-agent.
 
 Examples:
-  ctxloom sign my-tools                          # bare = local bundle (the common case)
-  ctxloom sign my-tools#fragments/go-testing      # resolves to bundle my-tools
-  ctxloom sign --all                              # every local bundle this project publishes
-  ctxloom sign my-tools --key ~/.ssh/id_ed25519.pub
-  ctxloom sign my-tools --key ben@abbitt.me       # match by ssh-agent key comment`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		ref := ""
-		if len(args) > 0 {
-			ref = args[0]
-		}
-		return runSign(cmd, cfg, agentkey.NewDiscoverer(), ref, signAllFlag, signKeyFlag)
-	},
+  ctxloom bundle sign my-tools                          # bare = local bundle (the common case)
+  ctxloom bundle sign my-tools#fragments/go-testing      # resolves to bundle my-tools
+  ctxloom bundle sign --all                              # every local bundle this project publishes
+  ctxloom bundle sign my-tools --key ~/.ssh/id_ed25519.pub
+  ctxloom bundle sign my-tools --key ben@abbitt.me       # match by ssh-agent key comment`
+
+var signCmd = &cobra.Command{
+	Use:        "sign [ref]",
+	Short:      "Sign a local bundle for publication",
+	Long:       signCmdLong,
+	Deprecated: signDeprecation,
+	Args:       cobra.MaximumNArgs(1),
+	RunE:       runSignCmd,
+}
+
+// signDeprecation is the one-line pointer cobra prints whenever the legacy
+// top-level `ctxloom sign` still runs.
+const signDeprecation = "use `ctxloom bundle sign` instead"
+
+// runSignCmd is the RunE shared by signCmd (deprecated alias) and
+// bundleSignCmd (the real home) — a cobra command has exactly one parent, so
+// the reorg's new home is a distinct command sharing this body (mirrors
+// registerACPServerFlags' rationale in acp_cmd.go).
+func runSignCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	ref := ""
+	if len(args) > 0 {
+		ref = args[0]
+	}
+	return runSign(cmd, cfg, agentkey.NewDiscoverer(), ref, signAllFlag, signKeyFlag)
+}
+
+// bundleSignCmd is the real home of `ctxloom sign` (Decision 1/4).
+var bundleSignCmd = &cobra.Command{
+	Use:   "sign [ref]",
+	Short: "Sign a local bundle for publication",
+	Long:  signCmdLong,
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runSignCmd,
 }
 
 // signCmdResult is emit()'s result for `ctxloom sign`: one entry per bundle
@@ -178,4 +202,9 @@ func init() {
 	rootCmd.AddCommand(signCmd)
 	signCmd.Flags().BoolVar(&signAllFlag, "all", false, "sign every local bundle this project publishes")
 	signCmd.Flags().StringVar(&signKeyFlag, "key", "", signKeyFlagHelp)
+
+	// Real home (bundleCmd.AddCommand(bundleSignCmd) itself lives in
+	// bundle.go, which assembles the whole bundle subtree).
+	bundleSignCmd.Flags().BoolVar(&signAllFlag, "all", false, "sign every local bundle this project publishes")
+	bundleSignCmd.Flags().StringVar(&signKeyFlag, "key", "", signKeyFlagHelp)
 }

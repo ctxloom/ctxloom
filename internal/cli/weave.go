@@ -54,6 +54,10 @@ instead of) live members:
   --part NAME=FILE     include FILE's contents as a labeled part (repeatable)
   --parts-from DIR     include every file in DIR as a part (named by filename)
 
+--map-only is an alias for --no-synthesize: fan out and emit the labeled parts,
+skip the reduce step (the real home of the deprecated top-level 'ctxloom map',
+CLI-primary reorg plan Decision 6).
+
 The task is taken from the arguments, or from stdin when no arguments are given.
 
 Examples:
@@ -63,7 +67,7 @@ Examples:
   git diff | ctxloom weave -p reviewer/a -p reviewer/b -s synthesis
   ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
   ctxloom weave -s synth --parts-from ./collected "merge these findings"
-  ctxloom weave -p a -p b --no-synthesize "just fan out, no reduce"`,
+  ctxloom weave -p a -p b --map-only "just fan out, no reduce"`,
 	RunE: runWeave,
 }
 
@@ -195,6 +199,10 @@ func init() {
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
 	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis")
+	// --map-only is an alias for --no-synthesize sharing the same bool var
+	// (CLI-primary reorg plan, Decision 6: `map` -> `weave --map-only`), the
+	// real home of the deprecated top-level `ctxloom map`.
+	weaveCmd.Flags().BoolVar(&weaveNoSynth, "map-only", false, "Alias for --no-synthesize: emit the labeled parts only, skip synthesis")
 	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 
 	_ = weaveCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

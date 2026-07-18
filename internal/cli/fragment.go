@@ -123,15 +123,23 @@ var fragmentDistillForce bool
 
 var fragmentSearchTags []string
 
+// fragmentSearchDeprecation is the one-line pointer cobra prints whenever
+// `ctxloom fragment search` still runs (CLI-primary reorg plan, Decision 4:
+// `fragment search` -> `search --type fragment`).
+const fragmentSearchDeprecation = "use `ctxloom search --type fragment` instead"
+
 var fragmentSearchCmd = &cobra.Command{
-	Use:   "search [query]",
-	Short: "Search fragments",
+	Use:        "search [query]",
+	Short:      "Search fragments",
+	Deprecated: fragmentSearchDeprecation,
 	Long: `Search for fragments by name or tags.
 
 Examples:
   ctxloom fragment search cache           # Search by name
   ctxloom fragment search -t golang       # Search by tag
-  ctxloom fragment search -t golang,testing  # Search by multiple tags`,
+  ctxloom fragment search -t golang,testing  # Search by multiple tags
+
+DEPRECATED: use 'ctxloom search --type fragment' instead.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		query := ""
@@ -150,9 +158,15 @@ var (
 	fragmentPushNoSign  bool
 )
 
+// fragmentPushDeprecation is the one-line pointer cobra prints whenever
+// `ctxloom fragment push` still runs (CLI-primary reorg plan, Decision 4:
+// `fragment push` -> `bundle push`).
+const fragmentPushDeprecation = "use `ctxloom bundle push` instead"
+
 var fragmentPushCmd = &cobra.Command{
-	Use:   "push <bundle> [remote]",
-	Short: "Push a bundle to remote",
+	Use:        "push <bundle> [remote]",
+	Short:      "Push a bundle to remote",
+	Deprecated: fragmentPushDeprecation,
 	Long: `Push a bundle containing fragments to a remote repository.
 
 This publishes the entire bundle (which contains fragments, prompts, etc.)
@@ -160,7 +174,7 @@ to the specified remote.
 
 --sign publishes a detached signature alongside the bundle (signature-
 envelope spec §3.1) so anyone who trusts your key can verify it came from
-you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+you, using the same zero-config key discovery 'ctxloom bundle sign' uses. Set
 'sign.default: true' in config to make every push sign unless --no-sign is
 given for one invocation — the best signing ceremony is the one that
 already happened.
@@ -169,7 +183,9 @@ Examples:
   ctxloom fragment push my-bundle
   ctxloom fragment push my-bundle ctxloom-default
   ctxloom fragment push my-bundle --pr
-  ctxloom fragment push my-bundle --sign`,
+  ctxloom fragment push my-bundle --sign
+
+DEPRECATED: use 'ctxloom bundle push' instead.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""

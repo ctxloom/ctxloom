@@ -34,17 +34,11 @@ command files, .gitignore, and configuration.
   ctxloom manage status       Show what ctxloom has wired in
   ctxloom manage hooks        Install/uninstall/inspect backend hooks
   ctxloom manage mcp          Manage MCP registration and server configs
-  ctxloom manage config       Show/edit ctxloom configuration
-  ctxloom manage gitignore    Maintain ctxloom's .gitignore entries`,
-}
+  ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
-// --- manage init (canonical home of `ctxloom init`) ------------------------
-
-var manageInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize a new .ctxloom directory",
-	Long:  initCmd.Long,
-	RunE:  runInit,
+Configuration lives at the top-level 'ctxloom config' (CLI-primary reorg plan,
+Decision 6); the duplicate 'manage init' setup entry point was removed, root
+'ctxloom init' is the sole bootstrap.`,
 }
 
 // --- manage install / uninstall / status -----------------------------------
@@ -306,23 +300,30 @@ var manageHooksStatusCmd = &cobra.Command{
 
 // --- manage mcp -------------------------------------------------------------
 
+// manageMcpCmd is kept as a working alias namespace (CLI-primary reorg plan,
+// Decision 3: `manage mcp install/uninstall` -> `mcp register/unregister`,
+// `manage mcp servers *` -> `mcp server *`). Its leaves carry the real cobra
+// Deprecated field; this parent stays undecorated (memoryCmd's shape) so
+// Deprecated doesn't hide the whole subtree from `--help`.
 var manageMcpCmd = &cobra.Command{
 	Use:   "mcp",
-	Short: "Manage ctxloom MCP registration and configured servers",
+	Short: "Manage ctxloom MCP registration and configured servers — moved under `ctxloom mcp`",
 }
 
 var manageMcpInstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Enable auto-registration of ctxloom's own MCP server",
-	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), true) },
+	Use:        "install",
+	Short:      "Enable auto-registration of ctxloom's own MCP server",
+	Deprecated: mcpRegisterDeprecation,
+	Args:       cobra.NoArgs,
+	RunE:       func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), true) },
 }
 
 var manageMcpUninstallCmd = &cobra.Command{
-	Use:   "uninstall",
-	Short: "Disable auto-registration of ctxloom's own MCP server",
-	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), false) },
+	Use:        "uninstall",
+	Short:      "Disable auto-registration of ctxloom's own MCP server",
+	Deprecated: mcpUnregisterDeprecation,
+	Args:       cobra.NoArgs,
+	RunE:       func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd.Context(), false) },
 }
 
 // setMcpAutoRegister toggles ctxloom's MCP auto-registration and prints the
@@ -395,7 +396,64 @@ func setStatusline(ctx context.Context, enabled bool) error {
 	return nil
 }
 
-// --- manage config / gitignore ----------------------------------------------
+// --- manage config (deprecated alias namespace) -----------------------------
+//
+// `manage config *` -> top-level `config *` (CLI-primary reorg plan, Decision
+// 6). configCmd itself is now the top-level command (wired in config.go);
+// these are distinct leaf commands sharing its RunE bodies — a cobra command
+// has exactly one parent, so config.go's configCmd can't also hang off
+// manageCmd. manageConfigCmd (the parent) stays undecorated, like memoryCmd,
+// so Deprecated on it wouldn't hide the leaves below from `--help`.
+var manageConfigCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Show or modify ctxloom configuration — moved to top-level `ctxloom config`",
+	Long: `DEPRECATED: this command group moved to the top-level ` + "`ctxloom config`" + `.
+Each subcommand below still runs and prints a one-line pointer to its new home.
+
+Show or modify ctxloom configuration.`,
+}
+
+const (
+	manageConfigShowDeprecation = "use `ctxloom config show` instead"
+	manageConfigGetDeprecation  = "use `ctxloom config get` instead"
+	manageConfigEditDeprecation = "use `ctxloom config edit` instead"
+	manageConfigInitDeprecation = "use `ctxloom config init` instead"
+)
+
+var manageConfigShowCmd = &cobra.Command{
+	Use:        "show",
+	Short:      "Show full configuration",
+	Deprecated: manageConfigShowDeprecation,
+	RunE:       runConfigShow,
+}
+
+var manageConfigGetCmd = &cobra.Command{
+	Use:        "get <section>",
+	Short:      "Get a configuration section",
+	Long:       configGetLong,
+	Args:       cobra.ExactArgs(1),
+	Deprecated: manageConfigGetDeprecation,
+	RunE:       runConfigGet,
+}
+
+var manageConfigEditCmd = &cobra.Command{
+	Use:        "edit",
+	Short:      "Open config.yaml in $EDITOR",
+	Args:       cobra.NoArgs,
+	Deprecated: manageConfigEditDeprecation,
+	RunE:       runConfigEdit,
+}
+
+var manageConfigInitCmd = &cobra.Command{
+	Use:        "init",
+	Short:      "Scaffold a default config.yaml (and remotes.yaml)",
+	Long:       configInitLong,
+	Args:       cobra.NoArgs,
+	Deprecated: manageConfigInitDeprecation,
+	RunE:       runConfigInit,
+}
+
+// --- manage gitignore --------------------------------------------------------
 
 var manageGitignoreCmd = &cobra.Command{
 	Use:   "gitignore",
@@ -421,11 +479,6 @@ var manageGitignoreInstallCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(manageCmd)
 
-	// manage init (canonical) shares runInit + the init flag set with the
-	// top-level `ctxloom init` alias.
-	manageCmd.AddCommand(manageInitCmd)
-	bindInitFlags(manageInitCmd)
-
 	// Orchestrators.
 	manageCmd.AddCommand(manageInstallCmd)
 	manageCmd.AddCommand(manageUninstallCmd)
@@ -443,7 +496,9 @@ func init() {
 		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, antigravity, or all)")
 	}
 
-	// mcp: own-server registration + configured-server CRUD (re-parented).
+	// mcp: own-server registration + configured-server CRUD (deprecated
+	// alias namespace; the real homes are `mcp register`/`mcp unregister`/
+	// `mcp server *`, wired in mcp.go).
 	manageCmd.AddCommand(manageMcpCmd)
 	manageMcpCmd.AddCommand(manageMcpInstallCmd)
 	manageMcpCmd.AddCommand(manageMcpUninstallCmd)
@@ -458,8 +513,14 @@ func init() {
 	manageStatuslineCmd.AddCommand(manageStatuslineInstallCmd)
 	manageStatuslineCmd.AddCommand(manageStatuslineUninstallCmd)
 
-	// config (re-parented wholesale).
-	manageCmd.AddCommand(configCmd)
+	// config: deprecated alias namespace (the real home is top-level
+	// `ctxloom config`, wired in config.go).
+	manageCmd.AddCommand(manageConfigCmd)
+	manageConfigCmd.AddCommand(manageConfigShowCmd)
+	manageConfigCmd.AddCommand(manageConfigGetCmd)
+	manageConfigCmd.AddCommand(manageConfigEditCmd)
+	manageConfigCmd.AddCommand(manageConfigInitCmd)
+	manageConfigInitCmd.Flags().StringVar(&configInitEngine, "engine", "claude-code", "AI engine to record in the scaffolded config")
 
 	// gitignore.
 	manageCmd.AddCommand(manageGitignoreCmd)

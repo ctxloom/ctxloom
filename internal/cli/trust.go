@@ -19,10 +19,10 @@ import (
 // (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
 // publisher signing key, not a remote; see docs/trust-model.md.)
 
-var trustCmd = &cobra.Command{
-	Use:   "trust <ref>",
-	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
-	Long: `Accept the currently-resolved content of an item so it is exposed to the agent.
+// trustCmdLong is shared by trustCmd (bare-invocation deprecated alias, still
+// the parent for trust accept|reject|signer) and trustAcceptCmd (the real
+// home, Decision 1: `trust <ref>` -> `trust accept <ref>`).
+const trustCmdLong = `Accept the currently-resolved content of an item so it is exposed to the agent.
 
 The acceptance is bound to the item's current content-hash pair (raw and, when
 one exists, distilled): a later change to either form returns the item to
@@ -33,19 +33,56 @@ Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
 
 Examples:
-  ctxloom trust core#fragments/tdd
-  ctxloom trust ctxloom:local@bundles/dev#commands/review
-  ctxloom trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
+  ctxloom trust accept core#fragments/tdd
+  ctxloom trust accept ctxloom:local@bundles/dev#commands/review
+  ctxloom trust accept 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom blacklist <ref>'.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		return runItemTrust(cmd, cfg, args[0])
-	},
+Reject an item with 'ctxloom trust reject <ref>'.`
+
+// trustCmd is both the `trust` parent (accept|reject|signer subcommands) and
+// a deprecated bare-invocation alias for `trust accept <ref>`, its historical
+// behavior (CLI-primary reorg plan, Decision 1). Deliberately NOT cobra's
+// `Deprecated` field: acp_cmd.go's acpCmd doc comment explains why a
+// non-leaf command can't use it (IsAvailableCommand would hide the whole
+// accept/reject/signer subtree from --help) — runTrustBareAlias prints the
+// one-line pointer itself instead.
+var trustCmd = &cobra.Command{
+	Use:   "trust <ref>",
+	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
+	Long:  trustCmdLong + "\n\nBare 'ctxloom trust <ref>' (no subcommand) is a deprecated alias for 'trust accept <ref>'.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTrustBareAlias,
+}
+
+// trustBareDeprecation is the one-line pointer bare `ctxloom trust <ref>`
+// prints (same shape cobra's own Deprecated field would print — see
+// acpBareDeprecation in acp_cmd.go for the same pattern).
+const trustBareDeprecation = "use `ctxloom trust accept <ref>` instead"
+
+// runTrustBareAlias is bare trustCmd's RunE: prints the deprecation pointer,
+// then runs the exact same accept logic as `trust accept` (runTrustAcceptCmd).
+func runTrustBareAlias(cmd *cobra.Command, args []string) error {
+	fmt.Fprintf(cmd.ErrOrStderr(), "Command %q is deprecated, %s\n", cmd.Name(), trustBareDeprecation)
+	return runTrustAcceptCmd(cmd, args)
+}
+
+// runTrustAcceptCmd is the RunE shared by trustCmd (bare alias) and
+// trustAcceptCmd (the real home).
+func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return runItemTrust(cmd, cfg, args[0])
+}
+
+// trustAcceptCmd is the real home of `ctxloom trust <ref>` (Decision 1).
+var trustAcceptCmd = &cobra.Command{
+	Use:   "accept <ref>",
+	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
+	Long:  trustCmdLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTrustAcceptCmd,
 }
 
 // runItemTrust records the resolved item as accepted and reports the recorded
@@ -73,10 +110,10 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-var blacklistCmd = &cobra.Command{
-	Use:   "blacklist <ref>",
-	Short: "Reject an item so it is withheld from the agent",
-	Long: `Reject an item, withholding it from every exposure surface, always.
+// blacklistLong is shared by blacklistCmd (deprecated top-level alias) and
+// trustRejectCmd (the real home, Decision 1: `blacklist <ref>` -> `trust
+// reject <ref>`).
+const blacklistLong = `Reject an item, withholding it from every exposure surface, always.
 
 A rejection writes two companion entries: the ref-level rejected state (denies
 this ref regardless of content/version, surviving content changes) and the
@@ -87,19 +124,42 @@ can be resolved; the ref-level rejection is written regardless.
 Rejection beats every exemption: it withholds the item even from a trusted
 source and even for project-local content.
 
-Reference format matches 'ctxloom trust' (see its help).
+Reference format matches 'ctxloom trust accept' (see its help).
 
 Examples:
-  ctxloom blacklist tooling#fragments/curl-pipe-sh
-  ctxloom blacklist 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		return runBlacklist(cmd, cfg, args[0])
-	},
+  ctxloom trust reject tooling#fragments/curl-pipe-sh
+  ctxloom trust reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+
+var blacklistCmd = &cobra.Command{
+	Use:        "blacklist <ref>",
+	Short:      "Reject an item so it is withheld from the agent",
+	Long:       blacklistLong,
+	Deprecated: blacklistDeprecation,
+	Args:       cobra.ExactArgs(1),
+	RunE:       runBlacklistCmd,
+}
+
+// blacklistDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom blacklist` still runs.
+const blacklistDeprecation = "use `ctxloom trust reject <ref>` instead"
+
+// runBlacklistCmd is the RunE shared by blacklistCmd (deprecated alias) and
+// trustRejectCmd (the real home).
+func runBlacklistCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return runBlacklist(cmd, cfg, args[0])
+}
+
+// trustRejectCmd is the real home of `ctxloom blacklist <ref>` (Decision 1).
+var trustRejectCmd = &cobra.Command{
+	Use:   "reject <ref>",
+	Short: "Reject an item so it is withheld from the agent",
+	Long:  blacklistLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runBlacklistCmd,
 }
 
 // runBlacklist records both rejection components and reports what was written.
@@ -187,7 +247,12 @@ func harnessApplied(ctx context.Context, cfg *config.Config) bool {
 }
 
 func init() {
-	// Top-level per-item mutations.
+	// Top-level per-item mutations. trustCmd is both the bare-alias RunE and
+	// the accept|reject|signer parent (Decision 1/3).
 	rootCmd.AddCommand(trustCmd)
 	rootCmd.AddCommand(blacklistCmd)
+
+	trustCmd.AddCommand(trustAcceptCmd)
+	trustCmd.AddCommand(trustRejectCmd)
+	trustCmd.AddCommand(trustSignerCmd)
 }

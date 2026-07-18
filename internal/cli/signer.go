@@ -21,12 +21,20 @@ import (
 // that could name its own key as trusted could forge publisher/reviewer
 // trust for itself.
 
+// signerCmd is kept as a working alias namespace (CLI-primary reorg plan,
+// Decision 1/3: top-level `signer *` -> `trust signer *`). Its leaves below
+// carry the real cobra Deprecated field (see trustSignerAddCmd etc. in this
+// file for the new home); this parent stays undecorated — like memoryCmd — so
+// marking it Deprecated doesn't hide the whole subtree from `--help`.
 var signerCmd = &cobra.Command{
 	Use:   "signer",
-	Short: "Manage trusted signers (allowed_signers)",
+	Short: "Manage trusted signers (allowed_signers) — moved under `ctxloom trust signer`",
 	Long: `Manage who ctxloom trusts to publish or approve/reject content: entries in
 the ssh-keygen "allowed_signers" format (spec §7), layered over ctxloom's
 own embedded trust root.
+
+DEPRECATED: this top-level namespace moved to ` + "`ctxloom trust signer`" + `. Each
+subcommand below still runs and prints a one-line pointer to its new home.
 
 Trusting a signer is the single most consequential command in the signing
 feature: everything that key ever publishes (or approves, for an
@@ -43,10 +51,9 @@ var (
 	signerAddYes        bool
 )
 
-var signerAddCmd = &cobra.Command{
-	Use:   "add <principal>",
-	Short: "Trust a signer's public key",
-	Long: `Add a public key to your allowed_signers store, trusted for the given
+// signerAddLong is shared by signerAddCmd (deprecated top-level alias) and
+// trustSignerAddCmd (the real home) so the two texts can never drift.
+const signerAddLong = `Add a public key to your allowed_signers store, trusted for the given
 namespace(s) (default: publish).
 
 <principal> is an arbitrary identity string (spec §7.1) — an email, a team
@@ -60,16 +67,33 @@ COMMITTABLE project store (.ctxloom/allowed_signers) instead — the way a
 team distributes "trust our lead's approval key" to everyone who clones.
 
 Examples:
-  ctxloom signer add context@acme.com --key ~/.ssh/acme-publish.pub
-  ctxloom signer add lead@team.example --key lead.pub --namespace approve,reject --project`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment, signerAddProject, signerAddYes)
-	},
+  ctxloom trust signer add context@acme.com --key ~/.ssh/acme-publish.pub
+  ctxloom trust signer add lead@team.example --key lead.pub --namespace approve,reject --project`
+
+var signerAddCmd = &cobra.Command{
+	Use:        "add <principal>",
+	Short:      "Trust a signer's public key",
+	Long:       signerAddLong,
+	Deprecated: signerAddDeprecation,
+	Args:       cobra.ExactArgs(1),
+	RunE:       runSignerAddCmd,
+}
+
+// signerAddDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom signer add` still runs.
+const signerAddDeprecation = "use `ctxloom trust signer add` instead"
+
+// runSignerAddCmd is signerAddCmd/trustSignerAddCmd's shared RunE: a cobra
+// command has exactly one parent, so the reorg's new home
+// (trustSignerAddCmd) is a distinct command sharing this body rather than the
+// same *cobra.Command (mirrors registerACPServerFlags' rationale in
+// acp_cmd.go).
+func runSignerAddCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment, signerAddProject, signerAddYes)
 }
 
 // runSignerAdd is the testable body of `ctxloom signer add`: cfg is DI'd
@@ -157,22 +181,29 @@ func signerConsequenceText(namespaces []string) string {
 }
 
 var signerListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List trusted signers",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		listings, err := operations.ListSigners(cfg, nil)
-		if err != nil {
-			return err
-		}
-		sort.Slice(listings, func(i, j int) bool {
-			return signerSortKey(listings[i]) < signerSortKey(listings[j])
-		})
-		return emit(cmd, listings, func() error { return printSignerListings(cmd.OutOrStdout(), listings) })
-	},
+	Use:        "list",
+	Short:      "List trusted signers",
+	Deprecated: signerListDeprecation,
+	RunE:       runSignerListCmd,
+}
+
+// signerListDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom signer list` still runs.
+const signerListDeprecation = "use `ctxloom trust signer list` instead"
+
+func runSignerListCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	listings, err := operations.ListSigners(cfg, nil)
+	if err != nil {
+		return err
+	}
+	sort.Slice(listings, func(i, j int) bool {
+		return signerSortKey(listings[i]) < signerSortKey(listings[j])
+	})
+	return emit(cmd, listings, func() error { return printSignerListings(cmd.OutOrStdout(), listings) })
 }
 
 func signerSortKey(l operations.SignerListing) string {
@@ -234,28 +265,34 @@ func sshFingerprintOf(l operations.SignerListing) string {
 }
 
 var signerShowCmd = &cobra.Command{
-	Use:   "show <principal>",
-	Short: "Show every trust-root entry for a principal",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		listings, err := operations.ShowSigner(cfg, args[0], nil)
-		if err != nil {
-			return err
-		}
-		return emit(cmd, listings, func() error { return printSignerListings(cmd.OutOrStdout(), listings) })
-	},
+	Use:        "show <principal>",
+	Short:      "Show every trust-root entry for a principal",
+	Args:       cobra.ExactArgs(1),
+	Deprecated: signerShowDeprecation,
+	RunE:       runSignerShowCmd,
+}
+
+// signerShowDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom signer show` still runs.
+const signerShowDeprecation = "use `ctxloom trust signer show` instead"
+
+func runSignerShowCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	listings, err := operations.ShowSigner(cfg, args[0], nil)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, listings, func() error { return printSignerListings(cmd.OutOrStdout(), listings) })
 }
 
 var signerRemoveProject bool
 
-var signerRemoveCmd = &cobra.Command{
-	Use:   "remove <principal>",
-	Short: "Remove a trusted signer",
-	Long: `Removes every entry for <principal> from your allowed_signers store (user
+// signerRemoveLong is shared by signerRemoveCmd (deprecated top-level alias)
+// and trustSignerRemoveCmd (the real home).
+const signerRemoveLong = `Removes every entry for <principal> from your allowed_signers store (user
 store by default; --project for the committable project store). This does
 NOT reject any content that signer already published or approved — it
 means "I will review this myself from now on", not "deny". Use
@@ -265,41 +302,106 @@ means "I will review this myself from now on", not "deny". Use
 key is compiled into the binary and cannot be deleted by this command. Instead
 this records a LOCAL distrust decision (only a new binary changes the
 compiled-in bytes themselves) — content signed only by that key is withheld
-from here on, on this machine or project.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		res, err := operations.RemoveSigner(cfg, operations.RemoveSignerRequest{
-			Principal: args[0],
-			Project:   signerRemoveProject,
-		})
-		if err != nil {
+from here on, on this machine or project.`
+
+var signerRemoveCmd = &cobra.Command{
+	Use:        "remove <principal>",
+	Short:      "Remove a trusted signer",
+	Long:       signerRemoveLong,
+	Deprecated: signerRemoveDeprecation,
+	Args:       cobra.ExactArgs(1),
+	RunE:       runSignerRemoveCmd,
+}
+
+// signerRemoveDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom signer remove` still runs.
+const signerRemoveDeprecation = "use `ctxloom trust signer remove` instead"
+
+func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	res, err := operations.RemoveSigner(cfg, operations.RemoveSignerRequest{
+		Principal: args[0],
+		Project:   signerRemoveProject,
+	})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		switch {
+		case res.EmbeddedSuppressed:
+			_, err := fmt.Fprintf(cmd.OutOrStdout(),
+				"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
+					"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
+				args[0], res.SuppressionPath)
+			return err
+		case res.Removed == 0:
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", args[0], res.Path)
+			return err
+		default:
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
+				res.Removed, plural(res.Removed, "y", "ies"), args[0], res.Path)
 			return err
 		}
-		return emit(cmd, res, func() error {
-			switch {
-			case res.EmbeddedSuppressed:
-				_, err := fmt.Fprintf(cmd.OutOrStdout(),
-					"%s is ctxloom's embedded release key; it cannot be deleted (only a new binary changes it), "+
-						"but it is now DISTRUSTED on this machine — content signed only by it will be withheld until reviewed (recorded in %s)\n",
-					args[0], res.SuppressionPath)
-				return err
-			case res.Removed == 0:
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "no entry for %s in %s\n", args[0], res.Path)
-				return err
-			default:
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %d entr%s for %s from %s\n",
-					res.Removed, plural(res.Removed, "y", "ies"), args[0], res.Path)
-				return err
-			}
-		})
-	},
+	})
+}
+
+// --- trust signer (real home, Decision 1/3: top-level `signer *` -> `trust
+// signer *`) ---------------------------------------------------------------
+//
+// A cobra command has exactly one parent, so these are distinct *cobra.Command
+// values from signerAddCmd/signerListCmd/signerShowCmd/signerRemoveCmd above,
+// sharing the same RunE bodies and flag vars — the same shape as
+// acp_agents_cmd.go's acpEntriesCmd/acpAgentsCmd pair.
+
+var trustSignerCmd = &cobra.Command{
+	Use:   "signer",
+	Short: "Manage trusted signers (allowed_signers)",
+	Long: `Manage who ctxloom trusts to publish or approve/reject content: entries in
+the ssh-keygen "allowed_signers" format (spec §7), layered over ctxloom's
+own embedded trust root.
+
+Trusting a signer is the single most consequential command in the signing
+feature: everything that key ever publishes (or approves, for an
+approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until
+you remove it. 'trust signer add' names that consequence and shows the
+fingerprint you are supposed to verify out of band before continuing.`,
+}
+
+var trustSignerAddCmd = &cobra.Command{
+	Use:   "add <principal>",
+	Short: "Trust a signer's public key",
+	Long:  signerAddLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runSignerAddCmd,
+}
+
+var trustSignerListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List trusted signers",
+	RunE:  runSignerListCmd,
+}
+
+var trustSignerShowCmd = &cobra.Command{
+	Use:   "show <principal>",
+	Short: "Show every trust-root entry for a principal",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runSignerShowCmd,
+}
+
+var trustSignerRemoveCmd = &cobra.Command{
+	Use:   "remove <principal>",
+	Short: "Remove a trusted signer",
+	Long:  signerRemoveLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runSignerRemoveCmd,
 }
 
 func init() {
+	// Deprecated top-level alias namespace (Decision 1/3): kept working
+	// exactly as before.
 	rootCmd.AddCommand(signerCmd)
 	signerCmd.AddCommand(signerAddCmd)
 	signerCmd.AddCommand(signerListCmd)
@@ -314,4 +416,21 @@ func init() {
 	_ = signerAddCmd.MarkFlagRequired("key")
 
 	signerRemoveCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "remove from the committable project store instead of the user store")
+
+	// Real home: nested under `trust` (wired here since the flag vars and RunE
+	// bodies are local to this file; trust.go adds trustSignerCmd itself under
+	// trustCmd).
+	trustSignerCmd.AddCommand(trustSignerAddCmd)
+	trustSignerCmd.AddCommand(trustSignerListCmd)
+	trustSignerCmd.AddCommand(trustSignerShowCmd)
+	trustSignerCmd.AddCommand(trustSignerRemoveCmd)
+
+	trustSignerAddCmd.Flags().StringVar(&signerAddKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
+	trustSignerAddCmd.Flags().StringSliceVar(&signerAddNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
+	trustSignerAddCmd.Flags().StringVar(&signerAddComment, "comment", "", "override the key's own comment")
+	trustSignerAddCmd.Flags().BoolVar(&signerAddProject, "project", false, "write to the committable project store (.ctxloom/allowed_signers) instead of the user store")
+	trustSignerAddCmd.Flags().BoolVarP(&signerAddYes, "yes", "y", false, "skip the confirmation prompt")
+	_ = trustSignerAddCmd.MarkFlagRequired("key")
+
+	trustSignerRemoveCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "remove from the committable project store instead of the user store")
 }

@@ -15,48 +15,60 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
+// configCmd is the top-level home of ctxloom configuration (CLI-primary
+// reorg plan, Decision 6: `manage config *` promoted to top-level `config
+// *`). The old `manage config` path is kept working as a deprecated alias
+// namespace (manage.go's manageConfigCmd), sharing the RunE bodies below.
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Show or modify ctxloom configuration",
 	Long: `Show or modify ctxloom configuration.
 
 Examples:
-  ctxloom manage config show              # Show full configuration
-  ctxloom manage config get defaults      # Get a specific section
-  ctxloom manage config edit              # Open config.yaml in $EDITOR
-  ctxloom manage config init              # Scaffold a default config.yaml`,
+  ctxloom config show              # Show full configuration
+  ctxloom config get defaults      # Get a specific section
+  ctxloom config edit              # Open config.yaml in $EDITOR
+  ctxloom config init              # Scaffold a default config.yaml`,
 }
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show full configuration",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		return renderConfigYAML(cfg, cmd.OutOrStdout())
-	},
+	RunE:  runConfigShow,
 }
 
-var configGetCmd = &cobra.Command{
-	Use:   "get <section>",
-	Short: "Get a configuration section",
-	Long: `Get a specific configuration section.
+func runConfigShow(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	return renderConfigYAML(cfg, cmd.OutOrStdout())
+}
+
+// configGetLong is shared by configGetCmd (real home) and
+// manageConfigGetCmd (deprecated alias, manage.go).
+const configGetLong = `Get a specific configuration section.
 
 Available sections:
   config      Behavioral settings (use_distilled, compaction_chunks)
   llm         Language model configuration (labeled configs + role map)
   mcp         MCP server configuration
-  profiles    Profile defaults and definitions`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		return renderConfigSection(cfg, args[0], cmd.OutOrStdout())
-	},
+  profiles    Profile defaults and definitions`
+
+var configGetCmd = &cobra.Command{
+	Use:   "get <section>",
+	Short: "Get a configuration section",
+	Long:  configGetLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runConfigGet,
+}
+
+func runConfigGet(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	return renderConfigSection(cfg, args[0], cmd.OutOrStdout())
 }
 
 // renderConfigYAML marshals cfg to YAML and writes it to out. Extracted
@@ -109,43 +121,51 @@ var configEditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Open config.yaml in $EDITOR",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		path := projectConfigPath()
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return fmt.Errorf("no config at %s — run 'ctxloom manage config init' first", path)
-		}
-		return openInEditor(path)
-	},
+	RunE:  runConfigEdit,
 }
 
-var configInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Scaffold a default config.yaml (and remotes.yaml)",
-	Long: `Write a default config.yaml AND a default remotes.yaml into the project
+func runConfigEdit(cmd *cobra.Command, _ []string) error {
+	path := projectConfigPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("no config at %s — run 'ctxloom config init' first", path)
+	}
+	return openInEditor(path)
+}
+
+// configInitLong is shared by configInitCmd (real home) and
+// manageConfigInitCmd (deprecated alias, manage.go).
+const configInitLong = `Write a default config.yaml AND a default remotes.yaml into the project
 .ctxloom directory.
 
 Refuses to overwrite an existing config.yaml, but the accompanying remotes.yaml
 is (re)written with defaults — back up a customized remotes.yaml first. For a
-fuller project scaffold (hooks, discovery), use 'ctxloom manage init'.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		appDir, err := resolveAppDir(false)
-		if err != nil {
-			return err
-		}
-		path := paths.ConfigPath(appDir)
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("config already exists: %s", path)
-		}
-		if _, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
-			AppDir: appDir,
-			Engine: configInitEngine,
-		}); err != nil {
-			return err
-		}
-		fmt.Printf("Wrote %s\n", path)
-		return nil
-	},
+fuller project scaffold (hooks, discovery), use 'ctxloom init'.`
+
+var configInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Scaffold a default config.yaml (and remotes.yaml)",
+	Long:  configInitLong,
+	Args:  cobra.NoArgs,
+	RunE:  runConfigInit,
+}
+
+func runConfigInit(cmd *cobra.Command, _ []string) error {
+	appDir, err := resolveAppDir(false)
+	if err != nil {
+		return err
+	}
+	path := paths.ConfigPath(appDir)
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("config already exists: %s", path)
+	}
+	if _, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+		AppDir: appDir,
+		Engine: configInitEngine,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("Wrote %s\n", path)
+	return nil
 }
 
 var configInitEngine string
@@ -173,6 +193,11 @@ func openInEditor(path string) error {
 }
 
 func init() {
+	// Top-level (CLI-primary reorg plan, Decision 6): `manage config` used to
+	// be the only home; manage.go now wires a deprecated alias namespace
+	// instead of re-parenting this same *cobra.Command (a command has exactly
+	// one parent).
+	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configEditCmd)

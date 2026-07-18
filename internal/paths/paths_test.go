@@ -1,12 +1,14 @@
 package paths
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -175,6 +177,61 @@ func TestHarpStateDirs_Layout(t *testing.T) {
 
 	canonical, err := HarpCanonicalTranscriptPath("swift-amber-falcon")
 	assert.NoError(t, err)
-	assert.Equal(t, filepath.Join(root, "persist", "transcript.acp.jsonl"), canonical,
+	assert.Equal(t, filepath.Join(root, "persist", "transcript.jsonl"), canonical,
 		"the canonical transcript is a FILE under persist/, distinct from the transcripts/ bind-mount dir")
+}
+
+// =============================================================================
+// ResolveHarpCanonicalTranscriptPath: transcript.acp.jsonl -> transcript.jsonl
+// rename back-compat (readers must still find a pre-rename session's file).
+// =============================================================================
+
+func TestResolveHarpCanonicalTranscriptPath_NoFile_ReturnsCurrentName(t *testing.T) {
+	testsupport.Isolate(t)
+	p, err := ResolveHarpCanonicalTranscriptPath("never-captured-harp")
+	require.NoError(t, err)
+	current, err := HarpCanonicalTranscriptPath("never-captured-harp")
+	require.NoError(t, err)
+	assert.Equal(t, current, p, "with neither file present, resolve must still yield the current-name path so a caller's own stat cleanly reports not-found")
+}
+
+func TestResolveHarpCanonicalTranscriptPath_CurrentOnly(t *testing.T) {
+	testsupport.Isolate(t)
+	current, err := HarpCanonicalTranscriptPath("current-only-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(current), 0o755))
+	require.NoError(t, os.WriteFile(current, []byte("{}\n"), 0o644))
+
+	p, err := ResolveHarpCanonicalTranscriptPath("current-only-harp")
+	require.NoError(t, err)
+	assert.Equal(t, current, p)
+}
+
+func TestResolveHarpCanonicalTranscriptPath_LegacyOnly_FallsBack(t *testing.T) {
+	testsupport.Isolate(t)
+	dir, err := HarpPersistDir("legacy-only-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	legacy := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(legacy, []byte("{}\n"), 0o644))
+
+	p, err := ResolveHarpCanonicalTranscriptPath("legacy-only-harp")
+	require.NoError(t, err)
+	assert.Equal(t, legacy, p,
+		"a session captured before the rename has ONLY transcript.acp.jsonl on disk — it must still resolve")
+}
+
+func TestResolveHarpCanonicalTranscriptPath_BothPresent_PrefersCurrent(t *testing.T) {
+	testsupport.Isolate(t)
+	dir, err := HarpPersistDir("both-present-harp")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	current := filepath.Join(dir, "transcript.jsonl")
+	legacy := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(current, []byte(`{"current":true}`+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(legacy, []byte(`{"legacy":true}`+"\n"), 0o644))
+
+	p, err := ResolveHarpCanonicalTranscriptPath("both-present-harp")
+	require.NoError(t, err)
+	assert.Equal(t, current, p, "the current name wins when both exist — nothing writes the legacy name post-rename")
 }

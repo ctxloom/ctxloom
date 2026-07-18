@@ -13,7 +13,7 @@ import (
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
-// transcript.acp.jsonl. It is the type S2 tees the host-side ChatEvent stream
+// transcript.jsonl. It is the type S2 tees the host-side ChatEvent stream
 // through (internal/lm/grpc/chat.go's GRPCClient.Chat and
 // internal/agentcoord/coord/enginehost.go's adapt) — this package only
 // defines the writer; nothing in S1 wires it to those call sites yet.
@@ -63,7 +63,7 @@ func WithRawPolicy(p RawPolicy) RecorderOption {
 // The underlying file is opened LAZILY, on the first successful Record call —
 // NOT eagerly here — and the persist/ directory is created at that same
 // moment. A chat that produces zero ChatEvents (Setup fails before any event,
-// a cancelled turn, etc.) therefore leaves NO transcript.acp.jsonl at all,
+// a cancelled turn, etc.) therefore leaves NO transcript.jsonl at all,
 // rather than a zero-byte file that could be mistaken for "captured, and
 // genuinely empty." This is a deliberate departure from a naive
 // open-immediately reading of the design sketch, made to satisfy the

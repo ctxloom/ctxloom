@@ -182,7 +182,7 @@ func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path str
 	return events, errs
 }
 
-// WatchCanonicalTranscript streams a captured transcript.acp.jsonl's
+// WatchCanonicalTranscript streams a captured transcript.jsonl's
 // structured turns by polling transcript.ParseTranscriptFile — the canonical
 // counterpart to WatchHistoryByPath (which polls a legacy per-engine file).
 // Tough-cloud S4: session watch prefers this over both WatchSession (backend

@@ -27,7 +27,7 @@ func claudeVendorFixturePath(t *testing.T) string {
 }
 
 // canonicalTranscriptExists reports whether harp has a non-empty canonical
-// transcript.acp.jsonl on disk.
+// transcript.jsonl on disk.
 func canonicalTranscriptExists(t *testing.T, harp string) bool {
 	t.Helper()
 	p, err := paths.HarpCanonicalTranscriptPath(harp)
@@ -81,7 +81,7 @@ func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 // TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript is the real,
 // end-to-end exit-seam behavior this function exists for: a harp whose
 // SessionStart bind hook recorded a real (fixture) claude transcript path
-// gets a canonical transcript.acp.jsonl after the interactive session exits.
+// gets a canonical transcript.jsonl after the interactive session exits.
 func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open("")

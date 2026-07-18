@@ -13,7 +13,7 @@ import (
 // This file is the tough-cloud S4 consumer cutover: CanonicalFallbackSource is
 // the transitional pb.SessionSource every production reader (compactor, MCP
 // memory tools, `memory`/`session` CLI commands) is flipped onto. It prefers
-// ctxloom's own captured transcript.acp.jsonl (transcript.CanonicalHistory,
+// ctxloom's own captured transcript.jsonl (transcript.CanonicalHistory,
 // S3) for any harp that has one, and falls back to the legacy per-engine
 // SessionSource (typically *SessionReader, going over gRPC to the backend's
 // own scraper) only for a harp that predates capture — plan §4b "Selection

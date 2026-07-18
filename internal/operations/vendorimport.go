@@ -91,7 +91,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 }
 
 // ConvertVendorTranscript imports harp e's vendor-native transcript into
-// ctxloom's canonical transcript.acp.jsonl through a fresh
+// ctxloom's canonical transcript.jsonl through a fresh
 // transcript.Recorder, and is the ONE function both the interactive-pty exit
 // seam and `session backfill` call — the same conversion, triggered from two
 // different moments (just-exited vs. already-indexed).
@@ -145,11 +145,18 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 }
 
 // hasCanonicalTranscript reports whether harp already has a canonical
-// transcript.acp.jsonl on disk — ConvertVendorTranscript's idempotency guard
+// transcript.jsonl on disk — ConvertVendorTranscript's idempotency guard
 // (see its doc comment for why presence, not a staleness/mtime comparison,
-// is the right check here).
+// is the right check here). Resolved via
+// paths.ResolveHarpCanonicalTranscriptPath, NOT HarpCanonicalTranscriptPath
+// directly: a pre-rename session has only the legacy transcript.acp.jsonl on
+// disk, and this guard must see that as "already captured" too — otherwise
+// a harp that already has a legacy-named canonical transcript would get
+// re-converted, duplicating every entry into a second, current-named file
+// (see ConvertVendorTranscript's doc comment on why this is NOT idempotent
+// by content-diffing).
 func hasCanonicalTranscript(harp string) bool {
-	p, err := paths.HarpCanonicalTranscriptPath(harp)
+	p, err := paths.ResolveHarpCanonicalTranscriptPath(harp)
 	if err != nil {
 		return false
 	}

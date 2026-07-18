@@ -24,7 +24,7 @@ var sessionBackfillCmd = &cobra.Command{
 	Long: `Runs the same vendor-transcript importer the interactive-pty exit seam
 uses (docs/transcript-schema.md §8), but over already-indexed sessions:
 every indexed harp (or just the one named) whose backend has a resolvable
-vendor-native transcript and no canonical transcript.acp.jsonl yet gets
+vendor-native transcript and no canonical transcript.jsonl yet gets
 converted. A harp that already has a canonical transcript (imported before,
 or captured live via the structured/ACP tee) is left untouched — safe to
 re-run at any time, and cheap to re-run since it skips almost everything.`,

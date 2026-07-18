@@ -342,7 +342,7 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	// runStructuredREPL's agent.ChatRequest — so req.Env[SessionHarpEnv] is
 	// already populated on this path today. Confirmed end to end: a real
 	// `ctxloom run --structured` session mints a harp and writes a non-empty
-	// persist/transcript.acp.jsonl.
+	// persist/transcript.jsonl.
 	//
 	// edgy-ivory: the recorder is opened HERE, once, and shared by both the
 	// inbound pump below (records the user's own turns — Tee only ever sees

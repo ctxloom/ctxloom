@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
@@ -65,6 +66,28 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	cfg, err = config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	return root, cfg
+}
+
+// applyHooksHermetically runs operations.ApplyHooks the same way every real
+// caller does (manage.go, init.go all pass RegenerateContext: true) so the
+// always-available, network-free SessionStart context-injection hook lands —
+// unlike the bundle-shipped hooks a profile's remote parent would otherwise
+// supply, this one needs no `ctxloom remote pull`/cache, so it's reachable on
+// a bare host. It also pins the injected hook's exec token to "ctxloom" via
+// selfexec.SetPathForTesting (restored on cleanup): left at its `go test`
+// default, the hook would name the test binary itself, and
+// agent.IsManaged(command, "ctxloom") — keyed on that exact exec-token
+// identity — would report it as foreign, not ctxloom-managed. Both are
+// needed for doctorCheckHooksTrust to observe "ok" hermetically, on any
+// host, matching the SAME hooks a fully-wired project always carries
+// regardless of what's cached under its real $HOME.
+func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
+	t.Helper()
+	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
+	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+		Backend: backend, WorkDir: root, RegenerateContext: true,
+	})
+	require.NoError(t, err)
 }
 
 // --- DOCTOR-CHECK-SETUP-MARKER-e5 ---
@@ -408,10 +431,7 @@ func TestDoctorCheckSetupLockAndAssembly_WrongState_CorruptLockfile(t *testing.T
 
 func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
-		Backend: "claude-code", WorkDir: root,
-	})
-	require.NoError(t, err)
+	applyHooksHermetically(t, cfg, root, "claude-code")
 	t.Chdir(root) // HarnessStatus's default WorkDir path resolves off cwd
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
@@ -581,10 +601,7 @@ func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
 
 func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
-		Backend: "claude-code", WorkDir: root,
-	})
-	require.NoError(t, err)
+	applyHooksHermetically(t, cfg, root, "claude-code")
 
 	// A fully-wired project must show no warn lines at all, including the
 	// host-dependent checks — so it needs a hermetic ssh-agent with a
@@ -592,11 +609,21 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	// almost certainly absent from this suite's real host PATH) a fake
 	// claude-code-acp so DOCTOR-CHECK-ACPADAPTER-m3 resolves too — not the
 	// empty defaults runDoctor/runDoctorWithSSHAgentSock otherwise force.
+	// DOCTOR-CHECK-DEPS-a1 needs the same treatment for its two probes that
+	// have no ambient presence in a bare container (unlike git/ssh/ssh-keygen,
+	// which the devcontainer image itself provides): a fake "claude" binary
+	// (doctorEngineBinaries["claude-code"]) and a fake "docker" — its `docker
+	// info` reachability check (isolation.Docker.Available) only shells out to
+	// whatever LookPath finds, so a no-op script satisfies it exactly like the
+	// ACP-adapter fake above.
 	sock := startFakeSSHAgent(t, "ben@abbitt.me")
 	prependFakeBinToPath(t, claude.ClaudeACPAdapter)
+	prependFakeBinToPath(t, "claude")
+	prependFakeBinToPath(t, "docker")
 	out, err := runDoctorClean(t, root, sock)
 	require.NoError(t, err)
 	assert.Contains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5 [ok]")
+	assert.Contains(t, out, "DOCTOR-CHECK-DEPS-a1 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-SIGNKEY-k1 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-ACPADAPTER-m3 [ok]")

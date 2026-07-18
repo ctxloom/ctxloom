@@ -5,6 +5,7 @@ package acp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,11 +28,51 @@ const leakingAgentScript = `#!/bin/sh
 sleep 100
 `
 
-// processAlive reports whether pid is a live process, via the kill(2)
-// signal-0 idiom (sends no signal, just checks existence/permission).
+// processAlive reports whether pid denotes a process that is still actually
+// RUNNING — kill(2)'s signal-0 existence check (sends no signal, just probes
+// existence/permission), refined to NOT count a zombie as alive.
+//
+// That refinement matters here specifically: killProcessGroup SIGKILLs the
+// whole group in one broadcast, so the immediate child (/bin/sh) and the
+// detached worker die in the same instant — but the worker's real parent WAS
+// that now-dead child, not this test process, so on exit the worker
+// reparents to the container's PID 1 (or whatever subreaper sits above it).
+// Nothing obliges that ancestor to ever call wait() on a PID it didn't
+// itself spawn; in a bare container (`just test`'s devcontainer, no init
+// process) it typically never does, so the worker sits as an UNREAPED
+// ZOMBIE forever — and kill(pid, 0) reports a zombie's PID-table slot as
+// "exists" exactly like a running process, making the naive check hang
+// until require.Eventually's deadline regardless of how long it waits. The
+// worker is nonetheless genuinely dead the instant SIGKILL lands: a zombie
+// does no work and holds no CPU/memory beyond that slot. Reaping-ancestor
+// bookkeeping is not this package's contract (spawnTransport's close()
+// promise is "the worker stops running", not "something eventually calls
+// wait(2) on it") — isZombie's /proc read makes that distinction directly
+// instead of proxying it through an ancestor's unrelated reaping behavior.
 func processAlive(pid int) bool {
 	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
+	if err != nil {
+		return errors.Is(err, syscall.EPERM)
+	}
+	return !isZombie(pid)
+}
+
+// isZombie reports whether pid is a Linux zombie (state 'Z' in
+// /proc/<pid>/stat — see proc(5)). Fault-tolerant by design: no /proc entry
+// (already reaped, or a non-Linux !windows target like Darwin, where a
+// zombie's real parent is near-universally a proper reaper like launchd)
+// answers false, letting processAlive fall back to kill(2)'s verdict alone.
+// The comm field can itself contain parens, so state is read as the token
+// right after the LAST ')', never the first.
+func isZombie(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	if i := strings.LastIndexByte(string(data), ')'); i >= 0 && i+2 < len(data) {
+		return data[i+2] == 'Z'
+	}
+	return false
 }
 
 // waitForFile polls for path to exist and be non-empty, up to timeout.

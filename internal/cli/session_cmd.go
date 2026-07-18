@@ -36,6 +36,7 @@ once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 var (
 	sessionListAll     bool
 	sessionListDistill bool
+	sessionListFull    bool
 )
 
 var sessionListCmd = &cobra.Command{
@@ -79,16 +80,12 @@ var sessionListCmd = &cobra.Command{
 			}
 		}
 		// Default output shape (CLI-primary reorg plan, decision 13): a
-		// lightweight projection — harp, single-line summary, start, end — never
-		// the full Entry (session_id, transcript paths, etc. stay off this wire;
-		// internal/sessions.Entry's own json posture is untouched).
-		rows := make([]SessionRow, len(entries))
-		for i, e := range entries {
-			rows[i] = newSessionRow(e)
-		}
-		return emit(cmd, rows, func() error {
-			return renderSessionRows(cmd.OutOrStdout(), rows)
-		})
+		// lightweight projection — harp, single-line summary, start, end,
+		// essence path — never the full Entry (session_id, transcript paths,
+		// etc. stay off this wire; internal/sessions.Entry's own json posture
+		// is untouched). --full swaps in each session's complete essence body
+		// (see session_full.go); emitSessionRows owns both shapes.
+		return emitSessionRows(cmd, entries, sessionListFull, appDir)
 	},
 }
 
@@ -338,6 +335,7 @@ under the harp directory. Errors if the harp has no session_id bound
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
 	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
+	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd, sessionWatchCmd)
 	rootCmd.AddCommand(sessionCmd)
 

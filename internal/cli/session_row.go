@@ -31,17 +31,20 @@ func (t sessionTime) MarshalJSON() ([]byte, error) {
 
 // SessionRow is the lightweight per-session projection `session list` and
 // `session query` render by default (CLI-primary reorg plan, decision 13):
-// a single-line summary, the harp name, and start/end timestamps — nothing
-// else, and never the distilled essence body (that is `session show`'s
-// job). Deliberately a separate type from sessions.Entry, whose json/yaml
-// wire posture stays untouched for its other consumers (the on-disk index,
-// the MCP session tools) — this is a rendering-time view only. The label/col
-// tags drive clifmt's text/markdown table headers (see renderSessionRows).
+// a single-line summary, the harp name, start/end timestamps, and — when the
+// session has been distilled — the essence file's path (backend-contract
+// V4), but never the essence BODY itself (that stays `session show`'s job,
+// or `--full`'s — see session_full.go). Deliberately a separate type from
+// sessions.Entry, whose json/yaml wire posture stays untouched for its other
+// consumers (the on-disk index, the MCP session tools) — this is a
+// rendering-time view only. The label/col tags drive clifmt's text/markdown
+// table headers (see renderSessionRows).
 type SessionRow struct {
-	Harp    string       `json:"harp" label:"Harp" col:"HARP"`
-	Summary string       `json:"summary" label:"Summary" col:"SUMMARY"`
-	Start   sessionTime  `json:"start" label:"Start" col:"START"`
-	End     *sessionTime `json:"end,omitempty" label:"End" col:"END"`
+	Harp        string       `json:"harp" label:"Harp" col:"HARP"`
+	Summary     string       `json:"summary" label:"Summary" col:"SUMMARY"`
+	Start       sessionTime  `json:"start" label:"Start" col:"START"`
+	End         *sessionTime `json:"end,omitempty" label:"End" col:"END"`
+	EssencePath string       `json:"essence_path,omitempty" label:"Essence Path" col:"ESSENCE PATH"`
 }
 
 // newSessionRow projects a full index entry down to a SessionRow. Summary
@@ -50,7 +53,11 @@ type SessionRow struct {
 // the essence predates the live transcript (sessions.Entry.SourceStale) —
 // so the badge that used to live in renderSessionTable's text-only path now
 // rides in the row itself and shows up in every format, not just text.
-func newSessionRow(e sessions.Entry) SessionRow {
+// EssencePath is resolved the same way `session show` resolves it
+// (sessionEssenceInfo, defined in session_cmd.go) and left "" when the
+// session isn't distilled yet; appDir is only needed for that legacy
+// <sessionsDir>/<sessionID>.md fallback lookup.
+func newSessionRow(e sessions.Entry, appDir string) SessionRow {
 	summary := e.Summary
 	if summary == "" {
 		summary = "(no summary)"
@@ -66,6 +73,9 @@ func newSessionRow(e sessions.Entry) SessionRow {
 	if e.EndedAt != nil {
 		end := sessionTime(*e.EndedAt)
 		row.End = &end
+	}
+	if path, distilled := sessionEssenceInfo(e.HarpName, &e, appDir); distilled {
+		row.EssencePath = path
 	}
 	return row
 }

@@ -15,6 +15,10 @@ import (
 // instead of just the ones started in the current working directory.
 var sessionQueryAll bool
 
+// sessionQueryFull mirrors sessionListFull: swap the lean result rows for
+// the FULL projection carrying each matched session's complete essence body.
+var sessionQueryFull bool
+
 var sessionQueryCmd = &cobra.Command{
 	Use:   "query <word>...",
 	Short: "Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)",
@@ -35,14 +39,16 @@ returned in a result row (the same lightweight harp/summary/start/end shape
 
 func init() {
 	sessionQueryCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
+	sessionQueryCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
 	sessionCmd.AddCommand(sessionQueryCmd)
 }
 
 // runSessionQuery loads the same candidate set `session list` would (project-
 // scoped by default, every project under --all), keeps only the entries
-// sessionMatchesQuery accepts, and renders the same lightweight SessionRow
-// projection list uses — so a query result is indistinguishable in shape
-// from a list result, just pre-filtered.
+// sessionMatchesQuery accepts, and renders them through the same
+// emitSessionRows tail `session list` uses (SessionRow by default, or the
+// --full essence-body projection) — so a query result is indistinguishable
+// in shape from a list result, just pre-filtered.
 func runSessionQuery(cmd *cobra.Command, args []string) error {
 	var entries []sessions.Entry
 	var err error
@@ -64,16 +70,14 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 		appDir = cfg.AppDir
 	}
 
-	rows := make([]SessionRow, 0, len(entries))
+	matched := make([]sessions.Entry, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
 		if sessionMatchesQuery(e, args, appDir) {
-			rows = append(rows, newSessionRow(*e))
+			matched = append(matched, *e)
 		}
 	}
-	return emit(cmd, rows, func() error {
-		return renderSessionRows(cmd.OutOrStdout(), rows)
-	})
+	return emitSessionRows(cmd, matched, sessionQueryFull, appDir)
 }
 
 // sessionMatchesQuery reports whether every word in words is found

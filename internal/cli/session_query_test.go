@@ -137,9 +137,9 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 	assert.Equal(t, hit.HarpName, rows[0]["harp"])
 	assert.Contains(t, rows[0], "summary")
 	assert.Contains(t, rows[0], "start")
+	assert.Equal(t, hitEssencePath, rows[0]["essence_path"], "the row DOES carry the essence file's path (backend-contract V4)")
 
-	assert.NotContains(t, out.String(), "Root-caused", "the essence body must never ride in a query row")
-	assert.NotContains(t, out.String(), "essence", "no essence field at all on the lightweight row")
+	assert.NotContains(t, out.String(), "Root-caused", "the essence body itself must never ride in a lightweight (non-full) query row")
 }
 
 // TestRunSessionQuery_NoMatches pins the empty-result path in both formats:

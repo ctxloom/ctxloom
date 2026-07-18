@@ -107,6 +107,14 @@ func stderrIsTerminal() bool {
 	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
+// stdoutIsTerminal reports whether stdout is a terminal. Checked before
+// inserting a pager into `session list --full` / `session query --full`
+// output so a redirected or piped invocation (`> file`, `| jq`) never gets
+// pager control codes mixed in.
+func stdoutIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
 	reader   *bufio.Reader

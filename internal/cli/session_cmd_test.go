@@ -22,10 +22,11 @@ import (
 // renders (as "(no summary)"), and the caller's pre-sorted row order is
 // preserved.
 func TestRenderSessionRows_ProjectionShape(t *testing.T) {
+	testsupport.Isolate(t) // newSessionRow resolves an essence path off HOME; keep it off the real one
 	started := time.Date(2026, 7, 17, 17, 27, 32, 0, time.Local)
 	rows := []SessionRow{
-		newSessionRow(sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Designed the picker", StartedAt: started}),
-		newSessionRow(sessions.Entry{HarpName: "plump-loose-sash", StartedAt: started.Add(-time.Hour)}),
+		newSessionRow(sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Designed the picker", StartedAt: started}, ""),
+		newSessionRow(sessions.Entry{HarpName: "plump-loose-sash", StartedAt: started.Add(-time.Hour)}, ""),
 	}
 	var buf bytes.Buffer
 	require.NoError(t, renderSessionRows(&buf, rows))

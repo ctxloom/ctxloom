@@ -145,14 +145,21 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 		// list`), not exercising a real hit — that's session_query_test.go's job.
 		return []string{"coverage-query-no-hit"}
 	}},
-	"signer list":             {extraArgs: noExtraArgs},
-	"remote list":             {extraArgs: noExtraArgs},
-	"manage mcp servers list": {extraArgs: noExtraArgs},
-	"manage status":           {extraArgs: noExtraArgs},
-	"doctor":                  {extraArgs: noExtraArgs},
-	"tooling":                 {extraArgs: noExtraArgs},
-	"review":                  {extraArgs: func(string) []string { return []string{"--list"} }},
-	"search":                  {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
+	"remote list":   {extraArgs: noExtraArgs},
+	"manage status": {extraArgs: noExtraArgs},
+	"doctor":        {extraArgs: noExtraArgs},
+	"review":        {extraArgs: func(string) []string { return []string{"--list"} }},
+	"search":        {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
+
+	// --- exercised: real homes of Phase-1 reorg moves (plan Decisions 1-6) ---
+	// (the deprecated OLD paths these replace — `signer list`, `manage mcp
+	// servers list`, `tooling` — moved to the "deprecated alias" skip group
+	// below: cobra's own Deprecated notice prints to stdout ahead of the
+	// command's real output, which breaks json/yaml/toml parsing here exactly
+	// like the pre-existing `memory *`/`acp agents` deprecated aliases.)
+	"trust signer list": {extraArgs: noExtraArgs},
+	"mcp server list":   {extraArgs: noExtraArgs},
+	"container tooling": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"acp":        {skip: "deprecated alias for `acp server`; serves an ACP session, not a single rendered result"},
@@ -172,10 +179,25 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"memory compact": {skip: "deprecated alias for `session distill`"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
-	"sign":          {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
-	"signer add":    {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
-	"signer show":   {skip: "needs an existing trusted principal (signer add's fixture cost); covered by signer_test.go"},
-	"signer remove": {skip: "destructive; covered by signer_test.go"},
+	"sign":                {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
+	"bundle sign":         {skip: "deprecated-alias's real home (`ctxloom sign`); same ssh-agent/git identity requirement"},
+	"signer add":          {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
+	"signer show":         {skip: "needs an existing trusted principal (signer add's fixture cost); covered by signer_test.go"},
+	"signer remove":       {skip: "destructive; covered by signer_test.go"},
+	"trust signer add":    {skip: "same fixture gap as `signer add`, its deprecated alias"},
+	"trust signer show":   {skip: "same fixture gap as `signer show`, its deprecated alias"},
+	"trust signer remove": {skip: "same fixture gap as `signer remove`, its deprecated alias"},
+
+	// --- skip: deprecated Phase-1 aliases (cobra's own Deprecated notice
+	// prints to stdout ahead of the command's real output, breaking
+	// json/yaml/toml parsing here — same shape as the pre-existing `memory
+	// *`/`acp agents` skips above) ---
+	"signer list":             {skip: "deprecated alias for `trust signer list` (plan Decision 1/3); not independently exercised"},
+	"manage mcp servers list": {skip: "deprecated alias for `mcp server list` (plan Decision 3); not independently exercised"},
+	"tooling":                 {skip: "deprecated alias for `container tooling` (plan Decision 4/6); not independently exercised"},
+	"trust":                   {skip: "needs a resolvable, signable ref and trust-store fixture; deprecated bare alias for `trust accept`, not exercised here"},
+	"trust accept":            {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
+	"trust reject":            {skip: "needs a resolvable ref; not exercised here"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	"bundle delete":   {skip: "destructive + interactive confirm without --force; not exercised here"},
@@ -183,8 +205,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here"},
 	"bundle move":     {skip: "needs source/dest bundle layout fixture; not exercised here"},
 	"bundle mcp edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here"},
-	"trust":           {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
-	"blacklist":       {skip: "needs a resolvable ref; not exercised here"},
+	"blacklist":       {skip: "needs a resolvable ref; deprecated alias for `trust reject`, not exercised here"},
 
 	// --- skip: network / real remote required ---
 	"remote add":      {skip: "network: adds and probes a real remote"},
@@ -209,24 +230,34 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"map":   {skip: "deprecated alias for `weave --map-only`; same real-engine fan-out as weave"},
 
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
-	"manage init":                 {skip: "installer: side-effecting project bootstrap"},
+	// (`manage init` was deleted outright — not deprecated — root `ctxloom
+	// init` is the sole bootstrap, plan Decision 6; no registry entry needed.)
 	"manage install":              {skip: "installer: side-effecting project bootstrap"},
 	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
 	"manage hooks install":        {skip: "installer: writes real hook files"},
 	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
 	"manage hooks status":         {skip: "reads the hook files the installer above would write; not fixtured here"},
-	"manage mcp install":          {skip: "installer: registers ctxloom as an MCP server in editor config"},
-	"manage mcp uninstall":        {skip: "installer: unregisters ctxloom as an MCP server"},
-	"manage mcp servers add":      {skip: "not wired to emit() yet; also mutating"},
-	"manage mcp servers remove":   {skip: "not wired to emit() yet; also mutating"},
-	"manage mcp servers show":     {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
+	"manage mcp install":          {skip: "deprecated alias for `mcp register` (plan Decision 3); installer: registers ctxloom as an MCP server in editor config"},
+	"manage mcp uninstall":        {skip: "deprecated alias for `mcp unregister` (plan Decision 3); installer: unregisters ctxloom as an MCP server"},
+	"manage mcp servers add":      {skip: "deprecated alias for `mcp server add`; not wired to emit() yet; also mutating"},
+	"manage mcp servers remove":   {skip: "deprecated alias for `mcp server remove`; not wired to emit() yet; also mutating"},
+	"manage mcp servers show":     {skip: "deprecated alias for `mcp server show`; wired to emit(), but needs an existing server fixture; not exercised here"},
+	"mcp register":                {skip: "installer: registers ctxloom as an MCP server in editor config (real home of deprecated `manage mcp install`)"},
+	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server (real home of deprecated `manage mcp uninstall`)"},
+	"mcp server add":              {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers add`)"},
+	"mcp server remove":           {skip: "not wired to emit() yet; also mutating (real home of deprecated `manage mcp servers remove`)"},
+	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here (real home of deprecated `manage mcp servers show`)"},
 	"manage statusline install":   {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
 	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
-	"manage config show":          {skip: "not wired to emit() yet"},
-	"manage config get":           {skip: "not wired to emit() yet"},
-	"manage config edit":          {skip: "not wired to emit() yet; also opens an editor"},
-	"manage config init":          {skip: "not wired to emit() yet; also an installer"},
+	"manage config show":          {skip: "deprecated alias for `config show`; not wired to emit() yet"},
+	"manage config get":           {skip: "deprecated alias for `config get`; not wired to emit() yet"},
+	"manage config edit":          {skip: "deprecated alias for `config edit`; not wired to emit() yet; also opens an editor"},
+	"manage config init":          {skip: "deprecated alias for `config init`; not wired to emit() yet; also an installer"},
+	"config show":                 {skip: "not wired to emit() yet (real home of deprecated `manage config show`, plan Decision 6)"},
+	"config get":                  {skip: "not wired to emit() yet (real home of deprecated `manage config get`)"},
+	"config edit":                 {skip: "not wired to emit() yet; also opens an editor (real home of deprecated `manage config edit`)"},
+	"config init":                 {skip: "not wired to emit() yet; also an installer (real home of deprecated `manage config init`)"},
 
 	// --- skip: acp/mcp entries needing configured agents ---
 	"acp entries": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},

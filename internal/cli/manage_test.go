@@ -31,9 +31,16 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	manage := findSub(rootCmd, "manage")
 	require.NotNil(t, manage, "manage must be a top-level command")
 
-	for _, name := range []string{"init", "install", "uninstall", "status", "hooks", "mcp", "statusline", "config", "gitignore"} {
+	// "init" is deliberately absent: the duplicate `manage init` entry point
+	// was DELETED outright (not deprecated) — root `ctxloom init` is the sole
+	// bootstrap (CLI-primary reorg plan, Decision 6). "config" stays as a
+	// deprecated alias group (manageConfigCmd) even though its real home
+	// promoted to the top-level `ctxloom config` (see
+	// TestOldTopLevelPaths_AreRemoved for that assertion).
+	for _, name := range []string{"install", "uninstall", "status", "hooks", "mcp", "statusline", "config", "gitignore"} {
 		assert.NotNil(t, findSub(manage, name), "manage %s should exist", name)
 	}
+	assert.Nil(t, findSub(manage, "init"), "manage init was deleted; root `ctxloom init` is the sole bootstrap")
 }
 
 func TestManageMcp_SplitsRegistrationFromServerCRUD(t *testing.T) {
@@ -55,8 +62,10 @@ func TestManageHooks_HasInstallUninstallStatus(t *testing.T) {
 }
 
 func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
-	// Clean break: config and hook apply no longer hang off the root / hook.
-	assert.Nil(t, findSub(rootCmd, "config"), "config moved under manage")
+	// config is back at the top level (CLI-primary reorg plan, Decision 6:
+	// `manage config *` promoted to `config *`); `manage config` stays working
+	// as a deprecated alias group (TestManageNamespace_HasExpectedSubcommands).
+	assert.NotNil(t, findSub(rootCmd, "config"), "config promoted to top level (plan Decision 6)")
 
 	hook := findSub(rootCmd, "hook")
 	require.NotNil(t, hook, "hook namespace stays (hidden callback home)")
@@ -71,7 +80,9 @@ func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
 }
 
 func TestInitAliasStaysTopLevel(t *testing.T) {
-	assert.NotNil(t, findSub(rootCmd, "init"), "ctxloom init remains as an alias for manage init")
+	// `manage init` was deleted (Decision 6); root `ctxloom init` is the sole,
+	// canonical bootstrap entry point, not an alias for anything.
+	assert.NotNil(t, findSub(rootCmd, "init"), "ctxloom init is the sole bootstrap entry point")
 }
 
 func TestCallbacksConsolidatedUnderHook(t *testing.T) {

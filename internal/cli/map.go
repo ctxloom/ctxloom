@@ -25,8 +25,9 @@ var (
 )
 
 var mapCmd = &cobra.Command{
-	Use:   "map [flags] [task...]",
-	Short: "Run multiple agents/profiles in parallel over one task (fan-out)",
+	Use:        "map [flags] [task...]",
+	Short:      "Run multiple agents/profiles in parallel over one task (fan-out)",
+	Deprecated: mapDeprecation,
 	Long: `Fan one shared task out to several members in parallel, emitting each
 agent's output as a labeled block.
 
@@ -53,9 +54,19 @@ Examples:
   ctxloom map -p reviewer/a -p reviewer/b "review this change"
   ctxloom map --agents go-cr-security,go-cr-correctness "review this change"
   git diff | ctxloom map -p code-review/security -p code-review/perf
-  ctxloom map -p a -p b -p c --concurrency 3 --save-parts ./parts "task"`,
+  ctxloom map -p a -p b -p c --concurrency 3 --save-parts ./parts "task"
+
+DEPRECATED: use 'ctxloom weave --map-only' instead (same fan-out, no
+synthesis step); kept working indefinitely (CLI-primary reorg plan,
+Decision 6).`,
 	RunE: runMap,
 }
+
+// mapDeprecation is the one-line pointer cobra prints whenever `ctxloom map`
+// still runs. Kept indefinitely per the rename table (not slated for
+// removal like the other Phase-1 aliases), so this stays a plain top-level
+// command rather than being folded into weave's own implementation.
+const mapDeprecation = "use `ctxloom weave --map-only` instead"
 
 func runMap(cmd *cobra.Command, args []string) error {
 	members := mapMembers()

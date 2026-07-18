@@ -163,15 +163,10 @@ var containerProvenanceCmd = &cobra.Command{
 // rebuild. A markdown resource, not Go — the procedure is data.
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
-// toolingCmd emits the agent-image tooling instructions plus every
-// TRUSTED bundle's `tooling` command. The LLM runs this, reads the
-// declarations, and folds them — with the user's explicit approval — into the
-// scaffolded base Containerfile. Read-only: collection goes through the trust
-// gate and nothing is written here.
-var toolingCmd = &cobra.Command{
-	Use:   "tooling",
-	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
-	Long: `Collect every trusted bundle's 'tooling' command — the tools its
+// toolingCmdLong is shared by toolingCmd (deprecated top-level alias) and
+// containerToolingCmd (the real home, Decision 4/6: top-level `tooling` ->
+// `container tooling`).
+const toolingCmdLong = `Collect every trusted bundle's 'tooling' command — the tools its
 content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
@@ -179,18 +174,46 @@ user's explicit approval per change, then rebuild ('ctxloom container build').
 
 Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
 like any other gated content, and nothing is ever applied automatically on
-pull/sync — the edit is the LLM's, gated by the user.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		entries := operations.CollectTooling(cfg, nil)
-		return emit(cmd, toolingJSON{Instructions: toolingPrompt, Declarations: entries}, func() error {
-			return renderTooling(cmd.OutOrStdout(), entries)
-		})
-	},
+pull/sync — the edit is the LLM's, gated by the user.`
+
+// toolingCmd emits the agent-image tooling instructions plus every
+// TRUSTED bundle's `tooling` command. The LLM runs this, reads the
+// declarations, and folds them — with the user's explicit approval — into the
+// scaffolded base Containerfile. Read-only: collection goes through the trust
+// gate and nothing is written here.
+var toolingCmd = &cobra.Command{
+	Use:        "tooling",
+	Short:      "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Long:       toolingCmdLong,
+	Deprecated: toolingDeprecation,
+	Args:       cobra.NoArgs,
+	RunE:       runToolingCmd,
+}
+
+// toolingDeprecation is the one-line pointer cobra prints whenever the
+// legacy top-level `ctxloom tooling` still runs.
+const toolingDeprecation = "use `ctxloom container tooling` instead"
+
+// runToolingCmd is the RunE shared by toolingCmd (deprecated alias) and
+// containerToolingCmd (the real home).
+func runToolingCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	entries := operations.CollectTooling(cfg, nil)
+	return emit(cmd, toolingJSON{Instructions: toolingPrompt, Declarations: entries}, func() error {
+		return renderTooling(cmd.OutOrStdout(), entries)
+	})
+}
+
+// containerToolingCmd is the real home of `ctxloom tooling` (Decision 4/6).
+var containerToolingCmd = &cobra.Command{
+	Use:   "tooling",
+	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Long:  toolingCmdLong,
+	Args:  cobra.NoArgs,
+	RunE:  runToolingCmd,
 }
 
 // toolingJSON is the --format json shape for `container tooling`.
@@ -348,8 +371,10 @@ func init() {
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
 	containerCmd.AddCommand(containerProvenanceCmd)
+	// Real home of the deprecated top-level `ctxloom tooling` (Decision 4/6):
+	// the container image is (today) where declarations land.
+	containerCmd.AddCommand(containerToolingCmd)
 	rootCmd.AddCommand(containerCmd)
-	// Top-level on purpose: tooling is the general bundle-declaration
-	// collector; the container image is (today) where declarations land.
+	// Deprecated alias, kept working (see toolingCmd's Deprecated field).
 	rootCmd.AddCommand(toolingCmd)
 }

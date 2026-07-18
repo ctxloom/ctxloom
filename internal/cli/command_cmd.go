@@ -128,9 +128,15 @@ var (
 	commandPushNoSign  bool
 )
 
+// commandPushDeprecation is the one-line pointer cobra prints whenever
+// `ctxloom command push` still runs (CLI-primary reorg plan, Decision 4:
+// `command push` -> `bundle push`).
+const commandPushDeprecation = "use `ctxloom bundle push` instead"
+
 var commandPushCmd = &cobra.Command{
-	Use:   "push <bundle> [remote]",
-	Short: "Push a bundle to remote",
+	Use:        "push <bundle> [remote]",
+	Short:      "Push a bundle to remote",
+	Deprecated: commandPushDeprecation,
 	Long: `Push a bundle containing commands to a remote repository.
 
 This publishes the entire bundle (which contains commands, fragments, etc.)
@@ -138,7 +144,7 @@ to the specified remote.
 
 --sign publishes a detached signature alongside the bundle (signature-
 envelope spec §3.1) so anyone who trusts your key can verify it came from
-you, using the same zero-config key discovery 'ctxloom sign' uses. Set
+you, using the same zero-config key discovery 'ctxloom bundle sign' uses. Set
 'sign.default: true' in config to make every push sign unless --no-sign is
 given for one invocation.
 
@@ -146,7 +152,9 @@ Examples:
   ctxloom command push my-bundle
   ctxloom command push my-bundle ctxloom-default
   ctxloom command push my-bundle --pr
-  ctxloom command push my-bundle --sign`,
+  ctxloom command push my-bundle --sign
+
+DEPRECATED: use 'ctxloom bundle push' instead.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""

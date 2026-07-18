@@ -5,9 +5,12 @@ import (
 )
 
 var bundleCmd = &cobra.Command{
-	Use:    "bundle",
-	Short:  "Manage ctxloom bundles",
-	Hidden: true, // Use fragment/command commands for content management
+	Use:   "bundle",
+	Short: "Manage ctxloom bundles",
+	// Unhidden (CLI-primary reorg plan, Decision 4): every command's help
+	// already assumed 'bundle' as the underlying unit (push/sign/hold/mcp
+	// have no other home), so hiding the noun itself from --help was the
+	// stale part.
 	Long: `Manage ctxloom bundles - versioned collections of fragments, commands, and MCP servers.
 
 Bundles are the primary content unit in ctxloom. They group related context fragments,
@@ -47,6 +50,10 @@ func init() {
 	// (Per-item content review lives in the top-level `ctxloom review`.)
 	bundleCmd.AddCommand(bundleHoldCmd)
 	bundleCmd.AddCommand(bundleUnholdCmd)
+
+	// Real home of the deprecated top-level `ctxloom sign` (Decision 1/4;
+	// flags registered in sign.go alongside its shared RunE).
+	bundleCmd.AddCommand(bundleSignCmd)
 
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")

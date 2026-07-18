@@ -1,0 +1,138 @@
+{
+  "key": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest",
+  "conversation_id": "74b27b3b-19e1-41f3-a8a6-bc8e227a3edb",
+  "created_at": 1784153263732,
+  "updated_at": 1784153266135,
+  "value": {
+    "conversation_id": "74b27b3b-19e1-41f3-a8a6-bc8e227a3edb",
+    "history": [
+      {
+        "user": {
+          "additional_context": "",
+          "env_context": {
+            "env_state": {
+              "operating_system": "linux",
+              "current_working_directory": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest",
+              "environment_variables": []
+            }
+          },
+          "content": {
+            "Prompt": {
+              "prompt": "Write the exact text XXX-OVERWRITTEN-XXX into the file /tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest/sentinel.txt, replacing its current contents. Use the absolute path given."
+            }
+          },
+          "timestamp": "2026-07-15T17:07:40.879492755-05:00",
+          "images": null
+        },
+        "assistant": {
+          "ToolUse": {
+            "message_id": "0a0f60e2-a378-4be4-bd7f-1b3095c1c6eb",
+            "content": "",
+            "tool_uses": [
+              {
+                "id": "tooluse_RbRZmEcXX5iMZld7EPD5CQ",
+                "name": "fs_write",
+                "orig_name": "fs_write",
+                "args": {
+                  "command": "create",
+                  "path": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest/sentinel.txt",
+                  "file_text": "XXX-OVERWRITTEN-XXX"
+                },
+                "orig_args": {
+                  "command": "create",
+                  "path": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest/sentinel.txt",
+                  "file_text": "XXX-OVERWRITTEN-XXX"
+                }
+              }
+            ]
+          }
+        },
+        "request_metadata": {
+          "request_id": "57bf93a2-ec17-4f4a-b125-055e31449d02",
+          "context_usage_percentage": 2.298,
+          "message_id": "0a0f60e2-a378-4be4-bd7f-1b3095c1c6eb",
+          "request_start_timestamp_ms": 1784153260882,
+          "stream_end_timestamp_ms": 1784153263710,
+          "user_prompt_length": 417,
+          "response_size": 208,
+          "chat_conversation_type": "ToolUse",
+          "tool_use_ids_and_names": [
+            [
+              "tooluse_RbRZmEcXX5iMZld7EPD5CQ",
+              "fs_write"
+            ]
+          ],
+          "model_id": "auto",
+          "message_meta_tags": [],
+          "total_tokens": null,
+          "uncached_input_tokens": null,
+          "output_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null
+        }
+      },
+      {
+        "user": {
+          "additional_context": "",
+          "env_context": {
+            "env_state": {
+              "operating_system": "linux",
+              "current_working_directory": "/tmp/claude-1000/-home-babbitt-workspace-ctxloom-ctxloom-main/d9320ae0-93de-45b9-8ed4-5559a5b2f406/scratchpad/agylive/kirotest",
+              "environment_variables": []
+            }
+          },
+          "content": {
+            "CancelledToolUses": {
+              "prompt": "Tool use with fs_write was rejected because the arguments supplied were forbidden. Blocked patterns:\n  - non-interactive mode (no user to approve)",
+              "tool_use_results": [
+                {
+                  "tool_use_id": "tooluse_RbRZmEcXX5iMZld7EPD5CQ",
+                  "content": [
+                    {
+                      "Text": "Tool use was cancelled by the user"
+                    }
+                  ],
+                  "status": "Error"
+                }
+              ]
+            }
+          },
+          "timestamp": "2026-07-15T17:07:43.748072518-05:00",
+          "images": null
+        },
+        "assistant": {
+          "Response": {
+            "message_id": "fcaf2da9-fc6e-4f08-8d58-851f24e9ff7b",
+            "content": "The `fs_write` tool call was blocked by a policy that prevents file writes in non-interactive mode. I'm unable to write to that file in this environment."
+          }
+        },
+        "request_metadata": {
+          "request_id": "10a91d4b-9860-4240-a2b4-b29b15e70e1e",
+          "context_usage_percentage": 2.3134,
+          "message_id": "fcaf2da9-fc6e-4f08-8d58-851f24e9ff7b",
+          "request_start_timestamp_ms": 1784153263749,
+          "stream_end_timestamp_ms": 1784153266117,
+          "user_prompt_length": 307,
+          "response_size": 153,
+          "chat_conversation_type": "NotToolUse",
+          "tool_use_ids_and_names": [],
+          "model_id": "auto",
+          "message_meta_tags": [],
+          "total_tokens": null,
+          "uncached_input_tokens": null,
+          "output_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null
+        }
+      }
+    ],
+    "model_info": {
+      "model_name": "auto",
+      "description": "Models chosen by task for optimal usage and consistent quality",
+      "model_id": "auto",
+      "context_window_tokens": 1000000,
+      "rate_multiplier": 1.0,
+      "rate_unit": "Credit"
+    }
+  }
+}

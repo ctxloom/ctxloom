@@ -318,6 +318,15 @@ test-conformance:
 test-vendor-codex:
     go test -race ./internal/transcript/importer/codex/...
 
+# Validate the kiro vendor-transcript importer in isolation. Its own fixture
+# is a sqlite db built at test time (see
+# internal/transcript/importer/kiro/testdata/MANIFEST.json) via
+# modernc.org/sqlite, the pure-Go (CGO_ENABLED=0-safe) driver this package
+# isolates to itself — -race here also exercises that driver under the race
+# detector, not just this package's own goroutine-free logic.
+test-vendor-kiro:
+    go test -race ./internal/transcript/importer/kiro/...
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

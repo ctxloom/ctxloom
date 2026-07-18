@@ -54,7 +54,11 @@ const (
 	// SurfaceSettings is the engine's settings/hooks surface (.claude/settings.json,
 	// codex config.toml, .agents/hooks.json, kiro agent JSON).
 	SurfaceSettings
-	// SurfaceCommands is the engine's slash-command / skill / prompt files.
+	// SurfaceCommands is the engine's slash-command files (a skill-only
+	// engine's writer renders these to its native SKILL.md convention — see
+	// RenderCommandAsSkillFile — but the export a caller hands this surface is
+	// always a command, never a skill; SurfaceSkills is the discrete kind for
+	// genuine Agent Skill packages).
 	SurfaceCommands
 	// SurfaceSkills is the engine's Agent Skills surface — SKILL.md package
 	// directories (claude .claude/skills/, kiro .kiro/skills/, …). Distinct

@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/afero"
 )
 
-// CommandExport is the agent-agnostic slash-command export spec for one prompt.
+// CommandExport is the agent-agnostic slash-command export spec for one command.
 // It is the abstraction the per-agent command writers (claude, antigravity) consume,
 // so they never import ctxloom's bundle types: ctxloom maps each
 // bundles.LoadedContent to a CommandExport for the target agent (resolving that

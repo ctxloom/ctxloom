@@ -1,0 +1,203 @@
+package main
+
+import (
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+)
+
+// gitInit runs `git init` against dir so workdir.ResolveBoundary() can find a
+// real git root there — the boundary case resolveListScope must treat as a
+// normal, project-scoped read (even on a repo's very first taskloom call).
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "--quiet", dir)
+	require.NoError(t, cmd.Run(), "git init")
+}
+
+func TestResolveListScope_ExplicitGlobal_AlwaysAggregatesNoNotice(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+
+	scope, err := resolveListScope(true, "pinned-project", dir)
+	require.NoError(t, err)
+	assert.True(t, scope.Global)
+	assert.Empty(t, scope.Notice, "an explicit --global is a silent opt-in")
+}
+
+func TestResolveListScope_PinnedProjectID_StaysProjectScoped(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir() // not a git repo, not established — the pin alone must be enough
+
+	scope, err := resolveListScope(false, "pinned-project", dir)
+	require.NoError(t, err)
+	assert.False(t, scope.Global)
+	assert.Empty(t, scope.Notice)
+}
+
+func TestResolveListScope_GitBoundary_StaysProjectScopedEvenUnestablished(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+	gitInit(t, dir)
+	taskstest.ChangeDir(t, dir)
+
+	// A git repo's first-ever taskloom call is still a real project: no prior
+	// task history, no marker, but a real boundary.
+	scope, err := resolveListScope(false, "", dir)
+	require.NoError(t, err)
+	assert.False(t, scope.Global)
+	assert.Empty(t, scope.Notice)
+}
+
+func TestResolveListScope_NoGitNoHistory_FallsBackToGlobalWithNotice(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir() // no git, no marker, no registry entry
+	taskstest.ChangeDir(t, dir)
+
+	scope, err := resolveListScope(false, "", dir)
+	require.NoError(t, err)
+	assert.True(t, scope.Global, "no boundary and no established identity must default to global")
+	require.NotEmpty(t, scope.Notice, "the fallback must be explained, not silent")
+	assert.Contains(t, scope.Notice, "no project detected")
+	assert.Contains(t, scope.Notice, dir)
+}
+
+func TestResolveListScope_EstablishedMarkerWithoutGit_StaysProjectScoped(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+	taskstest.ChangeDir(t, dir)
+	require.NoError(t, projectid.WriteMarker(dir, "adopted-project"))
+
+	scope, err := resolveListScope(false, "", dir)
+	require.NoError(t, err)
+	assert.False(t, scope.Global, "an in-tree marker is an established identity even without git")
+	assert.Empty(t, scope.Notice)
+}
+
+func TestIsEstablishedProject_RegistryEntryByPathCounts(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+
+	pm, err := projectid.Open("")
+	require.NoError(t, err)
+	_, err = pm.Mint(dir) // registers dir by path without writing an in-tree marker
+
+	require.NoError(t, err)
+
+	got, err := isEstablishedProject(dir)
+	require.NoError(t, err)
+	assert.True(t, got)
+}
+
+func TestIsEstablishedProject_UnknownDirIsNotEstablished(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+
+	got, err := isEstablishedProject(dir)
+	require.NoError(t, err)
+	assert.False(t, got)
+}
+
+func TestFilterActiveDefault_HidesCompletedAndDeferredByDefault(t *testing.T) {
+	list := []tasks.Task{
+		{HarpID: "a", Status: tasks.StatusToDo},
+		{HarpID: "b", Status: tasks.StatusDone, Checked: true},
+		{HarpID: "c", Status: tasks.StatusDeferred},
+		{HarpID: "d", Status: tasks.StatusInProgress},
+	}
+
+	visible, hiddenCompleted, hiddenDeferred := filterActiveDefault(list, false, nil)
+	require.Len(t, visible, 2)
+	assert.ElementsMatch(t, []string{"a", "d"}, []string{visible[0].HarpID, visible[1].HarpID})
+	assert.Equal(t, 1, hiddenCompleted)
+	assert.Equal(t, 1, hiddenDeferred)
+}
+
+func TestFilterActiveDefault_IncludeDoneBypassesFiltering(t *testing.T) {
+	list := []tasks.Task{
+		{HarpID: "a", Status: tasks.StatusToDo},
+		{HarpID: "b", Status: tasks.StatusDone, Checked: true},
+	}
+
+	visible, hiddenCompleted, hiddenDeferred := filterActiveDefault(list, true, nil)
+	assert.Len(t, visible, 2)
+	assert.Zero(t, hiddenCompleted)
+	assert.Zero(t, hiddenDeferred)
+}
+
+func TestFilterActiveDefault_ExplicitStatusBypassesFiltering(t *testing.T) {
+	list := []tasks.Task{
+		{HarpID: "b", Status: tasks.StatusDone, Checked: true},
+	}
+
+	visible, hiddenCompleted, hiddenDeferred := filterActiveDefault(list, false, []string{tasks.StatusDone})
+	assert.Len(t, visible, 1, "an explicit status filter is itself the opt-in")
+	assert.Zero(t, hiddenCompleted)
+	assert.Zero(t, hiddenDeferred)
+}
+
+func TestListAllProjects_EmptyTasksDirIsNotAnError(t *testing.T) {
+	taskstest.Isolate(t) // fresh HOME: ~/.ctxloom/tasks doesn't exist yet
+
+	got, err := listAllProjects(nil, "", "", false, "")
+	require.NoError(t, err)
+	assert.Zero(t, got.ProjectCount)
+	assert.Empty(t, got.Rows)
+}
+
+func TestListAllProjects_AggregatesAcrossProjectFilesSortedDeterministically(t *testing.T) {
+	taskstest.Isolate(t)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "b's active task", "", "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "b's done task", tasks.StatusDone, "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "a's active task", "", "")
+	require.NoError(t, err)
+
+	got, err := listAllProjects(nil, "", "", false, "")
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.ProjectCount)
+	assert.Equal(t, 1, got.HiddenCompleted, "the done task in proj-b is hidden by the default active-only view")
+
+	require.Len(t, got.Rows, 2, "only the two active tasks are visible")
+	assert.Equal(t, "proj-a", got.Rows[0].ProjectID, "rows sort by project-id first")
+	assert.Equal(t, "proj-b", got.Rows[1].ProjectID)
+	assert.Equal(t, "a's active task", got.Rows[0].Text)
+	assert.Equal(t, "b's active task", got.Rows[1].Text)
+}
+
+func TestListAllProjects_IncludeDoneSurfacesHiddenTasksToo(t *testing.T) {
+	taskstest.Isolate(t)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "done", tasks.StatusDone, "")
+	require.NoError(t, err)
+
+	got, err := listAllProjects(nil, "", "", true, "")
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 1)
+	assert.Zero(t, got.HiddenCompleted)
+}
+
+func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
+	taskstest.Isolate(t)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "fix the parser", "", "")
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "write docs", "", "")
+	require.NoError(t, err)
+
+	got, err := listAllProjects(nil, "parser", "", false, "")
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 1)
+	assert.Equal(t, "proj-a", got.Rows[0].ProjectID)
+	assert.True(t, strings.Contains(got.Rows[0].Text, "parser"))
+}

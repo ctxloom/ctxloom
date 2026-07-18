@@ -4,7 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // TestNoteHiddenMatches pins the anti-silent-truncation hint: a --term or
@@ -68,4 +72,87 @@ func TestNoteHiddenMatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunListCmd_DefaultScopesToCurrentProjectOnly is the CLI-side mirror of
+// TestHandleTaskList_DefaultScopesToCurrentProjectOnly: `taskloom list` with
+// no flags shows only the tasks of the project resolved from the working
+// directory.
+func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	_, err := operations.AddTaskWithTags(taskContext(), "here's task", "", "", nil)
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, false)
+	require.NoError(t, err)
+
+	assert.Contains(t, stdout.String(), "here's task")
+	assert.NotContains(t, stdout.String(), "elsewhere's task")
+	assert.Empty(t, stderr.String(), "a resolved project needs no notice")
+}
+
+// TestRunListCmd_GlobalAggregatesAcrossProjects is the CLI-side mirror of
+// TestHandleTaskList_GlobalAggregatesAcrossProjects: `taskloom list --global`
+// shows every project's tasks, grouped by project, with no notice (an
+// explicit opt-in needs no explaining).
+func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	_, err := operations.AddTaskWithTags(taskContext(), "here's task", "", "", nil)
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, true, false)
+	require.NoError(t, err)
+
+	assert.Contains(t, stdout.String(), "Projects: 2 (--global)")
+	assert.Contains(t, stdout.String(), "here's task")
+	assert.Contains(t, stdout.String(), "elsewhere's task")
+	assert.Contains(t, stdout.String(), "Project: elsewhere")
+	assert.Empty(t, stderr.String(), "an explicit --global needs no notice")
+}
+
+// TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice is the CLI-side
+// mirror of TestHandleTaskList_NoProjectContextDefaultsGlobalWithNotice: run
+// from a directory that is neither a git repo nor an already-established
+// project, `taskloom list` (no flags) falls back to --global and explains why
+// on stderr.
+func TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+	taskstest.ChangeDir(t, dir)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "somewhere"}, "a tracked task", "", "")
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, false)
+	require.NoError(t, err)
+
+	assert.Contains(t, stderr.String(), "no project detected", "the fallback must be explained, not silent")
+	assert.Contains(t, stdout.String(), "a tracked task")
+	assert.Contains(t, stdout.String(), "Projects: 1 (--global)")
+}
+
+// TestRunListCmd_JSONOutputTagsEachRowWithItsProject exercises the --json
+// path of a --global listing: it must emit taskRow (task + project_id), not
+// a bare tasks.Task, so a scripted consumer can tell which project each task
+// came from.
+func TestRunListCmd_JSONOutputTagsEachRowWithItsProject(t *testing.T) {
+	taskstest.Isolate(t)
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "a's task", "", "")
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, operations.TaskContext{}, nil, "", "", false, true, true)
+	require.NoError(t, err)
+
+	assert.Contains(t, stdout.String(), `"project_id": "proj-a"`)
+	assert.Contains(t, stdout.String(), `"text": "a's task"`)
 }

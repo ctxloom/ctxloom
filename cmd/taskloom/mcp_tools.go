@@ -18,15 +18,33 @@ type taskListInput struct {
 	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
 	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter, e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". Empty = no tag filter."`
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
-	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones."`
+	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
+	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across EVERY project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all."`
 }
 
 type taskListResult struct {
 	Path       string         `json:"path"`
-	ProjectID  string         `json:"project_id"`
+	ProjectID  string         `json:"project_id,omitempty"`
 	ProjectDir string         `json:"project_dir,omitempty"`
-	Tasks      []tasks.Task   `json:"tasks"`
+	Tasks      []taskRow      `json:"tasks"`
 	Summary    *tasks.Summary `json:"summary,omitempty"`
+
+	// Global is true when this listing aggregated every project rather than
+	// the one resolved from the working directory — either because the
+	// caller asked for it (task_list's global=true) or because no project
+	// could be resolved at all (see Notice). ProjectID/ProjectDir are empty
+	// in that case; each row in Tasks carries its own project_id instead.
+	// ProjectCount is the number of project stores the aggregation scanned.
+	Global       bool `json:"global,omitempty"`
+	ProjectCount int  `json:"project_count,omitempty"`
+
+	// Notice is set when a listing fell back to Global on its own — no
+	// CTXLOOM_PROJECT_ID/--project pin, no CTXLOOM_ROOT or enclosing git repo,
+	// and no established identity for the working directory — so the caller
+	// sees WHY it got every project's tasks instead of silently getting an
+	// unexpected result. Empty otherwise, including for an explicit
+	// global=true (an opt-in needs no explanation).
+	Notice string `json:"notice,omitempty"`
 
 	// HiddenCompleted/HiddenDeferred count tasks that matched the requested
 	// filters but were suppressed by the default active-only view, so a
@@ -80,11 +98,16 @@ type taskTagResult struct {
 	Task tasks.Task `json:"task"`
 }
 
+// This and the sibling registerXTools functions elsewhere in the ctxloom
+// family (registerAgentTools, registerMemoryTools) share a duplicate shape by
+// construction (a run of mcp.AddTool calls). Their tool descriptions are
+// independent content; a change to one implies nothing about the others.
+// reprise:accept-drift
 func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List the project's tasks, optionally filtered by status, text term, or tag query (tag_query). Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
+			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every project instead. When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global and the result's notice field says so. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		handleTaskList)
 
@@ -118,16 +141,41 @@ func registerTaskTools(server *mcp.Server) {
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
-	res, err := operations.ListTasksWithTagQuery(taskContext(), in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary)
+	tc := taskContext()
+	scope, err := resolveListScope(in.Global, tc.ProjectID, tc.WorkDir)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if scope.Global {
+		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, tc.SessionHarp)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &taskListResult{
+			Tasks:           gres.Rows,
+			Global:          true,
+			ProjectCount:    gres.ProjectCount,
+			Notice:          scope.Notice,
+			HiddenCompleted: gres.HiddenCompleted,
+			HiddenDeferred:  gres.HiddenDeferred,
+		}, nil
+	}
+
+	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary)
 	if err != nil {
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
+	rows := make([]taskRow, len(res.Tasks))
+	for i, t := range res.Tasks {
+		rows[i] = taskRow{Task: t, ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
+	}
 	out := &taskListResult{
 		Path:            res.Path,
 		ProjectID:       res.ProjectID,
 		ProjectDir:      res.ProjectDir,
-		Tasks:           res.Tasks,
+		Tasks:           rows,
 		Summary:         res.Summary,
 		HiddenCompleted: res.HiddenCompleted,
 		HiddenDeferred:  res.HiddenDeferred,

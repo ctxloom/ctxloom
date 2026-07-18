@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -22,12 +23,22 @@ var (
 	tasksListTagQuery string
 	tasksListJSON     bool
 	tasksListAll      bool
+	tasksListGlobal   bool
 )
 
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tasks, optionally filtered by status, term, or tag query",
 	Long: `List tasks, filtered by status, text term, and/or tag query.
+
+By default a listing is scoped to the CURRENT project, resolved from the
+working directory the same way `+"`taskloom add`"+` etc. do (--project, else
+CTXLOOM_PROJECT_ID, else cwd). Pass --global to aggregate every project
+instead. When no project can be resolved at all — not inside a git repo, no
+CTXLOOM_ROOT override, and no prior task history at this exact path — the
+listing falls back to --global on its own, with a notice on stderr saying
+why, rather than minting a throwaway project identity for an arbitrary
+directory.
 
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
@@ -60,35 +71,110 @@ tags in use (with counts) via "taskloom tags".`,
   taskloom list --tag-query release --all
 
   # In Progress tasks mentioning "docs"
-  taskloom list --status "In Progress" --term docs`,
+  taskloom list --status "In Progress" --term docs
+
+  # every project's tasks, not just the current one
+  taskloom list --global`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.ListTasksWithTagQuery(taskContext(), tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, false)
+		return runListCmd(cmd.OutOrStdout(), os.Stderr, taskContext(),
+			tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, tasksListGlobal, tasksListJSON)
+	},
+}
+
+// runListCmd is listCmd's RunE body, factored out so it can be driven in
+// tests without cobra machinery: out/errw are separate so a test can assert
+// on each independently, matching the command's real stdout-stays-parseable
+// / stderr-carries-diagnostics split.
+func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []string, term, tagQuery string, all, global, jsonOut bool) error {
+	scope, err := resolveListScope(global, tc.ProjectID, tc.WorkDir)
+	if err != nil {
+		return err
+	}
+
+	if scope.Global {
+		if scope.Notice != "" {
+			clidiag.Fwarn(errw, "taskloom", "%s", scope.Notice)
+		}
+		gres, err := listAllProjects(statuses, term, tagQuery, all, tc.SessionHarp)
 		if err != nil {
-			var perr *tagquery.ParseError
-			if errors.As(err, &perr) {
-				return fmt.Errorf("%w\nqueries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not (see 'taskloom list --help' for more)", err)
-			}
-			return err
+			return wrapTagQueryError(err)
 		}
-		warnTask(res.Warning)
-		noteHiddenMatches(os.Stderr, res, tasksListTerm != "" || tasksListTagQuery != "")
-		if tasksListJSON {
-			return writeJSON(cmd.OutOrStdout(), res.Tasks)
+		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, term != "" || tagQuery != "")
+		if jsonOut {
+			return writeJSON(out, gres.Rows)
 		}
-		// Name the resolved store: in multi-root workspaces (several .ctxloom
-		// trees under one repo), which project a listing came from is the
-		// first thing a confused reader needs to know.
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		if res.ProjectDir != "" {
-			w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
-		} else {
-			w.Printf("Project: %s\n\n", res.ProjectID)
-		}
+		w := iox.NewErrWriter(out)
+		w.Printf("Projects: %d (--global)\n\n", gres.ProjectCount)
 		if err := w.Err(); err != nil {
 			return err
 		}
-		return renderTaskTable(cmd.OutOrStdout(), res.Tasks)
-	},
+		return renderGlobalTaskTable(out, gres.Rows)
+	}
+
+	res, err := operations.ListTasksWithTagQuery(tc, statuses, term, tagQuery, all, false)
+	if err != nil {
+		return wrapTagQueryError(err)
+	}
+	warnTask(res.Warning)
+	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, term != "" || tagQuery != "")
+	if jsonOut {
+		return writeJSON(out, res.Tasks)
+	}
+	// Name the resolved store: in multi-root workspaces (several .ctxloom
+	// trees under one repo), which project a listing came from is the
+	// first thing a confused reader needs to know.
+	w := iox.NewErrWriter(out)
+	if res.ProjectDir != "" {
+		w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
+	} else {
+		w.Printf("Project: %s\n\n", res.ProjectID)
+	}
+	if err := w.Err(); err != nil {
+		return err
+	}
+	return renderTaskTable(out, res.Tasks)
+}
+
+// wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,
+// shared by both the single-project and --global list paths.
+func wrapTagQueryError(err error) error {
+	var perr *tagquery.ParseError
+	if errors.As(err, &perr) {
+		return fmt.Errorf("%w\nqueries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not (see 'taskloom list --help' for more)", err)
+	}
+	return err
+}
+
+// renderGlobalTaskTable prints a --global (or no-project-fallback) listing as
+// one table section per project, reusing renderTaskTable per section so the
+// per-row formatting matches the single-project view exactly.
+func renderGlobalTaskTable(out io.Writer, rows []taskRow) error {
+	w := iox.NewErrWriter(out)
+	if len(rows) == 0 {
+		w.Println("(no tasks)")
+		return w.Err()
+	}
+	start := 0
+	for i := 1; i <= len(rows); i++ {
+		if i < len(rows) && rows[i].ProjectID == rows[start].ProjectID {
+			continue
+		}
+		group := rows[start:i]
+		w.Printf("Project: %s\n", group[0].ProjectID)
+		if err := w.Err(); err != nil {
+			return err
+		}
+		plain := make([]tasks.Task, len(group))
+		for j, r := range group {
+			plain[j] = r.Task
+		}
+		if err := renderTaskTable(out, plain); err != nil {
+			return err
+		}
+		w.Println("")
+		start = i
+	}
+	return w.Err()
 }
 
 // noteHiddenMatches tells the user (on stderr, so stdout stays parseable) when
@@ -98,16 +184,24 @@ tags in use (with counts) via "taskloom tags".`,
 // but a query that matches 49 tasks and prints 11 with no trace is a silent
 // truncation of an answer.
 func noteHiddenMatches(w io.Writer, res *operations.TaskListResult, filtered bool) {
-	hidden := res.HiddenCompleted + res.HiddenDeferred
+	noteHidden(w, res.HiddenCompleted, res.HiddenDeferred, filtered)
+}
+
+// noteHidden is noteHiddenMatches' body, taking the counts directly rather
+// than an operations.TaskListResult — the --global aggregation path sums
+// counts across several projects' stores rather than getting them from one
+// TaskListResult, so it needs the same hint off the raw numbers.
+func noteHidden(w io.Writer, hiddenCompleted, hiddenDeferred int, filtered bool) {
+	hidden := hiddenCompleted + hiddenDeferred
 	if !filtered || hidden == 0 {
 		return
 	}
 	parts := make([]string, 0, 2)
-	if res.HiddenCompleted > 0 {
-		parts = append(parts, fmt.Sprintf("%d completed", res.HiddenCompleted))
+	if hiddenCompleted > 0 {
+		parts = append(parts, fmt.Sprintf("%d completed", hiddenCompleted))
 	}
-	if res.HiddenDeferred > 0 {
-		parts = append(parts, fmt.Sprintf("%d deferred", res.HiddenDeferred))
+	if hiddenDeferred > 0 {
+		parts = append(parts, fmt.Sprintf("%d deferred", hiddenDeferred))
 	}
 	fmt.Fprintf(w, "taskloom: %d more matching task(s) hidden by the default active-only view (%s) — add --all to include them\n",
 		hidden, strings.Join(parts, ", "))
@@ -338,6 +432,7 @@ func init() {
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
 	listCmd.Flags().BoolVar(&tasksListJSON, "json", false, "emit JSON instead of a table (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
+	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every project instead of just the current one")
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 	addCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")

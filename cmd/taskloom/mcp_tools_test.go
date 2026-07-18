@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -201,4 +202,87 @@ func TestHandleTaskList_MalformedTagQueryErrors(t *testing.T) {
 
 	_, _, err = handleTaskList(context.Background(), nil, taskListInput{TagQuery: "and"})
 	assert.Error(t, err, "a malformed tag query must fail loud, never silently return an empty/all result")
+}
+
+// TestHandleTaskList_DefaultScopesToCurrentProjectOnly pins the headline
+// behavior: without global=true, task_list only ever sees the tasks of the
+// project resolved from the working directory, even when other projects have
+// tasks of their own.
+func TestHandleTaskList_DefaultScopesToCurrentProjectOnly(t *testing.T) {
+	withProjectDir(t) // establishes and cds into a fresh project (call it "here")
+
+	_, here, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "here's task"})
+	require.NoError(t, err)
+
+	// A second project's task, seeded directly by project-id — never touches
+	// cwd, so it must not leak into a default (non-global) listing.
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
+	require.NoError(t, err)
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{})
+	require.NoError(t, err)
+	require.Len(t, res.Tasks, 1)
+	assert.Equal(t, here.Task.HarpID, res.Tasks[0].HarpID)
+	assert.False(t, res.Global)
+	assert.Empty(t, res.Notice)
+}
+
+// TestHandleTaskList_GlobalAggregatesAcrossProjects pins the --global /
+// all_projects opt-in: every project's tasks come back in one result, tagged
+// with the project they came from, and no notice is attached (an explicit
+// opt-in needs no explaining).
+func TestHandleTaskList_GlobalAggregatesAcrossProjects(t *testing.T) {
+	withProjectDir(t)
+
+	_, here, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "here's task"})
+	require.NoError(t, err)
+	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
+	require.NoError(t, err)
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Global: true})
+	require.NoError(t, err)
+	require.Len(t, res.Tasks, 2)
+	assert.True(t, res.Global)
+	assert.Equal(t, 2, res.ProjectCount)
+	assert.Empty(t, res.Notice)
+
+	byHarp := map[string]taskRow{}
+	for _, row := range res.Tasks {
+		byHarp[row.HarpID] = row
+	}
+	require.Contains(t, byHarp, here.Task.HarpID)
+	hereRow := byHarp[here.Task.HarpID]
+	assert.NotEmpty(t, hereRow.ProjectID, "each row is tagged with the project it came from")
+	assert.NotEqual(t, "elsewhere", hereRow.ProjectID, "withProjectDir's project must not be named \"elsewhere\"")
+
+	var sawElsewhere bool
+	for _, row := range res.Tasks {
+		if row.ProjectID == "elsewhere" {
+			sawElsewhere = true
+			assert.Equal(t, "elsewhere's task", row.Text)
+		}
+	}
+	assert.True(t, sawElsewhere, "the seeded project's task must be present too")
+}
+
+// TestHandleTaskList_NoProjectContextDefaultsGlobalWithNotice pins the third
+// required behavior: called from a directory that is neither a git repo nor
+// an already-established project, task_list defaults to global on its own —
+// and says so via Notice, rather than silently minting a throwaway project
+// identity for an arbitrary directory or silently returning an empty list.
+func TestHandleTaskList_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir() // no git, no marker, no registry entry
+	taskstest.ChangeDir(t, dir)
+
+	_, err := operations.AddTask(operations.TaskContext{ProjectID: "somewhere"}, "a tracked task", "", "")
+	require.NoError(t, err)
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{})
+	require.NoError(t, err)
+	assert.True(t, res.Global)
+	require.NotEmpty(t, res.Notice, "the no-project fallback must be explained in the tool result, not silent")
+	assert.Contains(t, res.Notice, "no project detected")
+	require.Len(t, res.Tasks, 1)
+	assert.Equal(t, "somewhere", res.Tasks[0].ProjectID)
 }

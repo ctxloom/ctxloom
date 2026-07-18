@@ -318,6 +318,11 @@ test-conformance:
 test-vendor-codex:
     go test -race ./internal/transcript/importer/codex/...
 
+# Validate the antigravity vendor-transcript importer in isolation — see
+# test-vendor-codex's comment above, same rationale, one target per engine.
+test-vendor-antigravity:
+    go test -race ./internal/transcript/importer/antigravity/...
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

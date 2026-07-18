@@ -15,27 +15,39 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestRenderSessionTable_LastActivityColumn pins deliverable 1's listing shape:
-// the table keys its time column on each entry's last-activity (ActivityTime,
-// carried on Entry.LastActivity) at SECOND granularity — deliberately finer
-// than the picker's minute view — not on StartedAt. A title-less row still
-// renders (as "(no summary)"), and the caller's pre-sorted order is preserved.
-func TestRenderSessionTable_LastActivityColumn(t *testing.T) {
-	la := time.Date(2026, 7, 17, 17, 27, 32, 0, time.Local)
-	entries := []sessions.Entry{
-		{HarpName: "swift-amber-falcon", Summary: "Designed the picker", LastActivity: la},
-		{HarpName: "plump-loose-sash", LastActivity: la.Add(-time.Hour)},
+// TestRenderSessionRows_ProjectionShape pins the WS-6 default listing shape
+// (CLI-primary reorg plan, decision 13): the table shows HARP, SUMMARY, and
+// START — never a LAST ACTIVITY column, which belonged to the old
+// Entry-keyed renderSessionTable this replaces. A title-less row still
+// renders (as "(no summary)"), and the caller's pre-sorted row order is
+// preserved.
+func TestRenderSessionRows_ProjectionShape(t *testing.T) {
+	started := time.Date(2026, 7, 17, 17, 27, 32, 0, time.Local)
+	rows := []SessionRow{
+		newSessionRow(sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Designed the picker", StartedAt: started}),
+		newSessionRow(sessions.Entry{HarpName: "plump-loose-sash", StartedAt: started.Add(-time.Hour)}),
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderSessionTable(&buf, entries))
+	require.NoError(t, renderSessionRows(&buf, rows))
 	out := buf.String()
 
-	assert.Contains(t, out, "LAST ACTIVITY", "header must name the last-activity column")
-	assert.NotContains(t, out, "STARTED", "the STARTED column is replaced by LAST ACTIVITY")
-	assert.Contains(t, out, "2026-07-17 17:27:32", "last-activity is rendered to second granularity")
+	assert.Contains(t, out, "HARP", "header must name the harp column")
+	assert.Contains(t, out, "SUMMARY", "header must name the summary column")
+	assert.Contains(t, out, "START", "header must name the start column")
+	assert.NotContains(t, out, "LAST ACTIVITY", "the old last-activity column is gone")
+	assert.Contains(t, out, "2026-07-17 17:27:32", "start is rendered to second granularity")
 	assert.Contains(t, out, "(no summary)", "a title-less row still renders")
 	assert.Less(t, strings.Index(out, "swift-amber-falcon"), strings.Index(out, "plump-loose-sash"),
 		"caller's pre-sorted order is preserved")
+}
+
+// TestRenderSessionRows_EmptyShowsPlaceholder pins the empty-listing UX
+// renderSessionTable used to own: no rows renders a friendly "(no sessions)"
+// line rather than an empty/absent table.
+func TestRenderSessionRows_EmptyShowsPlaceholder(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderSessionRows(&buf, nil))
+	assert.Contains(t, buf.String(), "(no sessions)")
 }
 
 // TestEmitHarpMarker covers the SessionStart producer side: the bind hook emits

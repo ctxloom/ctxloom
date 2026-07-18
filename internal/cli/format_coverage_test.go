@@ -132,12 +132,19 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	}},
 
 	// --- exercised: a representative sample of pre-existing emit()-wired list commands ---
-	"fragment list":           {extraArgs: noExtraArgs},
-	"command list":            {extraArgs: noExtraArgs},
-	"skill list":              {extraArgs: noExtraArgs},
-	"agent list":              {extraArgs: noExtraArgs},
-	"profile list":            {extraArgs: noExtraArgs},
-	"session list":            {extraArgs: noExtraArgs},
+	"fragment list": {extraArgs: noExtraArgs},
+	"command list":  {extraArgs: noExtraArgs},
+	"skill list":    {extraArgs: noExtraArgs},
+	"agent list":    {extraArgs: noExtraArgs},
+	"profile list":  {extraArgs: noExtraArgs},
+	"session list":  {extraArgs: noExtraArgs},
+	"session query": {extraArgs: func(string) []string {
+		// A word that won't match anything in this test's empty/fresh session
+		// index; the point here is proving `session query` renders cleanly in
+		// all five formats (an empty-rows case, same as an unmatched `session
+		// list`), not exercising a real hit — that's session_query_test.go's job.
+		return []string{"coverage-query-no-hit"}
+	}},
 	"signer list":             {extraArgs: noExtraArgs},
 	"remote list":             {extraArgs: noExtraArgs},
 	"manage mcp servers list": {extraArgs: noExtraArgs},

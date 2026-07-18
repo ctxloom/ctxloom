@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -61,8 +60,8 @@ var sessionListCmd = &cobra.Command{
 		if entries == nil {
 			entries = []sessions.Entry{}
 		}
-		// appDir is the global ctxloom home (cwd-independent), used both to
-		// detect missing essences below and to resolve each row's essence path.
+		// appDir is the global ctxloom home (cwd-independent), used by --distill
+		// below to detect missing essences.
 		appDir := ""
 		if cfg, cErr := config.Load(); cErr == nil {
 			appDir = cfg.AppDir
@@ -79,21 +78,16 @@ var sessionListCmd = &cobra.Command{
 				entries = []sessions.Entry{}
 			}
 		}
-		// Enrich each row with its essence presence + path (computed, not stored),
-		// so a client reads `distilled`/`essence_path` straight from the listing
-		// instead of re-deriving them or rebuilding the ~/.ctxloom path itself.
-		for i := range entries {
-			path, distilled := sessionEssenceInfo(entries[i].HarpName, &entries[i], appDir)
-			entries[i].Distilled = distilled
-			entries[i].EssencePath = path
+		// Default output shape (CLI-primary reorg plan, decision 13): a
+		// lightweight projection — harp, single-line summary, start, end — never
+		// the full Entry (session_id, transcript paths, etc. stay off this wire;
+		// internal/sessions.Entry's own json posture is untouched).
+		rows := make([]SessionRow, len(entries))
+		for i, e := range entries {
+			rows[i] = newSessionRow(e)
 		}
-		return emit(cmd, entries, func() error {
-			if len(entries) == 0 {
-				w := iox.NewErrWriter(cmd.OutOrStdout())
-				w.Println("(no sessions)")
-				return w.Err()
-			}
-			return renderSessionTable(cmd.OutOrStdout(), entries)
+		return emit(cmd, rows, func() error {
+			return renderSessionRows(cmd.OutOrStdout(), rows)
 		})
 	},
 }
@@ -529,40 +523,4 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
 	return result, nil
-}
-
-// renderSessionTable writes a tab-aligned listing of session entries to w.
-// Entries are assumed pre-sorted by the caller; this function only formats.
-func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
-	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	w := iox.NewErrWriter(tw)
-	w.Println("HARP\tLAST ACTIVITY\tSUMMARY")
-	for _, e := range entries {
-		summary := e.Summary
-		if summary == "" {
-			summary = "(no summary)"
-		}
-		if stale, known := e.SourceStale(); known && stale {
-			summary += "  ⚠ out of date"
-		}
-		// Key the time column on last-activity (transcript mtime, canonical
-		// preferred — see sessions.ActivityTime), not creation time, so a
-		// resumed-and-worked session reads as recent. Second granularity is
-		// deliberately finer than the picker's minute view. LastActivity is
-		// precomputed by the list path; fall back defensively for a caller that
-		// passed unenriched rows.
-		last := e.LastActivity
-		if last.IsZero() {
-			last = sessions.ActivityTime(e)
-		}
-		w.Printf("%s\t%s\t%s\n",
-			e.HarpName,
-			last.Local().Format("2006-01-02 15:04:05"),
-			summary,
-		)
-	}
-	if err := tw.Flush(); err != nil {
-		return err
-	}
-	return w.Err()
 }

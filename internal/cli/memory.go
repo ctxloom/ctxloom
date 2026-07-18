@@ -22,8 +22,12 @@ import (
 
 var memoryCmd = &cobra.Command{
 	Use:   "memory",
-	Short: "Manage session memory (out-of-band compaction)",
-	Long: `Manage session memory: distil a session's transcript so a later session can pick it up.
+	Short: "Manage session memory (out-of-band compaction) — deprecated, folded into `session`",
+	Long: `DEPRECATED: this command group is folded into ` + "`ctxloom session`" + ` (list/show/distill).
+Each subcommand below still runs and prints a one-line pointer to its
+session equivalent; memory itself is removed in a later release.
+
+Manage session memory: distil a session's transcript so a later session can pick it up.
 
 Compaction here happens OUT OF BAND, and that is the point. Native in-context
 compaction asks an agent to summarise itself at the moment it is running out of
@@ -41,17 +45,32 @@ Commands:
   ctxloom memory compact [--session]   Distil a session log`,
 }
 
+// memoryListDeprecation, memoryShowDeprecation, and memoryCompactDeprecation
+// are the one-line pointers cobra prints (to stderr — see cobra's
+// Command.Printf, which falls back to OutOrStderr when no writer was
+// explicitly set) whenever a `memory` subcommand still runs. `memory` folds
+// into `session` (CLI-primary reorg plan, decision 2): these are additive
+// deprecation shims, not yet a removal — `memory` keeps working exactly as
+// before until a later phase deletes it.
+const (
+	memoryListDeprecation    = "use `ctxloom session list` instead"
+	memoryShowDeprecation    = "use `ctxloom session show <harp>` instead"
+	memoryCompactDeprecation = "use `ctxloom session distill <harp>` instead"
+)
+
 var memoryListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all sessions",
-	RunE:  runMemoryList,
+	Use:        "list",
+	Short:      "List all sessions",
+	Deprecated: memoryListDeprecation,
+	RunE:       runMemoryList,
 }
 
 var memoryShowCmd = &cobra.Command{
-	Use:   "show <session-id>",
-	Short: "Show session details",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runMemoryShow,
+	Use:        "show <session-id>",
+	Short:      "Show session details",
+	Args:       cobra.ExactArgs(1),
+	Deprecated: memoryShowDeprecation,
+	RunE:       runMemoryShow,
 }
 
 var memoryCompactCmd = &cobra.Command{
@@ -69,7 +88,8 @@ Examples:
   ctxloom memory compact                    # Compact most recent session
   ctxloom memory compact --session abc123   # Compact specific session
   ctxloom memory compact --model antigravity # Use specific model`,
-	RunE: runMemoryCompact,
+	Deprecated: memoryCompactDeprecation,
+	RunE:       runMemoryCompact,
 }
 
 var (

@@ -3,11 +3,10 @@ package claude
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
 // line is one top-level record of a claude transcript file. Unlike codex's
@@ -46,7 +45,7 @@ type line struct {
 	// PermissionMode rides on a genuinely human-typed "user" line only (never
 	// observed on a tool_result-carrying or isMeta "user" line) — the
 	// session's permission mode at the time that turn was sent.
-	PermissionMode string `json:"permissionMode"`
+	PermissionMode string   `json:"permissionMode"`
 	Message        *message `json:"message"`
 }
 
@@ -140,83 +139,63 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 	return blocks
 }
 
-// convertLines runs the two-pass conversion, mirroring codex's convertLines:
-// scanSessionInfo first (one Session ChatEvent recorded once up front), then
-// a streamed second pass in the file's own order for every user/assistant
-// line.
+// convertLines runs the two-pass conversion via importer.ConvertJSONLLines,
+// mirroring codex's convertLines: scanSessionInfo first (one Session
+// ChatEvent recorded once up front), then a streamed second pass in the
+// file's own order for every user/assistant line.
 // The two-pass shape (scan once, then stream) is the reference pattern every
 // importer.VendorAdapter copies from codex on purpose (codex.go's package
-// doc); claude's payload/dispatch differs enough (no envelope, dual-shaped
-// content, id-keyed accounting vs a second event type) that factoring a
-// shared helper would abstract over the ONE thing that's actually different
-// between vendors, not the boilerplate around it.
-// reprise:ignore — intentional structural mirror of codex's convertLines, per the above.
+// doc). What genuinely differs between codex and claude here — no envelope,
+// dual-shaped content, id-keyed accounting vs a second event type — stays in
+// each vendor's own dispatch; what doesn't differ (line reading, latching
+// session-info fields, joining text blocks, shaping a tool_use/tool_result
+// entry, flushing a pending Complete boundary, and now the outer scan/
+// stream/flush shell itself) lives once in the importer package both
+// packages import, not copied here.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
-	if info := scanSessionInfo(lines); info != nil {
-		if err := rec.Record(agent.ChatEvent{Session: info}); err != nil {
-			return fmt.Errorf("claude: record session: %w", err)
-		}
-	}
-
-	c := &converter{rec: rec}
-	for _, raw := range lines {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		var l line
-		if err := json.Unmarshal(raw, &l); err != nil {
-			continue // malformed line: skip, never fatal (see importer.VendorAdapter doc)
-		}
-		switch l.Type {
-		case "user":
-			if err := c.handleUser(l); err != nil {
-				return err
+	c := &converter{record: importer.RecordFunc(rec, "claude")}
+	return importer.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
+		func(raw []byte) error {
+			var l line
+			if err := json.Unmarshal(raw, &l); err != nil {
+				return nil // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 			}
-		case "assistant":
-			if err := c.handleAssistant(l); err != nil {
-				return err
+			switch l.Type {
+			case "user":
+				return c.handleUser(l)
+			case "assistant":
+				return c.handleAssistant(l)
 			}
-		}
-		// Every other Type (progress, queue-operation, system, attachment,
-		// last-prompt, mode, permission-mode, ai-title, custom-title,
-		// file-history-snapshot, agent-name, pr-link, worktree-state,
-		// file-history-delta, agent-color) contributes no entries: see
-		// line's doc comment.
-	}
-	return c.flushPending()
+			// Every other Type (progress, queue-operation, system,
+			// attachment, last-prompt, mode, permission-mode, ai-title,
+			// custom-title, file-history-snapshot, agent-name, pr-link,
+			// worktree-state, file-history-delta, agent-color) contributes no
+			// entries: see line's doc comment.
+			return nil
+		},
+		c.flushPending)
 }
 
 // scanSessionInfo makes one pass over every line looking for session-level
-// metadata, latching each field onto its FIRST occurrence only — mirrors
-// codex's scanSessionInfo (rollout.go). Returns nil if the file contained
-// none of it at all.
+// metadata, latching each field onto its FIRST occurrence only via
+// importer.SessionInfoBuilder — mirrors codex's scanSessionInfo
+// (rollout.go). Returns nil if the file contained none of it at all.
 func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
-	info := &agent.ChatSessionInfo{}
-	found := false
+	var b importer.SessionInfoBuilder
 	for _, raw := range lines {
 		var l line
 		if err := json.Unmarshal(raw, &l); err != nil {
 			continue
 		}
-		if l.SessionID != "" && info.SessionID == "" {
-			info.SessionID = l.SessionID
-			found = true
-		}
+		b.SetSessionID(l.SessionID)
 		if l.Type == "assistant" && l.Message != nil {
-			if l.Message.Model != "" && info.Model == "" {
-				info.Model = l.Message.Model
-				found = true
-			}
+			b.SetModel(l.Message.Model)
 		}
-		if l.Type == "user" && l.PermissionMode != "" && info.PermissionMode == "" {
-			info.PermissionMode = l.PermissionMode
-			found = true
+		if l.Type == "user" {
+			b.SetPermissionMode(l.PermissionMode)
 		}
 	}
-	if !found {
-		return nil
-	}
-	return info
+	return b.Build()
 }
 
 // converter carries the streamed second pass's cross-line state: claude's
@@ -232,31 +211,22 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 // separate Complete for every content block of the SAME response instead of
 // one per actual turn.
 type converter struct {
-	rec       transcript.Recorder
+	record    func(agent.ChatEvent) error
 	pending   *agent.TurnMeta
 	pendingID string
-}
-
-func (c *converter) record(ev agent.ChatEvent) error {
-	if err := c.rec.Record(ev); err != nil {
-		return fmt.Errorf("claude: record: %w", err)
-	}
-	return nil
 }
 
 // flushPending records a still-open Complete boundary at end of file — a
 // response whose accounting was captured but whose message.id never changed
 // again before the file ended (a truncated/interrupted transcript, e.g. the
-// user cancelled mid-turn). Mirrors codex's flushPending exactly. A nil
-// pending is a normal, silent no-op.
+// user cancelled mid-turn). A nil pending is a normal, silent no-op.
+// pendingID is reset unconditionally: it and pending are always set/cleared
+// together (see handleAssistant), so when pending is nil, pendingID is
+// already "". See importer.FlushComplete for the flush mechanics shared with
+// codex's identical boundary-flush shape.
 func (c *converter) flushPending() error {
-	if c.pending == nil {
-		return nil
-	}
-	pending := c.pending
-	c.pending = nil
 	c.pendingID = ""
-	return c.record(agent.ChatEvent{Complete: pending})
+	return importer.FlushComplete(&c.pending, c.record)
 }
 
 // handleUser dispatches one "user"-type line's content blocks to canonical
@@ -348,44 +318,23 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock) []agent.Cha
 	var evs []agent.ChatEvent
 	var textParts []string
 	flushText := func() {
-		if len(textParts) == 0 {
-			return
-		}
-		text := strings.Join(textParts, "\n\n")
+		evs = append(evs, importer.TextEntry(entryType, importer.JoinNonEmpty(textParts))...)
 		textParts = nil
-		if text == "" {
-			return
-		}
-		evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{Type: entryType, Content: text}})
 	}
 
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			if b.Text != "" {
-				textParts = append(textParts, b.Text)
-			}
+			textParts = append(textParts, b.Text)
 		case "thinking":
 			flushText()
-			if b.Thinking != "" {
-				evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: b.Thinking}})
-			}
+			evs = append(evs, importer.TextEntry(agent.EntryTypeThinking, b.Thinking)...)
 		case "tool_use":
 			flushText()
-			evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{
-				Type:       agent.EntryTypeToolUse,
-				ToolName:   b.Name,
-				ToolInput:  nonEmptyRaw(b.Input),
-				ToolCallID: b.ID,
-			}})
+			evs = append(evs, importer.ToolUseEvent(b.Name, b.ID, b.Input))
 		case "tool_result":
 			flushText()
-			evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{
-				Type:       agent.EntryTypeToolResult,
-				ToolOutput: toolResultText(b.Content),
-				ToolCallID: b.ToolUseID,
-				IsError:    b.IsError,
-			}})
+			evs = append(evs, importer.ToolResultEvent(b.ToolUseID, toolResultText(b.Content), b.IsError))
 		default:
 			// An unmodeled/future block type (e.g. "image" pasted directly
 			// into a user turn — observed but rare on this box): skip, not
@@ -407,23 +356,11 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock) []agent.Cha
 // function_call_output "no error field, don't sniff prose" discipline.
 func toolResultText(raw json.RawMessage) string {
 	blocks := decodeContentBlocks(raw)
-	var parts []string
+	parts := make([]string, 0, len(blocks))
 	for _, b := range blocks {
-		if b.Type == "text" && b.Text != "" {
+		if b.Type == "text" {
 			parts = append(parts, b.Text)
 		}
 	}
-	return strings.Join(parts, "\n\n")
-}
-
-// nonEmptyRaw normalizes a zero-length json.RawMessage to nil so
-// agent.SessionEntry.ToolInput's omitempty (record.go's EntryPayload.
-// ToolInput) actually omits it, rather than round-tripping an empty-but-non-nil
-// slice that json.RawMessage's own MarshalJSON would otherwise turn into a
-// literal `null`.
-func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return nil
-	}
-	return raw
+	return importer.JoinNonEmpty(parts)
 }

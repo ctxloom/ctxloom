@@ -3,11 +3,11 @@ package codex
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
 // rolloutLine is codex's outer envelope for every line of a
@@ -107,56 +107,46 @@ type taskCompletePayload struct {
 	DurationMs int `json:"duration_ms"`
 }
 
-// convertLines runs the two-pass conversion: scanSessionInfo first (so a
-// single Session ChatEvent, with every field it can find anywhere in the
-// file, is recorded ONCE up front — matching agent.ChatEvent.Session's
-// "emitted once near the start" contract even though codex spreads the
-// contributing fields across three different envelope types at three
-// different points in the file), then a streamed second pass in the file's
-// own order for every entry/accounting event.
+// convertLines runs the two-pass conversion via importer.ConvertJSONLLines:
+// scanSessionInfo first (so a single Session ChatEvent, with every field it
+// can find anywhere in the file, is recorded ONCE up front — matching
+// agent.ChatEvent.Session's "emitted once near the start" contract even
+// though codex spreads the contributing fields across three different
+// envelope types at three different points in the file), then a streamed
+// second pass in the file's own order for every entry/accounting event.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
-	if info := scanSessionInfo(lines); info != nil {
-		if err := rec.Record(agent.ChatEvent{Session: info}); err != nil {
-			return fmt.Errorf("codex: record session: %w", err)
-		}
-	}
-
-	c := &converter{rec: rec}
-	for _, line := range lines {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		var env rolloutLine
-		if err := json.Unmarshal(line, &env); err != nil {
-			continue // malformed line: skip, never fatal (see importer.VendorAdapter doc)
-		}
-		switch env.Type {
-		case "response_item":
-			if err := c.handleResponseItem(env.Payload); err != nil {
-				return err
+	c := &converter{record: importer.RecordFunc(rec, "codex")}
+	return importer.ConvertJSONLLines(ctx, rec, lines, "codex", scanSessionInfo(lines),
+		func(line []byte) error {
+			var env rolloutLine
+			if err := json.Unmarshal(line, &env); err != nil {
+				return nil // malformed line: skip, never fatal (see importer.VendorAdapter doc)
 			}
-		case "event_msg":
-			if err := c.handleEventMsg(env.Payload); err != nil {
-				return err
+			switch env.Type {
+			case "response_item":
+				return c.handleResponseItem(env.Payload)
+			case "event_msg":
+				return c.handleEventMsg(env.Payload)
 			}
-		}
-		// session_meta / turn_context / world_state contribute no entries of
-		// their own here — session_meta and turn_context were already folded
-		// into the single up-front Session event by scanSessionInfo, and
-		// world_state carries codex's own environment snapshot (AGENTS.md
-		// text, etc.), not conversation content.
-	}
-	return c.flushPending()
+			// session_meta / turn_context / world_state contribute no entries
+			// of their own here — session_meta and turn_context were already
+			// folded into the single up-front Session event by
+			// scanSessionInfo, and world_state carries codex's own
+			// environment snapshot (AGENTS.md text, etc.), not conversation
+			// content.
+			return nil
+		},
+		c.flushPending)
 }
 
 // scanSessionInfo makes one pass over every line looking for the three
 // envelope types that contribute session-level metadata, latching each field
-// onto its FIRST occurrence only (mirrors Recorder.Record's own "latch onto
-// the first KindSession line" discipline in recorder.go). Returns nil if the
-// file contained none of them at all (nothing to record).
+// onto its FIRST occurrence only via importer.SessionInfoBuilder (mirrors
+// Recorder.Record's own "latch onto the first KindSession line" discipline
+// in recorder.go). Returns nil if the file contained none of them at all
+// (nothing to record).
 func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
-	info := &agent.ChatSessionInfo{}
-	found := false
+	var b importer.SessionInfoBuilder
 	for _, line := range lines {
 		var env rolloutLine
 		if err := json.Unmarshal(line, &env); err != nil {
@@ -172,10 +162,7 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 			if id == "" {
 				id = p.SessionID
 			}
-			if id != "" && info.SessionID == "" {
-				info.SessionID = id
-				found = true
-			}
+			b.SetSessionID(id)
 		case "event_msg":
 			var head eventMsgHead
 			if err := json.Unmarshal(env.Payload, &head); err != nil || head.Type != "task_started" {
@@ -185,29 +172,17 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 			if err := json.Unmarshal(env.Payload, &p); err != nil {
 				continue
 			}
-			if p.ModelContextWindow != 0 && info.ContextWindow == 0 {
-				info.ContextWindow = p.ModelContextWindow
-				found = true
-			}
+			b.SetContextWindow(p.ModelContextWindow)
 		case "turn_context":
 			var p turnContextPayload
 			if err := json.Unmarshal(env.Payload, &p); err != nil {
 				continue
 			}
-			if p.Model != "" && info.Model == "" {
-				info.Model = p.Model
-				found = true
-			}
-			if p.ApprovalPolicy != "" && info.PermissionMode == "" {
-				info.PermissionMode = p.ApprovalPolicy
-				found = true
-			}
+			b.SetModel(p.Model)
+			b.SetPermissionMode(p.ApprovalPolicy)
 		}
 	}
-	if !found {
-		return nil
-	}
-	return info
+	return b.Build()
 }
 
 // converter carries the streamed second pass's only piece of cross-line
@@ -230,29 +205,19 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 // billed," not a sum across every internal round-trip codex made to get
 // there.
 type converter struct {
-	rec     transcript.Recorder
+	record  func(agent.ChatEvent) error
 	pending *agent.TurnMeta
-}
-
-func (c *converter) record(ev agent.ChatEvent) error {
-	if err := c.rec.Record(ev); err != nil {
-		return fmt.Errorf("codex: record: %w", err)
-	}
-	return nil
 }
 
 // flushPending records a still-open Complete boundary at end of file (a
 // token_count with no matching task_complete — a truncated/interrupted
 // rollout) rather than silently discarding accounting data that was
 // genuinely captured. A nil pending is a normal, silent no-op: most files
-// end cleanly on their own task_complete, which already flushed and cleared it.
+// end cleanly on their own task_complete, which already flushed and cleared
+// it — see importer.FlushComplete for the mechanics shared with claude's
+// identical boundary-flush shape.
 func (c *converter) flushPending() error {
-	if c.pending == nil {
-		return nil
-	}
-	pending := c.pending
-	c.pending = nil
-	return c.record(agent.ChatEvent{Complete: pending})
+	return importer.FlushComplete(&c.pending, c.record)
 }
 
 // handleResponseItem dispatches one response_item payload to its
@@ -321,9 +286,7 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 			c.pending = &agent.TurnMeta{}
 		}
 		c.pending.DurationMs = p.DurationMs
-		pending := c.pending
-		c.pending = nil
-		return c.record(agent.ChatEvent{Complete: pending})
+		return importer.FlushComplete(&c.pending, c.record)
 	default:
 		return nil
 	}
@@ -340,13 +303,9 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 func messageEvents(p responseItemPayload) []agent.ChatEvent {
 	switch p.Role {
 	case "user":
-		if text := joinContentText(p.Content); text != "" {
-			return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: text}}}
-		}
+		return importer.TextEntry(agent.EntryTypeUser, joinContentText(p.Content))
 	case "assistant":
-		if text := joinContentText(p.Content); text != "" {
-			return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}}
-		}
+		return importer.TextEntry(agent.EntryTypeAssistant, joinContentText(p.Content))
 	}
 	return nil
 }
@@ -356,6 +315,16 @@ func messageEvents(p responseItemPayload) []agent.ChatEvent {
 // gate on the exact type string, since the intent is simply "visible text in
 // this message" and codex has not been observed emitting a non-text block in
 // a message response_item on this box).
+//
+// Deliberately NOT delegating to importer.JoinNonEmpty/JoinNonEmptyFunc (the
+// join primitive joinSummaryText below and every other engine's adapter
+// use): doing so makes this function's normalized shape match an unrelated,
+// pre-existing near-duplicate outside this package — internal/operations/
+// resume.go's JoinLeadBlocks, a resume-prompt helper with nothing to do with
+// vendor-transcript import — which reprise's check flags as an inconsistent
+// partial update the moment either side is touched. Fixing that properly
+// means changing internal/operations, out of scope for a change confined to
+// internal/transcript/importer/*.
 func joinContentText(blocks []contentBlock) string {
 	var parts []string
 	for _, b := range blocks {
@@ -377,11 +346,7 @@ func joinContentText(blocks []contentBlock) string {
 // object per element, since codex's own source was not available to confirm
 // which one a non-empty summary actually uses.
 func reasoningEvents(p responseItemPayload) []agent.ChatEvent {
-	text := joinSummaryText(p.Summary)
-	if text == "" {
-		return nil
-	}
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: text}}}
+	return importer.TextEntry(agent.EntryTypeThinking, joinSummaryText(p.Summary))
 }
 
 func joinSummaryText(items []json.RawMessage) string {
@@ -389,30 +354,23 @@ func joinSummaryText(items []json.RawMessage) string {
 	for _, item := range items {
 		var s string
 		if err := json.Unmarshal(item, &s); err == nil {
-			if s != "" {
-				parts = append(parts, s)
-			}
+			parts = append(parts, s)
 			continue
 		}
 		var obj struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(item, &obj); err == nil && obj.Text != "" {
+		if err := json.Unmarshal(item, &obj); err == nil {
 			parts = append(parts, obj.Text)
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return importer.JoinNonEmpty(parts)
 }
 
 // functionCallEvents maps a "function_call" response_item to exactly one
 // tool_use entry.
 func functionCallEvents(p responseItemPayload) []agent.ChatEvent {
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
-		Type:       agent.EntryTypeToolUse,
-		ToolName:   p.Name,
-		ToolInput:  argumentsToRaw(p.Arguments),
-		ToolCallID: p.CallID,
-	}}}
+	return []agent.ChatEvent{importer.ToolUseEvent(p.Name, p.CallID, argumentsToRaw(p.Arguments))}
 }
 
 // argumentsToRaw converts function_call's `arguments` field — documented and
@@ -449,9 +407,5 @@ func argumentsToRaw(args string) json.RawMessage {
 // This adapter does not fabricate a boolean from prose — an honest gap, not
 // a silent guess.
 func functionCallOutputEvents(p responseItemPayload) []agent.ChatEvent {
-	return []agent.ChatEvent{{Entry: &agent.SessionEntry{
-		Type:       agent.EntryTypeToolResult,
-		ToolOutput: p.Output,
-		ToolCallID: p.CallID,
-	}}}
+	return []agent.ChatEvent{importer.ToolResultEvent(p.CallID, p.Output, false)}
 }

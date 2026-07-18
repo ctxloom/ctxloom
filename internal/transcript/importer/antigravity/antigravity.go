@@ -35,10 +35,7 @@
 package antigravity
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
@@ -68,32 +65,17 @@ func New() Adapter { return Adapter{} }
 // store the workDir couldn't resolve — docs/transcript-schema.md §2b/§8) —
 // Convert only ever parses a src path it is handed.
 //
-// The whole file is read into memory in one os.ReadFile call rather than
-// streamed through a bufio.Reader: a transcript_full.jsonl file is one
-// session's own step log (not an ever-growing rollout that could outlive
-// available memory the way a long-lived codex/kiro session store might), and
-// reading it whole sidesteps a bufio.Scanner's default per-token size cap
-// entirely — a PLANNER_RESPONSE step's "thinking" field alone can run to
-// several kilobytes on a real capture (see testdata/MANIFEST.json), and a
-// capped Scanner would hard-fail the entire file on the first such line,
-// violating the degrade-to-partial contract this package must not break.
+// Lines are read via the same importer.ReadJSONLLines every JSONL-per-
+// session engine's adapter uses (codex, claude): an unbounded bufio.Reader,
+// not a capped bufio.Scanner — a PLANNER_RESPONSE step's "thinking" field
+// alone can run to several kilobytes on a real capture (see
+// testdata/MANIFEST.json), and a capped Scanner would hard-fail the entire
+// file on the first such line, violating the degrade-to-partial contract
+// this package must not break.
 func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
-	data, err := os.ReadFile(src)
+	lines, err := importer.OpenAndReadJSONLLines("antigravity", src)
 	if err != nil {
-		return fmt.Errorf("antigravity: open %s: %w", src, err)
+		return err
 	}
-	return convertLines(ctx, rec, splitNonEmptyLines(data))
-}
-
-// splitNonEmptyLines breaks data on '\n' and drops any line that is empty
-// after trimming surrounding whitespace (a trailing newline, a blank line
-// between steps).
-func splitNonEmptyLines(data []byte) [][]byte {
-	var lines [][]byte
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
-			lines = append(lines, trimmed)
-		}
-	}
-	return lines
+	return convertLines(ctx, rec, lines)
 }

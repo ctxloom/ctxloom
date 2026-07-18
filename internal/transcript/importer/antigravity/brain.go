@@ -3,11 +3,11 @@ package antigravity
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
 // step is one line of a transcript_full.jsonl file — antigravity's own
@@ -62,6 +62,7 @@ const (
 // fixture (internal/transcript/testdata/fixtures/antigravity.transcript.acp.jsonl),
 // which is entry-only too.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
+	record := importer.RecordFunc(rec, "antigravity")
 	for _, line := range lines {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -73,40 +74,30 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 		if s.Status != stepDone {
 			continue // provisional (e.g. RUNNING): not a finalized turn to record
 		}
-		ev, ok := stepEvent(s)
-		if !ok {
-			continue
-		}
-		if err := rec.Record(ev); err != nil {
-			return fmt.Errorf("antigravity: record: %w", err)
+		for _, ev := range stepEvent(s) {
+			if err := record(ev); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// stepEvent maps one DONE step to a ChatEvent, per
+// stepEvent maps one DONE step to zero or one ChatEvents, per
 // docs/transcript-schema.md §2c's mapping table: USER_INPUT -> "user",
 // PLANNER_RESPONSE -> "assistant". Every other Type (CONVERSATION_HISTORY,
 // CHECKPOINT, GENERIC, LIST_DIRECTORY, RUN_COMMAND, CODE_ACTION, VIEW_FILE,
 // SYSTEM_MESSAGE, ERROR_MESSAGE, and any future/unrecognized type) is
 // skipped — see this package's doc comment for why that vocabulary is not
 // converted even though some of it is real, present data on this box.
-func stepEvent(s step) (agent.ChatEvent, bool) {
+func stepEvent(s step) []agent.ChatEvent {
 	switch s.Type {
 	case "USER_INPUT":
-		text := extractUserRequest(s.Content)
-		if text == "" {
-			return agent.ChatEvent{}, false
-		}
-		return agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: text}}, true
+		return importer.TextEntry(agent.EntryTypeUser, extractUserRequest(s.Content))
 	case "PLANNER_RESPONSE":
-		text := strings.TrimSpace(s.Content)
-		if text == "" {
-			return agent.ChatEvent{}, false
-		}
-		return agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}, true
+		return importer.TextEntry(agent.EntryTypeAssistant, strings.TrimSpace(s.Content))
 	default:
-		return agent.ChatEvent{}, false
+		return nil
 	}
 }
 

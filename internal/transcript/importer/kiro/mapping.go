@@ -2,28 +2,19 @@ package kiro
 
 import (
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/transcript"
+	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
 // converter carries the streamed per-turn pass's only piece of state: the
-// Recorder itself. Unlike codex's converter, kiro's needs NO pending-
+// record func itself. Unlike codex's converter, kiro's needs NO pending-
 // boundary buffer across turns — every historyTurn already carries its own
 // complete request_metadata alongside its content (schema.go's historyTurn
 // doc comment), so there is nothing to correlate across turns before a
 // Complete event can be built.
 type converter struct {
-	rec transcript.Recorder
-}
-
-func (c *converter) record(ev agent.ChatEvent) error {
-	if err := c.rec.Record(ev); err != nil {
-		return fmt.Errorf("kiro: record: %w", err)
-	}
-	return nil
+	record func(agent.ChatEvent) error
 }
 
 // handleTurn maps one historyTurn (raw JSON, from conversationDoc.History)
@@ -64,10 +55,7 @@ func userContentEvents(raw json.RawMessage) []agent.ChatEvent {
 	}
 	switch {
 	case u.Prompt != nil:
-		if u.Prompt.Prompt == "" {
-			return nil
-		}
-		return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: u.Prompt.Prompt}}}
+		return importer.TextEntry(agent.EntryTypeUser, u.Prompt.Prompt)
 	case u.ToolUseResults != nil:
 		return toolResultEvents(u.ToolUseResults.ToolUseResults)
 	case u.CancelledToolUses != nil:
@@ -97,35 +85,16 @@ func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 	}
 	evs := make([]agent.ChatEvent, 0, len(results))
 	for _, r := range results {
-		evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{
-			Type:       agent.EntryTypeToolResult,
-			ToolCallID: r.ToolUseID,
-			ToolOutput: joinToolResultText(r.Content),
-			IsError:    r.Status != "Success",
-		}})
+		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, joinToolResultText(r.Content), r.Status != "Success"))
 	}
 	return evs
 }
 
-// joinToolResultText concatenates every content element's non-empty Text
-// directly into a builder (rather than collecting a []string to hand to
-// strings.Join, codex's joinContentText's approach for the analogous
-// message-content-block case) — a real tool_use_results array is short
-// (one element on every real capture on this box), so this avoids the
-// intermediate slice allocation strings.Join's approach needs for no
-// behavioral difference.
+// joinToolResultText concatenates every content element's Text, dropping any
+// that are empty — the same importer.JoinNonEmptyFunc convention codex's
+// joinContentText uses for the analogous content-block case.
 func joinToolResultText(items []toolResultContent) string {
-	var b strings.Builder
-	for _, it := range items {
-		if it.Text == "" {
-			continue
-		}
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(it.Text)
-	}
-	return b.String()
+	return importer.JoinNonEmptyFunc(items, func(it toolResultContent) string { return it.Text })
 }
 
 // assistantContentEvents maps an assistantContent union to zero or more
@@ -140,42 +109,22 @@ func assistantContentEvents(raw json.RawMessage) []agent.ChatEvent {
 	}
 	switch {
 	case a.ToolUse != nil:
-		var evs []agent.ChatEvent
-		if a.ToolUse.Content != "" {
-			evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: a.ToolUse.Content}})
-		}
+		evs := importer.TextEntry(agent.EntryTypeAssistant, a.ToolUse.Content)
 		for _, tu := range a.ToolUse.ToolUses {
-			evs = append(evs, agent.ChatEvent{Entry: &agent.SessionEntry{
-				Type:       agent.EntryTypeToolUse,
-				ToolName:   tu.Name,
-				ToolCallID: tu.ID,
-				ToolInput:  toolArgsToRaw(tu.Args),
-			}})
+			// tu.Args is already a bare JSON object on every real tool_uses
+			// element captured on this box — unlike codex's
+			// function_call.arguments, a JSON-ENCODED STRING that itself
+			// contains an object (codex/rollout.go's argumentsToRaw doc
+			// comment) — so no string-unwrap step applies here; ToolUseEvent's
+			// own NonEmptyRaw normalizes an empty/absent args to nil.
+			evs = append(evs, importer.ToolUseEvent(tu.Name, tu.ID, tu.Args))
 		}
 		return evs
 	case a.Response != nil:
-		if a.Response.Content == "" {
-			return nil
-		}
-		return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: a.Response.Content}}}
+		return importer.TextEntry(agent.EntryTypeAssistant, a.Response.Content)
 	default:
 		return nil // an unmodeled/future assistantContent variant: skip, not fatal
 	}
-}
-
-// toolArgsToRaw passes a tool_uses element's args straight through as
-// SessionEntry.ToolInput. Unlike codex's function_call.arguments (a
-// JSON-ENCODED STRING that itself contains an object — codex/rollout.go's
-// argumentsToRaw doc comment), kiro's args was ALREADY a bare JSON object on
-// every real tool_uses element captured on this box, so no string-unwrap
-// step applies here; an empty/absent args (json.RawMessage(nil)) passes
-// through as nil, matching argumentsToRaw's own "empty means nil" contract
-// for ToolInput.
-func toolArgsToRaw(args json.RawMessage) json.RawMessage {
-	if len(args) == 0 {
-		return nil
-	}
-	return args
 }
 
 // turnMeta builds one Complete boundary from a turn's own request_metadata,
@@ -231,8 +180,7 @@ func durationMs(rm requestMetadata) int {
 // calls this: there is only ever one candidate value for each field, not
 // several arriving at different points in a stream.
 func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSessionInfo {
-	info := &agent.ChatSessionInfo{}
-	found := false
+	var b importer.SessionInfoBuilder
 
 	// doc.ConversationID was byte-identical to the locator's own
 	// conversation id on every real row on this box; the fallback exists so
@@ -243,24 +191,15 @@ func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSession
 	if sid == "" {
 		sid = conversationID
 	}
-	if sid != "" {
-		info.SessionID = sid
-		found = true
-	}
+	b.SetSessionID(sid)
 
 	if doc.ModelInfo != nil {
 		model := doc.ModelInfo.ModelID
 		if model == "" {
 			model = doc.ModelInfo.ModelName
 		}
-		if model != "" {
-			info.Model = model
-			found = true
-		}
-		if doc.ModelInfo.ContextWindowTokens != 0 {
-			info.ContextWindow = doc.ModelInfo.ContextWindowTokens
-			found = true
-		}
+		b.SetModel(model)
+		b.SetContextWindow(doc.ModelInfo.ContextWindowTokens)
 	}
 
 	// PermissionMode is left empty: no field anywhere in a real
@@ -268,8 +207,5 @@ func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSession
 	// every real row on this box) carries kiro-cli's equivalent of codex's
 	// approval_policy — an honest gap, not an oversight.
 
-	if !found {
-		return nil
-	}
-	return info
+	return b.Build()
 }

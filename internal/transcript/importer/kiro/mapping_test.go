@@ -148,17 +148,6 @@ func TestAssistantContentEvents_UnrecognizedVariantSkipped(t *testing.T) {
 	assert.Nil(t, evs)
 }
 
-func TestToolArgsToRaw(t *testing.T) {
-	t.Run("bare object passes through unchanged", func(t *testing.T) {
-		raw := toolArgsToRaw(json.RawMessage(`{"cmd":"ls"}`))
-		assert.JSONEq(t, `{"cmd":"ls"}`, string(raw))
-	})
-	t.Run("empty args yields nil", func(t *testing.T) {
-		assert.Nil(t, toolArgsToRaw(nil))
-		assert.Nil(t, toolArgsToRaw(json.RawMessage{}))
-	})
-}
-
 func TestDurationMs(t *testing.T) {
 	cases := []struct {
 		name  string

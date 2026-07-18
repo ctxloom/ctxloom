@@ -123,7 +123,7 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 		}
 	}
 
-	c := &converter{rec: rec}
+	c := &converter{record: importer.RecordFunc(rec, "kiro")}
 	for _, turnRaw := range doc.History {
 		if err := ctx.Err(); err != nil {
 			return err

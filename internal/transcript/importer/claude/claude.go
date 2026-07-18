@@ -25,12 +25,7 @@
 package claude
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"fmt"
-	"io"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
@@ -54,53 +49,14 @@ func New() Adapter { return Adapter{} }
 // conversation to rec in the file's own order. See importer.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;
 // a rec.Record failure or ctx cancellation IS fatal). Deliberately mirrors
-// codex.Adapter.Convert's shape (open, readLines, convertLines):
-// importer.VendorAdapter's own doc comment requires every vendor package to
-// be independently triggerable with no sibling-package dependency
-// (adapter.go), so this cannot call codex's copy instead of having its own —
-// the duplication is the design, not an oversight.
-// reprise:ignore — intentional structural mirror of codex.Adapter.Convert, per the above.
+// codex.Adapter.Convert's shape (open, ReadJSONLLines, convertLines): the
+// two-pass shape is the reference pattern every importer.VendorAdapter
+// copies from codex (codex.go's package doc); the line-reading step itself
+// is not a copy at all — both call the same importer.ReadJSONLLines.
 func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
-	f, err := os.Open(src)
+	lines, err := importer.OpenAndReadJSONLLines("claude", src)
 	if err != nil {
-		return fmt.Errorf("claude: open %s: %w", src, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	lines, err := readLines(f)
-	if err != nil {
-		return fmt.Errorf("claude: read %s: %w", src, err)
+		return err
 	}
 	return convertLines(ctx, rec, lines)
-}
-
-// readLines splits r into non-empty, trimmed lines using an UNBOUNDED
-// bufio.Reader rather than a capped bufio.Scanner — a claude transcript line
-// routinely carries tens of kilobytes of prose (a large tool result, a long
-// skill/context injection, an extended-thinking block), and a Scanner's
-// default token cap would hard-fail the ENTIRE file on the first such line.
-// Identical reasoning and identical implementation to codex's readLines
-// (internal/transcript/importer/codex/codex.go) and
-// agent.SessionStore.ParseSessionFile — copied rather than shared because
-// importer.VendorAdapter's contract is that each vendor package is
-// independently triggerable with no sibling-package dependency.
-// reprise:ignore — see Convert's pragma above; same intentional-duplication rationale.
-func readLines(r io.Reader) ([][]byte, error) {
-	reader := bufio.NewReaderSize(r, 64*1024)
-	var lines [][]byte
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
-				lines = append(lines, trimmed)
-			}
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return lines, nil
 }

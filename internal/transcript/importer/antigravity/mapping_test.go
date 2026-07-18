@@ -36,29 +36,29 @@ func TestExtractUserRequest(t *testing.T) {
 
 func TestStepEvent(t *testing.T) {
 	t.Run("USER_INPUT with only wrapper noise yields nothing", func(t *testing.T) {
-		_, ok := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\n\n</USER_REQUEST>"})
-		assert.False(t, ok, "an empty extracted user request contributes nothing")
+		evs := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\n\n</USER_REQUEST>"})
+		assert.Empty(t, evs, "an empty extracted user request contributes nothing")
 	})
 
 	t.Run("PLANNER_RESPONSE with empty content yields nothing", func(t *testing.T) {
-		_, ok := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "   "})
-		assert.False(t, ok, "a blank assistant response contributes nothing")
+		evs := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "   "})
+		assert.Empty(t, evs, "a blank assistant response contributes nothing")
 	})
 
 	t.Run("USER_INPUT maps to a user entry", func(t *testing.T) {
-		ev, ok := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\nhello\n</USER_REQUEST>"})
-		require.True(t, ok)
-		require.NotNil(t, ev.Entry)
-		assert.Equal(t, agent.EntryTypeUser, ev.Entry.Type)
-		assert.Equal(t, "hello", ev.Entry.Content)
+		evs := stepEvent(step{Type: "USER_INPUT", Content: "<USER_REQUEST>\nhello\n</USER_REQUEST>"})
+		require.Len(t, evs, 1)
+		require.NotNil(t, evs[0].Entry)
+		assert.Equal(t, agent.EntryTypeUser, evs[0].Entry.Type)
+		assert.Equal(t, "hello", evs[0].Entry.Content)
 	})
 
 	t.Run("PLANNER_RESPONSE maps to an assistant entry", func(t *testing.T) {
-		ev, ok := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "ok"})
-		require.True(t, ok)
-		require.NotNil(t, ev.Entry)
-		assert.Equal(t, agent.EntryTypeAssistant, ev.Entry.Type)
-		assert.Equal(t, "ok", ev.Entry.Content)
+		evs := stepEvent(step{Type: "PLANNER_RESPONSE", Content: "ok"})
+		require.Len(t, evs, 1)
+		require.NotNil(t, evs[0].Entry)
+		assert.Equal(t, agent.EntryTypeAssistant, evs[0].Entry.Type)
+		assert.Equal(t, "ok", evs[0].Entry.Content)
 	})
 
 	t.Run("an unmapped type contributes nothing, even with content", func(t *testing.T) {
@@ -67,8 +67,8 @@ func TestStepEvent(t *testing.T) {
 			"LIST_DIRECTORY", "RUN_COMMAND", "CODE_ACTION", "VIEW_FILE",
 			"SYSTEM_MESSAGE", "ERROR_MESSAGE", "SOME_FUTURE_TYPE",
 		} {
-			_, ok := stepEvent(step{Type: typ, Content: "some narration text"})
-			assert.False(t, ok, "type %q must not be converted", typ)
+			evs := stepEvent(step{Type: typ, Content: "some narration text"})
+			assert.Empty(t, evs, "type %q must not be converted", typ)
 		}
 	})
 }

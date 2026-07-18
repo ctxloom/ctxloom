@@ -28,7 +28,7 @@ once `ctxloom run` has been used to launch a backend.
 
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: text or json (default "text")
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
       --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -38,6 +38,7 @@ once `ctxloom run` has been used to launch a backend.
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.
 * [ctxloom session forget](/reference/cli/ctxloom_session_forget/)	 - Drop a harp entry from the index. Transcript and essence files stay on disk.
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
+* [ctxloom session query](/reference/cli/ctxloom_session_query/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
 * [ctxloom session rename](/reference/cli/ctxloom_session_rename/)	 - Rename a harp entry. The backend transcript is unaffected.
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the distilled essence of a harp-named session
 * [ctxloom session watch](/reference/cli/ctxloom_session_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)

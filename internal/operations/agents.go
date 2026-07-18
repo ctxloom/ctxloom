@@ -190,7 +190,7 @@ func RemoveAgent(cfg *config.Config, name string) error {
 }
 
 // AgentSetupNudge returns a one-line, user-facing nudge toward
-// `ctxloom agent setup` when the project HAS profiles but NO agents
+// `ctxloom init prompt` when the project HAS profiles but NO agents
 // configured, or "" otherwise. It is the detection signal Phase F wires into the
 // SessionStart message path: once the user has profiles worth orchestrating but
 // hasn't bound any engine↔profile agents, ctxloom prompts them to set them up
@@ -209,7 +209,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 		return "" // nothing to bind engines to yet
 	}
 	return "ctxloom: this project has profiles but no agents configured. " +
-		"Run `ctxloom agent setup` (or ask your agent to) to bind engines to profiles — " +
+		"Run `ctxloom init prompt` (or ask your agent to) to bind engines to profiles — " +
 		"the standard trio is a coordinator you drive, a containerized developer, and a cheap finder, " +
 		"plus code-review lenses and any other roles you want to orchestrate."
 }

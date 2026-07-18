@@ -87,7 +87,7 @@ func TestBuildSessionInitSummary_AgentNotFound(t *testing.T) {
 		requestedAgent: "default",
 		workDir:        "/home/user/project",
 	})
-	want := `ctxloom: WARNING — agent "default" was requested but NOT FOUND; this session fell back to the plain profile flow instead of refusing to open. NONE of that agent's engine override, composed profiles, permissions posture, or runtime isolation apply — it is running on the HOST, unisolated, against this project's live working directory, /home/user/project. Check the agent name (see ` + "`ctxloom acp agents`" + `) and reconnect.`
+	want := `ctxloom: WARNING — agent "default" was requested but NOT FOUND; this session fell back to the plain profile flow instead of refusing to open. NONE of that agent's engine override, composed profiles, permissions posture, or runtime isolation apply — it is running on the HOST, unisolated, against this project's live working directory, /home/user/project. Check the agent name (see ` + "`ctxloom acp entries`" + `) and reconnect.`
 	assert.Equal(t, want, got)
 }
 

@@ -23,11 +23,11 @@ func TestBuildACPAgentEntries_DefaultPlusAgents(t *testing.T) {
 
 	assert.Equal(t, "ctxloom", entries[0].Name)
 	assert.Equal(t, "/usr/local/bin/ctxloom", entries[0].Command)
-	assert.Equal(t, []string{"acp"}, entries[0].Args)
+	assert.Equal(t, []string{"acp", "server"}, entries[0].Args)
 	assert.Empty(t, entries[0].Agent)
 
 	assert.Equal(t, "ctxloom: docs", entries[1].Name)
-	assert.Equal(t, []string{"acp", "--agent", "docs"}, entries[1].Args)
+	assert.Equal(t, []string{"acp", "server", "--agent", "docs"}, entries[1].Args)
 	assert.Equal(t, []string{"d1", "d2"}, entries[1].Profiles)
 
 	assert.Equal(t, "ctxloom: reviewer", entries[2].Name)
@@ -50,7 +50,7 @@ func TestZedAgentServersBlock_ValidJSONStableOrder(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(block), &parsed), "the block must be valid JSON: %s", block)
 	require.Len(t, parsed, 2)
 	assert.Equal(t, "/bin/ctxloom", parsed["ctxloom"].Command)
-	assert.Equal(t, []string{"acp", "--agent", "reviewer"}, parsed["ctxloom: reviewer"].Args)
+	assert.Equal(t, []string{"acp", "server", "--agent", "reviewer"}, parsed["ctxloom: reviewer"].Args)
 
 	// Stable order: the default entry renders before the agent entry.
 	assert.Less(t, bytes.Index([]byte(block), []byte(`"ctxloom"`)), bytes.Index([]byte(block), []byte(`"ctxloom: reviewer"`)))
@@ -73,7 +73,7 @@ func TestRenderACPAgents_ListsEntriesAndZedBlock(t *testing.T) {
 	assert.Contains(t, out, "profiles: r1, r2")
 	assert.Contains(t, out, "engine: (project default)")
 	assert.Contains(t, out, "agent_servers")
-	assert.Contains(t, out, `"args":["acp","--agent","docs"]`)
+	assert.Contains(t, out, `"args":["acp","server","--agent","docs"]`)
 }
 
 // TestRenderACPAgents_NoAgents: with no agents the default entry still
@@ -114,17 +114,17 @@ func TestAcpAgentsCmd_FormatJSON_EmitsMachineReadableEntries(t *testing.T) {
 
 	assert.Equal(t, "ctxloom", got[0].Name)
 	assert.Equal(t, "/usr/local/bin/ctxloom", got[0].Command)
-	assert.Equal(t, []string{"acp"}, got[0].Args)
+	assert.Equal(t, []string{"acp", "server"}, got[0].Args)
 	assert.Empty(t, got[0].Agent, "the default entry carries no agent name")
 
 	assert.Equal(t, "ctxloom: docs", got[1].Name)
 	assert.Equal(t, "docs", got[1].Agent, "machine consumer reads the agent name from this field")
 	assert.Equal(t, "/usr/local/bin/ctxloom", got[1].Command)
-	assert.Equal(t, []string{"acp", "--agent", "docs"}, got[1].Args, "exact command+args a client would configure")
+	assert.Equal(t, []string{"acp", "server", "--agent", "docs"}, got[1].Args, "exact command+args a client would configure")
 	assert.Equal(t, "fast", got[1].Engine)
 	assert.Equal(t, []string{"d1", "d2"}, got[1].Profiles)
 
 	assert.Equal(t, "ctxloom: reviewer", got[2].Name)
-	assert.Equal(t, []string{"acp", "--agent", "reviewer"}, got[2].Args)
+	assert.Equal(t, []string{"acp", "server", "--agent", "reviewer"}, got[2].Args)
 	assert.Empty(t, got[2].Engine, "unset engine stays empty, not a synthesized default")
 }

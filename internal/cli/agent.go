@@ -15,20 +15,23 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// ctxloomInitPrompt is ctxloom's built-in SIX-PHASE setup body (orient+scan,
-// ACP client(s), companions, profiles+content, agents, close) — ONE text
-// used by THREE doors (init-as-skill plan §4.2/ADDITION "one body, N doors"):
-// `ctxloom init`'s discovery launch (discoverySessionPrompt, init.go), `ctxloom
-// agent setup`'s re-entry pointer below, and the `/ctxloom-init` slash command
-// available in every ordinary session (resources/commands/ctxloom-init.md,
-// exported via internal/lm/backends.builtinCommands — unconditional, on ALL
-// backends' command catalogs, loaded by the engine only on invocation, never
-// injected into always-on assembled context). It is deliberately a markdown
-// RESOURCE, not Go: the client roster, role palette, and example names are
-// data that can evolve (e.g. via a ctxloom-default augmentation) without a
-// code change. Read via GetBuiltinCommandBody (not GetPromptText) because the
-// SAME file also carries the frontmatter `description:` the slash-command
-// export uses — one file, two consumption paths, never two copies to drift.
+// ctxloomInitPrompt is ctxloom's built-in FIVE-PHASE setup body (orient+scan,
+// companions, profiles+content, agents, close) — ONE text used by THREE doors
+// (init-as-skill plan §4.2/ADDITION "one body, N doors"): `ctxloom init`'s
+// discovery launch (discoverySessionPrompt, init.go), `ctxloom init prompt`'s
+// re-entry pointer below, and the `/ctxloom-init` slash command available in
+// every ordinary session (resources/commands/ctxloom-init.md, exported via
+// internal/lm/backends.builtinCommands — unconditional, on ALL backends'
+// command catalogs, loaded by the engine only on invocation, never injected
+// into always-on assembled context). ACP (server or client) is intentionally
+// NOT one of the five phases — it is optional, out-of-band configuration
+// handed off to the acp-setup Agent Skill; the working outcome of these five
+// phases alone is a functioning CLI/TUI. It is deliberately a markdown
+// RESOURCE, not Go: the role palette and example names are data that can
+// evolve (e.g. via a ctxloom-default augmentation) without a code change.
+// Read via GetBuiltinCommandBody (not GetPromptText) because the SAME file
+// also carries the frontmatter `description:` the slash-command export uses
+// — one file, two consumption paths, never two copies to drift.
 var ctxloomInitPrompt = resources.MustGetBuiltinCommandBody("ctxloom-init")
 
 var agentCmd = &cobra.Command{
@@ -167,40 +170,45 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	return w.Err()
 }
 
-// agentSetupCmd surfaces the full six-phase ctxloom setup prompt for the LLM
-// to run. It writes the prompt to stdout; the agent (which has shell access)
-// runs `ctxloom agent setup`, reads the emitted instructions, and follows
-// them. This is a re-entry POINTER onto the SAME body `/ctxloom-init` and the
-// `ctxloom init` discovery launch use (ctxloomInitPrompt) — not a
-// separate/duplicated prompt — so all three doors evolve together.
-var agentSetupCmd = &cobra.Command{
-	Use:   "setup",
-	Short: "Print ctxloom's setup prompt (clients, companions, profiles, agents) for the LLM to follow",
-	Long: `Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
-you and configure ctxloom collaboratively — ACP client(s), companions
-(taskloom/ltk), profiles/content, and agents (engine↔profile bindings).
-
-This is the same body 'ctxloom init' hands to your engine at bootstrap and
-'/ctxloom-init' loads in any ordinary session — this command is just a
-re-entry pointer onto it, for a shell/script that wants the raw prompt text.
-
-Run this (or ask your agent to) any time you want to reconfigure.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// A bundle (or installed companion) can ship its own `agent-setup` command
-		// to AUGMENT the built-in onboarding/composition guidance (data, not
-		// baked into the binary); every match's content adds to the built-in,
-		// never replaces it. Falls back to the built-in alone when none is
-		// installed or config can't load.
-		prompt := ctxloomInitPrompt
-		if cfg, err := GetConfig(); err == nil {
-			prompt = operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Println(prompt)
-		return w.Err()
-	},
+// runSetupPromptCmd prints the full five-phase ctxloom setup prompt for the
+// LLM to run. It writes the prompt to stdout; the agent (which has shell
+// access) runs `ctxloom init prompt`, reads the emitted instructions, and
+// follows them. This is a re-entry POINTER onto the SAME body `/ctxloom-init`
+// and the `ctxloom init` discovery launch use (ctxloomInitPrompt) — not a
+// separate/duplicated prompt — so all doors evolve together. Shared by
+// initPromptCmd (the real home, Decision 6 of the CLI-primary reorg plan) and
+// agentSetupCmd (kept as a Deprecated alias — 'setup' printing the whole
+// interview was misfiled under 'agent').
+func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
+	// A bundle (or installed companion) can ship its own `agent-setup` command
+	// to AUGMENT the built-in onboarding/composition guidance (data, not
+	// baked into the binary); every match's content adds to the built-in,
+	// never replaces it. Falls back to the built-in alone when none is
+	// installed or config can't load.
+	prompt := ctxloomInitPrompt
+	if cfg, err := GetConfig(); err == nil {
+		prompt = operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Println(prompt)
+	return w.Err()
 }
+
+// agentSetupCmd is a Deprecated alias for `ctxloom init prompt` (Decision 6):
+// 'setup' printing the whole setup interview was misfiled under 'agent'.
+// Still runs — same RunE, runSetupPromptCmd — so nothing breaks abruptly.
+var agentSetupCmd = &cobra.Command{
+	Use:        "setup",
+	Short:      "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",
+	Deprecated: agentSetupDeprecation,
+	Args:       cobra.NoArgs,
+	RunE:       runSetupPromptCmd,
+}
+
+// agentSetupDeprecation is the one-line pointer cobra prints whenever
+// `ctxloom agent setup` still runs (see memory.go's memoryListDeprecation for
+// the same shape/rationale — additive deprecation shim, not yet a removal).
+const agentSetupDeprecation = "use `ctxloom init prompt` instead"
 
 var (
 	agentSetEngine      string

@@ -9,40 +9,23 @@ This page is generated from `ctxloom acp --help`.
 
 ## ctxloom acp
 
-Serve ctxloom as an Agent Client Protocol agent (stdio)
+ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent
 
 ### Synopsis
 
-Serve ctxloom AS an ACP agent over stdio, so any ACP client (Zed's agent
-panel, editor plugins) can drive ctxloom sessions — assembled context,
-profiles, and the configured engine — without a bespoke per-editor frontend.
+ACP (Agent Client Protocol) has two directions under ctxloom, each its own
+subcommand:
 
-Each session/new opens one engine conversation rooted at the request's cwd
-(ctxloom config is discovered from there); ctxloom's assembled context rides
-the first turn as a lead block, and client-supplied mcpServers pass through to
-the engine. Engine permission requests forward to the connected editor as
-session/request_permission — the editor's own approval UI decides. ctxloom
-profile sets (the composed defaults, each profile, each agent's composed
-set) surface as ACP session modes; session/set_mode re-assembles the lead
-context for the next turn, while the ENGINE stays pinned at launch. Sessions
-are recorded under ctxloom harp names, and session/load resumes a recorded
-harp: its history replays to the client and primes the fresh engine
-conversation.
+  ctxloom acp server   ctxloom SERVES the protocol (stdio) so an ACP editor
+                        client (Zed's agent panel, VS Code, Nori, ...)
+                        connects IN and drives ctxloom sessions.
+  ctxloom acp client    ctxloom CONNECTS OUT to an ACP-speaking agent (a
+                        third-party command that itself speaks ACP) and
+                        drives one headless turn against it.
+  ctxloom acp entries   Lists the ACP agent-server entries to paste into an
+                        editor's config for the server direction.
 
---agent serves one agent as the agent: its composed profiles become the
-session context and its engine binding picks the backend (an explicit --llm
-still wins). Configure one editor agent entry per agent to pick agents
-from the editor — 'ctxloom acp agents' prints the entries ready to paste.
-
---workspace worktree runs that agent's session in its own fresh git worktree
-(ISO2) instead of the editor's own cwd — reuses the exact worktree machinery
-'ctxloom run --agent'/agent_run drive, with a first-turn announcement of the
-worktree path (the editor's own view stays unaware of it). Requires --agent:
-worktree isolation is for a deliberately-configured agent entry, never the
-plain 'ctxloom acp' one, even when the project's 'workspace:' default is
-"worktree" for map/weave.
-
-Stdout carries the protocol; all diagnostics go to stderr.
+Bare 'ctxloom acp' (no subcommand) is a deprecated alias for 'acp server'.
 
 ```
 ctxloom acp [flags]
@@ -62,12 +45,14 @@ ctxloom acp [flags]
 
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: text or json (default "text")
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
       --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom acp agents](/reference/cli/ctxloom_acp_agents/)	 - List the ACP agent entries to configure in an editor
+* [ctxloom acp client](/reference/cli/ctxloom_acp_client/)	 - Connect ctxloom OUT to a configured ACP-speaking agent and drive one headless turn
+* [ctxloom acp entries](/reference/cli/ctxloom_acp_entries/)	 - List the ACP agent-server entries to configure in an editor
+* [ctxloom acp server](/reference/cli/ctxloom_acp_server/)	 - Serve ctxloom as an Agent Client Protocol agent (stdio) for an editor to connect to
 

@@ -675,11 +675,11 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 // acpWorkspaceAxis decides the workspace-axis VALUE for one ACP session:
 // flagWorkspace (this invocation's --workspace) else the project's
 // `workspace:` default — but ONLY when the session is bound to an EXPLICIT
-// --agent, never the plain `ctxloom acp` entry (D-ISO's posture: worktree-
-// under-ACP is for deliberately-isolated agent bindings — reviewer/executor
-// agents an editor configures as their OWN client entry via `ctxloom acp
-// --agent <name>`, see 'ctxloom acp agents' — never a silent default for the
-// entry with no --agent).
+// --agent, never the plain `ctxloom acp server` entry (D-ISO's posture:
+// worktree-under-ACP is for deliberately-isolated agent bindings —
+// reviewer/executor agents an editor configures as their OWN client entry via
+// `ctxloom acp server --agent <name>`, see 'ctxloom acp entries' — never a
+// silent default for the entry with no --agent).
 //
 // currentAgent != "" is not sufficient on its own to detect "an explicit
 // --agent was given": an unset --agent still auto-binds the project's
@@ -946,7 +946,7 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 				"agent's engine override, composed profiles, permissions posture, or runtime "+
 				"isolation apply — it is running on the HOST, unisolated, against this "+
 				"project's live working directory, %s. Check the agent name (see `ctxloom acp "+
-				"agents`) and reconnect.",
+				"entries`) and reconnect.",
 			in.requestedAgent, in.workDir)
 	}
 

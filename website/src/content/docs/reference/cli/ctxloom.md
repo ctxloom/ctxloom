@@ -50,14 +50,14 @@ Run 'ctxloom <command> --help' for details on any command.
 
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: text or json (default "text")
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
   -h, --help            help for ctxloom
       --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
-* [ctxloom acp](/reference/cli/ctxloom_acp/)	 - Serve ctxloom as an Agent Client Protocol agent (stdio)
+* [ctxloom acp](/reference/cli/ctxloom_acp/)	 - ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
 * [ctxloom blacklist](/reference/cli/ctxloom_blacklist/)	 - Reject an item so it is withheld from the agent
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
@@ -65,13 +65,11 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
-* [ctxloom harp](/reference/cli/ctxloom_harp/)	 - Generate harp IDs (human-appropriate random phraselets)
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom map](/reference/cli/ctxloom_map/)	 - Run multiple agents/profiles in parallel over one task (fan-out)
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
-* [ctxloom memory](/reference/cli/ctxloom_memory/)	 - Manage session memory (out-of-band compaction)
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
 * [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: accept or reject what the agent may see

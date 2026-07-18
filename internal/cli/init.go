@@ -50,8 +50,13 @@ When run interactively (TTY detected), init will guide you through:
      profiles, then bind agents to them (a coordinator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
-Skipped or interrupted the interview? 'ctxloom agent setup' (or ask your
-agent to run it) re-enters the agent-binding half any time.
+The working outcome of init is a functioning ctxloom CLI/TUI — ACP editor
+integration (either direction: ctxloom serving an editor, or ctxloom
+connecting out to an ACP-speaking agent) is optional, separate configuration
+via the acp-setup Agent Skill, never a gate on init completing.
+
+Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
+agent to run it) re-enters the companions/profiles/agent-binding half any time.
 
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
@@ -70,9 +75,34 @@ var (
 	initForge          string
 )
 
+// initPromptCmd is the real home (Decision 6 of the CLI-primary reorg plan)
+// for the setup-interview re-entry pointer: 'ctxloom agent setup' printed the
+// whole interview but was misfiled under 'agent' (it configures companions,
+// profiles, and agents together, not just agents). RunE is shared with the
+// now-Deprecated 'agent setup' alias (agent.go's runSetupPromptCmd) — one
+// body, two doors, so they can never drift.
+var initPromptCmd = &cobra.Command{
+	Use:   "prompt",
+	Short: "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",
+	Long: `Emit ctxloom's built-in setup prompt: instructions for the LLM to interview
+you and configure ctxloom collaboratively — companions (taskloom/ltk),
+profiles/content, and agents (engine↔profile bindings). ACP (editor
+integration, either direction) is a separate, optional step — see the
+acp-setup Agent Skill.
+
+This is the same body 'ctxloom init' hands to your engine at bootstrap and
+'/ctxloom-init' loads in any ordinary session — this command is just a
+re-entry pointer onto it, for a shell/script that wants the raw prompt text.
+
+Run this (or ask your agent to) any time you want to reconfigure.`,
+	Args: cobra.NoArgs,
+	RunE: runSetupPromptCmd,
+}
+
 func init() {
 	rootCmd.AddCommand(initCmd)
 	bindInitFlags(initCmd)
+	initCmd.AddCommand(initPromptCmd)
 }
 
 // bindInitFlags binds the init flag set to cmd. Shared by the top-level `init`
@@ -386,14 +416,17 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // generateConfig creates a config.yaml with the selected engine and options.
 
 // discoverySessionPrompt returns the ONE prompt the init discovery session
-// receives: ctxloom's built-in six-phase setup body (ctxloomInitPrompt, see
-// agent.go) — orient+scan, ACP client(s), companions, profiles+content,
-// agents, close — so content selection and agent binding happen in a single
-// continuous conversation (no mid-session prompt fetch). Resolves through
-// ResolveSetupPrompt so every bundle- or companion-shipped `agent-setup`
-// command is composed in at init exactly as it is for `ctxloom agent setup`
-// and for the `/ctxloom-init` slash command; a nil config degrades to the
-// built-in text alone (CLAUDE.md fault tolerance).
+// receives: ctxloom's built-in five-phase setup body (ctxloomInitPrompt, see
+// agent.go) — orient+scan, companions, profiles+content, agents, close — so
+// content selection and agent binding happen in a single continuous
+// conversation (no mid-session prompt fetch). ACP is deliberately not one of
+// the five phases (it is optional, handed off to the acp-setup skill), so
+// this discovery session reaches a working CLI/TUI outcome without ever
+// gating on it. Resolves through ResolveSetupPrompt so every bundle- or
+// companion-shipped `agent-setup` command is composed in at init exactly as
+// it is for `ctxloom init prompt` and for the `/ctxloom-init` slash command;
+// a nil config degrades to the built-in text alone (CLAUDE.md fault
+// tolerance).
 func discoverySessionPrompt(cfg *config.Config) string {
 	if cfg == nil {
 		return ctxloomInitPrompt
@@ -662,10 +695,12 @@ func warnIfGitIdentityMissing() {
 // `ctxloom doctor --deps` reports. Informational only, like the other warns
 // beside it: the raw-CLI bootstrap interview this gate protects never
 // touches structured chat, so a missing adapter here is a heads-up for
-// LATER (agent_run cross-engine delegation, `ctxloom acp`), not a block on
-// init completing now — and it's a non-issue entirely for an agent that
-// ends up configured with runtime: container, whose image carries its own
-// adapter (the detail text says so).
+// LATER (agent_run cross-engine delegation, `ctxloom acp client`), not a
+// block on init completing now — nothing about ACP (server or client) is
+// ever a hard requirement for init; see the acp-setup skill for that
+// separate, optional configuration — and it's a non-issue entirely for an
+// agent that ends up configured with runtime: container, whose image
+// carries its own adapter (the detail text says so).
 func warnIfACPAdapterMissing(engine string) {
 	ok, detail := acpAdapterDetail([]string{engine})
 	if !ok {
@@ -966,8 +1001,8 @@ var launchEngineWithPromptFn = launchEngineWithPrompt
 // dead vendor-TUI session; a session that starts but ends in error (an
 // interrupted setup, a crashed engine) only warns — init still hands off and
 // exits cleanly. There is no relaunch loop and no review offer afterward
-// (both deleted: re-entry is `/ctxloom-init` or `ctxloom agent setup`, and
-// review is the setup skill's own phase 4/6).
+// (both deleted: re-entry is `/ctxloom-init` or `ctxloom init prompt`, and
+// review is the setup skill's own phase 3d/5).
 func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
 	if !interactive || initSkipLaunch {
 		return nil
@@ -1000,12 +1035,14 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 }
 
 // printReentryHint tells the user how to reach ctxloom once the raw-CLI setup
-// session has ended: connect via whichever ACP client the setup skill
-// configured, or reconfigure any time via `/ctxloom-init` (from any session)
-// or `ctxloom agent setup`. Printed once, after the session — init then
-// returns and the process exits; there is no relaunch loop.
+// session has ended: `ctxloom run` (the CLI/TUI) is the primary, working
+// outcome of init — no ACP client is required. Reconfigure any time via
+// `/ctxloom-init` (from any session) or `ctxloom init prompt`; add optional
+// ACP editor integration any time via the acp-setup skill. Printed once,
+// after the session — init then returns and the process exits; there is no
+// relaunch loop.
 func printReentryHint() {
-	fmt.Println("\nSetup session ended. Connect via the ACP client you configured during setup")
-	fmt.Println("to keep working with ctxloom (`ctxloom acp` is the connection ctxloom exposes).")
-	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom agent setup`) to reconfigure any time.")
+	fmt.Println("\nSetup session ended. `ctxloom run` is the primary way to reach ctxloom from here.")
+	fmt.Println("Want an editor's AI panel too (Zed, VSCode, ...)? Invoke the acp-setup skill any time.")
+	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom init prompt`) to reconfigure any time.")
 }

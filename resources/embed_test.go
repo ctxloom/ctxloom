@@ -239,15 +239,16 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 }
 
 // TestGetBuiltinCommandBody_CtxloomInit pins the contents of ctxloom's
-// six-phase setup body (init-as-skill plan §4.3/§4.4, "the skill text is
-// load-bearing"): every phase must be present, the agent-setup tokens the old
-// TestSetupPrompts_ContentContract pinned must have survived the merge, the
-// §4.4 client-write discipline (priority order, the util config-write
-// fallback, the neutral `acp agents --format json` emit, never-both-paths)
-// must be encoded, and the body must carry NO literal "{{" (the mustache
-// trap: fragment assembly silently blanks an unescaped "{{...}}", and the
-// command-export path rewrites a bare "{{word}}" to a positional shell arg —
-// either way, a stray "{{" here would corrupt every door this body reaches).
+// five-phase setup body (init-as-skill plan §4.3/§4.4, "the skill text is
+// load-bearing"; CLI-primary reorg plan WS-3: ACP is no longer one of the
+// phases — it moved out to the acp-setup Agent Skill, so init's working
+// outcome is the CLI/TUI alone, never gated on ACP): every phase must be
+// present, the agent-setup tokens the old TestSetupPrompts_ContentContract
+// pinned must have survived the merge, and the body must carry NO literal
+// "{{" (the mustache trap: fragment assembly silently blanks an unescaped
+// "{{...}}", and the command-export path rewrites a bare "{{word}}" to a
+// positional shell arg — either way, a stray "{{" here would corrupt every
+// door this body reaches).
 func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 	body, err := GetBuiltinCommandBody("ctxloom-init")
 	if err != nil {
@@ -261,15 +262,11 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		// The six phases, in order.
-		"Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6",
-		// Phase 2 (ACP clients) is a required exit criterion, first after orient.
-		"REQUIRED",
-		// §4.4 write-priority order.
-		"OWN configuration CLI",
-		"ctxloom util config-write",
-		"ctxloom acp agents --format json",
-		// Phase 5 (agents), carried over from the old agent-setup.md prompt.
+		// The five phases, in order.
+		"Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5",
+		// ACP is optional, pointed at the acp-setup skill — never a gate here.
+		"acp-setup",
+		// Phase 4 (agents), carried over from the old agent-setup.md prompt.
 		"SCAN → DISCUSS → SET",
 		"coordinator",
 		"developer",
@@ -282,6 +279,15 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ctxloom-init body lost required token %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		// ACP is no longer a required exit criterion of init's phases.
+		"Phase 2 — ACP client",
+		"ACP client(s) — **required outcome**",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("ctxloom-init body still contains retired token %q — ACP moved to the acp-setup skill (WS-3)", unwanted)
 		}
 	}
 

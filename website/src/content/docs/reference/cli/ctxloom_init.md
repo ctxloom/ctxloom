@@ -32,8 +32,13 @@ When run interactively (TTY detected), init will guide you through:
      profiles, then bind agents to them (a coordinator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
-Skipped or interrupted the interview? 'ctxloom agent setup' (or ask your
-agent to run it) re-enters the agent-binding half any time.
+The working outcome of init is a functioning ctxloom CLI/TUI — ACP editor
+integration (either direction: ctxloom serving an editor, or ctxloom
+connecting out to an ACP-speaking agent) is optional, separate configuration
+via the acp-setup Agent Skill, never a gate on init completing.
+
+Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your
+agent to run it) re-enters the companions/profiles/agent-binding half any time.
 
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
@@ -61,11 +66,12 @@ ctxloom init [flags]
 
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: text or json (default "text")
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
       --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom init prompt](/reference/cli/ctxloom_init_prompt/)	 - Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow
 

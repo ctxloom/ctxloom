@@ -50,7 +50,7 @@ ctxloom agent remove reviewer
 
 Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into `config.yaml` or the agent's own `.ctxloom/agents/<name>.yaml`.
 
-`ctxloom agent setup` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent set`. `ctxloom init` runs this as part of its setup interview; `agent setup` re-enters it any time.
+`ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent set`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
 
 ## Using agents
 
@@ -58,10 +58,10 @@ Re-running `agent set` with the same name updates the binding. `agent set` cover
 ctxloom run --agent dev "implement the feature"          # one agent, interactive
 ctxloom map --agents finder,reviewer "assess the parser" # parallel members
 ctxloom weave --agents cr-security,cr-perf -s synthesis "review this diff"
-ctxloom acp --agent dev                                  # serve over ACP (editors)
+ctxloom acp server --agent dev                           # serve over ACP (editors, optional)
 ```
 
-In `map`/`weave`, `--agents` members each run on their own engine binding, while bare `-p` profiles are sugar for a default-engine agent. `ctxloom acp agents` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
+In `map`/`weave`, `--agents` members each run on their own engine binding, while bare `-p` profiles are sugar for a default-engine agent. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp entries` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
 
 ## The two isolation axes
 

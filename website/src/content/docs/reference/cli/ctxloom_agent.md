@@ -32,7 +32,7 @@ They are never shipped in bundles or remotes: the engine choice is yours.
 
 ```
       --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: text or json (default "text")
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
       --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -43,6 +43,5 @@ They are never shipped in bundles or remotes: the engine choice is yours.
 * [ctxloom agent list](/reference/cli/ctxloom_agent_list/)	 - List all local agents
 * [ctxloom agent remove](/reference/cli/ctxloom_agent_remove/)	 - Remove a local agent from config.yaml
 * [ctxloom agent set](/reference/cli/ctxloom_agent_set/)	 - Add or update a local agent (engine↔profile binding)
-* [ctxloom agent setup](/reference/cli/ctxloom_agent_setup/)	 - Print ctxloom's setup prompt (clients, companions, profiles, agents) for the LLM to follow
 * [ctxloom agent show](/reference/cli/ctxloom_agent_show/)	 - Show an agent and its resolved engine
 

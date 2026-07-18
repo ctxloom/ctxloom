@@ -155,9 +155,11 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":                  {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
-	"acp":       {skip: "serve: connects out to (or serves) an ACP session, not a single rendered result"},
-	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
-	"mcp serve": {skip: "serve: runs the stdio MCP server"},
+	"acp":        {skip: "deprecated alias for `acp server`; serves an ACP session, not a single rendered result"},
+	"acp server": {skip: "serve: serves an ACP session over stdio for an editor to connect to, not a single rendered result"},
+	"acp client": {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_client_cmd_test.go's stub-Factory tests instead"},
+	"mcp":        {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
+	"mcp serve":  {skip: "serve: runs the stdio MCP server"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
@@ -227,7 +229,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage config init":          {skip: "not wired to emit() yet; also an installer"},
 
 	// --- skip: acp/mcp entries needing configured agents ---
-	"acp agents": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
+	"acp entries": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
+	"acp agents":  {skip: "deprecated alias for `acp entries`; same fixture gap"},
 
 	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
 	"fragment show":       {skip: "not wired to emit() yet (item_helpers.go showItem)"},
@@ -250,7 +253,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"agent set":           {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
 	"agent remove":        {skip: "not wired to emit() yet"},
 	"agent default":       {skip: "not wired to emit() yet"},
-	"agent setup":         {skip: "not wired to emit() yet; also an interactive interview"},
+	"agent setup":         {skip: "deprecated alias for `init prompt`; not wired to emit() yet"},
+	"init prompt":         {skip: "not wired to emit() yet; also an interactive interview"},
 	"profile show":        {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
 	"profile create":      {skip: "not wired to emit() yet"},
 	"profile delete":      {skip: "not wired to emit() yet"},

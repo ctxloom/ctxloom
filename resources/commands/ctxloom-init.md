@@ -1,27 +1,25 @@
 ---
-description: Configure or reconfigure ctxloom for this project — ACP clients, companions, profiles, and agents
+description: Configure or reconfigure ctxloom for this project — companions, profiles, and agents
 ---
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
 guidance whether this is a brand-new project (launched by `ctxloom init`
 directly into your engine's own CLI/TUI) or a reconfigure mid-project
-(invoked as `/ctxloom-init` in an ordinary working session). Six phases, in
+(invoked as `/ctxloom-init` in an ordinary working session). Five phases, in
 order:
 
 1. Orient + scan
-2. ACP client(s) — **required outcome**
-3. Companions (taskloom + ltk)
-4. Profiles + content
-5. Agents
-6. Close
+2. Companions (taskloom + ltk)
+3. Profiles + content
+4. Agents
+5. Close
 
 Work through them with the user conversationally. This is a **reconfigure**
 tool, not a from-scratch wizard: phase 1 tells you what already exists, and
 your standing rule for the rest of the interview is **reconfigure, don't
 re-scaffold** — never re-propose, overwrite, or re-explain something already
 in place unless the user actually wants to change it. If the user says
-"skip", acknowledge and move on (or end here) — nothing below is mandatory
-except what phase 2 calls out as required.
+"skip", acknowledge and move on — nothing below is mandatory.
 
 ## Phase 1 — Open, orient, scan
 
@@ -30,24 +28,25 @@ see, and they may never have used ctxloom. Lead with this (say it in your own
 voice, but keep the substance and the specifics; deliver it briefly, don't
 belabor it):
 
-> I'll help you set ctxloom up for this project. **ctxloom is ACP
-> middleware** — it speaks the Agent Client Protocol on both sides, sitting
-> between the AI client in your editor (Zed, VS Code, and other ACP clients)
-> and the coding engine that actually runs the work (Claude Code, Codex, and
-> others). That middle seat is what lets it add what a bare engine can't:
-> **assembled context** — your standards, tools, and commands as versioned,
-> shareable *profiles* and *bundles* composed into every session, not a
-> hand-kept CLAUDE.md; **many engines behind one interface** — bind different
-> agents to different engines and models and switch without relearning each
-> vendor's CLI; **per-agent isolation** — agents run in containers or git
-> worktrees, so a delegated agent can't reach your host or another agent's
-> state; **cross-engine delegation** — a coordinator agent spawns and collects
-> work from child agents, even ones on a different engine; and **signed,
+> I'll help you set ctxloom up for this project. ctxloom's primary interface
+> is its own **CLI/TUI** — `ctxloom run` drives your coding engine directly,
+> with **assembled context** as the difference from a bare engine: your
+> standards, tools, and commands as versioned, shareable *profiles* and
+> *bundles* composed into every session, not a hand-kept CLAUDE.md; **many
+> engines behind one interface** — bind different agents to different
+> engines and models and switch without relearning each vendor's CLI;
+> **per-agent isolation** — agents run in containers or git worktrees, so a
+> delegated agent can't reach your host or another agent's state;
+> **cross-engine delegation** — a coordinator agent spawns and collects work
+> from child agents, even ones on a different engine; and **signed,
 > trust-verified context** — bundles pulled from shared remotes carry
-> signatures from publishers you've chosen to trust.
+> signatures from publishers you've chosen to trust. If you also want to
+> reach ctxloom from an editor's AI panel (Zed, VS Code, and other ACP
+> clients), that's available too, as an optional add-on we can set up later
+> — it's not required to get a working setup today.
 >
-> Setup takes a few minutes: we'll pick a client to connect through, wire up
-> companions, choose your profiles and agents, and verify it all.
+> Setup takes a few minutes: we'll wire up companions, choose your profiles
+> and agents, and verify it all.
 
 Then lead straight into the scan — don't recite the phase list mechanically.
 
@@ -64,7 +63,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
   so this is mainly for the reconfigure path (`/ctxloom-init` in an existing
   session, which skipped init) — worth re-confirming here, cheaply, before
   anything below depends on them. (The FULL `ctxloom doctor` report — agents,
-  profiles, hooks, trust — comes at Close, phase 6, once there's real
+  profiles, hooks, trust — comes at Close, phase 5, once there's real
   configured state for it to describe; running it now would just be a wall
   of "not set up yet" on a brand-new project.)
 - `ctxloom agent list` — existing agents (engine↔profile bindings)
@@ -79,184 +78,14 @@ If the dep check reports something missing, surface it to the user and
 guide them to install it themselves (their own package manager, or the
 tool's docs) before continuing — later phases depend on these. `git` is the
 notable one: it's close to a hard prerequisite (worktrees, and the remote
-pulls phase 4 depends on), so a missing `git` is worth resolving before
+pulls phase 3 depends on), so a missing `git` is worth resolving before
 anything else here.
 
 Present a short summary: detected stack, what's already configured, what
 looks missing. That summary is what makes the rest of this interview a
 reconfigure instead of a re-scaffold — you now know what to leave alone.
 
-## Phase 2 — ACP client(s) (REQUIRED — do this before anything else below)
-
-This phase is not optional. **Setup is not done until at least one ACP
-client is configured and working** — after this session ends (or after you
-return control in a reconfigure), the client is the user's ONLY way to reach
-ctxloom in steady state. Do this first, before companions/profiles/agents,
-because everything after it is easier to demonstrate once a client is live.
-
-### 2a. Detect what's installed
-
-Do your own reconnaissance — this is agentic work, not a ctxloom command.
-Check PATH for client binaries/CLIs and well-known config locations for the
-clients on the roster below (and any the user names that aren't listed).
-Report what you find installed vs. not, rather than assuming.
-
-### 2b. Discuss
-
-Ask the user which client(s) they want to use day to day. If their preferred
-client isn't installed, offer to help install it: give the install command(s)
-(brew/npm/download link/etc. per that client's own docs), but **the user runs
-or approves the install themselves — ctxloom never installs a third-party
-binary for you.**
-
-Explain trade-offs from the roster below, not from assumption — and note
-that the roster is a snapshot; if you can, verify current behavior rather
-than trusting a stale line here.
-
-**Client roster** (data, not code — this table is expected to grow over time
-via ctxloom-default or a personal bundle, with no ctxloom release required;
-for a client not listed here, read its own docs and apply the exact same
-discipline below):
-
-| Client | Detect | Docs | Notes (live findings) |
-|---|---|---|---|
-| Zed | `zed` on PATH; `~/.config/zed/settings.json` | zed.dev/docs | The ACP **reference client** — if a finding looks ambiguous, reproducing it against Zed tells you whether it's ctxloom's bug or the other client's. |
-| Toad | `toad` on PATH (or its app config dir) | its own docs | Renders the agent's reasoning/"thinking" stream correctly. |
-| Nori | `nori` on PATH; `~/.nori/cli/config.toml` | its own docs | As of the last live check, upstream Nori RECEIVES the thinking stream but renders a spinner instead of the text (a fix has been proposed upstream/as a fork) — don't promise thinking will be visible here without checking current behavior. |
-| VSCode | the `formulahendry.acp-client` extension (or ctxloom's own, if installed) | the extension's marketplace page | Configure via VS Code's own settings UI/JSON for that extension. |
-
-### 2c. Configure — the write discipline (read this before writing anything)
-
-Two different configs are in play here, and they are never written the same
-way:
-
-- **ctxloom's own config** (anything under this project's `.ctxloom/`) —
-  always via ctxloom's own CLI (`ctxloom agent set`, `ctxloom profile
-  create`, …). Tested code, ctxloom's domain, never hand-edited.
-- **The third-party client's config** (Zed's settings.json, Nori's
-  config.toml, VSCode's extension settings, or any client not listed above) —
-  configured by YOU (the agent), never by ctxloom, in this strict priority
-  order:
-
-  1. **PREFERRED: the client's OWN configuration CLI.** If the client ships
-     a config command (`<client> config set …`, an `agents add` subcommand,
-     whatever it calls it), USE IT. Discover it from that client's own
-     `--help` or docs. The client's authors' own tested code owns its path,
-     format, and merge behavior — that is strictly safer than you touching
-     the file yourself, and it's the same "mimic the CLI's native surface"
-     rule this project already follows for engines.
-  2. **FALLBACK — only when the client ships no config CLI at all:** a
-     direct file edit, but never freehand. Resolve the client's REAL
-     per-OS config path yourself (from its docs — never trust an
-     env-overridden `$HOME`, never guess), confirm the exact path and the
-     exact change with the user, then delegate the actual filesystem
-     mechanics to ctxloom's guarded primitive rather than writing the file
-     yourself:
-
-     ```
-     echo '<json patch>' | ctxloom util config-write --file <resolved path> --filetype json
-     ```
-
-     (`--filetype toml` for a TOML target, e.g. Nori's config.toml.) This
-     hidden command is TESTED CODE that does the dangerous part correctly
-     every time: it backs the file up with a fresh timestamped copy before
-     touching it, parses the existing file and deep-merges your patch
-     (never truncates, never regenerates the file wholesale, every foreign
-     key survives), refuses outright and leaves the original bytes
-     untouched if the existing file fails to parse, and after writing
-     re-reads the file and confirms your entry is actually there before
-     reporting success. That is why the fallback is safe to use at all —
-     the risky mechanics are code you call, not prose you followed by hand.
-     Show the user the reported backup path.
-
-  Never do both for the same fact, and never hand-roll the fallback
-  yourself (no ad hoc file writes) — always go through `ctxloom util
-  config-write` when there is no client config CLI.
-
-- **What ctxloom gives you to write:** ctxloom emits only **frontend-neutral**
-  connection info — it does not know or care what any client's format looks
-  like. Get it from:
-
-  ```
-  ctxloom acp agents --format json
-  ```
-
-  Each entry has `name`, `command`, `args` (plus `agent`/`engine`/`profiles`
-  when the entry is a named agent binding). You adapt that neutral fact into
-  whatever shape the chosen client wants — a Zed `agent_servers` entry, a
-  Nori `[agents.x]` TOML table, a VSCode extension setting, or the client
-  registration format of an editor that doesn't exist yet. A permanent entry
-  named after `ctxloom setup`/`/ctxloom-init` (this reconfigure door) is worth
-  adding alongside whichever working agent(s) the user wants to reach day to
-  day.
-
-  The `command`/`args` pair the entry names doesn't have to be the local
-  `ctxloom` binary. Two options, and it's the user's call which:
-  - The local binary — what `--format json` reports — if `ctxloom` is on
-    the user's PATH already.
-  - **`npx -y ctxloom acp`** — zero-install: no local binary, nothing on
-    PATH, and no version skew between what the client spawns and whatever
-    actually shipped, once ctxloom is published to npm. Treat that "once
-    published" as real — verify it's actually on npm before promising this
-    works, the same live-check discipline as the client roster above; if
-    it isn't yet, say so and fall back to the local-binary form.
-
-- Standing rules regardless of path taken: never write anything the user
-  hasn't agreed to; treat empty or failed output as a failure to surface
-  (never claim a write happened without proof); on a re-run, merge with what
-  you find rather than re-scaffolding.
-
-### 2d. The engine's ACP bridge — third-party code; vet it before installing
-
-An engine that doesn't speak ACP natively (claude, codex) is reached through
-an **ACP bridge**: a separate binary that wraps the engine and translates ACP
-(e.g. `claude-code-acp`, published by Zed Industries; `codex-acp`).
-Native-ACP engines (kiro, opencode) need no bridge. `ctxloom doctor --deps`
-(phase 1) tells you which configured engine is missing its bridge.
-
-**These bridges are NOT ctxloom's code, and ctxloom does not sign or vouch
-for them.** A bridge sits on the ctxloom↔engine seam — it sees the whole
-session: every prompt, every tool call, and whatever credentials or tokens
-live in the engine's environment. That is a higher-trust supply-chain surface
-than a client the user picked for their own editor. So don't install one
-blind — **prompt the user, and vet it first:**
-
-1. **Read the source before installing.** For the specific bridge AND version
-   you'd install, fetch and read its actual source (the npm package contents
-   / its repository at that version) and review it for what a translator has
-   no business doing: network calls to hosts other than the local engine;
-   reading credentials or env beyond what it forwards to the engine; spawning
-   unexpected processes; install/postinstall scripts; code shipped only
-   minified/obfuscated with no readable source. Summarize what you found for
-   the user, plainly — including "I could not fully review X."
-2. **Be honest about the limit.** Reading the repo source does not prove the
-   published package matches it, and you are not a safety guarantee — you are
-   surfacing risk for the user's informed decision. **Pin a specific
-   version** (never a floating `latest`) so what you reviewed is what
-   installs.
-3. **The user installs — never ctxloom, never you silently.** Give the exact
-   pinned command; the user runs or approves it. Same rule as a client
-   binary, plus the vetting step because of where the bridge sits.
-4. **Containers change the exposure, not the trust.** A containerized agent
-   gets its bridge baked into the image, so the bridge runs inside that
-   container's isolation boundary — real containment for the host, though it
-   still sees that session's traffic. A host-runtime agent runs the bridge
-   with the user's full privileges: that's where scrutiny matters most.
-
-If a bridge doesn't clear the user's bar, say so and name the trade rather
-than pushing the install: that engine is still usable host-side via its raw
-CLI, and native-ACP engines (kiro, opencode) need no bridge at all for
-client and delegation work.
-
-### 2e. Verify — the exit criterion
-
-Before moving on: at least one client entry must be **written, re-read back,
-and confirmed well-formed** — and, if practical in this session, proven with
-a live connect (have the user open that client and confirm a session starts).
-Don't treat "I wrote something" as done; treat "I confirmed it's there and
-it works" as done.
-
-## Phase 3 — Companions: taskloom + ltk
+## Phase 2 — Companions: taskloom + ltk
 
 ctxloom ships alongside two first-party companion binaries that extend it
 without any ctxloom code change:
@@ -281,14 +110,14 @@ applied to the backends in use. ltk self-installs its own pre-tool hook the
 first time it's invoked; taskloom's MCP tools ride the same `ctxloom manage
 hooks install` pass that wires ctxloom's own MCP server.
 
-## Phase 4 — Profiles + content
+## Phase 3 — Profiles + content
 
 Find and reference the context this project needs — profiles, fragments,
-commands — then move straight into phase 5 to bind the agents that use it;
+commands — then move straight into phase 4 to bind the agents that use it;
 don't break the conversation between the two, profiles are only half the
 picture. Four beats, the same shape as phase 2:
 
-### 4a. Discover
+### 3a. Discover
 
 Remotes are already cloned locally — read `ctxloom://remotes`, then search
 with the **search_library** MCP tool (by tag, e.g. `tag:golang`, or free
@@ -297,7 +126,7 @@ text) using the stack phase 1 already found; each result carries a
 search_library for anything new.) Present a short, relevant list and ask
 what to reference — a conversation, not a catalog to exhaustively enumerate.
 
-### 4b. Reference
+### 3b. Reference
 
 Author a local profile that points at what they picked — you don't
 "install" remote content. `ctxloom profile create <name> --parent
@@ -306,44 +135,44 @@ one fragment of it); a `@<tag-or-sha>` suffix on the ref pins a version. Then
 `ctxloom remote pull` so the reference actually resolves and the lockfile
 updates. `ctxloom profile create --help` has the exact flags.
 
-### 4c. Default
+### 3c. Default
 
 Bind the chosen profile(s) into an agent and point `default_agent` there
 (`ctxloom agent set dev --profiles <name>`, `ctxloom agent default dev`) so
 a bare `ctxloom run` picks it up — confirm the choice with the user.
 
-### 4d. Review
+### 3d. Review
 
 Anything pulled from a remote the user hasn't seen before is held, not
 silently active. Run `ctxloom review` (`--list` for just the queue) and walk
 them through accept/reject — a standing surface, not a one-time setup step,
 so it's fine to point it out again on a later reconfigure too.
 
-## Phase 5 — Agents
+## Phase 4 — Agents
 
 Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
 backend/model) to one or more **profiles**, optionally a **runtime**
-(host | container) — right after phase 4, same conversation. `ctxloom run
+(host | container) — right after phase 3, same conversation. `ctxloom run
 --agent <name>` drives one; `ctxloom map`/`weave` fan a task across several.
 Agents live only in this project's `.ctxloom` — never shipped in bundles or
 remotes; engine choice is always the user's, you facilitate. (Workspace
 isolation is a separate, per-invocation choice — `--workspace worktree` on
-run/map/weave — not an agent property.) Work this the same shape as phase 2:
+run/map/weave — not an agent property.) Work this the same shape as phase 3:
 **SCAN → DISCUSS → SET**.
 
-### 5a. Scan
+### 4a. Scan
 
 Don't guess — you have this already from phase 1 (engines via `ctxloom llm
 list`, existing agents via `ctxloom agent list`, container viability via
-`ctxloom container check`) and phase 4 (profiles). If containers would
+`ctxloom container check`) and phase 3 (profiles). If containers would
 degrade here, plan on `--runtime host` and say why. If they're viable and a
 bundle declares tooling needs, `ctxloom tooling` shows the proposed
 Containerfile diff — apply only what's approved, then `ctxloom container
 build`.
 
-### 5b. Discuss
+### 4b. Discuss
 
-Lead with the standard trio, bound to the phase-4 profiles:
+Lead with the standard trio, bound to the phase-3 profiles:
 - **coordinator** — the session the user drives, delegating via
   `map`/`weave`. Most powerful engine.
 - **developer** — the implementer the coordinator delegates to. Powerful
@@ -371,7 +200,7 @@ proposes one big do-everything agent. As a rule of thumb: cheap engine →
 finders and breadth review; powerful → coordinator/developers; per-lens →
 code review (often cheaper than the developer).
 
-### 5c. Set
+### 4c. Set
 
 Write what's agreed:
 
@@ -389,22 +218,25 @@ with `ctxloom agent list`, then tell the user how to use what they built
 If they want to stop, that's fine — `/ctxloom-init` reconfigures any time.
 Don't write anything the user didn't agree to.
 
-## Phase 6 — Close
+## Phase 5 — Close
 
 Run `ctxloom doctor` and show the user its report. This is the full
 postcondition check — marker dir and config validity, the engine resolving
 and authenticating, seeded deps locked and context assembling, hooks/MCP
 registered, companions detected, and agents present with resolvable
-profiles. Now that phases 1–5 have built real configured state, `doctor`
+profiles. Now that phases 1–4 have built real configured state, `doctor`
 describes it end to end (unlike phase 1's scoped `--deps`, which only asked
 "are the system tools present"). Walk the user through any `warn` lines and
-help resolve them; then re-read the client entry from phase 2 to confirm it
-landed.
+help resolve them.
 
 Then tell the user, plainly:
-- **Exit this session.** This vendor CLI/TUI session was the bootstrap
-  door — from now on, connect to ctxloom through the client you configured
-  in phase 2.
+- **You have a working setup.** `ctxloom run` (or `ctxloom run --agent
+  <name>`) is the primary way to reach ctxloom from here — this vendor
+  CLI/TUI session was just the bootstrap door.
+- **Want to reach ctxloom from an editor's AI panel too?** That's optional
+  and separate from this interview — invoke the **acp-setup** skill (or ask
+  me to) any time to configure ctxloom as an ACP server for a client like
+  Zed/VSCode, or as an ACP client to a different ACP-speaking agent.
 - **`/ctxloom-init` reconfigures any time**, from any ordinary working
   session — nothing here was a one-shot wizard; come back whenever something
-  needs to change (a new client, a new profile, a new agent).
+  needs to change (a new profile, a new agent, a new companion).

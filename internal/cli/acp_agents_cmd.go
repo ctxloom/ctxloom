@@ -24,9 +24,14 @@ type acpAgentEntry struct {
 	Profiles []string `json:"profiles,omitempty"`
 }
 
-var acpAgentsCmd = &cobra.Command{
-	Use:   "agents",
-	Short: "List the ACP agent entries to configure in an editor",
+// acpEntriesCmd is the real home (CLI-primary reorg plan, Decision 5: "acp
+// agents" → "acp entries") of the ACP-server entry lister — renamed because
+// "agents" collided with ctxloom's own unrelated "agent" noun (engine↔profile
+// bindings) while this command is entirely about the SERVER direction's
+// editor-config entries.
+var acpEntriesCmd = &cobra.Command{
+	Use:   "entries",
+	Short: "List the ACP agent-server entries to configure in an editor",
 	Long: `List this project's advertisable ACP agent-server entries: the plain ctxloom
 entry plus one per agent binding (ACP has no in-protocol selection — a client
 picks by choosing which command it launches, so each binding advertises as its
@@ -35,16 +40,27 @@ own agent-server entry).
 The output includes a ready-to-paste Zed settings.json "agent_servers" block;
 other ACP clients configure the same command/args in their own format.`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		entries := buildACPAgentEntries(operations.ListAgents(cfg), ctxloomExecutable())
-		return emit(cmd, entries, func() error {
-			return renderACPAgents(cmd.OutOrStdout(), entries)
-		})
-	},
+	RunE: runACPEntries,
+}
+
+// acpAgentsCmd is a Deprecated alias for `ctxloom acp entries`.
+var acpAgentsCmd = &cobra.Command{
+	Use:        "agents",
+	Short:      "List the ACP agent-server entries to configure in an editor",
+	Deprecated: "use `ctxloom acp entries` instead",
+	Args:       cobra.NoArgs,
+	RunE:       runACPEntries,
+}
+
+func runACPEntries(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	entries := buildACPAgentEntries(operations.ListAgents(cfg), ctxloomExecutable())
+	return emit(cmd, entries, func() error {
+		return renderACPAgents(cmd.OutOrStdout(), entries)
+	})
 }
 
 // ctxloomExecutable resolves the running binary's path for the emitted
@@ -59,14 +75,16 @@ func ctxloomExecutable() string {
 }
 
 // buildACPAgentEntries builds the advertisable entries: the plain default
-// agent first, then one per agent (already name-sorted by ListAgents).
+// agent first, then one per agent (already name-sorted by ListAgents). The
+// emitted args invoke the reorged 'acp server' subcommand, not the deprecated
+// bare form.
 func buildACPAgentEntries(subs []operations.AgentEntry, exe string) []acpAgentEntry {
-	entries := []acpAgentEntry{{Name: "ctxloom", Command: exe, Args: []string{"acp"}}}
+	entries := []acpAgentEntry{{Name: "ctxloom", Command: exe, Args: []string{"acp", "server"}}}
 	for _, s := range subs {
 		entries = append(entries, acpAgentEntry{
 			Name:     "ctxloom: " + s.Name,
 			Command:  exe,
-			Args:     []string{"acp", "--agent", s.Name},
+			Args:     []string{"acp", "server", "--agent", s.Name},
 			Agent:    s.Name,
 			Engine:   s.Engine,
 			Profiles: s.Profiles,
@@ -85,7 +103,7 @@ type zedAgentServer struct {
 // block. Extracted from RunE so the formatting is testable without cobra.
 func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	w := iox.NewErrWriter(out)
-	w.Printf("ACP agent entries (%d):\n", len(entries))
+	w.Printf("ACP agent-server entries (%d):\n", len(entries))
 	for _, e := range entries {
 		w.Printf("  %s\n", e.Name)
 		if e.Agent != "" {
@@ -132,5 +150,6 @@ func zedAgentServersBlock(entries []acpAgentEntry) string {
 }
 
 func init() {
+	acpCmd.AddCommand(acpEntriesCmd)
 	acpCmd.AddCommand(acpAgentsCmd)
 }

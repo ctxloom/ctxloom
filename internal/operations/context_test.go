@@ -663,7 +663,7 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 // TestAssembleContext_ExcludesCtxloomInitCommandBody is the OTHER half of the
 // init-as-skill slice 3 load-bearing proof (see
 // internal/lm/backends.TestLoadCommandExports_CtxloomInitAlwaysPresent for the
-// "invocable" half): ctxloom's six-phase setup body
+// "invocable" half): ctxloom's five-phase setup body
 // (resources/commands/ctxloom-init.md) must NEVER be part of an ordinary
 // session's always-on ASSEMBLED CONTEXT, no matter how bare the request is.
 // AssembleContext only ever folds in FRAGMENTS (profile fragments, explicit
@@ -677,7 +677,7 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 	body, err := resources.GetBuiltinCommandBody("ctxloom-init")
 	require.NoError(t, err, "resources/commands/ctxloom-init.md must be embedded")
-	require.Contains(t, body, "Phase 2", "sanity: this is really the six-phase body")
+	require.Contains(t, body, "Phase 2", "sanity: this is really the five-phase body")
 
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -688,7 +688,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
 	require.NoError(t, err)
 
-	assert.NotContains(t, result.Context, "Phase 2 — ACP client",
+	assert.NotContains(t, result.Context, "Phase 2 — Companions",
 		"ctxloom-init's setup body must never be injected into always-on assembled context (it is a COMMAND, invoked on demand — not a fragment)")
 	assert.NotContains(t, result.Context, strings.TrimSpace(body),
 		"the setup body's exact bytes must not appear in assembled context at all")

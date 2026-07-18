@@ -25,7 +25,7 @@ import (
 const feedWait = 5 * time.Second
 
 // seedFeedHarp mints an index entry; withTranscript records a canonical
-// transcript.acp.jsonl for it (the store-tail's by-location association).
+// transcript.jsonl for it (the store-tail's by-location association).
 //
 // tough-cloud S5: this used to drop a raw claude-code legacy-format fixture
 // into the harp's persist/transcripts store, exercising the by-location

@@ -264,7 +264,7 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 // antigravity outright (the user's DELETE decision, not a demoted importer —
 // see each package's backend.go doc). A watch addressed by HARP whose only
 // association is a located legacy-format transcript (no hook-bound session,
-// no captured canonical transcript.acp.jsonl — the containerized-child
+// no captured canonical transcript.jsonl — the containerized-child
 // by-location shape this test used to successfully parse for all four
 // engines pre-S5) must now fail CLEANLY through operations.HistoryForBackend
 // ("no session history") rather than hang, panic, or silently stream zero

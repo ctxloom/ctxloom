@@ -139,13 +139,24 @@ name, already defined in `internal/shared/agent/{backend,chat}.go`.
 ## 3. The on-disk format
 
 One JSON object per line at
-`~/.ctxloom/sessions/<harp>/persist/transcript.acp.jsonl`
+`~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`
 (`paths.HarpCanonicalTranscriptPath`). Append-only; a session that dies
 mid-turn leaves a valid partial file (no trailing incomplete line, since each
 `Record.Record` write is one complete marshaled line). Distinct from
 `persist/transcripts/` (`paths.HarpTranscriptStoreDir`), which is an engine's
 own native store bind-mounted for a containerized run — the two never
 collide.
+
+Named `transcript.jsonl`, not `transcript.acp.jsonl` (its name through
+v0.7.0-pre1 up to the rename described here): the file is engine-agnostic by
+construction (§2c) — fed by every structured/ACP engine, the oneshot regime,
+AND the vendor importers (§8) — so a name suggesting it was ACP-specific was
+misleading. Sessions captured before the rename have only the old filename
+on disk; every reader resolves through
+`paths.ResolveHarpCanonicalTranscriptPath`, which falls back to
+`transcript.acp.jsonl` when the current name is absent, so pre-rename
+sessions keep resolving without a migration step. Nothing writes the old
+name again — the fallback is read-only.
 
 This is **authored session memory**, not derived cache: it lives under
 `persist/` (survives workspace teardown, same rationale as the transcript
@@ -329,16 +340,23 @@ an unknown shape). There is exactly one version today: `1`.
 The four broken per-engine `SessionHistory` file readers named in §1 —
 codex (`internal/codex`), kiro (`internal/kiro/session.go`), antigravity
 (`internal/antigravity`), and claude (`internal/claude`) — have been
-**deleted outright**, not demoted to a one-shot importer as the plan's §4d
-option A originally recommended. Each backend's `Backend.History()` now
-returns `nil`; grep the removal commits for `tough-cloud S5` for the
-per-engine rationale (e.g. codex: the envelope-vs-flat parse bug silently
-returned zero-entry sessions; claude: the cwd→slug encoder resolved a
-directory that doesn't exist for any workDir containing a dot, underscore,
-or space). `TranscriptPathFromHook`, `LocateTranscript`, and the
-`persist/transcripts/` bind-mount discovery are gone with them — there is no
-legacy read path left to fall back to. **opencode is explicitly excluded**
-from this removal: its native reader (`internal/opencode/capabilities.go`,
+**deleted outright**. At the time of that removal (`tough-cloud` S5) they
+were NOT demoted to a one-shot importer, as the plan's §4d option A had
+originally recommended — that importer was a later, separate piece of work
+(see the "Update" paragraph below, which supersedes this paragraph's
+now-stale "no legacy read path left to fall back to" claim: the importer
+package exists today). Each backend's `Backend.History()` now returns `nil`;
+grep the removal commits for `tough-cloud S5` for the per-engine rationale
+(e.g. codex: the envelope-vs-flat parse bug silently returned zero-entry
+sessions; claude: the cwd→slug encoder resolved a directory that doesn't
+exist for any workDir containing a dot, underscore, or space).
+`TranscriptPathFromHook` is gone; `LocateTranscript`
+(`internal/sessions/index.go`) and the `persist/transcripts/` bind-mount
+discovery were NOT removed by S5 — they still resolve a harp's legacy
+engine-native transcript by location (`fillTranscriptByLocation`) and back
+`sessions.Entry.TranscriptPath`, which the vendor-importer locate step below
+(codex/claude/antigravity) reads from. **opencode is explicitly excluded**
+from the S5 removal: its native reader (`internal/opencode/capabilities.go`,
 driving `opencode session list`/`opencode export`) was never broken — it
 reads opencode's own documented CLI surface rather than a private file — and
 stays wired as the fallback leg for interactive-opencode sessions (memory

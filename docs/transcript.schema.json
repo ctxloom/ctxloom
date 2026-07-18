@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ctxloom.dev/schema/transcript.schema.json",
   "title": "ctxloom canonical transcript record",
-  "description": "One line of ~/.ctxloom/sessions/<harp>/persist/transcript.acp.jsonl. See docs/transcript-schema.md for the full design rationale (tough-cloud). Generated/maintained by hand alongside internal/transcript/record.go — the two must be kept in sync (see internal/transcript/schema_test.go).",
+  "description": "One line of ~/.ctxloom/sessions/<harp>/persist/transcript.jsonl. See docs/transcript-schema.md for the full design rationale (tough-cloud). Generated/maintained by hand alongside internal/transcript/record.go — the two must be kept in sync (see internal/transcript/schema_test.go).",
   "type": "object",
   "required": ["v", "harp", "engine", "seq", "ts", "kind"],
   "additionalProperties": false,

@@ -1,8 +1,10 @@
 // This file (history.go) defines the READER counterpart to record.go/
 // recorder.go: transcript.CanonicalHistory turns a harp's captured
-// transcript.acp.jsonl (paths.HarpCanonicalTranscriptPath) back into the
-// normalized agent.Session/agent.SessionMeta shape ctxloom's memory
-// consumers already depend on (tough-cloud plan §4a, slice S3).
+// transcript.jsonl (paths.HarpCanonicalTranscriptPath, resolved for reads via
+// paths.ResolveHarpCanonicalTranscriptPath so a pre-rename
+// transcript.acp.jsonl still resolves) back into the normalized
+// agent.Session/agent.SessionMeta shape ctxloom's memory consumers already
+// depend on (tough-cloud plan §4a, slice S3).
 //
 // CanonicalHistory is engine-agnostic by construction: every structured
 // engine's frames already folded through internal/acp/mapping.go before the
@@ -70,7 +72,7 @@ func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agen
 	if harpName == "" {
 		return nil, fmt.Errorf("transcript: GetSession requires a non-empty harp")
 	}
-	path, err := paths.HarpCanonicalTranscriptPath(harpName)
+	path, err := paths.ResolveHarpCanonicalTranscriptPath(harpName)
 	if err != nil {
 		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harpName, err)
 	}
@@ -143,7 +145,7 @@ func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, 
 	return nil, nil
 }
 
-// ParseTranscriptFile reads a canonical transcript.acp.jsonl at path and
+// ParseTranscriptFile reads a canonical transcript.jsonl at path and
 // reconstructs the agent.Session it represents: KindEntry lines fold into
 // Session.Entries verbatim (callers wanting only the main thread — memory
 // distillation, session-load replay — filter via agent.MainThreadEntries,

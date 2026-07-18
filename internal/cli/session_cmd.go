@@ -472,7 +472,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 // in — so its session_id never gets bound host-side even though its transcript
 // IS reachable (operations.GetSession resolved entry.TranscriptPath via
 // fillTranscriptByLocation). Load by that path instead of failing; a canonical
-// transcript (a oneshot Execute run's own transcript.acp.jsonl, resolved by
+// transcript (a oneshot Execute run's own transcript.jsonl, resolved by
 // HarpName inside pb.NewCanonicalFallbackSource) needs no preload. Only
 // hard-error when there is neither a bound id, a transcript path, nor a
 // captured transcript — genuinely nothing to distill.

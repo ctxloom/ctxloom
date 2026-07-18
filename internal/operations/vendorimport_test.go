@@ -42,7 +42,7 @@ var (
 	antigravityFixturePath = filepath.Join(thisDir(), "..", "transcript", "importer", "antigravity", "testdata", "transcript_full-fixture.jsonl")
 )
 
-// canonicalLines reads harp's canonical transcript.acp.jsonl back and returns
+// canonicalLines reads harp's canonical transcript.jsonl back and returns
 // its non-empty lines, or nil if the file was never created.
 func canonicalLines(t *testing.T, harp string) []string {
 	t.Helper()
@@ -187,6 +187,39 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, converted, "a harp that already has a canonical transcript must be skipped")
 	assert.Equal(t, first, canonicalLines(t, harp), "the canonical file must be byte-for-byte untouched by the skipped second call")
+}
+
+// TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists pins the
+// transcript.acp.jsonl -> transcript.jsonl rename's idempotency corollary: a
+// harp that already has a PRE-RENAME (legacy-named) canonical transcript
+// must be treated the same as one with a current-named transcript — skipped,
+// not re-converted. Without the paths.ResolveHarpCanonicalTranscriptPath
+// fallback in hasCanonicalTranscript, this would re-run Convert and produce
+// a SECOND, current-named canonical file alongside the legacy one,
+// duplicating the session's history across two files.
+func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "convert-legacy-exists-harp"
+
+	persistDir, err := paths.HarpPersistDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(persistDir, 0o755))
+	legacyPath := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, []byte(`{"v":1,"harp":"`+harp+`"}`+"\n"), 0o644))
+
+	e := sessions.Entry{
+		HarpName:       harp,
+		Backend:        "codex",
+		TranscriptPath: codexFixturePath,
+	}
+	converted, err := ConvertVendorTranscript(context.Background(), e)
+	require.NoError(t, err)
+	assert.False(t, converted, "a harp with an existing legacy-named canonical transcript must be skipped")
+
+	assert.Nil(t, canonicalLines(t, harp), "no current-named canonical file should have been created alongside the legacy one")
+	legacyData, err := os.ReadFile(legacyPath)
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":1,"harp":"`+harp+`"}`+"\n", string(legacyData), "the legacy file must be byte-for-byte untouched")
 }
 
 // TestConvertVendorTranscript_BestEffortOnFailure: a bind that STATS fine

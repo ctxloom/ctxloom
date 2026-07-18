@@ -440,7 +440,7 @@ func assertNormalizedRecordSequenceEqual(t *testing.T, a, b []transcript.Record,
 	}
 }
 
-// readDoorTranscript reads harp's canonical transcript.acp.jsonl into
+// readDoorTranscript reads harp's canonical transcript.jsonl into
 // transcript.Record values, in file order.
 func readDoorTranscript(t *testing.T, harp string) []transcript.Record {
 	t.Helper()

@@ -294,7 +294,7 @@ func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
 // S2 seam: when the caller stamps req.Env[agent.SessionHarpEnv] (exactly what
 // acp_cmd.go does today), GRPCClient.Chat must (a) forward every event on the
 // returned channel UNCHANGED (lossless passthrough) and (b) ALSO have written
-// the same events to the harp's canonical transcript.acp.jsonl, keyed by the
+// the same events to the harp's canonical transcript.jsonl, keyed by the
 // engine name the plugin's Info RPC reports.
 func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 	testsupport.Isolate(t)
@@ -346,7 +346,7 @@ func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 // transcript must carry the USER's own turns, not just the backend's
 // outbound events. Tee only ever wraps the OUTBOUND events channel, so
 // without a tap on the INBOUND `in` channel a structured session's
-// transcript.acp.jsonl had assistant output but no `user` entries at all.
+// transcript.jsonl had assistant output but no `user` entries at all.
 func TestGRPCClient_Chat_CapturesUserTurn(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "grpc-chat-tee-user-turn-harp"

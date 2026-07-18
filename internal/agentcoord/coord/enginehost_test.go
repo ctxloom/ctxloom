@@ -467,7 +467,7 @@ func TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully(t *testing.T) {
 		}
 		return nil
 	})
-	assert.False(t, found, "no harp on the StartRun must produce no transcript.acp.jsonl anywhere")
+	assert.False(t, found, "no harp on the StartRun must produce no transcript.jsonl anywhere")
 }
 
 // TestEngineHost_TurnSinkDeliversFramedMail: a coordinator-pushed

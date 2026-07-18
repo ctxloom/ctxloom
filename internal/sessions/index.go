@@ -416,9 +416,11 @@ func fillTranscriptByLocation(e *Entry) {
 	}
 }
 
-// fillCanonicalTranscript stats a harp's canonical transcript.acp.jsonl
-// (paths.HarpCanonicalTranscriptPath) and records its path on the entry COPY
-// when present — the same computed-on-read posture as
+// fillCanonicalTranscript stats a harp's canonical transcript.jsonl
+// (paths.ResolveHarpCanonicalTranscriptPath — falls back to the pre-rename
+// transcript.acp.jsonl when only that one exists, so a session captured
+// before the rename stays discoverable) and records its path on the entry
+// COPY when present — the same computed-on-read posture as
 // fillTranscriptByLocation/Distilled/EssencePath, never persisted. This is
 // how a session becomes discoverable by ctxloom's own captured transcript
 // (tough-cloud §2/§4a) independent of whatever the legacy engine-file
@@ -427,7 +429,7 @@ func fillCanonicalTranscript(e *Entry) {
 	if e == nil || e.HarpName == "" {
 		return
 	}
-	p, err := paths.HarpCanonicalTranscriptPath(e.HarpName)
+	p, err := paths.ResolveHarpCanonicalTranscriptPath(e.HarpName)
 	if err != nil {
 		return
 	}

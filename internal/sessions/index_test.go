@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -287,6 +288,32 @@ func TestActivityTime_PrefersCanonicalTranscriptPath(t *testing.T) {
 	dangling := Entry{StartedAt: started, TranscriptPath: legacyPath, CanonicalTranscriptPath: "/nonexistent/gone.acp.jsonl"}
 	assert.True(t, ActivityTime(dangling).Equal(legacyActivity),
 		"a dangling canonical path degrades to the legacy transcript mtime")
+}
+
+// TestFind_FillsCanonicalTranscript_FallsBackToLegacyFilename pins the
+// transcript.acp.jsonl -> transcript.jsonl rename's back-compat contract at
+// the sessions-index layer: a harp captured before the rename has ONLY the
+// legacy filename under persist/, and Find (via fillCanonicalTranscript ->
+// paths.ResolveHarpCanonicalTranscriptPath) must still resolve
+// CanonicalTranscriptPath to it, not report the session as having no
+// canonical transcript.
+func TestFind_FillsCanonicalTranscript_FallsBackToLegacyFilename(t *testing.T) {
+	testsupport.Isolate(t)
+	m := newManager(t)
+	e, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	persistDir, err := paths.HarpPersistDir(e.HarpName)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(persistDir, 0o755))
+	legacyPath := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, []byte("{}\n"), 0o644))
+
+	found, err := m.Find(e.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, legacyPath, found.CanonicalTranscriptPath,
+		"a pre-rename session's canonical transcript must still resolve via the legacy filename fallback")
 }
 
 func TestMarkEnded(t *testing.T) {

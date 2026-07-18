@@ -235,6 +235,33 @@ func TestCanonicalHistory_GetSession_EmptyHarp_Errors(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestCanonicalHistory_GetSession_FallsBackToLegacyFilename pins the
+// transcript.acp.jsonl -> transcript.jsonl rename's back-compat contract: a
+// harp captured before the rename has ONLY the legacy filename on disk (no
+// writer ever produced the current-name file for it), and GetSession must
+// still resolve and parse it via paths.ResolveHarpCanonicalTranscriptPath —
+// not report "no canonical transcript captured" for a session that
+// genuinely has one.
+func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "pre-rename-harp"
+
+	dir, err := paths.HarpPersistDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "codex.transcript.acp.jsonl"))
+	require.NoError(t, err)
+	legacyPath := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, data, 0o644))
+
+	h := NewCanonicalHistory("/proj/legacy", sessions.NewMemStore())
+	sess, err := h.GetSession(context.Background(), harp)
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, harp, sess.ID)
+	assert.NotEmpty(t, sess.Entries, "the legacy-named file's real content must survive the fallback read")
+}
+
 // TestParseTranscriptFile_TruncatedLine_DegradesToPartial pins the crash/
 // partial contract (tough-cloud plan §6.4): a transcript truncated mid-line
 // (the process died mid-write) must yield everything readable BEFORE the

@@ -77,7 +77,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 		ref := selectPreviousEntry([]sessions.Entry{
 			{HarpName: "self", SessionID: "s-self"},
 			{HarpName: "acp-prev", SessionID: "", Backend: "opencode",
-				CanonicalTranscriptPath: "/home/u/.ctxloom/sessions/acp-prev/transcript.acp.jsonl"},
+				CanonicalTranscriptPath: "/home/u/.ctxloom/sessions/acp-prev/transcript.jsonl"},
 		}, "self")
 		require.NotNil(t, ref)
 		assert.Equal(t, "acp-prev", ref.Harp, "canonical entry must carry its harp for by-harp distillation")

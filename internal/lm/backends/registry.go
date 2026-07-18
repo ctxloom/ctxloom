@@ -1,8 +1,6 @@
 package backends
 
 import (
-	"os/exec"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
@@ -13,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // Configurable is implemented by backends that accept their own typed config.
@@ -185,13 +184,17 @@ func GetDefaultBinary(name string) string {
 	return ""
 }
 
-// IsAvailable returns true if the backend's default binary is installed and in PATH.
+// IsAvailable returns true if the backend's default binary is installed and
+// resolvable — via the process's own inherited PATH, or (shellenv.Resolve's
+// fallback) the user's login-shell PATH, so a GUI-launched ctxloom (minimal
+// inherited PATH) reports the same availability a terminal-launched one
+// would.
 func IsAvailable(name string) bool {
 	binary := GetDefaultBinary(name)
 	if binary == "" {
 		return false
 	}
-	_, err := exec.LookPath(binary)
+	_, err := shellenv.Resolve(binary)
 	return err == nil
 }
 

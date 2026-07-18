@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
+	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // nonInteractiveWaitDelay bounds how long a non-interactive run waits for its
@@ -27,7 +28,7 @@ const nonInteractiveWaitDelay = 3 * time.Second
 // sees a terminal even when stdin is a pipe (go-plugin gRPC). Process execution
 // lives here in the runtime, not in the engine-agnostic substrate.
 func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int32, error) {
-	cmd := exec.CommandContext(ctx, spec.BinaryPath, spec.Args...)
+	cmd := exec.CommandContext(ctx, resolveBinaryPath(spec.BinaryPath), spec.Args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Env = spec.Env
 
@@ -68,4 +69,21 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 		return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 	}
 	return 0, nil
+}
+
+// resolveBinaryPath resolves an engine's configured binary name to a path
+// exec can spawn, falling back to the user's login-shell PATH (shellenv)
+// when the process's own inherited PATH doesn't have it — the GUI-launch
+// class of bug (a minimal or even empty $SHELL/$PATH) ctxloom-vscode already
+// fixed for its OWN companion spawns; this closes the same gap one process
+// down, for the engine binary ctxloom itself launches under `ctxloom run`.
+// Never fails outright: an unresolvable name is passed through UNCHANGED so
+// os/exec's own ENOENT surfaces exactly as it would have before — this only
+// ever WIDENS what resolves, never narrows or hides a genuine "not
+// installed" failure.
+func resolveBinaryPath(name string) string {
+	if resolved, err := shellenv.Resolve(name); err == nil {
+		return resolved
+	}
+	return name
 }

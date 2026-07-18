@@ -42,35 +42,13 @@ func TestGetBuiltinCommand(t *testing.T) {
 	}
 }
 
-func TestGetBuiltinCommand_Recover(t *testing.T) {
-	// /recover ships as a built-in so every ctxloom project gets it, not just
-	// the ctxloom repo's own .claude/commands. It wraps the recover_session
-	// MCP tool.
-	content, err := GetBuiltinCommand("recover")
-	if err != nil {
-		t.Fatalf("GetBuiltinCommand(recover): %v", err)
-	}
-	if !strings.Contains(string(content), "description:") {
-		t.Error("Expected description in frontmatter")
-	}
-	if !strings.Contains(string(content), "recover_session") {
-		t.Error("recover command should drive the recover_session MCP tool")
-	}
-}
-
-func TestListBuiltinCommands_IncludesRecover(t *testing.T) {
-	names, err := ListBuiltinCommands()
-	if err != nil {
-		t.Fatalf("ListBuiltinCommands: %v", err)
-	}
-	for _, name := range names {
-		if name == "recover" {
-			return
-		}
-	}
-	t.Errorf("expected 'recover' built-in command, got: %v", names)
-}
-
+// recover was migrated from a built-in slash command to an in-engine "resume"
+// Agent Skill (WS-5, Decision 10/11): it depended on the runtime resume
+// picker at startup (run.go), which no session-selection-free startup no
+// longer has a place for. It now ships in the ctxloom-default remote bundle
+// as a skill backed by recover_session/load_session/get_previous_session,
+// not as a resources/commands/ builtin — see docs/backend-contract.md and the
+// ctxloom-default repo's skills/resume/SKILL.md.
 func TestGetBuiltinCommand_Unknown(t *testing.T) {
 	_, err := GetBuiltinCommand("nope-no-such-command")
 	if err == nil {

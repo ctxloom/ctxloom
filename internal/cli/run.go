@@ -26,7 +26,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -40,27 +39,29 @@ import (
 )
 
 var (
-	runLLM              string
-	runAgent            string
-	runWorkspace        string
-	runPermissions      string
-	runPrompt           string
-	runFragments        []string
-	runTags             []string
-	runProfile          string
-	runSavedPrompt      string
-	runDryRun           bool
-	runPrint            bool
-	runStructured       bool
-	runPlainTerminal    bool
-	runVerbosity        int
-	runAssumeYes        bool
-	runResumeSession    string
-	runResumeTasksFrom  string
-	runResumeNewSession bool
-	runResumeNoTasks    bool
-	runSeedTask         string
-	runSeedStatus       string
+	runLLM           string
+	runAgent         string
+	runWorkspace     string
+	runPermissions   string
+	runPrompt        string
+	runFragments     []string
+	runTags          []string
+	runProfile       string
+	runSavedPrompt   string // --command / -r
+	// runSavedPromptDeprecated backs the deprecated --run-prompt alias (F9: the
+	// "prompt" vocabulary is stale — a saved, user-invoked item is a "command",
+	// matching the resources/commands/ terminology and the command item-kind).
+	// Reconciled into runSavedPrompt in RunE before it's read; kept only so
+	// existing scripts/invocations using --run-prompt keep working.
+	runSavedPromptDeprecated string
+	runDryRun        bool
+	runPrint         bool
+	runStructured    bool
+	runPlainTerminal bool
+	runVerbosity     int
+	runAssumeYes     bool
+	runSeedTask      string
+	runSeedStatus    string
 )
 
 // dryRunJSON is the --format json shape for `run --dry-run`: the resolved
@@ -103,187 +104,6 @@ func orDefault(s, def string) string {
 	return s
 }
 
-// resumeFlags bundles the four CLI flags that govern resume behavior
-// so resolveResumeIntent can be tested without setting package globals.
-type resumeFlags struct {
-	Session    string // --session <harp>
-	TasksFrom  string // --tasks-from <harp>
-	NewSession bool   // --new-session
-	NoTasks    bool   // --no-tasks (modifier on --session)
-}
-
-// resolveResumeIntent decides whether this run resumes a prior session
-// and which parts to restore. Flag bypasses win over the picker;
-// non-interactive contexts (no TTY, no flags) silently fall through to
-// a fresh session.
-func resolveResumeIntent(workDir, backend string) (sessions.Decision, error) {
-	flags := resumeFlags{
-		Session:    runResumeSession,
-		TasksFrom:  runResumeTasksFrom,
-		NewSession: runResumeNewSession,
-		NoTasks:    runResumeNoTasks,
-	}
-	// Best-effort read of the project's indexed sessions: a failure just
-	// narrows the picker, never blocks launch (CLAUDE.md fault tolerance).
-	indexed, _ := operations.ListSessionsForProject(workDir)
-	return resolveResumeIntentWith(flags, indexed, workDir, isInteractiveTerminal(),
-		backend, sessionSourceForBackend(backend), newAdoptFunc(workDir, backend))
-}
-
-// resolveResumeIntentWith is the IoC seam: takes the resume flags, the project's
-// already-read indexed sessions, the work directory, a "stdin is a TTY" boolean,
-// and the backend's name + session history + adopt callback. All side-effect
-// surfaces are arguments, so the decision tree is trivially unit-testable across
-// the flag matrix. indexed may be empty and adopt may be nil (e.g. unknown
-// backend); the picker then simply shows no rows / refuses adoption.
-func resolveResumeIntentWith(flags resumeFlags, indexed []sessions.Entry, workDir string, isTTY bool,
-	backend string, source pb.SessionSource, adopt sessions.AdoptFunc) (sessions.Decision, error) {
-	switch {
-	case flags.Session != "":
-		return sessions.Decision{
-			Action:         sessions.ResumeAction,
-			FromHarp:       flags.Session,
-			RestoreSession: true,
-			RestoreTasks:   !flags.NoTasks,
-		}, nil
-	case flags.TasksFrom != "":
-		return sessions.Decision{
-			Action:         sessions.ResumeAction,
-			FromHarp:       flags.TasksFrom,
-			RestoreSession: false,
-			RestoreTasks:   true,
-		}, nil
-	case flags.NewSession:
-		return sessions.Decision{Action: sessions.NewAction}, nil
-	}
-	if !isTTY {
-		return sessions.Decision{Action: sessions.NewAction}, nil
-	}
-	// Combine indexed harp sessions with raw, not-yet-adopted backend
-	// transcripts (e.g. sessions started outside `ctxloom run`). The raw read is
-	// best-effort: a failure just narrows the picker, never blocks launch.
-	entries := buildPickerEntries(indexed, rawTranscripts(source), backend)
-	if len(entries) == 0 {
-		return sessions.Decision{Action: sessions.NewAction}, nil
-	}
-	p := &sessions.Picker{
-		Entries: entries,
-		In:      os.Stdin,
-		Out:     os.Stderr,
-		// sessions.DistillFunc is exported and unbounded (context.Background():
-		// never cancels, identical to the old exec.Command-based
-		// shellOutDistill) — only the exit-path distill (distillSessionOnExit)
-		// gets a deadline (FINDING #3).
-		Distill: func(harp string) error { return shellOutDistill(context.Background(), harp) },
-		Adopt:   adopt,
-	}
-	return p.Run()
-}
-
-// sessionSourceForBackend returns a gRPC transcript reader for the named
-// backend, or nil when the backend is unknown — so raw-transcript scanning
-// degrades to "no raw rows" rather than failing the picker. The reader fetches
-// over the agent server (self-situated), not the host filesystem, so the picker
-// works the same for a remote agent.
-func sessionSourceForBackend(name string) pb.SessionSource {
-	if name == "" || !backends.Exists(name) {
-		return nil
-	}
-	return pb.NewSessionReader(name, runVerbosity)
-}
-
-// rawTranscriptsTimeout bounds the pre-launch raw-transcript scan. The read
-// is best-effort picker input; a hung backend plugin must narrow the picker,
-// never stall the launch.
-const rawTranscriptsTimeout = 5 * time.Second
-
-// rawTranscripts lists the backend's raw transcripts via the agent server,
-// best-effort and deadline-bounded. The agent self-situates its workspace; no
-// dir is passed. Any failure (including timeout) warns and returns nil so the
-// picker degrades to indexed sessions only.
-func rawTranscripts(source pb.SessionSource) []agent.SessionMeta {
-	if source == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), rawTranscriptsTimeout)
-	defer cancel()
-	metas, err := source.ListSessions(ctx)
-	if err != nil {
-		clidiag.Warn("ctxloom", "listing raw backend transcripts failed (%v); the resume picker shows indexed sessions only", err)
-		return nil
-	}
-	return metas
-}
-
-// newAdoptFunc builds the picker's adopt callback: assign a fresh harp for the
-// chosen raw transcript and bind the transcript's session id / path to it, so
-// the downstream resume path distills and injects it like any other harp. The
-// index write is delegated to operations; an open failure surfaces as an error
-// to the picker rather than blocking launch.
-func newAdoptFunc(workDir, backend string) sessions.AdoptFunc {
-	return func(sessionID, transcriptPath string) (string, error) {
-		return operations.AdoptRawSession(workDir, backend, sessionID, transcriptPath)
-	}
-}
-
-// buildPickerEntries merges indexed harp sessions with raw, not-yet-adopted
-// backend transcripts into one most-recent-first list for the picker. A raw
-// transcript already represented in the index — matched by transcript path or
-// session id — is dropped so a session never appears twice. Surviving raw
-// transcripts become Entry values with an empty HarpName (the picker's "raw"
-// sentinel), carrying the session id / path the adopt step needs.
-func buildPickerEntries(indexed []sessions.Entry, raw []agent.SessionMeta, backend string) []sessions.Entry {
-	known := make(map[string]struct{}, len(indexed)*2)
-	for _, e := range indexed {
-		if e.TranscriptPath != "" {
-			known[filepath.Clean(e.TranscriptPath)] = struct{}{}
-		}
-		if e.SessionID != "" {
-			known["id:"+e.SessionID] = struct{}{}
-		}
-	}
-	out := append([]sessions.Entry(nil), indexed...)
-	for _, m := range raw {
-		if m.ID == "" && m.Path == "" {
-			continue
-		}
-		if m.Path != "" {
-			if _, ok := known[filepath.Clean(m.Path)]; ok {
-				continue
-			}
-		}
-		if m.ID != "" {
-			if _, ok := known["id:"+m.ID]; ok {
-				continue
-			}
-		}
-		out = append(out, sessions.Entry{
-			Backend:        backend,
-			SessionID:      m.ID,
-			TranscriptPath: m.Path,
-			StartedAt:      m.StartTime,
-		})
-	}
-	// Order by last-worked time, not creation time, so a session that keeps
-	// getting resumed and worked stays above a newer-created-but-untouched
-	// one — matching sessions.Manager.ListForProject's ordering (see
-	// sessions.ActivityTime). Indexed rows already carry LastActivity from
-	// ListForProject; raw/not-yet-adopted rows (built above) don't, so
-	// backfill it here — once per entry, not inside the sort comparator.
-	for i := range out {
-		if out[i].LastActivity.IsZero() {
-			out[i].LastActivity = sessions.ActivityTime(out[i])
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
-		}
-		return out[i].StartedAt.After(out[j].StartedAt)
-	})
-	return out
-}
-
 // execCommand is the seam tests override to avoid actually shelling
 // out. Production points it at exec.CommandContext (FINDING #3: the
 // exit-path caller needs to be able to kill a stalled distill via ctx
@@ -292,16 +112,15 @@ func buildPickerEntries(indexed []sessions.Entry, raw []agent.SessionMeta, backe
 // side effects.
 var execCommand = exec.CommandContext
 
-// shellOutDistill is the picker's `d<N>` callback, and the distill
-// implementation the exit path (distillSessionOnExit) and the resume path
-// both inject. It runs `ctxloom session distill <harp>` as a child process
-// so the picker doesn't need to depend on cobra, the compactor, or any LLM
-// machinery itself. Stdout/stderr are piped through to the user.
+// shellOutDistill is the exit path's (distillSessionOnExit) distill
+// implementation. It runs `ctxloom session distill <harp>` as a child process
+// so this file doesn't need to depend on the compactor or any LLM machinery
+// itself. Stdout/stderr are piped through to the user.
 //
 // ctx bounds the child via exec.CommandContext: when ctx is cancelled the
-// stdlib kills the process. The resume-path caller passes
-// context.Background() (never cancels — identical to the old unbounded
-// exec.Command behavior); only the exit path attaches a deadline.
+// stdlib kills the process. distillSessionOnExit derives ctx from
+// context.WithTimeout(exitDistillTimeout) — see its own doc for why exit-time
+// distillation is bounded rather than unbounded.
 func shellOutDistill(ctx context.Context, harpName string) error {
 	exe := resolveSelfExecutable()
 	c := execCommand(ctx, exe, "session", "distill", harpName)
@@ -328,10 +147,8 @@ func shouldDistillOnExit(activeHarp string, interactive bool) bool {
 }
 
 // exitDistillTimeout bounds distillSessionOnExit's synchronous exit-time
-// distill (FINDING #3): a single tunable constant, deliberately NOT applied
-// to the resume-path distill (shellOutDistill called from the resume
-// picker), which is allowed to run unbounded since it happens before the
-// session's terminal is even handed to the user.
+// distill (FINDING #3): a stalled LLM/network call at process-exit time must
+// not wedge the exiting shell forever.
 const exitDistillTimeout = 120 * time.Second
 
 // distillSessionOnExit runs the exit-time distill decided by
@@ -340,11 +157,12 @@ const exitDistillTimeout = 120 * time.Second
 // without shelling out or touching the filesystem.
 //
 // BLOCKING IS DELIBERATE (user decision, not an oversight): distillation
-// used to happen lazily, only on the NEXT `ctxloom run`'s resume path. The
-// user chose to pay for it here instead, so a session's LLM-driven distill
-// happens synchronously on exit rather than being deferred onto some future
-// session's startup — `ctxloom run` visibly pauses on "distilling session
-// <harp>…" before the shell gets control back.
+// used to happen lazily, only when a future session's resume path (now
+// removed — see Decision 11) needed the essence. The user chose to pay for it
+// here instead, so a session's LLM-driven distill happens synchronously on
+// exit rather than being deferred onto some future session's startup —
+// `ctxloom run` visibly pauses on "distilling session <harp>…" before the
+// shell gets control back.
 //
 // BOUNDED, NOT UNBOUNDED (FINDING #3): the block above is deliberate, but
 // unbounded is not — a stalled LLM/network call at process-exit time must
@@ -354,12 +172,12 @@ const exitDistillTimeout = 120 * time.Second
 // full budget rather than an already-cancelled context). On timeout,
 // distillFn is left to be killed by its own ctx-cancellation handling
 // (shellOutDistill uses exec.CommandContext, so the child process is
-// killed) and distillSessionOnExit returns without error — the startup
-// resume-path fallback (or a manual `ctxloom session distill <harp>`) picks
-// up the incomplete distill later.
+// killed) and distillSessionOnExit returns without error — a manual
+// `ctxloom session distill <harp>` (or the "resume" skill, which redistills a
+// still-live session's growing transcript) picks up the incomplete distill
+// later.
 //
-// Idempotent like the resume-path distill above: skipped if an essence
-// already exists for the harp.
+// Idempotent: skipped if an essence already exists for the harp.
 func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error, timeout time.Duration, out io.Writer) {
 	if !shouldDistillOnExit(activeHarp, interactive) {
 		return
@@ -417,20 +235,6 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		clidiag.Warn("ctxloom", "%s", res.Warning)
 	}
 	fmt.Fprintf(os.Stderr, "ctxloom: seeded task %s into %s (%s)\n", res.Task.HarpID, activeHarp, res.Task.Status)
-}
-
-func resumePartsCSV(d sessions.Decision) string {
-	parts := make([]string, 0, 2)
-	if d.RestoreSession {
-		parts = append(parts, "session")
-	}
-	if d.RestoreTasks {
-		parts = append(parts, "tasks")
-	}
-	if len(parts) == 0 {
-		return "none"
-	}
-	return strings.Join(parts, ",")
 }
 
 var runCmd = &cobra.Command{
@@ -495,13 +299,21 @@ Examples:
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)
 
-		// Build the prompt - from saved prompt, flag, or remaining args
+		// F9: reconcile the deprecated --run-prompt alias into --command before
+		// either is read. --command (the flag actually parsed) wins if somehow
+		// both were passed — an explicit current-vocabulary flag beats a
+		// deprecated one rather than silently being overridden by it.
+		if runSavedPrompt == "" && runSavedPromptDeprecated != "" {
+			runSavedPrompt = runSavedPromptDeprecated
+		}
+
+		// Build the prompt - from saved command, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
 		if prompt == "" && runSavedPrompt != "" {
 			promptRes, err := operations.GetCommand(cmd.Context(), cfg, operations.GetCommandRequest{Name: runSavedPrompt})
 			if err != nil {
-				return fmt.Errorf("failed to load prompt: %w", err)
+				return fmt.Errorf("failed to load command: %w", err)
 			}
 			prompt = promptRes.Content
 		}
@@ -796,19 +608,14 @@ Examples:
 			})
 		}
 
-		// Phase 3 session resolution: optional pre-launch resume picker,
-		// followed by a fresh harp assignment for the new session.
+		// Session resolution (Decision 11): no interactive resume picker, no
+		// flag-based resume — every `ctxloom run` opens a FRESH harp. Resuming
+		// prior context is the in-engine "resume" skill's job (recover_session/
+		// load_session/get_previous_session), invoked from inside the session
+		// that just started, not a startup-time choice.
 		runEnv := map[string]string{}
 		for k, v := range llmEnv {
 			runEnv[k] = v
-		}
-		resume, err := resolveResumeIntent(workDir, backendName)
-		if err != nil {
-			return fmt.Errorf("resume intent: %w", err)
-		}
-		if resume.Action == sessions.QuitAction {
-			fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
-			return nil
 		}
 		// If loading the index normalized an older on-disk format, offer to
 		// persist it before the upcoming AssignSession write (which would
@@ -824,30 +631,24 @@ Examples:
 		} else {
 			activeHarp = entry.HarpName
 			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
-			if resume.Action == sessions.ResumeAction {
-				parts := resumePartsCSV(resume)
-				runEnv["CTXLOOM_RESUMED_FROM"] = resume.FromHarp
-				runEnv["CTXLOOM_RESUMED_PARTS"] = parts
-				fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
-					entry.HarpName, resume.FromHarp, parts)
-				// Ensure the resumed session is distilled before launch so
-				// the SessionStart hook can inject its essence. Distilling
-				// here keeps the LLM call on the acceptable startup path
-				// rather than on /clear.
-				if resumePartsIncludeSession(parts) {
-					if _, essErr := readHarpEssence(resume.FromHarp); essErr != nil {
-						// Unbounded (context.Background()): unlike the exit-path
-						// distill (FINDING #3), this runs before the session's
-						// terminal is handed to the user, not after — left as-is
-						// per that finding's scope.
-						if dErr := shellOutDistill(context.Background(), resume.FromHarp); dErr != nil {
-							clidiag.Warn("ctxloom", "could not distill %s for resume essence: %v", resume.FromHarp, dErr)
-						}
-					}
-				}
-			} else {
-				fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
+			// Start-session display (WS-5): a read-only summary of this session,
+			// printed BEFORE the engine spawns. previous, below, is resolved via
+			// the SAME primitive the get_previous_session MCP tool reads — never
+			// re-derived — and is purely informational: bringing it back is the
+			// resume skill's job, not something this banner offers to do.
+			previous, prevErr := operations.ResolvePreviousSession(workDir, activeHarp)
+			if prevErr != nil {
+				clidiag.Warn("ctxloom", "previous-session lookup failed: %v", prevErr)
 			}
+			PrintStartSessionBanner(os.Stderr, StartSessionInfo{
+				Harp:      entry.HarpName,
+				Backend:   backendName,
+				Label:     label,
+				Profiles:  ctxResult.Profiles,
+				Fragments: ctxResult.FragmentsLoaded,
+				Tokens:    tokens.Estimate(ctxResult.Context),
+				Previous:  previous,
+			})
 			// Set the terminal window title to the harp name via the
 			// OSC2 escape sequence. Most terminals (xterm, iTerm2,
 			// alacritty, WezTerm, kitty, Windows Terminal) render it;
@@ -1420,7 +1221,13 @@ func init() {
 
 	runCmd.Flags().StringVarP(&runLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default")
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
-	runCmd.Flags().StringVarP(&runSavedPrompt, "run-prompt", "r", "", "Run a saved prompt by name")
+	runCmd.Flags().StringVarP(&runSavedPrompt, "command", "r", "", "Run a saved command by name")
+	// Deprecated F9 alias: --run-prompt is the pre-rename "prompt" vocabulary
+	// (resources/commands/ and the command item-kind have always said
+	// "command"). Kept working, not just aliased in help — see the RunE
+	// reconciliation above.
+	runCmd.Flags().StringVar(&runSavedPromptDeprecated, "run-prompt", "", "Deprecated: use --command instead")
+	_ = runCmd.Flags().MarkDeprecated("run-prompt", "use --command instead")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")
 	runCmd.Flags().StringSliceVarP(&runTags, "tag", "t", nil, "Include fragments with this tag (can be repeated)")
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
@@ -1441,18 +1248,6 @@ func init() {
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 
-	// Phase 3 resume flags. When none are passed, the interactive picker
-	// runs (TTY only); piped/non-interactive invocations fall through to
-	// a fresh session.
-	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session (essence + tasks). Skips the picker.")
-	runCmd.Flags().StringVar(&runResumeTasksFrom, "tasks-from", "", "Start a fresh session but hydrate tasks from the named harp session. Skips the picker.")
-	runCmd.Flags().BoolVar(&runResumeNewSession, "new-session", false, "Start a fresh session without resume. Skips the picker.")
-	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
-	// Contradictory resume intents are rejected up front rather than silently
-	// resolved by flag precedence.
-	runCmd.MarkFlagsMutuallyExclusive("session", "new-session")
-	runCmd.MarkFlagsMutuallyExclusive("tasks-from", "no-tasks")
-
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.
 	runCmd.Flags().StringVar(&runSeedTask, "seed-task", "", "Move the named task (harp id) from the resume source store into this session, marked for active work")
@@ -1465,6 +1260,7 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
+	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
 }
 

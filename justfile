@@ -310,6 +310,14 @@ test-coverage: cover
 test-conformance:
     go test -race -tags conformance ./internal/lm/conformance/...
 
+# Validate ONE vendor-transcript importer in isolation (its own package,
+# already part of `go test ./...`, but named here so a release-monitoring job
+# can point at exactly this engine's parser against a fresh vendor transcript
+# without pulling in the rest of the suite). Add a sibling target per engine
+# as internal/transcript/importer/<engine> lands (kiro/claude/antigravity).
+test-vendor-codex:
+    go test -race ./internal/transcript/importer/codex/...
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

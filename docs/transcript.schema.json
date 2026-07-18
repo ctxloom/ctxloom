@@ -38,7 +38,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["entry", "session", "complete", "permission"],
+      "enum": ["entry", "session", "complete", "permission", "raw"],
       "description": "Discriminates which payload field is populated."
     },
     "entry": { "$ref": "#/$defs/entryPayload" },
@@ -46,7 +46,7 @@
     "complete": { "$ref": "#/$defs/completePayload" },
     "permission": { "$ref": "#/$defs/permissionPayload" },
     "raw": {
-      "description": "OPTIONAL escape hatch: the original engine frame, when a capture path holds one and the ChatEvent mapping is lossy for it. The ChatEvent-driven Recorder never populates this; reserved for importers (plan S6) and future richer capture paths."
+      "description": "OPTIONAL escape hatch for the original engine frame (agent.ChatEvent.Raw, IR3): populated when a capture path's RawPolicy keeps it, per record.go's RawPolicy doc comment. May be the line's sole payload (kind==\"raw\") or ride alongside \"entry\" as a supplement (RawPolicy: all)."
     }
   },
   "allOf": [
@@ -65,6 +65,10 @@
     {
       "if": { "properties": { "kind": { "const": "permission" } } },
       "then": { "required": ["permission"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "raw" } } },
+      "then": { "required": ["raw"] }
     }
   ],
   "$defs": {
@@ -83,7 +87,72 @@
         "tool_input": {},
         "tool_output": { "type": "string" },
         "is_error": { "type": "boolean" },
-        "sidechain": { "type": "boolean" }
+        "sidechain": { "type": "boolean" },
+        "tool_call_id": { "type": "string", "description": "IR2: engine-native tool-call id." },
+        "tool_kind": { "type": "string", "description": "IR2: ACP tool-call classification (execute|edit|delete|move|read|search|fetch|think|other)." },
+        "tool_locations": {
+          "type": "array",
+          "description": "IR2: file locations a tool call touches.",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "line": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "tool_content": {
+          "type": "array",
+          "description": "IR2: a tool result's structured content collection (content block | diff | terminal reference).",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string" },
+              "text": { "type": "string" },
+              "diff_path": { "type": "string" },
+              "diff_old_text": { "type": "string" },
+              "diff_new_text": { "type": "string" },
+              "terminal_id": { "type": "string" },
+              "raw": {}
+            }
+          }
+        },
+        "content_blocks": {
+          "type": "array",
+          "description": "IR2: this entry's content as structured blocks (text|image|audio|resource_link|resource), alongside the flattened content string.",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string" },
+              "text": { "type": "string" },
+              "raw": {}
+            }
+          }
+        },
+        "system_kind": {
+          "type": "string",
+          "description": "IR2: discriminates an EntryTypeSystem entry's producer — \"\" (notice) or \"plan\"."
+        },
+        "plan": {
+          "type": "array",
+          "description": "IR2: structured plan entries when system_kind==\"plan\".",
+          "items": {
+            "type": "object",
+            "required": ["content"],
+            "additionalProperties": false,
+            "properties": {
+              "content": { "type": "string" },
+              "priority": { "type": "string" },
+              "status": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "sessionPayload": {
@@ -139,6 +208,7 @@
           "type": "string",
           "description": "ACP ToolCallKind vocabulary (execute|edit|delete|move|read|search|fetch|think|other). Advisory; distinct from the envelope's Record.kind."
         },
+        "tool_call_id": { "type": "string", "description": "IR2: engine-native tool-call id this permission request refers to." },
         "options": {
           "type": "array",
           "items": {

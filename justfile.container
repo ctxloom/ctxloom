@@ -17,6 +17,7 @@ export GOWORK := "off"
 mod ctxloom "cmd/ctxloom/justfile"
 mod ltk "cmd/ltk/justfile"
 mod taskloom "cmd/taskloom/justfile"
+mod harp "cmd/harp/justfile"
 
 # Get version from versionator (with fallback). Standardized stamp:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
@@ -71,22 +72,31 @@ build-ltk:
 build-taskloom:
     just taskloom::build
 
-# Build + compress all three binaries (UPX). Codegen prerequisites run here for
+# Build the standalone harp ID-generator binary into bin/harp — delegated to
+# the harp module (cmd/harp/justfile). No codegen prerequisites (pure-Go, no
+# CGO). Independently distributable (plan WS-7); not one of the three
+# binaries `install` puts on the host PATH.
+build-harp:
+    just harp::build
+
+# Build + compress all four binaries (UPX). Codegen prerequisites run here for
 # ctxloom, then each module's build-compressed builds and UPX-compresses its
 # binary. Used by the host `install`/`build-compressed`.
 build-compressed: validate proto gen-schemas
     just ctxloom::build-compressed
     just ltk::build-compressed
     just taskloom::build-compressed
+    just harp::build-compressed
 
-# Build all three binaries UNCOMPRESSED (ctxloom + ltk + taskloom). Codegen
-# prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
+# Build all four binaries UNCOMPRESSED (ctxloom + ltk + taskloom + harp).
+# Codegen prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
 # decompression adds ~1.5s/exec, so local installs stay uncompressed; UPX is
 # reserved for release artifacts (see .goreleaser.yml).
 build-all-bins: validate proto gen-schemas
     just ctxloom::build
     just ltk::build
     just taskloom::build
+    just harp::build
 
 # ===== Release validation (goreleaser, in-container only) =====
 

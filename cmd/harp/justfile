@@ -1,0 +1,34 @@
+# harp — standalone harp-ID generator binary (pure-Go, no CGO), built to
+# bin/harp.
+#
+# Extracted from the removed `ctxloom harp` subcommand (plan WS-7): a thin
+# CLI over internal/shared/harp, independently distributable so it can be
+# used outside a ctxloom install. Shared build/version/compress logic comes
+# from build/common.justfile (just `import`, which also supplies TOP :=
+# `git rev-parse --show-toplevel` with a worktree-in-container fallback);
+# this module supplies only what differs. Recipes run inside the
+# devcontainer via the root `_run`, with the working directory set to this
+# dir (cmd/harp/), so paths are {{TOP}}-relative.
+import "../../build/common.justfile"
+
+# Build harp (no CGO) to {{TOP}}/bin/harp.
+build: (_go-build (TOP / "cmd/harp") (TOP / "bin/harp") "main.Version" "" "0")
+
+# Compress the built harp binary with UPX (best, LZMA) — the release
+# artifact's compressed form; see .goreleaser.yml's harp-upx build for the
+# actual per-platform release matrix.
+compress: (_compress (TOP / "bin/harp"))
+
+# Build then compress.
+build-compressed: build compress
+
+# Run this package's tests. GOWORK=off matches the container's plain
+# module-mode build (see root justfile.container) so a host go.work never
+# shadows the pinned github.com/ctxloom/clifmt dependency.
+test:
+    cd {{ TOP }} && GOWORK=off go test ./cmd/harp/...
+
+# Vet + lint this package only (fast local loop; `just lint` at root runs
+# golangci-lint over the whole module).
+lint:
+    cd {{ TOP }} && GOWORK=off go vet ./cmd/harp/...

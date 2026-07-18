@@ -1,5 +1,6 @@
 # Binaries
 /ctxloom
+/harp
 bin/
 dist/
 scm-linux-amd64

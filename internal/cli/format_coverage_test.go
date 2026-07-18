@@ -147,9 +147,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"review":                  {extraArgs: func(string) []string { return []string{"--list"} }},
 	"search":                  {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
-	// --- skip: being removed in a later workstream ---
-	"harp": {skip: "ctxloom harp is being extracted to a standalone cmd/harp binary and the ctxloom subcommand removed (plan WS-7); harp_cmd.go is explicitly out of scope for this task"},
-
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"acp":       {skip: "serve: connects out to (or serves) an ACP session, not a single rendered result"},
 	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},

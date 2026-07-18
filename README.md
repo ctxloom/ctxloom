@@ -88,7 +88,6 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom container` | Manage agent container images |
 | `ctxloom tooling` | Emit trusted bundles' agent-image tooling declarations for the LLM to apply |
 | `ctxloom llm` | Manage LLM backends |
-| `ctxloom harp` | Generate harp IDs (human-appropriate random phraselets) |
 | `ctxloom version` | Print the version number |
 
 Every command carries its own help (`ctxloom <command> --help`). The generated

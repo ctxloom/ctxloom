@@ -65,12 +65,12 @@ build: dev-image
 compress: dev-image
     just _run compress
 
-# Build + compress all three binaries in the devcontainer (ctxloom + ltk +
-# taskloom, each UPX-compressed). Delegates to the container `build-compressed`.
+# Build + compress all four binaries in the devcontainer (ctxloom + ltk +
+# taskloom + harp, each UPX-compressed). Delegates to the container `build-compressed`.
 build-compressed: dev-image
     just _run build-compressed
 
-# Build all three binaries UNCOMPRESSED in the devcontainer (fast-starting
+# Build all four binaries UNCOMPRESSED in the devcontainer (fast-starting
 # local install; UPX is release-only — see install/.goreleaser.yml).
 build-all-bins: dev-image
     just _run build-all-bins
@@ -86,6 +86,14 @@ build-ltk: dev-image
 # (`taskloom version`).
 build-taskloom: dev-image
     just _run taskloom::build
+
+# Build the standalone harp ID-generator binary in the devcontainer into
+# bin/harp, via the harp module. harp is independently distributable (plan
+# WS-7: extracted from the removed `ctxloom harp` subcommand) — it ships as
+# its own release artifact (.goreleaser.yml), not as one of the three
+# binaries `install` puts on the host PATH.
+build-harp: dev-image
+    just _run harp::build
 
 # Regenerate the committed publish-signature siblings for the in-repo
 # companion loadouts (cmd/ltk/loadout.yaml, cmd/taskloom/loadout.yaml) using

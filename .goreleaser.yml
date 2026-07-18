@@ -197,6 +197,37 @@ builds:
       - -s -w -extldflags=-static -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
 
+  # harp: standalone harp-ID generator, extracted from the removed
+  # `ctxloom harp` subcommand (plan WS-7). Pure-Go, statically linked. Its
+  # own distributable target — folded into this repo/module but NOT one of
+  # the "three binaries" the install script/`just install` puts on a host
+  # PATH by default; ships from the same ctxloom release/tag as an
+  # independent archive.
+  - id: harp
+    main: ./cmd/harp
+    binary: harp
+    env:
+      - CGO_ENABLED=0 # no libc linkage at all → static on every target
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64 # not a release target
+    tags:
+      - netgo
+      - osusergo
+    flags:
+      - -trimpath
+    # Stamp main.Version with the release version, matching `harp version`.
+    ldflags:
+      - -s -w -extldflags=-static -X main.Version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}" # reproducible builds
+
 # UPX compression for smaller binaries. Applied only to the dedicated
 # `-upx` build IDs (see builds: above) — `ctxloom`/`ctxloom-full` ship
 # uncompressed for fast startup (UPX LZMA decompression adds ~1.5s/exec).
@@ -327,6 +358,27 @@ archives:
       - LICENSE*
       - README.md
 
+  # harp archives (harp_<version>_<os>_<arch>). Ships its own README
+  # (cmd/harp/README.md) rather than the root one — it documents the
+  # standalone binary's flags/usage directly, which is what someone who
+  # downloaded ONLY the harp archive actually wants.
+  - id: harp
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    ids:
+      - harp
+    name_template: >-
+      harp_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE*
+      - src: cmd/harp/README.md
+        dst: README.md
+
 # Homebrew casks published to ctxloom/homebrew-tap. Two casks mirror the two
 # builds; they install the same `ctxloom` binary, so each declares a conflict
 # with the other. Casks are macOS-only — Linux users install via scripts/install.sh.
@@ -423,6 +475,27 @@ homebrew_casks:
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/taskloom"]
           end
 
+  # harp cask: brew install ctxloom/tap/harp
+  - name: harp
+    ids:
+      - harp
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Standalone generator for harp IDs (human-appropriate random phraselets), e.g. swift-amber-falcon"
+    license: "BSD-3-Clause"
+    # Don't push a cask for prereleases (e.g. v0.0.1-rc.1) or snapshots.
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/harp"]
+          end
+
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
@@ -499,7 +572,10 @@ release:
     ```
 
     **Manual Download:**
-    Download the appropriate archive for your platform below.
+    Download the appropriate archive for your platform below. `harp` (the
+    standalone harp-ID generator, `swift-amber-falcon`-style) ships as its
+    own archive here too — `brew install ctxloom/tap/harp`, or grab
+    `harp_*` below — independent of the main ctxloom install.
 
     **Man Pages:**
     Man pages are included in the archive. Install with:

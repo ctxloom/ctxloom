@@ -113,3 +113,9 @@ resources/schema/gen/
 # so they cannot be stale by construction. The docs CI workflow generates
 # them fresh before `npm run build`; see .github/workflows/docs.yml.
 website/src/content/docs/journeys/
+
+# opencode engine surface (generated when the opencode backend materializes; do not track)
+.opencode/
+opencode.json
+AGENTS.md
+.ctxloom-opencode-managed

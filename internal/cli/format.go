@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Output formats accepted by the global --format flag. These two remain

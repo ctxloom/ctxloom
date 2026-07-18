@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // formatCmd builds a bare command with the --format flag registered and set,

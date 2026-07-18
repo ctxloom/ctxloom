@@ -4,7 +4,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/ctxloom/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )

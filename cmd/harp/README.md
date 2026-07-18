@@ -32,11 +32,12 @@ harp version                  # print the harp binary's own version
 | `--group` | `-g` | `default` | word-list group (`default`, `long`) |
 | `--format` | | `text` | `json`, `yaml`, `toml`, `text`, or `markdown` |
 
-Output goes through [clifmt](https://github.com/ctxloom/clifmt): the
-result is a bare list of names, so `--format json` renders a JSON array,
-`--format text` renders one name per line, and `--format markdown` renders
-a bullet list — no per-command rendering code, and every format `clifmt`
-supports comes for free.
+Output goes through [`clifmt`](../../pkg/clifmt), the in-module output-filter
+package shared by every first-party ctxloom Go binary: the result is a bare
+list of names, so `--format json` renders a JSON array, `--format text`
+renders one name per line, and `--format markdown` renders a bullet list —
+no per-command rendering code, and every format `clifmt` supports comes for
+free.
 
 ## Build
 

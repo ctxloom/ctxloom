@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/clifmt"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Execute owns error printing. Without the silence flags cobra prints every

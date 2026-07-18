@@ -24,7 +24,7 @@ build-compressed: build compress
 
 # Run this package's tests. GOWORK=off matches the container's plain
 # module-mode build (see root justfile.container) so a host go.work never
-# shadows the pinned github.com/ctxloom/clifmt dependency.
+# shadows the in-module github.com/ctxloom/ctxloom/pkg/clifmt package.
 test:
     cd {{ TOP }} && GOWORK=off go test ./cmd/harp/...
 

@@ -208,6 +208,87 @@ func TestListForProject_FallsBackToStartedAt(t *testing.T) {
 	assert.Equal(t, "older-no-transcript", list[2].HarpName)
 }
 
+// TestListAll_SpansProjectsSortedByActivity pins the `session list --all`
+// contract: ListAll returns every project's sessions (no project filter) and,
+// like ListForProject, orders them by last-activity descending (transcript
+// mtime, StartedAt fallback). The old --all path (operations.ListSessions →
+// raw Reconcile) returned index order unsorted and unenriched; this locks the
+// enriched+sorted behavior across project dirs. (Canonical-transcript mtime
+// preference is a computed-on-read field that doesn't survive the disk
+// round-trip, so it's pinned separately by TestActivityTime_Prefers…; here the
+// activity signal is a persisted TranscriptPath.)
+func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
+	testsupport.Isolate(t)
+	m := newManager(t)
+	dir := t.TempDir()
+
+	// proj-a: transcript worked 5 minutes ago.
+	worked := filepath.Join(dir, "a.jsonl")
+	require.NoError(t, os.WriteFile(worked, []byte("{}\n"), 0o644))
+	recent := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(worked, recent, recent))
+
+	now := time.Now().UTC().Truncate(time.Second)
+	idx := &Index{Sessions: []Entry{
+		// proj-b, created an hour ago, never touched since → activity = StartedAt
+		// (an hour ago), which is OLDER than a-worked's 5-min-ago transcript.
+		{HarpName: "b-untouched", ProjectDir: "/proj-b", StartedAt: now.Add(-time.Hour)},
+		// proj-a, created a day ago but worked 5 min ago → transcript mtime wins,
+		// so it must outrank the more-recently-created-but-untouched b-untouched.
+		{HarpName: "a-worked", ProjectDir: "/proj-a", StartedAt: now.Add(-24 * time.Hour), TranscriptPath: worked},
+		// proj-c, oldest, no activity signal.
+		{HarpName: "c-old", ProjectDir: "/proj-c", StartedAt: now.Add(-48 * time.Hour)},
+	}}
+	require.NoError(t, m.saveLocked(idx))
+
+	list, err := m.ListAll()
+	require.NoError(t, err)
+	require.Len(t, list, 3, "ListAll spans every project")
+	assert.Equal(t, "a-worked", list[0].HarpName, "worked-5-min-ago (transcript mtime) ranks first across projects")
+	assert.Equal(t, "b-untouched", list[1].HarpName)
+	assert.Equal(t, "c-old", list[2].HarpName)
+	assert.False(t, list[0].LastActivity.IsZero(), "ListAll enriches LastActivity like ListForProject")
+}
+
+// TestActivityTime_PrefersCanonicalTranscriptPath pins the ACP-resume
+// ordering fix: an ACP/coordinator session records ONLY a canonical
+// transcript (paths.HarpCanonicalTranscriptPath) and never a legacy
+// TranscriptPath, so ActivityTime must read the canonical file's mtime for
+// its last-activity signal. Statting only TranscriptPath (the old behavior)
+// pinned every ACP session to StartedAt and mis-ranked it below stale legacy
+// false-starts (the viral-equal / icy-apron ordering bug). Mirrors
+// SourceStale's canonical-first preference so ordering and staleness agree on
+// which file is the source of truth.
+func TestActivityTime_PrefersCanonicalTranscriptPath(t *testing.T) {
+	dir := t.TempDir()
+	started := time.Now().UTC().Add(-24 * time.Hour)
+
+	canonicalPath := filepath.Join(dir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(canonicalPath, []byte("{}\n"), 0o644))
+	activity := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(canonicalPath, activity, activity))
+
+	// ACP session: only the canonical transcript, no legacy TranscriptPath.
+	e := Entry{StartedAt: started, CanonicalTranscriptPath: canonicalPath}
+	assert.True(t, ActivityTime(e).Equal(activity),
+		"ActivityTime must use the canonical transcript mtime (%s), got %s", activity, ActivityTime(e))
+
+	// When both exist, the canonical file wins (it is what the compactor
+	// distills and what SourceStale fingerprints — same preference).
+	legacyPath := filepath.Join(dir, "legacy.jsonl")
+	require.NoError(t, os.WriteFile(legacyPath, []byte("{}\n"), 0o644))
+	legacyActivity := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
+	require.NoError(t, os.Chtimes(legacyPath, legacyActivity, legacyActivity))
+	both := Entry{StartedAt: started, TranscriptPath: legacyPath, CanonicalTranscriptPath: canonicalPath}
+	assert.True(t, ActivityTime(both).Equal(activity),
+		"with both transcripts present, canonical mtime is preferred")
+
+	// A canonical path that no longer stats degrades to the legacy transcript.
+	dangling := Entry{StartedAt: started, TranscriptPath: legacyPath, CanonicalTranscriptPath: "/nonexistent/gone.acp.jsonl"}
+	assert.True(t, ActivityTime(dangling).Equal(legacyActivity),
+		"a dangling canonical path degrades to the legacy transcript mtime")
+}
+
 func TestMarkEnded(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.AssignHarp("/proj", "claude-code")

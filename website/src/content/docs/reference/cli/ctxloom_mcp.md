@@ -23,7 +23,7 @@ RUNNING AS MCP SERVER:
 
   Available tools when running as server:
     Context:  assemble_context, search_content, search_library
-    Sessions: compact_session, load_session, get_previous_session, recover_session
+    Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
     Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
               the in-memory coordinator/executor message bus)
 

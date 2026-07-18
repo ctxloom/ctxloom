@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,34 +35,53 @@ once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 }
 
 var (
-	sessionListAll bool
+	sessionListAll     bool
+	sessionListDistill bool
 )
 
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List harp-named sessions (default: current project; --all for everything)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var entries []sessions.Entry
-		var err error
-		if sessionListAll {
-			entries, err = operations.ListSessions()
-		} else {
+		// A closure so --distill can re-read the index after writing fresh
+		// essences, picking up the new summaries and SourceSize. --all spans
+		// every project (ListAllSessions: enriched + activity-sorted like the
+		// per-project path); the default filters to the cwd's project.
+		loadEntries := func() ([]sessions.Entry, error) {
+			if sessionListAll {
+				return operations.ListAllSessions()
+			}
 			wd, _ := os.Getwd()
-			entries, err = operations.ListSessionsForProject(wd)
+			return operations.ListSessionsForProject(wd)
 		}
+		entries, err := loadEntries()
 		if err != nil {
 			return err
 		}
 		if entries == nil {
 			entries = []sessions.Entry{}
 		}
-		// Enrich each row with its essence presence + path (computed, not stored),
-		// so a client reads `distilled`/`essence_path` straight from the listing
-		// instead of re-deriving them or rebuilding the ~/.ctxloom path itself.
+		// appDir is the global ctxloom home (cwd-independent), used both to
+		// detect missing essences below and to resolve each row's essence path.
 		appDir := ""
 		if cfg, cErr := config.Load(); cErr == nil {
 			appDir = cfg.AppDir
 		}
+		// --distill: compact every row whose essence is missing or stale so the
+		// listing shows a title everywhere. Then re-read the index so the fresh
+		// summaries/sizes render. Without the flag, title-less rows stay as-is.
+		if sessionListDistill {
+			distillMissingOrStale(cmd, entries, appDir)
+			if refreshed, rErr := loadEntries(); rErr == nil {
+				entries = refreshed
+			}
+			if entries == nil {
+				entries = []sessions.Entry{}
+			}
+		}
+		// Enrich each row with its essence presence + path (computed, not stored),
+		// so a client reads `distilled`/`essence_path` straight from the listing
+		// instead of re-deriving them or rebuilding the ~/.ctxloom path itself.
 		for i := range entries {
 			path, distilled := sessionEssenceInfo(entries[i].HarpName, &entries[i], appDir)
 			entries[i].Distilled = distilled
@@ -323,6 +343,7 @@ under the harp directory. Errors if the harp has no session_id bound
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
+	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd, sessionWatchCmd)
 	rootCmd.AddCommand(sessionCmd)
 
@@ -380,23 +401,94 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("project root not found; run inside a project with .ctxloom/")
 	}
 
+	// Progress notes go to stderr as best-effort status.
+	progress := iox.NewErrWriter(cmd.ErrOrStderr())
+	if entry.SessionID != "" {
+		progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, entry.SessionID)
+	} else {
+		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
+	}
+	result, err := compactEntry(cmd.Context(), entry, cfg, progress)
+	if err != nil {
+		return err
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
+		harpName, result.Duration, result.ChunksCreated, result.TotalTokensIn, result.TotalTokensOut, result.DistilledPath)
+	return w.Err()
+}
+
+// distillMissingOrStale distills every entry whose essence is missing or stale
+// (SourceStale), so `session list --distill` shows a title on every row. Each
+// session is compacted in its own project dir — the legacy transcript reader is
+// cwd-bound — so the loop chdir's per entry and restores the original cwd on
+// return. Per-entry failures are warned and skipped: a session that can't be
+// distilled (e.g. a legacy-only session with no reachable transcript) must not
+// block the listing (CLAUDE.md — a usable partial listing beats a hard fail).
+func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir string) {
+	origWd, _ := os.Getwd()
+	defer func() {
+		if origWd != "" {
+			_ = os.Chdir(origWd)
+		}
+	}()
+	progress := iox.NewErrWriter(cmd.ErrOrStderr())
+	for i := range entries {
+		e := &entries[i]
+		_, distilled := sessionEssenceInfo(e.HarpName, e, appDir)
+		stale, known := e.SourceStale()
+		knownStale := known && stale
+		if distilled && !knownStale {
+			continue // fresh essence already present
+		}
+		// Situate in the entry's project dir before loading config / reading the
+		// transcript (see runSessionDistill for why chdir is required and safe
+		// for a one-shot CLI); the deferred chdir restores origWd for the caller.
+		if e.ProjectDir != "" {
+			if cwd, _ := os.Getwd(); cwd != e.ProjectDir {
+				if cerr := os.Chdir(e.ProjectDir); cerr != nil {
+					clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", e.ProjectDir, e.HarpName, cerr)
+					continue
+				}
+			}
+		}
+		cfg, cErr := config.Load()
+		if cErr != nil {
+			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
+			continue
+		}
+		if _, dErr := compactEntry(cmd.Context(), e, cfg, progress); dErr != nil {
+			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
+		}
+	}
+}
+
+// compactEntry runs the compactor for a single session entry and returns the
+// result. It does NOT change the working directory and does NOT load config —
+// the caller supplies cfg and situates the process. This split lets the
+// one-shot CLI (`session distill`, `session list --distill`) chdir into the
+// entry's project dir first, so the cwd-bound legacy transcript reader
+// resolves, while the long-lived MCP server — which must never chdir — calls
+// it as-is: canonical-transcript sessions resolve cwd-independently through
+// WorkDir, and legacy-only sessions there degrade to the clear "nothing to
+// distill" error below rather than corrupting the server's cwd.
+//
+// session_id is recorded forward by the `ctxloom hook session-bind`
+// SessionStart hook (see sessionBindCmd). A container-runtime harp's bind hook
+// runs INSIDE the container, though, and the host session index is not mounted
+// in — so its session_id never gets bound host-side even though its transcript
+// IS reachable (operations.GetSession resolved entry.TranscriptPath via
+// fillTranscriptByLocation). Load by that path instead of failing; a canonical
+// transcript (a oneshot Execute run's own transcript.acp.jsonl, resolved by
+// HarpName inside pb.NewCanonicalFallbackSource) needs no preload. Only
+// hard-error when there is neither a bound id, a transcript path, nor a
+// captured transcript — genuinely nothing to distill.
+func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, progress io.Writer) (*memory.CompactionResult, error) {
 	backendName := entry.Backend
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
 
-	// session_id is recorded forward by the `ctxloom hook session-bind`
-	// SessionStart hook (see sessionBindCmd), which reads it straight from
-	// the backend's documented hook payload. A container-runtime harp's
-	// bind hook runs INSIDE the container, though, and the host session
-	// index (~/.ctxloom/sessions/index.yaml) is deliberately not mounted in
-	// (only <harp>/persist* and tasks are) — so a container harp's
-	// session_id never gets bound host-side, even though its transcript IS
-	// reachable host-side (operations.GetSession already resolved
-	// entry.TranscriptPath for it via fillTranscriptByLocation). Load the
-	// session by that path instead of failing; only hard-error when we have
-	// neither a bound id nor a transcript path — genuinely nothing to
-	// distill.
 	sessionID := entry.SessionID
 	var preloaded *agent.Session
 	if sessionID == "" {
@@ -404,35 +496,20 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		case entry.TranscriptPath != "":
 			hist, herr := operations.HistoryForBackend(backendName)
 			if herr != nil {
-				return fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
+				return nil, fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
 			}
-			preloaded, err = hist.GetSessionByPath(entry.TranscriptPath)
-			if err != nil {
-				return fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, err)
+			preloaded, herr = hist.GetSessionByPath(entry.TranscriptPath)
+			if herr != nil {
+				return nil, fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, herr)
 			}
 		case entry.CanonicalTranscriptPath != "":
-			// Tough-cloud S6: a oneshot Execute run (agy -p, kiro
-			// --no-interactive, codex exec) never runs the SessionStart bind
-			// hook — there is no interactive engine session to bind to — so
-			// it has neither a bound session_id nor a legacy TranscriptPath,
-			// only its OWN captured transcript.acp.jsonl
-			// (transcript.RecordOneshot). compactor.Compact's source
-			// (pb.NewCanonicalFallbackSource, tough-cloud S4) already
-			// resolves a harp's canonical transcript directly by HarpName —
-			// nothing to preload here, just don't hard-error before ever
-			// calling it.
+			// Canonical fallback resolves the harp's own transcript by HarpName
+			// inside the compactor; nothing to preload here.
 		default:
-			return fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
+			return nil, fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", entry.HarpName)
 		}
 	}
 
-	// Progress notes go to stderr as best-effort status.
-	progress := iox.NewErrWriter(cmd.ErrOrStderr())
-	if sessionID != "" {
-		progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
-	} else {
-		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
-	}
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		LLM:              cfg.GetCompactionLLM(),
 		Model:            cfg.GetCompactionModel(),
@@ -441,20 +518,17 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		SessionID:        sessionID,
 		PreloadedSession: preloaded,
 		WorkDir:          entry.ProjectDir,
-		HarpName:         harpName,
-		Progress:         progress, // a CLI owns its terminal; chunk progress is wanted here
+		HarpName:         entry.HarpName,
+		Progress:         progress,
 	})
 	if err != nil {
-		return fmt.Errorf("create compactor: %w", err)
+		return nil, fmt.Errorf("create compactor: %w", err)
 	}
-	result, err := compactor.Compact(cmd.Context())
+	result, err := compactor.Compact(ctx)
 	if err != nil {
-		return fmt.Errorf("distillation failed: %w", err)
+		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
-		harpName, result.Duration, result.ChunksCreated, result.TotalTokensIn, result.TotalTokensOut, result.DistilledPath)
-	return w.Err()
+	return result, nil
 }
 
 // renderSessionTable writes a tab-aligned listing of session entries to w.
@@ -462,7 +536,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	w := iox.NewErrWriter(tw)
-	w.Println("HARP\tSTARTED\tSUMMARY")
+	w.Println("HARP\tLAST ACTIVITY\tSUMMARY")
 	for _, e := range entries {
 		summary := e.Summary
 		if summary == "" {
@@ -471,9 +545,19 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 		if stale, known := e.SourceStale(); known && stale {
 			summary += "  ⚠ out of date"
 		}
+		// Key the time column on last-activity (transcript mtime, canonical
+		// preferred — see sessions.ActivityTime), not creation time, so a
+		// resumed-and-worked session reads as recent. Second granularity is
+		// deliberately finer than the picker's minute view. LastActivity is
+		// precomputed by the list path; fall back defensively for a caller that
+		// passed unenriched rows.
+		last := e.LastActivity
+		if last.IsZero() {
+			last = sessions.ActivityTime(e)
+		}
 		w.Printf("%s\t%s\t%s\n",
 			e.HarpName,
-			e.StartedAt.Local().Format("2006-01-02 15:04"),
+			last.Local().Format("2006-01-02 15:04:05"),
 			summary,
 		)
 	}

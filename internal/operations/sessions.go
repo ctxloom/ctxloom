@@ -73,12 +73,35 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	return mgr.ListForProject(projectDir)
 }
 
+// ListAllSessions returns every recorded session across all projects,
+// most-recent-first by last-worked time (ActivityTime), after reconciling the
+// index so unrecoverable sessions are dropped here too. Mirrors
+// ListSessionsForProject without the project filter — the ordered all-projects
+// listing (`session list --all`, the list_sessions MCP tool). ListSessions
+// (unsorted) stays for order-insensitive callers (HarpForSession, the raw
+// ctxloom://sessions resource dump).
+func ListAllSessions() ([]sessions.Entry, error) {
+	mgr, err := openSessions()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
+		return nil, err
+	}
+	return mgr.ListAll()
+}
+
 // PreviousSessionRef identifies a prior session to materialize: which backend
 // produced it (agent-of-origin, enabling cross-agent handoff) and the
-// agent-agnostic session id the owning agent server reassembles.
+// agent-agnostic session id the owning agent server reassembles. For an
+// ACP-launched session there is no backend session id — SessionID is empty and
+// Harp is the sole materialization key (its own canonical transcript lives at
+// ~/.ctxloom/sessions/<harp>/), so the caller distills by harp instead of
+// asking a backend store to reassemble an id it never issued.
 type PreviousSessionRef struct {
 	SessionID string
 	Backend   string
+	Harp      string
 }
 
 // ResolvePreviousSession resolves the session before the active harp's, for a
@@ -101,14 +124,21 @@ func ResolvePreviousSession(projectDir, activeHarp string) (*PreviousSessionRef,
 }
 
 // selectPreviousEntry picks the previous session from project entries
-// (most-recent-first): skip the active harp's own entry and any entry not yet
-// bound to a session id, then take the first prior one. Pure for testability.
+// (most-recent-first): skip the active harp's own entry and any entry that is
+// not yet materializable, then take the first prior one. An entry is
+// materializable once it has EITHER a bound backend SessionID (the owning agent
+// store can reassemble it) OR a canonical transcript on disk (an ACP session
+// distillable by harp). A still-pending entry — no session id and no canonical
+// transcript — is skipped. Pure for testability.
 func selectPreviousEntry(entries []sessions.Entry, activeHarp string) *PreviousSessionRef {
 	for _, e := range entries {
-		if e.HarpName == activeHarp || e.SessionID == "" {
+		if e.HarpName == activeHarp {
 			continue
 		}
-		return &PreviousSessionRef{SessionID: e.SessionID, Backend: e.Backend}
+		if e.SessionID == "" && e.CanonicalTranscriptPath == "" {
+			continue
+		}
+		return &PreviousSessionRef{SessionID: e.SessionID, Backend: e.Backend, Harp: e.HarpName}
 	}
 	return nil
 }

@@ -466,9 +466,10 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 }
 
 // ActivityTime returns e's last-worked time for resume-picker ordering: the
-// transcript's mtime when TranscriptPath is set and stat succeeds, falling
-// back to StartedAt for a never-worked session (no transcript bound/located
-// yet) or one whose transcript can no longer be stat'd. Exported so a caller
+// transcript's mtime (canonical transcript preferred over the legacy
+// TranscriptPath — see the body) when set and stat succeeds, falling back to
+// StartedAt for a never-worked session (no transcript bound/located yet) or
+// one whose transcript can no longer be stat'd. Exported so a caller
 // merging in rows that never went through ListForProject (e.g. run.go's
 // raw/not-yet-adopted backend transcript rows) can compute the same signal
 // without duplicating the fallback logic.
@@ -478,6 +479,18 @@ func (m *Manager) Find(harpName string) (*Entry, error) {
 // from inside a sort comparator: a stat per comparison does not scale to a
 // large index (100+ sessions means O(n log n) stats instead of O(n)).
 func ActivityTime(e Entry) time.Time {
+	// Prefer the canonical transcript (paths.HarpCanonicalTranscriptPath) over
+	// the legacy TranscriptPath, mirroring SourceStale: an ACP/coordinator
+	// session records ONLY a canonical transcript and never binds a legacy
+	// TranscriptPath, so statting TranscriptPath alone pinned it to StartedAt
+	// and mis-ranked it (viral-equal/icy-apron). Canonical is also the file the
+	// compactor distills and SourceSize fingerprints — ordering and staleness
+	// must agree on which file is the source of truth.
+	if e.CanonicalTranscriptPath != "" {
+		if info, err := os.Stat(e.CanonicalTranscriptPath); err == nil {
+			return info.ModTime()
+		}
+	}
 	if e.TranscriptPath != "" {
 		if info, err := os.Stat(e.TranscriptPath); err == nil {
 			return info.ModTime()
@@ -499,22 +512,45 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range idx.Sessions {
 		if e.ProjectDir == projectDir {
-			fillTranscriptByLocation(&e)
-			fillCanonicalTranscript(&e)
-			// Computed once per entry here, not inside the sort comparator.
-			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
+	return enrichAndSortByActivity(out), nil
+}
+
+// ListAll returns every entry in the index — no project filter — enriched and
+// ordered identically to ListForProject (most-recent-first by ActivityTime).
+// Backs the all-projects listings (`session list --all`, the list_sessions MCP
+// tool) so project-scoped and cross-project views sort the same way.
+func (m *Manager) ListAll() ([]Entry, error) {
+	idx, err := m.Load()
+	if err != nil {
+		return nil, err
+	}
+	return enrichAndSortByActivity(append([]Entry(nil), idx.Sessions...)), nil
+}
+
+// enrichAndSortByActivity fills each entry's computed transcript/canonical
+// paths and LastActivity, then sorts most-recent-first by last-worked time
+// (ActivityTime), with StartedAt as a deterministic tiebreak. Shared by
+// ListForProject and ListAll so scoped and all-projects listings order
+// identically. Mutates and returns the given slice.
+func enrichAndSortByActivity(entries []Entry) []Entry {
+	for i := range entries {
+		fillTranscriptByLocation(&entries[i])
+		fillCanonicalTranscript(&entries[i])
+		// Computed once per entry here, not inside the sort comparator.
+		entries[i].LastActivity = ActivityTime(entries[i])
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if !entries[i].LastActivity.Equal(entries[j].LastActivity) {
+			return entries[i].LastActivity.After(entries[j].LastActivity)
 		}
 		// Deterministic tiebreak: same activity time (e.g. both fell back to
 		// StartedAt, or transcripts stat'd to the same mtime granularity).
-		return out[i].StartedAt.After(out[j].StartedAt)
+		return entries[i].StartedAt.After(entries[j].StartedAt)
 	})
-	return out, nil
+	return entries
 }
 
 // TranscriptStale compares a transcript file's current byte size to the size

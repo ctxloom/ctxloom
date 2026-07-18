@@ -160,6 +160,9 @@ var knownUncoveredTools = []string{
 	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
 	"compact_session",
 	"get_previous_session",
+	// list_sessions (the harp-picker menu) is new and has no BDD scenario yet.
+	// Backfill: task spry-niece.
+	"list_sessions",
 }
 
 // assertExactUncovered fails t if got (the actual uncovered set, need not be

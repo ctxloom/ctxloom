@@ -206,6 +206,7 @@ func Routes() map[string]Route {
 		"load_session":         RouteHostRelay,
 		"recover_session":      RouteHostRelay,
 		"get_previous_session": RouteHostRelay,
+		"list_sessions":        RouteHostRelay,
 		// Host-resident — the task store (~/.ctxloom/tasks/<project-id>.jsonl)
 		// and the project's git history are not mounted into an isolated
 		// child cell.
@@ -234,6 +235,10 @@ var relayBudgets = map[string]time.Duration{
 	"load_session":         DistillBudget,
 	"recover_session":      DistillBudget,
 	"get_previous_session": DistillBudget,
+	// list_sessions is a fast index read by default, but distill_missing=true
+	// compacts every title-less/stale row inline — the same minutes-long LLM
+	// work the other distillation tools do, so it needs the same backstop.
+	"list_sessions": DistillBudget,
 }
 
 // RelayBudget returns how long a relayed tool's plane-2 request may take, or

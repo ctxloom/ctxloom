@@ -65,6 +65,27 @@ Examples:
 	},
 }
 
+// signCmdResult is emit()'s result for `ctxloom sign`: one entry per bundle
+// signed, so json/yaml/toml/markdown callers get every target uniformly
+// instead of scraping the "signed by X (Y)" text lines this command has
+// always printed.
+type signCmdResult struct {
+	Signed []signCmdTarget `json:"signed"`
+}
+
+// signCmdTarget mirrors operations.SignBundleResult plus the resolved signer
+// identity (SignBundleResult itself doesn't carry the Discovered — signing is
+// pure and takes an already-resolved ssh.Signer, so the CLI layer is the
+// first place bundle result and signer identity are both in hand together).
+type signCmdTarget struct {
+	Bundle      string `json:"bundle" col:"Bundle"`
+	ItemNote    string `json:"item_note,omitempty"`
+	BundlePath  string `json:"bundle_path"`
+	SigPath     string `json:"sig_path"`
+	SignedBy    string `json:"signed_by"`
+	Fingerprint string `json:"fingerprint"`
+}
+
 // runSign is the testable body of `ctxloom sign`: cfg and discoverer are
 // both DI seams (a real config.Config over a temp project, and a fake
 // agentkey.Discoverer wired to fake git-config/ssh-agent responses, mirror
@@ -93,10 +114,13 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 		return err
 	}
 	if len(targets) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "no local bundles to sign")
-		return nil
+		return emit(cmd, signCmdResult{}, func() error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "no local bundles to sign")
+			return err
+		})
 	}
 
+	result := signCmdResult{Signed: make([]signCmdTarget, 0, len(targets))}
 	for _, target := range targets {
 		res, err := operations.SignBundleFile(cfg, operations.SignBundleRequest{
 			Target: target,
@@ -105,9 +129,22 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 		if err != nil {
 			return err
 		}
-		printSignResult(cmd.OutOrStdout(), res, discovered)
+		result.Signed = append(result.Signed, signCmdTarget{
+			Bundle:      res.BundleName,
+			ItemNote:    res.ItemNote,
+			BundlePath:  res.BundlePath,
+			SigPath:     res.SigPath,
+			SignedBy:    discovered.Source,
+			Fingerprint: discovered.Fingerprint,
+		})
 	}
-	return nil
+
+	return emit(cmd, result, func() error {
+		for _, t := range result.Signed {
+			printSignResult(cmd.OutOrStdout(), t)
+		}
+		return nil
+	})
 }
 
 // resolveSignTargets expands ref/--all into the SignTarget list to sign,
@@ -129,12 +166,12 @@ func resolveSignTargets(cfg *config.Config, ref string, all bool) ([]operations.
 }
 
 // printSignResult renders one sign outcome (spec §7A.1 example format).
-func printSignResult(w io.Writer, res *operations.SignBundleResult, d *agentkey.Discovered) {
-	if res.ItemNote != "" {
-		fmt.Fprintf(w, "Signing bundle %s (contains %s) — signatures cover whole bundles.\n", res.BundleName, res.ItemNote)
+func printSignResult(w io.Writer, t signCmdTarget) {
+	if t.ItemNote != "" {
+		fmt.Fprintf(w, "Signing bundle %s (contains %s) — signatures cover whole bundles.\n", t.Bundle, t.ItemNote)
 	}
-	fmt.Fprintf(w, "  %s  ->  %s\n", res.BundlePath, res.SigPath)
-	fmt.Fprintf(w, "  signed by %s (%s)\n", d.Source, d.Fingerprint)
+	fmt.Fprintf(w, "  %s  ->  %s\n", t.BundlePath, t.SigPath)
+	fmt.Fprintf(w, "  signed by %s (%s)\n", t.SignedBy, t.Fingerprint)
 }
 
 func init() {

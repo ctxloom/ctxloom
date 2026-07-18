@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,6 +49,31 @@ Examples:
 	RunE: runBundleDistill,
 }
 
+// bundleDistillFileOutcome is one input file's distill result: the same
+// per-item detail operations.DistillBundleFile returns, kept alongside the
+// file path so json/yaml/toml/markdown output can attribute items to files
+// (the text renderer's "Processing: <path>" header does the same, visually).
+type bundleDistillFileOutcome struct {
+	Path  string                         `json:"path" col:"File"`
+	Saved bool                           `json:"saved"`
+	Items []operations.DistillBundleItem `json:"items"`
+}
+
+// bundleDistillResult is emit()'s result for `ctxloom bundle distill`: the
+// full per-file, per-item detail plus the run-level summary counts and
+// invalidated-approval refs, so every format carries what --format text has
+// always printed. Errors is populated for input files that failed to load —
+// bundle distill keeps processing the rest rather than aborting the run.
+type bundleDistillResult struct {
+	DryRun       bool                       `json:"dry_run"`
+	Files        []bundleDistillFileOutcome `json:"files"`
+	Errors       []string                   `json:"errors,omitempty"`
+	TotalItems   int                        `json:"total_items"`
+	TotalFiles   int                        `json:"total_files"`
+	TotalSkipped int                        `json:"total_skipped"`
+	Invalidated  []string                   `json:"invalidated,omitempty"`
+}
+
 func runBundleDistill(cmd *cobra.Command, args []string) error {
 	files, err := expandDistillFiles(args)
 	if err != nil {
@@ -73,8 +99,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}
 	distiller := newLLMDistillerForLabel(cfg, label)
 
-	var totalFiles, totalItems, totalSkipped int
-	var invalidated []string
+	result := bundleDistillResult{DryRun: bundleDistillDryRun}
 	for _, filePath := range files {
 		res, err := operations.DistillBundleFile(cmd.Context(), operations.DistillBundleFileRequest{
 			Path:      filePath,
@@ -84,24 +109,34 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 			Cfg:       cfg,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", filePath, err))
 			continue
 		}
-		fmt.Printf("Processing: %s\n", filePath)
-		items, skipped := renderDistillItems(res.Items)
-		totalItems += items
-		totalSkipped += skipped
+		result.Files = append(result.Files, bundleDistillFileOutcome{Path: filePath, Saved: res.Saved, Items: res.Items})
+		items, skipped := countDistillItems(res.Items)
+		result.TotalItems += items
+		result.TotalSkipped += skipped
 		if res.Saved {
-			totalFiles++
+			result.TotalFiles++
 		}
 		for _, inv := range res.Invalidated {
-			invalidated = append(invalidated, filePath+"#"+inv)
+			result.Invalidated = append(result.Invalidated, filePath+"#"+inv)
 		}
 	}
 
-	printDistillSummary(totalItems, totalFiles, totalSkipped)
-	printDistillInvalidatedApprovals(invalidated)
-	return nil
+	return emit(cmd, result, func() error {
+		out := cmd.OutOrStdout()
+		for _, e := range result.Errors {
+			fmt.Fprintln(os.Stderr, e)
+		}
+		for _, f := range result.Files {
+			fmt.Fprintf(out, "Processing: %s\n", f.Path)
+			printDistillItems(out, f.Items)
+		}
+		printDistillSummary(out, result.TotalItems, result.TotalFiles, result.TotalSkipped, result.DryRun)
+		printDistillInvalidatedApprovals(out, result.Invalidated)
+		return nil
+	})
 }
 
 // printDistillInvalidatedApprovals is the re-distill LOUD PATH (spec §10.4):
@@ -109,41 +144,54 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 // never silently discovered later at the next `ctxloom review`. It explains
 // WHY in one sentence (so a user does not go looking for a way to silence it)
 // and names the exact recovery command.
-func printDistillInvalidatedApprovals(refs []string) {
+func printDistillInvalidatedApprovals(w io.Writer, refs []string) {
 	if len(refs) == 0 {
 		return
 	}
-	fmt.Printf("\n⚠ %d approval(s) invalidated.\n\n", len(refs))
-	fmt.Println("  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
-	fmt.Println("  covered the previous bytes — the agent would now see text nobody has")
-	fmt.Println("  reviewed, so they are back to pending and are withheld until you review")
-	fmt.Println("  them.")
-	fmt.Println()
+	fmt.Fprintf(w, "\n⚠ %d approval(s) invalidated.\n\n", len(refs))
+	fmt.Fprintln(w, "  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
+	fmt.Fprintln(w, "  covered the previous bytes — the agent would now see text nobody has")
+	fmt.Fprintln(w, "  reviewed, so they are back to pending and are withheld until you review")
+	fmt.Fprintln(w, "  them.")
+	fmt.Fprintln(w)
 	for _, ref := range refs {
-		fmt.Printf("    %s\n", ref)
+		fmt.Fprintf(w, "    %s\n", ref)
 	}
-	fmt.Println()
-	fmt.Println("  Review them:            ctxloom review")
-	fmt.Println("  (Raw forms are unaffected — their approvals still stand.)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  Review them:            ctxloom review")
+	fmt.Fprintln(w, "  (Raw forms are unaffected — their approvals still stand.)")
 }
 
-// renderDistillItems prints one line per item outcome and returns the count of
-// distilled/planned items and skipped items for the run summary.
-func renderDistillItems(items []operations.DistillBundleItem) (processed, skipped int) {
+// countDistillItems tallies distilled/planned items vs. skipped ones for the
+// run summary, with no output side effect — the pure-data half of what used
+// to be renderDistillItems before results were buffered for emit().
+func countDistillItems(items []operations.DistillBundleItem) (processed, skipped int) {
 	for _, it := range items {
 		switch it.Status {
 		case operations.DistillStatusSkipped:
-			fmt.Printf("  Skipping %s %s (%s)\n", it.Kind, it.Name, it.Reason)
 			skipped++
-		case operations.DistillStatusPlanned:
-			fmt.Printf("  Would distill %s: %s\n", it.Kind, it.Name)
-			processed++
-		case operations.DistillStatusDistilled:
-			fmt.Printf("  Distilled %s: %s (%s)\n", it.Kind, it.Name, it.ModelID)
+		case operations.DistillStatusPlanned, operations.DistillStatusDistilled:
 			processed++
 		}
 	}
 	return processed, skipped
+}
+
+// printDistillItems prints one line per item outcome — the text-format half
+// of what used to be renderDistillItems, now separated from counting so
+// counting can happen unconditionally (for the structured result) while
+// printing happens only inside emit()'s text closure.
+func printDistillItems(w io.Writer, items []operations.DistillBundleItem) {
+	for _, it := range items {
+		switch it.Status {
+		case operations.DistillStatusSkipped:
+			fmt.Fprintf(w, "  Skipping %s %s (%s)\n", it.Kind, it.Name, it.Reason)
+		case operations.DistillStatusPlanned:
+			fmt.Fprintf(w, "  Would distill %s: %s\n", it.Kind, it.Name)
+		case operations.DistillStatusDistilled:
+			fmt.Fprintf(w, "  Distilled %s: %s (%s)\n", it.Kind, it.Name, it.ModelID)
+		}
+	}
 }
 
 // expandDistillFiles resolves the CLI patterns to a list of bundle files. Glob
@@ -173,9 +221,9 @@ func expandDistillFiles(patterns []string) ([]string, error) {
 }
 
 // printDistillSummary prints the run summary, branching on dry-run.
-func printDistillSummary(totalItems, totalFiles, totalSkipped int) {
-	if bundleDistillDryRun {
-		fmt.Printf("\nDry run: would distill %d items\n", totalItems)
+func printDistillSummary(w io.Writer, totalItems, totalFiles, totalSkipped int, dryRun bool) {
+	if dryRun {
+		fmt.Fprintf(w, "\nDry run: would distill %d items\n", totalItems)
 		return
 	}
 	var parts []string
@@ -186,9 +234,9 @@ func printDistillSummary(totalItems, totalFiles, totalSkipped int) {
 		parts = append(parts, fmt.Sprintf("skipped %d", totalSkipped))
 	}
 	if len(parts) > 0 {
-		fmt.Printf("\n%s\n", strings.Join(parts, ", "))
+		fmt.Fprintf(w, "\n%s\n", strings.Join(parts, ", "))
 	} else {
-		fmt.Println("\nNo items to distill.")
+		fmt.Fprintln(w, "\nNo items to distill.")
 	}
 }
 

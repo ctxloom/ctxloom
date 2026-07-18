@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // expandDistillFiles resolves glob patterns and literal paths, warns on
@@ -50,4 +55,46 @@ func TestExpandDistillFiles(t *testing.T) {
 			t.Fatalf("got %v, want [%s]", got, b)
 		}
 	})
+}
+
+// countDistillItems and printDistillItems replaced the old renderDistillItems
+// (which printed AND counted in one pass) once bundle distill started
+// buffering its result for emit(). Pin that the split kept both halves
+// correct: printing is now purely a function of the items (no counting side
+// effect), and counting has no output side effect.
+func TestCountDistillItems_TalliesByStatus(t *testing.T) {
+	items := []operations.DistillBundleItem{
+		{Status: operations.DistillStatusDistilled},
+		{Status: operations.DistillStatusPlanned},
+		{Status: operations.DistillStatusSkipped},
+		{Status: operations.DistillStatusSkipped},
+	}
+	processed, skipped := countDistillItems(items)
+	assert.Equal(t, 2, processed)
+	assert.Equal(t, 2, skipped)
+}
+
+func TestPrintDistillItems_OneLinePerItem(t *testing.T) {
+	var buf bytes.Buffer
+	printDistillItems(&buf, []operations.DistillBundleItem{
+		{Kind: operations.ItemKindFragment, Name: "a", Status: operations.DistillStatusDistilled, ModelID: "m1"},
+		{Kind: operations.ItemKindCommand, Name: "b", Status: operations.DistillStatusSkipped, Reason: "unchanged"},
+		{Kind: operations.ItemKindFragment, Name: "c", Status: operations.DistillStatusPlanned},
+	})
+	out := buf.String()
+	assert.Contains(t, out, "Distilled fragment: a (m1)")
+	assert.Contains(t, out, "Skipping command b (unchanged)")
+	assert.Contains(t, out, "Would distill fragment: c")
+}
+
+func TestPrintDistillSummary_DryRunReportsWouldDistillCount(t *testing.T) {
+	var buf bytes.Buffer
+	printDistillSummary(&buf, 3, 0, 0, true)
+	assert.Contains(t, buf.String(), "Dry run: would distill 3 items")
+}
+
+func TestPrintDistillSummary_NoItemsReportsNothingToDistill(t *testing.T) {
+	var buf bytes.Buffer
+	printDistillSummary(&buf, 0, 0, 0, false)
+	assert.Contains(t, buf.String(), "No items to distill.")
 }

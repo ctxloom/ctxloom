@@ -25,6 +25,13 @@ replace github.com/hashicorp/go-plugin => ./third_party/go-plugin
 // path already.
 replace github.com/coder/acp-go-sdk => github.com/benjaminabbitt/acp-go-sdk v0.13.6-0.20260716172546-89c5c8173ab4
 
+// clifmt (Phase 0 of the CLI-primary reorg) is a separate, independently
+// versioned module shared across ctxloom/harp/taskloom/ltk. No tagged
+// release exists yet, so it resolves via a relative replace to the sibling
+// checkout at ../../clifmt (both are worktrees under workspace/ctxloom/).
+// Swap this for a real version requirement once clifmt cuts its first tag.
+replace github.com/ctxloom/clifmt => ../../clifmt
+
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
@@ -48,7 +55,7 @@ require (
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
@@ -73,6 +80,8 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	golang.org/x/sys v0.44.0
 )
+
+require github.com/ctxloom/clifmt v0.0.0-00010101000000-000000000000
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

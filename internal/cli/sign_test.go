@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/spf13/afero"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -156,6 +159,33 @@ func TestRunSign_AllSignsEveryLocalBundle(t *testing.T) {
 		_, err := afero.NewOsFs().Stat(p)
 		assert.NoError(t, err, "%s should have been signed", name)
 	}
+}
+
+// TestRunSign_FormatJSON_EmitsStructuredTargets pins `ctxloom sign` as a
+// former emit() straggler now routed through it: --format json returns the
+// per-target sign result instead of the human "signed by X (Y)" text lines.
+func TestRunSign_FormatJSON_EmitsStructuredTargets(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
+	require.NoError(t, err)
+
+	discoverer, signer := discovererWithSoleAgentIdentity(t)
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.Flags().String("format", "text", "")
+	require.NoError(t, cmd.Flags().Set("format", "json"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, ""))
+
+	var result signCmdResult
+	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
+	require.Len(t, result.Signed, 1)
+	assert.Equal(t, "my-tools", result.Signed[0].Bundle)
+	assert.Contains(t, result.Signed[0].SigPath, ".sig")
+	assert.Equal(t, ssh.FingerprintSHA256(signer.PublicKey()), result.Signed[0].Fingerprint)
 }
 
 func TestRunSign_RefAndAllTogetherIsUsageError(t *testing.T) {

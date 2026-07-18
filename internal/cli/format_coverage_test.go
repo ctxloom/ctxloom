@@ -1,0 +1,365 @@
+// Table-driven coverage over rootCmd's descendants (Phase 0 of the clifmt
+// integration, decision 7 in the CLI-primary reorg plan): every runnable,
+// non-hidden command must either render cleanly in all five --format
+// encodings, or carry a documented reason it doesn't. New commands are
+// caught automatically — formatCoverageWalk fails the test if a command has
+// no registry entry, so the registry can't silently go stale.
+//
+// SCOPE NOTE (read before adding entries): only commands whose RunE already
+// calls emit() can meaningfully prove anything here — a command that never
+// calls emit() ignores --format entirely today (a pre-existing gap outside
+// this task's stated straggler list of sign/llm default/bundle), so
+// exercising it across five formats would just prove "doesn't crash",
+// trivially true regardless of clifmt. Those are skipped as "not wired to
+// emit() yet" rather than fixtured, and are listed in the integration
+// report's follow-up section. Commands that ARE wired but need state this
+// harness doesn't build (an existing agent/profile/mcp-server/session,
+// signed trust, a real remote, a real engine subprocess, a TTY, docker,
+// ssh-agent) are also skipped, each with its own reason.
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/clifmt"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
+)
+
+// formatCoverageEntry is one rootCmd descendant's registration: either a
+// documented skip, or extraArgs — arguments AFTER the command path itself
+// (runFormatCoverageCase prepends the path's own words), as a function of
+// --format so a mutating command can target a distinct resource per format
+// and avoid collisions across the five sub-runs. A nil extraArgs (with skip
+// == "") means the bare command path is the whole invocation.
+type formatCoverageEntry struct {
+	skip      string
+	extraArgs func(format string) []string
+}
+
+// formatCoverageWalk collects every Runnable, non-Hidden command under
+// rootCmd as a space-joined path ("bundle list"), matching the keys used in
+// the registry below. Hidden commands (completion, the hook/util internals,
+// llm serve, container provenance) are excluded here rather than requiring
+// a per-command skip entry — "hidden-internal" is structural, not a
+// judgment call per command.
+func formatCoverageWalk(t *testing.T) []string {
+	t.Helper()
+	var paths []string
+	var walk func(cmd *cobra.Command, prefix string)
+	walk = func(cmd *cobra.Command, prefix string) {
+		full := strings.TrimSpace(prefix + " " + cmd.Name())
+		if cmd.Runnable() && !cmd.Hidden {
+			paths = append(paths, full)
+		}
+		for _, c := range cmd.Commands() {
+			walk(c, full)
+		}
+	}
+	for _, c := range rootCmd.Commands() {
+		walk(c, "")
+	}
+	return paths
+}
+
+// formatCoverageProject sets up an isolated project root (CTXLOOM_ROOT env,
+// undone by t.Cleanup via t.Setenv) with no pre-existing .ctxloom, and
+// returns a config.Config over it for fixture setup (operations.CreateBundle
+// etc.) — config.Load()'s degraded-fault-tolerance path resolves a config
+// cleanly even with nothing on disk yet (built-in LM defaults), so read-only
+// commands need no fixture beyond this.
+func formatCoverageProject(t *testing.T) *config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv(projectroot.EnvVar, dir)
+	config.Invalidate()
+	cfg, err := config.LoadFresh()
+	require.NoError(t, err)
+	return cfg
+}
+
+// formatCoverageRegistry is the source of truth this test enforces
+// completeness against. Skips are grouped by reason; fixtured entries are
+// the commands this task's chokepoint work (emit()/format.go) and its named
+// stragglers (sign, llm default, bundle create/edit/view/push/export/import/
+// distill) directly touched, plus a representative sample of commands that
+// were already emit()-wired before this task, to pin no regression.
+var formatCoverageRegistry = map[string]formatCoverageEntry{
+	// --- exercised: the chokepoint itself + this task's stragglers ---
+	"version":     {extraArgs: noExtraArgs},
+	"llm list":    {extraArgs: noExtraArgs},
+	"llm default": {extraArgs: noExtraArgs}, // show path; set is exercised directly in llm_default_test.go
+
+	"bundle list": {extraArgs: noExtraArgs},
+	"bundle create": {extraArgs: func(f string) []string {
+		return []string{"coverage-create-" + f}
+	}},
+	"bundle view": {extraArgs: func(string) []string {
+		return []string{"coverage-target"} // fixture bundle, see setup
+	}},
+	"bundle edit": {extraArgs: func(string) []string {
+		// Same target reused across all five formats: AddTags is create-if-
+		// absent, so a repeat add of the same tag is a no-op "no_changes", not
+		// an error — safe to call five times running.
+		return []string{"coverage-target", "--add-tag", "smoke"}
+	}},
+	"bundle export": {extraArgs: func(f string) []string {
+		dest := filepath.Join(os.TempDir(), "clifmt-coverage-export-"+f+".yaml")
+		return []string{"coverage-target", "-o", dest}
+	}},
+	"bundle import": {extraArgs: func(f string) []string {
+		return []string{coverageImportSourcePath(f), "--force"}
+	}},
+	"bundle distill": {extraArgs: func(string) []string {
+		return []string{coverageTargetBundlePath, "--dry-run"}
+	}},
+	"bundle show": {extraArgs: func(string) []string {
+		return []string{"coverage-target"}
+	}},
+
+	// --- exercised: a representative sample of pre-existing emit()-wired list commands ---
+	"fragment list":           {extraArgs: noExtraArgs},
+	"command list":            {extraArgs: noExtraArgs},
+	"skill list":              {extraArgs: noExtraArgs},
+	"agent list":              {extraArgs: noExtraArgs},
+	"profile list":            {extraArgs: noExtraArgs},
+	"session list":            {extraArgs: noExtraArgs},
+	"signer list":             {extraArgs: noExtraArgs},
+	"remote list":             {extraArgs: noExtraArgs},
+	"manage mcp servers list": {extraArgs: noExtraArgs},
+	"manage status":           {extraArgs: noExtraArgs},
+	"doctor":                  {extraArgs: noExtraArgs},
+	"tooling":                 {extraArgs: noExtraArgs},
+	"review":                  {extraArgs: func(string) []string { return []string{"--list"} }},
+	"search":                  {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
+
+	// --- skip: being removed in a later workstream ---
+	"harp": {skip: "ctxloom harp is being extracted to a standalone cmd/harp binary and the ctxloom subcommand removed (plan WS-7); harp_cmd.go is explicitly out of scope for this task"},
+
+	// --- skip: serve / long-running (structurally not a single rendered result) ---
+	"acp":       {skip: "serve: connects out to (or serves) an ACP session, not a single rendered result"},
+	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
+	"mcp serve": {skip: "serve: runs the stdio MCP server"},
+
+	// --- skip: streaming (own text/json-only format switch, not emit()) ---
+	"session watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
+	"plan watch":    {skip: "streaming: same shape as session watch"},
+	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result"},
+
+	// --- skip: legacy aliases for `session *`, slated for removal (Decision 2) ---
+	"memory list":    {skip: "deprecated alias for `session list`, being removed (plan Decision 2); not independently exercised"},
+	"memory show":    {skip: "deprecated alias for `session show`"},
+	"memory compact": {skip: "deprecated alias for `session distill`"},
+
+	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
+	"sign":          {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
+	"signer add":    {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
+	"signer show":   {skip: "needs an existing trusted principal (signer add's fixture cost); covered by signer_test.go"},
+	"signer remove": {skip: "destructive; covered by signer_test.go"},
+
+	// --- skip: destructive / interactive confirmation, no fixture built here ---
+	"bundle delete":   {skip: "destructive + interactive confirm without --force; not exercised here"},
+	"bundle hold":     {skip: "needs an existing pin/lockfile fixture; not exercised here"},
+	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here"},
+	"bundle move":     {skip: "needs source/dest bundle layout fixture; not exercised here"},
+	"bundle mcp edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here"},
+	"trust":           {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
+	"blacklist":       {skip: "needs a resolvable ref; not exercised here"},
+
+	// --- skip: network / real remote required ---
+	"remote add":      {skip: "network: adds and probes a real remote"},
+	"remote browse":   {skip: "network: browses a real remote's catalog"},
+	"remote default":  {skip: "needs a configured remote fixture"},
+	"remote discover": {skip: "network: queries GitHub for discoverable remotes"},
+	"remote pull":     {skip: "network: clones/fetches a real git remote"},
+	"remote remove":   {skip: "needs a configured remote fixture"},
+	"remote update":   {skip: "network: updates pinned bundle content from a real remote"},
+	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote"},
+	"bundle push":     {skip: "network: publishes to a real remote repository (shares pushBundleCfg with fragment/command push, covered by push_sign_test.go)"},
+	"fragment push":   {skip: "network: same pushBundleCfg path as bundle push"},
+	"command push":    {skip: "network: same pushBundleCfg path as bundle push"},
+
+	// --- skip: docker / container runtime required ---
+	"container build":    {skip: "requires a container runtime (docker/podman)"},
+	"container check":    {skip: "probes for a container runtime on the host"},
+	"container scaffold": {skip: "writes a container scaffold; not exercised here"},
+
+	// --- skip: spawns/fans out real agent engines ---
+	"weave": {skip: "fans a task across real agent engines/profiles and synthesizes results; not exercised here"},
+	"map":   {skip: "deprecated alias for `weave --map-only`; same real-engine fan-out as weave"},
+
+	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
+	"manage init":                 {skip: "installer: side-effecting project bootstrap"},
+	"manage install":              {skip: "installer: side-effecting project bootstrap"},
+	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
+	"manage hooks install":        {skip: "installer: writes real hook files"},
+	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
+	"manage hooks status":         {skip: "reads the hook files the installer above would write; not fixtured here"},
+	"manage mcp install":          {skip: "installer: registers ctxloom as an MCP server in editor config"},
+	"manage mcp uninstall":        {skip: "installer: unregisters ctxloom as an MCP server"},
+	"manage mcp servers add":      {skip: "not wired to emit() yet; also mutating"},
+	"manage mcp servers remove":   {skip: "not wired to emit() yet; also mutating"},
+	"manage mcp servers show":     {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
+	"manage statusline install":   {skip: "installer: writes real statusline config"},
+	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
+	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
+	"manage config show":          {skip: "not wired to emit() yet"},
+	"manage config get":           {skip: "not wired to emit() yet"},
+	"manage config edit":          {skip: "not wired to emit() yet; also opens an editor"},
+	"manage config init":          {skip: "not wired to emit() yet; also an installer"},
+
+	// --- skip: acp/mcp entries needing configured agents ---
+	"acp agents": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
+
+	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
+	"fragment show":       {skip: "not wired to emit() yet (item_helpers.go showItem)"},
+	"fragment create":     {skip: "not wired to emit() yet"},
+	"fragment delete":     {skip: "not wired to emit() yet"},
+	"fragment edit":       {skip: "not wired to emit() yet"},
+	"fragment distill":    {skip: "not wired to emit() yet"},
+	"fragment search":     {skip: "not wired to emit() yet"},
+	"command show":        {skip: "not wired to emit() yet"},
+	"command create":      {skip: "not wired to emit() yet"},
+	"command delete":      {skip: "not wired to emit() yet"},
+	"command edit":        {skip: "not wired to emit() yet"},
+	"command distill":     {skip: "not wired to emit() yet"},
+	"skill show":          {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill create":        {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill export":        {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill import":        {skip: "wired to emit(), but needs an existing skill archive fixture; not exercised here"},
+	"skill sync":          {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"agent show":          {skip: "wired to emit(), but needs an existing agent fixture; not exercised here"},
+	"agent set":           {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
+	"agent remove":        {skip: "not wired to emit() yet"},
+	"agent default":       {skip: "not wired to emit() yet"},
+	"agent setup":         {skip: "not wired to emit() yet; also an interactive interview"},
+	"profile show":        {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
+	"profile create":      {skip: "not wired to emit() yet"},
+	"profile delete":      {skip: "not wired to emit() yet"},
+	"profile edit":        {skip: "not wired to emit() yet"},
+	"profile export":      {skip: "not wired to emit() yet"},
+	"profile import":      {skip: "not wired to emit() yet"},
+	"profile materialize": {skip: "not wired to emit() yet"},
+	"profile modify":      {skip: "not wired to emit() yet"},
+	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
+	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
+	"session forget":      {skip: "not confirmed wired; destructive; not exercised here"},
+	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here"},
+	"config":              {skip: "not wired to emit() yet"},
+	"init":                {skip: "interactive bootstrap interview; not exercised here"},
+}
+
+// noExtraArgs is the extraArgs value for a command whose full invocation is
+// just its own path (a plain "list"/"show"/status-style query).
+func noExtraArgs(string) []string { return nil }
+
+// coverageTargetBundlePath is filled in by the outer test after creating the
+// shared "coverage-target" fixture bundle, since bundle distill takes a file
+// PATH (glob pattern), not a bundle name.
+var coverageTargetBundlePath string
+
+// coverageImportSourcePath writes (once per format, since bundle import
+// names its destination from the source YAML's own bundle name and reuses
+// it with --force) a small standalone bundle YAML importable independent of
+// the "coverage-target" fixture, and returns its path.
+func coverageImportSourcePath(format string) string {
+	dir := os.TempDir()
+	path := filepath.Join(dir, "clifmt-coverage-import-"+format+".yaml")
+	name := "coverage-import-" + format
+	body := fmt.Sprintf("version: \"1.0.0\"\ndescription: %s\nfragments:\n  ex:\n    content: hi\n    no_distill: true\n", name)
+	_ = os.WriteFile(path, []byte(body), 0o644)
+	return path
+}
+
+// TestFormatCoverage_AllRootCmdDescendants is the table-driven test the
+// clifmt integration task requires: every rootCmd descendant either renders
+// in all five --format encodings without error, or is allowlisted with a
+// documented reason. Discovery is structural (formatCoverageWalk), so a
+// future command with no registry entry fails the test loudly instead of
+// silently going unchecked.
+func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
+	cfg := formatCoverageProject(t)
+
+	// The shared read fixture behind bundle view/edit/export/distill.
+	ctx := context.Background()
+	_, err := operations.CreateBundle(ctx, cfg, operations.CreateBundleRequest{
+		Name:        "coverage-target",
+		Description: "clifmt format-coverage fixture",
+		Fragments: map[string]operations.BundleFragmentInput{
+			"example": {Content: "hello from the coverage fixture", NoDistill: true},
+		},
+	})
+	require.NoError(t, err, "seed the shared coverage-target bundle fixture")
+	coverageTargetBundlePath = cfg.GetBundleDirs()[0] + "/coverage-target.yaml"
+
+	paths := formatCoverageWalk(t)
+	require.NotEmpty(t, paths, "rootCmd must have runnable descendants")
+
+	for _, path := range paths {
+		entry, ok := formatCoverageRegistry[path]
+		if !ok {
+			t.Errorf("command %q has no formatCoverageRegistry entry (fixture or documented skip) — add one", path)
+			continue
+		}
+		t.Run(path, func(t *testing.T) {
+			if entry.skip != "" {
+				t.Skip(entry.skip)
+			}
+			require.NotNil(t, entry.extraArgs, "registered entry for %q must set either skip or extraArgs", path)
+			for _, format := range []string{"text", "json", "yaml", "toml", "markdown"} {
+				t.Run(format, func(t *testing.T) {
+					args := append(strings.Fields(path), entry.extraArgs(format)...)
+					runFormatCoverageCase(t, path, args, format)
+				})
+			}
+		})
+	}
+}
+
+// runFormatCoverageCase drives the real cobra command tree exactly as a
+// user's shell invocation would (rootCmd.SetArgs + Execute), so the
+// persistent --format flag resolves through cobra's own inherited-flag
+// machinery rather than a hand-rolled shortcut. It asserts no error and that
+// non-text formats produced syntactically valid output in their encoding.
+func runFormatCoverageCase(t *testing.T, path string, args []string, format string) {
+	t.Helper()
+	full := append(append([]string{}, args...), "--format", format)
+	var out, errOut bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errOut)
+	rootCmd.SetArgs(full)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	err := rootCmd.Execute()
+	require.NoError(t, err, "ctxloom %s (stderr: %s)", strings.Join(full, " "), errOut.String())
+
+	switch clifmt.Format(format) {
+	case clifmt.FormatJSON:
+		assert.Truef(t, json.Valid(out.Bytes()), "invalid JSON for %q:\n%s", path, out.String())
+	case clifmt.FormatYAML:
+		var v any
+		assert.NoErrorf(t, yaml.Unmarshal(out.Bytes(), &v), "invalid YAML for %q:\n%s", path, out.String())
+	case clifmt.FormatTOML:
+		var v map[string]any
+		assert.NoErrorf(t, toml.Unmarshal(out.Bytes(), &v), "invalid TOML for %q:\n%s", path, out.String())
+	default: // text, markdown: no fixed grammar to validate against, just non-panicking output
+	}
+}

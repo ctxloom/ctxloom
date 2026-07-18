@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -12,6 +13,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
+
+// bundleViewResult is emit()'s result for `bundle view`: Content is exactly
+// the bytes --format text has always printed (the full bundle YAML, or one
+// item's raw/distilled body) — json/yaml/toml/markdown wrap the same bytes
+// with the bundle/path/distilled context those formats can express but a
+// bare stdout dump could not.
+type bundleViewResult struct {
+	Bundle    string `json:"bundle"`
+	Path      string `json:"path,omitempty"`
+	Distilled bool   `json:"distilled,omitempty"`
+	Content   string `json:"content"`
+}
 
 var bundleViewCmd = &cobra.Command{
 	Use:   "view <name[#path]>",
@@ -55,15 +68,31 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	out := cmd.OutOrStdout()
-
-	// If no path, show full bundle YAML.
+	// If no path, the content is the full bundle YAML; otherwise render just
+	// that item through the existing writer-based renderer, buffered so the
+	// exact same bytes back both the --format text write and the structured
+	// result's Content field.
+	var content []byte
 	if itemPath == "" {
-		_, _ = out.Write(res.Raw)
-		return nil
+		content = res.Raw
+	} else {
+		var buf bytes.Buffer
+		if err := renderBundleViewItem(&buf, res.Bundle, itemPath, bundleViewDistilled); err != nil {
+			return err
+		}
+		content = buf.Bytes()
 	}
 
-	return renderBundleViewItem(out, res.Bundle, itemPath, bundleViewDistilled)
+	result := bundleViewResult{
+		Bundle:    bundleName,
+		Path:      itemPath,
+		Distilled: itemPath != "" && bundleViewDistilled,
+		Content:   string(content),
+	}
+	return emit(cmd, result, func() error {
+		_, err := cmd.OutOrStdout().Write(content)
+		return err
+	})
 }
 
 // parseBundleViewRef splits a `view` argument like `mybundle` or

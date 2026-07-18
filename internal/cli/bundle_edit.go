@@ -53,11 +53,12 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Created bundle: %s\n", res.Path)
-	w.Println("Edit the file to add your fragments and prompts.")
-
-	return w.Err()
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Created bundle: %s\n", res.Path)
+		w.Println("Edit the file to add your fragments and prompts.")
+		return w.Err()
+	})
 }
 
 // bundleEdit flags
@@ -126,19 +127,21 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	if res.Status == "no_changes" {
-		w.Println("No changes made. Use flags to specify what to edit.")
-		if w.Err() != nil {
-			return w.Err()
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		if res.Status == "no_changes" {
+			w.Println("No changes made. Use flags to specify what to edit.")
+			if w.Err() != nil {
+				return w.Err()
+			}
+			return cmd.Help()
 		}
-		return cmd.Help()
-	}
-	for _, c := range res.Changes {
-		w.Printf("%s\n", c)
-	}
-	w.Printf("Updated bundle: %s\n", res.Path)
-	return w.Err()
+		for _, c := range res.Changes {
+			w.Printf("%s\n", c)
+		}
+		w.Printf("Updated bundle: %s\n", res.Path)
+		return w.Err()
+	})
 }
 
 // placeholderFragments/Prompts/MCP build the add-only inputs for the

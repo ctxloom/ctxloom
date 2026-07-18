@@ -84,9 +84,11 @@ func runBundleExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
-	return w.Err()
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
+		return w.Err()
+	})
 }
 
 var bundleImportForce bool
@@ -122,10 +124,11 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
-	w.Printf("  Version: %s\n", res.Version)
-	w.Printf("  Fragments: %d, Commands: %d, MCP: %d\n", res.Fragments, res.Commands, res.MCP)
-
-	return w.Err()
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
+		w.Printf("  Version: %s\n", res.Version)
+		w.Printf("  Fragments: %d, Commands: %d, MCP: %d\n", res.Fragments, res.Commands, res.MCP)
+		return w.Err()
+	})
 }

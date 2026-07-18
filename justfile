@@ -591,6 +591,47 @@ clean:
     rm -rf bin/ man/
     go clean
 
+# Prune ephemeral docker images this repo's tooling produces — per-agent-run
+# images (ctxloom-agent:<hash>), integration-test images (ctxloom-*-itest,
+# ctxloom-iso*, ctxloom-coord*), and VS Code devcontainer builds (vsc-*) — plus
+# dangling layers, once they are older than HOURS (default 6). These accumulate
+# fast under agent/isolation work and are the bulk of docker disk here.
+#
+# PRESERVED (never pruned): named registry/base images (ghcr.io/*, postgres,
+# alpine, etc.), and the warm :latest reuse caches of the agent/base families
+# (ctxloom-agent{,-base}:latest, ctxloom-devcontainer:latest, ...) which are
+# slow to rebuild. Images backing a live container are skipped by `docker rmi`.
+docker-prune HOURS="6":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cutoff=$(date -d '{{HOURS}} hours ago' +%s)
+    # Repos where EVERY tag (incl. :latest) is per-run throwaway.
+    always='^(ctxloom-[^:]*-itest|ctxloom-iso[^:]*|ctxloom-coord[^:]*|vsc-)'
+    # Repos where only the content-hash tags are throwaway; :latest is the cache.
+    hash_only='^(ctxloom-agent|ctxloom-agent-base)$'
+    removed=0
+    while IFS='|' read -r ref created repo tag; do
+        [ -z "$ref" ] && continue
+        if echo "$repo" | grep -qE "$always"; then
+            :
+        elif echo "$repo" | grep -qE "$hash_only" && [ "$tag" != "latest" ]; then
+            :
+        else
+            continue
+        fi
+        # docker CreatedAt: "2026-07-16 20:00:00 -0700 PDT" — keep date/time/offset,
+        # drop the trailing tz NAME which `date -d` can't parse.
+        cts=$(date -d "$(echo "$created" | awk '{print $1, $2, $3}')" +%s 2>/dev/null || echo 0)
+        { [ "$cts" -eq 0 ] || [ "$cts" -ge "$cutoff" ]; } && continue
+        if docker rmi "$ref" >/dev/null 2>&1; then
+            echo "removed $ref"
+            removed=$((removed + 1))
+        fi
+    done < <(docker images --format '{{ "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}|{{.Repository}}|{{.Tag}}" }}')
+    echo "Pruned $removed ephemeral image(s) older than {{HOURS}}h."
+    docker image prune -f --filter "until={{HOURS}}h" >/dev/null
+    echo "Pruned dangling layers older than {{HOURS}}h."
+
 # Install dependencies
 deps:
     go mod download

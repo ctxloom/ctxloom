@@ -11,9 +11,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
@@ -21,7 +23,6 @@ var (
 	tasksListStatuses []string
 	tasksListTerm     string
 	tasksListTagQuery string
-	tasksListJSON     bool
 	tasksListAll      bool
 	tasksListGlobal   bool
 )
@@ -32,7 +33,7 @@ var listCmd = &cobra.Command{
 	Long: `List tasks, filtered by status, text term, and/or tag query.
 
 By default a listing is scoped to the CURRENT project, resolved from the
-working directory the same way `+"`taskloom add`"+` etc. do (--project, else
+working directory the same way ` + "`taskloom add`" + ` etc. do (--project, else
 CTXLOOM_PROJECT_ID, else cwd). Pass --global to aggregate every project
 instead. When no project can be resolved at all — not inside a git repo, no
 CTXLOOM_ROOT override, and no prior task history at this exact path — the
@@ -76,16 +77,22 @@ tags in use (with counts) via "taskloom tags".`,
   # every project's tasks, not just the current one
   taskloom list --global`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		format, err := cliemit.Resolve(cmd)
+		if err != nil {
+			return err
+		}
 		return runListCmd(cmd.OutOrStdout(), os.Stderr, taskContext(),
-			tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, tasksListGlobal, tasksListJSON)
+			tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, tasksListGlobal, format)
 	},
 }
 
 // runListCmd is listCmd's RunE body, factored out so it can be driven in
 // tests without cobra machinery: out/errw are separate so a test can assert
 // on each independently, matching the command's real stdout-stays-parseable
-// / stderr-carries-diagnostics split.
-func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []string, term, tagQuery string, all, global, jsonOut bool) error {
+// / stderr-carries-diagnostics split. text renders the human table(s); any
+// other format hands the raw rows to clifmt so the same data serializes to
+// json/yaml/toml/markdown without a per-format branch here.
+func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []string, term, tagQuery string, all, global bool, format clifmt.Format) error {
 	scope, err := resolveListScope(global, tc.ProjectID, tc.WorkDir)
 	if err != nil {
 		return err
@@ -100,8 +107,8 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []strin
 			return wrapTagQueryError(err)
 		}
 		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, term != "" || tagQuery != "")
-		if jsonOut {
-			return writeJSON(out, gres.Rows)
+		if format != clifmt.FormatText {
+			return clifmt.Render(out, gres.Rows, format)
 		}
 		w := iox.NewErrWriter(out)
 		w.Printf("Projects: %d (--global)\n\n", gres.ProjectCount)
@@ -117,8 +124,8 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []strin
 	}
 	warnTask(res.Warning)
 	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, term != "" || tagQuery != "")
-	if jsonOut {
-		return writeJSON(out, res.Tasks)
+	if format != clifmt.FormatText {
+		return clifmt.Render(out, res.Tasks, format)
 	}
 	// Name the resolved store: in multi-root workspaces (several .ctxloom
 	// trees under one repo), which project a listing came from is the
@@ -229,9 +236,11 @@ var addCmd = &cobra.Command{
 		warnTask(res.Warning)
 		noteTaskProject(res.ProjectID, res.ProjectDir)
 		task := res.Task
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-		return w.Err()
+		return cliemit.Emit(cmd, task, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+			return w.Err()
+		})
 	},
 }
 
@@ -254,9 +263,11 @@ carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 		warnTask(res.Warning)
 		noteTaskProject(res.ProjectID, res.ProjectDir)
 		task := res.Task
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-		return w.Err()
+		return cliemit.Emit(cmd, task, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+			return w.Err()
+		})
 	},
 }
 
@@ -277,9 +288,11 @@ status and any Deferred trigger are left unchanged.`,
 		warnTask(res.Warning)
 		noteTaskProject(res.ProjectID, res.ProjectDir)
 		task := res.Task
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-		return w.Err()
+		return cliemit.Emit(cmd, task, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+			return w.Err()
+		})
 	},
 }
 
@@ -311,13 +324,13 @@ tags already in use with "taskloom tags"; filter tasks by tag with
 		warnTask(res.Warning)
 		noteTaskProject(res.ProjectID, res.ProjectDir)
 		task := res.Task
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
-		return w.Err()
+		return cliemit.Emit(cmd, task, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
+			return w.Err()
+		})
 	},
 }
-
-var tasksTagsJSON bool
 
 var tagsCmd = &cobra.Command{
 	Use:   "tags",
@@ -340,31 +353,30 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
 			return err
 		}
 		warnTask(res.Warning)
-		if tasksTagsJSON {
-			return writeJSON(cmd.OutOrStdout(), res.Tags)
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		if res.ProjectDir != "" {
-			w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
-		} else {
-			w.Printf("Project: %s\n\n", res.ProjectID)
-		}
-		if len(res.Tags) == 0 {
-			w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
-			return w.Err()
-		}
-		// Pad the tag column so the counts align; the counts are labeled so the
-		// output is self-describing without a header row.
-		tagWidth := 0
-		for _, t := range res.Tags {
-			if len(t.Tag) > tagWidth {
-				tagWidth = len(t.Tag)
+		return cliemit.Emit(cmd, res.Tags, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			if res.ProjectDir != "" {
+				w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
+			} else {
+				w.Printf("Project: %s\n\n", res.ProjectID)
 			}
-		}
-		for _, t := range res.Tags {
-			w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
-		}
-		return w.Err()
+			if len(res.Tags) == 0 {
+				w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
+				return w.Err()
+			}
+			// Pad the tag column so the counts align; the counts are labeled so
+			// the output is self-describing without a header row.
+			tagWidth := 0
+			for _, t := range res.Tags {
+				if len(t.Tag) > tagWidth {
+					tagWidth = len(t.Tag)
+				}
+			}
+			for _, t := range res.Tags {
+				w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
+			}
+			return w.Err()
+		})
 	},
 }
 
@@ -378,24 +390,24 @@ var summaryCmd = &cobra.Command{
 		}
 		warnTask(res.Warning)
 		sum := res.Summary
-		// Stable order so output is diffable.
-		keys := make([]string, 0, len(sum.Counts))
-		for k := range sum.Counts {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		for _, k := range keys {
-			w.Printf("%s\t%d\n", k, sum.Counts[k])
-		}
-		if len(sum.InProgress) > 0 {
-			w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
-		}
-		return w.Err()
+		return cliemit.Emit(cmd, sum, func() error {
+			// Stable order so output is diffable.
+			keys := make([]string, 0, len(sum.Counts))
+			for k := range sum.Counts {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			for _, k := range keys {
+				w.Printf("%s\t%d\n", k, sum.Counts[k])
+			}
+			if len(sum.InProgress) > 0 {
+				w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
+			}
+			return w.Err()
+		})
 	},
 }
-
-var tasksStatusesJSON bool
 
 var statusesCmd = &cobra.Command{
 	Use:   "statuses",
@@ -408,21 +420,20 @@ hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		statuses := tasks.Statuses()
-		if tasksStatusesJSON {
-			return writeJSON(cmd.OutOrStdout(), statuses)
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		for _, s := range statuses {
-			flags := ""
-			if s.Terminal {
-				flags += "\tterminal"
+		return cliemit.Emit(cmd, statuses, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			for _, s := range statuses {
+				flags := ""
+				if s.Terminal {
+					flags += "\tterminal"
+				}
+				if s.RequiresTrigger {
+					flags += "\trequires-trigger"
+				}
+				w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
 			}
-			if s.RequiresTrigger {
-				flags += "\trequires-trigger"
-			}
-			w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
-		}
-		return w.Err()
+			return w.Err()
+		})
 	},
 }
 
@@ -430,7 +441,7 @@ func init() {
 	listCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	listCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
-	listCmd.Flags().BoolVar(&tasksListJSON, "json", false, "emit JSON instead of a table (for jq)")
+	listCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
 	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every project instead of just the current one")
 
@@ -443,9 +454,9 @@ func init() {
 	tagCmd.Flags().StringArrayVar(&tasksTagAdd, "add", nil, "tag to add (repeatable)")
 	tagCmd.Flags().StringArrayVar(&tasksTagRemove, "remove", nil, "tag to remove (repeatable)")
 
-	tagsCmd.Flags().BoolVar(&tasksTagsJSON, "json", false, "emit JSON instead of a table (for jq)")
+	tagsCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 
-	statusesCmd.Flags().BoolVar(&tasksStatusesJSON, "json", false, "emit JSON instead of a table (for jq)")
+	statusesCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 
 	rootCmd.AddCommand(listCmd, addCmd, statusCmd, editCmd, tagCmd, tagsCmd, summaryCmd, statusesCmd)
 }

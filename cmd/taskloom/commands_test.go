@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // TestNoteHiddenMatches pins the anti-silent-truncation hint: a --term or
@@ -87,7 +88,7 @@ func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, false)
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, clifmt.FormatText)
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "here's task")
@@ -108,7 +109,7 @@ func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, true, false)
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, true, clifmt.FormatText)
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "Projects: 2 (--global)")
@@ -132,7 +133,7 @@ func TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, false)
+	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, clifmt.FormatText)
 	require.NoError(t, err)
 
 	assert.Contains(t, stderr.String(), "no project detected", "the fallback must be explained, not silent")
@@ -150,7 +151,7 @@ func TestRunListCmd_JSONOutputTagsEachRowWithItsProject(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, operations.TaskContext{}, nil, "", "", false, true, true)
+	err = runListCmd(&stdout, &stderr, operations.TaskContext{}, nil, "", "", false, true, clifmt.FormatJSON)
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), `"project_id": "proj-a"`)

@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/spf13/cobra"
@@ -13,8 +14,6 @@ import (
 // package, so the location/frontmatter logic isn't duplicated), and `plan show`
 // prints one plan's content. The Plan view in the ctxloom VS Code extension
 // reads these.
-
-var planListJSON bool
 
 var planCmd = &cobra.Command{
 	Use:   "plan",
@@ -29,10 +28,9 @@ var planListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if planListJSON {
-			return writeJSON(cmd.OutOrStdout(), list)
-		}
-		return renderPlanTable(cmd.OutOrStdout(), list)
+		return cliemit.Emit(cmd, list, func() error {
+			return renderPlanTable(cmd.OutOrStdout(), list)
+		})
 	},
 }
 
@@ -65,7 +63,7 @@ func renderPlanTable(out io.Writer, list []plans.Plan) error {
 }
 
 func init() {
-	planListCmd.Flags().BoolVar(&planListJSON, "json", false, "emit JSON instead of a table")
+	planListCmd.Flags().Bool("json", false, "shorthand for --format json")
 	planCmd.AddCommand(planListCmd, planShowCmd)
 	rootCmd.AddCommand(planCmd)
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -32,6 +32,16 @@ of precedence. Agents reach the same store via the MCP tools served by
 Tasks carry flat tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
 vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom list --tag-query`" + `.`,
 	SilenceUsage: true,
+	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
+	// --format, off for text/markdown or an unresolvable value — mirroring
+	// cmd/ctxloom, so a machine-readable listing carries machine-readable
+	// warnings too. An invalid --format is reported by the command's own
+	// emit()/resolveFormat call, not here, so this just falls back to the safe
+	// default rather than erroring twice.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		format, ferr := cliemit.Resolve(cmd)
+		clidiag.SetStructured(ferr == nil && format.Structured())
+	},
 }
 
 // tasksProject is the --project override: an explicit project-id to act on,
@@ -81,12 +91,6 @@ func warnTask(warning string) {
 	if warning != "" {
 		clidiag.Warn("taskloom", "%s", warning)
 	}
-}
-
-func writeJSON(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
 }
 
 func renderTaskTable(out io.Writer, list []tasks.Task) error {

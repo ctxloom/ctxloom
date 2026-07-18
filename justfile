@@ -931,9 +931,19 @@ _run +ARGS:
         # every run).
         cache_mount=()
         if [ -d "$HOME/go/pkg/mod" ]; then cache_mount=(-v "$HOME/go/pkg/mod:/tmp/gomodcache:ro"); fi
+        # Persist Go's BUILD cache on the host as well, so container builds reuse
+        # compiled output across `--rm` runs instead of recompiling cold every
+        # time. Shared with the host's own GOCACHE (~/.cache/go-build). Cache
+        # entries are keyed by toolchain version, so host and container reuse
+        # each other's output only when their `go version` matches; mismatched
+        # entries coexist safely as plain cache misses, never wrong builds.
+        gobuild_mount=()
+        gbc="$HOME/.cache/go-build"
+        if mkdir -p "$gbc" 2>/dev/null; then gobuild_mount=(-v "$gbc:/tmp/.gocache"); fi
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
             "${cache_mount[@]}" \
+            "${gobuild_mount[@]}" \
             -e HOME=/tmp \
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \

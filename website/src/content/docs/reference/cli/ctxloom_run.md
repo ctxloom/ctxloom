@@ -36,12 +36,19 @@ Verbosity levels (-v can be repeated):
   -vv     Show command arguments
   -vvv    Show debug output
 
+Use --session <harp> to deterministically resume a prior harp-named session:
+its full recorded transcript is folded into this run's assembled context.
+Add --distill to resume via the session's distilled essence instead
+(distilling on demand first if one doesn't exist yet).
+
 Examples:
   ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"
   ctxloom run -p reviewer -f extra-rules "review this PR"
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"
+  ctxloom run --session swift-amber-falcon
+  ctxloom run --session swift-amber-falcon --distill
 
 ```
 ctxloom run [flags] [prompt...]
@@ -52,6 +59,7 @@ ctxloom run [flags] [prompt...]
 ```
       --agent string         Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)
   -r, --command string       Run a saved command by name
+      --distill              With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
   -n, --dry-run              Show command that would be executed
   -f, --fragment strings     Context fragment(s) to include (can be repeated)
   -h, --help                 help for run
@@ -61,6 +69,7 @@ ctxloom run [flags] [prompt...]
       --print                Print response and exit (non-interactive mode)
   -p, --profile string       Profile to use (predefined fragment collection)
       --prompt string        Prompt to send to the AI (alternative to positional args)
+      --session string       Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
       --structured           Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \n, \t and quotes are decoded within a line.
   -t, --tag strings          Include fragments with this tag (can be repeated)
   -v, --verbose count        Increase verbosity (can be repeated: -v, -vv, -vvv)

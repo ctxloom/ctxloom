@@ -35,6 +35,7 @@ once `ctxloom run` has been used to launch a backend.
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom session backfill](/reference/cli/ctxloom_session_backfill/)	 - Import vendor-native transcripts for sessions ctxloom has no canonical memory of
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.
 * [ctxloom session forget](/reference/cli/ctxloom_session_forget/)	 - Drop a harp entry from the index. Transcript and essence files stay on disk.
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)

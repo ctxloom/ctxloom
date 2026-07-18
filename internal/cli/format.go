@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -30,39 +31,25 @@ func unknownFormatError(format string) error {
 }
 
 // emit renders a command's result in the format selected by the global
-// --format flag: json/yaml/toml/markdown all delegate to clifmt.Render,
-// which marshals (json/yaml/toml) or reflects (markdown) data directly — no
-// per-command renderer needed. text is the one format with an escape hatch:
-// when the caller supplies a bespoke human renderer (text != nil), that runs
-// unchanged, exactly as before clifmt existed; a nil text falls back to
-// clifmt's own reflective text render, so a new call site can route through
-// emit() with zero rendering code at all.
+// --format flag. It delegates to the cross-binary cliemit filter (shared with
+// cmd/taskloom and cmd/ltk) so the emit()/resolve pair is defined once:
+// json/yaml/toml/markdown go through clifmt.Render, text runs the bespoke human
+// closure (or, when nil, clifmt's reflective text render).
 //
 // Commands build their result once and hand both forms here, so --format is a
 // presentation choice and never a branch in business logic. This keeps every
 // frontend (CLI, the VSCode companion, scripts) reading the same backend
 // results.
 func emit(cmd *cobra.Command, data any, text func() error) error {
-	format, err := resolveFormat(cmd)
-	if err != nil {
-		return err
-	}
-	if format == clifmt.FormatText && text != nil {
-		return text()
-	}
-	return clifmt.Render(cmd.OutOrStdout(), data, format)
+	return cliemit.Emit(cmd, data, text)
 }
 
 // resolveFormat reads the inherited global --format value and parses it via
-// clifmt. An unset flag (e.g. a unit test that never registered it) reads as
-// "" and is treated as text, matching emit()'s pre-clifmt default. Any other
-// unrecognized value is an error wrapping clifmt.ErrUnsupportedFormat.
+// clifmt (through the shared cliemit filter). An unset flag reads as "" and is
+// treated as text; any other unrecognized value is an error wrapping
+// clifmt.ErrUnsupportedFormat.
 func resolveFormat(cmd *cobra.Command) (clifmt.Format, error) {
-	raw := outputFormatOf(cmd)
-	if raw == "" {
-		return clifmt.FormatText, nil
-	}
-	return clifmt.ParseFormat(raw)
+	return cliemit.Resolve(cmd)
 }
 
 // outputFormatOf reads the raw inherited --format flag value, unparsed. An

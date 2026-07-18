@@ -18,6 +18,126 @@ import (
 )
 
 // =============================================================================
+// Deterministic --session resume tests
+// =============================================================================
+// Two modes restored after WS-4/5 removed all flag-based resume + the
+// interactive picker (c7cddd9): bare --session (full resume, resumeFullContext)
+// and --session --distill (distilled resume, resumeDistillEnv). Both are IoC-
+// extracted exactly like distillSessionOnExit's essenceFn/distillFn seam, so
+// they're testable without a live session index, backend transcript reader, or
+// shelling out.
+
+// TestValidateResumeFlags covers the friction-up-front gate: --distill only
+// modifies HOW --session resumes, so it is meaningless (and rejected) without
+// --session — mirroring validatePermissionFlag's "typed now, so strict" style.
+func TestValidateResumeFlags(t *testing.T) {
+	assert.NoError(t, validateResumeFlags("", false), "neither flag: nothing to validate")
+	assert.NoError(t, validateResumeFlags("swift-amber-falcon", false), "bare --session: full resume, valid")
+	assert.NoError(t, validateResumeFlags("swift-amber-falcon", true), "--session --distill: distilled resume, valid")
+
+	err := validateResumeFlags("", true)
+	assert.Error(t, err, "--distill without --session must be rejected")
+	assert.Contains(t, err.Error(), "--distill requires --session")
+}
+
+// TestResumeFullContext_FoldsRenderedTranscript covers the happy path: a
+// resolvable harp's recorded entries render and join onto the existing
+// assembled context via the SAME operations.RenderResumedTranscript/
+// JoinLeadBlocks primitives the ACP resume path uses.
+func TestResumeFullContext_FoldsRenderedTranscript(t *testing.T) {
+	entries := []agent.SessionEntry{
+		{Type: agent.EntryTypeUser, Content: "what does this function do?"},
+		{Type: agent.EntryTypeAssistant, Content: "it parses the config file."},
+	}
+	var requestedHarp string
+	entriesFn := func(h string) ([]agent.SessionEntry, error) {
+		requestedHarp = h
+		return entries, nil
+	}
+
+	got := resumeFullContext("existing project context", "swift-amber-falcon", entriesFn)
+
+	assert.Equal(t, "swift-amber-falcon", requestedHarp, "entriesFn is called with the resumed harp")
+	assert.Contains(t, got, "existing project context", "the run's own assembled context is preserved")
+	assert.Contains(t, got, "Resumed session swift-amber-falcon", "the rendered transcript's lead-block header is folded in")
+	assert.Contains(t, got, "what does this function do?")
+	assert.Contains(t, got, "it parses the config file.")
+}
+
+// TestResumeFullContext_UnresolvableHarpDegrades covers the fault-tolerant
+// path (CLAUDE.md): an unknown/unbound --session harp must warn, not block
+// the launch — the existing assembled context is returned unchanged.
+func TestResumeFullContext_UnresolvableHarpDegrades(t *testing.T) {
+	entriesFn := func(string) ([]agent.SessionEntry, error) {
+		return nil, errors.New("unknown session")
+	}
+
+	got := resumeFullContext("existing project context", "no-such-harp", entriesFn)
+
+	assert.Equal(t, "existing project context", got, "an unresolvable harp must not alter or block on the existing context")
+}
+
+// TestResumeFullContext_EmptyExistingContext covers a bare `ctxloom run
+// --session <harp>` with no -p/-f/-t/--agent context of its own: the rendered
+// transcript becomes the WHOLE assembled context, not an empty string glued
+// onto nothing.
+func TestResumeFullContext_EmptyExistingContext(t *testing.T) {
+	entries := []agent.SessionEntry{
+		{Type: agent.EntryTypeUser, Content: "hello"},
+	}
+	got := resumeFullContext("", "swift-amber-falcon", func(string) ([]agent.SessionEntry, error) { return entries, nil })
+	assert.Contains(t, got, "hello")
+	assert.Contains(t, got, "Resumed session swift-amber-falcon")
+}
+
+// TestResumeDistillEnv_SkipsDistillWhenEssenceExists covers the idempotency
+// check shared with distillSessionOnExit: an already-distilled harp must not
+// pay for a redundant distill before resuming.
+func TestResumeDistillEnv_SkipsDistillWhenEssenceExists(t *testing.T) {
+	distillCalled := false
+	env := resumeDistillEnv("swift-amber-falcon",
+		func(string) ([]byte, error) { return []byte("essence"), nil },
+		func(context.Context, string) error { distillCalled = true; return nil },
+	)
+
+	assert.False(t, distillCalled, "an existing essence must not be redistilled")
+	assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"])
+	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"], "PARTS must include \"session\" so resumePartsIncludeSession's essence gate opens")
+}
+
+// TestResumeDistillEnv_DistillsOnDemandWhenMissing covers the "not yet
+// distilled" branch --distill promises: essence missing -> distill via the
+// SAME `session distill` compactor path (shellOutDistill in production)
+// before returning the env pair.
+func TestResumeDistillEnv_DistillsOnDemandWhenMissing(t *testing.T) {
+	var distilledHarp string
+	env := resumeDistillEnv("swift-amber-falcon",
+		func(string) ([]byte, error) { return nil, errors.New("no essence yet") },
+		func(_ context.Context, h string) error { distilledHarp = h; return nil },
+	)
+
+	assert.Equal(t, "swift-amber-falcon", distilledHarp, "distill-on-demand runs for the resumed harp")
+	assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"])
+	assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"])
+}
+
+// TestResumeDistillEnv_DistillFailureStillReturnsEnv covers the fault-tolerant
+// path: a distill-on-demand failure must not block the resume — the env pair
+// is still returned (CLAUDE.md: the SessionStart hook's own essence read then
+// simply finds nothing and omits the essence block, rather than the whole
+// launch failing over a distill hiccup).
+func TestResumeDistillEnv_DistillFailureStillReturnsEnv(t *testing.T) {
+	assert.NotPanics(t, func() {
+		env := resumeDistillEnv("swift-amber-falcon",
+			func(string) ([]byte, error) { return nil, errors.New("no essence yet") },
+			func(context.Context, string) error { return errors.New("distill boom") },
+		)
+		assert.Equal(t, "swift-amber-falcon", env["CTXLOOM_RESUMED_FROM"], "the env pair is still returned despite the distill failure")
+		assert.Equal(t, "session", env["CTXLOOM_RESUMED_PARTS"])
+	})
+}
+
+// =============================================================================
 // Run Command Tests
 // =============================================================================
 // Full run-command behavior requires real plugin execution; that lives in

@@ -76,10 +76,45 @@ rules:
 		}
 	})
 
+	// Routing structured output through clifmt widens check from text/json to
+	// the full five formats: yaml now renders {decision, message, suggestion}.
+	t.Run("yaml renders the structured verdict", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := runCheck(&buf, "git push --force", cfgPath, "", "yaml"); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "decision: deny") || !strings.Contains(out, "message: no force pushes") {
+			t.Errorf("yaml output should carry the structured verdict, got %q", out)
+		}
+	})
+
+	t.Run("toml renders the structured verdict", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := runCheck(&buf, "git push --force", cfgPath, "", "toml"); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "decision = 'deny'") || !strings.Contains(out, "message = 'no force pushes'") {
+			t.Errorf("toml output should carry the structured verdict, got %q", out)
+		}
+	})
+
+	t.Run("markdown renders the structured verdict", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := runCheck(&buf, "git push --force", cfgPath, "", "markdown"); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "deny") || !strings.Contains(out, "no force pushes") {
+			t.Errorf("markdown output should carry the structured verdict, got %q", out)
+		}
+	})
+
 	t.Run("unknown format errors", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := runCheck(&buf, "git status", cfgPath, "", "yaml"); err == nil {
-			t.Error("an unknown --format should error")
+		if err := runCheck(&buf, "git status", cfgPath, "", "xml"); err == nil {
+			t.Error("an unsupported --format should error")
 		}
 	})
 

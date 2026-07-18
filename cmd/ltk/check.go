@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/ltk/scm"
 	"github.com/ctxloom/ctxloom/internal/ltk/shellenv"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // checkResult is the machine-readable verdict from `ltk check`: a structured
@@ -29,7 +30,7 @@ type checkResult struct {
 }
 
 func newCheckCmd() *cobra.Command {
-	var cfgPath, shellName, format, command string
+	var cfgPath, shellName, command string
 	c := &cobra.Command{
 		Use:   "check",
 		Short: "Check whether a shell command would be allowed (structured output)",
@@ -43,17 +44,23 @@ the engine's wire format), check takes the command as a flag and emits a plain
 be blocked?". It applies no confirm-by-repeat override: it reports what the rules
 say, nothing stateful.
 
+Structured formats (json/yaml/toml/markdown) serialize {decision, message,
+suggestion} via the shared clifmt filter; text prints the human verdict.
+
 Unlike the hook, this is an explicit command, so it fails loud (exit 1) on a
 broken/unreadable config rather than failing closed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, err := cliemit.Resolve(cmd)
+			if err != nil {
+				return err
+			}
 			return runCheck(cmd.OutOrStdout(), command, cfgPath, ir.Shell(shellName), format)
 		},
 	}
 	c.Flags().StringVar(&command, "command", "", "the shell command to check (required)")
 	c.Flags().StringVar(&cfgPath, "config", "", "path to rules YAML (default: search cwd)")
 	c.Flags().StringVar(&shellName, "shell", "", "force a shell dialect for parsing")
-	c.Flags().StringVar(&format, "format", "text", "output format: text or json ({decision, message, suggestion})")
 	_ = c.MarkFlagRequired("command")
 	return c
 }
@@ -61,9 +68,11 @@ broken/unreadable config rather than failing closed.`,
 // runCheck loads the rules, evaluates the command, and writes the verdict. It
 // reuses evaluate's loadConfig + submodule expansion + app wiring, but skips the
 // engine adapter (no stdin, no wire format) and the confirm-by-repeat state.
-func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format string) error {
-	if format != "text" && format != "json" {
-		return fmt.Errorf("unknown format %q (supported: text, json)", format)
+// text prints the human verdict via printCheckText; json/yaml/toml/markdown
+// serialize checkResult through the shared clifmt filter.
+func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format clifmt.Format) error {
+	if !format.Valid() {
+		return fmt.Errorf("%w: %q (supported: json, yaml, toml, text, markdown)", clifmt.ErrUnsupportedFormat, format)
 	}
 	if forceShell != "" && !forceShell.Valid() {
 		return fmt.Errorf("unknown --shell %q (known: %s)", forceShell, knownShells())
@@ -88,12 +97,10 @@ func runCheck(w io.Writer, command, cfgPath string, forceShell ir.Shell, format 
 		result.Suggestion = resp.Suggest
 	}
 
-	if format == "json" {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+	if format == clifmt.FormatText {
+		return printCheckText(w, result)
 	}
-	return printCheckText(w, result)
+	return clifmt.Render(w, result, format)
 }
 
 func printCheckText(w io.Writer, r checkResult) error {

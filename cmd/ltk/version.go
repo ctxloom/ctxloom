@@ -1,20 +1,26 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 )
 
 func newVersionCmd() *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the ltk version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cliversion.Render(cmd.OutOrStdout(), cliversion.Info{Name: progName, Version: Version}, format)
+			// Routed through emit like cmd/ctxloom: text prints the bare version
+			// line; json/yaml/toml/markdown serialize cliversion.Info. json stays
+			// {name,version} — the shape ctxloom's boot probe parses.
+			return cliemit.Emit(cmd, cliversion.Info{Name: progName, Version: Version}, func() error {
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), Version)
+				return err
+			})
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json ({name, version})")
-	return cmd
 }

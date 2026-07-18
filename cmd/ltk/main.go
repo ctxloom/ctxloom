@@ -14,6 +14,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Version is set at build time via ldflags (package main), e.g.
@@ -48,6 +50,8 @@ retry the right way. See docs/RULES.md for the full rule model.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().String("format", string(clifmt.FormatText),
+		"Output format: json, yaml, toml, text, or markdown")
 	root.AddCommand(newEvaluateCmd(), newCheckCmd(), newManageCmd(), newVersionCmd(), newLoadoutCmd())
 	registerDocsCmd(root)
 	return root

@@ -2,9 +2,11 @@ package agent
 
 // This file hoists the shared body of every engine's MANAGED-COMMAND
 // delivery out of the per-backend surfaces.go files. The engines whose
-// command (slash-command / prompt) exports are reconciled files written by a
+// command (slash-command) exports are reconciled files written by a
 // manifest-scoped writer — antigravity (.agents/skills/), kiro (.kiro/skills/),
-// and codex ($CODEX_HOME/prompts) — all shared one identical Deliver: write the
+// and codex ($CODEX_HOME/prompts, the vendor's own directory name — codex's
+// export is still a command, not a genuine Agent Skill) — all shared one
+// identical Deliver: write the
 // enabled exports, then revert exactly the managed set on cleanup by re-writing
 // with none. Only WHICH writer, at WHICH path, is engine-specific; that is the
 // injected write func. (claude's commands ride a different writer that owns its

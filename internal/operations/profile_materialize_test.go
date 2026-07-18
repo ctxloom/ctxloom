@@ -61,7 +61,7 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 
 // TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end regression
 // for sour-feed: `profile materialize --target` must produce a PORTABLE,
-// self-contained tree, so a builtin command (e.g. "recover") that happens to
+// self-contained tree, so a builtin command (e.g. "discover") that happens to
 // be byte-identical to a file already sitting in the MATERIALIZING machine's
 // own ~/.claude/commands must still land in --target. Pre-fix, claude's
 // DeliverCommands unconditionally deduped against GlobalCommandsDir(), silently
@@ -71,7 +71,7 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 
-	// Render the "recover" builtin command exactly as materialize itself will (same
+	// Render the "discover" builtin command exactly as materialize itself will (same
 	// LoadCommandExports/CommandExportsFor pipeline profile_materialize.go drives),
 	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
 	// a materializing host that has already installed its own commands (e.g. via
@@ -80,17 +80,17 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	exports := backends.CommandExportsFor("claude-code", backends.LoadCommandExports(cfg, []string{"reviewer"}))
 	var seeded bool
 	for _, e := range exports {
-		if e.Name != "recover" {
+		if e.Name != "discover" {
 			continue
 		}
 		home := filepath.Join(os.Getenv("HOME"), ".claude", "commands")
 		require.NoError(t, os.MkdirAll(home, 0o755))
 		require.NoError(t, os.WriteFile(
-			filepath.Join(home, "recover.md"), []byte(claude.TransformToClaudeCommand(e)), 0o644))
+			filepath.Join(home, "discover.md"), []byte(claude.TransformToClaudeCommand(e)), 0o644))
 		seeded = true
 		break
 	}
-	require.True(t, seeded, "precondition: the recover builtin command must be among the exports")
+	require.True(t, seeded, "precondition: the discover builtin command must be among the exports")
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
@@ -98,7 +98,7 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, res.Wrote, "commands")
 
-	assert.FileExists(t, filepath.Join(target, ".claude", "commands", "recover.md"),
+	assert.FileExists(t, filepath.Join(target, ".claude", "commands", "discover.md"),
 		"a command byte-identical to one in the materializing host's ~/.claude/commands must still land in the portable --target tree")
 }
 

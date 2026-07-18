@@ -5,9 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,86 +14,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
-
-// TestBuildPickerEntries_DedupMergeSort covers the merge of indexed harp
-// sessions with raw backend transcripts: already-indexed transcripts (by path
-// or session id) are dropped, survivors become raw rows (empty HarpName), and
-// the combined list is most-recent-first.
-func TestBuildPickerEntries_DedupMergeSort(t *testing.T) {
-	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
-	indexed := []sessions.Entry{
-		{HarpName: "swift-amber-falcon", SessionID: "sid-A", TranscriptPath: "/t/sid-A.jsonl", StartedAt: base},
-		{HarpName: "quiet-silver-meadow", TranscriptPath: "/t/sid-B.jsonl", StartedAt: base.Add(-2 * time.Hour)},
-	}
-	raw := []agent.SessionMeta{
-		{ID: "sid-A", Path: "/t/sid-A.jsonl", StartTime: base},                     // dup by path+id → dropped
-		{ID: "sid-B", Path: "/t/sid-B.jsonl", StartTime: base},                     // dup by path → dropped
-		{ID: "sid-C", Path: "/t/sid-C.jsonl", StartTime: base.Add(-1 * time.Hour)}, // new → kept as raw
-		{ID: "", Path: "", StartTime: base},                                        // empty → skipped
-	}
-
-	got := buildPickerEntries(indexed, raw, "claude-code")
-	require.Len(t, got, 3, "2 indexed + 1 surviving raw")
-	// Most-recent-first: sid-A (base), sid-C (base-1h), meadow (base-2h).
-	assert.Equal(t, "swift-amber-falcon", got[0].HarpName)
-	assert.Equal(t, "", got[1].HarpName, "raw row carries empty harp (the picker sentinel)")
-	assert.Equal(t, "sid-C", got[1].SessionID)
-	assert.Equal(t, "/t/sid-C.jsonl", got[1].TranscriptPath)
-	assert.Equal(t, "claude-code", got[1].Backend)
-	assert.Equal(t, "quiet-silver-meadow", got[2].HarpName)
-}
-
-// TestBuildPickerEntries_DedupBySessionID confirms a raw transcript is deduped
-// against an indexed entry by session id even when the index recorded no
-// transcript path (the bind hook hadn't supplied one).
-func TestBuildPickerEntries_DedupBySessionID(t *testing.T) {
-	indexed := []sessions.Entry{{HarpName: "h", SessionID: "sid-X"}}
-	raw := []agent.SessionMeta{{ID: "sid-X", Path: "/t/sid-X.jsonl"}}
-	got := buildPickerEntries(indexed, raw, "claude-code")
-	require.Len(t, got, 1, "raw matched by session id is deduped despite empty index transcript path")
-	assert.Equal(t, "h", got[0].HarpName)
-}
-
-func TestBuildPickerEntries_NoRaw(t *testing.T) {
-	indexed := []sessions.Entry{{HarpName: "h"}}
-	got := buildPickerEntries(indexed, nil, "claude-code")
-	require.Len(t, got, 1)
-	assert.Equal(t, "h", got[0].HarpName)
-}
-
-// TestBuildPickerEntries_OrdersByLastActivityNotStartedAt is the picker-layer
-// twin of sessions.TestListForProject_OrdersByLastActivityNotStartedAt: this
-// is the FINAL sort the picker actually displays (after merging in raw,
-// not-yet-adopted backend transcript rows), so it must key on the same
-// last-activity signal. A session created a day ago but resumed and worked 5
-// minutes ago (newer transcript mtime) must rank above a session created an
-// hour ago and never touched since (no activity beyond creation).
-func TestBuildPickerEntries_OrdersByLastActivityNotStartedAt(t *testing.T) {
-	dir := t.TempDir()
-	workedTranscript := filepath.Join(dir, "worked.jsonl")
-	require.NoError(t, os.WriteFile(workedTranscript, []byte("{}\n"), 0o644))
-
-	now := time.Now().UTC().Truncate(time.Second)
-	workedStarted := now.Add(-24 * time.Hour) // created a day ago...
-	recentActivity := now.Add(-5 * time.Minute)
-	require.NoError(t, os.Chtimes(workedTranscript, recentActivity, recentActivity)) // ...but worked 5 minutes ago
-
-	untouchedStarted := now.Add(-time.Hour) // created more recently, never opened since
-
-	indexed := []sessions.Entry{
-		{HarpName: "worked-session", TranscriptPath: workedTranscript, StartedAt: workedStarted},
-		{HarpName: "untouched-session", StartedAt: untouchedStarted},
-	}
-
-	got := buildPickerEntries(indexed, nil, "claude-code")
-	require.Len(t, got, 2)
-	assert.Equal(t, "worked-session", got[0].HarpName,
-		"resumed+worked session (newer transcript mtime) must rank above a newer-created but untouched session")
-	assert.Equal(t, "untouched-session", got[1].HarpName)
-}
 
 // =============================================================================
 // Run Command Tests
@@ -145,69 +65,8 @@ func TestWarnBypassOnLostContainer(t *testing.T) {
 	})
 }
 
-func TestResolveResumeIntentWith_SessionFlag(t *testing.T) {
-	t.Run("default_restores_both", func(t *testing.T) {
-		dec, err := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon"}, nil, "/p", false, "", nil, nil)
-		require.NoError(t, err)
-		assert.Equal(t, sessions.ResumeAction, dec.Action)
-		assert.Equal(t, "swift-amber-falcon", dec.FromHarp)
-		assert.True(t, dec.RestoreSession)
-		assert.True(t, dec.RestoreTasks)
-	})
-
-	t.Run("no_tasks_modifier", func(t *testing.T) {
-		dec, _ := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon", NoTasks: true}, nil, "/p", false, "", nil, nil)
-		assert.True(t, dec.RestoreSession)
-		assert.False(t, dec.RestoreTasks, "--no-tasks must suppress task hydration")
-	})
-}
-
-func TestResolveResumeIntentWith_TasksFromFlag(t *testing.T) {
-	dec, err := resolveResumeIntentWith(resumeFlags{TasksFrom: "quiet-silver-meadow"}, nil, "/p", false, "", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sessions.ResumeAction, dec.Action)
-	assert.Equal(t, "quiet-silver-meadow", dec.FromHarp)
-	assert.False(t, dec.RestoreSession, "--tasks-from must NOT restore the prior session essence")
-	assert.True(t, dec.RestoreTasks)
-}
-
-func TestResolveResumeIntentWith_NewSessionFlag(t *testing.T) {
-	dec, err := resolveResumeIntentWith(resumeFlags{NewSession: true}, nil, "/p", true, "", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sessions.NewAction, dec.Action)
-}
-
-func TestResolveResumeIntentWith_NoFlagsNoTTY(t *testing.T) {
-	indexed := []sessions.Entry{{HarpName: "swift-amber-falcon", ProjectDir: "/p"}}
-	// Non-TTY context with no flags should fall through to NewAction
-	// even if entries exist — picker requires interactive stdin.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, indexed, "/p", false, "", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sessions.NewAction, dec.Action)
-}
-
-func TestResolveResumeIntentWith_TTYButEmptyIndex(t *testing.T) {
-	// No indexed sessions and no raw transcripts (nil hist) — the picker has
-	// nothing to show, so we fall through silently. Nil entries also models the
-	// case where the caller's best-effort index read failed (open error / bad
-	// HOME): the seam must not panic, just start fresh.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, nil, "/p", true, "", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sessions.NewAction, dec.Action)
-}
-
-func TestResolveResumeIntentWith_FlagPrecedence(t *testing.T) {
-	// When multiple flags collide, --session wins (first in the switch).
-	// Documenting the actual precedence so a future reorder is intentional.
-	dec, _ := resolveResumeIntentWith(resumeFlags{
-		Session:    "winner",
-		TasksFrom:  "loser",
-		NewSession: true,
-	}, nil, "/p", true, "", nil, nil)
-	assert.Equal(t, "winner", dec.FromHarp, "--session beats --tasks-from + --new-session")
-}
-
-// TestShellOutDistill covers the picker's `d<N>` callback. We replace
+// TestShellOutDistill covers the exit-path (and, formerly, the picker's)
+// `session distill` shell-out. We replace
 // the execCommand seam with a fake that returns /bin/true (or echo on
 // platforms where true is non-standard), records the invocation
 // arguments, and confirms the subprocess sees the expected harp.
@@ -386,27 +245,3 @@ func TestDistillSessionOnExit_BoundedByTimeout(t *testing.T) {
 
 // The resolveSelfExecutable decision tree (deleted-suffix stripping, PATH
 // fallback) is owned and tested by internal/selfexec.
-
-// TestResumePartsCSV covers the small helper that encodes the
-// CTXLOOM_RESUMED_PARTS env var from a Decision.
-func TestResumePartsCSV(t *testing.T) {
-	cases := []struct {
-		name           string
-		session, tasks bool
-		want           string
-	}{
-		{"both", true, true, "session,tasks"},
-		{"session_only", true, false, "session"},
-		{"tasks_only", false, true, "tasks"},
-		{"neither", false, false, "none"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := resumePartsCSV(sessions.Decision{
-				RestoreSession: tc.session,
-				RestoreTasks:   tc.tasks,
-			})
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}

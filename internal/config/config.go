@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -211,8 +212,9 @@ type Config struct {
 type LoadOption func(*loadOptions)
 
 type loadOptions struct {
-	fs     afero.Fs
-	appDir string // Override ctxloom directory discovery
+	fs        afero.Fs
+	appDir    string // Override ctxloom directory discovery
+	overrides *confload.Overrides
 }
 
 // WithFS sets the filesystem for config operations.
@@ -226,6 +228,68 @@ func WithFS(fs afero.Fs) LoadOption {
 func WithAppDir(dir string) LoadOption {
 	return func(o *loadOptions) {
 		o.appDir = dir
+	}
+}
+
+// WithOverrides installs the env/CLI overrides THIS load resolves, instead of
+// whatever SetOverrides last installed process-wide. It exists as a TEST
+// SEAM: production code sets overrides once, process-wide, via SetOverrides
+// (see its doc); a test that wants a specific Overrides resolved against a
+// specific load — without mutating the process-wide value every other test in
+// the same binary would also see — passes it here instead.
+func WithOverrides(o confload.Overrides) LoadOption {
+	return func(opt *loadOptions) {
+		opt.overrides = &o
+	}
+}
+
+// SetOverrides installs o as the process-wide env/CLI overrides every
+// subsequent Load/LoadFresh resolves (until the next SetOverrides call) —
+// internal/cli/root.go's PersistentPreRun calls it once, right after flags
+// are parsed, before any config Load. The actual storage lives in
+// confload.SetProcessOverrides (see that function's doc for why: mainly so
+// internal/testsupport can reset it without an import cycle through config's
+// own test files). SetOverrides additionally invalidates the ambient memo so
+// the change is visible on the very next Load even if no config FILE changed
+// in the meantime — the memo's own stat check has nothing to key on for an
+// override, only for a file (see ambientStamp's doc for why Overrides.Stamp
+// is ALSO folded into the stamp itself: belt and suspenders against exactly
+// this kind of miss).
+func SetOverrides(o confload.Overrides) {
+	confload.SetProcessOverrides(o)
+	Invalidate()
+}
+
+// CurrentOverrides returns the process-wide overrides SetOverrides last
+// installed (the zero Overrides{} if none ever was).
+func CurrentOverrides() confload.Overrides {
+	return confload.ProcessOverrides()
+}
+
+// ResetOverrides clears the process-wide overrides back to the zero
+// Overrides{} ("none installed"). internal/testsupport.Isolate resets the
+// same underlying state directly via confload.ResetProcessOverrides (not
+// this function, to avoid an import cycle — see confload.SetProcessOverrides'
+// doc); this wrapper exists for internal/config's own callers/tests.
+func ResetOverrides() {
+	SetOverrides(confload.Overrides{})
+}
+
+// ctxloomProduct builds the confload.Product describing ctxloom's own
+// on-disk/env conventions. EnvPrefix is CTXLOOM_CONFIG_ — deliberately NOT a
+// bare CTXLOOM_, which is already claimed by bootstrap/process-selection vars
+// (CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP, CTXLOOM_DEGRADED,
+// CTXLOOM_VERBOSE, ...) that select WHICH config is read rather than being a
+// value inside it. validator may be nil (schema failed to load — Load's own
+// fault-tolerant fallback); ConfigValidator.KnownPath is nil-receiver-safe,
+// so KnownPath degrades to "nothing recognized" rather than panicking.
+func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
+	return confload.Product{
+		Name:      "ctxloom",
+		DirName:   AppDirName,
+		FileName:  ConfigFileName,
+		EnvPrefix: "CTXLOOM_CONFIG_",
+		KnownPath: validator.KnownPath,
 	}
 }
 
@@ -793,18 +857,26 @@ var (
 // (distinct) home layer. The single-file case (no project found, or an
 // explicit home==project dedup) stays byte-for-byte the original single-stamp
 // string, so every pre-layering memo test is unaffected.
+// Overrides.Stamp() is folded into the RETURNED string too (see the field's
+// doc on processOverridesVal / SetOverrides): a memo built before overrides
+// changed must not be served forever just because no config FILE changed in
+// the meantime — a stat check has nothing to key on for an override, only for
+// a file. Folding the override stamp in here means it self-corrects the same
+// way an ordinary file edit does, on top of (not instead of) SetOverrides'
+// own explicit Invalidate() call — belt and suspenders.
 func ambientStamp() string {
+	overridesStamp := CurrentOverrides().Stamp()
 	fs := afero.NewOsFs()
 	appPath, source := findAppDir(fs)
 	if appPath == "" {
-		return ""
+		return "no-app-dir|" + overridesStamp
 	}
 	projectConfigPath, homeConfigPath := resolveConfigLayerPaths(appPath, source)
 	stamp := fileStamp(fs, appPath, projectConfigPath)
 	if homeConfigPath != "" {
 		stamp += "|" + fileStamp(fs, filepath.Dir(homeConfigPath), homeConfigPath)
 	}
-	return stamp
+	return stamp + "|" + overridesStamp
 }
 
 // fileStamp is ambientStamp's single-file stat identity: path + mtime + size,
@@ -862,8 +934,22 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	cfg.AppRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
 	cfg.Source = source
 
+	// Env/CLI overrides are applied HERE, inside the single funnel every Load
+	// entry point reaches (the len(opts)>0 bypass, the memoized path, and
+	// LoadFresh all end up here) — never bolted onto Load itself. An explicit
+	// WithOverrides wins for this one call (the test seam); otherwise the
+	// process-wide value SetOverrides last installed applies, so a worktree
+	// load via WithAppDir/WithFS gets overrides exactly like the ambient
+	// project does, and a memo re-read triggered by nothing but a file's mtime
+	// changing still carries them (both were silent-loss channels — see
+	// SetOverrides' and Load's own doc).
+	overrides := CurrentOverrides()
+	if options.overrides != nil {
+		overrides = *options.overrides
+	}
+
 	projectConfigPath, homeConfigPath := resolveConfigLayerPaths(appPath, source)
-	if err := loadLayeredConfig(cfg, homeConfigPath, projectConfigPath, configValidator, fs); err != nil {
+	if err := loadLayeredConfig(cfg, homeConfigPath, projectConfigPath, configValidator, fs, ctxloomProduct(configValidator), overrides); err != nil {
 		return nil, err
 	}
 
@@ -1015,7 +1101,17 @@ func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfig
 // path regardless of which layer it lives in, and a key valid in one layer
 // but not the other still fails loudly instead of the validity of one
 // masking a problem in the other.
-func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, validator *schema.ConfigValidator, fs afero.Fs) error {
+//
+// After the two file layers merge, product.ApplyOverrides resolves overrides
+// (env then CLI flags) against the result — the SAME funnel every file layer
+// goes through, so an override is visible however this particular Load was
+// reached (ambient memo, an explicit WithAppDir/WithFS worktree load, or
+// LoadFresh) and however many/few config.yaml files exist, INCLUDING when
+// neither file layer exists at all (a fresh project with only env/CLI
+// values set): the len(layers)==0 fast path only applies when overrides are
+// ALSO empty, so it stays byte-for-byte the pre-override behavior in the
+// common case while still closing the "nothing to merge into" corner.
+func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, validator *schema.ConfigValidator, fs afero.Fs, product confload.Product, overrides confload.Overrides) error {
 	var layers []layerconfig.Layer
 
 	if homeConfigPath != "" {
@@ -1038,14 +1134,21 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		layers = append(layers, layerconfig.Layer{Name: "project", Values: projectValues})
 	}
 
-	if len(layers) == 0 {
-		// Neither layer had a config.yaml on disk at all — cfg keeps the
-		// zero-value defaults loadUncached constructed it with, exactly as
-		// the pre-layering single-file loadConfigFile left it.
+	if len(layers) == 0 && len(overrides.Env.Values) == 0 && len(overrides.Flags.Values) == 0 {
+		// Neither layer had a config.yaml on disk at all, and there is no
+		// override to apply either — cfg keeps the zero-value defaults
+		// loadUncached constructed it with, exactly as the pre-layering
+		// single-file loadConfigFile left it.
 		return nil
 	}
 
 	merged := layerconfig.Merge(layers...)
+	merged, overrideErr := product.ApplyOverrides(merged, overrides)
+	if overrideErr != nil {
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})
+		zap.L().Warn("config_override_warning", zap.Error(overrideErr))
+	}
+
 	mergedYAML, err := yaml.Marshal(merged)
 	if err != nil {
 		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to remarshal layered config: %v", err)})
@@ -1058,7 +1161,10 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	// `,remain`/`,inline` map: a backend `env: {GEMINI_API_KEY: ...}` would reach
 	// the launched process as `gemini_api_key`, so the engine never sees its
 	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
-	// init path), so both entry points decode a config identically.
+	// init path), so both entry points decode a config identically. This is
+	// also why overrides above are resolved into a plain map first (via
+	// confload, backed by yaml.Unmarshal file reads) rather than any
+	// viper-driven decode of the config document itself.
 	if err := yaml.Unmarshal(mergedYAML, cfg); err != nil {
 		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse layered config: %v", err)})
 		zap.L().Warn("config_parse_warning", zap.Error(err))

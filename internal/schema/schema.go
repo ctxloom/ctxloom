@@ -47,6 +47,75 @@ func (v *ConfigValidator) ValidateBytes(data []byte) error {
 	return v.schema.Validate(jsonData)
 }
 
+// KnownPath reports whether path names a location the config schema
+// recognizes, independent of whether any config currently holds a value
+// there. This is the seam internal/config wires into
+// internal/shared/confload.Product.KnownPath, so env/CLI override resolution
+// can tell a legitimate-but-unset key (case 3: created silently) apart from a
+// genuinely unrecognized one (case 4: created with a warning) -- see
+// confload's resolvePath doc for the full four-outcome algorithm. A nil
+// receiver or empty path is never known (degrades to false rather than
+// panicking, matching this schema package's existing fault-tolerant style).
+//
+// Each path segment is matched against the compiled schema's own object
+// keywords in order: a fixed `properties` entry, then a `patternProperties`
+// regex, then an `additionalProperties` sub-schema (the dynamic-map case --
+// an agent label, an LLM config label, ... -- where ANY segment is accepted
+// as a valid key and the walk continues into that sub-schema for the
+// segments after it). `$ref` is followed transparently. `anyOf`/`oneOf`/
+// `allOf` branches (e.g. one LLM backend's config shape among several) are
+// searched for the first branch that recognizes the segment.
+func (v *ConfigValidator) KnownPath(path []string) bool {
+	if v == nil || v.schema == nil || len(path) == 0 {
+		return false
+	}
+	cur := v.schema
+	for _, seg := range path {
+		cur = schemaChild(cur, seg)
+		if cur == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// resolveSchemaRef follows a chain of $ref indirection to the schema that
+// actually carries the object keywords (properties/additionalProperties/...).
+func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
+	for s != nil && s.Ref != nil {
+		s = s.Ref
+	}
+	return s
+}
+
+// schemaChild returns the sub-schema key names within s, or nil if s does not
+// recognize key at all. See KnownPath's doc for the resolution order.
+func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
+	s = resolveSchemaRef(s)
+	if s == nil {
+		return nil
+	}
+	if sub, ok := s.Properties[key]; ok {
+		return resolveSchemaRef(sub)
+	}
+	for pattern, sub := range s.PatternProperties {
+		if pattern.MatchString(key) {
+			return resolveSchemaRef(sub)
+		}
+	}
+	if sub, ok := s.AdditionalProperties.(*jsonschema.Schema); ok {
+		return resolveSchemaRef(sub)
+	}
+	for _, branches := range [][]*jsonschema.Schema{s.AnyOf, s.OneOf, s.AllOf} {
+		for _, branch := range branches {
+			if child := schemaChild(branch, key); child != nil {
+				return child
+			}
+		}
+	}
+	return nil
+}
+
 // convertToJSON converts YAML-parsed data to JSON-compatible types.
 func convertToJSON(v interface{}) interface{} {
 	switch v := v.(type) {

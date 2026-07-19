@@ -328,9 +328,9 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(body, "SKILL-MARKER-"+name+"-") {
 			return fmt.Errorf("materialized %q does not carry the skill's own marker — got:\n%s", rel, body)
 		}
-		// recover.md's own distinctive line (resources/commands/recover.md) —
+		// discover.md's own distinctive line (resources/commands/discover.md) —
 		// its presence would mean the builtin command won instead of the skill.
-		if strings.Contains(body, "wiped from THIS session") {
+		if strings.Contains(body, "Scan the current project and discover matching ctxloom content") {
 			return fmt.Errorf("materialized %q still carries the builtin command's prose — the skill did not win:\n%s", rel, body)
 		}
 		return nil

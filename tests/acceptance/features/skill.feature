@@ -53,11 +53,11 @@ Feature: Agent Skills — SKILL.md packages, distinct from a slash command
 
   Scenario: On kiro, a bundle-authored skill wins over the builtin command of the same name
     Given Alice's project has a directory-form bundle "vault"
-    And I run "ctxloom skill create vault recover -d SKILL-MARKER-recover-6f19aa"
-    And I run "ctxloom skill sync vault#skills/recover"
+    And I run "ctxloom skill create vault discover -d SKILL-MARKER-discover-6f19aa"
+    And I run "ctxloom skill sync vault#skills/discover"
     And a profile "studio" with bundle "vault"
     When I run "ctxloom profile materialize studio --target out-kiro --backend kiro"
-    Then "out-kiro/.kiro/skills/recover" carries the "recover" skill's content, not the builtin command's prose
+    Then "out-kiro/.kiro/skills/discover" carries the "discover" skill's content, not the builtin command's prose
     And ctxloom warned that the skill won over the command of the same name
 
   Scenario Outline: A skill's signature is reported honestly on import, and its files always land byte-for-byte

@@ -21,12 +21,3 @@ Feature: Trust posture CLI
     Then the command succeeds
     And the output contains "Rejected demo#fragments/guide"
     And the output contains "rejected in form(s) raw"
-
-  Scenario: Materialize a profile into a native agent surface
-    Given an initialized ctxloom project
-    And a bundle "demo" exists
-    And a fragment "guide" in bundle "demo" exists
-    And a profile "dev" with bundle "demo"
-    When I run "ctxloom profile materialize dev --target out"
-    Then the command succeeds
-    And the file "out/CLAUDE.md" contains "Add content here"

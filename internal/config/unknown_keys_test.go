@@ -1,11 +1,15 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // loadYAML writes cfgYAML as the project config on a fake fs and loads it the
@@ -165,4 +169,49 @@ profiles:
 `)
 
 	assert.Empty(t, cfg.Warnings, "a valid config must load clean: %+v", cfg.Warnings)
+}
+
+// TestLoad_UnknownKeyInHomeLayer_StillWarns pins that layering (home <
+// project, D2/D3) validates each layer INDEPENDENTLY: a key that is valid at
+// the project layer must not mask an unknown key sitting in the home layer —
+// before layering, home was never even read alongside a project, so a typo
+// there was invisible; now it must fail exactly as loudly as a project-layer
+// typo does.
+func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+
+	homeAppDir := filepath.Join(home, AppDirName)
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
+		[]byte("version: 6\nprofilez:\n  definitions: {}\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
+		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	require.NoError(t, err)
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1, "an unknown key in the HOME layer must be diagnosed independently of the (valid) project layer")
+	assert.Contains(t, warns[0].Text, "profilez", "the message must name the offending key even though it lives in the lower-precedence layer")
+}
+
+// TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome is the mirror case:
+// a valid home layer must not mask an unknown key in the project layer either
+// — validity at one layer is never evidence about the other.
+func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+
+	homeAppDir := filepath.Join(home, AppDirName)
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
+		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
+		[]byte("version: 6\nprofilez:\n  definitions: {}\n"), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	require.NoError(t, err)
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1)
+	assert.Contains(t, warns[0].Text, "profilez")
 }

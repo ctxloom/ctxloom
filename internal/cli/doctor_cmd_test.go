@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // writeFakeExecutable creates an executable regular file named name inside
@@ -57,6 +58,10 @@ func prependFakeBinToPath(t *testing.T, name string) {
 // seed profile InitializeProject writes) to the given engine label.
 func setupProject(t *testing.T, engine string) (root string, cfg *config.Config) {
 	t.Helper()
+	// Real-OS-fs config.Load below (no config.WithFS): isolate HOME so the
+	// home-layer read (D2/D3 layering) never reaches this developer's real
+	// ~/.ctxloom — this scaffolded project is meant to be the only source.
+	testsupport.Isolate(t)
 	root = t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{

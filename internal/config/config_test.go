@@ -923,6 +923,9 @@ func TestConfig_Save_NoAppPaths(t *testing.T) {
 // config (settings) block, and the editor block. The fast role's labeled
 // config carries the compression model; compaction_chunks lives under config.
 func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
+	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
+	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
@@ -1121,8 +1124,10 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 
 		cfg := &Config{}
 		// Missing file should be OK - config is optional
-		err := loadConfigFile(cfg, "/nonexistent/config.yaml", nil, fs)
+		values, pending, err := loadConfigLayer(cfg, "/nonexistent/config.yaml", nil, fs)
 		assert.NoError(t, err)
+		assert.Nil(t, values)
+		assert.Nil(t, pending)
 	})
 
 	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
@@ -1130,9 +1135,10 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
 
 		cfg := &Config{}
-		err := loadConfigFile(cfg, "/config.yaml", nil, fs)
+		values, _, err := loadConfigLayer(cfg, "/config.yaml", nil, fs)
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
+		assert.Nil(t, values, "a layer that failed to parse contributes no values to the merge")
 		assert.Len(t, cfg.Warnings, 1)
 		assert.Contains(t, cfg.Warnings[0].Text, "failed to parse config")
 		assert.Equal(t, WarnKindParse, cfg.Warnings[0].Kind, "parse failures carry the parse kind so the strict gate can classify them")

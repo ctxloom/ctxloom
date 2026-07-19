@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -143,8 +144,23 @@ type Config struct {
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
 	// an interactive caller may prompt the user and call CommitUpgrade. Nil when
-	// the file was already current.
+	// the file was already current. This tracks the PROJECT (or, when no
+	// project was found, home) layer only — the same file identity this field
+	// named before layering existed — so every existing CommitUpgrade caller
+	// keeps working unchanged.
 	PendingUpgrade *upgrade.Pending `yaml:"-"`
+
+	// HomePendingUpgrade is PendingUpgrade's counterpart for the HOME layer,
+	// populated only when a project layer ALSO exists (so home is being read
+	// as the lower-precedence layer, not as the effective single source —
+	// that case populates PendingUpgrade instead, exactly as before layering).
+	// Read-only today: no CommitUpgrade-style persister targets it yet, since
+	// committing an upgrade to a file OTHER than the one the ambient config
+	// resolved to is new, cross-cutting territory (see DEFERRED WORK). It
+	// exists so a caller that cares (`doctor`, a future `config upgrade
+	// --home`) can at least SEE that home's on-disk schema is stale instead
+	// of that fact being silently invisible now that home is always read.
+	HomePendingUpgrade *upgrade.Pending `yaml:"-"`
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 
@@ -695,9 +711,20 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 // shared ambient instance would let a mutation abandoned on an error path leak
 // into every later reader.
 //
-// Source priority (first found wins, no merging):
-//  1. Project .ctxloom directory (walking up from cwd)
-//  2. User home ~/.ctxloom directory (fallback)
+// Resolution is two-stage (see internal/shared/layerconfig's package doc for
+// the general primitive this implements):
+//
+//  1. Bootstrap — WHICH directories participate. findAppDir resolves the
+//     project .ctxloom (CTXLOOM_ROOT override, else walking up from cwd), or
+//     falls back to the user home ~/.ctxloom when no project is found. This
+//     is a directory-selection decision, not a config VALUE, so it happens
+//     first and is never itself layered.
+//  2. Value layering — home < project, deep-merged key by key (see
+//     loadLayeredConfig): a project inherits every home key it does not set,
+//     and an explicitly-set project value (including its zero value) always
+//     wins over an inherited one. When no project is found, home IS the
+//     single effective source and this stage is a no-op over one file,
+//     matching pre-layering behavior exactly.
 func Load(opts ...LoadOption) (*Config, error) {
 	// An explicit target/fs is a different config: never cached.
 	if len(opts) > 0 {
@@ -744,32 +771,52 @@ var (
 	ambientAt  string
 )
 
-// ambientStamp returns a cheap identity for the config file the ambient memo
-// was built from: path + mtime + size. A found-but-configless app dir (an
-// app dir exists — e.g. bundle content was seeded — but no config.yaml has
-// been written into it yet) is still keyed by its OWN appPath ("missing:" +
-// appPath), not a bare constant: two DIFFERENT app dirs that both currently
-// lack a config.yaml must never collide on the same stamp and serve each
-// other's stale memoized *Config (deaf-rut S5: this collision made
-// TestShowItem_NonInteractiveStdoutUnchanged serve a PRIOR test iteration's
-// already-cleaned-up t.TempDir config on ~every rerun once memoized, in the
-// same process, at -count>1 — GetConfig()'s ambient memo is a package-level
-// var shared across every test in the binary). No discoverable app dir at
-// all ("" from findAppDir) stays a bare "" — that state has no path to key
-// on, and is legitimately shared (loadUncached's own fallback resolves the
-// identical way for any cwd with no project at all).
+// ambientStamp returns a cheap identity for the config file(s) the ambient
+// memo was built from: path + mtime + size per participating layer. A
+// found-but-configless app dir (an app dir exists — e.g. bundle content was
+// seeded — but no config.yaml has been written into it yet) is still keyed by
+// its OWN appPath ("missing:" + appPath), not a bare constant: two DIFFERENT
+// app dirs that both currently lack a config.yaml must never collide on the
+// same stamp and serve each other's stale memoized *Config (deaf-rut S5: this
+// collision made TestShowItem_NonInteractiveStdoutUnchanged serve a PRIOR
+// test iteration's already-cleaned-up t.TempDir config on ~every rerun once
+// memoized, in the same process, at -count>1 — GetConfig()'s ambient memo is
+// a package-level var shared across every test in the binary). No
+// discoverable app dir at all ("" from findAppDir) stays a bare "" — that
+// state has no path to key on, and is legitimately shared (loadUncached's own
+// fallback resolves the identical way for any cwd with no project at all).
+//
+// When a project layer is active, the HOME layer's config.yaml is now also a
+// live input to the resolved config (D2/D3 layering) — editing it must bust
+// the memo too, exactly like editing the project file does, so its stamp
+// component is appended whenever resolveConfigLayerPaths finds a genuine
+// (distinct) home layer. The single-file case (no project found, or an
+// explicit home==project dedup) stays byte-for-byte the original single-stamp
+// string, so every pre-layering memo test is unaffected.
 func ambientStamp() string {
 	fs := afero.NewOsFs()
-	appPath, _ := findAppDir(fs)
+	appPath, source := findAppDir(fs)
 	if appPath == "" {
 		return ""
 	}
-	path := paths.ConfigPath(appPath)
-	info, err := fs.Stat(path)
+	projectConfigPath, homeConfigPath := resolveConfigLayerPaths(appPath, source)
+	stamp := fileStamp(fs, appPath, projectConfigPath)
+	if homeConfigPath != "" {
+		stamp += "|" + fileStamp(fs, filepath.Dir(homeConfigPath), homeConfigPath)
+	}
+	return stamp
+}
+
+// fileStamp is ambientStamp's single-file stat identity: path + mtime + size,
+// or "missing:"+appPath when the file does not (yet) exist — appPath, not
+// configPath, so two different configless app dirs never collide (see
+// ambientStamp's doc).
+func fileStamp(fs afero.Fs, appPath, configPath string) string {
+	info, err := fs.Stat(configPath)
 	if err != nil {
 		return "missing:" + appPath
 	}
-	return fmt.Sprintf("%s|%d|%d", path, info.ModTime().UnixNano(), info.Size())
+	return fmt.Sprintf("%s|%d|%d", configPath, info.ModTime().UnixNano(), info.Size())
 }
 
 // loadUncached is the real loader: it always reads and parses from disk.
@@ -815,8 +862,8 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	cfg.AppRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
 	cfg.Source = source
 
-	configPath := paths.ConfigPath(appPath)
-	if err := loadConfigFile(cfg, configPath, configValidator, fs); err != nil {
+	projectConfigPath, homeConfigPath := resolveConfigLayerPaths(appPath, source)
+	if err := loadLayeredConfig(cfg, homeConfigPath, projectConfigPath, configValidator, fs); err != nil {
 		return nil, err
 	}
 
@@ -923,23 +970,134 @@ func deepCopyValue(v any) any {
 	}
 }
 
-// loadConfigFile loads a config file into the provided Config struct.
-// Non-fatal errors (malformed YAML, schema validation) are collected as warnings.
-// Returns an error only for I/O failures (except missing file, which is OK).
-func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigValidator, fs afero.Fs) error {
-	data, err := afero.ReadFile(fs, configPath)
+// resolveConfigLayerPaths computes the STAGE-2 (value layering) inputs from
+// the STAGE-1 (bootstrap) result findAppDir (or an explicit WithAppDir)
+// already produced: the project config.yaml path always, and — only when
+// source is SourceProject, i.e. a genuine project dir was actually resolved —
+// the home config.yaml path too, so home participates as the lower-precedence
+// layer underneath it.
+//
+// homeConfigPath is "" (no separate home layer) in two cases: source is
+// already SourceHome (findAppDir fell all the way back to home — home IS the
+// effective single source, nothing to layer it under), or home's config.yaml
+// resolves to the exact same path as the project's (a home-rooted appPath, or
+// an explicit --app-dir/CTXLOOM_ROOT pointed straight at ~/.ctxloom) — reading
+// it twice would double-apply its warnings and upgrade pipeline for no
+// benefit, so it stays a single-file resolution exactly as before.
+func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfigPath, homeConfigPath string) {
+	projectConfigPath = paths.ConfigPath(appPath)
+	if source != SourceProject {
+		return projectConfigPath, ""
+	}
+	homeAppDir, err := HomeConfigDir()
 	if err != nil {
-		if os.IsNotExist(err) {
+		return projectConfigPath, ""
+	}
+	candidate := paths.ConfigPath(homeAppDir)
+	if candidate == projectConfigPath {
+		return projectConfigPath, ""
+	}
+	return projectConfigPath, candidate
+}
+
+// loadLayeredConfig is Load's stage-2 entry point: it reads every
+// participating config.yaml layer (home, then project — ascending
+// precedence), deep-merges their decoded values via layerconfig.Merge (home <
+// project; D1 lists replace, D3 explicit-zero beats inheritance), and
+// populates cfg from the merged result exactly once. homeConfigPath == ""
+// means no separate home layer exists (see resolveConfigLayerPaths) — that
+// degrades to reading projectConfigPath alone, byte-for-byte the pre-layering
+// single-source behavior.
+//
+// Each layer is upgraded, schema-validated, and warned about INDEPENDENTLY
+// (via loadConfigLayer) before merging — never the merged result — so an
+// unknown key or a stale schema generation is diagnosed with its own file's
+// path regardless of which layer it lives in, and a key valid in one layer
+// but not the other still fails loudly instead of the validity of one
+// masking a problem in the other.
+func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, validator *schema.ConfigValidator, fs afero.Fs) error {
+	var layers []layerconfig.Layer
+
+	if homeConfigPath != "" {
+		homeValues, pending, err := loadConfigLayer(cfg, homeConfigPath, validator, fs)
+		if err != nil {
+			return err
+		}
+		cfg.HomePendingUpgrade = pending
+		if homeValues != nil {
+			layers = append(layers, layerconfig.Layer{Name: "home", Values: homeValues})
+		}
+	}
+
+	projectValues, pending, err := loadConfigLayer(cfg, projectConfigPath, validator, fs)
+	if err != nil {
+		return err
+	}
+	cfg.PendingUpgrade = pending
+	if projectValues != nil {
+		layers = append(layers, layerconfig.Layer{Name: "project", Values: projectValues})
+	}
+
+	if len(layers) == 0 {
+		// Neither layer had a config.yaml on disk at all — cfg keeps the
+		// zero-value defaults loadUncached constructed it with, exactly as
+		// the pre-layering single-file loadConfigFile left it.
+		return nil
+	}
+
+	merged := layerconfig.Merge(layers...)
+	mergedYAML, err := yaml.Marshal(merged)
+	if err != nil {
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to remarshal layered config: %v", err)})
+		zap.L().Warn("config_layer_remarshal_warning", zap.Error(err))
+		return nil
+	}
+
+	// Parse with yaml directly, NOT viper. Viper lowercases every key it decodes,
+	// which corrupts the case-sensitive keys captured by LLMConfig.Body's
+	// `,remain`/`,inline` map: a backend `env: {GEMINI_API_KEY: ...}` would reach
+	// the launched process as `gemini_api_key`, so the engine never sees its
+	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
+	// init path), so both entry points decode a config identically.
+	if err := yaml.Unmarshal(mergedYAML, cfg); err != nil {
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse layered config: %v", err)})
+		zap.L().Warn("config_parse_warning", zap.Error(err))
+	}
+	return nil
+}
+
+// loadConfigLayer reads and processes ONE config.yaml layer — upgrade
+// pipeline, schema validation, warnings, all identical to (and unchanged
+// from) the pre-layering single-source treatment — and returns its decoded
+// VALUES as a presence-tracked map[string]any rather than populating cfg
+// directly. loadLayeredConfig merges N such maps (home < project) before cfg
+// is ever touched, which is what makes "project silently inherits a home key
+// it never mentions" possible: a key simply absent from this layer's map
+// never overwrites a lower layer's value during the merge.
+//
+// pending is this layer's own upgrade.Pending (nil when the file is current
+// or absent) — the caller decides which of cfg's two pending-upgrade fields
+// (PendingUpgrade / HomePendingUpgrade) it belongs to; this function never
+// writes to cfg.PendingUpgrade itself, unlike the pre-layering loadConfigFile
+// it replaces.
+//
+// Non-fatal errors (malformed YAML, schema validation) are collected as
+// warnings directly onto cfg (shared across every layer, same as before).
+// Returns an error only for I/O failures (except missing file, which is OK).
+func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigValidator, fs afero.Fs) (values map[string]any, pending *upgrade.Pending, err error) {
+	data, readErr := afero.ReadFile(fs, configPath)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
 			// Config file is optional
-			return nil
+			return nil, nil, nil
 		}
 		// An existing-but-unreadable config (EACCES, a directory in its place, a
 		// transient I/O error) degrades to the default-overlaid empty config with
 		// a kind-tagged warning; the strict startup gate (fail-loudly) turns it
 		// into a fatal finding, while --degraded launches anyway.
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, err)})
-		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
-		return nil
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, readErr)})
+		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(readErr))
+		return nil, nil, nil
 	}
 
 	// Upgrade older on-disk schema generations to the current one *in memory*
@@ -957,7 +1115,7 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	pipeline = append(pipeline, agentProfileCanonicalizeUpgrade{aliasToURL: cfg.ProfileRemoteURLResolver()})
 	if upgraded, applied := pipeline.Run(data); len(applied) > 0 {
 		data = upgraded
-		cfg.PendingUpgrade = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
+		pending = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
 	}
 	// A lossy upgrade (a dropped user-set value) is collected by the pipeline
@@ -983,21 +1141,21 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		}
 	}
 
-	// Parse with yaml directly, NOT viper. Viper lowercases every key it decodes,
-	// which corrupts the case-sensitive keys captured by LLMConfig.Body's
-	// `,remain`/`,inline` map: a backend `env: {GEMINI_API_KEY: ...}` would reach
-	// the launched process as `gemini_api_key`, so the engine never sees its
-	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
-	// init path), so both entry points decode a config identically.
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	// Decode into a generic, presence-tracked map rather than cfg directly —
+	// loadLayeredConfig merges this layer's map against its sibling layer(s)
+	// before cfg is populated. yaml.Unmarshal (not viper) preserves key case,
+	// matching ParseConfig; see the case-sensitivity note on loadLayeredConfig.
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
 		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse config at %s: %v", configPath, err)})
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
-		// Return nil - we have a valid (partially loaded) config with warnings
-		return nil
+		// Return nil values - the layer contributes nothing, but the warning
+		// still surfaces so the strict startup gate can act on it.
+		return nil, pending, nil
 	}
 
 	zap.L().Debug("config_loaded", zap.String("path", configPath))
-	return nil
+	return raw, pending, nil
 }
 
 // findAppDir locates the .ctxloom directory.

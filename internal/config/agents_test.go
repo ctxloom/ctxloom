@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func writeAppConfig(t *testing.T, appDir, body string) {
@@ -22,6 +23,11 @@ func writeAppConfig(t *testing.T, appDir, body string) {
 // TestConfig_ParsesAgentsKey proves the `agents:` config key is parsed
 // into Config.Agents — the config-key source of the agent entity.
 func TestConfig_ParsesAgentsKey(t *testing.T) {
+	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
+	// new home-layer read (D2/D3 layering) never reaches this developer's
+	// real ~/.ctxloom — only the appDir fixture built below is meant to
+	// contribute anything.
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, `version: 5
 agents:
@@ -47,6 +53,11 @@ agents:
 // preservation on save stays generic — an old block may survive a rewrite
 // verbatim; that is deliberate, not a migration.
 func TestConfig_LegacySubagentsKey_WarnsNeverErrors(t *testing.T) {
+	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
+	// new home-layer read (D2/D3 layering) never reaches this developer's
+	// real ~/.ctxloom — only the appDir fixture built below is meant to
+	// contribute anything.
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, `version: 5
 subagents:
@@ -88,6 +99,11 @@ func TestConfigSchema_AcceptsAgents(t *testing.T) {
 // key AND the .ctxloom/agents/*.yaml directory, each entry carrying its
 // Source, sorted by name.
 func TestLoadAgents_MergesBothSources(t *testing.T) {
+	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
+	// new home-layer read (D2/D3 layering) never reaches this developer's
+	// real ~/.ctxloom — only the appDir fixture built below is meant to
+	// contribute anything.
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, `version: 5
 agents:
@@ -120,6 +136,11 @@ agents:
 // TestLoadAgents_ConfigWinsOnCollision proves a name defined in BOTH sources
 // resolves to the config-key definition (the directory one is shadowed).
 func TestLoadAgents_ConfigWinsOnCollision(t *testing.T) {
+	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
+	// new home-layer read (D2/D3 layering) never reaches this developer's
+	// real ~/.ctxloom — only the appDir fixture built below is meant to
+	// contribute anything.
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, `version: 5
 agents:
@@ -146,6 +167,11 @@ agents:
 // Save (so a programmatic write — e.g. Phase F's agent-assisted setup —
 // persists), while directory agents stay in their files.
 func TestConfig_SaveRoundTripsAgents(t *testing.T) {
+	// The config.yaml read is real-OS-fs (no WithFS): isolate HOME so the
+	// new home-layer read (D2/D3 layering) never reaches this developer's
+	// real ~/.ctxloom — only the appDir fixture built below is meant to
+	// contribute anything.
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeAppConfig(t, appDir, "version: 5\n")
 	cfg, err := Load(WithAppDir(appDir))

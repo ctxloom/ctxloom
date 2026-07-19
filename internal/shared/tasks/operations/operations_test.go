@@ -76,6 +76,36 @@ func TestResolveProjectIdentity(t *testing.T) {
 	}
 }
 
+// TestResolveProjectIdentity_UnchangedForCoordinator pins ResolveProjectIdentity's
+// behavior for its coordinator caller (internal/cli/coord_host.go, which derives
+// the coordinator state-dir key from it -- an exclusive owner.pid lock): a
+// linked git worktree and its primary checkout must resolve to DIFFERENT
+// project ids, exactly as before the task-store worktree redirect (task
+// brown-canal, 2026-07-10). The task-store seam (workdir.ResolveBoundary /
+// projectroot.TaskStoreRoot) lives entirely outside this package specifically
+// so this function never has to choose between its two callers' conflicting
+// needs -- see internal/cli/run.go, which redirects its OWN workDir argument
+// before calling this same, unmodified function.
+func TestResolveProjectIdentity_UnchangedForCoordinator(t *testing.T) {
+	taskstest.Isolate(t)
+	main, linked := taskstest.RealGitWorktreeFixture(t)
+
+	mainID, _, err := ResolveProjectIdentity(main)
+	if err != nil {
+		t.Fatalf("resolve main: %v", err)
+	}
+	linkedID, _, err := ResolveProjectIdentity(linked)
+	if err != nil {
+		t.Fatalf("resolve linked: %v", err)
+	}
+	if mainID == "" || linkedID == "" {
+		t.Fatalf("empty id: main=%q linked=%q", mainID, linkedID)
+	}
+	if mainID == linkedID {
+		t.Fatalf("ResolveProjectIdentity must stay worktree-distinct for the coordinator caller, got the same id %q for both %s and %s", mainID, main, linked)
+	}
+}
+
 func TestSetTaskStatusThroughOperations(t *testing.T) {
 	taskstest.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}

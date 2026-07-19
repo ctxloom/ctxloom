@@ -132,13 +132,32 @@ func stampFlat(m map[string]any) string {
 func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]any, error) {
 	var errs []error
 
-	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName)
+	// dropUnknown=false: CTXLOOM_CONFIG_ is a DEDICATED namespace (see the
+	// package doc's bootstrap-vars note) — every var that reaches here
+	// already declared itself a config override by using the prefix, so an
+	// unrecognized one (case 4) is very likely a typo worth surfacing.
+	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
 	base = layerconfig.Merge(layerconfig.Layer{Name: "files", Values: base}, envLayer)
 
-	flagLayer, flagErr := p.resolveRaw(base, o.Flags, flagTokens, flagSourceName)
+	// dropUnknown=true: a CLI flag's name has NO equivalent dedicated
+	// namespace — cmd.Flags() is the invoked command's ENTIRE flag set,
+	// almost all of which exists for that command's own business (--format,
+	// --bundle, --output, ...) and was never meant as a config override at
+	// all. Case 4 for a flag is therefore NOT "probably a typo, warn about
+	// it" the way it is for an env var; it is "probably just an ordinary
+	// flag", so it is silently skipped rather than injected into the merged
+	// config AND printed as a warning (which, on a structured --format
+	// json/yaml/toml invocation, corrupts the output stream itself — see
+	// TestFlagOverlay_UnrecognizedFlagIsIgnoredSilently). Case 1
+	// (unambiguous match against an EXISTING key), case 2 (ambiguous — an
+	// error either way), and case 3 (schema-known-but-unset) still apply
+	// identically to flags and env: those three all require the flag to
+	// ACTUALLY correspond to a real config location, which an incidental
+	// same-named business flag essentially never does.
+	flagLayer, flagErr := p.resolveRaw(base, o.Flags, flagTokens, flagSourceName, true)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
@@ -180,8 +199,11 @@ func flagTokens(name string) []string {
 // tokenizes each key via tokenize, resolves it against base via resolvePath,
 // and places the (already-typed) value at the resolved path in the returned
 // layer. sourceName renders a raw key into the display form resolvePath's
-// diagnostics (and clidiag warnings) use.
-func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize func(string) []string, sourceName func(string) string) (layerconfig.Layer, error) {
+// diagnostics (and clidiag warnings) use. dropUnknown, when true, makes an
+// unrecognized override (resolvePath's case 4) a silent no-op instead of a
+// warned-and-applied one — see ApplyOverrides' doc for why env and cli
+// disagree on this.
+func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize func(string) []string, sourceName func(string) string, dropUnknown bool) (layerconfig.Layer, error) {
 	out := map[string]any{}
 	var errs []error
 
@@ -200,6 +222,9 @@ func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize
 		path, warn, err := p.resolvePath(base, tokens, display)
 		if err != nil {
 			errs = append(errs, err)
+			continue
+		}
+		if warn && dropUnknown {
 			continue
 		}
 		if warn {

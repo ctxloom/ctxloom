@@ -267,6 +267,34 @@ func TestFlagOverlay_ChangedFlagOverridesConfig(t *testing.T) {
 	assert.Equal(t, "mycoder", out["default_agent"])
 }
 
+// TestFlagOverlay_UnrecognizedFlagIsIgnoredSilently is the regression guard
+// for a real break found in acceptance testing: cmd.Flags() is the INVOKED
+// COMMAND's entire flag set, almost all of which exists for that command's
+// own business (--format, --bundle, --sig, ...) and was never meant as a
+// config override. Unlike an env var (which declared itself a config
+// override just by using EnvPrefix), an ordinary flag that matches no
+// existing config key AND no schema path must be silently ignored -- NOT
+// injected into the merged config with a warning, which on a structured
+// --format json/yaml/toml invocation corrupted the output stream itself
+// (extra warning lines landing in what a script expects to be pure JSON).
+func TestFlagOverlay_UnrecognizedFlagIsIgnoredSilently(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("bundle", "", "")
+	fs.String("format", "text", "")
+	require.NoError(t, fs.Set("bundle", "landed"))
+	require.NoError(t, fs.Set("format", "json"))
+
+	p := testProduct("default_agent") // schema knows SOMETHING, just not these
+	o, err := p.ReadOverrides(fs)
+	require.NoError(t, err)
+
+	out, err := p.ApplyOverrides(map[string]any{}, o)
+	require.NoError(t, err, "an unrecognized flag must never produce an error")
+	assert.NotContains(t, out, "bundle")
+	assert.NotContains(t, out, "format")
+	assert.Empty(t, out, "an unrecognized flag must not appear anywhere in the resolved config at all")
+}
+
 // TestConfload_SecondProductReusesPattern proves the pattern is DRY across
 // products: a second, taskloom-shaped Product (.taskloom / TASKLOOM_CONFIG_)
 // exercises the identical full chain independently of the first product's

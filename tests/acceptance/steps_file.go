@@ -94,6 +94,23 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// Exact-count variant of the above: "exists" only proves presence, which
+	// cannot catch a SECOND store silently getting minted alongside the
+	// first (J16 worktree-task-store journey's critical payload assertion —
+	// a redirect that quietly does nothing would still leave a home file
+	// matching the glob, just an extra one).
+	ctx.Step(`^exactly (\d+) home files? match(?:es)? "([^"]*)"$`, func(c context.Context, n int, glob string) error {
+		w := worldFrom(c)
+		matches, err := filepath.Glob(filepath.Join(w.env.HomeDir, glob))
+		if err != nil {
+			return fmt.Errorf("bad glob %q: %w", glob, err)
+		}
+		if len(matches) != n {
+			return fmt.Errorf("glob %q matched %d home files, want exactly %d: %v", glob, len(matches), n, matches)
+		}
+		return nil
+	})
 }
 
 func fileContains(c context.Context, home bool, rel, want string) error {

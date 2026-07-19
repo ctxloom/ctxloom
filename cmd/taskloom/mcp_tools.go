@@ -141,7 +141,10 @@ func registerTaskTools(server *mcp.Server) {
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
-	tc := taskContext()
+	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
 	scope, err := resolveListScope(in.Global, tc.ProjectID, tc.WorkDir)
 	if err != nil {
 		return nil, nil, err
@@ -184,7 +187,11 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 }
 
 func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	res, err := operations.AddTaskWithTags(taskContext(), in.Text, in.Status, in.Trigger, in.Tags)
+	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := operations.AddTaskWithTags(tc, in.Text, in.Status, in.Trigger, in.Tags)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -193,7 +200,11 @@ func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (
 }
 
 func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	res, err := operations.SetTaskStatus(taskContext(), in.HarpID, in.Status, in.Trigger)
+	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := operations.SetTaskStatus(tc, in.HarpID, in.Status, in.Trigger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -202,7 +213,11 @@ func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetSt
 }
 
 func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
-	res, err := operations.EditTask(taskContext(), in.HarpID, in.Text)
+	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := operations.EditTask(tc, in.HarpID, in.Text)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -211,7 +226,11 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 }
 
 func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (*mcp.CallToolResult, *taskTagResult, error) {
-	res, err := operations.TagTask(taskContext(), in.HarpID, in.Add, in.Remove)
+	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := operations.TagTask(tc, in.HarpID, in.Add, in.Remove)
 	if err != nil {
 		return nil, nil, err
 	}

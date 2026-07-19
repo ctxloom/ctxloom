@@ -59,13 +59,25 @@ func TaskloomBinary() (string, error) {
 // are appended last and win, matching Command's convention. Safe to call
 // concurrently (builds no shared mutable state beyond the one-time binary
 // build), so cross-process concurrency scenarios can drive it from goroutines.
+// Delegates to RunTaskloomIn(e.ProjectDir, ...) so this remains the common
+// case while callers that need a DIFFERENT cwd (e.g. a linked git worktree —
+// see the J16 worktree-task-store journey) have a seam of their own.
 func (e *TestEnvironment) RunTaskloom(extraEnv []string, args ...string) (stdout, stderr string, err error) {
+	return e.RunTaskloomIn(e.ProjectDir, extraEnv, args...)
+}
+
+// RunTaskloomIn is RunTaskloom, but runs the binary in dir instead of e's
+// project directory — the seam a scenario driving taskloom from a LINKED git
+// worktree (or any other directory distinct from e.ProjectDir) needs, since
+// which directory taskloom runs in is exactly what determines which
+// task-store identity it resolves (internal/taskloom/workdir).
+func (e *TestEnvironment) RunTaskloomIn(dir string, extraEnv []string, args ...string) (stdout, stderr string, err error) {
 	bin, berr := TaskloomBinary()
 	if berr != nil {
 		return "", "", berr
 	}
 	cmd := exec.Command(bin, args...)
-	cmd.Dir = e.ProjectDir
+	cmd.Dir = dir
 	cmd.Env = append(e.isolatedEnv(), extraEnv...)
 	var so, se bytes.Buffer
 	cmd.Stdout = &so

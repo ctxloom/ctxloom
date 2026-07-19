@@ -53,20 +53,39 @@ func init() {
 }
 
 // taskContext gathers the inputs operations needs to resolve the project task
-// log: the project root (CTXLOOM_ROOT override, else git root, else cwd), the
-// project-id (--project, else the CTXLOOM_PROJECT_ID exported by `ctxloom run`,
-// empty for a bare run so operations resolves it live), and the active session
-// harp stamped as task provenance.
-func taskContext() operations.TaskContext {
+// log: the project root (CTXLOOM_ROOT override, else git root, else cwd --
+// redirected to a linked worktree's primary checkout unless it opted out with
+// its own .ctxloom, see workdir.ResolveBoundary), the project-id (--project,
+// else the CTXLOOM_PROJECT_ID exported by `ctxloom run`, empty for a bare run
+// so operations resolves it live), and the active session harp stamped as
+// task provenance.
+//
+// A stale linked-worktree pointer (the primary checkout is gone) fails the
+// whole call UNLESS a project-id is already pinned (--project or
+// CTXLOOM_PROJECT_ID): a pin doesn't need WorkDir for identity at all, and
+// blocking an otherwise well-identified operation on an unrelated stale
+// worktree pointer would be its own silent-trust regression in the other
+// direction. The pinned-vs-cwd mismatch note resolveTaskStore would
+// otherwise compute is simply skipped in that case (WorkDir comes back
+// empty).
+func taskContext() (operations.TaskContext, error) {
 	projectID := tasksProject
 	if projectID == "" {
 		projectID = os.Getenv("CTXLOOM_PROJECT_ID")
 	}
+	workDir, err := workdir.Resolve()
+	if err != nil {
+		if projectID == "" {
+			return operations.TaskContext{}, err
+		}
+		clidiag.Warn("taskloom", "working directory resolution failed: %v", err)
+		workDir = ""
+	}
 	return operations.TaskContext{
-		WorkDir:     workdir.Resolve(),
+		WorkDir:     workDir,
 		ProjectID:   projectID,
 		SessionHarp: os.Getenv("CTXLOOM_SESSION_HARP"),
-	}
+	}, nil
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.

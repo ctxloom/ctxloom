@@ -13,6 +13,17 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
+// mustTaskContext is taskContext(), failing the test immediately on error —
+// the taskloom-wide worktree redirect (workdir.ResolveBoundary) can now fail
+// loud on a stale linked-worktree pointer, and every existing test call site
+// here expects a clean resolution.
+func mustTaskContext(t *testing.T) operations.TaskContext {
+	t.Helper()
+	tc, err := taskContext()
+	require.NoError(t, err)
+	return tc
+}
+
 // TestNoteHiddenMatches pins the anti-silent-truncation hint: a --term or
 // --tag-query listing whose matches were partly suppressed by the default
 // active-only view says so (with per-kind counts and the flag that reveals
@@ -83,13 +94,13 @@ func TestNoteHiddenMatches(t *testing.T) {
 func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 	taskstest.ProjectDir(t)
 
-	_, err := operations.AddTaskWithTags(taskContext(), "here's task", "", "", nil)
+	_, err := operations.AddTaskWithTags(mustTaskContext(t), "here's task", "", "", nil)
 	require.NoError(t, err)
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Format: clifmt.FormatText})
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "here's task")
@@ -104,13 +115,13 @@ func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
 	taskstest.ProjectDir(t)
 
-	_, err := operations.AddTaskWithTags(taskContext(), "here's task", "", "", nil)
+	_, err := operations.AddTaskWithTags(mustTaskContext(t), "here's task", "", "", nil)
 	require.NoError(t, err)
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "elsewhere"}, "elsewhere's task", "", "")
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Global: true, Format: clifmt.FormatText})
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Global: true, Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "Projects: 2 (--global)")
@@ -134,7 +145,7 @@ func TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Format: clifmt.FormatText})
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stderr.String(), "no project detected", "the fallback must be explained, not silent")

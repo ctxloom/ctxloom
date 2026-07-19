@@ -66,7 +66,9 @@ func resolveListScope(explicit bool, pinnedProjectID, workDir string) (listScope
 	if pinnedProjectID != "" {
 		return listScope{}, nil
 	}
-	if _, found := workdir.ResolveBoundary(); found {
+	if _, found, err := workdir.ResolveBoundary(); err != nil {
+		return listScope{}, err
+	} else if found {
 		return listScope{}, nil
 	}
 	established, err := isEstablishedProject(workDir)

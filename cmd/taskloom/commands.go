@@ -81,7 +81,11 @@ tags in use (with counts) via "taskloom tags".`,
 		if err != nil {
 			return err
 		}
-		return runListCmd(cmd.OutOrStdout(), os.Stderr, taskContext(), listOptions{
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		return runListCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{
 			Statuses: tasksListStatuses,
 			Term:     tasksListTerm,
 			TagQuery: tasksListTagQuery,
@@ -248,7 +252,11 @@ var addCmd = &cobra.Command{
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		res, err := operations.AddTaskWithTags(taskContext(), text, tasksAddStatus, tasksAddTrigger, tasksAddTags)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.AddTaskWithTags(tc, text, tasksAddStatus, tasksAddTrigger, tasksAddTags)
 		if err != nil {
 			return err
 		}
@@ -275,7 +283,11 @@ task then hides from the default list until the trigger fires. A task already
 carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1], tasksStatusTrigger)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.SetTaskStatus(tc, args[0], args[1], tasksStatusTrigger)
 		if err != nil {
 			return err
 		}
@@ -300,7 +312,11 @@ status and any Deferred trigger are left unchanged.`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args[1:], " ")
-		res, err := operations.EditTask(taskContext(), args[0], text)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.EditTask(tc, args[0], text)
 		if err != nil {
 			return err
 		}
@@ -336,7 +352,11 @@ tags already in use with "taskloom tags"; filter tasks by tag with
 		if len(tasksTagAdd) == 0 && len(tasksTagRemove) == 0 {
 			return fmt.Errorf("nothing to do: pass --add <tag> and/or --remove <tag>")
 		}
-		res, err := operations.TagTask(taskContext(), args[0], tasksTagAdd, tasksTagRemove)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.TagTask(tc, args[0], tasksTagAdd, tasksTagRemove)
 		if err != nil {
 			return err
 		}
@@ -367,7 +387,11 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
   taskloom tags --json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.ListTagCounts(taskContext())
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.ListTagCounts(tc)
 		if err != nil {
 			return err
 		}
@@ -403,7 +427,11 @@ var summaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.ListTasks(taskContext(), nil, "", false, true)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.ListTasks(tc, nil, "", false, true)
 		if err != nil {
 			return err
 		}

@@ -43,6 +43,19 @@ var engineMatrixLeaves = map[string][]string{
 	"ctxloom manage config init": {"claude-code", "codex", "kiro", "antigravity"},
 }
 
+// strictRunLeaves are ordinary (visible, non-engine-matrix) leaves promoted
+// from the substring containsLeafPath check to the stricter ranAsCommand
+// ("I run") check because the command string ALSO appears as inert prose
+// elsewhere in the corpus: `ctxloom doctor` is quoted inside the
+// "ctxloom-doctor" Agent Skill body in steps_j10_doctor.go, so a bare
+// substring match would credit that vacuous mention as coverage and let the
+// gate stay green even after the real coverer (doctor.feature) is gone. Listed
+// here so only a genuine `I run "<leaf>"` invocation counts — the same
+// hardening already applied to the hidden and engine-matrix leaves.
+var strictRunLeaves = []string{
+	"ctxloom doctor",
+}
+
 // ranAsCommand reports whether path was actually invoked by a scenario (a
 // genuine "When/And I run "<path>..."" step), as opposed to merely
 // appearing as a substring somewhere in the corpus — e.g. quoted inside an
@@ -310,6 +323,12 @@ func TestCompleteness(t *testing.T) {
 				continue
 			}
 			if slices.Contains(requiredHiddenLeaves, path) {
+				if !ranAsCommand(corpus, path) {
+					uncovered = append(uncovered, path)
+				}
+				continue
+			}
+			if slices.Contains(strictRunLeaves, path) {
 				if !ranAsCommand(corpus, path) {
 					uncovered = append(uncovered, path)
 				}

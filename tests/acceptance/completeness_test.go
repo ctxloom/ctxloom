@@ -205,6 +205,7 @@ var knownUncoveredTools = []string{
 	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
 	"compact_session",
 	"get_previous_session",
+	"list_sessions",
 }
 
 // assertExactUncovered fails t if got (the actual uncovered set, need not be

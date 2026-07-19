@@ -10,13 +10,18 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // loadConfigDir writes a minimal config.yaml under a fresh .ctxloom and loads it,
 // returning the loaded config and the appDir. The write path (SetAgent/
 // RemoveAgent) needs a real on-disk config to round-trip through config.Save.
+// It is real-OS-fs (no config.WithFS), so HOME is isolated first: config.Load
+// now also reads a home-layer config.yaml (D2/D3 layering), and this fixture
+// must never pick up the developer's real ~/.ctxloom.
 func loadConfigDir(t *testing.T, body string) (*config.Config, string) {
 	t.Helper()
+	testsupport.Isolate(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0644))

@@ -305,6 +305,51 @@ func TestClash_SkillWinsOverSameNamedCommand(t *testing.T) {
 	assert.False(t, exists, "skills cleanup removes the file it owns")
 }
 
+// TestClash_SkillWinsWarnsOperator proves the OTHER half of the D6 resolution:
+// besides winning the file, a genuine command+enabled-skill collision must
+// LOUDLY tell the operator the command was dropped (agent.Warn → stderr). This
+// guards the warning path itself — previously only the file-wins outcome was
+// unit-tested, so a regression that silently stopped emitting the warning (e.g.
+// a builtin command disappearing, or the claim check skewing) could slip
+// through green. Driven through the real kiro NewSurfaces routing so the whole
+// chain (NewSkillShapedCommandsAndSkills → FilterCommandsClaimedBySkills →
+// Warn) is exercised, not just the shared helper in isolation.
+func TestClash_SkillWinsWarnsOperator(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "gamma", Content: "COMMAND VERSION", Enabled: true}},
+		Skills:   []agent.SkillExport{sampleSkill("gamma", "SKILL VERSION")},
+	}
+
+	// NewSurfaces filters commands through FilterCommandsClaimedBySkills, which
+	// emits the warn when it drops a claimed command; capture stderr around it.
+	out := captureStderr(t, func() { NewSurfaces(in, fs) })
+
+	assert.Contains(t, out, `skill "gamma" wins over command of the same name`,
+		"a genuine collision must warn the operator the command was dropped")
+	assert.Contains(t, out, "kiro", "the warning must name the engine")
+	assert.Contains(t, out, "SKILL.md", "the warning must name the path the command was not written to")
+}
+
+// TestClash_NoCollisionDoesNotWarn is the negative guard: a skill whose name
+// matches NO command claims nothing, so no operator warning is emitted (the
+// skill still writes its own file — proven elsewhere). This pins the exact
+// regression that broke skill.feature's kiro scenario when the /recover builtin
+// command was removed: with no command of the skill's name in the export set,
+// there is nothing to warn about.
+func TestClash_NoCollisionDoesNotWarn(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	in := agent.SurfaceInputs{
+		Commands: []agent.CommandExport{{Name: "review", Content: "Review the diff", Enabled: true}},
+		Skills:   []agent.SkillExport{sampleSkill("gamma", "SKILL VERSION")},
+	}
+
+	out := captureStderr(t, func() { NewSurfaces(in, fs) })
+
+	assert.NotContains(t, out, "wins over command of the same name",
+		"no name collision means no skill-wins warning")
+}
+
 // TestClash_DisabledSkillDoesNotShadowCommand proves the collision rule is
 // scoped to skills ENABLED for kiro: a skill named "delta" disabled for this
 // engine must not claim the name, so the command "delta" still writes its

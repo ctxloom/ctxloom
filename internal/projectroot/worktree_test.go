@@ -2,13 +2,14 @@ package projectroot
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 func TestParseGitdirPointer(t *testing.T) {
@@ -84,7 +85,7 @@ func TestDetectWorktree(t *testing.T) {
 	})
 
 	t.Run("real_linked_worktree_resolves_the_main_root", func(t *testing.T) {
-		main, linked := realGitWorktreeFixture(t)
+		main, linked := taskstest.RealGitWorktreeFixture(t)
 		info, err := DetectWorktree(afero.NewOsFs(), linked)
 		require.NoError(t, err)
 		assert.True(t, info.Linked)
@@ -93,14 +94,14 @@ func TestDetectWorktree(t *testing.T) {
 	})
 
 	t.Run("real_main_worktree_is_not_linked", func(t *testing.T) {
-		main, _ := realGitWorktreeFixture(t)
+		main, _ := taskstest.RealGitWorktreeFixture(t)
 		info, err := DetectWorktree(afero.NewOsFs(), main)
 		require.NoError(t, err)
 		assert.False(t, info.Linked, "the main worktree's .git is a directory, not a linked pointer")
 	})
 
 	t.Run("stale_gitdir_pointer_reports_main_root_missing", func(t *testing.T) {
-		main, linked := realGitWorktreeFixture(t)
+		main, linked := taskstest.RealGitWorktreeFixture(t)
 		require.NoError(t, os.RemoveAll(main))
 		info, err := DetectWorktree(afero.NewOsFs(), linked)
 		require.NoError(t, err)
@@ -108,41 +109,4 @@ func TestDetectWorktree(t *testing.T) {
 		assert.Equal(t, main, info.MainRoot)
 		assert.False(t, info.MainRootExists, "the main worktree was deleted out from under the pointer")
 	})
-}
-
-// realGitWorktreeFixture creates a real git repo (main, with one commit) and a
-// LINKED worktree of it (linked) via `git worktree add`, each under its own
-// fresh t.TempDir(). Skips the test if git isn't on PATH. Returns both roots
-// as absolute, symlink-resolved paths so they compare equal to whatever git
-// itself resolved into the gitdir pointer.
-func realGitWorktreeFixture(t *testing.T) (main, linked string) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-
-	mainDir := t.TempDir()
-	runGit(t, mainDir, "init", "-q")
-	runGit(t, mainDir, "config", "user.email", "test@example.com")
-	runGit(t, mainDir, "config", "user.name", "Test")
-	require.NoError(t, os.WriteFile(filepath.Join(mainDir, "f.txt"), []byte("x"), 0o644))
-	runGit(t, mainDir, "add", "f.txt")
-	runGit(t, mainDir, "commit", "-q", "-m", "init")
-
-	linkedDir := filepath.Join(t.TempDir(), "linked-wt")
-	runGit(t, mainDir, "worktree", "add", "-q", "-b", "wt-branch", linkedDir)
-
-	main, err := filepath.EvalSymlinks(mainDir)
-	require.NoError(t, err)
-	linked, err = filepath.EvalSymlinks(linkedDir)
-	require.NoError(t, err)
-	return main, linked
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
 }

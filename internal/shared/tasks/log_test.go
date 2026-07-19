@@ -416,15 +416,25 @@ func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 	}
 	s, _ := OpenLog(path, "")
 
-	got, _ := s.List(nil, "")
-	if len(got) != 1 || got[0].Text != "first writer" {
-		t.Fatalf("pre-repair want only first writer, got %+v", got)
+	// Pre-repair: this is exactly the real-collision case Part 2 targets
+	// (two different tasks minted the same harp), so a read must fail loud
+	// rather than silently surface only the survivor.
+	if got, err := s.List(nil, ""); err == nil {
+		t.Fatalf("expected a loud error for the unresolved harp collision, got tasks: %+v", got)
+	} else {
+		msg := err.Error()
+		if !strings.Contains(msg, "alpha") || !strings.Contains(msg, "first writer") || !strings.Contains(msg, "displaced writer") {
+			t.Fatalf("collision error missing harp/texts: %q", msg)
+		}
 	}
 
 	if err := s.Repair(); err != nil {
 		t.Fatalf("repair: %v", err)
 	}
-	got, _ = s.List(nil, "")
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("post-repair list: %v", err)
+	}
 	if len(got) != 2 {
 		t.Fatalf("post-repair want 2 tasks, got %d: %+v", len(got), got)
 	}
@@ -436,11 +446,15 @@ func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 		t.Fatalf("displaced task not re-introduced: %v", texts)
 	}
 
-	// Idempotent: a second repair must not duplicate again.
+	// Idempotent: a second repair must not duplicate again, and the read
+	// must stay clean (the resolved anomaly must not keep failing loud).
 	if err := s.Repair(); err != nil {
 		t.Fatalf("repair2: %v", err)
 	}
-	got, _ = s.List(nil, "")
+	got, err = s.List(nil, "")
+	if err != nil {
+		t.Fatalf("post-repair2 list: %v", err)
+	}
 	if len(got) != 2 {
 		t.Fatalf("repair not idempotent, got %d tasks", len(got))
 	}

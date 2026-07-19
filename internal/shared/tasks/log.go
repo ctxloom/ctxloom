@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -79,12 +80,50 @@ func newFolded() *folded {
 	}
 }
 
+// parsedEvent pairs a decoded event with the 1-based line number it came
+// from, so an apply-time error can still name the original file location
+// after events have been reordered for replay.
+type parsedEvent struct {
+	ev     Event
+	lineNo int
+}
+
 // fold replays the log into current state. The log is the sole record of a
 // project's outstanding work (ADR 0025): per CLAUDE.md's fail-loud philosophy,
 // a reader must never silently drop a record, because a silently dropped task
 // is exactly the lost-deferral failure the task system exists to prevent. So a
 // malformed line, or an event this reader can't interpret, fails the whole
 // fold — no partial view is ever returned.
+//
+// The log is checked into git with a `merge=union` driver (ADR 0025 follow-
+// on): a union merge concatenates both sides of a conflicting hunk — ours
+// then theirs — with no conflict markers and no dedup. That breaks two
+// assumptions a naive line-by-line fold would make, so this method fixes
+// both:
+//
+//  1. File order is no longer a valid proxy for happens-before. Events are
+//     buffered and replayed in `ts` order (stable sort, so equal timestamps
+//     keep their original file-order relative position) instead of raw file
+//     order. KNOWN LIMIT: ts is wall-clock from whichever machine wrote the
+//     record, so cross-machine clock skew can still mis-order concurrent
+//     events. That is bounded by the skew between the machines involved —
+//     strictly better than "whatever git happened to concatenate," but not
+//     a substitute for a real logical clock. Written down here rather than
+//     left implicit, per this project's workaround-discipline norm.
+//  2. A union merge does not deduplicate, so a byte-identical line can
+//     appear twice (both branches wrote the exact same record). Each raw
+//     line is hashed as it's read; an exact repeat is skipped before it
+//     ever reaches apply() — most importantly for a duplicate `add`, which
+//     would otherwise register as a harp collision (see apply's identity
+//     guard) even though it is a harmless merge artifact, not a real
+//     collision.
+//
+// A REAL identity collision — two different tasks independently minted the
+// same harp on separate branches — is a distinct problem this fold does not
+// and cannot silently fix (global uniqueness isn't derivable from two
+// partitioned writers' local state). apply() still records it as an anomaly;
+// callers that need current live state (snapshot, deferredSince) surface it
+// as a loud, actionable error instead of silently dropping the second task.
 // Holds no lock — callers serialize as needed.
 func (l *eventLog) fold() (*folded, error) {
 	f := newFolded()
@@ -96,18 +135,36 @@ func (l *eventLog) fold() (*folded, error) {
 		return nil, err
 	}
 	lineNo := 0
+	seenLines := map[string]struct{}{}
+	parsed := make([]parsedEvent, 0)
 	for line := range strings.SplitSeq(string(data), "\n") {
 		lineNo++
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+		// Union-merge dedup: a byte-identical line appearing twice is a
+		// merge artifact, not a new event — skip it before it's even
+		// parsed, so it can never register as a duplicate-add anomaly.
+		if _, dup := seenLines[line]; dup {
+			continue
+		}
+		seenLines[line] = struct{}{}
 		var ev Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			return nil, fmt.Errorf("%s:%d: malformed task event: %w — inspect/repair the line, or move the file aside and re-add tasks", l.path, lineNo, err)
 		}
-		if err := f.apply(ev); err != nil {
-			return nil, fmt.Errorf("%s:%d: %w", l.path, lineNo, err)
+		parsed = append(parsed, parsedEvent{ev: ev, lineNo: lineNo})
+	}
+	// Chronological replay: stable sort by ts. A stable sort preserves the
+	// original (file) order for equal timestamps, which is the documented
+	// tiebreak.
+	sort.SliceStable(parsed, func(i, j int) bool {
+		return parsed[i].ev.Ts.Before(parsed[j].ev.Ts)
+	})
+	for _, p := range parsed {
+		if err := f.apply(p.ev); err != nil {
+			return nil, fmt.Errorf("%s:%d: %w", l.path, p.lineNo, err)
 		}
 	}
 	return f, nil
@@ -127,8 +184,18 @@ func (f *folded) apply(ev Event) error {
 		}
 		if _, taken := f.issued[ev.Task]; taken {
 			// Identity already used — a displaced duplicate (concurrent-mint
-			// race, or the post-100-draw fallback). The first writer keeps the
-			// harp; repair re-adds this content under a fresh one.
+			// race, the post-100-draw fallback, or two branches that each
+			// independently minted this harp, later union-merged). Byte-
+			// identical duplicate lines never reach here — fold() dedupes
+			// those before apply() runs. So an event that DOES land here is
+			// a real collision: two different tasks claiming one identity.
+			// The first writer keeps the harp; this content is recorded as
+			// an anomaly rather than silently dropped or auto-repaired
+			// (reassigning a harp would break every reference to it).
+			// snapshot()/deferredSince() surface unresolved anomalies as a
+			// loud, actionable error (anomalyError) rather than letting the
+			// second task vanish with a clean exit code; a human runs
+			// Store.Repair() to re-add it under a fresh harp.
 			f.anomalies = append(f.anomalies, ev)
 			return nil
 		}
@@ -196,6 +263,40 @@ func (f *folded) taskList() []Task {
 		}
 	}
 	return out
+}
+
+// anomalyError returns a loud, actionable error if this fold contains any
+// UNRESOLVED harp collision — an `add` for a harp already claimed by a
+// different task (see apply's identity guard). "Unresolved" excludes
+// collisions a completed Store.Repair() has already re-added under a fresh
+// harp (tracked via RepairOf/anomalyKey): those are done, and must not keep
+// failing every read forever after being fixed.
+//
+// This is deliberately NOT called from fold() or repair() itself — repair()
+// needs the raw anomaly list to do its job, so it calls fold() directly and
+// bypasses this check. It IS called from the read paths (snapshot,
+// deferredSince) that a human or the CLI actually consults for current
+// state: those must fail loud rather than silently return a view with a
+// task missing and another corrupted.
+func (f *folded) anomalyError(path string) error {
+	var unresolved []Event
+	for _, a := range f.anomalies {
+		if _, done := f.repaired[anomalyKey(a)]; !done {
+			unresolved = append(unresolved, a)
+		}
+	}
+	if len(unresolved) == 0 {
+		return nil
+	}
+	descs := make([]string, 0, len(unresolved))
+	for _, a := range unresolved {
+		kept := "(no current task — since removed)"
+		if t := f.byID[a.Task]; t != nil {
+			kept = fmt.Sprintf("kept task text %q", t.Text)
+		}
+		descs = append(descs, fmt.Sprintf("harp %q: %s, displaced task text %q (session %q)", a.Task, kept, a.Text, a.Session))
+	}
+	return fmt.Errorf("%s: unresolved harp collision(s) — two different tasks were independently minted with the same harp id (most likely two branches, each correct against what it could see, later union-merged); the displaced task is NOT lost but is excluded from this view, and every event addressed to its harp is silently applying to the OTHER task instead. This cannot be auto-repaired (reassigning a harp would break every plan file and cross-reference pointing at it) — inspect and run Store.Repair() to re-add the displaced task(s) under a fresh harp: %s", path, strings.Join(descs, "; "))
 }
 
 // append writes one event as a single JSON line under O_APPEND. The caller
@@ -450,6 +551,9 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := f.anomalyError(l.path); err != nil {
+		return nil, err
+	}
 	return f.taskList(), nil
 }
 
@@ -465,6 +569,9 @@ func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	}
 	f, err := l.fold()
 	if err != nil {
+		return nil, err
+	}
+	if err := f.anomalyError(l.path); err != nil {
 		return nil, err
 	}
 	out := make(map[string]time.Time, len(f.deferredSince))

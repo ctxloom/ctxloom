@@ -790,7 +790,15 @@ Examples:
 		// Resolve the project's stable identity (ADR 0025) and export it into the
 		// session env. Fault-tolerant — any failure warns and leaves
 		// CTXLOOM_PROJECT_ID unset; the task store degrades rather than blocking.
-		if pid, warning, err := taskops.ResolveProjectIdentity(workDir); err != nil {
+		//
+		// taskStoreWorkDir redirects a linked git worktree with no .ctxloom of
+		// its own to its primary checkout FIRST: the session/coordinator
+		// identity workDir itself names stays worktree-distinct (unchanged,
+		// see coord_host.go), but the task store an agent files findings into
+		// is deliberately shared with the primary checkout so a task filed
+		// from an ephemeral worktree reaches whoever is actually watching —
+		// "tasks aren't context" (see internal/projectroot.TaskStoreRoot).
+		if pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(workDir)); err != nil {
 			clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		} else {
 			runEnv["CTXLOOM_PROJECT_ID"] = pid

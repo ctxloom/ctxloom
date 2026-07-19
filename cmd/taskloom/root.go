@@ -93,6 +93,32 @@ func warnTask(warning string) {
 	}
 }
 
+// summaryWidth caps the task text shown in the default human `list` so entries
+// stay scannable instead of running together into a wall; `--full` prints the
+// whole text.
+const summaryWidth = 80
+
+// summarize collapses s to its first line, capped to width runes with a
+// trailing ellipsis when truncated. Multi-line or long task text becomes a
+// single scannable line; the machine-readable views (--json / --format) keep
+// the full text.
+func summarize(s string, width int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimRight(s, " ")
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	return strings.TrimRight(string(r[:width]), " ") + "…"
+}
+
+// renderTaskTable prints the human `list` view: one entry per task, blank-line
+// separated so adjacent tasks are easy to tell apart, each a scannable one-line
+// summary. The harp id is never truncated (it's a copy-paste identifier); the
+// text is summarized — a task's full text is `taskloom show <harp>` (or the
+// machine-readable --format json).
 func renderTaskTable(out io.Writer, list []tasks.Task) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
@@ -100,20 +126,24 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		return w.Err()
 	}
 	// Pad the harp-id column to the widest id in this list so the columns line
-	// up regardless of id length (ids are never truncated — they're copy-paste
-	// identifiers). The machine-readable view is --json; this table is for eyes.
+	// up regardless of id length.
 	idWidth := 0
 	for _, t := range list {
 		if len(t.HarpID) > idWidth {
 			idWidth = len(t.HarpID)
 		}
 	}
-	for _, t := range list {
+	for i, t := range list {
+		if i > 0 {
+			// Blank line between entries so a long list reads as distinct
+			// tasks rather than one undifferentiated block.
+			w.Println("")
+		}
 		check := " "
 		if t.Checked {
 			check = "x"
 		}
-		text := t.Text
+		text := summarize(t.Text, summaryWidth)
 		if t.Trigger != "" {
 			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
 		}

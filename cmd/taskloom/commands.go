@@ -81,8 +81,14 @@ tags in use (with counts) via "taskloom tags".`,
 		if err != nil {
 			return err
 		}
-		return runListCmd(cmd.OutOrStdout(), os.Stderr, taskContext(),
-			tasksListStatuses, tasksListTerm, tasksListTagQuery, tasksListAll, tasksListGlobal, format)
+		return runListCmd(cmd.OutOrStdout(), os.Stderr, taskContext(), listOptions{
+			Statuses: tasksListStatuses,
+			Term:     tasksListTerm,
+			TagQuery: tasksListTagQuery,
+			All:      tasksListAll,
+			Global:   tasksListGlobal,
+			Format:   format,
+		})
 	},
 }
 
@@ -92,23 +98,36 @@ tags in use (with counts) via "taskloom tags".`,
 // / stderr-carries-diagnostics split. text renders the human table(s); any
 // other format hands the raw rows to clifmt so the same data serializes to
 // json/yaml/toml/markdown without a per-format branch here.
-func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []string, term, tagQuery string, all, global bool, format clifmt.Format) error {
-	scope, err := resolveListScope(global, tc.ProjectID, tc.WorkDir)
+// listOptions bundles the resolved inputs for `taskloom list`. It replaces a
+// long positional parameter list — several same-typed bools in a row are easy
+// to transpose at a call site, and a named field says what each one means.
+type listOptions struct {
+	Statuses []string
+	Term     string
+	TagQuery string
+	All      bool // include the default-hidden tasks: Done/Archived and Deferred
+	Global   bool // aggregate across every project, not just the resolved one
+	Format   clifmt.Format
+}
+
+func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
+	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
 	if err != nil {
 		return err
 	}
+	filtered := opts.Term != "" || opts.TagQuery != ""
 
 	if scope.Global {
 		if scope.Notice != "" {
 			clidiag.Fwarn(errw, "taskloom", "%s", scope.Notice)
 		}
-		gres, err := listAllProjects(statuses, term, tagQuery, all, tc.SessionHarp)
+		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, tc.SessionHarp)
 		if err != nil {
 			return wrapTagQueryError(err)
 		}
-		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, term != "" || tagQuery != "")
-		if format != clifmt.FormatText {
-			return clifmt.Render(out, gres.Rows, format)
+		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, filtered)
+		if opts.Format != clifmt.FormatText {
+			return clifmt.Render(out, gres.Rows, opts.Format)
 		}
 		w := iox.NewErrWriter(out)
 		w.Printf("Projects: %d (--global)\n\n", gres.ProjectCount)
@@ -118,14 +137,14 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, statuses []strin
 		return renderGlobalTaskTable(out, gres.Rows)
 	}
 
-	res, err := operations.ListTasksWithTagQuery(tc, statuses, term, tagQuery, all, false)
+	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.All, false)
 	if err != nil {
 		return wrapTagQueryError(err)
 	}
 	warnTask(res.Warning)
-	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, term != "" || tagQuery != "")
-	if format != clifmt.FormatText {
-		return clifmt.Render(out, res.Tasks, format)
+	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, filtered)
+	if opts.Format != clifmt.FormatText {
+		return clifmt.Render(out, res.Tasks, opts.Format)
 	}
 	// Name the resolved store: in multi-root workspaces (several .ctxloom
 	// trees under one repo), which project a listing came from is the

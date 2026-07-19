@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -88,7 +89,7 @@ func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, clifmt.FormatText)
+	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "here's task")
@@ -109,7 +110,7 @@ func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, true, clifmt.FormatText)
+	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Global: true, Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), "Projects: 2 (--global)")
@@ -133,7 +134,7 @@ func TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, taskContext(), nil, "", "", false, false, clifmt.FormatText)
+	err = runListCmd(&stdout, &stderr, taskContext(), listOptions{Format: clifmt.FormatText})
 	require.NoError(t, err)
 
 	assert.Contains(t, stderr.String(), "no project detected", "the fallback must be explained, not silent")
@@ -151,9 +152,51 @@ func TestRunListCmd_JSONOutputTagsEachRowWithItsProject(t *testing.T) {
 	require.NoError(t, err)
 
 	var stdout, stderr strings.Builder
-	err = runListCmd(&stdout, &stderr, operations.TaskContext{}, nil, "", "", false, true, clifmt.FormatJSON)
+	err = runListCmd(&stdout, &stderr, operations.TaskContext{}, listOptions{Global: true, Format: clifmt.FormatJSON})
 	require.NoError(t, err)
 
 	assert.Contains(t, stdout.String(), `"project_id": "proj-a"`)
 	assert.Contains(t, stdout.String(), `"text": "a's task"`)
+}
+
+// TestRenderTaskTable_SummarizesAndSeparates pins the human `list` view: entries
+// are blank-line separated so they don't run together into a wall, and long
+// text collapses to a one-line summary by default while full restores it.
+func TestRenderTaskTable_SummarizesAndSeparates(t *testing.T) {
+	long := strings.Repeat("x", 200)
+	list := []tasks.Task{
+		{HarpID: "aaa-bbb", Status: "To Do", Text: long},
+		{HarpID: "ccc-ddd", Status: "Done", Checked: true, Text: "short"},
+	}
+
+	var b strings.Builder
+	require.NoError(t, renderTaskTable(&b, list))
+	out := b.String()
+	assert.Contains(t, out, "\n\n", "entries must be separated by a blank line, not run together")
+	assert.NotContains(t, out, long, "the list view summarizes rather than printing full text")
+	assert.Contains(t, out, "…", "a truncated summary ends with an ellipsis")
+}
+
+// TestRenderTaskDetail_ShowsFullTextAndMetadata pins `taskloom show`: it prints
+// the complete (untruncated) text plus status, tags, and trigger — the detail
+// the summarized list view leaves out.
+func TestRenderTaskDetail_ShowsFullTextAndMetadata(t *testing.T) {
+	long := strings.Repeat("y", 200)
+	task := tasks.Task{
+		HarpID:  "aaa-bbb",
+		Status:  "Deferred",
+		Text:    long,
+		Tags:    []string{"alpha", "beta"},
+		Trigger: "the v2 API ships",
+	}
+
+	var b strings.Builder
+	require.NoError(t, renderTaskDetail(&b, task))
+	out := b.String()
+	assert.Contains(t, out, long, "show prints the complete text, untruncated")
+	assert.NotContains(t, out, "…", "show never summarizes")
+	assert.Contains(t, out, "aaa-bbb")
+	assert.Contains(t, out, "Deferred")
+	assert.Contains(t, out, "tags: alpha, beta")
+	assert.Contains(t, out, "trigger: the v2 API ships")
 }

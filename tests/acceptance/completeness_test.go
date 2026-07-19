@@ -133,6 +133,38 @@ var knownUncoveredCLI = []string{
 	"ctxloom hook session-bind",
 	"ctxloom hook stamp-plan",
 	"ctxloom hook hud",
+	// Post-reorg coverage debt. The noun-verb CLI reorg (2710ff0) added
+	// canonical `trust …`, `mcp …`, `config …`, `container tooling`, `bundle
+	// sign`, and `init prompt` leaves ALONGSIDE the retained legacy aliases
+	// (`signer …`, `manage config …`, `tooling`, `sign` — still present and
+	// still exercised by the corpus under their old names), and the writer-a
+	// session work added `session backfill`/`session query` plus the `acp …`
+	// surface. The acceptance corpus still drives the legacy spellings, so
+	// these new leaves are genuinely uncovered. Allowlisted pending real
+	// acceptance coverage; tracked as one backfill task.
+	"ctxloom trust accept",
+	"ctxloom trust reject",
+	"ctxloom trust signer add",
+	"ctxloom trust signer list",
+	"ctxloom trust signer remove",
+	"ctxloom trust signer show",
+	"ctxloom mcp register",
+	"ctxloom mcp unregister",
+	"ctxloom mcp server add",
+	"ctxloom mcp server list",
+	"ctxloom mcp server remove",
+	"ctxloom mcp server show",
+	"ctxloom config get",
+	"ctxloom config init",
+	"ctxloom config show",
+	"ctxloom container tooling",
+	"ctxloom bundle sign",
+	"ctxloom init prompt",
+	"ctxloom session backfill",
+	"ctxloom session query",
+	"ctxloom acp client",
+	"ctxloom acp entries",
+	"ctxloom acp server",
 	// Engine-matrix variants: only the claude-code path is exercised;
 	// codex/kiro/antigravity need their own fixtures. Backfill: task glad-skid.
 	"ctxloom manage install --engine codex",
@@ -160,9 +192,6 @@ var knownUncoveredTools = []string{
 	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
 	"compact_session",
 	"get_previous_session",
-	// list_sessions (the harp-picker menu) is new and has no BDD scenario yet.
-	// Backfill: task spry-niece.
-	"list_sessions",
 }
 
 // assertExactUncovered fails t if got (the actual uncovered set, need not be
@@ -205,6 +234,7 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) {
 // silent (see plan §7.5 / "no silent caps").
 var excludedLeaves = map[string]string{
 	"ctxloom manage config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
+	"ctxloom config edit":        "noun-verb alias of `manage config edit`; opens $EDITOR on config.yaml, TTY-only, no hermetic fixture",
 	"ctxloom mcp serve":          "the MCP server itself; exercised by every @mcp scenario",
 	"ctxloom llm serve":          "internal gRPC plugin server",
 	"ctxloom remote discover":    "network discovery search; no deterministic fixture (excluded)",

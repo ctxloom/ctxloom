@@ -30,7 +30,12 @@ var (
 // building it here, on demand, is the harness-side fix for that gap.
 func TaskloomBinary() (string, error) {
 	taskloomBuildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "taskloom-bin-*")
+		// Build the output binary under GOTMPDIR when set, not the default
+		// system temp. On hosts where /tmp is a small tmpfs, the linker's mmap
+		// of the ~30MB output file ENOSPCs under the suite's parallel builds;
+		// GOTMPDIR (which `go build` also honors for its own intermediates)
+		// points at a disk-backed dir. Empty GOTMPDIR falls back to os.TempDir.
+		dir, err := os.MkdirTemp(os.Getenv("GOTMPDIR"), "taskloom-bin-*")
 		if err != nil {
 			taskloomBuildErr = err
 			return

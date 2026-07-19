@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -133,6 +134,30 @@ llm:
 	assert.Equal(t, "secret", entry.Body["env"].(map[string]any)["GEMINI_API_KEY"],
 		"GEMINI_API_KEY must survive the full load with its exact casing -- viper must never have touched this map")
 	assert.Equal(t, "alpha", cfg.DefaultAgent)
+}
+
+// TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag exercises
+// internal/cli/root.go's PersistentPreRun hook end to end: it must read both
+// an env override and a changed flag and install them process-wide, ready to
+// be resolved by the very next Load.
+func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
+	testsupport.Isolate(t)
+	t.Setenv("CTXLOOM_CONFIG_DEFAULT_AGENT", "from-env")
+
+	appDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "sub"), 0o755))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\n"), 0o644))
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("default-agent", "", "")
+	require.NoError(t, fs.Set("default-agent", "from-flag"))
+
+	require.NoError(t, InstallOverridesFromFlags(fs))
+	t.Cleanup(ResetOverrides)
+
+	cfg, err := Load(WithAppDir(appDir))
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", cfg.DefaultAgent, "cli flag must beat env, both installed via InstallOverridesFromFlags")
 }
 
 // layerValues is a small test helper wrapping a flat override map into the

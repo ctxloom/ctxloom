@@ -95,6 +95,19 @@ var rootCmd = &cobra.Command{
 		if cmd.Root().PersistentFlags().Changed("no-companions") {
 			config.SetCompanionsDisabled(noCompanionsFlag)
 		}
+		// Capture the env/CLI config-override chain (CTXLOOM_CONFIG_* vars,
+		// plus any flag this INVOKED command changed) exactly ONCE per process,
+		// right here — cmd.Flags() is the invoked command's fully-parsed flag
+		// set (its own local flags plus every inherited persistent flag) at the
+		// earliest point every subcommand passes through. Every config.Load
+		// from here on resolves it via the funnel (see loadUncached); a bind
+		// failure degrades to a warning rather than aborting startup, matching
+		// this codebase's fault-tolerance convention (an ambiguous individual
+		// override is caught and warned about later, per-Load, once there is a
+		// config base to resolve it against).
+		if err := config.InstallOverridesFromFlags(cmd.Flags()); err != nil {
+			clidiag.Warn("ctxloom", "config overrides: %v", err)
+		}
 		// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 		// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 		// text/markdown or an unresolvable value — an invalid --format is

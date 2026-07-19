@@ -39,6 +39,8 @@ func GenConfig(schemaPath, dir string) error {
 	c.b.WriteString("`.ctxloom/config.yaml`). The canonical machine-readable form is the JSON ")
 	c.b.WriteString("Schema at `resources/schema/input/config-schema.json`.\n\n")
 
+	c.b.WriteString(overrideChainSection(objectMap(root["properties"])))
+
 	// Top-level fields (root has description on the schema itself; suppress it
 	// here since the intro above already covers it).
 	c.renderNode(2, "Top-Level Fields", "", root)
@@ -274,6 +276,60 @@ func branchTitle(br map[string]any, i int) string {
 	}
 	return fmt.Sprintf("option %d", i+1)
 }
+
+// overrideChainSection renders the cross-cutting "how to override any of
+// this" explanation: the full precedence chain
+// (internal/shared/confload/internal/shared/layerconfig implement it) and
+// the CTXLOOM_CONFIG_ env-var / CLI-flag naming convention. This can't be
+// attached to any single schema property — it applies to EVERY field alike —
+// so it lives here as fixed prose rather than per-field description text,
+// with one concrete example derived from the schema itself (the first
+// scalar top-level property, alphabetically) so the convention reads as
+// real, not hypothetical.
+func overrideChainSection(topProps map[string]any) string {
+	var b strings.Builder
+	b.WriteString("## Overriding From The Environment Or A CLI Flag\n\n")
+	b.WriteString("Every field on this page can also be set without editing a config file, in ")
+	b.WriteString("ascending precedence: the home config file, then the project config file, ")
+	b.WriteString("then an environment variable, then a matching CLI flag — the last one that ")
+	b.WriteString("sets a given key wins.\n\n")
+	b.WriteString("An environment variable override starts with `CTXLOOM_CONFIG_`, followed by ")
+	b.WriteString("the field's dotted path with each segment upper-cased and joined by `_` ")
+	b.WriteString("(e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). ")
+	b.WriteString("A CLI flag matches the same path with segments lower-cased and joined by `-` or `.` ")
+	b.WriteString("(`--agents.mycoder.runtime`), on whichever command declares it. Both are matched ")
+	b.WriteString("case-insensitively against whatever your config file actually has, adopting its casing.\n\n")
+
+	if name, ok := pickScalarExampleField(topProps); ok {
+		fmt.Fprintf(&b, "For example, `%s` can be set via `CTXLOOM_CONFIG_%s=<value>` or `--%s=<value>`.\n\n",
+			name, envSegment(name), flagSegment(name))
+	}
+	return b.String()
+}
+
+// pickScalarExampleField returns the alphabetically-first top-level property
+// whose type is a plain scalar (string/boolean/integer/number) — an object
+// or array-typed field makes a confusing example (its OWN nested fields are
+// what actually gets overridden, not the field itself).
+func pickScalarExampleField(props map[string]any) (string, bool) {
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		switch t, _ := objectMap(props[name])["type"].(string); t {
+		case "string", "boolean", "integer", "number":
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// envSegment/flagSegment render one field-path segment as it would appear in
+// an env var / CLI flag name, per overrideChainSection's doc.
+func envSegment(name string) string  { return strings.ToUpper(name) }
+func flagSegment(name string) string { return strings.ReplaceAll(strings.ToLower(name), "_", "-") }
 
 // --- small schema helpers ---
 

@@ -11,6 +11,14 @@ ctxloom Configuration.
 
 These fields map to `~/.ctxloom/config.yaml` (and the per-project `.ctxloom/config.yaml`). The canonical machine-readable form is the JSON Schema at `resources/schema/input/config-schema.json`.
 
+## Overriding From The Environment Or A CLI Flag
+
+Every field on this page can also be set without editing a config file, in ascending precedence: the home config file, then the project config file, then an environment variable, then a matching CLI flag — the last one that sets a given key wins.
+
+An environment variable override starts with `CTXLOOM_CONFIG_`, followed by the field's dotted path with each segment upper-cased and joined by `_` (e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). A CLI flag matches the same path with segments lower-cased and joined by `-` or `.` (`--agents.mycoder.runtime`), on whichever command declares it. Both are matched case-insensitively against whatever your config file actually has, adopting its casing.
+
+For example, `default_agent` can be set via `CTXLOOM_CONFIG_DEFAULT_AGENT=<value>` or `--default-agent=<value>`.
+
 ## Top-Level Fields
 
 Schema for ctxloom config.yaml files

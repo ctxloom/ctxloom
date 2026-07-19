@@ -39,7 +39,11 @@ without polling or watching the store files itself (the watch plumbing lives in
 the backend, not the client).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		projectID, logPath, err := operations.ResolveLogPath(taskContext())
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		projectID, logPath, err := operations.ResolveLogPath(tc)
 		if err != nil {
 			return err
 		}

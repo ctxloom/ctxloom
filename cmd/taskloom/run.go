@@ -42,7 +42,11 @@ directly. In a non-interactive shell a task harp id is required.`,
 		// (includeDone=true): the picker hides completed tasks by default
 		// itself (filterOpen), so its `a` toggle can reveal them, and a direct
 		// harp-id launch of a Done/Archived task still resolves.
-		res, err := operations.ListTasks(taskContext(), nil, "", true, false)
+		tc, err := taskContext()
+		if err != nil {
+			return err
+		}
+		res, err := operations.ListTasks(tc, nil, "", true, false)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}

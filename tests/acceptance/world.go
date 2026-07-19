@@ -44,6 +44,7 @@ type World struct {
 	j9  *j9State  // J9: the isolation-axes journey's fixture state (steps_j9_isolation.go)
 	j10 *j10State // J10: the Agent Skill materialization journey's fixture state (steps_j10_doctor.go)
 	j11 *j11State // J11: the taskloom tag-surface journey's fixture state (steps_j11_taskloom.go)
+	j16 *j16State // J16: the worktree-task-store redirect journey's fixture state (steps_j16_worktree_task_store.go)
 	ts  *tsState  // trust-surface matrix: fixture state (steps_trust_surface.go)
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
@@ -127,6 +128,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ9Steps(ctx)
 	registerJ10Steps(ctx)
 	registerJ11Steps(ctx)
+	registerJ16Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerSkillSteps(ctx)
 	registerDocCaptureHooks(ctx)

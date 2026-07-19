@@ -271,6 +271,28 @@ func (e *TestEnvironment) InitGitRepo() error {
 	return nil
 }
 
+// AddGitWorktree creates a LINKED git worktree of e.ProjectDir on a fresh
+// branch named name, checked out under e.Root/worktrees/<name>, via a real
+// `git worktree add` (mirroring taskstest.RealGitWorktreeFixture's shape, but
+// through TestEnvironment's own isolated env/dir plumbing so callers land in
+// the same isolated HOME/XDG every other acceptance helper trusts). Requires
+// e.ProjectDir to already be an initialized git repo with at least one commit
+// (InitGitRepo + GitCommit) — `git worktree add -b` needs a valid HEAD to
+// branch from. Returns the new worktree's absolute path.
+func (e *TestEnvironment) AddGitWorktree(name string) (string, error) {
+	dir := filepath.Join(e.Root, "worktrees", name)
+	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
+		return "", fmt.Errorf("create worktrees parent dir: %w", err)
+	}
+	cmd := exec.Command("git", "worktree", "add", "-q", "-b", name, dir)
+	cmd.Dir = e.ProjectDir
+	cmd.Env = e.gitEnv()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("git worktree add %q failed: %s: %w", name, output, err)
+	}
+	return dir, nil
+}
+
 // isolatedEnv returns environment variables with home directory properly
 // isolated and ambient ctxloom session state scrubbed. Replacing HOME alone is
 // not enough: when the suite itself runs inside a ctxloom session, inherited

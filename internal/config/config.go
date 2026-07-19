@@ -296,19 +296,20 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 
 // InstallOverridesFromFlags is the CLI's own hook into the override chain:
 // internal/cli/root.go's PersistentPreRun calls this ONCE, right after cobra
-// has parsed the invoked command's flags, so it sees every fs.Changed flag
-// for THIS invocation. It builds ctxloom's own confload.Product (a fresh
-// schema.ConfigValidator, for KnownPath — schema validation failing here
-// degrades to "no schema knowledge", matching loadUncached's own fault
-// tolerance, never a hard failure), reads env+flag overrides via
-// confload.ReadOverrides, and installs them process-wide via SetOverrides.
+// has parsed the invoked command's flags, so it sees every --set value given
+// on THIS invocation (see confload.SetFlagName's doc for why --set, not the
+// invoked command's flags in general, is the only CLI-layer source). It
+// builds ctxloom's own confload.Product (a fresh schema.ConfigValidator, for
+// KnownPath — schema validation failing here degrades to "no schema
+// knowledge", matching loadUncached's own fault tolerance, never a hard
+// failure), reads env+--set overrides via confload.ReadOverrides, and
+// installs them process-wide via SetOverrides.
 //
-// The returned error is an ambiguous-override report (see
-// confload.Product.ApplyOverrides — actually raised lazily, at each Load,
-// since resolution needs a config base ReadOverrides does not have yet; a
-// bind failure on fs itself is the only error ReadOverrides can raise
-// eagerly here) — callers follow this codebase's fault-tolerance convention
-// and downgrade it to a warning rather than fail startup.
+// The returned error reports a malformed --set entry (missing "=", or an
+// empty path) eagerly, right here — unlike an ambiguous-override collision,
+// which needs a config base ReadOverrides does not have yet and so is only
+// raised later, at each Load. Callers follow this codebase's fault-tolerance
+// convention and downgrade it to a warning rather than fail startup.
 func InstallOverridesFromFlags(fs *pflag.FlagSet) error {
 	validator, err := schema.NewConfigValidator()
 	if err != nil {

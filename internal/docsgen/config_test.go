@@ -36,7 +36,8 @@ func TestGenConfig_DocumentsOverrideMechanism(t *testing.T) {
 
 	assert.Contains(t, doc, "CTXLOOM_CONFIG_", "must name the env-var prefix so a reader can construct one")
 	assert.Contains(t, doc, "DEFAULT_AGENT", "must show the prefix applied to a real field so the convention is concrete, not abstract")
-	assert.Contains(t, doc, "CLI flag", "must name CLI flags as an override source")
-	assert.Regexp(t, `(?i)home.*project.*(environment|env).*(cli|flag)`, doc,
-		"must state the full precedence order home < project < env < CLI, in that order")
+	assert.Contains(t, doc, "--set", "must name --set as the CLI override mechanism")
+	assert.Contains(t, doc, "--set default_agent=<value>", "must show --set applied to a real field, dotted-path form")
+	assert.Regexp(t, `(?i)home.*project.*(environment|env).*set`, doc,
+		"must state the full precedence order home < project < env < --set, in that order")
 }

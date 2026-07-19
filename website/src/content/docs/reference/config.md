@@ -13,11 +13,11 @@ These fields map to `~/.ctxloom/config.yaml` (and the per-project `.ctxloom/conf
 
 ## Overriding From The Environment Or A CLI Flag
 
-Every field on this page can also be set without editing a config file, in ascending precedence: the home config file, then the project config file, then an environment variable, then a matching CLI flag — the last one that sets a given key wins.
+Every field on this page can also be set without editing a config file, in ascending precedence: the home config file, then the project config file, then an environment variable, then a `--set` flag — the last one that sets a given key wins.
 
-An environment variable override starts with `CTXLOOM_CONFIG_`, followed by the field's dotted path with each segment upper-cased and joined by `_` (e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). A CLI flag matches the same path with segments lower-cased and joined by `-` or `.` (`--agents.mycoder.runtime`), on whichever command declares it. Both are matched case-insensitively against whatever your config file actually has, adopting its casing.
+An environment variable override starts with `CTXLOOM_CONFIG_`, followed by the field's dotted path with each segment upper-cased and joined by `_` (e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). A CLI override uses the repeatable `--set <dotted.path>=<value>` flag (`--set agents.mycoder.runtime=container`) — never a per-field flag of its own, since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. Both forms are matched case-insensitively against whatever your config file already has, adopting its casing; unlike an environment variable's name, `--set`'s path preserves whatever case you type, so it can also CREATE a new case-sensitive key (e.g. `--set agents.MyCoder.runtime=container`), which an environment variable cannot do.
 
-For example, `default_agent` can be set via `CTXLOOM_CONFIG_DEFAULT_AGENT=<value>` or `--default-agent=<value>`.
+For example, `default_agent` can be set via `CTXLOOM_CONFIG_DEFAULT_AGENT=<value>` or `--set default_agent=<value>`.
 
 ## Top-Level Fields
 

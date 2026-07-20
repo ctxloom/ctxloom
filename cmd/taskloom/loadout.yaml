@@ -22,7 +22,9 @@ description: |
   at ~/.ctxloom/tasks/<project-id>.jsonl keyed by harp IDs and are managed
   through the task MCP tools served by `taskloom mcp` (registered by this
   bundle) or the `taskloom` CLI. Also stamps the active session's harp name
-  into plan files as they're edited.
+  into plan files as they're edited. Write task text subject-first: the
+  first line is what the task IS (list views show only that line,
+  truncated at 80 characters); provenance goes on a later line.
 
 notes: |
   This bundle ships two ctxloom hooks and one MCP server:
@@ -117,6 +119,11 @@ fragments:
       Tasks are created and updated only through these tools (or the
       `taskloom` CLI). The harp ID appears in `task_list` output so you can
       reference a specific task in later calls.
+
+      Write `text` subject-first: the first line is what the task IS
+      (~80 characters or fewer — list views show only that line,
+      truncated there). Put provenance like dates or session names on a
+      later line, not the first.
 
       ## Plan stamping
 

@@ -90,7 +90,7 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 	// of any agent binding.
 	workspace := req.Workspace
 	if workspace == "" {
-		workspace = cfg.Workspace
+		workspace = cfg.GetWorkspace()
 	}
 
 	// Build the shared executable trust gate ONCE for this fan, but only when a

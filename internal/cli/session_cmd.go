@@ -66,7 +66,7 @@ var sessionListCmd = &cobra.Command{
 		// below to detect missing essences.
 		appDir := ""
 		if cfg, cErr := config.Load(); cErr == nil {
-			appDir = cfg.AppDir
+			appDir = cfg.GetAppDir()
 		}
 		// --distill: compact every row whose essence is missing or stale so the
 		// listing shows a title everywhere. Then re-read the index so the fresh
@@ -121,7 +121,7 @@ var sessionShowCmd = &cobra.Command{
 		if distilled {
 			appDir := ""
 			if cfg, cErr := config.Load(); cErr == nil {
-				appDir = cfg.AppDir
+				appDir = cfg.GetAppDir()
 			}
 			essencePath, _ = sessionEssenceInfo(args[0], entry, appDir)
 		}
@@ -154,7 +154,7 @@ func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	path := filepath.Join(paths.ProjectSessionsDir(cfg.AppDir), entry.SessionID+".md")
+	path := filepath.Join(paths.ProjectSessionsDir(cfg.GetAppDir()), entry.SessionID+".md")
 	if data, err := os.ReadFile(path); err == nil {
 		return string(data), true
 	}
@@ -390,7 +390,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.AppRoot == "" {
+	if cfg.GetAppRoot() == "" {
 		return fmt.Errorf("project root not found; run inside a project with .ctxloom/")
 	}
 

@@ -143,7 +143,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// an empty/unresolvable default_agent simply degrades to the profile flow.
 		resolveAgent := flagAgent
 		if resolveAgent == "" {
-			resolveAgent = cfg.DefaultAgent
+			resolveAgent = cfg.GetDefaultAgent()
 		}
 		requestedAgent = resolveAgent
 		if resolveAgent != "" {
@@ -696,7 +696,7 @@ func acpWorkspaceAxis(cfg *config.Config, flagAgent, currentAgent, flagWorkspace
 	}
 	ws := flagWorkspace
 	if ws == "" {
-		ws = cfg.Workspace
+		ws = cfg.GetWorkspace()
 	}
 	return isolation.WorkspaceAxis(ws)
 }

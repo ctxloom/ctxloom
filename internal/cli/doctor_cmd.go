@@ -182,7 +182,7 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 		return nil
 	}
 	set := map[string]bool{}
-	for _, a := range cfg.Agents {
+	for _, a := range cfg.GetConfiguredAgents() {
 		backend, _ := operations.ResolveBackend(cfg, a.Engine)
 		if backend != "" {
 			set[backend] = true
@@ -299,6 +299,7 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 //     than one agent identity's comment.
 //   - NoKeyError (or any other error, e.g. an unreadable git-configured key
 //     file): nothing resolves at all.
+//
 // In every failure shape, the WHY (approving reviewed content and
 // publishing/signing your own content both need an identity; merely
 // consuming already-trusted/embedded content does not) is stated once,
@@ -508,12 +509,13 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 	if cfgErr != nil {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn", Detail: "config did not load: " + cfgErr.Error()}
 	}
-	if len(cfg.Agents) == 0 {
+	configuredAgents := cfg.GetConfiguredAgents()
+	if len(configuredAgents) == 0 {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: "warn",
 			Detail: "no agents configured (run `/ctxloom-init` phase 5, or `ctxloom agent set <name> ...`)"}
 	}
-	names := make([]string, 0, len(cfg.Agents))
-	for name := range cfg.Agents {
+	names := make([]string, 0, len(configuredAgents))
+	for name := range configuredAgents {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -621,8 +623,8 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 // when it found none (callers use this to short-circuit rather than probe a
 // directory that was never located).
 func doctorAppDir(cfg *config.Config) string {
-	if cfg != nil && len(cfg.AppPaths) > 0 {
-		return cfg.AppPaths[0]
+	if cfg != nil && len(cfg.GetAppPaths()) > 0 {
+		return cfg.GetAppPaths()[0]
 	}
 	return ""
 }

@@ -52,7 +52,7 @@ func GetConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	printConfigWarnings(os.Stderr, cfg.Warnings)
+	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg, nil
 }
 
@@ -68,7 +68,7 @@ func GetConfigForUpdate() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	printConfigWarnings(os.Stderr, cfg.Warnings)
+	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg, nil
 }
 

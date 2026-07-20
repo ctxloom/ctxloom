@@ -118,6 +118,14 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		}
 	})
 
+	t.Run("ProfilesConfig wrapper map", func(t *testing.T) {
+		got := cfg.GetProfilesConfig()
+		delete(got.Definitions, "go")
+		if _, ok := cfg.Profiles.Definitions["go"]; !ok {
+			t.Fatal("deleting from GetProfilesConfig().Definitions result deleted the source entry")
+		}
+	})
+
 	t.Run("IsolationImages map", func(t *testing.T) {
 		got := cfg.GetIsolationImages()
 		got["claude-code"] = "MUTATED"

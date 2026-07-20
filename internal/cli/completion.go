@@ -117,11 +117,7 @@ func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 	if err != nil {
 		return filterPrefix(backends.List(), toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
-	labels := make([]string, 0, len(cfg.LM.Configs))
-	for label := range cfg.LM.Configs {
-		labels = append(labels, label)
-	}
-	sort.Strings(labels)
+	labels := cfg.GetLLMLabels()
 	return filterPrefix(labels, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 

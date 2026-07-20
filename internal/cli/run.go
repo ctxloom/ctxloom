@@ -39,29 +39,29 @@ import (
 )
 
 var (
-	runLLM           string
-	runAgent         string
-	runWorkspace     string
-	runPermissions   string
-	runPrompt        string
-	runFragments     []string
-	runTags          []string
-	runProfile       string
-	runSavedPrompt   string // --command / -r
+	runLLM         string
+	runAgent       string
+	runWorkspace   string
+	runPermissions string
+	runPrompt      string
+	runFragments   []string
+	runTags        []string
+	runProfile     string
+	runSavedPrompt string // --command / -r
 	// runSavedPromptDeprecated backs the deprecated --run-prompt alias (F9: the
 	// "prompt" vocabulary is stale — a saved, user-invoked item is a "command",
 	// matching the resources/commands/ terminology and the command item-kind).
 	// Reconciled into runSavedPrompt in RunE before it's read; kept only so
 	// existing scripts/invocations using --run-prompt keep working.
 	runSavedPromptDeprecated string
-	runDryRun        bool
-	runPrint         bool
-	runStructured    bool
-	runPlainTerminal bool
-	runVerbosity     int
-	runAssumeYes     bool
-	runSeedTask      string
-	runSeedStatus    string
+	runDryRun                bool
+	runPrint                 bool
+	runStructured            bool
+	runPlainTerminal         bool
+	runVerbosity             int
+	runAssumeYes             bool
+	runSeedTask              string
+	runSeedStatus            string
 	// runResumeSession/runResumeDistill are the two deterministic-resume flags
 	// (restored after WS-4/5 removed all flag-based resume + the interactive
 	// picker — see resolveResumeIntentWith's deletion in c7cddd9). Unlike the
@@ -376,10 +376,10 @@ Examples:
 		// config.Load downgrades unreadable/malformed/schema-invalid files to
 		// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
 		// config.yaml never silently launches an empty-context session.
-		printConfigWarnings(os.Stderr, cfg.Warnings)
+		printConfigWarnings(os.Stderr, cfg.GetWarnings())
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
-		confirmUpgrade(cfg.PendingUpgrade, cfg.CommitUpgrade)
+		confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
 		// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)
@@ -430,7 +430,8 @@ Examples:
 		// Skipped under --dry-run: a dry run must be side-effect free and
 		// non-interactive (no network, no installs, no confirm prompt), so it
 		// previews assembly against the library as it exists on disk.
-		if cfg.Sync.ShouldAutoSync() && !runDryRun && confirmSyncInstall(ctx, cfg) {
+		syncCfg := cfg.GetSyncConfig()
+		if syncCfg.ShouldAutoSync() && !runDryRun && confirmSyncInstall(ctx, cfg) {
 			syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
 			result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
 			syncCancel()
@@ -471,7 +472,7 @@ Examples:
 			agentPermissions string
 			// The session's runtime axis: the agent's resolved runtime, or the
 			// project `runtime:` default for a classic run.
-			agentRuntime = cfg.Runtime
+			agentRuntime = cfg.GetRuntime()
 			// boundAgent names the agent binding this run launched under
 			// (--agent or the default agent) — surround-bar identity only.
 			boundAgent string
@@ -501,8 +502,8 @@ Examples:
 			// default_agent must NEVER block startup: warn and continue with empty
 			// context at the project-default label + runtime (CLAUDE.md fault
 			// tolerance; mirrors acp's operations.OpenEngineSession degrade).
-			if rs, rerr := operations.ResolveAgent(ctx, cfg, cfg.DefaultAgent, runLLM); rerr != nil {
-				strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", cfg.DefaultAgent, rerr)
+			if rs, rerr := operations.ResolveAgent(ctx, cfg, cfg.GetDefaultAgent(), runLLM); rerr != nil {
+				strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", cfg.GetDefaultAgent(), rerr)
 				ctxResult = &operations.AssembleContextResult{}
 				var lerr error
 				// resolveRunLLM: --llm override, else the project primary label.
@@ -511,7 +512,7 @@ Examples:
 					return lerr
 				}
 				backendName, labelModel = operations.ResolveBackend(cfg, label)
-				agentRuntime = cfg.Runtime
+				agentRuntime = cfg.GetRuntime()
 			} else {
 				ctxResult = &operations.AssembleContextResult{
 					Profiles:        rs.Profiles,
@@ -523,7 +524,7 @@ Examples:
 				label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
 				agentRuntime = rs.Runtime
 				agentPermissions = rs.Permissions
-				boundAgent = cfg.DefaultAgent
+				boundAgent = cfg.GetDefaultAgent()
 			}
 		} else {
 			// Explicit context selection (-p / -f / -t): classic assembly.
@@ -590,7 +591,7 @@ Examples:
 		// agent binding.
 		sessionWorkspace := runWorkspace
 		if sessionWorkspace == "" {
-			sessionWorkspace = cfg.Workspace
+			sessionWorkspace = cfg.GetWorkspace()
 		}
 
 		// --session (full resume — no --distill): prime the assembled context
@@ -916,7 +917,8 @@ Examples:
 		// while container isolation isn't relied on; others prompt). A headless
 		// ONESHOT upgrades a would-block posture to bypass or it would hang with no
 		// human to answer the engine.
-		labelPerm := cfg.LM.Configs[label].Permissions
+		labelEntry, _ := cfg.GetLLMEntry(label)
+		labelPerm := labelEntry.Permissions
 		permMode := resolvePermissionMode(runPermissions, agentPermissions, labelPerm, backendName, mode, backends.EnforcesReadOnlyPlan(backendName))
 		// Surface a posture that resolved to something other than what was asked for,
 		// so the effective permissions are never silently different from intent.
@@ -1358,7 +1360,7 @@ func resolveRunLLM(cfg *config.Config, override, profileLLM string) (string, err
 // unknown --llm is reported rather than silently swallowed.
 func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 	// A configured label is trusted (the user set up its backend/binary/args).
-	if _, configured := cfg.LM.Configs[override]; configured {
+	if _, configured := cfg.GetLLMEntry(override); configured {
 		return override, nil
 	}
 	// Otherwise allow naming a registered backend type whose binary is present.
@@ -1377,7 +1379,7 @@ func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 // (test-only) is excluded.
 func usableLLMs(cfg *config.Config) []string {
 	set := map[string]bool{}
-	for label := range cfg.LM.Configs {
+	for _, label := range cfg.GetLLMLabels() {
 		set[label] = true
 	}
 	for _, name := range backends.List() {

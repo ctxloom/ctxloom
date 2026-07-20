@@ -40,7 +40,7 @@ var profileListCmd = &cobra.Command{
 		// defaulting the dir. Resolve the structured list up front so --format
 		// json is honored uniformly (emitting [] in both empty cases); the human
 		// path keeps the dir-vs-empty hint messages.
-		profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.AppPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
 		var list []operations.ProfileEntry
 		if len(profileDirs) > 0 {
 			res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
@@ -180,15 +180,16 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 // profileCreateDirs returns the profile directories, defaulting to
 // <appPath>/profiles when none are configured yet.
 func profileCreateDirs(cfg *config.Config) []string {
-	dirs := profiles.GetProfileDirs(cfg.FS(), cfg.AppPaths)
+	dirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
 	if len(dirs) == 0 {
 		// Mirror the len(AppPaths)==0 guard the rest of internal/config uses
 		// before indexing AppPaths[0]; a directly-constructed Config can carry
 		// an empty slice, which would otherwise panic here.
-		if len(cfg.AppPaths) == 0 {
+		appPaths := cfg.GetAppPaths()
+		if len(appPaths) == 0 {
 			return nil
 		}
-		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
+		dirs = []string{filepath.Join(appPaths[0], "profiles")}
 	}
 	return dirs
 }

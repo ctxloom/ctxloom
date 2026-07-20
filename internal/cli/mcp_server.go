@@ -201,7 +201,7 @@ func loadStartupConfig() *config.Config {
 			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
 		}
 	}
-	printConfigWarnings(os.Stderr, cfg.Warnings)
+	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg
 }
 
@@ -222,7 +222,8 @@ func purgeLegacyBundles(cfg *config.Config) {
 // bounded to 60s and fully fault-tolerant: a failure (other than cancellation)
 // warns and continues so the agent still comes up (CLAUDE.md).
 func runStartupSync(ctx context.Context, cfg *config.Config) {
-	if !cfg.Sync.ShouldAutoSync() {
+	syncCfg := cfg.GetSyncConfig()
+	if !syncCfg.ShouldAutoSync() {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")

@@ -67,7 +67,7 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 
 	appDir := ""
 	if cfg, cErr := config.Load(); cErr == nil {
-		appDir = cfg.AppDir
+		appDir = cfg.GetAppDir()
 	}
 
 	matched := make([]sessions.Entry, 0, len(entries))

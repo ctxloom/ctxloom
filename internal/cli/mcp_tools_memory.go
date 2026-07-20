@@ -112,7 +112,7 @@ type loadSessionResult struct {
 // Persistent (not ephemeral) because distilled summaries are a per-repo cache
 // the user benefits from across restarts.
 func (s *ctxServer) getSessionsDir() string {
-	return paths.ProjectSessionsDir(s.cfg.AppDir)
+	return paths.ProjectSessionsDir(s.cfg.GetAppDir())
 }
 
 // This and the sibling registerXTools functions share a duplicate shape by
@@ -252,7 +252,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	rows := make([]sessionSummary, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.AppDir)
+		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
 		last := e.LastActivity
 		if last.IsZero() {
 			last = sessions.ActivityTime(*e)
@@ -276,7 +276,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 func (s *ctxServer) distillMissingForList(ctx context.Context, entries []sessions.Entry) {
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.AppDir)
+		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
 		stale, known := e.SourceStale()
 		knownStale := known && stale
 		if distilled && !knownStale {

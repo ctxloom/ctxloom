@@ -309,11 +309,11 @@ Examples:
 
 		// No argument: report the current default agent.
 		if len(args) == 0 {
-			if cfg.DefaultAgent == "" {
+			if cfg.GetDefaultAgent() == "" {
 				w.Println("No default agent set.")
 				return w.Err()
 			}
-			w.Printf("Default agent: %s\n", cfg.DefaultAgent)
+			w.Printf("Default agent: %s\n", cfg.GetDefaultAgent())
 			return w.Err()
 		}
 

@@ -357,6 +357,14 @@ func (c *Config) GetProfileDefinitions() map[string]Profile {
 	return cloneProfilesMap(c.Profiles.Definitions)
 }
 
+// GetProfilesConfig returns a copy of the whole `profiles:` block (today just
+// the Definitions map, wrapped) — distinct from GetProfileDefinitions, which
+// unwraps straight to the map; callers that need the wrapper shape itself
+// (e.g. `config get profiles`, which marshals the section verbatim) use this.
+func (c *Config) GetProfilesConfig() ProfilesConfig {
+	return ProfilesConfig{Definitions: cloneProfilesMap(c.Profiles.Definitions)}
+}
+
 // GetSettings returns a copy of the behavioral settings block.
 func (c *Config) GetSettings() SettingsConfig { return cloneSettings(c.Settings) }
 

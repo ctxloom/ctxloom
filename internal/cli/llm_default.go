@@ -75,7 +75,7 @@ func isKnownLLM(cfg *config.Config, name string) bool {
 	if backends.Exists(name) {
 		return true
 	}
-	_, ok := cfg.LM.Configs[name]
+	_, ok := cfg.GetLLMEntry(name)
 	return ok
 }
 

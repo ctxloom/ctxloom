@@ -167,10 +167,11 @@ var loadConfig = config.Load
 // blip, a concurrent partial write) must not break spawning, so it falls
 // back to the captured snapshot rather than erroring.
 func (s *prodSpawner) resolveCfg() *config.Config {
-	if len(s.cfg.AppPaths) == 0 || s.cfg.AppPaths[0] == "" {
+	appPaths := s.cfg.GetAppPaths()
+	if len(appPaths) == 0 || appPaths[0] == "" {
 		return s.cfg
 	}
-	cfg, err := loadConfig(config.WithAppDir(s.cfg.AppPaths[0]))
+	cfg, err := loadConfig(config.WithAppDir(appPaths[0]))
 	if err != nil {
 		clidiag.Warn("ctxloom", "agent_run: reload config for agent resolution: %v (using the startup snapshot)", err)
 		return s.cfg

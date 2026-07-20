@@ -164,7 +164,28 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
+	out.Stderr = append(out.Stderr, ungatedToolWarning(adapter, req)...)
 	return out, nil
+}
+
+// ungatedToolWarning surfaces a payload whose tool name the adapter cannot
+// read. ltk's tool matcher is a hand-maintained list over a VENDOR-OWNED tool
+// set: when the vendor ships or renames a shell/file tool, ltk keeps exiting 0
+// with no decision and every rule silently stops applying to it (stark-boxer).
+//
+// It WARNS rather than denying, deliberately. Denying would turn a vendor
+// rename into a hard stop on tools ltk was never asked to guard; the failure
+// being diagnosed here is silence, so a visible signal is the fix. The exit
+// code is untouched for the same reason the rest of this file fails closed
+// rather than erroring: both hosts treat a non-zero exit as a silent allow.
+func ungatedToolWarning(adapter engine.Adapter, req engine.Request) []byte {
+	if !req.ToolUngated {
+		return nil
+	}
+	return []byte(fmt.Sprintf(
+		"%s: %s tool %q is not in ltk's gated tool set — NO rules were applied to this call. "+
+			"If it can run commands or write files, add it to the engine's gated tools and re-run '%s manage install'.\n",
+		progName, adapter.Name(), req.ToolName, progName))
 }
 
 // failClosed renders reason as a well-formed deny decision in the engine's wire

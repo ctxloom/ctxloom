@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	claudecli "github.com/ctxloom/ctxloom/internal/claude"
@@ -44,10 +45,11 @@ func (ClaudeCode) Decode(input []byte) (Request, error) {
 		filePath = p.ToolInput.NotebookPath
 	}
 	return Request{
-		ToolName: p.ToolName,
-		Command:  p.ToolInput.Command,
-		Shell:    ccShellForTool(p.ToolName),
-		FilePath: filePath,
+		ToolName:    p.ToolName,
+		Command:     p.ToolInput.Command,
+		Shell:       ccShellForTool(p.ToolName),
+		FilePath:    filePath,
+		ToolUngated: !claudeGatesTool(p.ToolName),
 	}, nil
 }
 
@@ -86,9 +88,26 @@ func (ClaudeCode) Encode(resp Response) (Output, error) {
 
 // --- management surface (Claude Code specific) ---
 
-// claudeMatcher is the PreToolUse matcher: the shell-bound tools (command rules)
-// plus the file-editing tools (path rules).
-const claudeMatcher = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+// claudeGatedTools is the set of Claude Code tools ltk knows how to read: the
+// shell-bound tools (command rules) plus the file-editing tools (path rules).
+//
+// It is the SINGLE source of truth for both directions — the installed
+// PreToolUse matcher below is derived from it, and Decode uses it to recognise
+// an incoming payload. Two hand-maintained lists over a VENDOR-OWNED, mutating
+// tool set is how one goes stale and silently stops gating (stark-boxer): the
+// matcher can be self-healed on install, but nothing can heal a runtime that
+// does not know it is looking at a tool it cannot read.
+var claudeGatedTools = []string{"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+// claudeMatcher is the PreToolUse matcher, derived from claudeGatedTools.
+var claudeMatcher = strings.Join(claudeGatedTools, "|")
+
+// claudeGatesTool reports whether ltk can extract a command or a file path
+// from this tool's payload. A false here means ltk would evaluate an EMPTY
+// request and allow — the silent fail-open the caller must surface.
+func claudeGatesTool(tool string) bool {
+	return slices.Contains(claudeGatedTools, tool)
+}
 
 // Claude Code settings.json keys, used when merging/removing the hook in the
 // untyped JSON document. Kept as named constants so the merge and remove paths

@@ -113,3 +113,21 @@ func TestMessage(t *testing.T) {
 		}
 	}
 }
+
+// TestClaudeMatcherCoversGatedTools pins the single-source-of-truth contract
+// (stark-boxer): the installed PreToolUse matcher must be DERIVED from the
+// same tool set the runtime uses to recognise a payload. Two hand-maintained
+// lists is how one of them goes stale and silently stops gating.
+func TestClaudeMatcherCoversGatedTools(t *testing.T) {
+	for _, tool := range claudeGatedTools {
+		if !claudeGatesTool(tool) {
+			t.Errorf("tool %q is in the matcher but not recognised at runtime", tool)
+		}
+		if !strings.Contains(claudeMatcher, tool) {
+			t.Errorf("gated tool %q is missing from the installed matcher %q", tool, claudeMatcher)
+		}
+	}
+	if claudeGatesTool("SmartEdit") {
+		t.Error("an unknown vendor tool must NOT be reported as gated")
+	}
+}

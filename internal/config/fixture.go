@@ -6,31 +6,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// Fixture is an exported, direct mirror of every Config field (persisted and
-// runtime-only). NewFixture is the ONLY way to turn one into a *Config, and
-// exists so tests (internal/operations, internal/cli, internal/lm/backends,
-// ...) can keep building an independent, fully-controlled Config value
-// in-memory — as ~80 test files across the tree already did before Config's
-// fields were unexported (v0.7.0-pre1 config-manager rework, Phase 3) —
-// without paying for a real config.yaml + the full Load() pipeline (schema
-// validation, upgrade migration, default-registry merge) when a test's whole
-// point is to pin an exact, hand-picked field combination.
+// Fixture is a direct mirror of every Config field, persisted and
+// runtime-only. NewFixture is the only way to turn one into a *Config.
 //
-// DESIGN NOTE (flag for review): this is in real tension with "no exported
-// constructor, no assignable exported value" — NewFixture IS an exported
-// constructor, and Fixture IS a directly-constructible exported value. It
-// does not reopen the bug the rest of this package closes, though: that bug
-// is a MUTATOR corrupting the ONE shared instance every Load()/Current()
-// holder sees. A Fixture-built Config is never fed into the ambient memo,
-// never aliases another Load() result, and every NewFixture call returns a
-// brand-new, independently-owned value — exactly as safe as two Load() calls
-// with different WithAppDir options already were. It exists purely so ~80
-// pre-existing test files did not need a much larger, riskier rewrite (real
-// config.yaml fixtures + Load, which can also silently change what a test
-// exercises via schema validation / the default-registry overlay). If this
-// tradeoff is wrong, the alternative is rewriting those tests onto
-// Load(WithFS(...)/WithAppDir(...)) with a real written config.yaml, which is
-// a materially larger, separate piece of work.
+// Config's fields are unexported precisely so a loaded config cannot be
+// mutated or replaced from outside this package. Fixture is the deliberate
+// exception, and it does not reopen that hole: the hazard is a mutator
+// corrupting the ONE shared instance every Load/Current holder sees, and a
+// Fixture-built Config never enters the ambient memo and never aliases a
+// Load result. Every call yields a separately-owned value.
 type Fixture struct {
 	Version                      int
 	LM                           LMConfig
@@ -103,7 +87,20 @@ func (c *Config) ToFixture() Fixture {
 // NewFixture builds an independent *Config directly from f, bypassing Load's
 // file/schema/upgrade/default-merge pipeline entirely. See Fixture's doc for
 // exactly what this does and does not guarantee. The filesystem defaults to
-// nil (OS fs); call SetFS on the result to inject one, exactly as before.
+// nil (the OS fs); call SetFS on the result to inject one.
+//
+// This solves one problem: producing a Config when there is no loadable one.
+// Scaffolding a config.yaml before any file exists, and falling back so a
+// user still reaches their LLM when resolution fails, are the shapes that
+// qualify. Load cannot do either.
+//
+// Everywhere else, use Load / Current / Reload. Those are the only paths that
+// apply schema validation, the upgrade pipeline, the default-registry merge
+// and home<project layering. A Fixture skips all of them, so what it builds
+// is not the config a user gets — and a check written against one can pass
+// while the real thing is broken.
+//
+// If you do not already know you need this, you almost certainly do not.
 func NewFixture(f Fixture) *Config {
 	return &Config{
 		version:                      f.Version,

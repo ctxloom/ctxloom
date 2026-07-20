@@ -51,6 +51,19 @@ type ReviewItem struct {
 	// for an UPDATE — the diff base. Empty when no snapshot exists (e.g. a
 	// migrated v1 grant): review then falls back to full-content display.
 	PreviousContent string `json:"-"`
+
+	// CurrentForm names the form CurrentContent is in ("raw"|"distilled"),
+	// empty for the single-form kinds (mcp/hooks/skills).
+	CurrentForm string `json:"-"`
+	// AlternateContent is the OTHER form of a distillable item — the bytes an
+	// approval also countersigns (SetItemTrust signs raw AND distilled) but
+	// which are not the currently-exposed form. Review MUST show it: without
+	// it, approving a fragment you read in one form silently blesses bytes you
+	// never saw, and flipping use_distilled then serves them without
+	// re-gating (boned-stole). Empty when the item has only one form.
+	AlternateContent string `json:"-"`
+	// AlternateForm names AlternateContent's form ("raw"|"distilled").
+	AlternateForm string `json:"-"`
 }
 
 // ReviewBundle groups a bundle's pending items for the per-bundle walk.
@@ -182,7 +195,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		if !ok {
 			continue
 		}
-		item.CurrentContent = string(payload)
+		setReviewForms(&item, payload, form, frag.ContentPayload)
 		out = append(out, item)
 	}
 	for _, name := range bundle.PromptNames() {
@@ -192,7 +205,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		if !ok {
 			continue
 		}
-		item.CurrentContent = string(payload)
+		setReviewForms(&item, payload, form, command.ContentPayload)
 		out = append(out, item)
 	}
 	for _, name := range bundle.MCPNames() {
@@ -241,6 +254,32 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		out = append(out, item)
 	}
 	return out
+}
+
+// setReviewForms fills a distillable item's displayed content AND the other
+// form's content when one exists.
+//
+// SetItemTrust countersigns BOTH forms of a distillable item (raw always,
+// distilled when present), so an approval covers bytes in both forms. Review
+// must therefore present both — otherwise the human reads one form, blesses
+// two, and a later use_distilled flip serves unread bytes with no re-gate
+// (boned-stole). The pair is derived from the SAME preimage builder the
+// countersignature uses (computeItemPayloadPair's payloadPair), so what the
+// reviewer sees and what gets signed can never drift apart.
+func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentForm, payload func(bool) ([]byte, bundles.ContentForm)) {
+	item.CurrentContent = string(shown)
+	item.CurrentForm = string(shownForm)
+
+	raw, _ := payload(false)
+	distilled, distilledForm := payload(true)
+	if distilledForm != bundles.FormDistilled {
+		return // single-form item: nothing else is countersigned
+	}
+	if shownForm == bundles.FormDistilled {
+		item.AlternateContent, item.AlternateForm = string(raw), string(bundles.FormRaw)
+		return
+	}
+	item.AlternateContent, item.AlternateForm = string(distilled), string(bundles.FormDistilled)
 }
 
 // classify resolves one item through the decision function and, when it is

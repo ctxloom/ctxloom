@@ -237,3 +237,42 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	assert.True(t, store.HasUnsignedRefReject(signing.KindFragments, countersignRefFor(dropRef)))
 	assert.True(t, store.HasUnsignedContentReject(signing.KindFragments, signing.FormRaw, []byte("rm -rf danger")))
 }
+
+// TestPrintReviewItem_ShowsBothCountersignedForms closes boned-stole: an
+// approval countersigns BOTH forms of a distillable item, so the reviewer must
+// see both. Showing only the effective form meant approving a fragment you read
+// in raw also blessed distilled bytes you never saw.
+func TestPrintReviewItem_ShowsBothCountersignedForms(t *testing.T) {
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:           operations.ReviewStatusNew,
+		CurrentContent:   "the distilled body",
+		CurrentForm:      "distilled",
+		AlternateContent: "the raw body",
+		AlternateForm:    "raw",
+	})
+	text := out.String()
+	assert.Contains(t, text, "the distilled body")
+	assert.Contains(t, text, "the raw body",
+		"the second countersigned form must be shown — approving covers it too")
+	assert.Contains(t, text, "also covered by this approval")
+}
+
+// TestPrintReviewItem_UpdateShowsAlternateForm proves the second form survives
+// the UPDATE/diff branch, which used to `return` early after the diff.
+func TestPrintReviewItem_UpdateShowsAlternateForm(t *testing.T) {
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:           operations.ReviewStatusUpdate,
+		PreviousContent:  "old distilled body\n",
+		CurrentContent:   "new distilled body\n",
+		CurrentForm:      "distilled",
+		AlternateContent: "the raw body",
+		AlternateForm:    "raw",
+	})
+	text := out.String()
+	assert.Contains(t, text, "new distilled body")
+	assert.Contains(t, text, "the raw body")
+}

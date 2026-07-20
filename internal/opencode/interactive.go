@@ -2,9 +2,7 @@ package opencode
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -66,20 +64,10 @@ func (b *Opencode) launchInteractive(ctx context.Context, req *agent.ExecuteRequ
 	// opencode's documented "additional instruction files" mechanism.
 	removeContext := func() error { return nil }
 	if len(mc.instructions) > 0 {
-		ctxPath := filepath.Join(workDir, opencodeContextFile)
-		if err := fs.MkdirAll(filepath.Dir(ctxPath), 0o755); err != nil {
+		var cerr error
+		if removeContext, cerr = materializeContextSurface(fs, workDir, b.pendingContext); cerr != nil {
 			_ = restore()
-			return nil, fmt.Errorf("create .opencode directory: %w", err)
-		}
-		if err := agent.AtomicWriteFile(fs, ctxPath, []byte(b.pendingContext+"\n"), "ctxloom-context.md"); err != nil {
-			_ = restore()
-			return nil, err
-		}
-		removeContext = func() error {
-			if e, _ := afero.Exists(fs, ctxPath); e {
-				return fs.Remove(ctxPath)
-			}
-			return nil
+			return nil, cerr
 		}
 	}
 

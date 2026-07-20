@@ -111,6 +111,14 @@ type Coordinator struct {
 	// approval per mailbox message id — the correlation a parent's
 	// agent_send in_reply_to resolves (approval.go).
 	approvals map[string]*pendingApproval
+	// onApprovalMailQueued, when set, is called by relayApproval immediately
+	// after the relay mail becomes OBSERVABLE to the parent. It is the test
+	// seam for the register-before-publish ordering (pulpy-whiff): the whole
+	// correctness argument is that a reply arriving at this exact instant
+	// still resolves, and only a hook at this instant can assert it
+	// deterministically rather than by racing an Eventually. Nil in
+	// production.
+	onApprovalMailQueued func(msgID string)
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 	// launchArmed pre-registers the "attached" signal for a harp's NEXT

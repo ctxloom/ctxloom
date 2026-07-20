@@ -447,3 +447,58 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 		return len(sp.engine(0).recordedTexts()) == 2
 	}, conformanceWait, 10*time.Millisecond, "the legacy child keeps taking turns independent of its migrated sibling's ladder activity")
 }
+
+// TestApproval_ReplyRacingTheRelayResolves closes pulpy-whiff: relayApproval
+// used to queue the relay mail FIRST and register the pendingApproval second.
+// The mailbox message id is the correlation a reply carries, and the mail is
+// observable the instant it is queued — so a parent that drained, decided and
+// replied inside that window hit resolveApprovalReply before the approval
+// existed. The reply then fell through to ordinary mail ("queued mid-turn"),
+// the decision was LOST, and the ladder rung eventually timed out and
+// DECLINED an action the human had actually approved.
+//
+// Under contention this reproduced as a flake in the relay round-trip tests.
+// Widening those timeouts would have hidden it: the window is not a slow
+// coordinator, it is an ordering bug, and a human's approval silently
+// becoming a denial is the failure that matters.
+func TestApproval_ReplyRacingTheRelayResolves(t *testing.T) {
+	resetStrictness(t)
+	permReq := commandExecRequest("perm-1")
+	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	c := newTestCoordinator(t, sp, nil)
+
+	// Reply at the earliest instant the correlation id exists: the moment the
+	// relay mail becomes observable. If registration does not already cover
+	// this id, the decision is dropped.
+	var (
+		replyDisp string
+		replyErr  error
+		replied   = make(chan struct{})
+	)
+	c.onApprovalMailQueued = func(msgID string) {
+		decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT", "note": "reviewed"})
+		require.NoError(t, err)
+		replyDisp, replyErr = c.AgentSend(ownerIdentity(), "", "", "reviewed", decision, msgID)
+		close(replied)
+	}
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Harp)
+
+	select {
+	case <-replied:
+	case <-time.After(conformanceWait):
+		t.Fatal("the approval relay never queued its mail")
+	}
+	require.NoError(t, replyErr)
+	assert.Contains(t, replyDisp, "DECISION_ACCEPT",
+		"a reply arriving the instant the correlation id exists must resolve the approval, not fall through to ordinary mail")
+
+	// And the child actually proceeds: the decision reached the engine.
+	require.Eventually(t, func() bool {
+		sc := sp.chat(0)
+		return sc != nil && len(sc.recordedAnswers()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the child must receive the approval decision")
+	assert.Equal(t, "allow-1", sp.chat(0).recordedAnswers()[0].OptionID)
+}

@@ -233,7 +233,7 @@ func tsWireAndPull(w *World, url string) error {
 // rename, GAP B's later-added distilled form) needs 'remote update --apply'
 // to actually fetch+apply the new commit before a subsequent pull refreshes
 // the lockfile; verified empirically (a plain second pull silently no-ops:
-// "Skipped (already installed)"). --force skips the interactive per-item
+// "Skipped (kept at their locked commit)"). --force skips the interactive per-item
 // confirmation prompt (this test drives stdin-less exec.Command).
 func tsUpdateAndPull(w *World) error {
 	if err := runOK(w, "remote", "update", "--apply", "--force"); err != nil {

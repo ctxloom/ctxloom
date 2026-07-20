@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	antigravitycli "github.com/ctxloom/ctxloom/internal/antigravity"
 
@@ -31,10 +33,11 @@ func (Antigravity) Decode(input []byte) (Request, error) {
 		return Request{}, err
 	}
 	return Request{
-		ToolName: p.ToolCall.Name,
-		Command:  p.ToolCall.Args.CommandLine,
-		Shell:    agShellForTool(p.ToolCall.Name),
-		FilePath: p.ToolCall.Args.FilePath(),
+		ToolName:    p.ToolCall.Name,
+		Command:     p.ToolCall.Args.CommandLine,
+		Shell:       agShellForTool(p.ToolCall.Name),
+		FilePath:    p.ToolCall.Args.FilePath(),
+		ToolUngated: !antigravityGatesTool(p.ToolCall.Name),
 	}, nil
 }
 
@@ -66,12 +69,25 @@ func (Antigravity) Encode(resp Response) (Output, error) {
 
 // --- management surface (Antigravity specific) ---
 
-// antigravityMatcher is the PreToolUse matcher (a regex over agy tool names):
-// the shell tools (command rules) plus the file-mutating tools (path rules).
-const antigravityMatcher = antigravitycli.ToolRunCommand + "|" +
-	antigravitycli.ToolExecuteCommand + "|" +
-	antigravitycli.ToolWriteToFile + "|" +
-	antigravitycli.ToolReplaceFileContent
+// antigravityGatedTools is the set of agy tools ltk knows how to read: the
+// shell tools (command rules) plus the file-mutating tools (path rules). It is
+// the single source of truth for both the installed matcher and runtime
+// recognition — see claudeGatedTools for why one list, not two (stark-boxer).
+var antigravityGatedTools = []string{
+	antigravitycli.ToolRunCommand,
+	antigravitycli.ToolExecuteCommand,
+	antigravitycli.ToolWriteToFile,
+	antigravitycli.ToolReplaceFileContent,
+}
+
+// antigravityMatcher is the PreToolUse matcher (a regex over agy tool names),
+// derived from antigravityGatedTools.
+var antigravityMatcher = strings.Join(antigravityGatedTools, "|")
+
+// antigravityGatesTool reports whether ltk can read this tool's payload.
+func antigravityGatesTool(tool string) bool {
+	return slices.Contains(antigravityGatedTools, tool)
+}
 
 // errAntigravityNoGlobal: agy v1.0.7 has no usable global hooks.json —
 // ~/.gemini/antigravity-cli/hooks.json is silently ignored, and a hooks.json

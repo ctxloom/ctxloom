@@ -68,9 +68,45 @@ func fwarn(w io.Writer, prog, msg string) {
 	_, _ = fmt.Fprintf(w, "%s: warning: %s\n", prog, msg)
 }
 
-// Warn prints a "<prog>: warning: <msg>" line to stderr.
+// sink is the process-wide destination for the stderr-flavored helpers
+// (Warn/WarnOnce/Warner). It is a pointer so SetSink can swap it atomically;
+// nil means "the default", os.Stderr.
+//
+// It exists because os.Stderr is NOT always a safe place to write: under
+// `ctxloom run` stderr IS the terminal the harness paints its TUI on, so an
+// unconditional warning corrupts the display mid-frame (large-album — "run
+// channel down (reconnecting)" landed straight on the TUI). A session that
+// owns the terminal redirects the sink for its lifetime instead.
+var sink atomic.Pointer[io.Writer]
+
+// SetSink redirects Warn/WarnOnce/Warner to w for the rest of the process, and
+// returns a restore func that puts the previous sink back. A nil w restores the
+// default (os.Stderr) — never installs a nil writer.
+//
+// Only Warn/WarnOnce/Warner move; the explicit Fwarn/FwarnOnce writers are
+// untouched, because a caller that named its own writer already chose.
+func SetSink(w io.Writer) (restore func()) {
+	prev := sink.Load()
+	if w == nil {
+		sink.Store(nil)
+	} else {
+		sink.Store(&w)
+	}
+	return func() { sink.Store(prev) }
+}
+
+// warnSink resolves the current destination for the stderr-flavored helpers.
+func warnSink() io.Writer {
+	if w := sink.Load(); w != nil {
+		return *w
+	}
+	return os.Stderr
+}
+
+// Warn prints a "<prog>: warning: <msg>" line to the current sink (stderr by
+// default — see SetSink).
 func Warn(prog, format string, args ...any) {
-	Fwarn(os.Stderr, prog, format, args...)
+	Fwarn(warnSink(), prog, format, args...)
 }
 
 // onceSeen dedups WarnOnce/FwarnOnce lines per process, keyed by the full
@@ -98,10 +134,11 @@ func FwarnOnce(w io.Writer, prog, format string, args ...any) {
 	fwarn(w, prog, msg)
 }
 
-// WarnOnce prints a "<prog>: warning: <msg>" line to stderr at most once per
-// process for identical formatted content.
+// WarnOnce prints a "<prog>: warning: <msg>" line to the current sink (stderr
+// by default — see SetSink) at most once per process for identical formatted
+// content.
 func WarnOnce(prog, format string, args ...any) {
-	FwarnOnce(os.Stderr, prog, format, args...)
+	FwarnOnce(warnSink(), prog, format, args...)
 }
 
 // Warner binds a program name so callers that warn repeatedly don't repeat it.
@@ -110,7 +147,8 @@ func WarnOnce(prog, format string, args ...any) {
 //	warn.Warn("sync failed: %v", err)
 type Warner string
 
-// Warn prints a "<prog>: warning: <msg>" line to stderr for the bound prog.
+// Warn prints a "<prog>: warning: <msg>" line to the current sink for the
+// bound prog.
 func (p Warner) Warn(format string, args ...any) {
 	Warn(string(p), format, args...)
 }

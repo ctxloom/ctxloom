@@ -23,7 +23,12 @@ pre-commit:
       # worktree's index — the running `git commit` then builds an empty
       # tree from the clobbered index with no error anywhere. Reproduced and
       # root-caused in a synthetic repo+worktree; see scripts/repro-jaded-fade.sh.
-      # Fixed upstream in reprise is the correct long-term home for this
-      # (any GIT_INDEX_FILE-inheriting caller of `git worktree add` is at
-      # risk); this scrub is the local mitigation until that lands.
+      # The upstream fix HAS landed (reprise 574b5a3, merged 06cf012 on
+      # 2026-07-10: "scrub hook-injected git env from all spawned git
+      # children" — GIT_INDEX_FILE, GIT_DIR and GIT_WORK_TREE, in check.rs
+      # and baseline.rs). This scrub is KEPT as defense in depth, not because
+      # the bug is open: the hook runs whatever reprise binary is installed on
+      # the host, which may predate that commit, and the failure mode is a
+      # SILENT empty commit — no error anywhere. Cheap insurance against an
+      # expensive, invisible loss (only-viper).
       run: env -u GIT_INDEX_FILE reprise check --base HEAD .

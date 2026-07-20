@@ -56,7 +56,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	require.NoError(t, mgr.SetSummary(harp, "prev work", nil, int64(len(transcript))))
 
 	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(projectDir, ".ctxloom")}}
-	_, out, err := s.previousSessionByHarp(context.Background(), harp)
+	_, out, err := s.previousSessionByHarp(context.Background(), harp, "")
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.True(t, out.Loaded, "canonical previous session must materialize")
@@ -74,9 +74,25 @@ func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	require.NoError(t, err)
 
 	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(t.TempDir(), ".ctxloom")}}
-	_, out, err := s.previousSessionByHarp(context.Background(), "no-such-harp")
+	_, out, err := s.previousSessionByHarp(context.Background(), "no-such-harp", "")
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.False(t, out.Loaded)
 	assert.Contains(t, out.Message, "No previous session")
+}
+
+// TestCompactEntry_ModelOverrideBeatsConfig closes sour-scoop: an explicit
+// caller-supplied model reached the backend distill path but NOT the
+// canonical/harp one, which always used cfg.GetCompactionModel(). The caller
+// got a distill from a model it did not ask for, silently. compactEntry now
+// takes the override directly, with "" meaning "use the configured model" —
+// the same shape distillSession already uses.
+func TestCompactEntry_ModelOverrideBeatsConfig(t *testing.T) {
+	cfg := &config.Config{}
+	configured := cfg.GetCompactionModel()
+
+	assert.Equal(t, "sonnet-override", compactionModelFor(cfg, "sonnet-override"),
+		"an explicit override must win over the configured model")
+	assert.Equal(t, configured, compactionModelFor(cfg, ""),
+		"an empty override must fall back to the configured model")
 }

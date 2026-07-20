@@ -282,7 +282,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntry(ctx, e, s.cfg, io.Discard); err != nil {
+		if _, err := compactEntry(ctx, e, s.cfg, "", io.Discard); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}
@@ -436,7 +436,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		// and ref.Backend here may be an ACP engine that isn't a registered
 		// backend at all, so it must not reach the backends.Exists gate below.
 		if ref.SessionID == "" && ref.Harp != "" {
-			return s.previousSessionByHarp(ctx, ref.Harp)
+			return s.previousSessionByHarp(ctx, ref.Harp, in.Model)
 		}
 		sessionID = ref.SessionID
 		if ref.Backend != "" {
@@ -500,10 +500,12 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // indeterminate cache (a finished session rarely changes), the same bias the
 // backend path applies with redistillWhenUnknown=false.
 //
-// The caller's in.Model override is intentionally NOT threaded here: compactEntry
-// distills with cfg.GetCompactionModel(), and plumbing a per-call model through
-// it is out of this fix's scope (deferred — see the task log).
-func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp string) (*mcp.CallToolResult, *loadSessionResult, error) {
+// model is the caller's per-call override, forwarded to compactEntry ("" uses
+// cfg.GetCompactionModel()). Honoring it ONLY on the backend path meant an
+// explicit override was silently ignored whenever the previous session was
+// canonical/ACP — the caller got a distill from a model it did not ask for,
+// with no indication (sour-scoop).
+func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	entry, err := operations.GetSession(harp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("lookup harp %q: %w", harp, err)
@@ -542,8 +544,12 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp string) (*mc
 		ctx, cancel = context.WithTimeout(ctx, mcpschema.DistillBudget)
 		defer cancel()
 	}
-	res, err := s.singleflightDistill(harp+"\x00canonical", func() (*loadSessionResult, error) {
-		if _, derr := compactEntry(ctx, entry, s.cfg, io.Discard); derr != nil {
+	// The model is part of the key, exactly as the backend path keys on it
+	// (sessionID\x00backend\x00model): two concurrent calls asking for
+	// DIFFERENT models must not collapse into one distill and hand both callers
+	// a result from whichever model happened to win.
+	res, err := s.singleflightDistill(harp+"\x00canonical\x00"+model, func() (*loadSessionResult, error) {
+		if _, derr := compactEntry(ctx, entry, s.cfg, model, io.Discard); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),

@@ -24,6 +24,13 @@ type Request struct {
 	// empty for command invocations. When set, the request is evaluated against
 	// path rules instead of command rules.
 	FilePath string
+	// ToolUngated marks a payload whose tool name the adapter does not know how
+	// to read. Such a request carries neither a Command nor a FilePath, so every
+	// rule silently misses and ltk allows — the fail-open the caller must make
+	// visible rather than swallow (stark-boxer). ltk is a cooperative redirect,
+	// not a sandbox; a redirect that silently stops redirecting is worse than
+	// one known to be absent.
+	ToolUngated bool
 }
 
 // Response is the engine-neutral decision.

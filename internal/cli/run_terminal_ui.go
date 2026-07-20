@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/cli/tui"
@@ -141,4 +143,45 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 		rows[i] = termui.RosterEntry{Harp: b.Harp, Agent: b.Agent, State: b.State, LastActivityUnix: b.LastActivityUnix}
 	}
 	return rows, nil
+}
+
+// diagnosticsLogPath is where a TUI-owning session parks its clidiag warnings.
+const diagnosticsLogName = "diagnostics.log"
+
+// redirectDiagnosticsForTUI routes clidiag's stderr warnings into a per-session
+// log for the lifetime of a terminal-UI session, and returns the restore.
+//
+// Under `ctxloom run` stderr IS the terminal the harness paints its TUI on, so
+// an unconditional warning corrupts the display mid-frame — "run channel down
+// (reconnecting)" and "runner dial-home failed" were landing straight on it
+// (large-album). Warnings are DIVERTED, never dropped: silently discarding
+// them would trade a visible corruption for an invisible loss, which is the
+// worse bug in this codebase's own terms. The path is printed once, before the
+// TUI takes the terminal, so the user knows where to look.
+//
+// A log file that cannot be opened leaves the sink alone: corrupting the TUI
+// beats losing the diagnostics.
+func redirectDiagnosticsForTUI(harp string, announce io.Writer) func() {
+	noop := func() {}
+	if harp == "" {
+		return noop
+	}
+	dir, err := paths.HarpDir(harp)
+	if err != nil {
+		return noop
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return noop
+	}
+	path := filepath.Join(dir, diagnosticsLogName)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return noop
+	}
+	fmt.Fprintf(announce, "ctxloom: diagnostics for this session go to %s\n", path)
+	restore := clidiag.SetSink(f)
+	return func() {
+		restore()
+		_ = f.Close()
+	}
 }

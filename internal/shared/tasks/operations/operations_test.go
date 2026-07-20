@@ -2,6 +2,8 @@ package operations
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -24,7 +26,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 		t.Fatalf("origin = %q, want the session harp", add.Task.OriginSession)
 	}
 
-	logPath, err := paths.TasksLogPath("test-project")
+	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "test-project")
 	if err != nil {
 		t.Fatalf("log path: %v", err)
 	}
@@ -382,5 +384,93 @@ func TestListTagCounts(t *testing.T) {
 		if res.Tags[i] != w {
 			t.Fatalf("tags[%d] = %+v, want %+v (full: %+v)", i, res.Tags[i], w, res.Tags)
 		}
+	}
+}
+
+// TestHoming_RepoHomedWritesInsideRepo proves TaskContext.HomingMode ==
+// paths.ModeRepo lands the task log INSIDE the project tree, at
+// paths.RepoDirName/paths.RepoTasksFileName (.taskloom/tasks.jsonl), and
+// never touches the isolated home directory — the store is meant to be
+// checked in and shareable, not private. It also pins the project-id
+// question from the task brief: repo-homed mode mints no id at all (the
+// repo path itself is the identity), so ProjectID comes back empty.
+func TestHoming_RepoHomedWritesInsideRepo(t *testing.T) {
+	home := taskstest.Isolate(t)
+	proj := t.TempDir()
+	tc := TaskContext{WorkDir: proj, SessionHarp: "sess", HomingMode: paths.ModeRepo}
+
+	res, err := AddTask(tc, "ship it", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	wantPath := filepath.Join(proj, paths.RepoDirName, paths.RepoTasksFileName)
+	if res.Path != wantPath {
+		t.Fatalf("Path = %q, want %q", res.Path, wantPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("repo-homed log not written at %s: %v", wantPath, err)
+	}
+	if res.ProjectID != "" {
+		t.Fatalf("ProjectID = %q, want empty (repo-homed mints no id)", res.ProjectID)
+	}
+	if res.ProjectDir != proj {
+		t.Fatalf("ProjectDir = %q, want %q", res.ProjectDir, proj)
+	}
+
+	// Never leaked into the (isolated) home tasks dir.
+	homeTasksDir := filepath.Join(home, paths.AppDirName, paths.TasksDir)
+	if entries, err := os.ReadDir(homeTasksDir); err == nil && len(entries) != 0 {
+		t.Fatalf("repo-homed add leaked into home tasks dir: %v", entries)
+	}
+}
+
+// TestHoming_HomeHomedWritesUnderHome pins today's (pre-homing) behavior for
+// TaskContext.HomingMode == paths.ModeHome given EXPLICITLY (as
+// cmd/taskloom's resolved mode always is) — not just the zero-value default
+// TestResolveLiveMintsIdentity/TestAddAndListTasks_LogPathAndOrigin already
+// cover.
+func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
+	home := taskstest.Isolate(t)
+	proj := t.TempDir()
+	tc := TaskContext{WorkDir: proj, SessionHarp: "sess", HomingMode: paths.ModeHome}
+
+	res, err := AddTask(tc, "ship it", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if res.ProjectID == "" {
+		t.Fatal("ProjectID empty, want a minted/registered id")
+	}
+	wantPath, err := paths.TasksLogPath(paths.ModeHome, "", res.ProjectID)
+	if err != nil {
+		t.Fatalf("TasksLogPath: %v", err)
+	}
+	if res.Path != wantPath {
+		t.Fatalf("Path = %q, want %q", res.Path, wantPath)
+	}
+	if !strings.HasPrefix(wantPath, filepath.Join(home, paths.AppDirName)) {
+		t.Fatalf("home-homed log %q is not under the isolated home %q", wantPath, home)
+	}
+}
+
+// TestHoming_ProjectFlagIgnoredInRepoMode proves a pinned --project is a
+// harmless no-op (with a warning, not silently swallowed) in repo-homed
+// mode: the repo path is the identity, so there is nothing for a
+// project-id to select between.
+func TestHoming_ProjectFlagIgnoredInRepoMode(t *testing.T) {
+	taskstest.Isolate(t)
+	proj := t.TempDir()
+	tc := TaskContext{WorkDir: proj, ProjectID: "pinned-but-irrelevant", HomingMode: paths.ModeRepo}
+
+	res, err := AddTask(tc, "ship it", "", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if res.Warning == "" {
+		t.Fatal("expected a warning that --project is ignored in repo-homed mode")
+	}
+	if !strings.Contains(res.Warning, "pinned-but-irrelevant") {
+		t.Fatalf("warning %q does not name the ignored project id", res.Warning)
 	}
 }

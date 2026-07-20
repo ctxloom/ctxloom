@@ -59,7 +59,7 @@ func NewCommand(p *Product) *cobra.Command {
 				if configSchema == "" {
 					return fmt.Errorf("--config needs --config-schema (%s declares no config schema)", p.Bin)
 				}
-				if err := GenConfig(configSchema, configDir); err != nil {
+				if err := GenConfig(p, configSchema, configDir); err != nil {
 					return fmt.Errorf("generate config reference: %w", err)
 				}
 				fmt.Fprintf(out, "%s config reference generated in %s\n", p.Bin, configDir)

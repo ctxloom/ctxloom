@@ -15,6 +15,15 @@ List tasks, optionally filtered by status, term, or tag query
 
 List tasks, filtered by status, text term, and/or tag query.
 
+By default a listing is scoped to the CURRENT project, resolved from the
+working directory the same way `taskloom add` etc. do (--project, else
+CTXLOOM_PROJECT_ID, else cwd). Pass --global to aggregate every project
+instead. When no project can be resolved at all — not inside a git repo, no
+CTXLOOM_ROOT override, and no prior task history at this exact path — the
+listing falls back to --global on its own, with a notice on stderr saying
+why, rather than minting a throwaway project identity for an arbitrary
+directory.
+
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
@@ -55,14 +64,18 @@ taskloom list [flags]
 
   # In Progress tasks mentioning "docs"
   taskloom list --status "In Progress" --term docs
+
+  # every project's tasks, not just the current one
+  taskloom list --global
 ```
 
 ### Options
 
 ```
       --all                include the tasks hidden by default: completed (Done/Archived) and Deferred
+      --global             aggregate tasks across every project instead of just the current one
   -h, --help               help for list
-      --json               emit JSON instead of a table (for jq)
+      --json               shorthand for --format json (for jq)
       --status strings     filter by status (repeatable)
       --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")
       --term string        filter by case-insensitive substring of task text
@@ -71,7 +84,10 @@ taskloom list [flags]
 ### Options inherited from parent commands
 
 ```
-      --project string   Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
+      --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
+      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+      --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
 ```
 
 ### SEE ALSO

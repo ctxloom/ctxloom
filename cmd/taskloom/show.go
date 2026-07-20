@@ -25,7 +25,7 @@ task for scripting.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Search every status: a harp id shown by `list --all` (Done/Archived
 		// included) must still resolve here.
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}

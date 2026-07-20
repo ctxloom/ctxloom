@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/docsgen"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 )
 
 // registerDocsCmd mounts the shared documentation generator (internal/docsgen,
@@ -29,6 +30,10 @@ func registerDocsCmd(root *cobra.Command) {
 		LinkBase:  "/taskloom/reference/cli/",
 		ManTitle:  "TASKLOOM",
 		ManManual: "User Commands",
+		// taskloom's own config surface (internal/taskloom/config): the
+		// hand-authored schema is the source of truth GenConfig walks (see
+		// internal/docsgen/config.go's doc), same as ctxloom's.
+		ConfigSchema: taskloomconfig.SchemaPath,
 
 		MCPServer:  newMCPServer(),
 		MCPSource:  "cmd/taskloom/mcp_tools.go",

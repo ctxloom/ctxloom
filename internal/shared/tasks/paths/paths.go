@@ -1,7 +1,12 @@
 // Package paths provides the home-rooted and in-tree path conventions the
 // task store shares with ctxloom. Data layout is unchanged by the extraction:
-// task logs, the project registry, and the project marker all live where
-// ctxloom put them, under ~/.ctxloom and <projectDir>/.ctxloom.
+// task logs (ModeHome), the project registry, and the project marker all live
+// where ctxloom put them, under ~/.ctxloom and <projectDir>/.ctxloom. A
+// ModeRepo (repo-homed) task log is the one exception — see Mode and
+// TasksLogPath — living instead at <projectDir>/.taskloom/tasks.jsonl, a
+// deliberately separate dot-dir from .ctxloom because it (and its
+// config.yaml, see internal/taskloom/config) is meant to be COMMITTED, unlike
+// anything under .ctxloom/* (private working state, gitignored).
 package paths
 
 import (
@@ -34,6 +39,36 @@ const (
 
 	// TasksLogExt is the suffix for a per-project task log file.
 	TasksLogExt = ".jsonl"
+
+	// RepoDirName is the in-tree directory a REPO-HOMED task store (and its
+	// config.yaml) lives under — deliberately its own dot-dir, never nested
+	// under AppDirName (.ctxloom): .ctxloom/* is gitignored PRIVATE working
+	// state (see the root .gitignore), while .taskloom/config.yaml and (in
+	// repo-homed mode) .taskloom/tasks.jsonl are meant to be COMMITTED. Only
+	// the filelock sidecar (RepoTasksFileName + ".lock") is gitignored.
+	RepoDirName = ".taskloom"
+
+	// RepoTasksFileName is the repo-homed task log's file name, alongside
+	// RepoDirName's config.yaml.
+	RepoTasksFileName = "tasks.jsonl"
+)
+
+// Mode selects where a project's task-store log is homed. See
+// internal/taskloom/config for how it is resolved from taskloom's own
+// layered config (home < project < env < flag); this package only knows the
+// two path conventions each mode resolves to.
+type Mode string
+
+const (
+	// ModeHome is today's (pre-homing) behavior: the log lives PRIVATELY
+	// under ~/.ctxloom/tasks/<project-id>.jsonl, keyed by a minted/registered
+	// project-id. Never shared by a clone.
+	ModeHome Mode = "home"
+	// ModeRepo checks the log into the project tree itself, at
+	// <repoRoot>/.taskloom/tasks.jsonl — SHAREABLE, travels with clones. No
+	// project-id is minted or consulted in this mode: the repo path itself
+	// is the store's identity.
+	ModeRepo Mode = "repo"
 )
 
 // HomeProjectsDir returns ~/.ctxloom/projects — the home-rooted directory
@@ -66,21 +101,41 @@ func HomeTasksDir() (string, error) {
 	return filepath.Join(home, AppDirName, TasksDir), nil
 }
 
-// TasksLogPath returns ~/.ctxloom/tasks/<project-id>.jsonl — the append-only
-// task log for a project. The id is validated as a single clean path segment
-// first: it reaches here from an in-tree marker file, --project, and
-// CTXLOOM_PROJECT_ID, none of which are trusted to be traversal-free, and this
-// is the chokepoint where the id becomes a filesystem path (the lock file is
-// derived from it too).
-func TasksLogPath(projectID string) (string, error) {
-	if err := ValidateProjectID(projectID); err != nil {
-		return "", err
+// TasksLogPath resolves a project's task log path for the given homing mode.
+//
+// ModeRepo needs repoRoot (the project root, already redirected through any
+// linked-worktree-to-primary-checkout boundary by the caller — see
+// projectroot.TaskStoreRoot) and ignores projectID entirely: the repo path
+// itself is the store's identity in this mode, so no id is validated or
+// consulted. The result is
+// <repoRoot>/RepoDirName/RepoTasksFileName (.taskloom/tasks.jsonl).
+//
+// ModeHome — also the default for "", so every pre-homing caller keeps its
+// exact prior behavior unchanged — needs projectID and ignores repoRoot,
+// resolving ~/.ctxloom/tasks/<project-id>.jsonl exactly as before. The id is
+// validated as a single clean path segment first: it reaches here from an
+// in-tree marker file, --project, and CTXLOOM_PROJECT_ID, none of which are
+// trusted to be traversal-free, and this is the chokepoint where the id
+// becomes a filesystem path (the lock file is derived from it too).
+func TasksLogPath(mode Mode, repoRoot, projectID string) (string, error) {
+	switch mode {
+	case ModeRepo:
+		if repoRoot == "" {
+			return "", fmt.Errorf("repo-homed task store: no project root resolved")
+		}
+		return filepath.Join(repoRoot, RepoDirName, RepoTasksFileName), nil
+	case ModeHome, "":
+		if err := ValidateProjectID(projectID); err != nil {
+			return "", err
+		}
+		root, err := HomeTasksDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, projectID+TasksLogExt), nil
+	default:
+		return "", fmt.Errorf("task store: unknown homing mode %q", mode)
 	}
-	root, err := HomeTasksDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, projectID+TasksLogExt), nil
 }
 
 // ValidateProjectID reports whether id is safe to use as the single-segment

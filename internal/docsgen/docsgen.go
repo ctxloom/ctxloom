@@ -46,7 +46,7 @@ type Product struct {
 	Unhide []string
 	// ConfigSchema is the default path to the product's config JSON Schema, the
 	// source of truth for its configuration reference. Empty for products with
-	// no configuration file (taskloom, ltk).
+	// no configuration file (ltk).
 	ConfigSchema string
 
 	// MCPServer is the product's documentation-time MCP server, with the full
@@ -62,6 +62,16 @@ type Product struct {
 	// MCPIntro is the page's opening prose. It comes from code (e.g. the
 	// server's instructions constant), never hand-copied into the page.
 	MCPIntro string
+}
+
+// envPrefix reconstructs this product's confload.Product.EnvPrefix
+// (internal/shared/confload) purely from p.Bin, for GenConfig's override-chain
+// prose: every product in this family follows the SAME convention — its
+// upper-cased binary name plus "_CONFIG_" ("ctxloom" -> "CTXLOOM_CONFIG_",
+// "taskloom" -> "TASKLOOM_CONFIG_") — so docsgen doesn't need its own copy of
+// each product's confload.Product to state it.
+func (p *Product) envPrefix() string {
+	return strings.ToUpper(p.Bin) + "_CONFIG_"
 }
 
 // PrepareTree readies the command tree for documentation generation: every

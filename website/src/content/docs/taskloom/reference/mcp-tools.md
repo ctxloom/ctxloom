@@ -33,12 +33,13 @@ Replace a task's text in place, keyed by its harp ID. Pass the full new text (th
 
 ### task_list
 
-List the project's tasks, optionally filtered by status, text term, or tag query (tag_query). Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).
+List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every project instead. When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global and the result's notice field says so. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
+| `global` | boolean | No | When true, aggregate tasks across EVERY project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all. |
 | `include_completed` | boolean | No | When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed. |
-| `include_summary` | boolean | No | When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. |
+| `include_summary` | boolean | No | When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set. |
 | `statuses` | string[] | No | Optional list of statuses to filter by (e.g. ["In Progress", "To Do"]). Empty = active tasks only (completed Done/Archived and Deferred tasks are hidden unless include_completed is set or such a status is named here). |
 | `tag_query` | string | No | Optional postfix (RPN) boolean tag filter, e.g. "urgent/release/and" (tagged both urgent AND release), "urgent/release/or", or "urgent/not" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: "urgent/release" behaves like "urgent/release/and". Empty = no tag filter. |
 | `term` | string | No | Optional case-insensitive substring filter against task text. |

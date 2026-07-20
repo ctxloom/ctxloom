@@ -248,7 +248,7 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		entry, err := operations.SetAgent(cfg, operations.SetAgentRequest{
+		entry, err := operations.SetAgent(config.DefaultManager(), cfg, operations.SetAgentRequest{
 			Name:        name,
 			Engine:      agentSetEngine,
 			Profiles:    agentSetProfiles,
@@ -327,8 +327,10 @@ Examples:
 		if _, ok := cfg.Agent(name); !ok {
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
-		cfg.SetDefaultAgent(name)
-		if err := cfg.Save(); err != nil {
+		if err := config.DefaultManager().Update(func(d *config.Draft) error {
+			d.DefaultAgent = name
+			return nil
+		}); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 		w.Printf("Set default agent to %q.\n", name)
@@ -351,7 +353,7 @@ var agentRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		if err := operations.RemoveAgent(cfg, name); err != nil {
+		if err := operations.RemoveAgent(config.DefaultManager(), cfg, name); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())

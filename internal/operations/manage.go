@@ -151,39 +151,32 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 // SetStatuslineRequest contains parameters for toggling the ctxloom HUD statusline.
 type SetStatuslineRequest struct {
 	Enabled bool `json:"enabled"`
-
-	// TestConfig, FS, AppDir mirror the MCP toggle for hermetic testing.
-	TestConfig *config.Config `json:"-"`
-	FS         afero.Fs       `json:"-"`
-	AppDir     string         `json:"-"`
 }
 
 // SetStatuslineResult reports the resulting statusline preference.
 type SetStatuslineResult struct {
-	Status     string         `json:"status"`
-	Statusline bool           `json:"statusline"`
-	Config     *config.Config `json:"-"`
+	Status     string `json:"status"`
+	Statusline bool   `json:"statusline"`
 }
 
-// SetStatusline persists whether ctxloom manages its HUD statusline. The change
-// takes effect on the next hook apply (`manage hooks install` / `ctxloom run`).
-func SetStatusline(_ context.Context, _ *config.Config, req SetStatuslineRequest) (*SetStatuslineResult, error) {
-	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
-	if err != nil {
-		return nil, err
+// SetStatusline persists whether ctxloom manages its HUD statusline, inside
+// one Manager.Update transaction. The change takes effect on the next hook
+// apply (`manage hooks install` / `ctxloom run`).
+func SetStatusline(_ context.Context, mgr *config.Manager, req SetStatuslineRequest) (*SetStatuslineResult, error) {
+	if mgr == nil {
+		return nil, fmt.Errorf("manager is required")
 	}
-
 	enabled := req.Enabled
-	freshCfg.SetStatuslineEnabled(enabled)
-
-	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
+	if err := mgr.Update(func(d *config.Draft) error {
+		d.Settings.Statusline = &enabled
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
 	return &SetStatuslineResult{
 		Status:     "updated",
 		Statusline: enabled,
-		Config:     freshCfg,
 	}, nil
 }
 

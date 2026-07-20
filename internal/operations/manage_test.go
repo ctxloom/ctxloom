@@ -86,15 +86,17 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 }
 
 func TestSetStatusline_PersistsPreference(t *testing.T) {
-	cfg := &config.Config{}
-	res, err := SetStatusline(context.Background(), cfg, SetStatuslineRequest{
-		Enabled:    false,
-		TestConfig: cfg,
-	})
+	_, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := config.NewManager(config.WithAppDir(appDir))
+
+	res, err := SetStatusline(context.Background(), mgr, SetStatuslineRequest{Enabled: false})
 	require.NoError(t, err)
 	assert.False(t, res.Statusline)
-	require.NotNil(t, cfg.GetSettings().Statusline)
-	assert.False(t, *cfg.GetSettings().Statusline, "the toggle records the preference in config")
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.GetSettings().Statusline)
+	assert.False(t, *reloaded.GetSettings().Statusline, "the toggle records the preference in config")
 }
 
 func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {

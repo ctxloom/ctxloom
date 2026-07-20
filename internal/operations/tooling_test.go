@@ -53,7 +53,7 @@ func TestCollectTooling_NilSafe(t *testing.T) {
 func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 
-	path, err := ScaffoldContainerBase(cfg, "", false)
+	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
 	require.NoError(t, err)
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -69,16 +69,17 @@ func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 // target is wired into config but its content is NEVER overwritten
 // (WIP safety) — unless force.
 func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "version: 5\n")
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
 	target := filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath)
 	require.NoError(t, os.WriteFile(target, []byte("FROM my/custom:base\n"), 0o644))
 
-	path, err := ScaffoldContainerBase(cfg, "", false)
+	path, err := ScaffoldContainerBase(mgr, cfg, "", false)
 	require.NoError(t, err)
 	b, _ := os.ReadFile(path)
 	assert.Equal(t, "FROM my/custom:base\n", string(b), "existing content adopted, not clobbered")
 
-	_, err = ScaffoldContainerBase(cfg, "", true)
+	_, err = ScaffoldContainerBase(mgr, cfg, "", true)
 	require.NoError(t, err)
 	b, _ = os.ReadFile(path)
 	assert.Equal(t, string(container.Base), string(b), "force rewrites from the embedded base")
@@ -87,9 +88,9 @@ func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
 // TestScaffoldContainerBase_AlreadyConfiguredIsNoOp: a config that already
 // points at a base Containerfile is returned as-is — the user owns it.
 func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "version: 5\nisolation_base_containerfile: custom/base.Containerfile\n")
+	cfg, appDir := loadConfigDir(t, "version: 5\nisolation_base_containerfile: custom/base.Containerfile\n")
 
-	path, err := ScaffoldContainerBase(cfg, "", false)
+	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(cfg.GetAppRoot(), "custom/base.Containerfile"), path)
 	_, statErr := os.Stat(filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath))

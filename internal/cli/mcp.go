@@ -221,12 +221,11 @@ func runMCPAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--command is required")
 	}
 
-	cfg, err := GetConfigForUpdate()
-	if err != nil {
+	if _, err := GetConfigForUpdate(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	result, err := operations.AddMCPServer(cmd.Context(), cfg, operations.AddMCPServerRequest{
+	result, err := operations.AddMCPServer(cmd.Context(), config.DefaultManager(), operations.AddMCPServerRequest{
 		Name:    name,
 		Command: mcpAddCommand,
 		Args:    mcpAddArgs,
@@ -272,12 +271,11 @@ var mcpServerRemoveCmd = &cobra.Command{
 func runMCPRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	cfg, err := GetConfigForUpdate()
-	if err != nil {
+	if _, err := GetConfigForUpdate(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	result, err := operations.RemoveMCPServer(cmd.Context(), cfg, operations.RemoveMCPServerRequest{
+	result, err := operations.RemoveMCPServer(cmd.Context(), config.DefaultManager(), operations.RemoveMCPServerRequest{
 		Name:    name,
 		Backend: mcpRemoveBackend,
 	})

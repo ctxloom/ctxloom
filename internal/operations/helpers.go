@@ -1,8 +1,6 @@
 package operations
 
 import (
-	"fmt"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -29,53 +27,6 @@ func getFS(fs afero.Fs) afero.Fs {
 		return afero.NewOsFs()
 	}
 	return fs
-}
-
-// loadFreshConfig loads a fresh config, or returns testConfig if provided.
-// This pattern is used by operations that modify config and need a fresh copy.
-//
-// fs is passed to config.WithFS UNRESOLVED (never pre-defaulted through
-// getFS): config.Config's injectedFS bit — which Save/Manager.Update gate
-// their cross-process advisory lock on — is keyed on whether WithFS ever
-// received a non-nil value, not on whether the resulting fs happens to be
-// the real OS filesystem (see injectedFS's doc in internal/config/config.go).
-// Pre-resolving a nil fs to a concrete afero.NewOsFs() before calling WithFS
-// (as this used to do via getFS) made every production caller through this
-// helper — every MCP-server config-mutation handler (add/remove MCP server,
-// set statusline) — look "explicitly injected" and permanently skip the
-// lock, even though it was the real on-disk config.yaml: exactly the
-// CLI-vs-MCP-server concurrent-Save scenario the lock exists to protect
-// (config_save.go's Save doc). Leaving fs nil here when the caller passed
-// nil lets loadUncached default to the OS filesystem internally while
-// correctly recording injectedFS=false, matching how the CLI's own
-// GetConfig/GetConfigForUpdate paths (which never call WithFS at all) always
-// have taken the lock.
-func loadFreshConfig(fs afero.Fs, appDir string, testConfig *config.Config) (*config.Config, error) {
-	if testConfig != nil {
-		return testConfig, nil
-	}
-
-	var opts []config.LoadOption
-	if fs != nil {
-		opts = append(opts, config.WithFS(fs))
-	}
-	if appDir != "" {
-		opts = append(opts, config.WithAppDir(appDir))
-	}
-
-	// LoadFresh, not Load: Load only bypasses its ambient memo when opts is
-	// non-empty, which used to be guaranteed by WithFS always being present
-	// (fs was pre-defaulted via getFS before this comment's fix). Now that a
-	// nil fs/empty appDir can leave opts empty, Load(opts...) would hand back
-	// the SHARED ambient Config — and every caller here goes on to mutate the
-	// result before Save, which would poison every other reader in the
-	// process (see LoadFresh's own doc). LoadFresh always calls loadUncached
-	// regardless of opts length, so this stays "a fresh copy" either way.
-	cfg, err := config.LoadFresh(opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	return cfg, nil
 }
 
 // newRepoCache creates a RepoCache rooted at the standard cache path for cfg.

@@ -1,8 +1,10 @@
 package operations
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +17,7 @@ import (
 
 // loadConfigDir writes a minimal config.yaml under a fresh .ctxloom and loads it,
 // returning the loaded config and the appDir. The write path (SetAgent/
-// RemoveAgent) needs a real on-disk config to round-trip through config.Save.
+// RemoveAgent) needs a real on-disk config to round-trip through Manager.Update.
 // It is real-OS-fs (no config.WithFS), so HOME is isolated first: config.Load
 // now also reads a home-layer config.yaml (D2/D3 layering), and this fixture
 // must never pick up the developer's real ~/.ctxloom.
@@ -30,13 +32,20 @@ func loadConfigDir(t *testing.T, body string) (*config.Config, string) {
 	return cfg, appDir
 }
 
+// managerFor returns the Manager targeting the same on-disk appDir a
+// loadConfigDir config was read from — the real read-modify-write transaction
+// SetAgent/RemoveAgent/ScaffoldContainerBase now perform, not a stand-in.
+func managerFor(appDir string) *config.Manager {
+	return config.NewManager(config.WithAppDir(appDir))
+}
+
 // TestSetAgent_RoundTripsThroughConfig proves the write half persists a
 // binding under the `agents:` key and that a fresh load reads it back — the
 // path the agent-assisted setup uses to record the user's choice.
 func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 
-	entry, err := SetAgent(cfg, SetAgentRequest{
+	entry, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "finder",
 		Engine:   "claude-fast",
 		Profiles: []string{"p1", "p2"},
@@ -60,8 +69,9 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 // at resolve time per fault tolerance).
 func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
 
-	_, err := SetAgent(cfg, SetAgentRequest{
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "developer",
 		Engine:   "claude-code",
 		Profiles: []string{"default"},
@@ -76,7 +86,7 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 	assert.Equal(t, "container", sub.Runtime)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(reloaded, SetAgentRequest{Name: "odd", Runtime: "podracer"})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Runtime: "podracer"})
 	require.NoError(t, err, "unknown runtime warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -91,8 +101,9 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 // is stored as written (advisory warn only; it resolves to the default posture).
 func TestSetAgent_PersistsPermissions(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
 
-	_, err := SetAgent(cfg, SetAgentRequest{
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:        "planner",
 		Engine:      "claude-code",
 		Profiles:    []string{"default"},
@@ -107,7 +118,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	assert.Equal(t, "plan", sub.Permissions)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(reloaded, SetAgentRequest{Name: "odd", Permissions: "wildwest"})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Permissions: "wildwest"})
 	require.NoError(t, err, "unknown permissions warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -120,12 +131,13 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 // the binding (whole-binding rewrite, not a merge).
 func TestSetAgent_UpdatesExisting(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
 
-	_, err := SetAgent(cfg, SetAgentRequest{Name: "dev", Engine: "a", Profiles: []string{"x"}})
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: "a", Profiles: []string{"x"}})
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(reloaded, SetAgentRequest{Name: "dev", Engine: "b", Profiles: []string{"y", "z"}})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: "b", Profiles: []string{"y", "z"}})
 	require.NoError(t, err)
 
 	final, err := config.Load(config.WithAppDir(appDir))
@@ -138,8 +150,8 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "version: 5\n")
-	_, err := SetAgent(cfg, SetAgentRequest{Name: "", Profiles: []string{"p"}})
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "", Profiles: []string{"p"}})
 	assert.Error(t, err)
 }
 
@@ -147,12 +159,13 @@ func TestSetAgent_EmptyName(t *testing.T) {
 // persists the removal.
 func TestRemoveAgent_RoundTrips(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	_, err := SetAgent(cfg, SetAgentRequest{Name: "finder", Profiles: []string{"p1"}})
+	mgr := managerFor(appDir)
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: []string{"p1"}})
 	require.NoError(t, err)
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
-	require.NoError(t, RemoveAgent(reloaded, "finder"))
+	require.NoError(t, RemoveAgent(mgr, reloaded, "finder"))
 
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -162,8 +175,8 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 
 // TestRemoveAgent_NotFound errors on an unknown name.
 func TestRemoveAgent_NotFound(t *testing.T) {
-	cfg, _ := loadConfigDir(t, "version: 5\n")
-	assert.Error(t, RemoveAgent(cfg, "nope"))
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	assert.Error(t, RemoveAgent(managerFor(appDir), cfg, "nope"))
 }
 
 // TestRemoveAgent_DirectorySourceRefused proves a directory-defined agent
@@ -178,9 +191,49 @@ func TestRemoveAgent_DirectorySourceRefused(t *testing.T) {
 	_, ok := reloaded.Agent("filed")
 	require.True(t, ok, "directory agent should be visible")
 
-	err = RemoveAgent(reloaded, "filed")
+	err = RemoveAgent(managerFor(appDir), reloaded, "filed")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "filed.yaml", "error must point at the file to delete")
+}
+
+// TestSetAgent_ConcurrentWritesAllSurvive proves the migrated write path: N
+// goroutines each SetAgent-ing a DISTINCT name against the SAME on-disk
+// project all survive. This is the concrete behavioural gain of routing
+// through Manager.Update — under the old cfg.Load()-mutate-cfg.Save()
+// bridge, each goroutine's Save() would persist only the agents its own,
+// possibly-stale Load() had seen, so concurrent writers routinely clobbered
+// one another. Manager.Update's fresh reload happens INSIDE the lock, so
+// every writer's change survives regardless of interleaving.
+func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
+
+	const n = 20
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = SetAgent(mgr, cfg, SetAgentRequest{
+				Name:     fmt.Sprintf("agent-%02d", i),
+				Profiles: []string{"p"},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoErrorf(t, err, "writer %d", i)
+	}
+
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("agent-%02d", i)
+		_, ok := final.Agent(name)
+		assert.Truef(t, ok, "%s must survive concurrent SetAgent calls — a lost write means the mutation escaped Manager.Update's locked transaction", name)
+	}
 }
 
 // --- the SessionStart detection nudge ------------------------------------

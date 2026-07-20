@@ -87,8 +87,9 @@ var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfi
 // ScaffoldContainerBase makes the base Containerfile EDITABLE: it materializes
 // the embedded default base to relPath (project-root-relative;
 // "" = DefaultContainerBasePath), wires `isolation_base_containerfile` in
-// config, and saves — so the default auto-build and `container build` pick the
-// file up from then on. Idempotent and WIP-safe:
+// config inside one Manager.Update transaction, and returns the path — so the
+// default auto-build and `container build` pick the file up from then on.
+// Idempotent and WIP-safe:
 //
 //   - config already points at a base Containerfile → returned as-is, nothing
 //     written (the user already owns one);
@@ -96,9 +97,17 @@ var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfi
 //     content never overwritten unless force;
 //   - otherwise the embedded default base is written, so edits start from
 //     exactly what the default build was using.
-func ScaffoldContainerBase(cfg *config.Config, relPath string, force bool) (string, error) {
+//
+// The already-configured guard reads cfg (an advisory pre-transaction check,
+// same shape as SetAgent's shadow-agent warning): the config write below is
+// an unconditional field set, not a read-check-then-write, so no lost-update
+// window exists for it to close.
+func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath string, force bool) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config is required")
+	}
+	if mgr == nil {
+		return "", fmt.Errorf("manager is required")
 	}
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
 		return existing, nil
@@ -117,8 +126,10 @@ func ScaffoldContainerBase(cfg *config.Config, relPath string, force bool) (stri
 		}
 	}
 
-	cfg.SetIsolationBaseContainerfile(relPath)
-	if err := cfg.Save(); err != nil {
+	if err := mgr.Update(func(d *config.Draft) error {
+		d.IsolationBaseContainerfile = relPath
+		return nil
+	}); err != nil {
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}
 	return abs, nil

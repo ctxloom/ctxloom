@@ -329,11 +329,10 @@ var manageMcpUninstallCmd = &cobra.Command{
 // setMcpAutoRegister toggles ctxloom's MCP auto-registration and prints the
 // resulting state.
 func setMcpAutoRegister(ctx context.Context, enabled bool) error {
-	cfg, err := GetConfig()
-	if err != nil {
+	if _, err := GetConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	result, err := operations.SetMCPAutoRegister(ctx, cfg, operations.SetMCPAutoRegisterRequest{Enabled: enabled})
+	result, err := operations.SetMCPAutoRegister(ctx, config.DefaultManager(), operations.SetMCPAutoRegisterRequest{Enabled: enabled})
 	if err != nil {
 		return err
 	}
@@ -379,11 +378,10 @@ var manageStatuslineUninstallCmd = &cobra.Command{
 
 // setStatusline persists the statusline preference and prints the resulting state.
 func setStatusline(ctx context.Context, enabled bool) error {
-	cfg, err := GetConfig()
-	if err != nil {
+	if _, err := GetConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	result, err := operations.SetStatusline(ctx, cfg, operations.SetStatuslineRequest{Enabled: enabled})
+	result, err := operations.SetStatusline(ctx, config.DefaultManager(), operations.SetStatuslineRequest{Enabled: enabled})
 	if err != nil {
 		return err
 	}

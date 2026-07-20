@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -192,39 +190,30 @@ type AddMCPServerRequest struct {
 	Backend      string   `json:"backend"`      // unified, claude-code, antigravity
 	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
 	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
-
-	// TestConfig is an optional pre-loaded config (for testing).
-	// When set, skips config.Load() and Save(), returning modified config in result.
-	TestConfig *config.Config `json:"-"`
-
-	// FS is an optional filesystem for testing. Used with AppDir.
-	FS afero.Fs `json:"-"`
-	// AppDir is the ctxloom directory path. Required when FS is set.
-	AppDir string `json:"-"`
 }
 
 // AddMCPServerResult contains the result of adding an MCP server.
 type AddMCPServerResult struct {
-	Status  string         `json:"status"`
-	Name    string         `json:"name"`
-	Command string         `json:"command"`
-	Backend string         `json:"backend"`
-	Message string         `json:"message"` // Operational status message
-	Config  *config.Config `json:"-"`       // Updated config for caller to store
+	Status  string `json:"status"`
+	Name    string `json:"name"`
+	Command string `json:"command"`
+	Backend string `json:"backend"`
+	Message string `json:"message"` // Operational status message
 }
 
-// AddMCPServer adds a new MCP server configuration.
-func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerRequest) (*AddMCPServerResult, error) {
+// AddMCPServer adds a new MCP server configuration, inside one Manager.Update
+// transaction: the duplicate-name check and the write happen against the same
+// locked, freshly-reloaded Draft, so a concurrent writer can never slip a
+// same-named server in between the check and the save.
+func AddMCPServer(ctx context.Context, mgr *config.Manager, req AddMCPServerRequest) (*AddMCPServerResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 	if req.Command == "" {
 		return nil, fmt.Errorf("command is required")
 	}
-
-	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
-	if err != nil {
-		return nil, err
+	if mgr == nil {
+		return nil, fmt.Errorf("manager is required")
 	}
 
 	server := wire.MCPServer{
@@ -234,21 +223,19 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		Installation: req.Installation,
 	}
 
-	if isUnifiedBackend(req.Backend) {
-		err = addUnifiedServer(freshCfg, req.Name, server)
-	} else {
-		err = addBackendServer(freshCfg, req.Backend, req.Name, server)
-	}
+	unified := isUnifiedBackend(req.Backend)
+	err := mgr.Update(func(d *config.Draft) error {
+		if unified {
+			return addUnifiedServer(d, req.Name, server)
+		}
+		return addBackendServer(d, req.Backend, req.Name, server)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
-		return nil, err
-	}
-
 	scope := "unified"
-	if !isUnifiedBackend(req.Backend) {
+	if !unified {
 		scope = req.Backend
 	}
 
@@ -258,7 +245,6 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		Command: req.Command,
 		Backend: scope,
 		Message: "Run apply_hooks to inject into backend settings",
-		Config:  freshCfg,
 	}, nil
 }
 
@@ -268,35 +254,32 @@ func isUnifiedBackend(backend string) bool {
 	return backend == "" || backend == "unified"
 }
 
-// addUnifiedServer inserts server into the unified map, erroring if name exists.
-func addUnifiedServer(cfg *config.Config, name string, server wire.MCPServer) error {
-	if cfg.HasMCPServer(name) {
+// addUnifiedServer inserts server into the draft's unified map, erroring if
+// name already exists.
+func addUnifiedServer(d *config.Draft, name string, server wire.MCPServer) error {
+	if _, ok := d.MCP.Servers[name]; ok {
 		return fmt.Errorf("MCP server %q already exists", name)
 	}
-	cfg.SetMCPServer(name, server)
+	if d.MCP.Servers == nil {
+		d.MCP.Servers = make(map[string]wire.MCPServer)
+	}
+	d.MCP.Servers[name] = server
 	return nil
 }
 
-// addBackendServer inserts server into a backend's plugin map, erroring if name
-// already exists for that backend.
-func addBackendServer(cfg *config.Config, backend, name string, server wire.MCPServer) error {
-	if cfg.HasMCPPluginServer(backend, name) {
+// addBackendServer inserts server into a backend's plugin map on the draft,
+// erroring if name already exists for that backend.
+func addBackendServer(d *config.Draft, backend, name string, server wire.MCPServer) error {
+	if _, ok := d.MCP.Plugins[backend][name]; ok {
 		return fmt.Errorf("MCP server %q already exists for backend %s", name, backend)
 	}
-	cfg.SetMCPPluginServer(backend, name, server)
-	return nil
-}
-
-// saveMCPConfig persists cfg unless a test config was injected (in which case
-// the caller inspects the returned config instead). With an afero FS but no
-// test config, Save writes to that FS.
-func saveMCPConfig(cfg *config.Config, testConfig *config.Config) error {
-	if testConfig != nil {
-		return nil
+	if d.MCP.Plugins == nil {
+		d.MCP.Plugins = make(map[string]map[string]wire.MCPServer)
 	}
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+	if d.MCP.Plugins[backend] == nil {
+		d.MCP.Plugins[backend] = make(map[string]wire.MCPServer)
 	}
+	d.MCP.Plugins[backend][name] = server
 	return nil
 }
 
@@ -304,43 +287,38 @@ func saveMCPConfig(cfg *config.Config, testConfig *config.Config) error {
 type RemoveMCPServerRequest struct {
 	Name    string `json:"name"`
 	Backend string `json:"backend"` // unified, claude-code, antigravity, or empty for all
-
-	// TestConfig is an optional pre-loaded config (for testing).
-	// When set, skips config.Load() and Save(), returning modified config in result.
-	TestConfig *config.Config `json:"-"`
-
-	// FS is an optional filesystem for testing. Used with AppDir.
-	FS afero.Fs `json:"-"`
-	// AppDir is the ctxloom directory path. Required when FS is set.
-	AppDir string `json:"-"`
 }
 
 // RemoveMCPServerResult contains the result of removing an MCP server.
 type RemoveMCPServerResult struct {
-	Status      string         `json:"status"`
-	Name        string         `json:"name"`
-	RemovedFrom []string       `json:"removed_from"`
-	Message     string         `json:"message"` // Operational status message
-	Config      *config.Config `json:"-"`       // Updated config for caller to store
+	Status      string   `json:"status"`
+	Name        string   `json:"name"`
+	RemovedFrom []string `json:"removed_from"`
+	Message     string   `json:"message"` // Operational status message
 }
 
-// RemoveMCPServer removes an MCP server configuration.
-func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServerRequest) (*RemoveMCPServerResult, error) {
+// RemoveMCPServer removes an MCP server configuration, inside one
+// Manager.Update transaction: the "does it exist anywhere" scan and the
+// deletes happen against the same locked, freshly-reloaded Draft, so a
+// concurrent writer can never resurrect an entry between the scan and the
+// save.
+func RemoveMCPServer(ctx context.Context, mgr *config.Manager, req RemoveMCPServerRequest) (*RemoveMCPServerResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
+	if mgr == nil {
+		return nil, fmt.Errorf("manager is required")
+	}
 
-	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
+	var removedFrom []string
+	err := mgr.Update(func(d *config.Draft) error {
+		removedFrom = removeMCPServerEntries(d, req.Backend, req.Name)
+		if len(removedFrom) == 0 {
+			return fmt.Errorf("MCP server %q not found", req.Name)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	removedFrom := removeMCPServerEntries(freshCfg, req.Backend, req.Name)
-	if len(removedFrom) == 0 {
-		return nil, fmt.Errorf("MCP server %q not found", req.Name)
-	}
-
-	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
 		return nil, err
 	}
 
@@ -349,7 +327,6 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 		Name:        req.Name,
 		RemovedFrom: removedFrom,
 		Message:     "Run apply_hooks to update backend settings",
-		Config:      freshCfg,
 	}, nil
 }
 
@@ -358,41 +335,54 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 // backend removes from the unified map and every plugin backend; "unified"
 // removes only from the unified map; any other value removes only from that
 // specific backend (the unified map is checked only for "" / "unified").
-func removeMCPServerEntries(cfg *config.Config, backend, name string) []string {
+func removeMCPServerEntries(d *config.Draft, backend, name string) []string {
 	var removedFrom []string
-	if isUnifiedBackend(backend) && removeUnifiedServer(cfg, name) {
+	if isUnifiedBackend(backend) && removeUnifiedServer(d, name) {
 		removedFrom = append(removedFrom, "unified")
 	}
 
 	switch {
 	case backend == "":
-		removedFrom = append(removedFrom, removeFromAllBackends(cfg, name)...)
+		removedFrom = append(removedFrom, removeFromAllBackends(d, name)...)
 	case backend != "unified":
-		if removeBackendServer(cfg, backend, name) {
+		if removeBackendServer(d, backend, name) {
 			removedFrom = append(removedFrom, backend)
 		}
 	}
 	return removedFrom
 }
 
-// removeUnifiedServer deletes name from the unified map, reporting whether it
-// was present.
-func removeUnifiedServer(cfg *config.Config, name string) bool {
-	return cfg.DeleteMCPServer(name)
+// removeUnifiedServer deletes name from the draft's unified map, reporting
+// whether it was present.
+func removeUnifiedServer(d *config.Draft, name string) bool {
+	if _, ok := d.MCP.Servers[name]; !ok {
+		return false
+	}
+	delete(d.MCP.Servers, name)
+	return true
 }
 
-// removeBackendServer deletes name from a specific backend, reporting whether
-// it was present.
-func removeBackendServer(cfg *config.Config, backend, name string) bool {
-	return cfg.DeleteMCPPluginServer(backend, name)
+// removeBackendServer deletes name from a specific backend on the draft,
+// reporting whether it was present.
+func removeBackendServer(d *config.Draft, backend, name string) bool {
+	servers, ok := d.MCP.Plugins[backend]
+	if !ok {
+		return false
+	}
+	if _, ok := servers[name]; !ok {
+		return false
+	}
+	delete(servers, name)
+	return true
 }
 
-// removeFromAllBackends deletes name from every plugin backend, returning the
-// backends it was removed from.
-func removeFromAllBackends(cfg *config.Config, name string) []string {
+// removeFromAllBackends deletes name from every plugin backend on the draft,
+// returning the backends it was removed from.
+func removeFromAllBackends(d *config.Draft, name string) []string {
 	var removed []string
-	for _, backend := range cfg.MCPPluginBackendNames() {
-		if cfg.DeleteMCPPluginServer(backend, name) {
+	for backend, servers := range d.MCP.Plugins {
+		if _, ok := servers[name]; ok {
+			delete(servers, name)
 			removed = append(removed, backend)
 		}
 	}
@@ -402,35 +392,26 @@ func removeFromAllBackends(cfg *config.Config, name string) []string {
 // SetMCPAutoRegisterRequest contains parameters for setting auto-register.
 type SetMCPAutoRegisterRequest struct {
 	Enabled bool `json:"enabled"`
-
-	// TestConfig is an optional pre-loaded config (for testing).
-	// When set, skips config.Load() and Save(), returning modified config in result.
-	TestConfig *config.Config `json:"-"`
-
-	// FS is an optional filesystem for testing. Used with AppDir.
-	FS afero.Fs `json:"-"`
-	// AppDir is the ctxloom directory path. Required when FS is set.
-	AppDir string `json:"-"`
 }
 
 // SetMCPAutoRegisterResult contains the result of setting auto-register.
 type SetMCPAutoRegisterResult struct {
-	Status       string         `json:"status"`
-	AutoRegister bool           `json:"auto_register"`
-	Message      string         `json:"message"` // Operational status message
-	Config       *config.Config `json:"-"`       // Updated config for caller to store
+	Status       string `json:"status"`
+	AutoRegister bool   `json:"auto_register"`
+	Message      string `json:"message"` // Operational status message
 }
 
-// SetMCPAutoRegister enables or disables auto-registration of ctxloom's MCP server.
-func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoRegisterRequest) (*SetMCPAutoRegisterResult, error) {
-	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
-	if err != nil {
-		return nil, err
+// SetMCPAutoRegister enables or disables auto-registration of ctxloom's MCP
+// server, inside one Manager.Update transaction.
+func SetMCPAutoRegister(ctx context.Context, mgr *config.Manager, req SetMCPAutoRegisterRequest) (*SetMCPAutoRegisterResult, error) {
+	if mgr == nil {
+		return nil, fmt.Errorf("manager is required")
 	}
-
-	freshCfg.SetMCPAutoRegisterCtxloom(req.Enabled)
-
-	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
+	enabled := req.Enabled
+	if err := mgr.Update(func(d *config.Draft) error {
+		d.MCP.AutoRegisterCtxloom = &enabled
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -438,6 +419,5 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 		Status:       "updated",
 		AutoRegister: req.Enabled,
 		Message:      "Run apply_hooks to update backend settings",
-		Config:       freshCfg,
 	}, nil
 }

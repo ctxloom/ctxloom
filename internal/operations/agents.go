@@ -88,20 +88,30 @@ type SetAgentRequest struct {
 	Permissions string   `json:"permissions,omitempty"`
 }
 
-// SetAgent adds or updates a LOCAL agent under the `agents:` config key
-// and persists it through config.Save's round-trip (config_save folds c.Agents
-// back into config.yaml). It is the write half the agent-assisted setup calls to
-// record the engine↔profile binding the user chose.
+// SetAgent adds or updates a LOCAL agent under the `agents:` config key,
+// inside one Manager.Update transaction — the write is a single locked,
+// freshly-reloaded read-modify-write rather than a Load, a mutation, and a
+// later Save that could race a concurrent writer. It is the write half the
+// agent-assisted setup calls to record the engine↔profile binding the user
+// chose.
+//
+// cfg is used only for the advisory reads below (the same-name shadow
+// warning, and resolving remote aliases for canonicalize-on-store); it is
+// never mutated. The bind itself is an unconditional whole-binding rewrite
+// (an update is a replace, not a merge), so it needs no read-check against
+// the transaction's fresh Draft the way a duplicate-detecting write would.
 //
 // Name-agnostic by construction: it stores whatever name/engine/profiles the
 // caller passes — the role taxonomy (developer/finder/code-review, per-language ×
 // lens) is the user's choice from the live scan, never enumerated here. Engine
 // is accepted as-is (the user's call); resolution/backend mapping happens later
-// in ResolveAgent. The full binding REPLACES any existing one of the same
-// name (an update is a whole-binding rewrite, not a merge).
-func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
+// in ResolveAgent.
+func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
+	}
+	if mgr == nil {
+		return nil, fmt.Errorf("manager is required")
 	}
 	name := req.Name
 	if name == "" {
@@ -143,10 +153,16 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
 	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
+	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
 
-	cfg.SetAgentEntry(name, agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions})
-
-	if err := cfg.Save(); err != nil {
+	err := mgr.Update(func(d *config.Draft) error {
+		if d.Agents == nil {
+			d.Agents = make(map[string]agents.Agent)
+		}
+		d.Agents[name] = entry
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
 	return &AgentEntry{
@@ -159,31 +175,39 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	}, nil
 }
 
-// RemoveAgent deletes a LOCAL agent from the `agents:` config key and
-// persists the removal. Only config-key agents are removable here: a
-// directory-sourced agent (.ctxloom/agents/<name>.yaml) is its own file and
-// is reported as such rather than silently left in place (the caller deletes the
-// file). An unknown name errors.
-func RemoveAgent(cfg *config.Config, name string) error {
+// RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one
+// Manager.Update transaction: the existence check and the delete happen
+// against the same locked, freshly-reloaded Draft, so a concurrent writer can
+// never resurrect the entry between the check and the save. Only config-key
+// agents are removable here: a directory-sourced agent
+// (.ctxloom/agents/<name>.yaml) is its own file and is reported as such
+// rather than silently left in place (the caller deletes the file). An
+// unknown name errors.
+//
+// cfg is consulted only to distinguish "defined as a file" from "not defined
+// at all" for the error message; it is never mutated.
+func RemoveAgent(mgr *config.Manager, cfg *config.Config, name string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is required")
+	}
+	if mgr == nil {
+		return fmt.Errorf("manager is required")
 	}
 	if name == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if !cfg.HasAgentEntry(name) {
-		// Distinguish "defined as a file" from "not defined at all" for a clear
-		// message — the config-key write path cannot delete a file.
-		if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
-			return fmt.Errorf("agent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
+	return mgr.Update(func(d *config.Draft) error {
+		if _, ok := d.Agents[name]; !ok {
+			// Distinguish "defined as a file" from "not defined at all" for a clear
+			// message — the config-key write path cannot delete a file.
+			if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
+				return fmt.Errorf("agent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
+			}
+			return fmt.Errorf("agent %q not found in config.yaml", name)
 		}
-		return fmt.Errorf("agent %q not found in config.yaml", name)
-	}
-	cfg.DeleteAgentEntry(name)
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("save after removing agent %q: %w", name, err)
-	}
-	return nil
+		delete(d.Agents, name)
+		return nil
+	})
 }
 
 // AgentSetupNudge returns a one-line, user-facing nudge toward

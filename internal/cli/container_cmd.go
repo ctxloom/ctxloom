@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -265,7 +266,7 @@ existing file at the target is adopted, never overwritten (--force overwrites).`
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		path, err := operations.ScaffoldContainerBase(cfg, containerScaffoldPath, containerScaffoldForce)
+		path, err := operations.ScaffoldContainerBase(config.DefaultManager(), cfg, containerScaffoldPath, containerScaffoldForce)
 		if err != nil {
 			return err
 		}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // =============================================================================
@@ -60,43 +61,52 @@ func llmDefaultTestCmd(format string) (*cobra.Command, *bytes.Buffer) {
 }
 
 // memConfig returns a config.Config backed by an in-memory filesystem (no
-// real HOME/project dir touched) that Save() can write to, for the `llm
-// default <name>` set-path tests.
-func memConfig(t *testing.T) *config.Config {
+// real HOME/project dir touched), plus the Manager targeting that SAME
+// filesystem/appDir, for the `llm default <name>` set-path tests: cfg serves
+// the read-only known-LLM check, mgr is what SetDefaultLLM's transaction
+// actually writes through.
+//
+// The seeded config.yaml names an explicit starting primary ("codex") rather
+// than leaving llm.defaults.primary absent: an absent primary is filled
+// in-memory by the shipped-default overlay (mergeDefaultConfig) at load
+// time, which would make "claude-code" look already-current the moment
+// Manager.Update's transaction re-reads the file, turning every "set
+// claude-code" test below into an "unchanged" one instead.
+func memConfig(t *testing.T) (*config.Config, *config.Manager) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: codex\n"), 0o644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
-	return cfg
+	mgr := config.NewManager(config.WithFS(fs), config.WithAppDir(appDir))
+	return cfg, mgr
 }
 
 func TestRunLLMDefault_Show_Text_PrintsCurrentDefault(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.SetPrimaryLabel("claude-code")
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Defaults: config.RoleDefaults{Primary: "claude-code"}}})
 	cmd, out := llmDefaultTestCmd("text")
 
-	require.NoError(t, runLLMDefault(cmd, cfg, nil))
+	require.NoError(t, runLLMDefault(cmd, nil, cfg, nil))
 	assert.Equal(t, "claude-code\n", out.String())
 }
 
 func TestRunLLMDefault_Show_JSON_EmitsStructuredResult(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.SetPrimaryLabel("claude-code")
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Defaults: config.RoleDefaults{Primary: "claude-code"}}})
 	cmd, out := llmDefaultTestCmd("json")
 
-	require.NoError(t, runLLMDefault(cmd, cfg, nil))
+	require.NoError(t, runLLMDefault(cmd, nil, cfg, nil))
 	var result llmDefaultShowResult
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 	assert.Equal(t, "claude-code", result.Default)
 }
 
 func TestRunLLMDefault_Set_JSON_EmitsSetDefaultLLMResult(t *testing.T) {
-	cfg := memConfig(t)
+	cfg, mgr := memConfig(t)
 	cmd, out := llmDefaultTestCmd("json")
 
-	require.NoError(t, runLLMDefault(cmd, cfg, []string{"claude-code"}))
+	require.NoError(t, runLLMDefault(cmd, mgr, cfg, []string{"claude-code"}))
 
 	var result operations.SetDefaultLLMResult
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
@@ -105,10 +115,10 @@ func TestRunLLMDefault_Set_JSON_EmitsSetDefaultLLMResult(t *testing.T) {
 }
 
 func TestRunLLMDefault_Set_Text_PrintsSetMessage(t *testing.T) {
-	cfg := memConfig(t)
+	cfg, mgr := memConfig(t)
 	cmd, out := llmDefaultTestCmd("text")
 
-	require.NoError(t, runLLMDefault(cmd, cfg, []string{"claude-code"}))
+	require.NoError(t, runLLMDefault(cmd, mgr, cfg, []string{"claude-code"}))
 	assert.Equal(t, "Default LLM set to: claude-code\n", out.String())
 }
 
@@ -116,6 +126,6 @@ func TestRunLLMDefault_Set_UnknownLLM_Errors(t *testing.T) {
 	cfg := &config.Config{}
 	cmd, _ := llmDefaultTestCmd("text")
 
-	err := runLLMDefault(cmd, cfg, []string{"not-a-real-llm"})
+	err := runLLMDefault(cmd, nil, cfg, []string{"not-a-real-llm"})
 	require.Error(t, err)
 }

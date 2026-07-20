@@ -25,7 +25,7 @@ With an LLM name argument, sets that LLM as the default.`,
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		return runLLMDefault(cmd, cfg, args)
+		return runLLMDefault(cmd, config.DefaultManager(), cfg, args)
 	},
 }
 
@@ -40,8 +40,10 @@ type llmDefaultShowResult struct {
 // runLLMDefault is the testable body of `ctxloom llm default`: with no args
 // it reports the current default; with one, it validates and sets it. Both
 // paths route through emit() so --format json/yaml/toml/markdown works
-// without duplicating this branch.
-func runLLMDefault(cmd *cobra.Command, cfg *config.Config, args []string) error {
+// without duplicating this branch. cfg serves the read-only show path and the
+// known-LLM validation; mgr is the write half SetDefaultLLM performs its
+// locked transaction through.
+func runLLMDefault(cmd *cobra.Command, mgr *config.Manager, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		result := llmDefaultShowResult{Default: cfg.PrimaryLabel()}
 		return emit(cmd, result, func() error {
@@ -56,7 +58,7 @@ func runLLMDefault(cmd *cobra.Command, cfg *config.Config, args []string) error 
 		return fmt.Errorf("unknown LLM %q; available: %s", name, strings.Join(available, ", "))
 	}
 
-	res, err := operations.SetDefaultLLM(cmd.Context(), cfg, operations.SetDefaultLLMRequest{Name: name})
+	res, err := operations.SetDefaultLLM(cmd.Context(), mgr, operations.SetDefaultLLMRequest{Name: name})
 	if err != nil {
 		return err
 	}

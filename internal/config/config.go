@@ -674,11 +674,6 @@ func (c *Config) GetDefaultLLMModel() string {
 	return model
 }
 
-// SetPrimaryLabel points the primary role at the given config label.
-func (c *Config) SetPrimaryLabel(label string) {
-	c.lm.Defaults.Primary = label
-}
-
 // GetCompactionLLM returns the backend type for the fast (compression) role.
 func (c *Config) GetCompactionLLM() string {
 	backend, _ := c.ResolveLLM(c.FastLabel())

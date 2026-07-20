@@ -79,12 +79,6 @@ func TestGetDefaultLLM(t *testing.T) {
 	})
 }
 
-func TestSetPrimaryLabel(t *testing.T) {
-	cfg := &Config{}
-	cfg.SetPrimaryLabel("quick")
-	assert.Equal(t, "quick", cfg.lm.Defaults.Primary)
-}
-
 // PrimaryLabel falls back to the sole configured label when no role default is
 // set, so a single-config project resolves without naming a role.
 func TestPrimaryLabel_SingleConfigFallback(t *testing.T) {

@@ -1,14 +1,12 @@
 // Package confload is the shared config-loading pattern every binary in the
 // ctxloom family (ctxloom, taskloom, ltk) uses to close the full precedence
-// chain layerconfig documents but does not itself resolve:
+// chain
 //
 //	home config file  <  project config file  <  ENV VARS  <  --set FLAGS
 //
-// confload owns stages 2b/2c/2d of layerconfig's two-stage model (see that
-// package's doc): given the already-merged home<project file layers (a
-// caller-supplied map, built however that product needs), it resolves
-// environment-variable and --set overrides against it and returns the fully
-// layered result.
+// confload owns the whole chain: reading and deep-merging the file layers
+// (via koanf, see Merge) and resolving environment-variable and --set
+// overrides against the merged result (ApplyOverrides).
 //
 // # Product
 //
@@ -61,6 +59,12 @@
 // `GEMINI_API_KEY` inside an LLM backend's env passthrough. See
 // resolvePath's preserveTypedCase parameter for the mechanics.
 //
+// This case-matching POLICY is entirely ours — koanf has no opinion on it,
+// and none of the koanf-provided pieces (Merge's deep-merge, the env
+// provider's prefix scan) touch it. koanf gives a value at a path; deciding
+// WHICH path a shell-mangled or user-typed name resolves to is resolvePath's
+// job, unchanged by the move to koanf underneath.
+//
 // # Overrides are captured once, resolved on every load
 //
 // ReadOverrides scans the process environment and a *pflag.FlagSet's --set
@@ -80,7 +84,7 @@
 // live base, on every load — exactly like the file layers themselves are
 // re-read on every load.
 //
-// # Config files are never decoded via viper
+// # Config files and merging are never routed through viper
 //
 // This package (and internal/config's own file-layer loading) reads config
 // FILES with yaml.Unmarshal only, never viper: viper lowercases every map
@@ -91,10 +95,22 @@
 // backend's `env: {GEMINI_API_KEY: ...}` reached the launched process as
 // `gemini_api_key` and the engine never saw its credential).
 // TestConfig_EnvMapKeyCasePreserved (internal/config) is the end-to-end guard
-// for this on ctxloom's own adoption of this package. This package does not
-// use viper AT ALL: --set's values arrive from pflag as plain strings
-// (StringArray), coerced by the same coerceEnvValue env values use, so there
-// is no typed-pflag-value problem for viper to solve here either.
+// for this on ctxloom's own adoption of this package. koanf (github.com/
+// knadh/koanf/v2) is deliberately CASE-SENSITIVE by design — its own docs
+// state `app.server.port` and `APP.SERVER.port` are different keys — which
+// is exactly why it is used here for the merge machinery viper cannot be
+// trusted with; the earlier hand-rolled layerconfig package (deep-merge,
+// list-replace, explicit-zero-beats-inheritance) is gone, replaced by Merge
+// below, which is backed by koanf's own default merge (map[string]any
+// deep-merge; anything else replaces) — the same semantics, koanf's
+// implementation. Two koanf-specific pitfalls are pinned by tests in this
+// package: koanf.Raw() round-trips values in a way that can surprise callers
+// (see TestKoanf_IntStaysInt — this package always reads results back via
+// Unmarshal, never Raw()), and koanf's default "." path delimiter would
+// shatter a literally-dotted config key such as an LLM label "gpt-4.1" (see
+// TestKoanf_DottedMapKeySurvives — this package uses delim, an ASCII Unit
+// Separator no real config key can contain, everywhere a koanf instance or
+// path-join is used).
 //
 // # Process boundaries: env crosses, flags do not
 //
@@ -113,10 +129,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/knadh/koanf/providers/confmap"
+	koanf "github.com/knadh/koanf/v2"
 	"gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 )
+
+// delim is the path delimiter every koanf.Koanf instance and koanf/maps call
+// in this package uses — deliberately NOT "." (koanf's own default). "." is
+// a legal character inside a real config key: an LLM config can legitimately
+// be labeled "gpt-4.1", and koanf's default delimiter would silently split
+// that one key into two path segments ("gpt-4" then "1") the instant
+// anything in this package flattened or unflattened a path through it. "\x1f"
+// (ASCII Unit Separator) is a non-printable control character no YAML author,
+// env-var segment, or --set path segment could ever type as part of a real
+// key, so it can never collide. See TestKoanf_DottedMapKeySurvives.
+const delim = "\x1f"
 
 // Product identifies one ctxloom-family binary's config conventions.
 //
@@ -156,13 +183,11 @@ func (p Product) HomeConfigPath(home string) string {
 	return filepath.Join(home, p.DirName, p.FileName)
 }
 
-// Sources is stage-1 bootstrap's output: WHICH files stage 2 (this package,
-// plus layerconfig.Merge) reads and layers. Resolving these paths — walking
-// up from cwd, an explicit root override, a home-directory fallback — is
-// each product's own business (see layerconfig's package doc on why bootstrap
-// and value-layering are deliberately separate concerns); confload only
-// consumes the result. Either field may be empty, meaning that layer
-// contributes nothing (mirrors layerconfig.Layer's nil-Values no-op).
+// Sources is stage-1 bootstrap's output: WHICH files stage 2 (this package)
+// reads and layers. Resolving these paths — walking up from cwd, an explicit
+// root override, a home-directory fallback — is each product's own business;
+// confload only consumes the result. Either field may be empty, meaning that
+// layer contributes nothing.
 type Sources struct {
 	HomePath    string
 	ProjectPath string
@@ -171,21 +196,20 @@ type Sources struct {
 // Overrides is the process-wide env/CLI override capture ReadOverrides
 // produces — see the package doc's "Overrides are captured once, resolved on
 // every load" section. Both fields are RAW (unresolved against any
-// particular base): Env.Values is keyed by an override env var's name with
-// EnvPrefix stripped (e.g. "AGENTS_MYCODER_RUNTIME"); Flags.Values is keyed
-// by the pflag name that changed (e.g. "agents.mycoder.runtime" or
-// "default-agent"). The zero Overrides{} is a legitimate "no overrides" value
-// (both Values nil), matching layerconfig.Layer's own nil-Values no-op.
+// particular base): Env is keyed by an override env var's name with
+// EnvPrefix stripped (e.g. "AGENTS_MYCODER_RUNTIME"); Flags is keyed by a
+// --set entry's dotted path (e.g. "agents.mycoder.runtime"). The zero
+// Overrides{} is a legitimate "no overrides" value (both maps nil).
 type Overrides struct {
-	Env   layerconfig.Layer
-	Flags layerconfig.Layer
+	Env   map[string]any
+	Flags map[string]any
 }
 
 // Load is the full four-layer convenience entry point: read HomePath and
-// ProjectPath (plain case-preserving YAML — see the ABSOLUTE CONSTRAINT
-// above), deep-merge them (layerconfig.Merge; project beats home), then
-// resolve o's overrides against the result (ApplyOverrides), and return the
-// fully-layered raw map.
+// ProjectPath (plain case-preserving YAML — see the package doc's "Config
+// files and merging are never routed through viper" section), deep-merge
+// them (Merge; project beats home), then resolve o's overrides against the
+// result (ApplyOverrides), and return the fully-layered raw map.
 //
 // Load does NOT validate against any schema or unmarshal into a typed
 // struct — each product owns its own schema and Go type, so that stays the
@@ -196,14 +220,14 @@ type Overrides struct {
 // instead — ApplyOverrides is independently exported for exactly that
 // reason.
 func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
-	var layers []layerconfig.Layer
+	var layers []map[string]any
 
 	homeValues, err := readYAMLFile(src.HomePath)
 	if err != nil {
 		return nil, err
 	}
 	if homeValues != nil {
-		layers = append(layers, layerconfig.Layer{Name: "home", Values: homeValues})
+		layers = append(layers, homeValues)
 	}
 
 	projectValues, err := readYAMLFile(src.ProjectPath)
@@ -211,18 +235,17 @@ func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 		return nil, err
 	}
 	if projectValues != nil {
-		layers = append(layers, layerconfig.Layer{Name: "project", Values: projectValues})
+		layers = append(layers, projectValues)
 	}
 
-	base := layerconfig.Merge(layers...)
+	base := Merge(layers...)
 	return p.ApplyOverrides(base, o)
 }
 
 // readYAMLFile decodes path into a presence-tracked map[string]any via
-// yaml.Unmarshal — never viper (see the package doc's ABSOLUTE CONSTRAINT). A
-// missing file is not an error (config files are optional); it returns (nil,
-// nil), which Load treats as "this layer contributes nothing", exactly
-// mirroring layerconfig.Layer's own nil-Values no-op.
+// yaml.Unmarshal — never viper (see the package doc). A missing file is not
+// an error (config files are optional); it returns (nil, nil), which Load
+// treats as "this layer contributes nothing".
 func readYAMLFile(path string) (map[string]any, error) {
 	if path == "" {
 		return nil, nil
@@ -239,4 +262,70 @@ func readYAMLFile(path string) (map[string]any, error) {
 		return nil, fmt.Errorf("confload: parse %s: %w", path, err)
 	}
 	return values, nil
+}
+
+// Merge deep-merges layers in ASCENDING precedence order: layers[0] is the
+// weakest (e.g. home), layers[len-1] the strongest (e.g. CLI arguments).
+// Typical call: Merge(home, project, env, cli).
+//
+// Merge rules, applied key by key, recursively — this is koanf's own default
+// merge behavior (github.com/knadh/koanf/v2, via its confmap provider),
+// deliberately never overridden with a custom koanf.WithMergeFunc:
+//
+//   - A key present in a higher layer always wins over the same key in a
+//     lower layer, REGARDLESS of its value — including its zero value. This
+//     is the explicit-zero-beats-inheritance rule: a project setting
+//     `feature: false` beats an inherited `feature: true` from home, because
+//     presence — not truthiness — is what koanf's merge consults. See
+//     TestKoanf_ExplicitZeroBeatsInheritance.
+//   - A key present in a lower layer but ABSENT from every higher layer is
+//     inherited unchanged.
+//   - When the same key holds a map[string]any in BOTH layers, the maps are
+//     merged recursively (deep merge) rather than one replacing the other —
+//     so a project can override one nested field without restating its
+//     siblings.
+//   - Any other type — including slices/lists — is replaced wholesale by the
+//     higher layer's value, never concatenated or otherwise combined. A
+//     project's list REPLACES home's list. This is deliberate: concatenation
+//     would make it impossible for a project to shorten or remove an
+//     inherited entry without inventing a negation syntax. A project that
+//     wants "home's list plus one more" restates the whole list. See
+//     TestKoanf_ListsReplaceNotConcat.
+//
+// Merge never mutates its inputs; each layer is copied into koanf before
+// being merged in, so every returned map (including nested ones) is
+// independent of the caller's originals.
+//
+// Merge reads the result back out via Unmarshal, never koanf's Raw()/All():
+// Raw() round-trips a value in a way that can surprise a caller expecting an
+// int to stay an int (see TestKoanf_IntStaysInt) — Unmarshal into a plain
+// map[string]any does not have this problem and is used exclusively here.
+func Merge(layers ...map[string]any) map[string]any {
+	k := koanf.New(delim)
+	for _, layer := range layers {
+		if len(layer) == 0 {
+			continue
+		}
+		// confmap.Provider with an empty delim treats layer as an
+		// already-nested map (never unflattened) and hands it to k.Load with
+		// a nil Parser, which cannot itself fail for an in-memory provider —
+		// the error return exists only because Load's signature is generic
+		// across providers that DO fail (e.g. a file that vanished mid-read).
+		if err := k.Load(confmap.Provider(layer, ""), nil); err != nil {
+			continue
+		}
+	}
+
+	var out map[string]any
+	if err := k.Unmarshal("", &out); err != nil {
+		// Unmarshal into map[string]any cannot itself fail for content that
+		// came from confmap.Provider (no decode-hook type mismatch is
+		// possible against an interface{}-valued target) — guarded rather
+		// than ignored, matching layerconfig.Merge's total nil-safety.
+		return map[string]any{}
+	}
+	if out == nil {
+		out = map[string]any{}
+	}
+	return out
 }

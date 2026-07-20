@@ -4,15 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
 
+	kmaps "github.com/knadh/koanf/maps"
+	kenv "github.com/knadh/koanf/providers/env/v2"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 )
 
 // SetFlagName is the repeatable persistent flag every CLI-override goes
@@ -25,19 +26,23 @@ const SetFlagName = "set"
 // section. It does NOT resolve anything against a config base; that happens
 // later, per load, in ApplyOverrides/Load.
 //
-// Env is built by scanning os.Environ() for vars starting with p.EnvPrefix:
-// each is coerced (coerceEnvValue) and stored keyed by its name with
-// EnvPrefix stripped (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
+// Env is built by koanf's env provider (github.com/knadh/koanf/providers/
+// env/v2), which scans os.Environ() for vars starting with p.EnvPrefix and
+// hands each surviving "name=value" pair through a TransformFunc that strips
+// EnvPrefix and coerces the value (coerceEnvValue), stored keyed by the
+// stripped name (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
 // "AGENTS_MYCODER_RUNTIME"). Bootstrap vars (CTXLOOM_ROOT, CTXLOOM_DEGRADED,
 // ...) are excluded structurally, not by name: a correctly-scoped EnvPrefix
 // always carries an extra "_CONFIG_" segment none of them contain (see the
-// package doc's Product field comment).
+// package doc's Product field comment). The provider is given an empty
+// delim, so it returns the flat, un-nested map this stage wants — path
+// resolution against a specific base happens later, in ApplyOverrides.
 //
 // # Flags: --set is the ONLY source, deliberately
 //
 // Flags is built EXCLUSIVELY from fs's --set values (nil fs, or an fs with no
 // --set flag registered, is valid — a caller with no CLI overrides to
-// contribute returns an empty Flags layer, not an error). This package used
+// contribute returns an empty Flags map, not an error). This package used
 // to scan fs.VisitAll for every CHANGED flag on the invoked command and treat
 // each one's own NAME as a candidate config path. That is unsound: a
 // cobra.Command's FlagSet is that command's entire business-flag namespace
@@ -57,23 +62,26 @@ const SetFlagName = "set"
 // Each --set value must be "<path>=<value>"; a missing "=" or an empty path
 // is a reported error (joined across every malformed entry), not silently
 // dropped. The value is coerced exactly like an env var's (coerceEnvValue) —
-// bool, then int, then a comma-separated list, else a plain string. Because
-// --set's value always arrives from pflag as a plain string (StringArray),
-// there is no typed-flag-value problem to solve here the way an arbitrary
-// bool/int/stringSlice flag would pose — no viper, or any other pflag-typed
-// reader, is needed anywhere in this package.
+// bool, then int, then a comma-separated list, else a plain string.
 func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
-	envValues := map[string]any{}
-	for _, kv := range os.Environ() {
-		name, raw, ok := strings.Cut(kv, "=")
-		if !ok || !strings.HasPrefix(name, p.EnvPrefix) {
-			continue
-		}
-		suffix := strings.TrimPrefix(name, p.EnvPrefix)
-		if suffix == "" {
-			continue
-		}
-		envValues[suffix] = coerceEnvValue(raw)
+	envProvider := kenv.Provider("", kenv.Opt{
+		Prefix: p.EnvPrefix,
+		TransformFunc: func(name, raw string) (string, any) {
+			suffix := strings.TrimPrefix(name, p.EnvPrefix)
+			if suffix == "" {
+				// An empty TransformFunc key return tells the provider to
+				// omit the entry entirely -- mirrors the manual scan's own
+				// `if suffix == "" { continue }`.
+				return "", nil
+			}
+			return suffix, coerceEnvValue(raw)
+		},
+	})
+	envValues, err := envProvider.Read()
+	if err != nil {
+		// The env provider's Read() has no I/O path that can fail (it only
+		// walks os.Environ() in memory) -- guarded rather than ignored.
+		return Overrides{}, fmt.Errorf("confload: read env overrides: %w", err)
 	}
 
 	flagValues := map[string]any{}
@@ -97,10 +105,7 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 		// caller with nothing to contribute) -- not a real error to report.
 	}
 
-	return Overrides{
-		Env:   layerconfig.Layer{Name: "env", Values: envValues},
-		Flags: layerconfig.Layer{Name: "cli", Values: flagValues},
-	}, errors.Join(errs...)
+	return Overrides{Env: envValues, Flags: flagValues}, errors.Join(errs...)
 }
 
 // Stamp returns a cheap, deterministic identity for o's raw content — changes
@@ -112,7 +117,7 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 // rationale. The zero Overrides{} stamps as "env:|cli:", a stable constant a
 // caller can compare against to detect "no overrides installed at all".
 func (o Overrides) Stamp() string {
-	return "env:" + stampFlat(o.Env.Values) + "|cli:" + stampFlat(o.Flags.Values)
+	return "env:" + stampFlat(o.Env) + "|cli:" + stampFlat(o.Flags)
 }
 
 // stampFlat renders a flat map deterministically (sorted keys) for Stamp.
@@ -145,7 +150,10 @@ func stampFlat(m map[string]any) string {
 // Each raw override name (an env var's EnvPrefix-stripped suffix, split on
 // "_"; a --set path, split on ".") is resolved against base by resolvePath —
 // see its doc for the full four-outcome algorithm (unique match / ambiguous /
-// unset-but-schema-valid / unknown).
+// unset-but-schema-valid / unknown). This is policy koanf has no part in:
+// koanf's job ends at "here is a value at a path"; deciding WHICH path a
+// case-mangled env name or user-typed --set path resolves to is entirely
+// ours.
 //
 // # Env vs. --set: case handling deliberately diverges
 //
@@ -187,20 +195,18 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// DEDICATED namespace exactly like EnvPrefix is for env (see
 	// ReadOverrides' doc) -- everything reaching either one already declared
 	// itself a config override, so there is no more "this might just be an
-	// unrelated flag" ambiguity to protect against, and the asymmetry a
-	// prior revision of this package had here (silently dropping unrecognized
-	// flags) is gone along with the fs.VisitAll scan that made it necessary.
+	// unrelated flag" ambiguity to protect against.
 	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
-	base = layerconfig.Merge(layerconfig.Layer{Name: "files", Values: base}, envLayer)
+	base = Merge(base, envLayer)
 
 	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
-	base = layerconfig.Merge(layerconfig.Layer{Name: "files+env", Values: base}, flagLayer)
+	base = Merge(base, flagLayer)
 
 	return base, errors.Join(errs...)
 }
@@ -238,19 +244,25 @@ func setTokens(path string) []string {
 }
 
 // resolveRaw is the shared engine ApplyOverrides runs twice (once for env,
-// once for --set): it walks raw.Values in deterministic (sorted) key order,
+// once for --set): it walks raw in deterministic (sorted) key order,
 // tokenizes each key via tokenize, resolves it against base via resolvePath,
 // and places the (already-typed) value at the resolved path in the returned
-// layer. sourceName renders a raw key into the display form resolvePath's
+// map. sourceName renders a raw key into the display form resolvePath's
 // diagnostics (and clidiag warnings) use. preserveTypedCase is threaded
 // straight through to resolvePath — see that function's doc for the env-vs-
 // --set case divergence it controls.
-func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (layerconfig.Layer, error) {
-	out := map[string]any{}
+//
+// Every resolved (path, value) pair is collected into a FLAT map keyed by
+// the path segments joined with delim, then unflattened in one pass via
+// koanf/maps.Unflatten — the koanf-provided replacement for this package's
+// former hand-rolled setPath helper (see delim's doc for why "." itself is
+// never used as the join/split character here).
+func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (map[string]any, error) {
+	flat := map[string]any{}
 	var errs []error
 
-	names := make([]string, 0, len(raw.Values))
-	for name := range raw.Values {
+	names := make([]string, 0, len(raw))
+	for name := range raw {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -270,24 +282,27 @@ func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",
 				display, strings.Join(path, "."))
 		}
-		setPath(out, path, raw.Values[name])
+		flat[strings.Join(path, delim)] = raw[name]
 	}
 
-	return layerconfig.Layer{Name: raw.Name, Values: out}, errors.Join(errs...)
+	return kmaps.Unflatten(flat, delim), errors.Join(errs...)
 }
 
-// coerceEnvValue converts a raw environment string into the Go value a
+// coerceEnvValue converts a raw environment/--set string into the Go value a
 // schema-typed field expects: bool (strconv.ParseBool), then int
 // (strconv.ParseInt base 10), then — if the string contains a comma — a
 // []any of its (independently coerced) comma-separated, trimmed parts, and
 // otherwise the string unchanged.
 //
-// This uses strconv directly rather than viper's typed getters (GetBool,
-// GetInt, ...) deliberately: those swallow a parse failure and silently
-// return the type's zero value, which is exactly wrong for TYPE DETECTION —
-// asking "is this a bool" via GetBool always says yes (possibly false). This
-// package needs the parse itself to report success/failure to choose the
-// right type at all.
+// This is a policy decision entirely ours, not koanf's: koanf's own getters
+// (Bool()/Int()/...) require the CALLER to already know which typed getter
+// to ask for, which presupposes knowing the schema shape at the call site —
+// exactly what this package cannot assume, since KnownPath is an optional,
+// caller-supplied predicate and an override may target a path with no schema
+// knowledge at all (case 4). coerceEnvValue instead does TYPE DETECTION from
+// the raw string itself, uses strconv directly (not a swallow-on-failure
+// typed getter) so a parse failure correctly falls through to the next
+// candidate type instead of silently returning a zero value.
 func coerceEnvValue(raw string) any {
 	if b, err := strconv.ParseBool(raw); err == nil {
 		return b
@@ -304,25 +319,6 @@ func coerceEnvValue(raw string) any {
 		return list
 	}
 	return raw
-}
-
-// setPath writes value into out at the nested location path names, creating
-// intermediate map[string]any levels as needed without disturbing sibling
-// keys already present at any level.
-func setPath(out map[string]any, path []string, value any) {
-	m := out
-	for i, seg := range path {
-		if i == len(path)-1 {
-			m[seg] = value
-			return
-		}
-		next, ok := m[seg].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			m[seg] = next
-		}
-		m = next
-	}
 }
 
 // resolvePath is the resolution engine shared by both overlays (env and cli).
@@ -344,6 +340,7 @@ func setPath(out map[string]any, path []string, value any) {
 //     More than one existing key folding to the same candidate is case 2:
 //     resolution stops immediately with an error naming sourceName and every
 //     colliding candidate.
+//
 //  2. Schema-guided fallback: once base can no longer guide the walk (a
 //     level absent from base, or base ran out before tokens did), every way
 //     of partitioning the REMAINING tokens into contiguous groups is tried,

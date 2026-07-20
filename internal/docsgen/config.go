@@ -279,7 +279,7 @@ func branchTitle(br map[string]any, i int) string {
 
 // overrideChainSection renders the cross-cutting "how to override any of
 // this" explanation: the full precedence chain
-// (internal/shared/confload/internal/shared/layerconfig implement it) and
+// (internal/shared/confload implements it) and
 // the CTXLOOM_CONFIG_ env-var / CLI-flag naming convention. This can't be
 // attached to any single schema property — it applies to EVERY field alike —
 // so it lives here as fixed prose rather than per-field description text,

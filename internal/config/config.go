@@ -25,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -802,7 +801,7 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 // shared ambient instance would let a mutation abandoned on an error path leak
 // into every later reader.
 //
-// Resolution is two-stage (see internal/shared/layerconfig's package doc for
+// Resolution is two-stage (see internal/shared/confload's package doc for
 // the general primitive this implements):
 //
 //  1. Bootstrap — WHICH directories participate. findAppDir resolves the
@@ -1115,7 +1114,7 @@ func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfig
 
 // loadLayeredConfig is Load's stage-2 entry point: it reads every
 // participating config.yaml layer (home, then project — ascending
-// precedence), deep-merges their decoded values via layerconfig.Merge (home <
+// precedence), deep-merges their decoded values via confload.Merge (home <
 // project; D1 lists replace, D3 explicit-zero beats inheritance), and
 // populates cfg from the merged result exactly once. homeConfigPath == ""
 // means no separate home layer exists (see resolveConfigLayerPaths) — that
@@ -1139,7 +1138,7 @@ func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfig
 // ALSO empty, so it stays byte-for-byte the pre-override behavior in the
 // common case while still closing the "nothing to merge into" corner.
 func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, validator *schema.ConfigValidator, fs afero.Fs, product confload.Product, overrides confload.Overrides) error {
-	var layers []layerconfig.Layer
+	var layers []map[string]any
 
 	if homeConfigPath != "" {
 		homeValues, pending, err := loadConfigLayer(cfg, homeConfigPath, validator, fs)
@@ -1148,7 +1147,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		}
 		cfg.HomePendingUpgrade = pending
 		if homeValues != nil {
-			layers = append(layers, layerconfig.Layer{Name: "home", Values: homeValues})
+			layers = append(layers, homeValues)
 		}
 	}
 
@@ -1158,10 +1157,10 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	}
 	cfg.PendingUpgrade = pending
 	if projectValues != nil {
-		layers = append(layers, layerconfig.Layer{Name: "project", Values: projectValues})
+		layers = append(layers, projectValues)
 	}
 
-	if len(layers) == 0 && len(overrides.Env.Values) == 0 && len(overrides.Flags.Values) == 0 {
+	if len(layers) == 0 && len(overrides.Env) == 0 && len(overrides.Flags) == 0 {
 		// Neither layer had a config.yaml on disk at all, and there is no
 		// override to apply either — cfg keeps the zero-value defaults
 		// loadUncached constructed it with, exactly as the pre-layering
@@ -1169,7 +1168,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		return nil
 	}
 
-	merged := layerconfig.Merge(layers...)
+	merged := confload.Merge(layers...)
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
 		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})

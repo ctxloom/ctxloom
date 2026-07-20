@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 )
 
 // testProduct is a generic (non-ctxloom) Product used to exercise confload's
@@ -195,8 +193,8 @@ func TestEnvOverlay_BootstrapVarsExcluded(t *testing.T) {
 	o, err := p.ReadOverrides(nil)
 	require.NoError(t, err)
 
-	assert.NotContains(t, o.Env.Values, "ROOT")
-	assert.Len(t, o.Env.Values, 1)
+	assert.NotContains(t, o.Env, "ROOT")
+	assert.Len(t, o.Env, 1)
 
 	out, err := p.ApplyOverrides(map[string]any{}, o)
 	require.NoError(t, err)
@@ -254,7 +252,7 @@ func TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig(t *testing.T) {
 	p := testProduct("default_agent")
 	o, err := p.ReadOverrides(fs)
 	require.NoError(t, err)
-	assert.Empty(t, o.Flags.Values, "an unset --set must not appear in the raw override capture")
+	assert.Empty(t, o.Flags, "an unset --set must not appear in the raw override capture")
 
 	base := map[string]any{"default_agent": "from-config-file"}
 	out, err := p.ApplyOverrides(base, o)
@@ -316,7 +314,7 @@ func TestSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 	}
 	o, err := p.ReadOverrides(fs)
 	require.NoError(t, err)
-	assert.Empty(t, o.Flags.Values, "only --set may contribute; a same-named command flag must never be scanned at all")
+	assert.Empty(t, o.Flags, "only --set may contribute; a same-named command flag must never be scanned at all")
 
 	out, err := p.ApplyOverrides(base, o)
 	require.NoError(t, err)
@@ -503,9 +501,9 @@ func TestConfload_SecondProductReusesPattern(t *testing.T) {
 // -- the property internal/config's ambientStamp folding depends on.
 func TestOverrides_Stamp_ChangesWithContent(t *testing.T) {
 	empty := Overrides{}
-	withEnv := Overrides{Env: layerconfig.Layer{Name: "env", Values: map[string]any{"FOO": "bar"}}}
-	withEnvAgain := Overrides{Env: layerconfig.Layer{Name: "env", Values: map[string]any{"FOO": "bar"}}}
-	withDifferentEnv := Overrides{Env: layerconfig.Layer{Name: "env", Values: map[string]any{"FOO": "baz"}}}
+	withEnv := Overrides{Env: map[string]any{"FOO": "bar"}}
+	withEnvAgain := Overrides{Env: map[string]any{"FOO": "bar"}}
+	withDifferentEnv := Overrides{Env: map[string]any{"FOO": "baz"}}
 
 	assert.NotEqual(t, empty.Stamp(), withEnv.Stamp())
 	assert.Equal(t, withEnv.Stamp(), withEnvAgain.Stamp())

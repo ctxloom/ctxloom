@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -24,7 +23,7 @@ func TestOverrides_SurviveMemoReread(t *testing.T) {
 	writeProjectConfig(t, "version: 6\ndefault_agent: alpha\n")
 
 	SetOverrides(confload.Overrides{
-		Env: layerValues(map[string]any{"DEFAULT_AGENT": "beta"}),
+		Env: map[string]any{"DEFAULT_AGENT": "beta"},
 	})
 	t.Cleanup(ResetOverrides)
 
@@ -51,7 +50,7 @@ func TestOverrides_AppliedOnExplicitAppDirLoad(t *testing.T) {
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\ndefault_agent: alpha\n"), 0o644))
 
 	SetOverrides(confload.Overrides{
-		Env: layerValues(map[string]any{"DEFAULT_AGENT": "beta"}),
+		Env: map[string]any{"DEFAULT_AGENT": "beta"},
 	})
 	t.Cleanup(ResetOverrides)
 
@@ -67,7 +66,7 @@ func TestOverrides_AppliedOnLoadFresh(t *testing.T) {
 	writeProjectConfig(t, "version: 6\ndefault_agent: alpha\n")
 
 	SetOverrides(confload.Overrides{
-		Env: layerValues(map[string]any{"DEFAULT_AGENT": "beta"}),
+		Env: map[string]any{"DEFAULT_AGENT": "beta"},
 	})
 	t.Cleanup(ResetOverrides)
 
@@ -88,7 +87,7 @@ func TestOverrides_WithOverridesTestSeamDoesNotMutateProcessState(t *testing.T) 
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\ndefault_agent: alpha\n"), 0o644))
 
 	cfg, err := Load(WithAppDir(appDir), WithOverrides(confload.Overrides{
-		Env: layerValues(map[string]any{"DEFAULT_AGENT": "seam-only"}),
+		Env: map[string]any{"DEFAULT_AGENT": "seam-only"},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "seam-only", cfg.DefaultAgent)
@@ -122,7 +121,7 @@ llm:
 	// case-sensitive map -- exercising the override resolution path
 	// alongside the file layers, not instead of them.
 	SetOverrides(confload.Overrides{
-		Env: layerValues(map[string]any{"DEFAULT_AGENT": "alpha"}),
+		Env: map[string]any{"DEFAULT_AGENT": "alpha"},
 	})
 	t.Cleanup(ResetOverrides)
 
@@ -164,12 +163,4 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "from-flag", cfg.DefaultAgent, "--set must beat env")
 	assert.Equal(t, "host", cfg.Runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
-}
-
-// layerValues is a small test helper wrapping a flat override map into the
-// layerconfig.Layer shape confload.Overrides expects (raw, unresolved --
-// keyed by the override's un-prefixed name, exactly like ReadOverrides
-// itself would build it from a real env scan).
-func layerValues(values map[string]any) layerconfig.Layer {
-	return layerconfig.Layer{Name: "env", Values: values}
 }

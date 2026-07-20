@@ -32,9 +32,10 @@ fingerprint you are supposed to verify out of band before continuing.
 ### Options inherited from parent commands
 
 ```
-      --degraded        degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
-      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
-      --no-companions   skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --degraded          degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
+      --format string     Output format: json, yaml, toml, text, or markdown (default "text")
+      --no-companions     skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
+      --set stringArray   override a config value for this invocation: --set <dotted.path>=<value> (repeatable; e.g. --set llm.defaults.primary=big, --set agents.MyCoder.runtime=container)
 ```
 
 ### SEE ALSO

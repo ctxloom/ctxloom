@@ -818,11 +818,27 @@ func promptForEngineAndRepos() (engine string, repos []string, err error) {
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
 // config.yaml + default remotes.yaml) to the operations core.
+//
+// It EXPLICITLY invalidates the ambient config memo on success, rather than
+// relying on the memo's own stat-based self-correction (config.Load's mtime
+// +size check): the rest of init (addPersonalRemotes, cloneConfiguredRemotes,
+// pullSeededDependencies, applyInitHooks) all read the config right back via
+// the bare, memoized config.Load() in the SAME process, and a stat check has
+// only mtime+size granularity to key on — theoretically indistinguishable
+// from the pre-write state on a filesystem coarse enough, or if a PRIOR
+// config.Load() in this same init run (e.g. engineFromExistingConfig probing
+// for a pre-existing config before this write happens) already memoized a
+// "missing" stamp whose invalidation this write's own stat SHOULD, but need
+// not provably, trigger. Invalidate() removes that dependency: the very next
+// Load anywhere in the process re-reads from disk unconditionally.
 func writeInitialConfig(appDir, engine string) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
 		AppDir: appDir,
 		Engine: engine,
 	})
+	if err == nil {
+		config.Invalidate()
+	}
 	return err
 }
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLayer_ProjectOverridesHome(t *testing.T) {
@@ -158,4 +159,38 @@ func TestPrecedence_BootstrapResolvedBeforeLayering(t *testing.T) {
 	cliWithRootLikeKey := Layer{Name: "cli", Values: map[string]any{"root": "/wherever"}}
 	merged := Merge(home, projectA, env, cliWithRootLikeKey)
 	assert.Equal(t, "/wherever", merged["root"], "a root-shaped key is merged like any other ordinary value")
+}
+
+// TestLayerConfig_NonStringMapKeyDoesNotSilentlyReplace is the asMap
+// regression test: a map[interface{}]interface{} value (what yaml.v2, or a
+// hand-built caller, produces for a YAML mapping) keyed by something other
+// than a string used to make asMap bail out with (nil, false) — which
+// mergeInto then treated as "not a map after all", falling through to a
+// whole-value REPLACE of the ENTIRE section instead of a deep merge. That
+// silently dropped every sibling key a lower layer set (home's "b" below)
+// the instant ANY key in the section wasn't a plain string, with no error and
+// no warning — exactly this project's characteristic failure mode.
+func TestLayerConfig_NonStringMapKeyDoesNotSilentlyReplace(t *testing.T) {
+	home := Layer{Name: "home", Values: map[string]any{
+		"section": map[interface{}]interface{}{
+			"a": "home-a",
+			"b": "home-b",
+			1:   "home-numeric-key",
+		},
+	}}
+	project := Layer{Name: "project", Values: map[string]any{
+		"section": map[interface{}]interface{}{
+			"a": "project-a",
+		},
+	}}
+
+	merged := Merge(home, project)
+
+	section, ok := merged["section"].(map[string]any)
+	require.True(t, ok, "a map[interface{}]interface{} value must still merge as a nested map, never a bare replace")
+	assert.Equal(t, "project-a", section["a"], "the key both layers set is still overridden")
+	assert.Equal(t, "home-b", section["b"],
+		"a sibling key ONLY home sets must survive the deep merge — this is what breaks if the non-string "+
+			"key aborts the whole conversion instead of being stringified")
+	assert.Equal(t, "home-numeric-key", section["1"], "the non-string key is preserved (stringified), not silently dropped")
 }

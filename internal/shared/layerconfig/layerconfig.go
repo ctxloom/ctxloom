@@ -35,6 +35,8 @@
 // feature would silently inherit "enabled" from home.
 package layerconfig
 
+import "fmt"
+
 // Layer is one named precedence level of raw settings data. Name is for
 // diagnostics only (never consulted by Merge); Values is the decoded,
 // presence-tracked document for this level — typically the result of
@@ -112,6 +114,16 @@ func mergeInto(base, overlay map[string]any) map[string]any {
 // map[interface{}]interface{} (yaml.v2 / some hand-built callers), so callers
 // on either YAML decoder still get deep-merge instead of a silent whole-value
 // replace.
+//
+// A map[interface{}]interface{} entry keyed by something other than a string
+// (an int, a bool — legal YAML, just unusual) is stringified via fmt.Sprint
+// rather than aborting the whole conversion. Aborting used to make this
+// function return (nil, false) the instant it hit ONE such key, which
+// silently degraded mergeInto's deep-merge branch into a whole-value REPLACE
+// for the entire map — including every sibling key a lower layer set that the
+// higher layer never even mentioned. Stringifying keeps the merge honest: the
+// map still merges key-by-key, just with that one key's string form standing
+// in for its original (non-string) YAML scalar.
 func asMap(v any) (map[string]any, bool) {
 	switch m := v.(type) {
 	case map[string]any:
@@ -121,7 +133,7 @@ func asMap(v any) (map[string]any, bool) {
 		for k, val := range m {
 			ks, ok := k.(string)
 			if !ok {
-				return nil, false
+				ks = fmt.Sprint(k)
 			}
 			out[ks] = val
 		}

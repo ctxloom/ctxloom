@@ -10,6 +10,8 @@ package taskstest
 import (
 	"os"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/confload"
 )
 
 // EnvKeys is the set of host/session environment variables the task store
@@ -33,7 +35,24 @@ func Isolate(t *testing.T) string {
 	for _, k := range EnvKeys {
 		t.Setenv(k, "")
 	}
+	ResetProcessOverrides(t)
 	return home
+}
+
+// ResetProcessOverrides clears confload's process-wide env/CLI override
+// capture (see confload.ResetProcessOverrides's doc) for the duration of the
+// test: that state outlives any single t.Setenv-scoped var and is shared
+// across every test in the binary, so a PRIOR test's (or production code's)
+// installed Overrides could otherwise leak into a test that never itself
+// touches overrides. This is the CANONICAL body both Isolate here and
+// internal/testsupport.Isolate call — testsupport already imports this
+// package for ChangeDir, for the identical "one body, no duplicate" reason
+// (see ChangeDir's doc): the shared tree must stay self-contained (cannot
+// import testsupport) while testsupport may import shared.
+func ResetProcessOverrides(t *testing.T) {
+	t.Helper()
+	confload.ResetProcessOverrides()
+	t.Cleanup(confload.ResetProcessOverrides)
 }
 
 // ProjectDir isolates the environment (see Isolate) and switches the working

@@ -63,6 +63,15 @@ func Isolate(t *testing.T) string {
 	for _, k := range EnvKeys {
 		t.Setenv(k, "")
 	}
+	// taskstest.ResetProcessOverrides clears confload's process-wide env/CLI
+	// override capture (internal/config.SetOverrides wraps it;
+	// internal/cli/root.go's PersistentPreRun installs it once per real
+	// invocation) — state that outlives any single t.Setenv-scoped var and is
+	// shared across every test in this binary. Delegated to taskstest (not
+	// called via internal/config.ResetOverrides) so internal/config's own
+	// in-package test files — which import this package — don't form an
+	// import cycle; see taskstest.ResetProcessOverrides' doc.
+	taskstest.ResetProcessOverrides(t)
 	return home
 }
 

@@ -118,3 +118,45 @@ func TestConvertToJSON(t *testing.T) {
 		assert.Equal(t, "tag2", tags[1])
 	})
 }
+
+// TestConfigValidator_KnownPath exercises KnownPath -- the seam confload's
+// env/CLI override resolution uses to tell a legitimate-but-unset schema key
+// (case 3, created silently) apart from a genuinely unrecognized one (case 4,
+// warned about). See confload's resolvePath doc for the full algorithm.
+func TestConfigValidator_KnownPath(t *testing.T) {
+	v, err := NewConfigValidator()
+	require.NoError(t, err)
+
+	t.Run("top-level scalar property", func(t *testing.T) {
+		assert.True(t, v.KnownPath([]string{"default_agent"}))
+	})
+
+	t.Run("nested property under a fixed object", func(t *testing.T) {
+		assert.True(t, v.KnownPath([]string{"llm", "defaults", "primary"}))
+	})
+
+	t.Run("dynamic map key (agent label) then its own property", func(t *testing.T) {
+		// "agents" is additionalProperties: {object with `runtime` etc.} --
+		// ANY label at that level must be accepted (it's a user-chosen agent
+		// name the schema cannot enumerate), and `runtime` must resolve as a
+		// property of the per-agent schema underneath it.
+		assert.True(t, v.KnownPath([]string{"agents", "some_never_before_seen_label", "runtime"}))
+	})
+
+	t.Run("unknown top-level key", func(t *testing.T) {
+		assert.False(t, v.KnownPath([]string{"totally_bogus_top_level_key"}))
+	})
+
+	t.Run("unknown nested key under a known fixed object", func(t *testing.T) {
+		assert.False(t, v.KnownPath([]string{"llm", "defaults", "bogus"}))
+	})
+
+	t.Run("empty path is never known", func(t *testing.T) {
+		assert.False(t, v.KnownPath(nil))
+	})
+
+	t.Run("nil validator degrades to false, never panics", func(t *testing.T) {
+		var nilValidator *ConfigValidator
+		assert.False(t, nilValidator.KnownPath([]string{"default_agent"}))
+	})
+}

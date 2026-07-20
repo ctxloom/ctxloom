@@ -53,8 +53,17 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
 		MCP:              assembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
-		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
+		ManageStatusline: managedStatuslineEnabled(cfg),
 	}
+}
+
+// managedStatuslineEnabled reports whether ctxloom manages the HUD statusline,
+// via the config accessor (not the raw cfg.Settings field — ShouldManageStatusline
+// has a pointer receiver, so it needs a local, addressable copy of the
+// accessor's return value).
+func managedStatuslineEnabled(cfg *config.Config) bool {
+	settings := cfg.GetSettings()
+	return settings.ShouldManageStatusline()
 }
 
 // commandExportsFor maps loaded bundle content to the named backend's command
@@ -114,11 +123,13 @@ func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 	// Config-level MCP is the project-wide baseline (always merged). The
 	// per-profile inline MCP is scoped to the SELECTED profiles, falling back
 	// to the configured defaults when none are passed.
-	wire.MergeMCPConfig(mcp, &cfg.MCP)
+	configMCP := cfg.GetMCPConfig()
+	wire.MergeMCPConfig(mcp, &configMCP)
 	gate := cfg.ExecutableTrustGate()
+	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml) wins, trusted-local (ungated).
-		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
 			wire.MergeMCPConfig(mcp, &resolved.MCP)
 			continue
 		}
@@ -170,7 +181,8 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 		return hooks
 	}
 	// Config-level hooks.
-	agent.MergeHooksConfig(hooks, &cfg.Hooks)
+	configHooks := cfg.GetHooksConfig()
+	agent.MergeHooksConfig(hooks, &configHooks)
 	// Selected-profile-shipped hooks (defaults when none are passed). A profile
 	// resolves the SAME way operations.resolveProfile / assembleManagedMCP do:
 	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
@@ -180,8 +192,9 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	// the managed set with parity to an inline profile, but never unevaluated.
 	gate := cfg.ExecutableTrustGate()
 	profiles := scopedProfiles(cfg, profileNames)
+	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range profiles {
-		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
 			agent.MergeHooksConfig(hooks, &resolved.Hooks)
 			continue
 		}

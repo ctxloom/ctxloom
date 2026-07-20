@@ -401,7 +401,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	} else {
 		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
 	}
-	result, err := compactEntry(cmd.Context(), entry, cfg, progress)
+	result, err := compactEntry(cmd.Context(), entry, cfg, "", progress)
 	if err != nil {
 		return err
 	}
@@ -450,10 +450,21 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
 			continue
 		}
-		if _, dErr := compactEntry(cmd.Context(), e, cfg, progress); dErr != nil {
+		if _, dErr := compactEntry(cmd.Context(), e, cfg, "", progress); dErr != nil {
 			clidiag.Warn("ctxloom", "could not distill %s: %v", e.HarpName, dErr)
 		}
 	}
+}
+
+// compactionModelFor resolves the model one distill runs with: an explicit
+// caller override wins, and "" falls back to the configured compaction model.
+// Shared so every distill path resolves it identically — honoring the override
+// on only some paths is exactly the bug this exists to prevent (sour-scoop).
+func compactionModelFor(cfg *config.Config, override string) string {
+	if override != "" {
+		return override
+	}
+	return cfg.GetCompactionModel()
 }
 
 // compactEntry runs the compactor for a single session entry and returns the
@@ -476,7 +487,13 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 // HarpName inside pb.NewCanonicalFallbackSource) needs no preload. Only
 // hard-error when there is neither a bound id, a transcript path, nor a
 // captured transcript — genuinely nothing to distill.
-func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, progress io.Writer) (*memory.CompactionResult, error) {
+// model overrides the compaction model for THIS call; "" uses
+// cfg.GetCompactionModel(). It exists so a caller-supplied model override
+// reaches the canonical/harp distill path too, not just the backend one
+// (sour-scoop) — the same "empty means config default" shape distillSession
+// already uses.
+func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, model string, progress io.Writer) (*memory.CompactionResult, error) {
+	model = compactionModelFor(cfg, model)
 	backendName := entry.Backend
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
@@ -505,7 +522,7 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		LLM:              cfg.GetCompactionLLM(),
-		Model:            cfg.GetCompactionModel(),
+		Model:            model,
 		Backend:          backendName,
 		ChunkSize:        cfg.GetCompactionChunkSize(),
 		SessionID:        sessionID,

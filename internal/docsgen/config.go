@@ -279,7 +279,7 @@ func branchTitle(br map[string]any, i int) string {
 
 // overrideChainSection renders the cross-cutting "how to override any of
 // this" explanation: the full precedence chain
-// (internal/shared/confload/internal/shared/layerconfig implement it) and
+// (internal/shared/confload implements it) and
 // the CTXLOOM_CONFIG_ env-var / CLI-flag naming convention. This can't be
 // attached to any single schema property — it applies to EVERY field alike —
 // so it lives here as fixed prose rather than per-field description text,
@@ -291,22 +291,22 @@ func overrideChainSection(topProps map[string]any) string {
 	b.WriteString("## Overriding From The Environment Or A CLI Flag\n\n")
 	b.WriteString("Every field on this page can also be set without editing a config file, in ")
 	b.WriteString("ascending precedence: the home config file, then the project config file, ")
-	b.WriteString("then an environment variable, then a `--set` flag — the last one that sets a ")
+	b.WriteString("then an environment variable, then a `--config-set` flag — the last one that sets a ")
 	b.WriteString("given key wins.\n\n")
 	b.WriteString("An environment variable override starts with `CTXLOOM_CONFIG_`, followed by ")
 	b.WriteString("the field's dotted path with each segment upper-cased and joined by `_` ")
 	b.WriteString("(e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). ")
-	b.WriteString("A CLI override uses the repeatable `--set <dotted.path>=<value>` flag ")
-	b.WriteString("(`--set agents.mycoder.runtime=container`) — never a per-field flag of its own, ")
+	b.WriteString("A CLI override uses the repeatable `--config-set <dotted.path>=<value>` flag ")
+	b.WriteString("(`--config-set agents.mycoder.runtime=container`) — never a per-field flag of its own, ")
 	b.WriteString("since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. ")
 	b.WriteString("Both forms are matched case-insensitively against whatever your config file ")
-	b.WriteString("already has, adopting its casing; unlike an environment variable's name, `--set`'s ")
+	b.WriteString("already has, adopting its casing; unlike an environment variable's name, `--config-set`'s ")
 	b.WriteString("path preserves whatever case you type, so it can also CREATE a new case-sensitive ")
-	b.WriteString("key (e.g. `--set agents.MyCoder.runtime=container`), which an environment variable ")
+	b.WriteString("key (e.g. `--config-set agents.MyCoder.runtime=container`), which an environment variable ")
 	b.WriteString("cannot do.\n\n")
 
 	if name, ok := pickScalarExampleField(topProps); ok {
-		fmt.Fprintf(&b, "For example, `%s` can be set via `CTXLOOM_CONFIG_%s=<value>` or `--set %s=<value>`.\n\n",
+		fmt.Fprintf(&b, "For example, `%s` can be set via `CTXLOOM_CONFIG_%s=<value>` or `--config-set %s=<value>`.\n\n",
 			name, envSegment(name), name)
 	}
 	return b.String()

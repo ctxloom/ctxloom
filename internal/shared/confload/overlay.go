@@ -4,40 +4,51 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
 
+	kmaps "github.com/knadh/koanf/maps"
+	kenv "github.com/knadh/koanf/providers/env/v2"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/layerconfig"
 )
 
-// SetFlagName is the repeatable persistent flag every CLI-override goes
-// through: --set <dotted.path>=<value>. See ReadOverrides' doc for why this
-// package does not otherwise look at a FlagSet's contents at all.
-const SetFlagName = "set"
+// ConfigSetFlagName is the repeatable persistent flag every CLI-override goes
+// through: --config-set <dotted.path>=<value>. Named "config-set", not the
+// generic "set", so a future subcommand's own verb-shaped flag (a plausible
+// "set" for its own purposes) can never collide with it — the exact
+// namespace collision this flag exists to prevent in the first place (see
+// ReadOverrides' doc). "config-set" mirrors the CTXLOOM_CONFIG_ env prefix,
+// so both override channels are named consistently and self-describing at a
+// glance. See ReadOverrides' doc for why this package does not otherwise
+// look at a FlagSet's contents at all.
+const ConfigSetFlagName = "config-set"
 
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
 // later, per load, in ApplyOverrides/Load.
 //
-// Env is built by scanning os.Environ() for vars starting with p.EnvPrefix:
-// each is coerced (coerceEnvValue) and stored keyed by its name with
-// EnvPrefix stripped (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
+// Env is built by koanf's env provider (github.com/knadh/koanf/providers/
+// env/v2), which scans os.Environ() for vars starting with p.EnvPrefix and
+// hands each surviving "name=value" pair through a TransformFunc that strips
+// EnvPrefix and coerces the value (coerceEnvValue), stored keyed by the
+// stripped name (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
 // "AGENTS_MYCODER_RUNTIME"). Bootstrap vars (CTXLOOM_ROOT, CTXLOOM_DEGRADED,
 // ...) are excluded structurally, not by name: a correctly-scoped EnvPrefix
 // always carries an extra "_CONFIG_" segment none of them contain (see the
-// package doc's Product field comment).
+// package doc's Product field comment). The provider is given an empty
+// delim, so it returns the flat, un-nested map this stage wants — path
+// resolution against a specific base happens later, in ApplyOverrides.
 //
-// # Flags: --set is the ONLY source, deliberately
+// # Flags: --config-set is the ONLY source, deliberately
 //
-// Flags is built EXCLUSIVELY from fs's --set values (nil fs, or an fs with no
-// --set flag registered, is valid — a caller with no CLI overrides to
-// contribute returns an empty Flags layer, not an error). This package used
+// Flags is built EXCLUSIVELY from fs's --config-set values (nil fs, or an fs with no
+// --config-set flag registered, is valid — a caller with no CLI overrides to
+// contribute returns an empty Flags map, not an error). This package used
 // to scan fs.VisitAll for every CHANGED flag on the invoked command and treat
 // each one's own NAME as a candidate config path. That is unsound: a
 // cobra.Command's FlagSet is that command's entire business-flag namespace
@@ -50,57 +61,57 @@ const SetFlagName = "set"
 // warning into what a script expects to be pure JSON (both confirmed by
 // acceptance testing). Env has a dedicated namespace via EnvPrefix; flags
 // never had an equivalent one, so opportunistic name-matching coupled every
-// current and FUTURE flag name to the config schema by accident. --set gives
+// current and FUTURE flag name to the config schema by accident. --config-set gives
 // flags the same kind of dedicated namespace EnvPrefix gives env vars: only
-// something explicitly passed through --set is ever a config override.
+// something explicitly passed through --config-set is ever a config override.
 //
-// Each --set value must be "<path>=<value>"; a missing "=" or an empty path
+// Each --config-set value must be "<path>=<value>"; a missing "=" or an empty path
 // is a reported error (joined across every malformed entry), not silently
 // dropped. The value is coerced exactly like an env var's (coerceEnvValue) —
-// bool, then int, then a comma-separated list, else a plain string. Because
-// --set's value always arrives from pflag as a plain string (StringArray),
-// there is no typed-flag-value problem to solve here the way an arbitrary
-// bool/int/stringSlice flag would pose — no viper, or any other pflag-typed
-// reader, is needed anywhere in this package.
+// bool, then int, then a comma-separated list, else a plain string.
 func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
-	envValues := map[string]any{}
-	for _, kv := range os.Environ() {
-		name, raw, ok := strings.Cut(kv, "=")
-		if !ok || !strings.HasPrefix(name, p.EnvPrefix) {
-			continue
-		}
-		suffix := strings.TrimPrefix(name, p.EnvPrefix)
-		if suffix == "" {
-			continue
-		}
-		envValues[suffix] = coerceEnvValue(raw)
+	envProvider := kenv.Provider("", kenv.Opt{
+		Prefix: p.EnvPrefix,
+		TransformFunc: func(name, raw string) (string, any) {
+			suffix := strings.TrimPrefix(name, p.EnvPrefix)
+			if suffix == "" {
+				// An empty TransformFunc key return tells the provider to
+				// omit the entry entirely -- mirrors the manual scan's own
+				// `if suffix == "" { continue }`.
+				return "", nil
+			}
+			return suffix, coerceEnvValue(raw)
+		},
+	})
+	envValues, err := envProvider.Read()
+	if err != nil {
+		// The env provider's Read() has no I/O path that can fail (it only
+		// walks os.Environ() in memory) -- guarded rather than ignored.
+		return Overrides{}, fmt.Errorf("confload: read env overrides: %w", err)
 	}
 
 	flagValues := map[string]any{}
 	var errs []error
 	if fs != nil {
-		if entries, getErr := fs.GetStringArray(SetFlagName); getErr == nil {
+		if entries, getErr := fs.GetStringArray(ConfigSetFlagName); getErr == nil {
 			for _, entry := range entries {
 				path, raw, ok := strings.Cut(entry, "=")
 				if !ok {
-					errs = append(errs, fmt.Errorf("--%s %q: expected <path>=<value>", SetFlagName, entry))
+					errs = append(errs, fmt.Errorf("--%s %q: expected <path>=<value>", ConfigSetFlagName, entry))
 					continue
 				}
 				if path == "" {
-					errs = append(errs, fmt.Errorf("--%s %q: empty path before \"=\"", SetFlagName, entry))
+					errs = append(errs, fmt.Errorf("--%s %q: empty path before \"=\"", ConfigSetFlagName, entry))
 					continue
 				}
 				flagValues[path] = coerceEnvValue(raw)
 			}
 		}
-		// getErr != nil means fs has no --set flag registered at all (a
+		// getErr != nil means fs has no --config-set flag registered at all (a
 		// caller with nothing to contribute) -- not a real error to report.
 	}
 
-	return Overrides{
-		Env:   layerconfig.Layer{Name: "env", Values: envValues},
-		Flags: layerconfig.Layer{Name: "cli", Values: flagValues},
-	}, errors.Join(errs...)
+	return Overrides{Env: envValues, Flags: flagValues}, errors.Join(errs...)
 }
 
 // Stamp returns a cheap, deterministic identity for o's raw content — changes
@@ -112,7 +123,7 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 // rationale. The zero Overrides{} stamps as "env:|cli:", a stable constant a
 // caller can compare against to detect "no overrides installed at all".
 func (o Overrides) Stamp() string {
-	return "env:" + stampFlat(o.Env.Values) + "|cli:" + stampFlat(o.Flags.Values)
+	return "env:" + stampFlat(o.Env) + "|cli:" + stampFlat(o.Flags)
 }
 
 // stampFlat renders a flat map deterministically (sorted keys) for Stamp.
@@ -143,15 +154,18 @@ func stampFlat(m map[string]any) string {
 // # Path resolution
 //
 // Each raw override name (an env var's EnvPrefix-stripped suffix, split on
-// "_"; a --set path, split on ".") is resolved against base by resolvePath —
+// "_"; a --config-set path, split on ".") is resolved against base by resolvePath —
 // see its doc for the full four-outcome algorithm (unique match / ambiguous /
-// unset-but-schema-valid / unknown).
+// unset-but-schema-valid / unknown). This is policy koanf has no part in:
+// koanf's job ends at "here is a value at a path"; deciding WHICH path a
+// case-mangled env name or user-typed --config-set path resolves to is entirely
+// ours.
 //
-// # Env vs. --set: case handling deliberately diverges
+// # Env vs. --config-set: case handling deliberately diverges
 //
 // A shell destroys an env var NAME's case before any Go code ever sees it
 // (CT_AGENTS_MYCODER_RUNTIME cannot say whether the source was MyCoder,
-// mycoder, or MYCODER); a --set VALUE never goes through the shell's
+// mycoder, or MYCODER); a --config-set VALUE never goes through the shell's
 // environment-variable-name rules at all, so it preserves whatever case the
 // user actually typed. Case 1 (matches an existing key) and case 2
 // (ambiguous) treat both sources identically — resolution is always
@@ -159,11 +173,11 @@ func stampFlat(m map[string]any) string {
 // casing. Case 4 (nothing recognizes it) is where they diverge: an env
 // override falls back to the token's own (env-shell) case, which is
 // whatever the user happened to type in their shell's assignment and
-// carries no special meaning; a --set override falls back to EXACTLY the
+// carries no special meaning; a --config-set override falls back to EXACTLY the
 // case the user typed on the command line, which is therefore trustworthy
-// enough to CREATE a brand-new case-sensitive key with — e.g. `--set
+// enough to CREATE a brand-new case-sensitive key with — e.g. `--config-set
 // agents.MyCoder.runtime=container` can mint a fresh `agents.MyCoder` entry,
-// or `--set llm.configs.big.env.GEMINI_API_KEY=...` a fresh
+// or `--config-set llm.configs.big.env.GEMINI_API_KEY=...` a fresh
 // case-sensitive `GEMINI_API_KEY` inside an LLM backend's env passthrough —
 // something no env var could ever do, since the var's OWN name has already
 // lost that information before this package sees it. Case 3
@@ -183,24 +197,22 @@ func stampFlat(m map[string]any) string {
 func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]any, error) {
 	var errs []error
 
-	// Both sources warn-and-create on case 4 (unrecognized): --set is a
+	// Both sources warn-and-create on case 4 (unrecognized): --config-set is a
 	// DEDICATED namespace exactly like EnvPrefix is for env (see
 	// ReadOverrides' doc) -- everything reaching either one already declared
 	// itself a config override, so there is no more "this might just be an
-	// unrelated flag" ambiguity to protect against, and the asymmetry a
-	// prior revision of this package had here (silently dropping unrecognized
-	// flags) is gone along with the fs.VisitAll scan that made it necessary.
+	// unrelated flag" ambiguity to protect against.
 	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
-	base = layerconfig.Merge(layerconfig.Layer{Name: "files", Values: base}, envLayer)
+	base = Merge(base, envLayer)
 
 	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
-	base = layerconfig.Merge(layerconfig.Layer{Name: "files+env", Values: base}, flagLayer)
+	base = Merge(base, flagLayer)
 
 	return base, errors.Join(errs...)
 }
@@ -211,10 +223,10 @@ func (p Product) envSourceName(suffix string) string {
 	return p.EnvPrefix + suffix
 }
 
-// flagSourceName reconstructs a --set entry's original display form for
+// flagSourceName reconstructs a --config-set entry's original display form for
 // diagnostics.
 func flagSourceName(path string) string {
-	return "--" + SetFlagName + " " + path
+	return "--" + ConfigSetFlagName + " " + path
 }
 
 // envTokens splits an env var's (already EnvPrefix-stripped) name into word
@@ -223,10 +235,10 @@ func envTokens(suffix string) []string {
 	return strings.Split(suffix, "_")
 }
 
-// setTokens splits a --set path into its dot-separated segments. Unlike
+// setTokens splits a --config-set path into its dot-separated segments. Unlike
 // envTokens (which splits a shell-cased NAME into words that may need
 // regrouping to recover a multi-word key resolvePath's widest-match search
-// handles), a --set path is already explicit about where one config level
+// handles), a --config-set path is already explicit about where one config level
 // ends and the next begins — each "." IS one level, full stop. Feeding these
 // through the same widest-match search as env tokens is still correct (a
 // wider join essentially never matches a real key, so it always falls
@@ -238,19 +250,25 @@ func setTokens(path string) []string {
 }
 
 // resolveRaw is the shared engine ApplyOverrides runs twice (once for env,
-// once for --set): it walks raw.Values in deterministic (sorted) key order,
+// once for --config-set): it walks raw in deterministic (sorted) key order,
 // tokenizes each key via tokenize, resolves it against base via resolvePath,
 // and places the (already-typed) value at the resolved path in the returned
-// layer. sourceName renders a raw key into the display form resolvePath's
+// map. sourceName renders a raw key into the display form resolvePath's
 // diagnostics (and clidiag warnings) use. preserveTypedCase is threaded
 // straight through to resolvePath — see that function's doc for the env-vs-
-// --set case divergence it controls.
-func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (layerconfig.Layer, error) {
-	out := map[string]any{}
+// --config-set case divergence it controls.
+//
+// Every resolved (path, value) pair is collected into a FLAT map keyed by
+// the path segments joined with delim, then unflattened in one pass via
+// koanf/maps.Unflatten — the koanf-provided replacement for this package's
+// former hand-rolled setPath helper (see delim's doc for why "." itself is
+// never used as the join/split character here).
+func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (map[string]any, error) {
+	flat := map[string]any{}
 	var errs []error
 
-	names := make([]string, 0, len(raw.Values))
-	for name := range raw.Values {
+	names := make([]string, 0, len(raw))
+	for name := range raw {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -270,24 +288,27 @@ func (p Product) resolveRaw(base map[string]any, raw layerconfig.Layer, tokenize
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",
 				display, strings.Join(path, "."))
 		}
-		setPath(out, path, raw.Values[name])
+		flat[strings.Join(path, delim)] = raw[name]
 	}
 
-	return layerconfig.Layer{Name: raw.Name, Values: out}, errors.Join(errs...)
+	return kmaps.Unflatten(flat, delim), errors.Join(errs...)
 }
 
-// coerceEnvValue converts a raw environment string into the Go value a
+// coerceEnvValue converts a raw environment/--config-set string into the Go value a
 // schema-typed field expects: bool (strconv.ParseBool), then int
 // (strconv.ParseInt base 10), then — if the string contains a comma — a
 // []any of its (independently coerced) comma-separated, trimmed parts, and
 // otherwise the string unchanged.
 //
-// This uses strconv directly rather than viper's typed getters (GetBool,
-// GetInt, ...) deliberately: those swallow a parse failure and silently
-// return the type's zero value, which is exactly wrong for TYPE DETECTION —
-// asking "is this a bool" via GetBool always says yes (possibly false). This
-// package needs the parse itself to report success/failure to choose the
-// right type at all.
+// This is a policy decision entirely ours, not koanf's: koanf's own getters
+// (Bool()/Int()/...) require the CALLER to already know which typed getter
+// to ask for, which presupposes knowing the schema shape at the call site —
+// exactly what this package cannot assume, since KnownPath is an optional,
+// caller-supplied predicate and an override may target a path with no schema
+// knowledge at all (case 4). coerceEnvValue instead does TYPE DETECTION from
+// the raw string itself, uses strconv directly (not a swallow-on-failure
+// typed getter) so a parse failure correctly falls through to the next
+// candidate type instead of silently returning a zero value.
 func coerceEnvValue(raw string) any {
 	if b, err := strconv.ParseBool(raw); err == nil {
 		return b
@@ -304,25 +325,6 @@ func coerceEnvValue(raw string) any {
 		return list
 	}
 	return raw
-}
-
-// setPath writes value into out at the nested location path names, creating
-// intermediate map[string]any levels as needed without disturbing sibling
-// keys already present at any level.
-func setPath(out map[string]any, path []string, value any) {
-	m := out
-	for i, seg := range path {
-		if i == len(path)-1 {
-			m[seg] = value
-			return
-		}
-		next, ok := m[seg].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			m[seg] = next
-		}
-		m = next
-	}
 }
 
 // resolvePath is the resolution engine shared by both overlays (env and cli).
@@ -344,6 +346,7 @@ func setPath(out map[string]any, path []string, value any) {
 //     More than one existing key folding to the same candidate is case 2:
 //     resolution stops immediately with an error naming sourceName and every
 //     colliding candidate.
+//
 //  2. Schema-guided fallback: once base can no longer guide the walk (a
 //     level absent from base, or base ran out before tokens did), every way
 //     of partitioning the REMAINING tokens into contiguous groups is tried,
@@ -377,13 +380,13 @@ func setPath(out map[string]any, path []string, value any) {
 //     would.
 //
 // preserveTypedCase controls one more env-vs-cli divergence WITHIN case 3
-// (see the package doc's "Env vs. --set: case handling deliberately
+// (see the package doc's "Env vs. --config-set: case handling deliberately
 // diverges" section for the full picture): when true, each partition's
 // ORIGINAL-CASE candidate is tried against KnownPath before its lower-cased
 // form. A wildcard schema level (additionalProperties — an agent label, an
 // LLM config label) accepts a segment regardless of its case, so the
 // original-case candidate validates there just as well as the lower-cased
-// one and is preferred, preserving exactly what the user typed (e.g. --set
+// one and is preferred, preserving exactly what the user typed (e.g. --config-set
 // agents.MyCoder.runtime=... keeps "MyCoder"). A FIXED schema property name
 // only validates in its one canonical (lower_snake_case) spelling, so an
 // original-case candidate naturally fails there and the lower-cased

@@ -52,7 +52,7 @@ fragments:
     content: "BANNED-CONTENT"
 `)
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -64,7 +64,7 @@ fragments:
 				},
 			},
 		},
-	}
+	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
 	require.NoError(t, err)
@@ -97,11 +97,11 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "other.yaml"),
 		[]byte("description: unrelated\n"), 0o644))
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"devprof"}}},
-	}
+	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ fragments:
     content: "UNIQUE-MARKER"
 `)
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -137,7 +137,7 @@ fragments:
 				"default": {SelectTags: []string{"go"}, Bundles: []string{"dev"}},
 			},
 		},
-	}
+	})
 
 	hash, err := regenerateContext(cfg, workDir, nil)
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestUpdateProfile_ValidationFailureIsRejected(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/profiles/base.yaml",
 		[]byte("description: base\n"), 0o644))
 	loader := profiles.NewLoader([]string{"/profiles"}, profiles.WithFS(fs))
-	cfg := &config.Config{AppPaths: []string{"/app"}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",

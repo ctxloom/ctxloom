@@ -24,10 +24,10 @@ import (
 // default_agent never asked for this session, so hard-breaking it would punish
 // a config the editor did not choose.
 func TestExplicitAgentResolutionFailureIsFatal(t *testing.T) {
-	cfg := &config.Config{Agents: map[string]agents.Agent{
+	cfg := config.NewFixture(config.Fixture{Agents: map[string]agents.Agent{
 		"coder":       {Profiles: []string{"p"}},
 		"coordinator": {Profiles: []string{"p"}},
-	}}
+	}})
 
 	t.Run("explicit --agent that does not resolve is a fatal, actionable error", func(t *testing.T) {
 		err := agentBindingError(cfg, "codr", errors.New(`agent "codr" not found`))

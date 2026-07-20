@@ -19,10 +19,10 @@ import (
 // fallthrough.
 
 func testConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		LM:       config.LMConfig{Configs: map[string]config.LLMConfig{}},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
-	}
+	})
 }
 
 // listServerTools connects an in-memory client and lists the server's tools.

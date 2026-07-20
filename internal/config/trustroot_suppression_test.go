@@ -128,7 +128,7 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	appDir := "/project/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	cfg.SetFS(fs)
 
 	key := parseAuthorizedKey(t, ctxloomReleasePubkey)

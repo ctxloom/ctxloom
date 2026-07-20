@@ -2,9 +2,9 @@ package operations
 
 import (
 	"context"
-	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // BackfillResult is the outcome of running ConvertVendorTranscript over a set
@@ -57,10 +57,5 @@ func BackfillVendorTranscripts(ctx context.Context, entries []sessions.Entry) Ba
 // order a text/table render needs over an otherwise order-nondeterministic
 // map.
 func (r BackfillResult) FailedHarps() []string {
-	harps := make([]string, 0, len(r.Failed))
-	for h := range r.Failed {
-		harps = append(harps, h)
-	}
-	sort.Strings(harps)
-	return harps
+	return collections.SortedKeys(r.Failed)
 }

@@ -45,7 +45,7 @@ commands:
 `
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0o644))
 
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	return cfg
 }
@@ -114,7 +114,7 @@ func TestBuildSessionCommands_NoCommandsConfigured(t *testing.T) {
 
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0o755))
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 
 	assert.Nil(t, buildSessionCommands(context.Background(), cfg))

@@ -104,7 +104,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	// GAP 2: the caller's per-agent_run workspace choice overrides the
 	// project default; empty (the common case — no override supplied)
 	// preserves today's cfg.Workspace behavior exactly.
-	workspace := cfg.Workspace
+	workspace := cfg.GetWorkspace()
 	if req.Workspace != "" {
 		workspace = req.Workspace
 	}

@@ -26,11 +26,11 @@ import (
 // retired ProfilesConfig{Defaults: names} fixture. DefaultAgentProfiles reads
 // the default agent's composed profiles.
 func withDefaultProfiles(cfg *Config, names ...string) *Config {
-	cfg.DefaultAgent = "default"
-	if cfg.Agents == nil {
-		cfg.Agents = map[string]agents.Agent{}
+	cfg.defaultAgent = "default"
+	if cfg.agents == nil {
+		cfg.agents = map[string]agents.Agent{}
 	}
-	cfg.Agents["default"] = agents.Agent{Profiles: names}
+	cfg.agents["default"] = agents.Agent{Profiles: names}
 	return cfg
 }
 
@@ -64,7 +64,7 @@ func withDefaultProfiles(cfg *Config, names ...string) *Config {
 
 func TestGetDefaultLLM(t *testing.T) {
 	t.Run("resolves the primary label's backend type", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "pro"}},
 			},
@@ -82,13 +82,13 @@ func TestGetDefaultLLM(t *testing.T) {
 func TestSetPrimaryLabel(t *testing.T) {
 	cfg := &Config{}
 	cfg.SetPrimaryLabel("quick")
-	assert.Equal(t, "quick", cfg.LM.Defaults.Primary)
+	assert.Equal(t, "quick", cfg.lm.Defaults.Primary)
 }
 
 // PrimaryLabel falls back to the sole configured label when no role default is
 // set, so a single-config project resolves without naming a role.
 func TestPrimaryLabel_SingleConfigFallback(t *testing.T) {
-	cfg := &Config{LM: LMConfig{Configs: map[string]LLMConfig{
+	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
 		"only": {Type: "codex"},
 	}}}
 	assert.Equal(t, "only", cfg.PrimaryLabel())
@@ -96,14 +96,14 @@ func TestPrimaryLabel_SingleConfigFallback(t *testing.T) {
 
 // FastLabel falls back to the primary label when no fast role is set.
 func TestFastLabel_FallsBackToPrimary(t *testing.T) {
-	cfg := &Config{LM: LMConfig{Defaults: RoleDefaults{Primary: "big"}}}
+	cfg := &Config{lm: LMConfig{Defaults: RoleDefaults{Primary: "big"}}}
 	assert.Equal(t, "big", cfg.FastLabel())
 }
 
 // ResolveLLM reads backend type + model straight from the labeled entry; an
 // unknown label degrades to the built-in default backend with no model.
 func TestResolveLLM(t *testing.T) {
-	cfg := &Config{LM: LMConfig{Configs: map[string]LLMConfig{
+	cfg := &Config{lm: LMConfig{Configs: map[string]LLMConfig{
 		"g":    {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 		"bare": {Type: "claude-code"},
 	}}}
@@ -593,7 +593,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 	}{
 		{
 			name:     "config takes precedence",
-			config:   Config{Editor: EditorConfig{Command: "vim", Args: []string{"-n"}}},
+			config:   Config{editor: EditorConfig{Command: "vim", Args: []string{"-n"}}},
 			visual:   "code",
 			editor:   "nano",
 			wantCmd:  "vim",
@@ -644,7 +644,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			// A multi-word config command splits too, with editor.args
 			// appended after the inline flags.
 			name:     "config command with flags plus args",
-			config:   Config{Editor: EditorConfig{Command: "code --wait", Args: []string{"-n"}}},
+			config:   Config{editor: EditorConfig{Command: "code --wait", Args: []string{"-n"}}},
 			editor:   "vim",
 			wantCmd:  "code",
 			wantArgs: []string{"--wait", "-n"},
@@ -653,7 +653,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			// A blank (whitespace-only) config command is no choice at all and
 			// falls through to the environment.
 			name:     "blank config command falls back to env",
-			config:   Config{Editor: EditorConfig{Command: "   "}},
+			config:   Config{editor: EditorConfig{Command: "   "}},
 			editor:   "vim",
 			wantCmd:  "vim",
 			wantArgs: nil,
@@ -752,7 +752,7 @@ func TestConfig_SourceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			cfg := &Config{Source: tt.source}
+			cfg := &Config{source: tt.source}
 			assert.Equal(t, tt.want, cfg.SourceName())
 		})
 	}
@@ -760,7 +760,7 @@ func TestConfig_SourceName(t *testing.T) {
 
 func TestConfig_GetConfigFilePath(t *testing.T) {
 	t.Run("returns path when AppPaths set", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{"/path/to/.ctxloom"}}
+		cfg := &Config{appPaths: []string{"/path/to/.ctxloom"}}
 		path, err := cfg.GetConfigFilePath()
 		require.NoError(t, err)
 		assert.Equal(t, "/path/to/.ctxloom/config.yaml", path)
@@ -883,18 +883,18 @@ func TestConfig_Save(t *testing.T) {
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM: LMConfig{
+		appPaths: []string{tmpDir},
+		lm: LMConfig{
 			Defaults: RoleDefaults{Primary: "claude-code"},
 			Configs: map[string]LLMConfig{
 				"claude-code": {Type: "claude-code"},
 			},
 		},
-		DefaultAgent: "dev",
-		Agents: map[string]agents.Agent{
+		defaultAgent: "dev",
+		agents: map[string]agents.Agent{
 			"dev": {Profiles: []string{"dev"}},
 		},
-		Profiles: ProfilesConfig{
+		profiles: ProfilesConfig{
 			Definitions: map[string]Profile{
 				"dev": {Description: "development"},
 			},
@@ -930,29 +930,29 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM: LMConfig{
+		appPaths: []string{tmpDir},
+		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
 				"fast": {Type: "antigravity", Body: map[string]interface{}{"model": "haiku"}},
 			},
 			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
-		Settings: SettingsConfig{CompactionChunks: 4096},
-		Editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
+		settings: SettingsConfig{CompactionChunks: 4096},
+		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
 	require.NoError(t, cfg.Save())
 
 	// Round-trip through Load to confirm the values survived.
 	loaded, err := Load(WithAppDir(tmpDir))
 	require.NoError(t, err)
-	assert.Equal(t, "big", loaded.LM.Defaults.Primary)
-	assert.Equal(t, "fast", loaded.LM.Defaults.Fast)
+	assert.Equal(t, "big", loaded.lm.Defaults.Primary)
+	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
 	assert.Equal(t, "antigravity", loaded.GetCompactionLLM())
 	assert.Equal(t, "haiku", loaded.GetCompactionModel())
 	assert.Equal(t, 4096, loaded.GetCompactionChunkSize())
-	assert.Equal(t, "vim", loaded.Editor.Command)
-	assert.Equal(t, []string{"-p"}, loaded.Editor.Args)
+	assert.Equal(t, "vim", loaded.editor.Command)
+	assert.Equal(t, []string{"-p"}, loaded.editor.Args)
 }
 
 // =============================================================================
@@ -1004,10 +1004,10 @@ agents:
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles())
-	assert.Equal(t, "claude-code", cfg.LM.Defaults.Primary)
-	assert.Equal(t, []string{appDir}, cfg.AppPaths)
-	assert.Equal(t, appDir, cfg.AppDir)
-	assert.Equal(t, SourceProject, cfg.Source)
+	assert.Equal(t, "claude-code", cfg.lm.Defaults.Primary)
+	assert.Equal(t, []string{appDir}, cfg.appPaths)
+	assert.Equal(t, appDir, cfg.appDir)
+	assert.Equal(t, SourceProject, cfg.source)
 }
 
 // TestLoad_PreservesEnvKeyCase is a regression guard: the Load path must not
@@ -1037,8 +1037,8 @@ llm:
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	env, ok := cfg.LM.Configs["agy"].Body["env"].(map[string]any)
-	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.LM.Configs["agy"].Body["env"])
+	env, ok := cfg.lm.Configs["agy"].Body["env"].(map[string]any)
+	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.lm.Configs["agy"].Body["env"])
 	assert.Equal(t, "secret", env["SOME_API_KEY"], "uppercase env key must be preserved verbatim")
 	assert.Contains(t, env, "Mixed_Case")
 	assert.NotContains(t, env, "some_api_key", "env key must not be lowercased")
@@ -1059,14 +1059,14 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 
 	// In-memory config reflects the full v1→…→v6 upgrade chain.
-	assert.Equal(t, "antigravity", cfg.LM.Defaults.Primary, "llm_plugin → llm.defaults.primary")
-	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins → llm.configs")
-	assert.Equal(t, "claude-code", cfg.LM.Configs["claude-code"].Type, "v3 adds the type discriminator")
-	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Body["model"])
+	assert.Equal(t, "antigravity", cfg.lm.Defaults.Primary, "llm_plugin → llm.defaults.primary")
+	require.Contains(t, cfg.lm.Configs, "claude-code", "llm.plugins → llm.configs")
+	assert.Equal(t, "claude-code", cfg.lm.Configs["claude-code"].Type, "v3 adds the type discriminator")
+	assert.Equal(t, "opus", cfg.lm.Configs["claude-code"].Body["model"])
 	// v5→v6: defaults.profiles → the synthesized default agent's profiles.
-	assert.Equal(t, "default", cfg.DefaultAgent, "default_agent is set to the synthesized agent")
+	assert.Equal(t, "default", cfg.defaultAgent, "default_agent is set to the synthesized agent")
 	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles(), "defaults.profiles → default agent profiles")
-	assert.Empty(t, cfg.Warnings, "upgraded config should not produce validation warnings")
+	assert.Empty(t, cfg.warnings, "upgraded config should not produce validation warnings")
 
 	// Load is non-destructive: the file on disk is untouched (no silent rewrite).
 	onDisk, err := afero.ReadFile(fs, cfgPath)
@@ -1074,14 +1074,14 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	assert.Equal(t, legacy, string(onDisk), "Load must not rewrite the file")
 
 	// The upgrade is staged as pending for an interactive caller to confirm.
-	require.NotNil(t, cfg.PendingUpgrade, "legacy config should record a pending upgrade")
-	assert.Equal(t, cfgPath, cfg.PendingUpgrade.Path)
-	assert.NotEmpty(t, cfg.PendingUpgrade.Applied)
+	require.NotNil(t, cfg.pendingUpgrade, "legacy config should record a pending upgrade")
+	assert.Equal(t, cfgPath, cfg.pendingUpgrade.Path)
+	assert.NotEmpty(t, cfg.pendingUpgrade.Applied)
 
 	// CommitUpgrade persists the upgraded form verbatim (comments preserved) and
 	// clears the pending state.
 	require.NoError(t, cfg.CommitUpgrade())
-	assert.Nil(t, cfg.PendingUpgrade)
+	assert.Nil(t, cfg.pendingUpgrade)
 	committed, err := afero.ReadFile(fs, cfgPath)
 	require.NoError(t, err)
 	assert.NotContains(t, string(committed), "llm_plugin")
@@ -1101,8 +1101,8 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Nil(t, cfg.PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, CurrentConfigVersion, cfg.Version)
+	assert.Nil(t, cfg.pendingUpgrade, "a current-version config must not record a pending upgrade")
+	assert.Equal(t, CurrentConfigVersion, cfg.version)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -1114,8 +1114,8 @@ func TestLoad_NoConfigFile(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	assert.NotNil(t, cfg.Profiles)
-	assert.NotNil(t, cfg.LM.Configs)
+	assert.NotNil(t, cfg.profiles)
+	assert.NotNil(t, cfg.lm.Configs)
 }
 
 func TestLoadConfigFile_Errors(t *testing.T) {
@@ -1139,9 +1139,9 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
 		assert.Nil(t, values, "a layer that failed to parse contributes no values to the merge")
-		assert.Len(t, cfg.Warnings, 1)
-		assert.Contains(t, cfg.Warnings[0].Text, "failed to parse config")
-		assert.Equal(t, WarnKindParse, cfg.Warnings[0].Kind, "parse failures carry the parse kind so the strict gate can classify them")
+		assert.Len(t, cfg.warnings, 1)
+		assert.Contains(t, cfg.warnings[0].Text, "failed to parse config")
+		assert.Equal(t, WarnKindParse, cfg.warnings[0].Kind, "parse failures carry the parse kind so the strict gate can classify them")
 	})
 }
 
@@ -1183,7 +1183,7 @@ func TestConfig_DefaultAgentProfiles(t *testing.T) {
 	})
 
 	t.Run("returns nil when default_agent names an undefined agent", func(t *testing.T) {
-		cfg := &Config{DefaultAgent: "missing"}
+		cfg := &Config{defaultAgent: "missing"}
 		assert.Nil(t, cfg.DefaultAgentProfiles())
 	})
 
@@ -1199,7 +1199,7 @@ func TestConfig_DefaultAgentProfiles(t *testing.T) {
 
 func TestConfig_GetProfileLoader(t *testing.T) {
 	cfg := &Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		appPaths: []string{"/project/.ctxloom"},
 	}
 
 	loader := cfg.GetProfileLoader()
@@ -1361,7 +1361,7 @@ func stubLookPath(t *testing.T, missing ...string) {
 func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 	stubLookPath(t)
 	cfg := &Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		appPaths: []string{"/project/.ctxloom"},
 	}
 
 	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
@@ -1370,8 +1370,8 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 	stubLookPath(t)
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
-		AppPaths: []string{},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
+		appPaths: []string{},
 	}
 
 	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
@@ -1384,8 +1384,8 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
+		appPaths: []string{appDir},
 		fs:       fs,
 	}
 
@@ -1430,8 +1430,8 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		[]byte("name: seq-bundle\nversion: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
+		appPaths: []string{appDir},
 	}
 
 	result := cfg.ResolveBundleMCPServers(nil)
@@ -1455,8 +1455,8 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
+		appPaths: []string{appDir},
 	}
 
 	result := cfg.ResolveBundleMCPServers(nil)
@@ -1488,8 +1488,8 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
+		appPaths: []string{appDir},
 	}
 
 	// Selecting finder scopes MCP to finder's bundle only — NOT the default
@@ -1564,7 +1564,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
 
-		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
+		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -1584,7 +1584,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
 			[]byte("name: child\nparents:\n  - parent\n"), 0644))
 
-		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}}, AppPaths: []string{appDir}}
+		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}}, appPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -1614,7 +1614,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 		defer restoreProbe()
 
-		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, AppPaths: []string{appDir}}
+		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, appPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -1820,11 +1820,11 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM: LMConfig{
+		appPaths: []string{tmpDir},
+		lm: LMConfig{
 			Configs: map[string]LLMConfig{},
 		},
-		MCP: wire.MCPConfig{
+		mcp: wire.MCPConfig{
 			AutoRegisterCtxloom: &trueVal,
 			Servers: map[string]wire.MCPServer{
 				"test": {Command: "test-cmd"},
@@ -1856,8 +1856,8 @@ llm:
 	require.NoError(t, os.WriteFile(paths.ConfigPath(tmpDir), []byte(existingContent), 0644))
 
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM: LMConfig{
+		appPaths: []string{tmpDir},
+		lm: LMConfig{
 			Defaults: RoleDefaults{Primary: "claude-code"},
 			Configs: map[string]LLMConfig{
 				"claude-code": {Type: "claude-code"},
@@ -1895,7 +1895,7 @@ llm:
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// Should have collected warnings about parse/validation issues
-	assert.NotEmpty(t, cfg.Warnings)
+	assert.NotEmpty(t, cfg.warnings)
 }
 
 // =============================================================================
@@ -1949,10 +1949,10 @@ llm:
 	assert.NotNil(t, cfg)
 
 	// Should have warnings
-	assert.NotEmpty(t, cfg.Warnings)
+	assert.NotEmpty(t, cfg.warnings)
 
 	// Config should still be usable with defaults
-	assert.NotNil(t, cfg.Profiles)
+	assert.NotNil(t, cfg.profiles)
 }
 
 func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
@@ -1967,10 +1967,10 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.NotEmpty(t, cfg.Warnings)
+	assert.NotEmpty(t, cfg.warnings)
 	// Schema validation catches parse errors first
-	assert.Contains(t, cfg.Warnings[0].Text, "config validation warning")
-	assert.Equal(t, WarnKindValidate, cfg.Warnings[0].Kind, "schema failures carry the validate kind so the strict gate can classify them")
+	assert.Contains(t, cfg.warnings[0].Text, "config validation warning")
+	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind, "schema failures carry the validate kind so the strict gate can classify them")
 }
 
 func TestResilientStartup_NonExistentProfile(t *testing.T) {
@@ -1992,7 +1992,7 @@ defaults:
 	// v1→…→v6 chain into the synthesized default agent's profiles.
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Equal(t, "default", cfg.DefaultAgent)
+	assert.Equal(t, "default", cfg.defaultAgent)
 
 	// DefaultAgentProfiles returns the name even if the profile doesn't exist.
 	defaults := cfg.DefaultAgentProfiles()
@@ -2012,7 +2012,7 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// Schema validation warns on empty config, but we still start
-	assert.NotNil(t, cfg.Profiles)
+	assert.NotNil(t, cfg.profiles)
 }
 
 func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
@@ -2037,7 +2037,7 @@ profiles:
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Contains(t, cfg.Profiles.Definitions, "valid-profile")
+	assert.Contains(t, cfg.profiles.Definitions, "valid-profile")
 }
 
 func TestResilientStartup_WarningsAreCollected(t *testing.T) {
@@ -2068,7 +2068,7 @@ llm:
 
 func TestGetDefaultLLMModel(t *testing.T) {
 	t.Run("returns the primary label's model", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"big": {Type: "claude-code", Body: map[string]interface{}{"model": "sonnet"}}},
 			Defaults: RoleDefaults{Primary: "big"},
 		}}
@@ -2083,7 +2083,7 @@ func TestGetDefaultLLMModel(t *testing.T) {
 
 func TestGetCompactionLLM(t *testing.T) {
 	t.Run("returns the fast role's backend", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"f": {Type: "antigravity"}},
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
@@ -2091,7 +2091,7 @@ func TestGetCompactionLLM(t *testing.T) {
 	})
 
 	t.Run("falls back to the primary role when no fast role", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"p": {Type: "codex"}},
 			Defaults: RoleDefaults{Primary: "p"},
 		}}
@@ -2106,7 +2106,7 @@ func TestGetCompactionLLM(t *testing.T) {
 
 func TestGetCompactionModel(t *testing.T) {
 	t.Run("returns the fast role's model", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"f": {Type: "claude-code", Body: map[string]interface{}{"model": "haiku"}}},
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
@@ -2115,7 +2115,7 @@ func TestGetCompactionModel(t *testing.T) {
 
 	t.Run("empty when the fast label has no model", func(t *testing.T) {
 		// No model named on the fast label → empty, so the backend supplies its own.
-		cfg := &Config{LM: LMConfig{
+		cfg := &Config{lm: LMConfig{
 			Configs:  map[string]LLMConfig{"f": {Type: "claude-code"}},
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
@@ -2125,7 +2125,7 @@ func TestGetCompactionModel(t *testing.T) {
 
 func TestGetCompactionChunkSize(t *testing.T) {
 	t.Run("returns configured size", func(t *testing.T) {
-		cfg := &Config{Settings: SettingsConfig{CompactionChunks: 4000}}
+		cfg := &Config{settings: SettingsConfig{CompactionChunks: 4000}}
 		assert.Equal(t, 4000, cfg.GetCompactionChunkSize())
 	})
 

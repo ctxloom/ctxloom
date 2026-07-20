@@ -101,7 +101,7 @@ func TestDoctorCheckSetupMarker_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	check := doctorCheckSetupMarker(cfg, nil)
 	assert.Equal(t, "ok", check.Status)
-	assert.Contains(t, check.Detail, cfg.AppPaths[0])
+	assert.Contains(t, check.Detail, cfg.GetAppPaths()[0])
 }
 
 func TestDoctorCheckSetupMarker_WrongState_NoMarkerDir(t *testing.T) {
@@ -261,7 +261,7 @@ func TestDoctorCheckSignKey_WrongState_Ambiguous(t *testing.T) {
 // by comment.
 func TestDoctorCheckSignKey_ConfiguredSignKeyDisambiguates(t *testing.T) {
 	disc, signers := signKeyDiscoverer(t, "other@example.com", "ben@abbitt.me")
-	cfg := &config.Config{Settings: config.SettingsConfig{Sign: &config.SignConfig{Key: "ben@abbitt.me"}}}
+	cfg := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{Sign: &config.SignConfig{Key: "ben@abbitt.me"}}})
 	check := doctorCheckSignKey(context.Background(), cfg, disc)
 	assert.Equal(t, "ok", check.Status)
 	// The comment-matched signer is the second one added.
@@ -395,7 +395,9 @@ func TestDoctorCheckAgents_RightState(t *testing.T) {
 
 func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	cfg.Agents = map[string]agents.Agent{}
+	f := cfg.ToFixture()
+	f.Agents = map[string]agents.Agent{}
+	cfg = config.NewFixture(f)
 
 	check := doctorCheckAgents(context.Background(), cfg, nil)
 	assert.Equal(t, "warn", check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
@@ -404,9 +406,11 @@ func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 
 func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	cfg.Agents = map[string]agents.Agent{
+	f := cfg.ToFixture()
+	f.Agents = map[string]agents.Agent{
 		"broken": {Name: "broken", Engine: "claude-code", Profiles: []string{"does-not-exist"}},
 	}
+	cfg = config.NewFixture(f)
 	check := doctorCheckAgents(context.Background(), cfg, nil)
 	assert.Equal(t, "warn", check.Status)
 	assert.Contains(t, check.Detail, "broken")
@@ -424,7 +428,7 @@ func TestDoctorCheckSetupLockAndAssembly_RightState(t *testing.T) {
 
 func TestDoctorCheckSetupLockAndAssembly_WrongState_CorruptLockfile(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	lockPath := filepath.Join(cfg.AppPaths[0], "lock.yaml")
+	lockPath := filepath.Join(cfg.GetAppPaths()[0], "lock.yaml")
 	require.NoError(t, os.WriteFile(lockPath, []byte("not: [valid: yaml: at: all"), 0644))
 
 	check := doctorCheckSetupLockAndAssembly(context.Background(), cfg, nil)
@@ -456,7 +460,9 @@ func TestDoctorCheckHooksTrust_WrongState_NotInstalled(t *testing.T) {
 
 func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	cfg.Agents = map[string]agents.Agent{}
+	f := cfg.ToFixture()
+	f.Agents = map[string]agents.Agent{}
+	cfg = config.NewFixture(f)
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
 	assert.Equal(t, "ok", check.Status, "nothing configured to check hooks for is not itself a failure")
 	assert.Contains(t, check.Detail, "no engine is configured to check")
@@ -648,7 +654,10 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 // need — a clean machine-capability check before anything is configured yet.
 func TestDoctorCmd_DepsFlag_ScopesToDepsAlone(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	cfg.Agents = map[string]agents.Agent{} // would otherwise WARN unscoped
+	f := cfg.ToFixture()
+	f.Agents = map[string]agents.Agent{} // would otherwise WARN unscoped
+	cfg = config.NewFixture(f)
+	_ = cfg
 
 	out, err := runDoctor(t, root, "--deps")
 	require.NoError(t, err)

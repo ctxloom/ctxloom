@@ -61,7 +61,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 // to resolve (mirroring how assembly sees today's working copy).
 func localResolverLoader(t *testing.T, appDir string) *bundles.Loader {
 	t.Helper()
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	resolver := cfg.bundleVersionResolver()
 	require.NotNil(t, resolver, "an app dir must yield a version resolver")
 	def := &bundles.Bundle{

@@ -33,14 +33,14 @@ func captureStderr(t *testing.T, fn func()) string {
 // the shape where a map-ordered type scan would pick a random entry per
 // process.
 func twoLabelConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"alpha": {Type: "claude-code", Body: map[string]interface{}{"model": "model-alpha"}},
 				"beta":  {Type: "claude-code", Body: map[string]interface{}{"model": "model-beta"}},
 			},
 		},
-	}
+	})
 }
 
 func decodedClaudeModel(t *testing.T, cfg *config.Config) string {
@@ -52,8 +52,9 @@ func decodedClaudeModel(t *testing.T, cfg *config.Config) string {
 }
 
 func TestDecodeBackendConfigForType_PrefersPrimaryLabel(t *testing.T) {
-	cfg := twoLabelConfig()
-	cfg.LM.Defaults.Primary = "beta"
+	f := twoLabelConfig().ToFixture()
+	f.LM.Defaults.Primary = "beta"
+	cfg := config.NewFixture(f)
 
 	assert.Equal(t, "model-beta", decodedClaudeModel(t, cfg))
 }
@@ -68,13 +69,13 @@ func TestDecodeBackendConfigForType_DeterministicWithoutPrimary(t *testing.T) {
 // A label still typed "gemini" (config migration not yet run/committed) must
 // degrade like any unknown type, but the warning points at the replacement.
 func TestDecodeBackendConfig_RemovedGeminiTypeHintsAntigravity(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"gem": {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-flash"}},
 			},
 		},
-	}
+	})
 
 	var bc interface{}
 	out := captureStderr(t, func() { bc = decodeBackendConfig(cfg, "gem") })
@@ -86,13 +87,13 @@ func TestDecodeBackendConfig_RemovedGeminiTypeHintsAntigravity(t *testing.T) {
 
 // Other unknown types keep the plain warning — no gemini hint.
 func TestDecodeBackendConfig_UnknownTypeHasNoGeminiHint(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"x": {Type: "nope", Body: map[string]interface{}{}},
 			},
 		},
-	}
+	})
 
 	out := captureStderr(t, func() { decodeBackendConfig(cfg, "x") })
 	assert.Contains(t, out, `unknown LLM backend type "nope"`)
@@ -100,9 +101,10 @@ func TestDecodeBackendConfig_UnknownTypeHasNoGeminiHint(t *testing.T) {
 }
 
 func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
-	cfg := twoLabelConfig()
-	cfg.LM.Configs["agy"] = config.LLMConfig{Type: "antigravity", Body: map[string]interface{}{}}
-	cfg.LM.Defaults.Primary = "agy"
+	f := twoLabelConfig().ToFixture()
+	f.LM.Configs["agy"] = config.LLMConfig{Type: "antigravity", Body: map[string]interface{}{}}
+	f.LM.Defaults.Primary = "agy"
+	cfg := config.NewFixture(f)
 
 	assert.Equal(t, "model-alpha", decodedClaudeModel(t, cfg),
 		"a primary of a different type falls back to the sorted-label scan")

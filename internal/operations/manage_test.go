@@ -79,7 +79,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	off := false
-	cfg := &config.Config{Settings: config.SettingsConfig{Statusline: &off}}
+	cfg := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{Statusline: &off}})
 	res, err := HarnessStatus(context.Background(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.False(t, res.ManageStatusline, "status reflects the statusline opt-out")
@@ -93,8 +93,8 @@ func TestSetStatusline_PersistsPreference(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, res.Statusline)
-	require.NotNil(t, cfg.Settings.Statusline)
-	assert.False(t, *cfg.Settings.Statusline, "the toggle records the preference in config")
+	require.NotNil(t, cfg.GetSettings().Statusline)
+	assert.False(t, *cfg.GetSettings().Statusline, "the toggle records the preference in config")
 }
 
 func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
@@ -102,14 +102,14 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 	tmpDir := t.TempDir()
 	off := false
 	loader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Settings: config.SettingsConfig{Statusline: &off},
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{

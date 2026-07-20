@@ -50,7 +50,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
 	require.NoError(t, mgr.SetSummary(harpA, "worked on A", nil, 0))
 
-	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(projA, ".ctxloom")}}
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true})
 	require.NoError(t, err)
 	require.Len(t, out.Sessions, 2)
@@ -83,7 +83,7 @@ func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
 	harpB := bindProjectSession(t, mgr, projB, "codex", "sidB", now)
 
 	t.Chdir(projA)
-	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(projA, ".ctxloom")}}
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{})
 	require.NoError(t, err)
 

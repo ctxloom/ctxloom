@@ -108,7 +108,7 @@ func ScaffoldContainerBase(cfg *config.Config, relPath string, force bool) (stri
 	}
 	abs := relPath
 	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(cfg.AppRoot, relPath)
+		abs = filepath.Join(cfg.GetAppRoot(), relPath)
 	}
 
 	if _, err := os.Stat(abs); os.IsNotExist(err) || force {
@@ -117,7 +117,7 @@ func ScaffoldContainerBase(cfg *config.Config, relPath string, force bool) (stri
 		}
 	}
 
-	cfg.IsolationBaseContainerfile = relPath
+	cfg.SetIsolationBaseContainerfile(relPath)
 	if err := cfg.Save(); err != nil {
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}

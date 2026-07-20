@@ -187,10 +187,11 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 // startup.
 func TestLockDependencies_InlineConfigProfileBundleSurvives(t *testing.T) {
 	tmp := t.TempDir()
-	cfg := testConfigWithSCMPath(tmp)
-	cfg.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
+	f := testConfigWithSCMPath(tmp).ToFixture()
+	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
 		"inline": {Bundles: []string{"https://github.com/test/repo@bundles/demo@abc123def456"}},
 	}}
+	cfg := config.NewFixture(f)
 
 	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
@@ -235,14 +236,14 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
 			},
 		}},
-	}
+	})
 
 	// With SkipSync: false (default), sync runs first but finds no remote refs
 	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{
@@ -257,9 +258,9 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 
 // testConfigWithSCMPath creates a config with the given ctxloom path for testing.
 func testConfigWithSCMPath(path string) *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{path},
-	}
+	})
 }
 
 // =============================================================================
@@ -1204,7 +1205,7 @@ profiles: {}
 `, urlA, urlB)
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{baseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		// No injection — exercise the full production code path:

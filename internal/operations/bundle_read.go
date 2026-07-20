@@ -29,7 +29,7 @@ type ReadBundleResult struct {
 // content — the read half behind `bundle view`. The frontend renders; the file
 // read goes through the library.
 func ReadBundle(_ context.Context, cfg *config.Config, req ReadBundleRequest) (*ReadBundleResult, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
 	}
 	fs := getFS(req.FS)
@@ -37,7 +37,7 @@ func ReadBundle(_ context.Context, cfg *config.Config, req ReadBundleRequest) (*
 	// than via GetBundleDirs so an injected filesystem works — GetBundleDirs
 	// os.Stat-gates on the real FS. The loader filters non-existent dirs itself.
 	var dirs []string
-	for _, p := range cfg.AppPaths {
+	for _, p := range cfg.GetAppPaths() {
 		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file

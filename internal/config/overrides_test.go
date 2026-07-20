@@ -29,13 +29,13 @@ func TestOverrides_SurviveMemoReread(t *testing.T) {
 
 	first, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, "beta", first.DefaultAgent)
+	require.Equal(t, "beta", first.defaultAgent)
 
 	// A second Load with NOTHING changed on disk must still carry the
 	// override — this is the memo re-read path (ambientStamp unchanged).
 	second, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "beta", second.DefaultAgent, "an override must survive a memo re-read, not just the first uncached load")
+	assert.Equal(t, "beta", second.defaultAgent, "an override must survive a memo re-read, not just the first uncached load")
 }
 
 // TestOverrides_AppliedOnExplicitAppDirLoad pins loss channel 3: an explicit
@@ -56,7 +56,7 @@ func TestOverrides_AppliedOnExplicitAppDirLoad(t *testing.T) {
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Equal(t, "beta", cfg.DefaultAgent, "an explicit WithAppDir load bypasses the memo but must still resolve process overrides")
+	assert.Equal(t, "beta", cfg.defaultAgent, "an explicit WithAppDir load bypasses the memo but must still resolve process overrides")
 }
 
 // TestOverrides_AppliedOnLoadFresh pins the mutator entry point: LoadFresh
@@ -72,7 +72,7 @@ func TestOverrides_AppliedOnLoadFresh(t *testing.T) {
 
 	cfg, err := LoadFresh()
 	require.NoError(t, err)
-	assert.Equal(t, "beta", cfg.DefaultAgent)
+	assert.Equal(t, "beta", cfg.defaultAgent)
 }
 
 // TestOverrides_WithOverridesTestSeamDoesNotMutateProcessState proves
@@ -90,7 +90,7 @@ func TestOverrides_WithOverridesTestSeamDoesNotMutateProcessState(t *testing.T) 
 		Env: map[string]any{"DEFAULT_AGENT": "seam-only"},
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "seam-only", cfg.DefaultAgent)
+	assert.Equal(t, "seam-only", cfg.defaultAgent)
 
 	// The process-wide value must be untouched: a plain reload with no
 	// WithOverrides sees no override at all.
@@ -128,11 +128,11 @@ llm:
 	cfg, err := Load()
 	require.NoError(t, err)
 
-	entry, ok := cfg.LM.Configs["big"]
+	entry, ok := cfg.lm.Configs["big"]
 	require.True(t, ok)
 	assert.Equal(t, "secret", entry.Body["env"].(map[string]any)["GEMINI_API_KEY"],
 		"GEMINI_API_KEY must survive the full load with its exact casing -- viper must never have touched this map")
-	assert.Equal(t, "alpha", cfg.DefaultAgent)
+	assert.Equal(t, "alpha", cfg.defaultAgent)
 }
 
 // TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag exercises
@@ -161,6 +161,6 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Equal(t, "from-flag", cfg.DefaultAgent, "--config-set must beat env")
-	assert.Equal(t, "host", cfg.Runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
+	assert.Equal(t, "from-flag", cfg.defaultAgent, "--config-set must beat env")
+	assert.Equal(t, "host", cfg.runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
 }

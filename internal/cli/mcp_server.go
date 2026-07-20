@@ -195,13 +195,13 @@ func loadStartupConfig() *config.Config {
 	cfg, err := config.Load()
 	if err != nil {
 		clidiag.Warn("ctxloom", "failed to load config: %v", err)
-		cfg = &config.Config{
+		cfg = config.NewFixture(config.Fixture{
 			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
 			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
 			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
-		}
+		})
 	}
-	printConfigWarnings(os.Stderr, cfg.Warnings)
+	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg
 }
 
@@ -222,7 +222,8 @@ func purgeLegacyBundles(cfg *config.Config) {
 // bounded to 60s and fully fault-tolerant: a failure (other than cancellation)
 // warns and continues so the agent still comes up (CLAUDE.md).
 func runStartupSync(ctx context.Context, cfg *config.Config) {
-	if !cfg.Sync.ShouldAutoSync() {
+	syncCfg := cfg.GetSyncConfig()
+	if !syncCfg.ShouldAutoSync() {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")

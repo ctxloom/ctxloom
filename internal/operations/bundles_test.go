@@ -32,7 +32,7 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 	tmp := t.TempDir()
 	appDir = filepath.Join(tmp, ".ctxloom")
 	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0755))
-	cfg = &config.Config{AppPaths: []string{appDir}}
+	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	return appDir, cfg
 }
 

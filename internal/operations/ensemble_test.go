@@ -13,7 +13,7 @@ import (
 )
 
 func mapTestConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -26,7 +26,7 @@ func mapTestConfig() *config.Config {
 			"a": {LLM: "claude-fast", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
 			"b": {LLM: "agy-code", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
 		}},
-	}
+	})
 }
 
 // MapProfiles preserves input order, labels each part with its resolved backend,
@@ -95,7 +95,9 @@ func TestMapProfiles_Empty(t *testing.T) {
 func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := mapTestConfig()
-	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
+	// Definitions is a map (reference type), so mutating it through the Fixture
+	// view still lands in cfg's own backing map — no rebuild needed.
+	cfg.ToFixture().Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
 
 	factory := func(string, string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
 

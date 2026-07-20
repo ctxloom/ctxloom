@@ -66,7 +66,7 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	lock.AddEntry(remote.ItemTypeBundle, repoURL+"@bundles/bad", entry)
 	require.NoError(t, lm.Save(lock))
 
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	seed := cfg.loadRemoteBundleSeed()
 
 	require.NotNil(t, seed, "a populated lockfile must materialize a seed")

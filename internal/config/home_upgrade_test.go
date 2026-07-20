@@ -24,16 +24,16 @@ func TestCommitHomeUpgrade(t *testing.T) {
 	t.Run("persists the home layer and clears only its own pending", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		cfg := &Config{fs: fs}
-		cfg.HomePendingUpgrade = &upgrade.Pending{Path: "/home/u/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
-		cfg.PendingUpgrade = &upgrade.Pending{Path: "/proj/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
+		cfg.homePendingUpgrade = &upgrade.Pending{Path: "/home/u/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
+		cfg.pendingUpgrade = &upgrade.Pending{Path: "/proj/.ctxloom/config.yaml", Data: []byte("version: 5\n")}
 
 		require.NoError(t, cfg.CommitHomeUpgrade())
 
 		data, err := afero.ReadFile(fs, "/home/u/.ctxloom/config.yaml")
 		require.NoError(t, err)
 		assert.Equal(t, "version: 5\n", string(data), "the upgraded bytes must be written verbatim")
-		assert.Nil(t, cfg.HomePendingUpgrade, "a committed home upgrade must clear its pending")
-		assert.NotNil(t, cfg.PendingUpgrade, "committing home must not touch the project layer's pending")
+		assert.Nil(t, cfg.homePendingUpgrade, "a committed home upgrade must clear its pending")
+		assert.NotNil(t, cfg.pendingUpgrade, "committing home must not touch the project layer's pending")
 
 		exists, err := afero.Exists(fs, "/proj/.ctxloom/config.yaml")
 		require.NoError(t, err)

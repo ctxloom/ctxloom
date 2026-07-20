@@ -105,7 +105,7 @@ func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]s
 func (e *TestEnvironment) TrustSigner(signer *TestSigner, principal string, project bool) error {
 	var cfg *config.Config
 	if project {
-		cfg = &config.Config{AppPaths: []string{filepath.Join(e.ProjectDir, ".ctxloom")}}
+		cfg = config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(e.ProjectDir, ".ctxloom")}})
 	}
 	_, err := operations.AddSigner(cfg, operations.AddSignerRequest{
 		Principal:  principal,

@@ -309,11 +309,11 @@ Examples:
 
 		// No argument: report the current default agent.
 		if len(args) == 0 {
-			if cfg.DefaultAgent == "" {
+			if cfg.GetDefaultAgent() == "" {
 				w.Println("No default agent set.")
 				return w.Err()
 			}
-			w.Printf("Default agent: %s\n", cfg.DefaultAgent)
+			w.Printf("Default agent: %s\n", cfg.GetDefaultAgent())
 			return w.Err()
 		}
 
@@ -327,7 +327,7 @@ Examples:
 		if _, ok := cfg.Agent(name); !ok {
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
-		cfg.DefaultAgent = name
+		cfg.SetDefaultAgent(name)
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}

@@ -188,7 +188,7 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 	t.Cleanup(func() { SetCompanionsDisabled(false) })
 
 	probed := 0
-	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg := &Config{appPaths: []string{t.TempDir()}}
 	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
 		probed++
 		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
@@ -207,7 +207,7 @@ func TestCompanionsEnabled_ProbesByDefault(t *testing.T) {
 	SetCompanionsDisabled(false)
 
 	probed := 0
-	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg := &Config{appPaths: []string{t.TempDir()}}
 	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
 		probed++
 		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
@@ -224,7 +224,7 @@ func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
 	t.Cleanup(func() { SetCompanionsDisabled(false) })
 	SetCompanionsDisabled(false) // companions ON process-wide
 
-	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg := &Config{appPaths: []string{t.TempDir()}}
 	cfg.DisableCompanionProbe()
 
 	assert.Empty(t, cfg.companionBundleSeed(),

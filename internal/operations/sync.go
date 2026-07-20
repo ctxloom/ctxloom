@@ -80,9 +80,9 @@ type RetractionChecker interface {
 
 // SyncDependenciesResult contains the result of syncing dependencies.
 type SyncDependenciesResult struct {
-	Status     string     `json:"status"`
-	Synced     []SyncItem `json:"synced,omitempty"`
-	Skipped    []SyncItem `json:"skipped,omitempty"`
+	Status  string     `json:"status"`
+	Synced  []SyncItem `json:"synced,omitempty"`
+	Skipped []SyncItem `json:"skipped,omitempty"`
 	// Retracted lists refs whose remote manifest currently retracts them —
 	// surfaced separately from Skipped/Failed so a caller (the `remote pull`
 	// CLI) can tell the user their content was retracted, whether that was
@@ -322,7 +322,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 	profilesToProcess := profileNames
 	if len(profilesToProcess) == 0 {
 		// Process all profiles from config
-		for name := range cfg.Profiles.Definitions {
+		for name := range cfg.GetProfileDefinitions() {
 			profilesToProcess = append(profilesToProcess, name)
 		}
 
@@ -370,7 +370,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 // collectProfileReferences collects bundle and parent profile references from a profile.
 func collectProfileReferences(cfg *config.Config, profileName string) (bundles []string, profiles []string) {
 	// Try config-based profile first
-	if profile, ok := cfg.Profiles.Definitions[profileName]; ok {
+	if profile, ok := cfg.GetProfileDefinitions()[profileName]; ok {
 		bundles = append(bundles, profile.Bundles...)
 		profiles = append(profiles, profile.Parents...)
 		return
@@ -662,7 +662,7 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 		return requested
 	}
 	var names []string
-	for name := range cfg.Profiles.Definitions {
+	for name := range cfg.GetProfileDefinitions() {
 		names = append(names, name)
 	}
 	loader := cfg.GetProfileLoader()

@@ -221,7 +221,7 @@ func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 // loadDistilledSet returns the set of session IDs already distilled (best
 // effort; a listing error is non-fatal and yields an empty set).
 func loadDistilledSet(cfg *config.Config) map[string]bool {
-	distilled, err := memory.ListDistilledSessions(paths.ProjectSessionsDir(cfg.AppDir))
+	distilled, err := memory.ListDistilledSessions(paths.ProjectSessionsDir(cfg.GetAppDir()))
 	if err != nil {
 		distilled = nil // Non-fatal
 	}
@@ -288,7 +288,7 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Entries: %d\n", len(session.Entries))
 
 	// Check for distilled version
-	sessionsDir := paths.ProjectSessionsDir(cfg.AppDir)
+	sessionsDir := paths.ProjectSessionsDir(cfg.GetAppDir())
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err == nil {
 		fmt.Println("\n--- Distilled Summary ---")
@@ -340,7 +340,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: compactSession,
 		WorkDir:   workDir,
-		OutputDir: paths.ProjectSessionsDir(cfg.AppDir),
+		OutputDir: paths.ProjectSessionsDir(cfg.GetAppDir()),
 		Progress:  os.Stderr, // a CLI owns its terminal; chunk progress is wanted here
 	})
 	if err != nil {

@@ -175,7 +175,7 @@ fragments:
 
 func TestAssembleContext_WithTags(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:   []string{"security"},
@@ -189,7 +189,7 @@ func TestAssembleContext_WithTags(t *testing.T) {
 
 func TestAssembleContext_WithFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{"dev#fragments/go-patterns"},
@@ -205,7 +205,7 @@ func TestAssembleContext_WithFragments(t *testing.T) {
 
 func TestAssembleContext_MultipleFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -225,7 +225,7 @@ func TestAssembleContext_MultipleFragments(t *testing.T) {
 
 func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -244,7 +244,7 @@ func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 
 func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
@@ -253,7 +253,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
 			},
 		}},
-	}
+	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile: "go-dev",
@@ -272,7 +272,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 // inherited by every fragment, would otherwise drag the whole bundle in.
 func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
@@ -280,7 +280,7 @@ func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 				Tags:        []string{"go"}, // descriptive only
 			},
 		}},
-	}
+	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile: "go-dev",
@@ -298,7 +298,7 @@ func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 // selects fragment content by tag — the role `tags:` used to play.
 func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
@@ -306,7 +306,7 @@ func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
 				SelectTags:  []string{"go"},
 			},
 		}},
-	}
+	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile: "go-dev",
@@ -320,7 +320,7 @@ func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
 
 func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
@@ -331,7 +331,7 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
 			},
 		}},
-	}
+	})
 
 	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Loader: loader})
 	require.NoError(t, err)
@@ -344,7 +344,7 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 
 func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"project": {
@@ -356,7 +356,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 				},
 			},
 		}},
-	}
+	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile: "project",
@@ -378,7 +378,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 // renders empty and produces a warning").
 func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"project-partial": {
@@ -387,7 +387,7 @@ func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
 				Variables: map[string]string{"project_name": "MyProject"},
 			},
 		}},
-	}
+	})
 
 	var result *AssembleContextResult
 	stderr := captureStderr(t, func() {
@@ -407,7 +407,7 @@ func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
 // every referenced variable is bound, no warning fires at all.
 func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"project-full": {
@@ -415,7 +415,7 @@ func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
 				Variables: map[string]string{"project_name": "MyProject", "version": "9.9.9"},
 			},
 		}},
-	}
+	})
 
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -449,12 +449,12 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"broken": {Fragments: []config.FragmentRef{{Name: "dev#fragments/broken-template"}}},
 		}},
-	}
+	})
 
 	var result *AssembleContextResult
 	stderr := captureStderr(t, func() {
@@ -498,12 +498,12 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
 	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"project-dedup": {Fragments: []config.FragmentRef{{Name: "dev#fragments/dedup-fragment"}}},
 		}},
-	}
+	})
 
 	assemble := func() string {
 		return captureStderr(t, func() {
@@ -524,7 +524,7 @@ fragments:
 
 func TestAssembleContext_EmptyRequest(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Loader: loader,
@@ -560,7 +560,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		// A fresh Config per sub-test: companion probing is memoized once per
 		// Config's lifetime, so sharing one across sub-tests with different
 		// fakes would silently reuse the first sub-test's cached result.
-		cfg := &config.Config{AppPaths: []string{testBaseDir}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
 			return "/fake/" + bin, nil // every companion is "installed"
@@ -588,7 +588,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 
 	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
 		_, loader := setupContextTestFS(t)
-		cfg := &config.Config{AppPaths: []string{testBaseDir}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
 			if bin == "ltk" {
@@ -643,7 +643,7 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 	require.NotEmpty(t, frag.Content)
 
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
 	require.NoError(t, err)
@@ -680,7 +680,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 	require.Contains(t, body, "Phase 2", "sanity: this is really the five-phase body")
 
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Deliberately bare: no profile, no fragments, no tags — the same
 	// zero-ask shape TestAssembleContext_InjectsBuiltinIsolationFragment uses
@@ -696,7 +696,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 
 func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:      []string{"security"},
@@ -928,10 +928,10 @@ func TestSubstituteVariables_SetDelimiterEscapesLiteralMustache(t *testing.T) {
 
 func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -963,7 +963,7 @@ func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 	// Test that config-based resolution is tried first
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"config-profile": {
@@ -971,7 +971,7 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 				Tags:        []string{"go"},
 			},
 		}},
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -995,10 +995,10 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 
 func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1024,12 +1024,12 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 // --profile path above stays a hard error.
 func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/example/repo@profiles/missing"}}},
 		Profiles:     config.ProfilesConfig{Definitions: map[string]config.Profile{}},
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1053,10 +1053,10 @@ func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1093,10 +1093,10 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 // bundle must not land in the assembled context.
 func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
@@ -1130,10 +1130,10 @@ func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
 // win"). Request-level tags remain unfiltered; only profile-pushed content is.
 func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
-	}
+	})
 
 	mockLoader := &mockProfileLoader{
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {

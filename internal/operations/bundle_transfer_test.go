@@ -22,7 +22,7 @@ func memBundleFS(t *testing.T) (afero.Fs, *config.Config) {
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"),
 		[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
-	return fs, &config.Config{AppPaths: []string{appDir}}
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func TestExportBundle_ToDestDir(t *testing.T) {
@@ -46,7 +46,7 @@ func TestExportBundle_RequiresDestination(t *testing.T) {
 
 func TestImportBundle_RoundTrip(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	src := "/incoming/incoming.yaml"
 	require.NoError(t, fs.MkdirAll("/incoming", 0755))
 	require.NoError(t, afero.WriteFile(fs, src, []byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
@@ -69,7 +69,7 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 
 func TestImportBundle_InvalidFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 	src := "/bad.yaml"
 	require.NoError(t, afero.WriteFile(fs, src, []byte("\tnot: [valid"), 0644))
 
@@ -86,7 +86,7 @@ func TestImportBundle_InvalidFile(t *testing.T) {
 func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, afero.WriteFile(fs, "/in/imported.yaml", []byte("version: 1.0.0\n"), 0644))
 
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/imported.yaml", FS: fs})
@@ -101,7 +101,7 @@ func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 // silently strips it, so the copy arrives unsigned and unverifiable.
 func TestExportBundle_CarriesDetachedSignature(t *testing.T) {
 	fs, cfg := memBundleFS(t)
-	src := filepath.Join(paths.LocalBundlesPath(cfg.AppPaths[0]), "seed.yaml")
+	src := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed.yaml")
 	armored := signOnDisk(t, fs, src)
 
 	res, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "seed", DestDir: "/out", FS: fs})
@@ -127,7 +127,7 @@ func TestExportBundle_NoSignature_NoSigWritten(t *testing.T) {
 func TestImportBundle_CarriesDetachedSignature(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, afero.WriteFile(fs, "/in/signed.yaml", []byte("version: 1.0.0\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/in/signed.yaml.sig", []byte("-----BEGIN SSH SIGNATURE-----\nfake\n"), 0644))
 

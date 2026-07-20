@@ -148,7 +148,7 @@ var llmServeLabel string
 // run path passes the label through.
 func serveBackendConfig(cfg *config.Config, backendName, label string) agent.BackendConfig {
 	if label != "" {
-		if entry, ok := cfg.LM.Configs[label]; ok && entry.EffectiveType() == backendName {
+		if entry, ok := cfg.GetLLMEntry(label); ok && entry.EffectiveType() == backendName {
 			if bc := decodeBackendConfig(cfg, label); bc != nil {
 				return bc
 			}

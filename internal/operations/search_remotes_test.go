@@ -44,7 +44,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 	remotesContent := "remotes:\n  acme:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{baseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
 	ctx := context.Background()
 
 	t.Run("tag query matches the bundle via file metadata", func(t *testing.T) {

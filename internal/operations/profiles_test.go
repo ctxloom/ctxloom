@@ -220,9 +220,9 @@ func TestDeleteProfileResult_Fields(t *testing.T) {
 }
 
 func TestProfileLoader_UsesConfigPaths(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	loader := profileLoader(cfg)
 	assert.NotNil(t, loader)
@@ -277,7 +277,7 @@ bundles:
 
 func TestListProfiles_AllProfiles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Loader: loader,
@@ -290,7 +290,7 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 
 func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
 	require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestProfileDisplayName(t *testing.T) {
 
 func TestListProfiles_WithQuery(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "go",
@@ -332,7 +332,7 @@ func TestListProfiles_WithQuery(t *testing.T) {
 
 func TestListProfiles_SortByName(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -351,7 +351,7 @@ func TestListProfiles_SortByName(t *testing.T) {
 
 func TestListProfiles_SortDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -370,10 +370,10 @@ func TestListProfiles_SortDescending(t *testing.T) {
 
 func TestListProfiles_SortByDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
-	}
+	})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy: "default",
@@ -390,10 +390,10 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 
 func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{testBaseDir},
 		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
-	}
+	})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "default",
@@ -412,7 +412,7 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 
 func TestListProfiles_QueryByDescription(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "Go developer",
@@ -433,7 +433,7 @@ func TestListProfiles_QueryByDescription(t *testing.T) {
 
 func TestGetProfile_Success(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "go-developer",
@@ -460,7 +460,7 @@ func TestGetProfile_ValidationError(t *testing.T) {
 
 func TestGetProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "nonexistent-profile",
@@ -473,7 +473,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 
 func TestCreateProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "new-profile",
@@ -495,7 +495,7 @@ func TestCreateProfile_Success(t *testing.T) {
 
 func TestCreateProfile_ValidationError(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "",
@@ -508,7 +508,7 @@ func TestCreateProfile_ValidationError(t *testing.T) {
 
 func TestCreateProfile_AlreadyExists(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "base",
@@ -521,7 +521,7 @@ func TestCreateProfile_AlreadyExists(t *testing.T) {
 
 func TestCreateProfile_WithParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "child-profile",
@@ -541,7 +541,7 @@ func TestCreateProfile_WithParents(t *testing.T) {
 // validated at pull/lock time instead.
 func TestCreateProfile_RemoteParentSkipsLocalValidation(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "remote-child",
@@ -555,7 +555,7 @@ func TestCreateProfile_RemoteParentSkipsLocalValidation(t *testing.T) {
 
 func TestCreateProfile_ParentNotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "orphan-profile",
@@ -570,7 +570,7 @@ func TestCreateProfile_ParentNotFound(t *testing.T) {
 
 func TestUpdateProfile_AddTags(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "base",
@@ -585,7 +585,7 @@ func TestUpdateProfile_AddTags(t *testing.T) {
 
 func TestUpdateProfile_RemoveTags(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -600,7 +600,7 @@ func TestUpdateProfile_RemoveTags(t *testing.T) {
 
 func TestUpdateProfile_AddBundles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -615,7 +615,7 @@ func TestUpdateProfile_AddBundles(t *testing.T) {
 
 func TestUpdateProfile_AddParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Frontend profile doesn't have base as parent, add it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -631,7 +631,7 @@ func TestUpdateProfile_AddParents(t *testing.T) {
 
 func TestUpdateProfile_UpdateDescription(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	newDesc := "Updated description"
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -647,7 +647,7 @@ func TestUpdateProfile_UpdateDescription(t *testing.T) {
 
 func TestUpdateProfile_NoChanges(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:   "base",
@@ -669,7 +669,7 @@ func TestUpdateProfile_ValidationError(t *testing.T) {
 
 func TestUpdateProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "nonexistent",
@@ -683,7 +683,7 @@ func TestUpdateProfile_NotFound(t *testing.T) {
 
 func TestUpdateProfile_ParentNotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -698,7 +698,7 @@ func TestUpdateProfile_ParentNotFound(t *testing.T) {
 
 func TestUpdateProfile_RemoveParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// First add a parent to base, then remove it
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -721,7 +721,7 @@ func TestUpdateProfile_RemoveParents(t *testing.T) {
 
 func TestUpdateProfile_RemoveBundles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Base profile has "core" bundle, remove it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -786,7 +786,7 @@ func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 
 func TestDeleteProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// First verify the file exists
 	exists, _ := afero.Exists(fs, paths.ProfilesPath(testBaseDir)+"/frontend.yaml")
@@ -817,7 +817,7 @@ func TestDeleteProfile_ValidationError(t *testing.T) {
 
 func TestDeleteProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
 		Name:   "nonexistent",
@@ -828,7 +828,7 @@ func TestDeleteProfile_NotFound(t *testing.T) {
 }
 
 func TestLocalProfileNameFromPath(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/tmp/.ctxloom"}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/tmp/.ctxloom"}})
 
 	tests := []struct {
 		name   string

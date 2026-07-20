@@ -18,7 +18,7 @@ import (
 // goroutine mutates shared cfg state (this was a -race regression when the old
 // EnsureDefaultProfiles wrote inherited defaults from every goroutine).
 func TestMapProfiles_EmptyMemberProfilesComposeDefaultAgent(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths:     []string{t.TempDir()},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"home/dev"}}},
@@ -26,7 +26,7 @@ func TestMapProfiles_EmptyMemberProfilesComposeDefaultAgent(t *testing.T) {
 			Configs:  map[string]config.LLMConfig{"claude-fast": {Type: "claude-code"}},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
-	}
+	})
 	factory := func(backendName, _ string, _ int) (pb.Client, error) {
 		return &stubClient{out: backendName}, nil
 	}

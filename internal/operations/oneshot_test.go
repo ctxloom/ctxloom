@@ -58,7 +58,7 @@ func (s *stubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error)
 func (s *stubClient) Kill()                                                      {}
 
 func oneshotTestConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -73,7 +73,7 @@ func oneshotTestConfig() *config.Config {
 				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
 			},
 		}},
-	}
+	})
 }
 
 func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
@@ -116,7 +116,7 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 // would-block or unenforceable posture up to bypass so the member can't hang.
 func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -131,7 +131,7 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			"floor-default": {LLM: "claude-none"},
 			"collapse-agy":  {LLM: "agy-plan"},
 		}},
-	}
+	})
 	cases := []struct {
 		name    string
 		profile string
@@ -156,9 +156,9 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 }
 
 func TestResolveBackend(t *testing.T) {
-	cfg := &config.Config{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 		"agy-code": {Type: "antigravity", Body: map[string]any{"model": "gemini-3-pro"}},
-	}}}
+	}}})
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
 		backend, model := ResolveBackend(cfg, "agy-code")

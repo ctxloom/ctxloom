@@ -29,7 +29,7 @@ const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/c
 // is the operations-level analogue of bundles.versionedLoader.
 func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Loader, *config.Config) {
 	t.Helper()
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
 
 	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
@@ -52,8 +52,9 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 // as the loader's cfg (so AssembleContext resolves the profile and the gate
 // share one config).
 func profileCfg(cfg *config.Config, name string, p config.Profile) *config.Config {
-	cfg.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{name: p}}
-	return cfg
+	f := cfg.ToFixture()
+	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{name: p}}
+	return config.NewFixture(f)
 }
 
 // TestVersionPinned_BundleItem_ResolvesHistoricalVersion proves a profile

@@ -392,6 +392,8 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // preserving the prior guard (no prompts ⇒ command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
+	mcpCfg := p.freshCfg.GetMCPConfig()
+	settings := p.freshCfg.GetSettings()
 
 	set := backends.BuildSurfaces(backendName, agent.SurfaceInputs{
 		// Empty when context was not regenerated this round (assembledContext ==
@@ -400,10 +402,10 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		// context via Hook writes no native file; codex's context surface reads
 		// Fragments, not this string), so it is safe to set for every backend.
 		Context:          p.assembledContext,
-		MCP:              &p.freshCfg.MCP,
+		MCP:              &mcpCfg,
 		BundleMCP:        p.bundleMCP,
 		Hooks:            hooksCfg,
-		ManageStatusline: p.freshCfg.Settings.ShouldManageStatusline(),
+		ManageStatusline: settings.ShouldManageStatusline(),
 		Commands:         backends.CommandExportsFor(backendName, p.prompts),
 	}, p.fs)
 

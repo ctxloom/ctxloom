@@ -192,24 +192,24 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	appDir := func() string { return filepath.Join(t.TempDir(), ".ctxloom") }
 
 	t.Run("profiles present, no agents → nudge", func(t *testing.T) {
-		cfg := &config.Config{
+		cfg := config.NewFixture(config.Fixture{
 			AppPaths: []string{appDir()},
 			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
-		}
+		})
 		assert.NotEmpty(t, AgentSetupNudge(cfg))
 	})
 
 	t.Run("profiles present, agent configured → silent", func(t *testing.T) {
-		cfg := &config.Config{
+		cfg := config.NewFixture(config.Fixture{
 			AppPaths: []string{appDir()},
 			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
 			Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"default"}}},
-		}
+		})
 		assert.Empty(t, AgentSetupNudge(cfg), "any agent silences the nudge")
 	})
 
 	t.Run("no profiles, no agents → silent", func(t *testing.T) {
-		cfg := &config.Config{AppPaths: []string{appDir()}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir()}})
 		assert.Empty(t, AgentSetupNudge(cfg), "nothing to bind → no nudge")
 	})
 
@@ -222,11 +222,11 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 // profiles-present check also counts inline profile definitions (not just
 // defaults), so a project that configured profiles inline still gets nudged.
 func TestAgentSetupNudge_InlineDefinitionsCountAsProfiles(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(t.TempDir(), ".ctxloom")},
 		Profiles: config.ProfilesConfig{
 			Definitions: map[string]config.Profile{"x": {}},
 		},
-	}
+	})
 	assert.NotEmpty(t, AgentSetupNudge(cfg))
 }

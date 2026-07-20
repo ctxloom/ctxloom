@@ -121,21 +121,26 @@ func BuildInitialConfig(engine string) ([]byte, error) {
 		return nil, fmt.Errorf("parse default registry: %w", err)
 	}
 
-	scaffold.LM = engineRegistry(engine, registry.LM)
+	f := scaffold.ToFixture()
+	f.LM = engineRegistry(engine, registry.GetLMConfig())
+	// PrimaryLabel reads f.LM.Defaults.Primary; resolve it through a throwaway
+	// Config carrying just that update so the seed agent's Engine matches
+	// exactly what scaffold.PrimaryLabel() would have returned post-mutation.
+	primaryLabel := config.NewFixture(config.Fixture{LM: f.LM}).PrimaryLabel()
 
 	// Bind the always-bound DEFAULT AGENT to the scaffolded seed profile, carrying
 	// the selected engine's primary label so a bare `ctxloom run` launches the same
 	// backend. This replaces the retired profiles.defaults: the default context is
 	// now whatever the default agent composes (Config.DefaultAgentProfiles).
-	scaffold.DefaultAgent = SeedProfileName
-	scaffold.Agents = map[string]agents.Agent{
+	f.DefaultAgent = SeedProfileName
+	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			Engine:   scaffold.PrimaryLabel(),
+			Engine:   primaryLabel,
 			Runtime:  "host",
 			Profiles: []string{SeedProfileName},
 		},
 	}
-	return scaffold.Marshal()
+	return config.NewFixture(f).Marshal()
 }
 
 // engineRegistry builds the llm block for an engine by selecting its

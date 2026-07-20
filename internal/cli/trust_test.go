@@ -102,7 +102,7 @@ func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "always-trusted body")
 
 	c, out := testCmd()
@@ -124,7 +124,7 @@ func TestRunItemTrust_AcceptsLocalCommand(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalCommand(t, cfg, "demo", "review", "always-trusted command body")
 
 	c, out := testCmd()
@@ -149,7 +149,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	c, out := testCmd()
@@ -176,7 +176,7 @@ func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	c, _ := testCmd()
 	// Reject with a .git suffix + mixed case + trailing variant.

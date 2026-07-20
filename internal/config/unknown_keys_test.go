@@ -28,7 +28,7 @@ func loadYAML(t *testing.T, cfgYAML string) *Config {
 // on them without depending on unrelated load diagnostics.
 func unknownKeyWarnings(cfg *Config) []Warning {
 	var out []Warning
-	for _, w := range cfg.Warnings {
+	for _, w := range cfg.warnings {
 		if w.Kind == WarnKindUnknownKey {
 			out = append(out, w)
 		}
@@ -82,10 +82,10 @@ func TestLoad_RetiredProfilesDefaults_AtCurrentVersion_NamesReplacement(t *testi
 func TestLoad_OldVersionWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
 	cfg := loadYAML(t, "version: 5\nprofiles:\n  defaults:\n    - dev\n  definitions:\n    dev:\n      description: dev\n")
 
-	assert.Empty(t, cfg.Warnings, "a migratable old-version config must produce NO warnings: %+v", cfg.Warnings)
-	require.NotNil(t, cfg.PendingUpgrade, "the load must have upgraded the document in memory")
-	assert.Equal(t, "default", cfg.DefaultAgent, "the v5→v6 migration rehomes profiles.defaults onto the default agent")
-	assert.Equal(t, []string{"dev"}, cfg.Agents["default"].Profiles)
+	assert.Empty(t, cfg.warnings, "a migratable old-version config must produce NO warnings: %+v", cfg.warnings)
+	require.NotNil(t, cfg.pendingUpgrade, "the load must have upgraded the document in memory")
+	assert.Equal(t, "default", cfg.defaultAgent, "the v5→v6 migration rehomes profiles.defaults onto the default agent")
+	assert.Equal(t, []string{"dev"}, cfg.agents["default"].Profiles)
 }
 
 // The pre-versioning generation (no `version:` at all) runs the whole upgrade
@@ -93,8 +93,8 @@ func TestLoad_OldVersionWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
 func TestLoad_UnversionedWithMigratableKey_MigratesWithoutWarning(t *testing.T) {
 	cfg := loadYAML(t, "profiles:\n  defaults:\n    - dev\n")
 
-	assert.Empty(t, cfg.Warnings, "an unversioned config must migrate silently: %+v", cfg.Warnings)
-	assert.Equal(t, []string{"dev"}, cfg.Agents["default"].Profiles)
+	assert.Empty(t, cfg.warnings, "an unversioned config must migrate silently: %+v", cfg.warnings)
+	assert.Equal(t, []string{"dev"}, cfg.agents["default"].Profiles)
 }
 
 // Every unknown key is reported, not just the first: a user who pasted a stale
@@ -129,9 +129,9 @@ func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    engine: e\n    permissions: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
-	require.Len(t, cfg.Warnings, 1)
-	assert.Equal(t, WarnKindValidate, cfg.Warnings[0].Kind)
-	assert.Contains(t, cfg.Warnings[0].Text, "config validation warning")
+	require.Len(t, cfg.warnings, 1)
+	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind)
+	assert.Contains(t, cfg.warnings[0].Text, "config validation warning")
 }
 
 // A valid current config must stay silent — a strictness gate that cries wolf on
@@ -168,7 +168,7 @@ profiles:
           priority: 10
 `)
 
-	assert.Empty(t, cfg.Warnings, "a valid config must load clean: %+v", cfg.Warnings)
+	assert.Empty(t, cfg.warnings, "a valid config must load clean: %+v", cfg.warnings)
 }
 
 // TestLoad_UnknownKeyInHomeLayer_StillWarns pins that layering (home <

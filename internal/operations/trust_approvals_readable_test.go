@@ -77,7 +77,7 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 	require.NoError(t, fs.MkdirAll(approvalsDir, 0o755))
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
-	cfg := &config.Config{AppPaths: []string{projectDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{

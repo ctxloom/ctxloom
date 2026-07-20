@@ -116,7 +116,7 @@ func TestBuildSessionInitSummary_WorktreeOnly(t *testing.T) {
 }
 
 func TestBuildSessionInitSummary_ContainerOnly_ConfiguredImage(t *testing.T) {
-	cfg := &config.Config{IsolationImages: map[string]string{"claude-sonnet": "myimg:latest"}}
+	cfg := config.NewFixture(config.Fixture{IsolationImages: map[string]string{"claude-sonnet": "myimg:latest"}})
 	got := buildSessionInitSummary(sessionInitSummaryInputs{
 		cfg:            cfg,
 		backendName:    "claude-sonnet",
@@ -163,7 +163,7 @@ func TestBuildSessionInitSummary_ContainerOnly_NoConfiguredImage(t *testing.T) {
 }
 
 func TestBuildSessionInitSummary_ContainerAndWorktree(t *testing.T) {
-	cfg := &config.Config{IsolationImages: map[string]string{"claude-sonnet": "myimg:latest"}}
+	cfg := config.NewFixture(config.Fixture{IsolationImages: map[string]string{"claude-sonnet": "myimg:latest"}})
 	aw := &acpWorkspace{dir: "/tmp/fake-worktree", announce: "irrelevant marker: only emptiness is checked"}
 	got := buildSessionInitSummary(sessionInitSummaryInputs{
 		cfg:            cfg,

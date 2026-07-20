@@ -20,10 +20,10 @@ import (
 // PendingUpgrade on success. Callers prompt the user before invoking this (see
 // cmd/run.go); ctxloom never rewrites a config without consent.
 func (c *Config) CommitUpgrade() error {
-	if err := c.commitPendingUpgrade(c.PendingUpgrade); err != nil {
+	if err := c.commitPendingUpgrade(c.pendingUpgrade); err != nil {
 		return err
 	}
-	c.PendingUpgrade = nil
+	c.pendingUpgrade = nil
 	return nil
 }
 
@@ -42,10 +42,10 @@ func (c *Config) CommitUpgrade() error {
 // file), and ctxloom never rewrites home as a silent side effect of a
 // project-scoped run.
 func (c *Config) CommitHomeUpgrade() error {
-	if err := c.commitPendingUpgrade(c.HomePendingUpgrade); err != nil {
+	if err := c.commitPendingUpgrade(c.homePendingUpgrade); err != nil {
 		return err
 	}
-	c.HomePendingUpgrade = nil
+	c.homePendingUpgrade = nil
 	return nil
 }
 
@@ -63,11 +63,24 @@ func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
 	return nil
 }
 
-// Save writes the configuration to the primary config file. The
-// read-modify-write is serialized across processes with an advisory file lock
-// (the MCP server and a concurrent CLI both call Save — without it one
-// writer's sections are silently lost), and the write itself is atomic so a
-// crash can never tear config.yaml.
+// Save writes the configuration to the primary config file. The write itself
+// is serialized across processes with an advisory file lock (the MCP server
+// and a concurrent CLI both call Save — without it one writer's sections are
+// silently lost mid-write) and is atomic so a crash can never tear
+// config.yaml.
+//
+// Save does NOT, by itself, close the LOST-UPDATE window: it re-reads the
+// on-disk file fresh under its own lock, but the fields it merges onto that
+// fresh read (c's own agents/mcp/... state) may have been populated by a
+// Load() long before the lock was ever taken — so two callers that each
+// Load(), mutate their own in-memory copy, then Save() can still silently
+// discard one another's change, despite neither Save() call ever
+// interleaving with the other at the byte level. Manager.Update (see
+// config_manager.go) is what actually closes that window: it takes the SAME
+// lock this method does, but re-Loads fresh AFTER acquiring it — so the
+// in-memory state Save eventually merges is never stale. Save remains the
+// entry point for callers that accept that risk (or, like Manager.Update,
+// have already closed it themselves via saveLocked).
 func (c *Config) Save() error {
 	configPath, err := c.GetConfigFilePath()
 	if err != nil {
@@ -79,7 +92,10 @@ func (c *Config) Save() error {
 	// Advisory flock applies only to the real filesystem; an injected (test)
 	// fs has no cross-process readers. A lock failure degrades to an unlocked
 	// save rather than blocking the write (CLAUDE.md fault tolerance).
-	if c.fs == nil {
+	// Gated on injectedFS, NOT c.fs's nilness — loadUncached always populates
+	// c.fs with a concrete value (afero.NewOsFs() by default), so c.fs is
+	// never actually nil for a Load()-produced Config; see injectedFS's doc.
+	if !c.injectedFS {
 		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
 			defer unlock()
 		} else {
@@ -87,6 +103,19 @@ func (c *Config) Save() error {
 		}
 	}
 
+	return c.saveLocked(fs, configPath)
+}
+
+// saveLocked is Save's actual read-merge-write, factored out so
+// Manager.Update can reuse it from INSIDE a lock it already holds — calling
+// Save() there would try to re-acquire the same advisory flock from the same
+// process and deadlock (flock(2) blocks the calling process until the lock
+// is released, and a process can never release a lock it is still waiting to
+// acquire a second one of). Callers of saveLocked are responsible for their
+// own locking (or for deciding, like Save() and Manager.Update both do, that
+// an unavailable lock degrades to an unlocked write rather than blocking
+// forever).
+func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	existing, err := readExistingConfig(fs, configPath)
 	if err != nil {
 		return err
@@ -149,7 +178,7 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 // model defaults that stops tracking future releases. Anything the user added
 // or changed since the overlay survives.
 func (c *Config) userAuthoredLM() LMConfig {
-	lm := c.LM
+	lm := c.lm
 	ov := c.lmDefaultOverlay
 	if ov == nil {
 		return lm
@@ -207,35 +236,35 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported
 
-	setOrDelete(existing, "config", c.Settings.hasAny(), c.Settings)
-	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
-	setOrDelete(existing, "profiles", c.Profiles.hasAny(), c.Profiles)
+	setOrDelete(existing, "config", c.settings.hasAny(), c.settings)
+	setOrDelete(existing, "editor", c.editor.Command != "" || len(c.editor.Args) > 0, c.editor)
+	setOrDelete(existing, "profiles", c.profiles.hasAny(), c.profiles)
 	delete(existing, "defaults") // superseded by config + profiles blocks
-	// Persist only the config-key agents (c.Agents). Directory-sourced
+	// Persist only the config-key agents (c.agents). Directory-sourced
 	// agents live in their own .ctxloom/agents/*.yaml files and are not
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
 	// the block rather than leaving `agents: {}` behind.
-	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
+	setOrDelete(existing, "agents", len(c.agents) > 0, c.agents)
 	// The always-bound default agent (replaces the retired profiles.defaults);
 	// pruned when empty so an unset default_agent leaves no key behind.
-	setOrDelete(existing, "default_agent", c.DefaultAgent != "", c.DefaultAgent)
+	setOrDelete(existing, "default_agent", c.defaultAgent != "", c.defaultAgent)
 	// Session-level workspace default + agent-level runtime default; pruned
 	// when empty ("none"/"host" are the implicit defaults, so unset axes
 	// leave no keys behind).
-	setOrDelete(existing, "workspace", c.Workspace != "", c.Workspace)
-	setOrDelete(existing, "runtime", c.Runtime != "", c.Runtime)
+	setOrDelete(existing, "workspace", c.workspace != "", c.workspace)
+	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
-	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)
-	setOrDelete(existing, "isolation_base_containerfile", c.IsolationBaseContainerfile != "", c.IsolationBaseContainerfile)
-	if c.IsolationDevcontainerBase != nil {
-		setOrDelete(existing, "isolation_devcontainer_base", true, *c.IsolationDevcontainerBase)
+	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)
+	setOrDelete(existing, "isolation_base_containerfile", c.isolationBaseContainerfile != "", c.isolationBaseContainerfile)
+	if c.isolationDevcontainerBase != nil {
+		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
 	} else {
 		delete(existing, "isolation_devcontainer_base")
 	}
-	setOrDelete(existing, "isolation_devcontainer_service", c.IsolationDevcontainerService != "", c.IsolationDevcontainerService)
-	setOrDelete(existing, "isolation_engines", len(c.IsolationEngines) > 0, c.IsolationEngines)
-	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
-	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
-	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)
+	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
+	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
+	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
+	setOrDelete(existing, "mcp", len(c.mcp.Servers) > 0 || len(c.mcp.Plugins) > 0 || c.mcp.AutoRegisterCtxloom != nil, c.mcp)
+	setOrDelete(existing, "hooks", c.hooks.HasAny(), c.hooks)
 }

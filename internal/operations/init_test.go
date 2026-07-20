@@ -74,11 +74,11 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	assert.Contains(t, string(cfgData), "agents:", "init seeds the default agent block")
 	cfg, err := config.ParseConfig(cfgData)
 	require.NoError(t, err)
-	assert.Equal(t, SeedProfileName, cfg.DefaultAgent, "default_agent names the seeded agent")
+	assert.Equal(t, SeedProfileName, cfg.GetDefaultAgent(), "default_agent names the seeded agent")
 	assert.Equal(t, []string{SeedProfileName}, cfg.DefaultAgentProfiles(), "the default agent composes the local seed profile")
-	require.Contains(t, cfg.Agents, SeedProfileName, "init seeds the default agent")
-	assert.Equal(t, "claude-code", cfg.Agents[SeedProfileName].Engine, "the default agent carries the selected primary engine")
-	assert.Equal(t, "host", cfg.Agents[SeedProfileName].Runtime)
+	require.Contains(t, cfg.GetConfiguredAgents(), SeedProfileName, "init seeds the default agent")
+	assert.Equal(t, "claude-code", cfg.GetConfiguredAgents()[SeedProfileName].Engine, "the default agent carries the selected primary engine")
+	assert.Equal(t, "host", cfg.GetConfiguredAgents()[SeedProfileName].Runtime)
 }
 
 // TestScaffoldSeedProfile_WriteIfAbsent proves a re-init does not clobber a
@@ -140,8 +140,8 @@ func TestBuildInitialConfig(t *testing.T) {
 			cfg, err := config.ParseConfig(data)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantPrimary, cfg.LM.Defaults.Primary)
-			assert.Equal(t, tt.wantFast, cfg.LM.Defaults.Fast)
+			assert.Equal(t, tt.wantPrimary, cfg.GetLMConfig().Defaults.Primary)
+			assert.Equal(t, tt.wantFast, cfg.GetLMConfig().Defaults.Fast)
 
 			// Round-tripped config resolves the expected backend + model per role.
 			be, model := cfg.ResolveLLM(cfg.PrimaryLabel())

@@ -36,8 +36,8 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 		[]byte("#!/bin/sh\necho hi\n"), 0755))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
+		appPaths: []string{appDir},
 	}
 
 	got := cfg.ResolveBundleSkills(nil)
@@ -83,8 +83,8 @@ func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 		[]byte("name: other\nbundles:\n  - other-bundle\n"), 0644))
 
 	cfg := &Config{
-		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		AppPaths: []string{appDir},
+		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+		appPaths: []string{appDir},
 	}
 
 	defaultResult := cfg.ResolveBundleSkills(nil)

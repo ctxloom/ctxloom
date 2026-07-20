@@ -254,7 +254,7 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 		}
 	}
 
-	for name, profile := range cfg.Profiles.Definitions {
+	for name, profile := range cfg.GetProfileDefinitions() {
 		match(name, profile.Description, profile.Tags)
 	}
 	if profileList, err := profileLoader(cfg).List(); err == nil {
@@ -308,7 +308,7 @@ func searchRemoteEntries(ctx context.Context, cfg *config.Config, req SearchCont
 // query.
 func searchMCPServers(cfg *config.Config, query string) []SearchResult {
 	var results []SearchResult
-	for name, srv := range cfg.MCP.Servers {
+	for name, srv := range cfg.GetMCPServers() {
 		if strings.Contains(strings.ToLower(name), query) ||
 			strings.Contains(strings.ToLower(srv.Command), query) {
 			results = append(results, SearchResult{

@@ -23,7 +23,7 @@ func TestValidateTerminalUIConfig_BadKeyIsFatalFinding(t *testing.T) {
 	})
 
 	mark := strictness.Checkpoint()
-	cfg := &config.Config{UI: config.UIConfig{PrefixKey: "ctrl-["}} // ESC: rejected
+	cfg := config.NewFixture(config.Fixture{UI: config.UIConfig{PrefixKey: "ctrl-["}}) // ESC: rejected
 	validateTerminalUIConfig(cfg)
 
 	found := strictness.Since(mark)
@@ -38,7 +38,7 @@ func TestValidateTerminalUIConfig_DefaultAndValidKeysPass(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	validateTerminalUIConfig(&config.Config{}) // default ctrl-]
-	validateTerminalUIConfig(&config.Config{UI: config.UIConfig{PrefixKey: "ctrl-t"}})
+	validateTerminalUIConfig(config.NewFixture(config.Fixture{UI: config.UIConfig{PrefixKey: "ctrl-t"}}))
 	assert.Empty(t, strictness.Since(mark))
 }
 

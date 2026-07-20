@@ -55,14 +55,14 @@ func TestLoad_SeesConfigRewrittenOnDisk(t *testing.T) {
 
 	first, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, "alpha", first.DefaultAgent)
+	require.Equal(t, "alpha", first.defaultAgent)
 
 	// Rewrite on disk, exactly as init's scaffold / a user's editor / Save would.
 	require.NoError(t, os.WriteFile(path, []byte("version: 6\ndefault_agent: beta\n"), 0o644))
 
 	updated, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "beta", updated.DefaultAgent,
+	assert.Equal(t, "beta", updated.defaultAgent,
 		"a rewritten config.yaml must be picked up: init read-after-write and agent_run hot reload both depend on it")
 }
 
@@ -80,10 +80,10 @@ func TestLoadFresh_IsUncachedAndIndependent(t *testing.T) {
 	assert.NotSame(t, ambient, mutable, "LoadFresh must not hand back the shared ambient config")
 
 	// A mutation abandoned without Save must not be observable by readers.
-	mutable.DefaultAgent = "poisoned"
+	mutable.defaultAgent = "poisoned"
 	again, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "alpha", again.DefaultAgent, "an unsaved mutation must never leak into the ambient config")
+	assert.Equal(t, "alpha", again.defaultAgent, "an unsaved mutation must never leak into the ambient config")
 }
 
 // TestLoad_WithAppDir_IsUncachedAndDoesNotPoisonAmbient pins the third class of
@@ -100,10 +100,10 @@ func TestLoad_WithAppDir_IsUncachedAndDoesNotPoisonAmbient(t *testing.T) {
 
 	targeted, err := Load(WithAppDir(otherApp))
 	require.NoError(t, err)
-	assert.Equal(t, "elsewhere", targeted.DefaultAgent)
+	assert.Equal(t, "elsewhere", targeted.defaultAgent)
 
 	ambient, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "alpha", ambient.DefaultAgent,
+	assert.Equal(t, "alpha", ambient.defaultAgent,
 		"an explicit --app-dir load must not become the ambient config")
 }

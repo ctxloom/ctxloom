@@ -83,13 +83,13 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	// machinery) that silently changes its effective config also fails here,
 	// independent of layering.
 	assert.True(t, projectOnly.ShouldUseDistilled())
-	assert.True(t, projectOnly.MCP.ShouldAutoRegisterCtxloom())
-	assert.Empty(t, projectOnly.DefaultAgent,
+	assert.True(t, projectOnly.mcp.ShouldAutoRegisterCtxloom())
+	assert.Empty(t, projectOnly.defaultAgent,
 		"init-config.yaml deliberately carries no default_agent — init fills it in after engine selection")
-	assert.Empty(t, projectOnly.Agents)
-	assert.NotEmpty(t, projectOnly.LM.Configs,
+	assert.Empty(t, projectOnly.agents)
+	assert.NotEmpty(t, projectOnly.lm.Configs,
 		"an empty user registry adopts ctxloom's EMBEDDED built-in default (mergeDefaultConfig) when nothing else fills it")
-	_, hasBuiltinClaudeCode := projectOnly.LM.Configs["claude-code"]
+	_, hasBuiltinClaudeCode := projectOnly.lm.Configs["claude-code"]
 	assert.True(t, hasBuiltinClaudeCode, "the built-in default registry's label")
 
 	// ---- POST-layering: identical project template, home now participates ----
@@ -105,27 +105,27 @@ func TestGoldenFixture_CurrentEffectiveConfig_D3Characterization(t *testing.T) {
 	// project one (that would be the OTHER direction, not D3).
 	assert.Equal(t, projectOnly.ShouldUseDistilled(), layered.ShouldUseDistilled(),
 		"config.use_distilled is project-set; home carries no config: section at all")
-	assert.Equal(t, projectOnly.MCP.ShouldAutoRegisterCtxloom(), layered.MCP.ShouldAutoRegisterCtxloom(),
+	assert.Equal(t, projectOnly.mcp.ShouldAutoRegisterCtxloom(), layered.mcp.ShouldAutoRegisterCtxloom(),
 		"mcp.auto_register_ctxloom is project-set; home carries no mcp: section at all")
 
 	// THE DRIFT: keys init-config.yaml never mentions are now INHERITED from
 	// home instead of staying empty/built-in-default. This is the accepted D3
 	// behavior change, pinned explicitly rather than left to be discovered.
-	assert.Len(t, layered.LM.Configs, 4,
+	assert.Len(t, layered.lm.Configs, 4,
 		"DRIFT (intended): the project's empty llm.configs no longer falls back to ctxloom's built-in "+
 			"default registry — it inherits the user's REAL home registry instead")
-	assert.Contains(t, layered.LM.Configs, "gemini-code", "a home-only LLM label now reaches the project")
-	assert.Equal(t, "claude-code", layered.LM.Defaults.Primary,
+	assert.Contains(t, layered.lm.Configs, "gemini-code", "a home-only LLM label now reaches the project")
+	assert.Equal(t, "claude-code", layered.lm.Defaults.Primary,
 		"DRIFT (intended): llm.defaults.primary is now inherited from home")
-	assert.Equal(t, "claude-fast", layered.LM.Defaults.Fast)
+	assert.Equal(t, "claude-fast", layered.lm.Defaults.Fast)
 
-	assert.Equal(t, "default", layered.DefaultAgent,
+	assert.Equal(t, "default", layered.defaultAgent,
 		"DRIFT (intended): home's legacy profiles.defaults (migrated v5→v6 in memory) now supplies a "+
 			"default_agent the project template itself never set")
-	require.Contains(t, layered.Agents, "default")
+	require.Contains(t, layered.agents, "default")
 	assert.Equal(t,
 		[]string{"https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development#profiles/go-developer"},
-		layered.Agents["default"].Profiles,
+		layered.agents["default"].Profiles,
 		"the migrated agent's profile list traces exactly to home's profiles.defaults entry")
 }
 
@@ -158,7 +158,7 @@ func TestGoldenFixture_D3Drift_IsAdditiveOnly(t *testing.T) {
 	// mcp.auto_register_ctxloom (see the template's own doc comment — llm,
 	// agents, default_agent are deliberately absent, filled in by `init`
 	// itself, not the static template).
-	assert.Equal(t, projectOnly.Version, layered.Version)
-	assert.Equal(t, projectOnly.Settings.UseDistilled, layered.Settings.UseDistilled)
-	assert.Equal(t, projectOnly.MCP.ShouldAutoRegisterCtxloom(), layered.MCP.ShouldAutoRegisterCtxloom())
+	assert.Equal(t, projectOnly.version, layered.version)
+	assert.Equal(t, projectOnly.settings.UseDistilled, layered.settings.UseDistilled)
+	assert.Equal(t, projectOnly.mcp.ShouldAutoRegisterCtxloom(), layered.mcp.ShouldAutoRegisterCtxloom())
 }

@@ -2,9 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -20,7 +18,7 @@ import (
 // backend is chosen solely by the entry's type. Returns nil on a missing label
 // or unknown/undecodable type (fault tolerant — caller degrades to defaults).
 func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
-	entry, ok := cfg.LM.Configs[label]
+	entry, ok := cfg.GetLLMEntry(label)
 	if !ok {
 		return nil
 	}
@@ -47,7 +45,7 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 // process.
 func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.BackendConfig {
 	matchesType := func(label string) bool {
-		entry, ok := cfg.LM.Configs[label]
+		entry, ok := cfg.GetLLMEntry(label)
 		return ok && entry.EffectiveType() == backendType
 	}
 	// Short-circuit on the primary label only when it actually decodes; an
@@ -59,7 +57,7 @@ func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.Ba
 			return bc
 		}
 	}
-	for _, label := range slices.Sorted(maps.Keys(cfg.LM.Configs)) {
+	for _, label := range cfg.GetLLMLabels() {
 		if matchesType(label) {
 			if bc := decodeBackendConfig(cfg, label); bc != nil {
 				return bc

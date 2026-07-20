@@ -75,8 +75,9 @@ func resolveProfileSkillRefs(cfg *config.Config, profileNames []string) []string
 			}
 		}
 	}
+	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
 			add(resolved.Skills)
 			continue
 		}

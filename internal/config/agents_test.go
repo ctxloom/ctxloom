@@ -39,10 +39,10 @@ agents:
 `)
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
-	require.Len(t, cfg.Agents, 2)
-	assert.Equal(t, "claude-code", cfg.Agents["dev"].Engine)
-	assert.Equal(t, []string{"go-developer", "go-style"}, cfg.Agents["dev"].Profiles)
-	assert.Empty(t, cfg.Agents["finder"].Engine, "engine is optional")
+	require.Len(t, cfg.agents, 2)
+	assert.Equal(t, "claude-code", cfg.agents["dev"].Engine)
+	assert.Equal(t, []string{"go-developer", "go-style"}, cfg.agents["dev"].Profiles)
+	assert.Empty(t, cfg.agents["finder"].Engine, "engine is optional")
 }
 
 // TestConfig_LegacySubagentsKey_WarnsNeverErrors pins the v0.7.0 rename
@@ -67,16 +67,16 @@ subagents:
 `)
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err, "a legacy key must never block startup")
-	assert.Empty(t, cfg.Agents, "the retired key is inert, not migrated")
+	assert.Empty(t, cfg.agents, "the retired key is inert, not migrated")
 	assert.Empty(t, cfg.LoadAgents())
 	warned := false
-	for _, w := range cfg.Warnings {
+	for _, w := range cfg.warnings {
 		if strings.Contains(w.Text, "subagents") {
 			warned = true
 			break
 		}
 	}
-	assert.True(t, warned, "schema validation should warn about the stray subagents key so the rename is diagnosable; warnings: %v", cfg.Warnings)
+	assert.True(t, warned, "schema validation should warn about the stray subagents key so the rename is diagnosable; warnings: %v", cfg.warnings)
 }
 
 // TestConfigSchema_AcceptsAgents pins the schema to the parser: a config with
@@ -177,14 +177,14 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
 
-	cfg.Agents = map[string]agents.Agent{
+	cfg.agents = map[string]agents.Agent{
 		"dev": {Engine: "claude-code", Profiles: []string{"go-developer"}},
 	}
 	require.NoError(t, cfg.Save())
 
 	reloaded, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
-	require.Len(t, reloaded.Agents, 1)
-	assert.Equal(t, "claude-code", reloaded.Agents["dev"].Engine)
-	assert.Equal(t, []string{"go-developer"}, reloaded.Agents["dev"].Profiles)
+	require.Len(t, reloaded.agents, 1)
+	assert.Equal(t, "claude-code", reloaded.agents["dev"].Engine)
+	assert.Equal(t, []string{"go-developer"}, reloaded.agents["dev"].Profiles)
 }

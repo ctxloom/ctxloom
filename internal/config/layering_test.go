@@ -44,9 +44,9 @@ func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 		"version: 6\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
 	)
 
-	assert.Equal(t, "worktree", cfg.Workspace, "a home-only key must be inherited by a project that never sets it")
-	assert.Equal(t, "container", cfg.Runtime, "same for a second home-only key")
-	assert.Equal(t, "dev", cfg.DefaultAgent, "the project's own key is unaffected by layering")
+	assert.Equal(t, "worktree", cfg.workspace, "a home-only key must be inherited by a project that never sets it")
+	assert.Equal(t, "container", cfg.runtime, "same for a second home-only key")
+	assert.Equal(t, "dev", cfg.defaultAgent, "the project's own key is unaffected by layering")
 }
 
 // TestLoad_ProjectOverridesHomeKey is TestLoad_ProjectInheritsHomeKeys'
@@ -58,7 +58,7 @@ func TestLoad_ProjectOverridesHomeKey(t *testing.T) {
 		"version: 6\nworkspace: none\n",
 	)
 
-	assert.Equal(t, "none", cfg.Workspace, "project explicitly sets workspace: none, beating home's worktree")
+	assert.Equal(t, "none", cfg.workspace, "project explicitly sets workspace: none, beating home's worktree")
 }
 
 // TestLoad_HomeAndProjectDeepMergeNestedSection proves the deep-merge rule
@@ -71,10 +71,10 @@ func TestLoad_HomeAndProjectDeepMergeNestedSection(t *testing.T) {
 		"version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: sonnet }\n",
 	)
 
-	require.Contains(t, cfg.LM.Configs, "big")
-	require.Contains(t, cfg.LM.Configs, "small")
-	assert.Equal(t, "sonnet", cfg.LM.Configs["big"].Body["model"], "project's override of the shared label wins")
-	assert.Equal(t, "haiku", cfg.LM.Configs["small"].Body["model"], "home's sibling label survives the deep merge")
+	require.Contains(t, cfg.lm.Configs, "big")
+	require.Contains(t, cfg.lm.Configs, "small")
+	assert.Equal(t, "sonnet", cfg.lm.Configs["big"].Body["model"], "project's override of the shared label wins")
+	assert.Equal(t, "haiku", cfg.lm.Configs["small"].Body["model"], "home's sibling label survives the deep merge")
 }
 
 // TestLoad_NoProjectFound_HomeIsSingleSource pins that when findAppDir never

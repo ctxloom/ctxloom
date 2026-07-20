@@ -55,7 +55,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))
 	require.NoError(t, mgr.SetSummary(harp, "prev work", nil, int64(len(transcript))))
 
-	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(projectDir, ".ctxloom")}}
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), harp, "")
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -73,7 +73,7 @@ func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	_, err := sessions.Open("")
 	require.NoError(t, err)
 
-	s := &ctxServer{cfg: &config.Config{AppDir: filepath.Join(t.TempDir(), ".ctxloom")}}
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(t.TempDir(), ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), "no-such-harp", "")
 	require.NoError(t, err)
 	require.NotNil(t, out)

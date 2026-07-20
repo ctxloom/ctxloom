@@ -19,7 +19,7 @@ import (
 // ends up untracked by git (and invisible to `sign --all`).
 func TestCreateBundle_WritesToCommittedContentTree(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "authored"})
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestListLocalBundleNames_FindsContentTreeBundles(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(cacheDir, "remote.yaml"),
 		[]byte("version: 1.0.0\n_source:\n  sha: deadbeef\n"), 0o644))
 
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	assert.Equal(t, []string{"alpha", "beta", "gamma"}, ListLocalBundleNames(cfg, fs))
 }

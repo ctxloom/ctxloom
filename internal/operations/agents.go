@@ -144,10 +144,7 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	// replaces the old verbatim store.
 	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
 
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]agents.Agent)
-	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
+	cfg.SetAgentEntry(name, agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions})
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
@@ -174,7 +171,7 @@ func RemoveAgent(cfg *config.Config, name string) error {
 	if name == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if _, ok := cfg.Agents[name]; !ok {
+	if !cfg.HasAgentEntry(name) {
 		// Distinguish "defined as a file" from "not defined at all" for a clear
 		// message — the config-key write path cannot delete a file.
 		if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
@@ -182,7 +179,7 @@ func RemoveAgent(cfg *config.Config, name string) error {
 		}
 		return fmt.Errorf("agent %q not found in config.yaml", name)
 	}
-	delete(cfg.Agents, name)
+	cfg.DeleteAgentEntry(name)
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("save after removing agent %q: %w", name, err)
 	}
@@ -219,7 +216,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 // only to gate the setup nudge, so a directory-scan failure degrades to "none"
 // (the nudge simply stays quiet) rather than erroring.
 func hasAnyProfiles(cfg *config.Config) bool {
-	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
+	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.GetProfileDefinitions()) > 0 {
 		return true
 	}
 	list, _ := cfg.GetProfileLoader().List()
@@ -342,8 +339,9 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// is byte-identical to today's host behaviour.
 	runtime := sub.Runtime
 	if runtime == "" {
-		runtime = cfg.Runtime
+		runtime = cfg.GetRuntime()
 	}
+	labelEntry, _ := cfg.GetLLMEntry(label)
 
 	return &ResolvedAgent{
 		Name:        name,
@@ -359,7 +357,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		// The interactive base an unflagged run resolves to (declared → label →
 		// built-in default), so a blank claude-code posture shows its real bypass.
 		EffectivePermissions: agent.ResolveDefault(
-			[]string{sub.Permissions, cfg.LM.Configs[label].Permissions},
+			[]string{sub.Permissions, labelEntry.Permissions},
 			backend == config.BackendClaudeCode).String(),
 		Escalation: sub.Escalation,
 	}, nil

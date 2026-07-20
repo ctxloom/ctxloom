@@ -57,7 +57,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
 	require.NoError(t, lm.Save(lock))
 
-	return &config.Config{AppPaths: []string{appDir}}, profileRef, bundleRef
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), profileRef, bundleRef
 }
 
 // TestListProfiles_IncludesLockfileSeededRemoteProfile pins finding the seed
@@ -142,7 +142,7 @@ func TestSearchContent_FindsDirectoryAndSeededProfiles(t *testing.T) {
 	cfg, profileRef, _ := seedRemoteFixture(t)
 
 	// Add a directory profile alongside the seeded remote one.
-	profilesDir := filepath.Join(cfg.AppPaths[0], "profiles")
+	profilesDir := filepath.Join(cfg.GetAppPaths()[0], "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "local-dev.yaml"),
 		[]byte("description: local directory profile\n"), 0o644))

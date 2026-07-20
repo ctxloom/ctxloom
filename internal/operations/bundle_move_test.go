@@ -56,11 +56,11 @@ func memMoveFS(t *testing.T, signed bool) (afero.Fs, *config.Config) {
 	if signed {
 		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml.sig"), []byte(moveSigBody), 0644))
 	}
-	return fs, &config.Config{AppPaths: []string{appDir}}
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func srcBundlePath(cfg *config.Config) string {
-	return filepath.Join(paths.LocalBundlesPath(cfg.AppPaths[0]), "seed.yaml")
+	return filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed.yaml")
 }
 
 // failWriteFs fails every create/write whose path matches a predicate — a fake
@@ -216,7 +216,7 @@ func TestMoveBundle_MissingDestination_Errors(t *testing.T) {
 // the help text, pinned here so it can never become a silent coin-flip.
 func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
 	fs, cfg := memMoveFS(t, false)
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(cfg.AppPaths[0], "remotes.yaml"), []byte(
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(cfg.GetAppPaths()[0], "remotes.yaml"), []byte(
 		"default: personal\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
 	require.NoError(t, fs.MkdirAll("personal", 0755)) // a directory of the same spelling
 

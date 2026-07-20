@@ -75,7 +75,7 @@ func TestPullItemResult_Fields(t *testing.T) {
 // =============================================================================
 // Base Directory Resolution Tests
 // =============================================================================
-// Critical bug fix verification: write operations must use cfg.AppPaths[0]
+// Critical bug fix verification: write operations must use cfg.GetAppPaths()[0]
 // (project-local .ctxloom) not ~/.ctxloom. Without this, remote content would be
 // installed globally instead of per-project, breaking isolation.
 
@@ -87,17 +87,17 @@ func TestConfigDeterminesWritePath(t *testing.T) {
 	}{
 		{
 			name:     "project context uses project path",
-			cfg:      &config.Config{AppPaths: []string{"/my/project/.ctxloom"}},
+			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{"/my/project/.ctxloom"}}),
 			expected: "/my/project/.ctxloom",
 		},
 		{
 			name:     "multiple paths uses first",
-			cfg:      &config.Config{AppPaths: []string{"/project/.ctxloom", "/home/user/.ctxloom"}},
+			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{"/project/.ctxloom", "/home/user/.ctxloom"}}),
 			expected: "/project/.ctxloom",
 		},
 		{
 			name:     "empty paths falls back to default",
-			cfg:      &config.Config{AppPaths: []string{}},
+			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{}}),
 			expected: ".ctxloom",
 		},
 		{
@@ -123,7 +123,7 @@ func TestConfigDeterminesWritePath(t *testing.T) {
 // dependency closure materialize in one operation.
 
 func TestPullItem_InvalidItemType(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := PullItem(context.Background(), cfg, PullItemRequest{
 		Reference: "test/bundle",
@@ -135,7 +135,7 @@ func TestPullItem_InvalidItemType(t *testing.T) {
 }
 
 func TestPullItem_FragmentItemTypeInvalid(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := PullItem(context.Background(), cfg, PullItemRequest{
 		Reference: "test/item",
@@ -147,7 +147,7 @@ func TestPullItem_FragmentItemTypeInvalid(t *testing.T) {
 }
 
 func TestPullItem_BundleSuccess(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
@@ -176,7 +176,7 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 }
 
 func TestPullItem_WithForce(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
@@ -201,7 +201,7 @@ func TestPullItem_WithForce(t *testing.T) {
 }
 
 func TestPullItem_PullError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
@@ -219,7 +219,7 @@ func TestPullItem_PullError(t *testing.T) {
 }
 
 func TestPullItem_UsesConfigBaseDir(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/custom/project/.ctxloom", "/home/user/.ctxloom"}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/custom/project/.ctxloom", "/home/user/.ctxloom"}})
 
 	var capturedLocalDir string
 	puller := &mockPuller{
@@ -253,7 +253,7 @@ func TestPullItem_WithFS(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Use a mock puller to verify registry was created correctly
 	puller := &mockPuller{
@@ -287,7 +287,7 @@ func TestPullItem_WithFSCreatesRegistry(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Don't inject Puller - let it create one from registry
 	// This will fail when trying to actually pull, but we're testing

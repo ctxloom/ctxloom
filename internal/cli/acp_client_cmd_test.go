@@ -63,7 +63,7 @@ func (s *acpClientStubClient) GetPlans(context.Context, string) ([]agent.PlanFil
 func (s *acpClientStubClient) Kill() {}
 
 func acpClientTestConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"acp-kiro":    {Type: "acp"},
@@ -71,7 +71,7 @@ func acpClientTestConfig() *config.Config {
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
-	}
+	})
 }
 
 // TestRunACPClient_RequiresLLMFlag proves the real RunE — not a stand-in —

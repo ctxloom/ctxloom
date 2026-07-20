@@ -12,7 +12,7 @@ import (
 // reads honor c.fs (matching GetProfileLoader). Returns nil only when there is
 // no app path to anchor a directory.
 func (c *Config) agentDirLoader() *agents.Loader {
-	dirs := agents.GetAgentDirs(c.fs, c.AppPaths)
+	dirs := agents.GetAgentDirs(c.fs, c.appPaths)
 	var opts []agents.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, agents.WithFS(c.fs))
@@ -21,7 +21,7 @@ func (c *Config) agentDirLoader() *agents.Loader {
 }
 
 // LoadAgents returns every locally-defined agent, merged from the two
-// LOCAL sources — the `agents:` config key (c.Agents) and the
+// LOCAL sources — the `agents:` config key (c.agents) and the
 // .ctxloom/agents/*.yaml directory — sorted by name. There is, deliberately,
 // no third source: agents are never shipped in bundles or remotes.
 //
@@ -30,10 +30,10 @@ func (c *Config) agentDirLoader() *agents.Loader {
 // per fault tolerance the merge never errors. Each returned Agent carries its
 // Name and Source.
 func (c *Config) LoadAgents() []agents.Agent {
-	merged := make(map[string]agents.Agent, len(c.Agents))
+	merged := make(map[string]agents.Agent, len(c.agents))
 
 	// Config-key entries first — they are authoritative on collision.
-	for name, sub := range c.Agents {
+	for name, sub := range c.agents {
 		sub.Name = name
 		sub.Source = agents.SourceConfig
 		merged[name] = sub

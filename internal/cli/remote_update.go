@@ -161,8 +161,8 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 // project root — so `remote update` works from subdirectories. The bare
 // relative name is only the last resort when config resolution found nothing.
 func projectAppDir(cfg *config.Config) string {
-	if cfg != nil && len(cfg.AppPaths) > 0 && cfg.AppPaths[0] != "" {
-		return cfg.AppPaths[0]
+	if cfg != nil && len(cfg.GetAppPaths()) > 0 && cfg.GetAppPaths()[0] != "" {
+		return cfg.GetAppPaths()[0]
 	}
 	return ".ctxloom"
 }
@@ -620,10 +620,11 @@ func checkDefaultProfiles() []string {
 
 	var missing []string
 	profileLoader := cfg.GetProfileLoader()
+	profileDefs := cfg.GetProfileDefinitions()
 
 	for _, name := range defaultProfiles {
 		// Check if profile exists in config
-		if _, exists := cfg.Profiles.Definitions[name]; exists {
+		if _, exists := profileDefs[name]; exists {
 			continue
 		}
 

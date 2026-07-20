@@ -68,6 +68,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
+	labelEntry, _ := cfg.GetLLMEntry(label)
 
 	// The single-profile oneshot's axes: the session-level workspace default
 	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
@@ -76,7 +77,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// all-defaults oneshot writes no per-member config and must stay
 	// byte-identical to pre-P3; gate construction runs the trust baseline +
 	// opens the store). Ignored on the injected-Factory path.
-	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.Workspace), Runtime: isolation.RuntimeAxis(cfg.Runtime)}
+	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.GetWorkspace()), Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
 	var gate bundles.ContentGate
 	if !axes.Zero() {
 		gate = NewExecutableTrustGate(cfg).Gate()
@@ -99,7 +100,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Model:     model,
 		// A bare-profile oneshot has no agent binding; its posture is the engine
 		// label's configured permissions (if any), resolved for headless below.
-		Permissions: cfg.LM.Configs[label].Permissions,
+		Permissions: labelEntry.Permissions,
 		// AgentID scopes a per-agent workspace by the profile name.
 		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),
@@ -182,10 +183,10 @@ func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageCon
 	return isolation.ImageConfig{
 		Image:               cfg.IsolationImageFor(backend),
 		BaseContainerfile:   cfg.IsolationBaseContainerfilePath(),
-		AppRoot:             cfg.AppRoot,
+		AppRoot:             cfg.GetAppRoot(),
 		NoDevcontainerBase:  !cfg.IsolationDevcontainerBaseEnabled(),
-		DevcontainerService: cfg.IsolationDevcontainerService,
-		Engines:             cfg.IsolationEngines,
+		DevcontainerService: cfg.GetIsolationDevcontainerService(),
+		Engines:             cfg.GetIsolationEngines(),
 	}
 }
 
@@ -468,7 +469,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 // oneshot/map/weave path so backend resolution is identical everywhere.
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
-	if _, configured := cfg.LM.Configs[label]; !configured && backends.Exists(label) {
+	if _, configured := cfg.GetLLMEntry(label); !configured && backends.Exists(label) {
 		return label, ""
 	}
 	return backend, model

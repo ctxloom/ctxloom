@@ -95,7 +95,7 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if req.To == "" {
 		return nil, fmt.Errorf("destination is required: pass --to <remote|path>")
 	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
@@ -133,7 +133,7 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 // not ours to move.
 func loadMoveSource(cfg *config.Config, fs afero.Fs, arg string) (name, path string, err error) {
 	var dirs []string
-	for _, p := range cfg.AppPaths {
+	for _, p := range cfg.GetAppPaths() {
 		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	name = canonicalizeBundleArg(cfg, arg, dirs, fs)

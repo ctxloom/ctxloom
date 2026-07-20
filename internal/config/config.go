@@ -50,74 +50,92 @@ const (
 )
 
 // Config holds the ctxloom configuration.
+//
+// EVERY field is unexported (v0.7.0-pre1 config-manager rework, Phase 3):
+// Load() hands the SAME *Config pointer to ~45 call sites, so an exported
+// field would let ANY holder mutate what every other holder sees — exactly
+// the bug that motivated this rework (operations.SetAgent used to do
+// `cfg.agents[name] = ...` directly on the shared instance). Reads go through
+// the Get<Field> accessors in accessors.go (copy-on-read); writes go through
+// Manager.Update's Draft (see config_manager.go). This is a COMPILE ERROR,
+// not a convention: nothing outside this package can even name these fields.
+//
+// yaml (de)serialization used to rely on encoding/yaml's reflection walking
+// these fields' exported names + tags directly; that no longer works once
+// they're unexported (reflection cannot see unexported field VALUES, even
+// from code in this same package — it's a language rule, not a package
+// boundary). MarshalYAML/UnmarshalYAML below round-trip through configDoc, an
+// exported-field mirror with the same tags, so every existing
+// yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site keeps working
+// unchanged.
 type Config struct {
-	Version  int              `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
-	LM       LMConfig         `mapstructure:"llm" yaml:"llm"`
-	Editor   EditorConfig     `mapstructure:"editor" yaml:"editor,omitempty"`
-	Settings SettingsConfig   `mapstructure:"config" yaml:"config,omitempty"`
-	Sync     SyncConfig       `mapstructure:"sync" yaml:"sync,omitempty"`
-	Hooks    wire.HooksConfig `mapstructure:"hooks" yaml:"hooks,omitempty"`
-	MCP      wire.MCPConfig   `mapstructure:"mcp" yaml:"mcp,omitempty"`
-	Profiles ProfilesConfig   `mapstructure:"profiles" yaml:"profiles,omitempty"`
-	// Agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
+	version  int              // config schema version (integer; distinct from app version)
+	lm       LMConfig         //
+	editor   EditorConfig     //
+	settings SettingsConfig   //
+	sync     SyncConfig       //
+	hooks    wire.HooksConfig //
+	mcp      wire.MCPConfig   //
+	profiles ProfilesConfig   //
+	// agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
 	// of the agent entity (the other half is .ctxloom/agents/*.yaml). Keyed
 	// by agent name. It is NEVER a bundle item kind and NEVER remote — there is
 	// no Bundle.Agents and no remote path. Read the merged set via
 	// LoadAgents / Agent, which folds in the directory source too.
-	Agents map[string]agents.Agent `mapstructure:"agents" yaml:"agents,omitempty"`
-	// DefaultAgent names the always-bound default agent: the key in Agents (or a
+	agents map[string]agents.Agent
+	// defaultAgent names the always-bound default agent: the key in agents (or a
 	// .ctxloom/agents/*.yaml file) whose binding a bare `ctxloom run` (no --agent,
 	// no -p/-f/-t) resolves — its composed profiles become the context and its
 	// engine + runtime + permissions the transport. It replaces the retired
 	// profiles.defaults: "the default profile set" is now whatever this agent
 	// composes (DefaultAgentProfiles). Empty or naming an undefined agent degrades
 	// to empty context (a warning, never a hard stop — CLAUDE.md fault tolerance).
-	DefaultAgent string `mapstructure:"default_agent" yaml:"default_agent,omitempty"`
-	// Workspace is the project-wide DEFAULT for the SESSION-level workspace
+	defaultAgent string
+	// workspace is the project-wide DEFAULT for the SESSION-level workspace
 	// axis (none | worktree): where a session's working directory lives.
 	// Empty means "none" (the shared live project dir — today's behaviour).
 	// A session-creating invocation (run/map/weave `--workspace`) overrides
 	// it per session. Deliberately NOT an agent trait: needing a private cwd
 	// is a property of how a session is launched, not of who the agent is.
-	Workspace string `mapstructure:"workspace" yaml:"workspace,omitempty"`
-	// Runtime is the project-wide DEFAULT for the AGENT-level runtime axis
+	workspace string
+	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
 	// means "host". An agent binding's own `runtime:` overrides it; the
 	// precedence (agent → this default → host) is resolved in
 	// operations.resolveAgentBinding. The two axes are independent and meet
 	// only at launch (isolation.Axes).
-	Runtime string `mapstructure:"runtime" yaml:"runtime,omitempty"`
-	// IsolationImages maps a backend name (claude-code | kiro | ...) to a
+	runtime string
+	// isolationImages maps a backend name (claude-code | kiro | ...) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or
 	// overlaid (the user owns it), so an absent override degrades with a warning
 	// instead of triggering the on-the-fly build. Missing entries keep the
 	// built-in default (which IS auto-built when absent).
-	IsolationImages map[string]string `mapstructure:"isolation_images" yaml:"isolation_images,omitempty"`
-	// IsolationBaseContainerfile is a USER-PROVIDED base Containerfile for
+	isolationImages map[string]string
+	// isolationBaseContainerfile is a USER-PROVIDED base Containerfile for
 	// locally-built agent images: the on-the-fly build (and `ctxloom container
 	// build`) layers the engine's agent stage onto a base built from this file
 	// instead of an auto-detected devcontainer / the embedded default base
 	// (container/base/Containerfile). Relative paths resolve against the
 	// project root. Beats devcontainer auto-detection (locked decision 8).
-	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
-	// IsolationDevcontainerBase toggles auto-detecting the project's
+	isolationBaseContainerfile string
+	// isolationDevcontainerBase toggles auto-detecting the project's
 	// .devcontainer/devcontainer.json (or .devcontainer.json) as the
 	// locally-built agent image's BASE (stark-wheat): "an isolated agent
 	// should run in the environment the human develops in". Default true
 	// (nil = enabled); set false to opt out and keep the embedded default
 	// base (or an explicit isolation_base_containerfile) instead. A tri-state
-	// pointer like UI.Surround — a plain bool's zero value would default to
+	// pointer like ui.Surround — a plain bool's zero value would default to
 	// disabled.
-	IsolationDevcontainerBase *bool `mapstructure:"isolation_devcontainer_base" yaml:"isolation_devcontainer_base,omitempty"`
-	// IsolationDevcontainerService names the docker-compose service to adopt
+	isolationDevcontainerBase *bool
+	// isolationDevcontainerService names the docker-compose service to adopt
 	// as the agent image's base when the detected devcontainer.json declares
 	// dockerComposeFile — a multi-service compose project does not map to
 	// ONE agent container, so this (or the devcontainer.json's own "service"
 	// key) is required to resolve one; its absence is a fail-loud finding,
 	// never a silent fallback to the default base.
-	IsolationDevcontainerService string `mapstructure:"isolation_devcontainer_service" yaml:"isolation_devcontainer_service,omitempty"`
-	// IsolationEngines selects which engine fragments compose into the
+	isolationDevcontainerService string
+	// isolationEngines selects which engine fragments compose into the
 	// shared multi-engine agent image (stark-wheat locked decision 3: "all
 	// engines CAN be present, composition is per build") — antigravity,
 	// claude-code, codex, kiro, opencode today (each via its OWN official
@@ -125,44 +143,65 @@ type Config struct {
 	// known engine (the biggest image, "one instance runs any engine"); an
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".
-	IsolationEngines []string `mapstructure:"isolation_engines" yaml:"isolation_engines,omitempty"`
-	// UI configures the interactive-run terminal layer (the prefix-key viewer
+	isolationEngines []string
+	// ui configures the interactive-run terminal layer (the prefix-key viewer
 	// and the persistent surround bar). Flag/env never lives here — only
 	// presentation preferences; `run --plain-terminal` disables the layer
 	// entirely regardless of this section.
-	UI UIConfig `mapstructure:"ui" yaml:"ui,omitempty"`
+	ui UIConfig
 
 	// Runtime-only fields: populated during Load, never part of the persisted
-	// config. yaml:"-" keeps them out of every marshal — notably `config show`,
-	// which would otherwise dump resolved paths, load warnings, and (worst) the
-	// PendingUpgrade's raw []byte config as an integer array.
-	AppPaths []string     `yaml:"-"` // Resolved .ctxloom directory (at most one)
-	AppRoot  string       `yaml:"-"` // Project root (parent of .ctxloom directory)
-	AppDir   string       `yaml:"-"` // Full path to the .ctxloom directory
-	Source   ConfigSource `yaml:"-"` // Where the configuration was loaded from
-	Warnings []Warning    `yaml:"-"` // Kind-tagged warnings collected during load
+	// config — configDoc (their yaml counterpart) simply omits them, which
+	// keeps them out of every marshal exactly like their old yaml:"-" tag did:
+	// notably `config show`, which would otherwise dump resolved paths, load
+	// warnings, and (worst) the pendingUpgrade's raw []byte config as an
+	// integer array.
+	appPaths []string     // Resolved .ctxloom directory (at most one)
+	appRoot  string       // Project root (parent of .ctxloom directory)
+	appDir   string       // Full path to the .ctxloom directory
+	source   ConfigSource // Where the configuration was loaded from
+	warnings []Warning    // Kind-tagged warnings collected during load
 
-	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
+	// pendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
 	// an interactive caller may prompt the user and call CommitUpgrade. Nil when
 	// the file was already current. This tracks the PROJECT (or, when no
 	// project was found, home) layer only — the same file identity this field
 	// named before layering existed — so every existing CommitUpgrade caller
 	// keeps working unchanged.
-	PendingUpgrade *upgrade.Pending `yaml:"-"`
+	pendingUpgrade *upgrade.Pending
 
-	// HomePendingUpgrade is PendingUpgrade's counterpart for the HOME layer,
+	// homePendingUpgrade is pendingUpgrade's counterpart for the HOME layer,
 	// populated only when a project layer ALSO exists (so home is being read
 	// as the lower-precedence layer, not as the effective single source —
-	// that case populates PendingUpgrade instead, exactly as before layering).
+	// that case populates pendingUpgrade instead, exactly as before layering).
 	// CommitHomeUpgrade persists it, on the same consent rule as
 	// PendingUpgrade: the caller prompts and the prompt names the path, so
 	// home is never rewritten as a silent side effect of a project-scoped
 	// run. Before that existed, home was upgraded in memory on every load and
 	// never written back — visible, but never converging (long-ice).
-	HomePendingUpgrade *upgrade.Pending `yaml:"-"`
+	homePendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
+
+	// injectedFS records whether fs was EXPLICITLY provided (WithFS at Load
+	// time, or a later SetFS call) as opposed to defaulted. This exists
+	// SOLELY so Save/Manager.Update can tell "a real caller pointed this at a
+	// test filesystem, skip the cross-process advisory lock — there are no
+	// other processes reading an in-memory fs" apart from "this is the OS
+	// filesystem, take the lock" — a distinction c.fs itself can no longer
+	// make: loadUncached ALWAYS populates c.fs with a concrete value
+	// (afero.NewOsFs() by default), so a "c.fs == nil" check — Save's
+	// original guard — is false for EVERY Load()-produced Config, meaning
+	// the advisory lock this field exists to gate had never actually fired
+	// for a real, on-disk config (found while building Manager.Update's own
+	// lock guard: TestUpdate_SerializesConcurrentWritersInProcess lost 13 of
+	// 20 concurrent writes with the naive c.fs==nil check, because it always
+	// skipped locking). c.fs itself is untouched — every existing consumer
+	// that reads it directly (agents.GetAgentDirs, profiles.GetProfileDirs,
+	// bundles.WithFS, the remote registry/lockfile options, ...) keeps
+	// exactly the same value it always got.
+	injectedFS bool
 
 	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
 	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
@@ -205,6 +244,134 @@ type Config struct {
 	// still match it: the overlay is a runtime fallback, and persisting it
 	// would pin the user to a snapshot of shipped model defaults.
 	lmDefaultOverlay *LMConfig
+}
+
+// configDoc mirrors Config's persisted shape with EXPORTED fields and the
+// exact same yaml tags Config's fields carried before Phase 3 unexported
+// them. It exists SOLELY so yaml.v3's reflection-based (de)serialization has
+// something with visible fields to walk: reflection cannot read or write an
+// unexported struct field's VALUE, even from code inside this same package —
+// that's a language-level rule enforced by the runtime, not a compile-time
+// package-boundary check a same-package helper could route around.
+//
+// Config's MarshalYAML/UnmarshalYAML below round-trip through configDoc, so
+// EVERY existing yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site — both
+// of this package's own (loadLayeredConfig, ParseConfig) and the one external
+// site (internal/cli/config.go's renderConfigYAML) — keeps working completely
+// unchanged, with byte-identical output, because yaml.v3 automatically
+// prefers a type's Marshaler/Unmarshaler methods over reflecting its fields
+// directly.
+//
+// Runtime-only fields (appPaths, appRoot, appDir, source, warnings,
+// pendingUpgrade, homePendingUpgrade) are deliberately absent here, exactly
+// mirroring their old yaml:"-" tag: configDoc IS the persisted-fields subset.
+type configDoc struct {
+	Version                      int                     `yaml:"version"`
+	LM                           LMConfig                `yaml:"llm"`
+	Editor                       EditorConfig            `yaml:"editor,omitempty"`
+	Settings                     SettingsConfig          `yaml:"config,omitempty"`
+	Sync                         SyncConfig              `yaml:"sync,omitempty"`
+	Hooks                        wire.HooksConfig        `yaml:"hooks,omitempty"`
+	MCP                          wire.MCPConfig          `yaml:"mcp,omitempty"`
+	Profiles                     ProfilesConfig          `yaml:"profiles,omitempty"`
+	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
+	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
+	Workspace                    string                  `yaml:"workspace,omitempty"`
+	Runtime                      string                  `yaml:"runtime,omitempty"`
+	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
+	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
+	IsolationDevcontainerBase    *bool                   `yaml:"isolation_devcontainer_base,omitempty"`
+	IsolationDevcontainerService string                  `yaml:"isolation_devcontainer_service,omitempty"`
+	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
+	UI                           UIConfig                `yaml:"ui,omitempty"`
+}
+
+// toDoc copies c's persisted fields into a configDoc for marshaling.
+func (c *Config) toDoc() configDoc {
+	return configDoc{
+		Version:                      c.version,
+		LM:                           c.lm,
+		Editor:                       c.editor,
+		Settings:                     c.settings,
+		Sync:                         c.sync,
+		Hooks:                        c.hooks,
+		MCP:                          c.mcp,
+		Profiles:                     c.profiles,
+		Agents:                       c.agents,
+		DefaultAgent:                 c.defaultAgent,
+		Workspace:                    c.workspace,
+		Runtime:                      c.runtime,
+		IsolationImages:              c.isolationImages,
+		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
+		IsolationDevcontainerBase:    c.isolationDevcontainerBase,
+		IsolationDevcontainerService: c.isolationDevcontainerService,
+		IsolationEngines:             c.isolationEngines,
+		UI:                           c.ui,
+	}
+}
+
+// fromDoc copies a decoded configDoc's fields into c, leaving c's
+// runtime-only fields (appPaths, source, warnings, ...) untouched — callers
+// that decode INTO an existing partially-populated Config (loadLayeredConfig
+// decodes into a cfg that already carries appPaths/appDir/appRoot/source from
+// bootstrap) rely on exactly that.
+func (c *Config) fromDoc(doc configDoc) {
+	c.version = doc.Version
+	c.lm = doc.LM
+	c.editor = doc.Editor
+	c.settings = doc.Settings
+	c.sync = doc.Sync
+	c.hooks = doc.Hooks
+	c.mcp = doc.MCP
+	c.profiles = doc.Profiles
+	c.agents = doc.Agents
+	c.defaultAgent = doc.DefaultAgent
+	c.workspace = doc.Workspace
+	c.runtime = doc.Runtime
+	c.isolationImages = doc.IsolationImages
+	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile
+	c.isolationDevcontainerBase = doc.IsolationDevcontainerBase
+	c.isolationDevcontainerService = doc.IsolationDevcontainerService
+	c.isolationEngines = doc.IsolationEngines
+	c.ui = doc.UI
+}
+
+// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — cli/config.go's
+// `config show`/`config get` and this package's own layer-remarshal step —
+// keeps producing the same shape it always has, now that Config's fields are
+// unexported and no longer reflectable. See configDoc's doc for why this is
+// necessary rather than optional.
+func (c *Config) MarshalYAML() (any, error) {
+	if c == nil {
+		return nil, nil
+	}
+	return c.toDoc(), nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler so yaml.Unmarshal(data, cfg) —
+// ParseConfig and loadLayeredConfig's merged-layer decode — keeps populating
+// Config exactly as it did when its fields were exported. See configDoc's doc
+// for why this is necessary rather than optional. Only the persisted fields
+// configDoc carries are touched; runtime-only fields already set on c
+// (appPaths, source, ...) are left alone.
+//
+// doc is seeded from c's CURRENT state (c.toDoc()), not a zero value, before
+// decoding — reproducing yaml.v3's decode-into-existing-value semantics: a
+// key absent from the document leaves the corresponding field exactly as it
+// was, rather than resetting it to zero. loadUncached relies on this: it
+// pre-populates cfg's LM.Configs / Profiles.Definitions with non-nil empty
+// maps before this Unmarshal runs, specifically so a document that never
+// mentions "llm"/"profiles" still leaves those maps non-nil for downstream
+// code that assumes so. Decoding into a fresh zero-value doc would silently
+// discard that pre-population whenever a key was absent — the same
+// silent-no-op shape this codebase treats as its characteristic bug.
+func (c *Config) UnmarshalYAML(node *yaml.Node) error {
+	doc := c.toDoc()
+	if err := node.Decode(&doc); err != nil {
+		return err
+	}
+	c.fromDoc(doc)
+	return nil
 }
 
 // LoadOption is a functional option for Load.
@@ -342,16 +509,16 @@ const DefaultUIPrefixKey = "ctrl-]"
 
 // UIPrefixKey returns the configured viewer prefix key, defaulting to Ctrl-].
 func (c *Config) UIPrefixKey() string {
-	if c.UI.PrefixKey == "" {
+	if c.ui.PrefixKey == "" {
 		return DefaultUIPrefixKey
 	}
-	return c.UI.PrefixKey
+	return c.ui.PrefixKey
 }
 
 // UISurroundEnabled reports whether the persistent surround bar is enabled
 // (default true; `ui.surround: false` opts out).
 func (c *Config) UISurroundEnabled() bool {
-	return c.UI.Surround == nil || *c.UI.Surround
+	return c.ui.Surround == nil || *c.ui.Surround
 }
 
 // GetEditorCommand returns the editor binary and arguments to use. This is the
@@ -366,19 +533,19 @@ func (c *Config) IsolationImageFor(backend string) string {
 	if c == nil {
 		return ""
 	}
-	return c.IsolationImages[backend]
+	return c.isolationImages[backend]
 }
 
 // IsolationBaseContainerfilePath returns the user-provided base Containerfile
 // for locally-built agent images, resolved against the project root when
 // relative ("" = the embedded default base; nil-safe).
 func (c *Config) IsolationBaseContainerfilePath() string {
-	if c == nil || c.IsolationBaseContainerfile == "" {
+	if c == nil || c.isolationBaseContainerfile == "" {
 		return ""
 	}
-	p := c.IsolationBaseContainerfile
-	if !filepath.IsAbs(p) && c.AppRoot != "" {
-		p = filepath.Join(c.AppRoot, p)
+	p := c.isolationBaseContainerfile
+	if !filepath.IsAbs(p) && c.appRoot != "" {
+		p = filepath.Join(c.appRoot, p)
 	}
 	return p
 }
@@ -387,12 +554,12 @@ func (c *Config) IsolationBaseContainerfilePath() string {
 // is enabled for locally-built agent images (default true — nil means unset;
 // nil-safe).
 func (c *Config) IsolationDevcontainerBaseEnabled() bool {
-	return c == nil || c.IsolationDevcontainerBase == nil || *c.IsolationDevcontainerBase
+	return c == nil || c.isolationDevcontainerBase == nil || *c.isolationDevcontainerBase
 }
 
 func (c *Config) GetEditorCommand() (string, []string) {
-	if bin, args := splitEditorCommand(c.Editor.Command); bin != "" {
-		return bin, append(args, c.Editor.Args...)
+	if bin, args := splitEditorCommand(c.editor.Command); bin != "" {
+		return bin, append(args, c.editor.Args...)
 	}
 	return EditorFromEnv()
 }
@@ -429,7 +596,7 @@ func splitEditorCommand(value string) (string, []string) {
 
 // ProfileDefinition returns the named profile definition and whether it exists.
 func (c *Config) ProfileDefinition(name string) (Profile, bool) {
-	p, ok := c.Profiles.Definitions[name]
+	p, ok := c.profiles.Definitions[name]
 	return p, ok
 }
 
@@ -443,10 +610,10 @@ func (c *Config) ProfileDefinition(name string) (Profile, bool) {
 // Returns nil when no default agent is configured or the named agent is not
 // defined by either source.
 func (c *Config) DefaultAgentProfiles() []string {
-	if c == nil || c.DefaultAgent == "" {
+	if c == nil || c.defaultAgent == "" {
 		return nil
 	}
-	sub, ok := c.Agent(c.DefaultAgent)
+	sub, ok := c.Agent(c.defaultAgent)
 	if !ok {
 		return nil
 	}
@@ -458,11 +625,11 @@ func (c *Config) DefaultAgentProfiles() []string {
 // the sole configured label if exactly one exists, else "" — callers then
 // resolve to the built-in default backend.
 func (c *Config) PrimaryLabel() string {
-	if c.LM.Defaults.Primary != "" {
-		return c.LM.Defaults.Primary
+	if c.lm.Defaults.Primary != "" {
+		return c.lm.Defaults.Primary
 	}
-	if len(c.LM.Configs) == 1 {
-		for label := range c.LM.Configs {
+	if len(c.lm.Configs) == 1 {
+		for label := range c.lm.Configs {
 			return label
 		}
 	}
@@ -472,8 +639,8 @@ func (c *Config) PrimaryLabel() string {
 // FastLabel returns the config label playing the fast (compression) role.
 // Fallback chain: defaults.fast → defaults.primary (via PrimaryLabel).
 func (c *Config) FastLabel() string {
-	if c.LM.Defaults.Fast != "" {
-		return c.LM.Defaults.Fast
+	if c.lm.Defaults.Fast != "" {
+		return c.lm.Defaults.Fast
 	}
 	return c.PrimaryLabel()
 }
@@ -483,7 +650,7 @@ func (c *Config) FastLabel() string {
 // built-in default backend with no model (backend default). The model is read
 // only from the entry's own body — never by branching on the backend name.
 func (c *Config) ResolveLLM(label string) (backend, model string) {
-	entry, ok := c.LM.Configs[label]
+	entry, ok := c.lm.Configs[label]
 	if !ok {
 		return DefaultLLM, ""
 	}
@@ -509,7 +676,7 @@ func (c *Config) GetDefaultLLMModel() string {
 
 // SetPrimaryLabel points the primary role at the given config label.
 func (c *Config) SetPrimaryLabel(label string) {
-	c.LM.Defaults.Primary = label
+	c.lm.Defaults.Primary = label
 }
 
 // GetCompactionLLM returns the backend type for the fast (compression) role.
@@ -528,8 +695,8 @@ func (c *Config) GetCompactionModel() string {
 // GetCompactionChunkSize returns the target chunk size for compaction.
 // Defaults to 8000 tokens.
 func (c *Config) GetCompactionChunkSize() int {
-	if c.Settings.CompactionChunks > 0 {
-		return c.Settings.CompactionChunks
+	if c.settings.CompactionChunks > 0 {
+		return c.settings.CompactionChunks
 	}
 	return 8000
 }
@@ -537,14 +704,14 @@ func (c *Config) GetCompactionChunkSize() int {
 // ShouldUseDistilled reports whether to prefer distilled fragment/prompt
 // versions. Defaults to true.
 func (c *Config) ShouldUseDistilled() bool {
-	return c.Settings.ShouldUseDistilled()
+	return c.settings.ShouldUseDistilled()
 }
 
 // ShouldSignByDefault reports whether publish commands (fragment push,
 // command push) should sign unless --no-sign is given (spec §7A.3,
 // sign.default). Defaults to false.
 func (c *Config) ShouldSignByDefault() bool {
-	return c.Settings.ShouldSignByDefault()
+	return c.settings.ShouldSignByDefault()
 }
 
 // SignKey returns the configured sign.key override (a --key-equivalent
@@ -552,14 +719,14 @@ func (c *Config) ShouldSignByDefault() bool {
 // unset — meaning the zero-config discovery chain (internal/signing/agentkey)
 // should be used instead.
 func (c *Config) SignKey() string {
-	return c.Settings.SignKey()
+	return c.settings.SignKey()
 }
 
 // GetProfileLoader returns a profiles.Loader for this config's ctxloom paths.
 // It wires a remote resolver from the remotes registry so the loader can qualify
 // legacy bare bundle refs with the remote each profile was installed from.
 func (c *Config) GetProfileLoader() *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(c.fs, c.AppPaths)
+	profileDirs := profiles.GetProfileDirs(c.fs, c.appPaths)
 	var opts []profiles.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
@@ -608,7 +775,7 @@ func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
 // still gate at content assembly and any mcp/hooks it pulls in still gate at the
 // exec choke. Returns nil when no visible bundle ships a profile.
 func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
 	loader := c.SeededBundleLoader(false)
@@ -741,10 +908,10 @@ func (c *Config) lockfileFSOptions() []remote.LockfileOption {
 // registry is available (the loader then reads profiles verbatim). Exposed so
 // other profile-loader factories (e.g. operations) wire the same qualification.
 func (c *Config) ProfileRemoteResolver() func(string) string {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -760,10 +927,10 @@ func (c *Config) ProfileRemoteResolver() func(string) string {
 // bare/alias bundle refs to their canonical URL form on load. Nil when no
 // registry is available (the loader then reads bundle refs verbatim).
 func (c *Config) ProfileRemoteURLResolver() func(string) string {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -924,18 +1091,23 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		opt(options)
 	}
 
-	// Use provided FS or default to OS filesystem
+	// Use provided FS or default to OS filesystem. injectedFS records which:
+	// see its doc for why that distinction (not fs's own nilness, which is
+	// never nil after this point) is what Save/Manager.Update gate their
+	// advisory cross-process lock on.
 	fs := options.fs
+	injectedFS := fs != nil
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
 
 	cfg := &Config{
-		LM: LMConfig{
+		lm: LMConfig{
 			Configs: make(map[string]LLMConfig),
 		},
-		Profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
-		fs:       fs,
+		profiles:   ProfilesConfig{Definitions: make(map[string]Profile)},
+		fs:         fs,
+		injectedFS: injectedFS,
 	}
 
 	// Create config validator for schema validation
@@ -954,10 +1126,10 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	} else {
 		appPath, source = findAppDir(fs)
 	}
-	cfg.AppPaths = []string{appPath}
-	cfg.AppDir = appPath
-	cfg.AppRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
-	cfg.Source = source
+	cfg.appPaths = []string{appPath}
+	cfg.appDir = appPath
+	cfg.appRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
+	cfg.source = source
 
 	// Env/CLI overrides are applied HERE, inside the single funnel every Load
 	// entry point reaches (the len(opts)>0 bypass, the memoized path, and
@@ -993,14 +1165,14 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 // entries survive untouched.
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
-		LM:       LMConfig{Configs: make(map[string]LLMConfig)},
-		Profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
+		lm:       LMConfig{Configs: make(map[string]LLMConfig)},
+		profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	if cfg.LM.Configs == nil {
-		cfg.LM.Configs = make(map[string]LLMConfig)
+	if cfg.lm.Configs == nil {
+		cfg.lm.Configs = make(map[string]LLMConfig)
 	}
 	return cfg, nil
 }
@@ -1024,7 +1196,7 @@ func mergeDefaultConfig(cfg *Config) {
 	// no LLMs — not a per-key overlay. Injecting default labels into a non-empty
 	// user registry would defeat the single-entry selection rule (one configured
 	// entry is the one used), so a non-empty user registry is left untouched.
-	if len(cfg.LM.Configs) > 0 {
+	if len(cfg.lm.Configs) > 0 {
 		return
 	}
 	// cfg gets its own DEEP copy: the overlay snapshot must stay pristine so a
@@ -1033,19 +1205,19 @@ func mergeDefaultConfig(cfg *Config) {
 	// Body map would still be shared with the snapshot, so mutating e.g.
 	// Body["model"] in place would also rewrite the overlay and defeat the
 	// userAuthoredLM comparison.
-	overlay := LMConfig{Configs: def.LM.Configs}
-	cfg.LM.Configs = make(map[string]LLMConfig, len(def.LM.Configs))
-	for label, entry := range def.LM.Configs {
+	overlay := LMConfig{Configs: def.lm.Configs}
+	cfg.lm.Configs = make(map[string]LLMConfig, len(def.lm.Configs))
+	for label, entry := range def.lm.Configs {
 		entry.Body = deepCopyBody(entry.Body)
-		cfg.LM.Configs[label] = entry
+		cfg.lm.Configs[label] = entry
 	}
-	if cfg.LM.Defaults.Primary == "" {
-		cfg.LM.Defaults.Primary = def.LM.Defaults.Primary
-		overlay.Defaults.Primary = def.LM.Defaults.Primary
+	if cfg.lm.Defaults.Primary == "" {
+		cfg.lm.Defaults.Primary = def.lm.Defaults.Primary
+		overlay.Defaults.Primary = def.lm.Defaults.Primary
 	}
-	if cfg.LM.Defaults.Fast == "" {
-		cfg.LM.Defaults.Fast = def.LM.Defaults.Fast
-		overlay.Defaults.Fast = def.LM.Defaults.Fast
+	if cfg.lm.Defaults.Fast == "" {
+		cfg.lm.Defaults.Fast = def.lm.Defaults.Fast
+		overlay.Defaults.Fast = def.lm.Defaults.Fast
 	}
 	cfg.lmDefaultOverlay = &overlay
 }
@@ -1144,7 +1316,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		if err != nil {
 			return err
 		}
-		cfg.HomePendingUpgrade = pending
+		cfg.homePendingUpgrade = pending
 		if homeValues != nil {
 			layers = append(layers, homeValues)
 		}
@@ -1154,7 +1326,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	if err != nil {
 		return err
 	}
-	cfg.PendingUpgrade = pending
+	cfg.pendingUpgrade = pending
 	if projectValues != nil {
 		layers = append(layers, projectValues)
 	}
@@ -1170,13 +1342,13 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	merged := confload.Merge(layers...)
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})
 		zap.L().Warn("config_override_warning", zap.Error(overrideErr))
 	}
 
 	mergedYAML, err := yaml.Marshal(merged)
 	if err != nil {
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to remarshal layered config: %v", err)})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to remarshal layered config: %v", err)})
 		zap.L().Warn("config_layer_remarshal_warning", zap.Error(err))
 		return nil
 	}
@@ -1191,7 +1363,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	// confload, backed by yaml.Unmarshal file reads) rather than any
 	// viper-driven decode of the config document itself.
 	if err := yaml.Unmarshal(mergedYAML, cfg); err != nil {
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse layered config: %v", err)})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse layered config: %v", err)})
 		zap.L().Warn("config_parse_warning", zap.Error(err))
 	}
 	return nil
@@ -1209,7 +1381,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 // pending is this layer's own upgrade.Pending (nil when the file is current
 // or absent) — the caller decides which of cfg's two pending-upgrade fields
 // (PendingUpgrade / HomePendingUpgrade) it belongs to; this function never
-// writes to cfg.PendingUpgrade itself, unlike the pre-layering loadConfigFile
+// writes to cfg.pendingUpgrade itself, unlike the pre-layering loadConfigFile
 // it replaces.
 //
 // Non-fatal errors (malformed YAML, schema validation) are collected as
@@ -1226,7 +1398,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 		// transient I/O error) degrades to the default-overlaid empty config with
 		// a kind-tagged warning; the strict startup gate (fail-loudly) turns it
 		// into a fatal finding, while --degraded launches anyway.
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, readErr)})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, readErr)})
 		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(readErr))
 		return nil, nil, nil
 	}
@@ -1253,7 +1425,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 	// rather than printed inline, so the loader can tag it with its kind and
 	// the strict startup gate can abort on it (fail-loudly).
 	for _, lost := range drainMigrationWarnings() {
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindMigrationLossy, Text: lost})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindMigrationLossy, Text: lost})
 		zap.L().Warn("config_migration_lossy", zap.String("path", configPath), zap.String("warning", lost))
 	}
 
@@ -1267,7 +1439,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 	// other schema breakage as the plain validate warning it has always been.
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.Warnings = append(cfg.Warnings, classifyValidationError(configPath, err)...)
+			cfg.warnings = append(cfg.warnings, classifyValidationError(configPath, err)...)
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}
@@ -1278,7 +1450,7 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 	// matching ParseConfig; see the case-sensitivity note on loadLayeredConfig.
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse config at %s: %v", configPath, err)})
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse config at %s: %v", configPath, err)})
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 		// Return nil values - the layer contributes nothing, but the warning
 		// still surfaces so the strict startup gate can act on it.
@@ -1416,7 +1588,7 @@ func worktreeSignpost(fs afero.Fs, dir string) {
 func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string
-	for _, appPath := range c.AppPaths {
+	for _, appPath := range c.appPaths {
 		legacyCacheBundlesSignpost(fs, appPath)
 		bundleDir := paths.LocalBundlesPath(appPath)
 		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
@@ -1544,7 +1716,7 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 // Config — the shape most unit tests construct — from spawning companion
 // subprocesses it has no use for.
 func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
 	companionSeedInitMu.Lock()
@@ -1623,10 +1795,10 @@ var companionSeedInitMu sync.Mutex
 // out to git; the local backend opens the on-disk project .git), so they do not
 // honor c.fs — matching loadRemoteBundleSeed.
 func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
-	baseDir := c.AppPaths[0]
+	baseDir := c.appPaths[0]
 	// Defer the auth read + clone-cache construction to the FIRST actual remote
 	// version fetch: the default (lockfile) path never invokes the resolver, and a
 	// local-only pin never touches the remote cache, so neither pays for it.
@@ -1678,10 +1850,10 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 // Returns nil when there is no lockfile or registry — caller treats nil as "no
 // remote bundles, just walk fs."
 func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return nil
 	}
-	baseDir := c.AppPaths[0]
+	baseDir := c.appPaths[0]
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
@@ -1779,7 +1951,7 @@ func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string
 
 // SourceName returns a human-readable name for the config source.
 func (c *Config) SourceName() string {
-	switch c.Source {
+	switch c.source {
 	case SourceProject:
 		return "project"
 	case SourceHome:
@@ -1792,10 +1964,10 @@ func (c *Config) SourceName() string {
 // GetConfigFilePath returns the path to the primary config file.
 // Uses the closest project .ctxloom directory.
 func (c *Config) GetConfigFilePath() (string, error) {
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return "", fmt.Errorf("no .ctxloom directory found; run 'ctxloom init --local' first")
 	}
-	return paths.ConfigPath(c.AppPaths[0]), nil
+	return paths.ConfigPath(c.appPaths[0]), nil
 }
 
 // getFS returns the filesystem to use for file operations.
@@ -1806,7 +1978,11 @@ func (c *Config) getFS() afero.Fs {
 	return afero.NewOsFs()
 }
 
-// SetFS sets the filesystem for file operations (useful for testing).
+// SetFS sets the filesystem for file operations (useful for testing). Also
+// marks the filesystem as injected (see injectedFS's doc), so Save/
+// Manager.Update skip the cross-process advisory lock for it exactly as they
+// would for a WithFS(...) load.
 func (c *Config) SetFS(fs afero.Fs) {
 	c.fs = fs
+	c.injectedFS = true
 }

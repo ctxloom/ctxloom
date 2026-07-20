@@ -52,11 +52,11 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	}
 
 	projectDir := t.TempDir()
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{defaultProfile}}},
 		AppPaths:     []string{appDir},
-	}
+	})
 
 	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
 		Backend:      "all",

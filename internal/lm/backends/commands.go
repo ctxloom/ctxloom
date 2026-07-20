@@ -137,10 +137,11 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 			}
 		}
 	}
+	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml profiles: map) wins, matching
 		// operations.resolveProfile's inline-first ordering.
-		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
 			add(resolved.Commands)
 			continue
 		}

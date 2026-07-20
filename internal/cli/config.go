@@ -90,13 +90,13 @@ func renderConfigYAML(cfg *config.Config, out io.Writer) error {
 func resolveConfigSection(cfg *config.Config, name string) (any, error) {
 	switch name {
 	case "config":
-		return cfg.Settings, nil
+		return cfg.GetSettings(), nil
 	case "llm":
-		return cfg.LM, nil
+		return cfg.GetLMConfig(), nil
 	case "mcp":
-		return cfg.MCP, nil
+		return cfg.GetMCPConfig(), nil
 	case "profiles":
-		return cfg.Profiles, nil
+		return cfg.GetProfilesConfig(), nil
 	default:
 		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: config, llm, mcp, profiles", name)
 	}

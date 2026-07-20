@@ -112,13 +112,14 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
+	settings := cfg.GetSettings()
 
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
 		Context:          asm.Context,
 		MCP:              mcp,
 		BundleMCP:        bundleMCP,
 		Hooks:            hooks,
-		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
+		ManageStatusline: settings.ShouldManageStatusline(),
 		Commands:         commands,
 		// The --target tree is a PORTABLE, self-contained artifact meant to be
 		// launched on a DIFFERENT machine (an externally-launched agent, CI) with

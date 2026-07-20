@@ -17,7 +17,7 @@ const versionKey = "version"
 // migrationWarnings collects lossy-migration diagnostics raised while the
 // upgrade pipeline runs. The Upgrader interface has no warning channel and no
 // access to the Config being built, so lossy steps record here and
-// loadConfigFile drains into cfg.Warnings (kind migration-lossy) right after
+// loadConfigFile drains into cfg.warnings (kind migration-lossy) right after
 // configUpgrades.Run — the pipeline's single call site — so the strict startup
 // gate can abort on a silently dropped setting instead of it scrolling past as
 // an unclassified stderr line.

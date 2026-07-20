@@ -24,7 +24,7 @@ commands:
   something-else:
     content: "UNRELATED"
 `)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(cfg, "BUILTIN"),
 		"no agent-setup command installed → the built-in prompt alone")
@@ -43,7 +43,7 @@ commands:
   agent-setup:
     content: "BUNDLE-SHIPPED-SETUP-PROMPT"
 `)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN-DEFAULT")
 	assert.Contains(t, got, "BUILTIN-DEFAULT", "the built-in guidance must still be present")
@@ -71,15 +71,15 @@ commands:
   agent-setup:
     content: "ALPHA-SETUP-CONTENT"
 `)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	require.Contains(t, got, "BUILTIN")
 	require.Contains(t, got, "ALPHA-SETUP-CONTENT")
 	require.Contains(t, got, "ZEBRA-SETUP-CONTENT")
-	assert.Less(t, strings.Index(got,"BUILTIN"), strings.Index(got,"ALPHA-SETUP-CONTENT"),
+	assert.Less(t, strings.Index(got, "BUILTIN"), strings.Index(got, "ALPHA-SETUP-CONTENT"),
 		"the built-in leads every contribution")
-	assert.Less(t, strings.Index(got,"ALPHA-SETUP-CONTENT"), strings.Index(got,"ZEBRA-SETUP-CONTENT"),
+	assert.Less(t, strings.Index(got, "ALPHA-SETUP-CONTENT"), strings.Index(got, "ZEBRA-SETUP-CONTENT"),
 		"alpha-onboarding#agent-setup sorts before zebra-onboarding#agent-setup")
 
 	// Re-resolving must reproduce the exact same order — this is a
@@ -113,7 +113,7 @@ func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T)
 	defer restoreProbe()
 
 	appDir, _ := regenTestApp(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")

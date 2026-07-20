@@ -115,10 +115,10 @@ func keyInfoFromPublicKey(pub ssh.PublicKey, comment string) SignerKeyInfo {
 // because writing to the wrong one is a trust-root mistake.
 func signerStorePath(cfg *config.Config, project bool) (string, error) {
 	if project {
-		if cfg == nil || len(cfg.AppPaths) == 0 {
+		if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project allowed_signers path")
 		}
-		return paths.AllowedSignersPath(cfg.AppPaths[0]), nil
+		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), nil
 	}
 	return paths.HomeAllowedSignersPath()
 }
@@ -283,8 +283,8 @@ func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	if home, err := paths.HomeAllowedSignersPath(); err == nil {
 		out = append(out, listFromPath(fs, home, "user")...)
 	}
-	if cfg != nil && len(cfg.AppPaths) > 0 {
-		project := paths.AllowedSignersPath(cfg.AppPaths[0])
+	if cfg != nil && len(cfg.GetAppPaths()) > 0 {
+		project := paths.AllowedSignersPath(cfg.GetAppPaths()[0])
 		out = append(out, listFromPath(fs, project, "project")...)
 	}
 	return out, nil
@@ -462,10 +462,10 @@ func matchesEmbeddedPrincipal(principal string) bool {
 // a trust decision.
 func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error) {
 	if project {
-		if cfg == nil || len(cfg.AppPaths) == 0 {
+		if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 			return "", fmt.Errorf("no .ctxloom directory configured — cannot resolve the project distrusted_signers path")
 		}
-		return paths.DistrustedSignersPath(cfg.AppPaths[0]), nil
+		return paths.DistrustedSignersPath(cfg.GetAppPaths()[0]), nil
 	}
 	return paths.HomeDistrustedSignersPath()
 }

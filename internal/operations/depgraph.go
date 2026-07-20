@@ -72,7 +72,7 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) []*
 			continue
 		}
 		seen[name] = struct{}{}
-		if def, ok := cfg.Profiles.Definitions[name]; ok {
+		if def, ok := cfg.GetProfileDefinitions()[name]; ok {
 			roots = append(roots, &profiles.Profile{Name: name, Bundles: def.Bundles, Parents: def.Parents})
 			continue
 		}
@@ -94,7 +94,7 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) []*
 // erases every entry rooted only in an inline or config-default profile.
 func closureRoots(cfg *config.Config, loader *profiles.Loader) []*profiles.Profile {
 	var names []string
-	for name := range cfg.Profiles.Definitions {
+	for name := range cfg.GetProfileDefinitions() {
 		names = append(names, name)
 	}
 	if ps, err := loader.List(); err == nil {

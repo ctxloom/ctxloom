@@ -25,7 +25,7 @@ func TestPurgeExtractedBundles(t *testing.T) {
 
 	t.Run("missing bundles dir is a no-op", func(t *testing.T) {
 		dir := t.TempDir()
-		cfg := &config.Config{AppPaths: []string{dir}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
 		removed, err := PurgeExtractedBundles(cfg)
 		require.NoError(t, err)
 		assert.Zero(t, removed)
@@ -53,7 +53,7 @@ fragments:
     content: hi
 `), 0o644))
 
-		cfg := &config.Config{AppPaths: []string{dir}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
 		removed, err := PurgeExtractedBundles(cfg)
 		require.NoError(t, err)
 		assert.Equal(t, 1, removed, "exactly the _source-tagged file should be removed")
@@ -74,7 +74,7 @@ fragments:
 		bundlesDir := paths.CacheBundlesPath(dir)
 		require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 
-		cfg := &config.Config{AppPaths: []string{dir}}
+		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
 		removed, err := PurgeExtractedBundles(cfg)
 		require.NoError(t, err)
 		assert.Zero(t, removed)

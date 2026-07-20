@@ -12,13 +12,13 @@ import (
 // declared llm, then the primary role. A bad profile.llm is fault-tolerant
 // (warn + fall back), while a bad --llm is a hard error.
 func TestResolveRunLLM(t *testing.T) {
-	cfg := &config.Config{LM: config.LMConfig{
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
 		Configs: map[string]config.LLMConfig{
 			"claude-fast": {Type: "claude-code"},
 			"agy-code":    {Type: "antigravity"},
 		},
 		Defaults: config.RoleDefaults{Primary: "claude-fast"},
-	}}
+	}})
 
 	t.Run("override wins over profile and primary", func(t *testing.T) {
 		got, err := resolveRunLLM(cfg, "agy-code", "claude-fast")

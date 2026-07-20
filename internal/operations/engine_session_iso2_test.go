@@ -35,8 +35,8 @@ import (
 // was set) or resolved to a DIFFERENT name (defensive; today currentAgent is
 // always either "" or exactly resolveAgent).
 func TestAcpWorkspaceAxis(t *testing.T) {
-	cfgDefaultWorktree := &config.Config{Workspace: "worktree"}
-	cfgDefaultNone := &config.Config{Workspace: ""}
+	cfgDefaultWorktree := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	cfgDefaultNone := config.NewFixture(config.Fixture{Workspace: ""})
 
 	cases := []struct {
 		name                    string

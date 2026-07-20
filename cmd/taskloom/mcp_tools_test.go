@@ -21,7 +21,9 @@ import (
 // the real ~/.ctxloom.
 func withProjectDir(t *testing.T) string {
 	t.Helper()
-	return taskstest.ProjectDir(t)
+	dir := taskstest.ProjectDir(t)
+	setTestHoming(t, "home")
+	return dir
 }
 
 func TestHandleTaskAdd_AssignsHarpIDAndPersists(t *testing.T) {

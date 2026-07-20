@@ -11,9 +11,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
@@ -46,10 +48,26 @@ vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom
 
 // tasksProject is the --project override: an explicit project-id to act on,
 // winning over both the session's CTXLOOM_PROJECT_ID pin and cwd resolution.
+// Ignored (with a warning) in repo-homed mode, where the repo path itself is
+// the store's identity — see operations.resolveRepoHomedStore.
 var tasksProject string
+
+// tasksHoming is the --homing override: an explicit task-store homing mode
+// ("home" or "repo") for this invocation, winning over every config layer
+// (home/project .taskloom/config.yaml, TASKLOOM_CONFIG_HOMING, --config-set
+// homing=...) — see taskloomconfig.ResolveMode for the full precedence chain
+// and its fail-loud behavior when nothing at all sets it.
+var tasksHoming string
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&tasksProject, "project", "", "Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)")
+	rootCmd.PersistentFlags().StringVar(&tasksHoming, "homing", "",
+		`Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks `+
+			`(today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels `+
+			`with clones. Overrides the `+"`"+taskloomconfig.HomingConfigKey+"`"+` key in .taskloom/config.yaml `+
+			`and TASKLOOM_CONFIG_HOMING.`)
+	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
+		"Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)")
 }
 
 // taskContext gathers the inputs operations needs to resolve the project task
@@ -88,6 +106,38 @@ func taskContext() (operations.TaskContext, error) {
 	}, nil
 }
 
+// requireHoming resolves tc's task-store homing mode via
+// taskloomconfig.ResolveMode — taskloom's own layered config (home < project
+// .taskloom/config.yaml < TASKLOOM_CONFIG_HOMING env < --config-set) then the
+// dedicated --homing flag (highest precedence) — and sets it on tc, or
+// returns the FAIL LOUD error (taskloomconfig.FailLoudMessage) naming both
+// the `homing` config key and the --homing flag when nothing at any layer
+// decides it.
+//
+// Every command that is about to touch ONE project's store calls this right
+// after taskContext() (taskContextSingle does both in one call); `taskloom
+// list`/task_list's --global aggregation, and the no-project fallback it
+// shares, never do — homing mode is meaningless for a read that spans every
+// project's store at once.
+func requireHoming(tc operations.TaskContext) (operations.TaskContext, error) {
+	mode, err := taskloomconfig.ResolveMode(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
+	if err != nil {
+		return tc, err
+	}
+	tc.HomingMode = mode
+	return tc, nil
+}
+
+// taskContextSingle is taskContext() plus requireHoming: the combined
+// resolution every command that touches exactly one project's store needs.
+func taskContextSingle() (operations.TaskContext, error) {
+	tc, err := taskContext()
+	if err != nil {
+		return tc, err
+	}
+	return requireHoming(tc)
+}
+
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
 func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
@@ -95,13 +145,28 @@ func isInteractiveTerminal() bool {
 
 // noteTaskProject names the store a mutation landed in, on stderr so stdout
 // stays parseable. A pinned project-id wins over cwd, so without this a task
-// added while cd'd into another project lands somewhere invisible.
+// added while cd'd into another project lands somewhere invisible. In
+// repo-homed mode projectID is always empty (the repo path IS the identity —
+// see operations.resolveRepoHomedStore), so the "(id)" suffix is only shown
+// when there is actually an id to show.
 func noteTaskProject(projectID, projectDir string) {
-	if projectDir != "" {
-		fmt.Fprintf(os.Stderr, "taskloom: project %s (%s)\n", projectDir, projectID)
-		return
+	fmt.Fprintf(os.Stderr, "taskloom: project %s\n", formatProjectLabel(projectDir, projectID))
+}
+
+// formatProjectLabel renders a "dir (id)" / "dir" / "id" label for a
+// resolved store, omitting the "(id)" suffix when id is empty (repo-homed
+// mode mints no project-id — see operations.resolveRepoHomedStore) rather
+// than printing a bare, confusing "()" — used by noteTaskProject and every
+// place `taskloom list`/`taskloom tags` names the resolved store.
+func formatProjectLabel(dir, id string) string {
+	switch {
+	case dir != "" && id != "":
+		return fmt.Sprintf("%s (%s)", dir, id)
+	case dir != "":
+		return dir
+	default:
+		return id
 	}
-	fmt.Fprintf(os.Stderr, "taskloom: project %s\n", projectID)
 }
 
 // warnTask surfaces a project-resolution notice (move/fork) returned by an

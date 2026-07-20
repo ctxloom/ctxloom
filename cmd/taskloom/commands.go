@@ -141,6 +141,10 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		return renderGlobalTaskTable(out, gres.Rows)
 	}
 
+	tc, err = requireHoming(tc)
+	if err != nil {
+		return err
+	}
 	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.All, false)
 	if err != nil {
 		return wrapTagQueryError(err)
@@ -154,11 +158,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	// trees under one repo), which project a listing came from is the
 	// first thing a confused reader needs to know.
 	w := iox.NewErrWriter(out)
-	if res.ProjectDir != "" {
-		w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
-	} else {
-		w.Printf("Project: %s\n\n", res.ProjectID)
-	}
+	w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
 	if err := w.Err(); err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ var addCmd = &cobra.Command{
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}
@@ -283,7 +283,7 @@ task then hides from the default list until the trigger fires. A task already
 carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}
@@ -312,7 +312,7 @@ status and any Deferred trigger are left unchanged.`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args[1:], " ")
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}
@@ -352,7 +352,7 @@ tags already in use with "taskloom tags"; filter tasks by tag with
 		if len(tasksTagAdd) == 0 && len(tasksTagRemove) == 0 {
 			return fmt.Errorf("nothing to do: pass --add <tag> and/or --remove <tag>")
 		}
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}
@@ -387,7 +387,7 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
   taskloom tags --json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}
@@ -398,11 +398,7 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
 		warnTask(res.Warning)
 		return cliemit.Emit(cmd, res.Tags, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
-			if res.ProjectDir != "" {
-				w.Printf("Project: %s (%s)\n\n", res.ProjectDir, res.ProjectID)
-			} else {
-				w.Printf("Project: %s\n\n", res.ProjectID)
-			}
+			w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
 			if len(res.Tags) == 0 {
 				w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
 				return w.Err()
@@ -427,7 +423,7 @@ var summaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContext()
+		tc, err := taskContextSingle()
 		if err != nil {
 			return err
 		}

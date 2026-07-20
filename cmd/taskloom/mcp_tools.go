@@ -165,6 +165,10 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		}, nil
 	}
 
+	tc, err = requireHoming(tc)
+	if err != nil {
+		return nil, nil, err
+	}
 	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary)
 	if err != nil {
 		return nil, nil, err
@@ -187,7 +191,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 }
 
 func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	tc, err := taskContext()
+	tc, err := taskContextSingle()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -200,7 +204,7 @@ func handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (
 }
 
 func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	tc, err := taskContext()
+	tc, err := taskContextSingle()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -213,7 +217,7 @@ func handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetSt
 }
 
 func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
-	tc, err := taskContext()
+	tc, err := taskContextSingle()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,7 +230,7 @@ func handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput)
 }
 
 func handleTaskTag(_ context.Context, _ *mcp.CallToolRequest, in taskTagInput) (*mcp.CallToolResult, *taskTagResult, error) {
-	tc, err := taskContext()
+	tc, err := taskContextSingle()
 	if err != nil {
 		return nil, nil, err
 	}

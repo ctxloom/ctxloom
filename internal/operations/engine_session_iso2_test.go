@@ -348,10 +348,12 @@ func TestOpenEngineSession_ExplicitAgentWithoutWorktreeRequest(t *testing.T) {
 	chat.Close()
 }
 
-// TestOpenEngineSession_UnknownAgentNeverWorktrees: an --agent naming a
-// binding that doesn't exist degrades to the bare profile flow (currentAgent
-// stays "") — acpWorkspaceAxis's currentAgent==flagAgent check must still
-// refuse to isolate, exactly like the no-agent case.
+// TestOpenEngineSession_UnknownAgentNeverWorktrees: an EXPLICIT --agent
+// naming a binding that doesn't exist now REFUSES to open the session
+// (sandy-boxer). It must certainly never isolate on the strength of a binding
+// it could not resolve, so isolation.Prepare stays unreachable either way —
+// but the session no longer opens at all, because a substitute session would
+// silently drop that agent's runtime and permissions.
 func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
@@ -359,7 +361,7 @@ func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 
 	prevPrep := prepareIsolation
 	prepareIsolation = func(context.Context, isolation.Axes, string, isolation.ImageConfig, string, string, isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		t.Fatal("an unresolvable --agent must degrade to the profile flow, never isolation.Prepare")
+		t.Fatal("an unresolvable --agent must never reach isolation.Prepare")
 		return nil, nil
 	}
 	t.Cleanup(func() { prepareIsolation = prevPrep })
@@ -369,19 +371,10 @@ func TestOpenEngineSession_UnknownAgentNeverWorktrees(t *testing.T) {
 
 	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, fakeEngineSessionCoord{},
 		"", "no-such-agent", "mock", "")
-	require.NoError(t, err)
-	require.NotNil(t, chat)
-	require.NotNil(t, client.gotReq)
-	assert.Equal(t, repo, client.gotReq.WorkDir)
-
-	// ISO3: the fail-soft this test drives (an unresolvable --agent) is
-	// exactly the case that must be LOUD in the chat — see
-	// engine_session_iso3_test.go's TestOpenEngineSession_UnknownAgentAnnouncementIsLoud
-	// for the full payload assertion (chat.InitSummary); drain the engine's
-	// own event here so this test doesn't leak it.
-	<-chat.Events
-
-	chat.Close()
+	require.Error(t, err, "an explicit --agent that cannot be honored must refuse the session")
+	assert.Nil(t, chat)
+	assert.Contains(t, err.Error(), "no-such-agent")
+	assert.Nil(t, client.gotReq, "the engine must never be started for an unhonorable agent binding")
 }
 
 // --- shared real-git fixtures (mirrors isolation package's own convention) -

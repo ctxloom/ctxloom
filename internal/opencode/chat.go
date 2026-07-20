@@ -2,6 +2,8 @@ package opencode
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -48,11 +50,22 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 		close(out) // honor the StructuredChat contract: producer closes out exactly once
 		return err
 	}
-	if err := writeOpencodeConfig(fs, req.WorkDir, managedConfig{
-		model:      model,
-		mcpServers: req.MCPServers,
-		readOnly:   req.Permissions == agent.PermissionPlan,
-	}); err != nil {
+	// Deliver the assembled context the SAME way the interactive path does:
+	// the instructions[] key pointing at a ctxloom-owned
+	// .opencode/ctxloom-context.md. Chat used to carry model/mcp/permission on
+	// this overlay but NOT context, so structured-chat and oneshot
+	// `opencode acp` runs saw no project context whatsoever — the run
+	// succeeded, the agent simply knew nothing (sick-dairy).
+	mc := chatManaged(req, model, b.pendingContext, req.MCPServers)
+	removeContext, err := materializeContextSurface(fs, req.WorkDir, b.pendingContext)
+	if err != nil {
+		_ = restore()
+		close(out)
+		return err
+	}
+	if err := writeOpencodeConfig(fs, req.WorkDir, mc); err != nil {
+		_ = removeContext()
+		_ = restore()
 		close(out)
 		return err
 	}
@@ -66,6 +79,7 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	revertCmds := func() error { return nil }
 	if len(b.pendingCommands) > 0 {
 		if err := WriteCommandFiles(req.WorkDir, b.pendingCommands, agent.WithCommandFS(fs)); err != nil {
+			_ = removeContext()
 			_ = restore()
 			close(out)
 			return err
@@ -83,6 +97,7 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	if len(b.pendingSkills) > 0 {
 		if err := reconcileSkillsSurface(fs, req.WorkDir, b.pendingSkills); err != nil {
 			_ = revertCmds()
+			_ = removeContext()
 			_ = restore()
 			close(out)
 			return err
@@ -106,6 +121,9 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 		chatErr = rerr
 	}
 	if rerr := revertCmds(); rerr != nil && chatErr == nil {
+		chatErr = rerr
+	}
+	if rerr := removeContext(); rerr != nil && chatErr == nil {
 		chatErr = rerr
 	}
 	if rerr := restore(); rerr != nil && chatErr == nil {
@@ -142,4 +160,49 @@ func (b *Opencode) chatACPConfig() acp.ACPConfig {
 // and a MALFORMED existing file FAILS LOUDLY rather than being clobbered.
 func writeModelConfig(fs afero.Fs, workDir, model string) error {
 	return writeOpencodeConfig(fs, workDir, managedConfig{model: model})
+}
+
+// chatManaged is the pure ChatRequest→opencode.json mapping the structured-chat
+// overlay writes, mirroring interactiveManaged so the two paths cannot diverge
+// on what a run's managed config contains. Chat has no SkipSetup posture (that
+// is an ExecuteRequest concept), so MCP and context always ride.
+func chatManaged(req agent.ChatRequest, model, context string, mcp []agent.ChatMCPServer) managedConfig {
+	mc := managedConfig{
+		model:      model,
+		mcpServers: mcp,
+		readOnly:   req.Permissions == agent.PermissionPlan,
+	}
+	if context != "" {
+		mc.instructions = []string{opencodeContextFile}
+	}
+	return mc
+}
+
+// materializeContextSurface writes the assembled context to the ctxloom-owned
+// .opencode/ctxloom-context.md that the opencode.json instructions[] key points
+// at — opencode's documented "additional instruction files" mechanism — and
+// returns the revert that removes it again. An empty context writes nothing and
+// reverts to a no-op, so a run with no context never points opencode at an
+// empty instruction file.
+//
+// Shared by the interactive launch and the structured-chat overlay: context
+// delivery living in only one of them is exactly the gap this closes.
+func materializeContextSurface(fs afero.Fs, workDir, context string) (func() error, error) {
+	noop := func() error { return nil }
+	if context == "" {
+		return noop, nil
+	}
+	ctxPath := filepath.Join(workDir, opencodeContextFile)
+	if err := fs.MkdirAll(filepath.Dir(ctxPath), 0o755); err != nil {
+		return noop, fmt.Errorf("create .opencode directory: %w", err)
+	}
+	if err := agent.AtomicWriteFile(fs, ctxPath, []byte(context+"\n"), "ctxloom-context.md"); err != nil {
+		return noop, err
+	}
+	return func() error {
+		if e, _ := afero.Exists(fs, ctxPath); e {
+			return fs.Remove(ctxPath)
+		}
+		return nil
+	}, nil
 }

@@ -391,6 +391,12 @@ Examples:
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.PendingUpgrade, cfg.CommitUpgrade)
+		// The HOME layer gets the same offer when a project config also exists
+		// (long-ice). Without this, a stale ~/.ctxloom/config.yaml was upgraded
+		// in memory on every load forever and never converged. The prompt names
+		// the path, so consenting to rewrite HOME is an informed choice rather
+		// than a surprise side effect of a project-scoped run.
+		confirmUpgrade(cfg.HomePendingUpgrade, cfg.CommitHomeUpgrade)
 		// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)

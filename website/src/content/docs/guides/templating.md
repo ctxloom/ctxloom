@@ -145,6 +145,18 @@ variables outside the escaped block still substitute normally.
 Do this whenever a fragment includes example code or prose for another tool
 that happens to share Mustache's `{{ }}` delimiter.
 
+:::danger[Always close the block]
+Both tags are required. If you open with `{{=<% %>=}}` and never write the
+closing `<%={{ }}=%>`, everything after the opening tag stays literal for the
+rest of the fragment — including your *real* variables, which arrive as
+`{{name}}` rather than their values.
+
+No warning is emitted. The delimiters were switched, so nothing downstream
+looks like a tag any more, and the check that reports undefined variables has
+nothing left to report. An unclosed block fails more quietly than the
+corruption it was meant to prevent.
+:::
+
 ## Examples
 
 ### Project Context

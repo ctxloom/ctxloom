@@ -30,11 +30,24 @@ func (c *Config) CommitUpgrade() error {
 	return nil
 }
 
-// Save writes the configuration to the primary config file. The
-// read-modify-write is serialized across processes with an advisory file lock
-// (the MCP server and a concurrent CLI both call Save — without it one
-// writer's sections are silently lost), and the write itself is atomic so a
-// crash can never tear config.yaml.
+// Save writes the configuration to the primary config file. The write itself
+// is serialized across processes with an advisory file lock (the MCP server
+// and a concurrent CLI both call Save — without it one writer's sections are
+// silently lost mid-write) and is atomic so a crash can never tear
+// config.yaml.
+//
+// Save does NOT, by itself, close the LOST-UPDATE window: it re-reads the
+// on-disk file fresh under its own lock, but the fields it merges onto that
+// fresh read (c's own agents/mcp/... state) may have been populated by a
+// Load() long before the lock was ever taken — so two callers that each
+// Load(), mutate their own in-memory copy, then Save() can still silently
+// discard one another's change, despite neither Save() call ever
+// interleaving with the other at the byte level. Manager.Update (see
+// config_manager.go) is what actually closes that window: it takes the SAME
+// lock this method does, but re-Loads fresh AFTER acquiring it — so the
+// in-memory state Save eventually merges is never stale. Save remains the
+// entry point for callers that accept that risk (or, like Manager.Update,
+// have already closed it themselves via saveLocked).
 func (c *Config) Save() error {
 	configPath, err := c.GetConfigFilePath()
 	if err != nil {
@@ -46,7 +59,10 @@ func (c *Config) Save() error {
 	// Advisory flock applies only to the real filesystem; an injected (test)
 	// fs has no cross-process readers. A lock failure degrades to an unlocked
 	// save rather than blocking the write (CLAUDE.md fault tolerance).
-	if c.fs == nil {
+	// Gated on injectedFS, NOT c.fs's nilness — loadUncached always populates
+	// c.fs with a concrete value (afero.NewOsFs() by default), so c.fs is
+	// never actually nil for a Load()-produced Config; see injectedFS's doc.
+	if !c.injectedFS {
 		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
 			defer unlock()
 		} else {
@@ -54,6 +70,19 @@ func (c *Config) Save() error {
 		}
 	}
 
+	return c.saveLocked(fs, configPath)
+}
+
+// saveLocked is Save's actual read-merge-write, factored out so
+// Manager.Update can reuse it from INSIDE a lock it already holds — calling
+// Save() there would try to re-acquire the same advisory flock from the same
+// process and deadlock (flock(2) blocks the calling process until the lock
+// is released, and a process can never release a lock it is still waiting to
+// acquire a second one of). Callers of saveLocked are responsible for their
+// own locking (or for deciding, like Save() and Manager.Update both do, that
+// an unavailable lock degrades to an unlocked write rather than blocking
+// forever).
+func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	existing, err := readExistingConfig(fs, configPath)
 	if err != nil {
 		return err

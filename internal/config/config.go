@@ -185,6 +185,25 @@ type Config struct {
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 
+	// injectedFS records whether fs was EXPLICITLY provided (WithFS at Load
+	// time, or a later SetFS call) as opposed to defaulted. This exists
+	// SOLELY so Save/Manager.Update can tell "a real caller pointed this at a
+	// test filesystem, skip the cross-process advisory lock — there are no
+	// other processes reading an in-memory fs" apart from "this is the OS
+	// filesystem, take the lock" — a distinction c.fs itself can no longer
+	// make: loadUncached ALWAYS populates c.fs with a concrete value
+	// (afero.NewOsFs() by default), so a "c.fs == nil" check — Save's
+	// original guard — is false for EVERY Load()-produced Config, meaning
+	// the advisory lock this field exists to gate had never actually fired
+	// for a real, on-disk config (found while building Manager.Update's own
+	// lock guard: TestUpdate_SerializesConcurrentWritersInProcess lost 13 of
+	// 20 concurrent writes with the naive c.fs==nil check, because it always
+	// skipped locking). c.fs itself is untouched — every existing consumer
+	// that reads it directly (agents.GetAgentDirs, profiles.GetProfileDirs,
+	// bundles.WithFS, the remote registry/lockfile options, ...) keeps
+	// exactly the same value it always got.
+	injectedFS bool
+
 	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
 	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
 	// command-file exports via LoadCommandExports) when set. nil = no enforcement,
@@ -1073,8 +1092,12 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		opt(options)
 	}
 
-	// Use provided FS or default to OS filesystem
+	// Use provided FS or default to OS filesystem. injectedFS records which:
+	// see its doc for why that distinction (not fs's own nilness, which is
+	// never nil after this point) is what Save/Manager.Update gate their
+	// advisory cross-process lock on.
 	fs := options.fs
+	injectedFS := fs != nil
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
@@ -1083,8 +1106,9 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 		lm: LMConfig{
 			Configs: make(map[string]LLMConfig),
 		},
-		profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
-		fs:       fs,
+		profiles:   ProfilesConfig{Definitions: make(map[string]Profile)},
+		fs:         fs,
+		injectedFS: injectedFS,
 	}
 
 	// Create config validator for schema validation
@@ -1955,7 +1979,11 @@ func (c *Config) getFS() afero.Fs {
 	return afero.NewOsFs()
 }
 
-// SetFS sets the filesystem for file operations (useful for testing).
+// SetFS sets the filesystem for file operations (useful for testing). Also
+// marks the filesystem as injected (see injectedFS's doc), so Save/
+// Manager.Update skip the cross-process advisory lock for it exactly as they
+// would for a WithFS(...) load.
 func (c *Config) SetFS(fs afero.Fs) {
 	c.fs = fs
+	c.injectedFS = true
 }

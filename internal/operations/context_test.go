@@ -7,10 +7,13 @@ package operations
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cbroglie/mustache"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -922,6 +926,211 @@ func TestSubstituteVariables_SetDelimiterEscapesLiteralMustache(t *testing.T) {
 	// No spurious warnings: the escaped tags were never treated as undefined
 	// ctxloom variables in the first place.
 	assert.Empty(t, warnings)
+}
+
+// TestSubstituteVariables_RealVariableOutsideEscapedBlockStillSubstitutes
+// isolates the specific claim docs/guides/templating.md makes about the Set
+// Delimiter escape ("Real ctxloom variables outside the escaped block still
+// substitute normally"): a real variable placed both before and after an
+// escaped block substitutes in both places, while the escaped block's own
+// content never does, in one fragment.
+func TestSubstituteVariables_RealVariableOutsideEscapedBlockStillSubstitutes(t *testing.T) {
+	content := "Before: {{name}}\n" +
+		"{{=<% %>=}}\n" +
+		"literal {{name}} stays literal\n" +
+		"<%={{ }}=%>\n" +
+		"After: {{name}}"
+	vars := map[string]string{"name": "World"}
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	assert.Contains(t, result, "Before: World")
+	assert.Contains(t, result, "literal {{name}} stays literal")
+	assert.Contains(t, result, "After: World")
+	assert.Empty(t, warnings)
+}
+
+// TestSubstituteVariables_MultipleSetDelimiterBlocksInOneFragment proves the
+// escape is not a one-shot toggle: a fragment can open and close the Set
+// Delimiter tag more than once, with real substitution resuming correctly in
+// between and after every escaped block.
+func TestSubstituteVariables_MultipleSetDelimiterBlocksInOneFragment(t *testing.T) {
+	content := "{{=<% %>=}}\n" +
+		"first literal {{ARGS}}\n" +
+		"<%={{ }}=%>\n" +
+		"middle real: {{name}}\n" +
+		"{{=<% %>=}}\n" +
+		"second literal {{TOP}}\n" +
+		"<%={{ }}=%>\n" +
+		"end"
+	vars := map[string]string{"name": "World"}
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	assert.Contains(t, result, "first literal {{ARGS}}")
+	assert.Contains(t, result, "middle real: World")
+	assert.Contains(t, result, "second literal {{TOP}}")
+	assert.Empty(t, warnings)
+}
+
+// TestSubstituteVariables_SetDelimiterEscapesEvenRealVariableNames proves the
+// escape is a lexical switch, not a name-based one: a literal tag inside an
+// escaped block that happens to spell a genuinely bound ctxloom variable name
+// is NOT substituted (it is never tokenized as a tag at all), while the exact
+// same name outside the block substitutes normally. This matters because a
+// fragment documenting another {{...}}-flavored language can easily collide
+// on a short, common name (ARGS, NAME, ID); the escape must win regardless.
+func TestSubstituteVariables_SetDelimiterEscapesEvenRealVariableNames(t *testing.T) {
+	content := "{{=<% %>=}}\n" +
+		"literal {{ARGS}}\n" +
+		"<%={{ }}=%>\n" +
+		"real: {{ARGS}}"
+	vars := map[string]string{"ARGS": "real-value"}
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	assert.Contains(t, result, "literal {{ARGS}}")
+	assert.Contains(t, result, "real: real-value")
+	assert.Empty(t, warnings)
+}
+
+// TestSubstituteVariables_UnclosedSetDelimiterSwallowsRestOfFragment
+// characterizes a genuinely surprising failure mode of a MALFORMED escape: a
+// `{{=<% %>=}}` opening tag with no matching `<%={{ }}=%>` closing tag does
+// not error, and does not merely leave the rest of the raw text untouched —
+// it silently disables ALL further variable substitution for the remainder
+// of the fragment, including a real, bound ctxloom variable that appears
+// after the unclosed tag. That variable is left as literal `{{name}}` text
+// in the rendered output (not substituted, not warned about, not blanked —
+// just silently skipped), while content BEFORE the unclosed tag still
+// substitutes normally. A fragment author who forgets the closing tag gets
+// no signal that every variable reference downstream of the typo stopped
+// working. This is a foot-gun in the standard library behavior, not
+// something ctxloom's code introduces — documented here so a future change
+// cannot silently make it worse (e.g. by starting to blank that trailing
+// content instead of leaving it literal) without this test forcing a look.
+func TestSubstituteVariables_UnclosedSetDelimiterSwallowsRestOfFragment(t *testing.T) {
+	content := "Before: {{name}}\n" +
+		"{{=<% %>=}}\n" +
+		"literal {{ARGS}}\n" +
+		"After (never re-escaped): {{name}}"
+	vars := map[string]string{"name": "World"}
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	// Content before the malformed tag is unaffected.
+	assert.Contains(t, result, "Before: World")
+	// Content after the unclosed tag — including a real, bound variable
+	// reference — is left as literal, unsubstituted text: the missing close
+	// tag never handed control back to normal Mustache parsing.
+	assert.Contains(t, result, "literal {{ARGS}}")
+	assert.Contains(t, result, "After (never re-escaped): {{name}}")
+	assert.NotContains(t, result, "After (never re-escaped): World")
+	// No warning fires for the swallowed {{name}} reference: this is not
+	// treated as an undefined variable, so checkTags never sees a tag to
+	// warn about in the first place — the failure is invisible by default.
+	assert.Empty(t, warnings)
+}
+
+// TestShippedFragments_NoUnescapedForeignMustache is a guard against the
+// corruption class characterized by
+// TestSubstituteVariables_LiteralJustSyntaxIsCorrupted recurring in a real,
+// shipped fragment: it scans every fragment this repo actually ships and
+// fails if any fragment's content contains a `{{...}}`-shaped tag, outside a
+// Set Delimiter escape block, that does not resolve to a known ctxloom
+// variable.
+//
+// Coverage — this checks exactly, and only, the fragment content this repo
+// compiles in or ships alongside its own binaries:
+//   - every embedded builtin bundle (resources/builtin_bundles/*.yaml, via
+//     resources.ListBuiltinBundles/GetBuiltinBundle)
+//   - the two standalone companion loadouts (cmd/taskloom/loadout.yaml,
+//     cmd/ltk/loadout.yaml), which ship the same bundle document shape
+//
+// It deliberately does NOT cover, and cannot cover from inside this repo:
+//   - remote-pulled bundle content (ctxloom-default or any other remote a
+//     project's profile references) — those bytes live outside this repo
+//     and are not available at test time
+//   - a consuming project's own .ctxloom/ fragments and profiles
+//   - `commands:` content, which never passes through substituteVariables
+//     (it uses the separate, positional-arg-rewrite export mechanism
+//     documented in docs/guides/templating.md's "Commands are different"
+//     note)
+//
+// shippedFragmentKnownVariables is the allowlist of ctxloom variable names a
+// shipped fragment is genuinely allowed to reference. It is empty today: no
+// fragment this repo ships declares or depends on a profile variable. If a
+// future shipped fragment legitimately needs one, add its name here
+// deliberately — do not delete or loosen this check to make it pass.
+func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
+	shippedFragmentKnownVariables := map[string]bool{}
+
+	type fragmentSource struct {
+		label   string
+		content string
+	}
+	var sources []fragmentSource
+
+	collect := func(label string, raw []byte) {
+		bundle, err := bundles.ParseBundle(raw)
+		require.NoError(t, err, "%s: must parse as a bundle document", label)
+		for name, frag := range bundle.Fragments {
+			sources = append(sources, fragmentSource{
+				label:   label + "#fragments/" + name,
+				content: frag.Content,
+			})
+		}
+	}
+
+	builtinNames, err := resources.ListBuiltinBundles()
+	require.NoError(t, err)
+	require.NotEmpty(t, builtinNames, "no builtin bundles found — this guard would silently check nothing")
+	for _, name := range builtinNames {
+		raw, err := resources.GetBuiltinBundle(name)
+		require.NoError(t, err)
+		collect("builtin_bundles/"+name, raw)
+	}
+
+	for _, rel := range []string{
+		filepath.Join("..", "..", "cmd", "taskloom", "loadout.yaml"),
+		filepath.Join("..", "..", "cmd", "ltk", "loadout.yaml"),
+	} {
+		path := filepath.Join(thisDir(), rel)
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err, "companion loadout must exist: %s", path)
+		collect(rel, raw)
+	}
+
+	require.NotEmpty(t, sources, "no fragment sources discovered — this guard would silently check nothing")
+
+	knownVars := make(map[string]string, len(shippedFragmentKnownVariables))
+	for name := range shippedFragmentKnownVariables {
+		knownVars[name] = "x"
+	}
+
+	for _, src := range sources {
+		src := src
+		t.Run(src.label, func(t *testing.T) {
+			tmpl, err := mustache.ParseString(src.content)
+			require.NoError(t, err, "fragment content failed to parse as a mustache template")
+
+			var undefined []string
+			checkTags(tmpl.Tags(), knownVars, collections.NewSet[string](), func(msg string) {
+				undefined = append(undefined, msg)
+			})
+
+			assert.Empty(t, undefined,
+				"fragment %q references an un-escaped {{...}} tag that is not a known ctxloom "+
+					"variable — if this is literal prose for another {{}}-flavored syntax, wrap it in "+
+					"Mustache's Set Delimiter escape ({{=<% %>=}} ... <%={{ }}=%>); if it is a genuine "+
+					"new ctxloom variable this fragment now depends on, add it to "+
+					"shippedFragmentKnownVariables deliberately", src.label)
+		})
+	}
 }
 
 // ========== Directory-based profile resolution tests ==========

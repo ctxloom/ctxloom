@@ -2,10 +2,10 @@
 // ctxloom family (ctxloom, taskloom, ltk) uses to close the full precedence
 // chain
 //
-//	home config file  <  project config file  <  ENV VARS  <  --set FLAGS
+//	home config file  <  project config file  <  ENV VARS  <  --config-set FLAGS
 //
 // confload owns the whole chain: reading and deep-merging the file layers
-// (via koanf, see Merge) and resolving environment-variable and --set
+// (via koanf, see Merge) and resolving environment-variable and --config-set
 // overrides against the merged result (ApplyOverrides).
 //
 // # Product
@@ -19,10 +19,10 @@
 // KnownPath is the caller's own predicate, so this package stays free of
 // ctxloom-specific (or taskloom-specific, or...) types.
 //
-// # CLI overrides: --set is the ONLY source, never a command's own flags
+// # CLI overrides: --config-set is the ONLY source, never a command's own flags
 //
 // ReadOverrides does NOT look at a *pflag.FlagSet's flags in general — only
-// at SetFlagName ("set"), a repeatable flag of "<dotted.path>=<value>"
+// at ConfigSetFlagName ("config-set"), a repeatable flag of "<dotted.path>=<value>"
 // entries. Env has a dedicated namespace via EnvPrefix (CTXLOOM_CONFIG_,
 // never colliding with an ordinary flag); a cobra command's OWN flag pool
 // has no equivalent, so opportunistically treating every CHANGED flag's NAME
@@ -33,15 +33,15 @@
 // `--format json` on a structured-output command printed a warning line
 // into what a script expected to be pure JSON, because `--format` and
 // `--bundle` happened to resolve as "unrecognized config key, setting it
-// anyway". --set gives flags the same kind of dedicated, unambiguous
+// anyway". --config-set gives flags the same kind of dedicated, unambiguous
 // namespace EnvPrefix gives env vars — see ReadOverrides' doc for the full
 // account.
 //
-// # Env vs. --set: case handling deliberately diverges
+// # Env vs. --config-set: case handling deliberately diverges
 //
 // A shell destroys an env var NAME's case before any Go code ever sees it
 // (CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME cannot say whether the source was
-// MyCoder, mycoder, or MYCODER); a --set VALUE never goes through a shell's
+// MyCoder, mycoder, or MYCODER); a --config-set VALUE never goes through a shell's
 // environment-variable-NAME rules, so it preserves whatever case the user
 // actually typed on the command line. Both sources resolve identically when
 // the target ALREADY EXISTS or is a fixed, canonically-cased schema field —
@@ -51,11 +51,11 @@
 // an LLM config label — or truly nothing at all): env falls back to
 // whatever case the shell happened to hand it (not a meaningful signal,
 // since env var names are conventionally SCREAMING_SNAKE regardless of the
-// "real" key's spelling); --set falls back to EXACTLY what the user typed,
-// which IS meaningful and lets --set do something env fundamentally
-// cannot: mint a brand-new case-sensitive key, e.g. `--set
+// "real" key's spelling); --config-set falls back to EXACTLY what the user typed,
+// which IS meaningful and lets --config-set do something env fundamentally
+// cannot: mint a brand-new case-sensitive key, e.g. `--config-set
 // agents.MyCoder.runtime=container` creating an `agents.MyCoder` entry, or
-// `--set llm.configs.big.env.GEMINI_API_KEY=...` a case-sensitive
+// `--config-set llm.configs.big.env.GEMINI_API_KEY=...` a case-sensitive
 // `GEMINI_API_KEY` inside an LLM backend's env passthrough. See
 // resolvePath's preserveTypedCase parameter for the mechanics.
 //
@@ -67,11 +67,11 @@
 //
 // # Overrides are captured once, resolved on every load
 //
-// ReadOverrides scans the process environment and a *pflag.FlagSet's --set
+// ReadOverrides scans the process environment and a *pflag.FlagSet's --config-set
 // values ONCE (typically from the root command's PersistentPreRun, before
 // any config file is even read) and returns an Overrides value carrying the
 // RAW, UNRESOLVED name->value pairs — an env var's name still has its
-// EnvPrefix stripped but is not yet split into path tokens, and a --set
+// EnvPrefix stripped but is not yet split into path tokens, and a --config-set
 // entry's dotted path is not yet split either. This is deliberate: resolving
 // a token sequence like AGENTS_MYCODER_RUNTIME into a config path requires
 // matching case-insensitively against whatever keys the CURRENTLY-LOADING
@@ -117,7 +117,7 @@
 // Env vars are inherited by child processes, so CTXLOOM_CONFIG_* overrides
 // set for a ctxloom invocation are also visible to any taskloom/ltk/engine
 // process it spawns (each honoring its OWN EnvPrefix, so they never collide).
-// A --set FLAG IS NOT inherited: one given to `ctxloom run` cannot reach a
+// A --config-set FLAG IS NOT inherited: one given to `ctxloom run` cannot reach a
 // spawned taskloom/ltk/engine's own config — that child parses its own argv,
 // which never contains the parent's flags. This is inherent to how flags
 // work (there is no ambient channel to carry them) and is treated as
@@ -141,7 +141,7 @@ import (
 // that one key into two path segments ("gpt-4" then "1") the instant
 // anything in this package flattened or unflattened a path through it. "\x1f"
 // (ASCII Unit Separator) is a non-printable control character no YAML author,
-// env-var segment, or --set path segment could ever type as part of a real
+// env-var segment, or --config-set path segment could ever type as part of a real
 // key, so it can never collide. See TestKoanf_DottedMapKeySurvives.
 const delim = "\x1f"
 
@@ -198,7 +198,7 @@ type Sources struct {
 // every load" section. Both fields are RAW (unresolved against any
 // particular base): Env is keyed by an override env var's name with
 // EnvPrefix stripped (e.g. "AGENTS_MYCODER_RUNTIME"); Flags is keyed by a
-// --set entry's dotted path (e.g. "agents.mycoder.runtime"). The zero
+// --config-set entry's dotted path (e.g. "agents.mycoder.runtime"). The zero
 // Overrides{} is a legitimate "no overrides" value (both maps nil).
 type Overrides struct {
 	Env   map[string]any

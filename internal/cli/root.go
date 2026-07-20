@@ -208,8 +208,8 @@ func init() {
 	// cannot import this package to read Version itself.
 	isolation.SetBinaryVersion(Version)
 
-	// --set is the ONLY source of CLI-layer config overrides (see
-	// confload.SetFlagName's doc): a dedicated, repeatable, PERSISTENT flag
+	// --config-set is the ONLY source of CLI-layer config overrides (see
+	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag
 	// (so it works identically for every subcommand) rather than treating
 	// every command's OWN flags as candidate config paths by name — that
 	// approach silently collided with real flags that happen to share a name
@@ -219,8 +219,8 @@ func init() {
 	// (--bundle, --sig, ...). Registered here, once, on the root command;
 	// config.InstallOverridesFromFlags (called from PersistentPreRun below)
 	// reads it via confload.Product.ReadOverrides.
-	rootCmd.PersistentFlags().StringArray(confload.SetFlagName, nil,
-		"override a config value for this invocation: --set <dotted.path>=<value> (repeatable; e.g. --set llm.defaults.primary=big, --set agents.MyCoder.runtime=container)")
+	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
+		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)")
 
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
 	// 1. Project .ctxloom/config.yaml

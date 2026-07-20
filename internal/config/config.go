@@ -295,16 +295,16 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 
 // InstallOverridesFromFlags is the CLI's own hook into the override chain:
 // internal/cli/root.go's PersistentPreRun calls this ONCE, right after cobra
-// has parsed the invoked command's flags, so it sees every --set value given
-// on THIS invocation (see confload.SetFlagName's doc for why --set, not the
+// has parsed the invoked command's flags, so it sees every --config-set value given
+// on THIS invocation (see confload.ConfigSetFlagName's doc for why --config-set, not the
 // invoked command's flags in general, is the only CLI-layer source). It
 // builds ctxloom's own confload.Product (a fresh schema.ConfigValidator, for
 // KnownPath — schema validation failing here degrades to "no schema
 // knowledge", matching loadUncached's own fault tolerance, never a hard
-// failure), reads env+--set overrides via confload.ReadOverrides, and
+// failure), reads env+--config-set overrides via confload.ReadOverrides, and
 // installs them process-wide via SetOverrides.
 //
-// The returned error reports a malformed --set entry (missing "=", or an
+// The returned error reports a malformed --config-set entry (missing "=", or an
 // empty path) eagerly, right here — unlike an ambiguous-override collision,
 // which needs a config base ReadOverrides does not have yet and so is only
 // raised later, at each Load. Callers follow this codebase's fault-tolerance

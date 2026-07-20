@@ -38,15 +38,15 @@ func writeFile(t *testing.T, path, body string) {
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
 
-// setFlagSet builds a *pflag.FlagSet carrying only the --set flag
-// (confload.SetFlagName), pre-populated with entries -- the shape every real
+// configSetFlagSet builds a *pflag.FlagSet carrying only the --config-set flag
+// (confload.ConfigSetFlagName), pre-populated with entries -- the shape every real
 // caller (internal/cli/root.go's PersistentPreRun) hands ReadOverrides.
-func setFlagSet(t *testing.T, entries ...string) *pflag.FlagSet {
+func configSetFlagSet(t *testing.T, entries ...string) *pflag.FlagSet {
 	t.Helper()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	fs.StringArray(SetFlagName, nil, "")
+	fs.StringArray(ConfigSetFlagName, nil, "")
 	for _, e := range entries {
-		require.NoError(t, fs.Set(SetFlagName, e))
+		require.NoError(t, fs.Set(ConfigSetFlagName, e))
 	}
 	return fs
 }
@@ -66,7 +66,7 @@ func TestPrecedence_FullChain_HomeProjectEnvCLI(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_C", "env")
 	t.Setenv("TESTPROD_CONFIG_D", "env")
 
-	fs := setFlagSet(t, "d=cli")
+	fs := configSetFlagSet(t, "d=cli")
 
 	p := testProduct()
 	o, err := p.ReadOverrides(fs)
@@ -78,7 +78,7 @@ func TestPrecedence_FullChain_HomeProjectEnvCLI(t *testing.T) {
 	assert.Equal(t, "home", result["a"], "layer with no override at any higher level stays home's")
 	assert.Equal(t, "project", result["b"], "project beats home")
 	assert.Equal(t, "env", result["c"], "env beats project")
-	assert.Equal(t, "cli", result["d"], "cli (--set) beats env")
+	assert.Equal(t, "cli", result["d"], "cli (--config-set) beats env")
 }
 
 // TestEnvOverlay_ResolvesCaseInsensitivelyToExistingKey proves an env var
@@ -239,20 +239,20 @@ func TestEnvOverlay_ExplicitFalseBeatsInheritedTrue(t *testing.T) {
 	assert.Equal(t, false, out["enabled"])
 }
 
-// TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig proves a --set that was
+// TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig proves a --config-set that was
 // merely DECLARED on the FlagSet -- never actually given a value on this
 // invocation -- contributes nothing, so a command that happens to register
-// --set but receives none this run can never clobber a config value set by a
+// --config-set but receives none this run can never clobber a config value set by a
 // lower layer.
 func TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig(t *testing.T) {
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	fs.StringArray(SetFlagName, nil, "")
+	fs.StringArray(ConfigSetFlagName, nil, "")
 	// deliberately not calling fs.Set with this flag
 
 	p := testProduct("default_agent")
 	o, err := p.ReadOverrides(fs)
 	require.NoError(t, err)
-	assert.Empty(t, o.Flags, "an unset --set must not appear in the raw override capture")
+	assert.Empty(t, o.Flags, "an unset --config-set must not appear in the raw override capture")
 
 	base := map[string]any{"default_agent": "from-config-file"}
 	out, err := p.ApplyOverrides(base, o)
@@ -260,11 +260,11 @@ func TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig(t *testing.T) {
 	assert.Equal(t, "from-config-file", out["default_agent"])
 }
 
-// TestSetFlag_OverridesConfigKey is --set's positive case: a value DOES
+// TestConfigSetFlag_OverridesConfigKey is --config-set's positive case: a value DOES
 // override, and wins over a same-named key already present in the file
 // layers.
-func TestSetFlag_OverridesConfigKey(t *testing.T) {
-	fs := setFlagSet(t, "llm.default=gemini")
+func TestConfigSetFlag_OverridesConfigKey(t *testing.T) {
+	fs := configSetFlagSet(t, "llm.default=gemini")
 
 	p := testProduct("llm")
 	base := map[string]any{"llm": map[string]any{"default": "claude"}}
@@ -278,22 +278,22 @@ func TestSetFlag_OverridesConfigKey(t *testing.T) {
 	assert.Equal(t, "gemini", llm["default"])
 }
 
-// TestSetFlag_DoesNotCollideWithCommandFlags is THE REGRESSION GUARD for the
+// TestConfigSetFlag_DoesNotCollideWithCommandFlags is THE REGRESSION GUARD for the
 // break acceptance testing caught: a command's OWN flags (--runtime on
 // `agent set`/`container_cmd`, --workspace on `run`/`acp`/`map`, --version on
 // `bundle`, --hooks on `manage`, ...) happen to share a NAME with a real
-// top-level config key. Before --set existed, ReadOverrides scanned every
+// top-level config key. Before --config-set existed, ReadOverrides scanned every
 // CHANGED flag on the invoked command by name, so e.g. `ctxloom agent set
 // coder --runtime container` silently overwrote the PROJECT's top-level
-// `runtime`. Now ReadOverrides looks at NOTHING but --set, so these flags
+// `runtime`. Now ReadOverrides looks at NOTHING but --config-set, so these flags
 // being present and changed on the SAME FlagSet must have zero effect on the
 // resolved config -- covers a scalar collision (runtime, workspace), a
 // bool-typed collision (version), and an OBJECT-typed collision (hooks,
 // where a scalar assignment would otherwise have produced a type-invalid
 // config).
-func TestSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
+func TestConfigSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 	fs := pflag.NewFlagSet("agent set", pflag.ContinueOnError)
-	fs.StringArray(SetFlagName, nil, "")
+	fs.StringArray(ConfigSetFlagName, nil, "")
 	fs.String("runtime", "", "")
 	fs.String("workspace", "", "")
 	fs.Bool("version", false, "")
@@ -302,7 +302,7 @@ func TestSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 	require.NoError(t, fs.Set("workspace", "worktree"))
 	require.NoError(t, fs.Set("version", "true"))
 	require.NoError(t, fs.Set("hooks", "something"))
-	// Deliberately NOT touching --set at all: this invocation gives zero
+	// Deliberately NOT touching --config-set at all: this invocation gives zero
 	// config overrides, only ordinary command flags.
 
 	p := testProduct("runtime", "workspace", "version", "hooks")
@@ -314,7 +314,7 @@ func TestSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 	}
 	o, err := p.ReadOverrides(fs)
 	require.NoError(t, err)
-	assert.Empty(t, o.Flags, "only --set may contribute; a same-named command flag must never be scanned at all")
+	assert.Empty(t, o.Flags, "only --config-set may contribute; a same-named command flag must never be scanned at all")
 
 	out, err := p.ApplyOverrides(base, o)
 	require.NoError(t, err)
@@ -325,17 +325,17 @@ func TestSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 		"the command's own --hooks flag must not stomp the object-typed hooks section with a scalar")
 }
 
-// TestSetFlag_CreatesCaseSensitiveKeyAsTyped proves the env/--set case
+// TestConfigSetFlag_CreatesCaseSensitiveKeyAsTyped proves the env/--config-set case
 // asymmetry (see confload's package doc): a shell destroys an env var name's
-// case before this package ever sees it, but --set's VALUE preserves
+// case before this package ever sees it, but --config-set's VALUE preserves
 // whatever case the user actually typed on the command line -- so, unlike
-// env, --set can mint a brand-new case-sensitive key. The schema recognizes
+// env, --config-set can mint a brand-new case-sensitive key. The schema recognizes
 // agents.<any label>.runtime (a dynamic map, exactly like the real ctxloom
 // schema's `agents` section), so this also exercises the schema-fallback
 // path (case 3) with a wildcard level in the middle of the path, not just
 // the no-schema-knowledge fallback (case 4).
-func TestSetFlag_CreatesCaseSensitiveKeyAsTyped(t *testing.T) {
-	fs := setFlagSet(t, "agents.MyCoder.runtime=container")
+func TestConfigSetFlag_CreatesCaseSensitiveKeyAsTyped(t *testing.T) {
+	fs := configSetFlagSet(t, "agents.MyCoder.runtime=container")
 
 	p := Product{
 		Name: "testprod", DirName: ".testprod", FileName: "config.yaml", EnvPrefix: "TESTPROD_CONFIG_",
@@ -357,13 +357,13 @@ func TestSetFlag_CreatesCaseSensitiveKeyAsTyped(t *testing.T) {
 	assert.Equal(t, "container", mycoder["runtime"])
 }
 
-// TestSetFlag_ResolvesCaseInsensitivelyToExistingKey is
-// TestSetFlag_CreatesCaseSensitiveKeyAsTyped's counterpart: when the label
-// ALREADY EXISTS (however it happens to be spelled), --set still resolves to
+// TestConfigSetFlag_ResolvesCaseInsensitivelyToExistingKey is
+// TestConfigSetFlag_CreatesCaseSensitiveKeyAsTyped's counterpart: when the label
+// ALREADY EXISTS (however it happens to be spelled), --config-set still resolves to
 // it case-insensitively and adopts its casing, exactly like env does -- the
 // divergence is only about what happens when there is NO existing match.
-func TestSetFlag_ResolvesCaseInsensitivelyToExistingKey(t *testing.T) {
-	fs := setFlagSet(t, "agents.mycoder.runtime=container")
+func TestConfigSetFlag_ResolvesCaseInsensitivelyToExistingKey(t *testing.T) {
+	fs := configSetFlagSet(t, "agents.mycoder.runtime=container")
 
 	p := testProduct()
 	base := map[string]any{
@@ -385,11 +385,11 @@ func TestSetFlag_ResolvesCaseInsensitivelyToExistingKey(t *testing.T) {
 	assert.Equal(t, "claude-code", mycoder["engine"], "sibling key from the file layer must survive")
 }
 
-// TestSetFlag_AmbiguousCaseIsError mirrors TestEnvOverlay_AmbiguousCaseIsError
-// for --set: a path that could refer to more than one existing key errors
+// TestConfigSetFlag_AmbiguousCaseIsError mirrors TestEnvOverlay_AmbiguousCaseIsError
+// for --config-set: a path that could refer to more than one existing key errors
 // out naming the flag and both candidates, rather than guessing.
-func TestSetFlag_AmbiguousCaseIsError(t *testing.T) {
-	fs := setFlagSet(t, "agents.mycoder.runtime=container")
+func TestConfigSetFlag_AmbiguousCaseIsError(t *testing.T) {
+	fs := configSetFlagSet(t, "agents.mycoder.runtime=container")
 
 	p := testProduct()
 	base := map[string]any{
@@ -412,10 +412,10 @@ func TestSetFlag_AmbiguousCaseIsError(t *testing.T) {
 	assert.NotContains(t, agents["mycoder"], "runtime")
 }
 
-// TestSetFlag_MalformedIsError proves a --set with no "=" (or an empty path)
+// TestConfigSetFlag_MalformedIsError proves a --config-set with no "=" (or an empty path)
 // is a reported error naming the offending argument, never silently dropped.
-func TestSetFlag_MalformedIsError(t *testing.T) {
-	fs := setFlagSet(t, "no-equals-sign-here", "=empty-path")
+func TestConfigSetFlag_MalformedIsError(t *testing.T) {
+	fs := configSetFlagSet(t, "no-equals-sign-here", "=empty-path")
 
 	p := testProduct()
 	_, err := p.ReadOverrides(fs)
@@ -424,12 +424,12 @@ func TestSetFlag_MalformedIsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "=empty-path")
 }
 
-// TestSetFlag_CoercesBoolIntAndList mirrors TestEnvOverlay_CoercesBoolIntAndList
-// for --set: it reuses the identical coercion (coerceEnvValue), so bool, int,
+// TestConfigSetFlag_CoercesBoolIntAndList mirrors TestEnvOverlay_CoercesBoolIntAndList
+// for --config-set: it reuses the identical coercion (coerceEnvValue), so bool, int,
 // and comma-separated list values all resolve to their real Go type, not a
 // plain string.
-func TestSetFlag_CoercesBoolIntAndList(t *testing.T) {
-	fs := setFlagSet(t, "enabled=false", "count=3", "tags=a,b,c")
+func TestConfigSetFlag_CoercesBoolIntAndList(t *testing.T) {
+	fs := configSetFlagSet(t, "enabled=false", "count=3", "tags=a,b,c")
 
 	p := testProduct("enabled", "count", "tags")
 	o, err := p.ReadOverrides(fs)
@@ -443,15 +443,15 @@ func TestSetFlag_CoercesBoolIntAndList(t *testing.T) {
 	assert.Equal(t, []any{"a", "b", "c"}, out["tags"])
 }
 
-// TestSetFlag_UnknownKeyWarnsAndCreates mirrors TestEnvOverlay_UnknownKeyWarnsAndCreates
-// for --set: since --set is NOW its own dedicated namespace (exactly like
+// TestConfigSetFlag_UnknownKeyWarnsAndCreates mirrors TestEnvOverlay_UnknownKeyWarnsAndCreates
+// for --config-set: since --config-set is NOW its own dedicated namespace (exactly like
 // EnvPrefix is for env -- see the package doc), an unrecognized path warns
 // and still applies, symmetric with env. This is the behavior that used to
 // live on ordinary command flags (and had to be suppressed there, because
-// ordinary flags are NOT a dedicated override namespace); --set restores it
+// ordinary flags are NOT a dedicated override namespace); --config-set restores it
 // safely.
-func TestSetFlag_UnknownKeyWarnsAndCreates(t *testing.T) {
-	fs := setFlagSet(t, "bogus=x")
+func TestConfigSetFlag_UnknownKeyWarnsAndCreates(t *testing.T) {
+	fs := configSetFlagSet(t, "bogus=x")
 
 	p := testProduct("default_agent") // schema knows SOMETHING, just not this
 	o, err := p.ReadOverrides(fs)

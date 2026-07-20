@@ -137,11 +137,11 @@ llm:
 
 // TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag exercises
 // internal/cli/root.go's PersistentPreRun hook end to end: it must read both
-// an env override and a --set flag and install them process-wide, ready to
-// be resolved by the very next Load. The FlagSet ALSO carries an unrelated
-// business flag sharing its name with a real config key ("runtime", as
-// `agent set`/`container_cmd` declare) to prove InstallOverridesFromFlags
-// never scans it — only --set contributes.
+// an env override and a --config-set flag and install them process-wide,
+// ready to be resolved by the very next Load. The FlagSet ALSO carries an
+// unrelated business flag sharing its name with a real config key
+// ("runtime", as `agent set`/`container_cmd` declare) to prove
+// InstallOverridesFromFlags never scans it — only --config-set contributes.
 func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 	testsupport.Isolate(t)
 	t.Setenv("CTXLOOM_CONFIG_DEFAULT_AGENT", "from-env")
@@ -151,9 +151,9 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\nruntime: host\n"), 0o644))
 
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	fs.StringArray("set", nil, "")
+	fs.StringArray(confload.ConfigSetFlagName, nil, "")
 	fs.String("runtime", "", "") // an ordinary command flag, NOT a config override
-	require.NoError(t, fs.Set("set", "default_agent=from-flag"))
+	require.NoError(t, fs.Set(confload.ConfigSetFlagName, "default_agent=from-flag"))
 	require.NoError(t, fs.Set("runtime", "container"))
 
 	require.NoError(t, InstallOverridesFromFlags(fs))
@@ -161,6 +161,6 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Equal(t, "from-flag", cfg.DefaultAgent, "--set must beat env")
+	assert.Equal(t, "from-flag", cfg.DefaultAgent, "--config-set must beat env")
 	assert.Equal(t, "host", cfg.Runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
 }

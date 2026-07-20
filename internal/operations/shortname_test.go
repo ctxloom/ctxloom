@@ -33,7 +33,7 @@ func registerPersonalRemote(t *testing.T, appPath string) {
 func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig(root, nil)
-	registerPersonalRemote(t, cfg.AppPaths[0])
+	registerPersonalRemote(t, cfg.GetAppPaths()[0])
 
 	res, err := SetAgent(cfg, SetAgentRequest{
 		Name:     "dev",
@@ -43,7 +43,7 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 
 	want := []string{shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder", "developer"}
 	assert.Equal(t, want, res.Profiles, "result reflects the canonical stored form")
-	assert.Equal(t, want, cfg.Agents["dev"].Profiles, "binding persists canonical, not the alias")
+	assert.Equal(t, want, cfg.GetConfiguredAgents()["dev"].Profiles, "binding persists canonical, not the alias")
 }
 
 // TestCreateProfile_CanonicalizesShortRefs pins decision B for profiles: a short
@@ -52,7 +52,7 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig(root, nil)
-	registerPersonalRemote(t, cfg.AppPaths[0])
+	registerPersonalRemote(t, cfg.GetAppPaths()[0])
 
 	dir := filepath.Join(root, ".ctxloom", "profiles")
 	require.NoError(t, os.MkdirAll(dir, 0755))

@@ -33,7 +33,7 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 // reconcile dropped the profile hook — the drop-on-clobber class that broke
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
@@ -44,7 +44,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 				}}},
 			},
 		},
-	}
+	})
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 
@@ -60,7 +60,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 // what lets WriteSettings' remove-then-add reconcile drop a managed hook.
 func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 	newCfg := func() *config.Config {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{{Command: "config-session-start", Type: "command"}},
@@ -77,7 +77,7 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 					}}},
 				},
 			},
-		}
+		})
 	}
 
 	const hash, wd = "hash123", "/tmp"
@@ -98,36 +98,36 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 
 // TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
 // apply-hooks calls AssembleManagedHooks once per backend in a loop. If it
-// aliased and appended to cfg.Hooks, the second backend would accumulate
+// aliased and appended to cfg.GetHooksConfig(), the second backend would accumulate
 // duplicate bundle/inject hooks.
 func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Hooks: wire.HooksConfig{
 			Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "config-session-start"}}},
 			Plugins: make(map[string]wire.BackendHooks),
 		},
-	}
+	})
 
 	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 
 	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
 		"repeated calls must not accumulate hooks via shared config state")
-	assert.Len(t, cfg.Hooks.Unified.SessionStart, 1,
+	assert.Len(t, cfg.GetHooksConfig().Unified.SessionStart, 1,
 		"AssembleManagedHooks must not mutate the caller's config.Hooks")
 }
 
 // TestAssembleManagedHooks_WithInvalidProfile must not panic on a default
 // profile reference that has no definition.
 func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 		Profiles: config.ProfilesConfig{
 			Definitions: map[string]config.Profile{},
 		},
-	}
+	})
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	assert.NotEmpty(t, assembled.Unified.SessionStart, "context-injection hook should still be assembled")
@@ -137,7 +137,7 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 // default-profile MCP servers (the MCP half of the old MergeConfigHooks, now
 // host-side).
 func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{"config-mcp": {Command: "config-mcp-cmd"}},
 			Plugins: make(map[string]map[string]wire.MCPServer),
@@ -151,7 +151,7 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "config-mcp")

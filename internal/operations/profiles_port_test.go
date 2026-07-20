@@ -19,7 +19,7 @@ func TestProfileOperations_StorageAgnostic_MemStore(t *testing.T) {
 	store := profiles.NewMemStore()
 	store.Seed(&profiles.Profile{Name: "alpha"}, &profiles.Profile{Name: "beta"})
 
-	cfg := &config.Config{AppPaths: []string{"/app"}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(afero.NewMemMapFs())
 
 	// Read path lists straight from the injected store.

@@ -144,10 +144,7 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	// replaces the old verbatim store.
 	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
 
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]agents.Agent)
-	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
+	cfg.SetAgentEntry(name, agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions})
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
@@ -174,7 +171,7 @@ func RemoveAgent(cfg *config.Config, name string) error {
 	if name == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if _, ok := cfg.Agents[name]; !ok {
+	if !cfg.HasAgentEntry(name) {
 		// Distinguish "defined as a file" from "not defined at all" for a clear
 		// message — the config-key write path cannot delete a file.
 		if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
@@ -182,7 +179,7 @@ func RemoveAgent(cfg *config.Config, name string) error {
 		}
 		return fmt.Errorf("agent %q not found in config.yaml", name)
 	}
-	delete(cfg.Agents, name)
+	cfg.DeleteAgentEntry(name)
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("save after removing agent %q: %w", name, err)
 	}

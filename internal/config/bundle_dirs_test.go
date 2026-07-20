@@ -24,7 +24,7 @@ func TestGetBundleDirs_ResolvesCommittedContentTree(t *testing.T) {
 	content := paths.LocalBundlesPath(appDir)
 	require.NoError(t, os.MkdirAll(content, 0o755))
 
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	dirs := cfg.GetBundleDirs()
 
 	require.Len(t, dirs, 1)
@@ -38,13 +38,13 @@ func TestGetBundleDirs_ExcludesCacheBundles(t *testing.T) {
 	appDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(paths.CacheBundlesPath(appDir), 0o755))
 
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 
 	assert.Empty(t, cfg.GetBundleDirs())
 }
 
 func TestGetBundleDirs_NoContentDir(t *testing.T) {
-	cfg := &Config{AppPaths: []string{t.TempDir()}}
+	cfg := &Config{appPaths: []string{t.TempDir()}}
 	assert.Empty(t, cfg.GetBundleDirs())
 }
 
@@ -60,7 +60,7 @@ func TestGetBundleDirs_AuthoredBundlesInCache_RaisesFatalFinding(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
 
 	mark := strictness.Checkpoint()
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	_ = cfg.GetBundleDirs()
 
 	found := strictness.Since(mark)
@@ -84,7 +84,7 @@ func TestGetBundleDirs_LegacyRemoteArtifactsInCache_NoFinding(t *testing.T) {
 		"version: \"1.0.0\"\n_source:\n  sha: deadbeef\n")
 
 	mark := strictness.Checkpoint()
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	_ = cfg.GetBundleDirs()
 
 	assert.Empty(t, strictness.Since(mark))
@@ -102,7 +102,7 @@ func TestGetBundleDirs_AuthoredBundlesInCache_DegradedRecordsNothing(t *testing.
 	writeBundle(t, filepath.Join(paths.CacheBundlesPath(appDir), "my-tools.yaml"), "version: \"1.0.0\"\n")
 
 	mark := strictness.Checkpoint()
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	_ = cfg.GetBundleDirs()
 
 	assert.Empty(t, strictness.Since(mark))

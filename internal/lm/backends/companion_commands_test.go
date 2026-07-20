@@ -67,7 +67,7 @@ func companionCfg(t *testing.T) *config.Config {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	return &config.Config{AppPaths: []string{appDir}}
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestLoadCommandExports_IncludesCompanionCommandUnconditionally proves ltk's
@@ -126,11 +126,15 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
-	cfg.DefaultAgent = "default"
-	cfg.Agents = map[string]agents.Agent{"default": {Profiles: []string{"p"}}}
-	cfg.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
-		"p": {Commands: []string{"dev-tools#commands/review"}},
-	}}
+	cfg = config.NewFixture(config.Fixture{
+		AppPaths:     cfg.GetAppPaths(),
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"p": {Commands: []string{"dev-tools#commands/review"}},
+		}},
+	})
+	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
 
 	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
 	items := bundlePromptItems(prompts)

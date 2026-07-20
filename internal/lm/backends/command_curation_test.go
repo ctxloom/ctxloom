@@ -24,11 +24,11 @@ import (
 func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
 		Profiles:     config.ProfilesConfig{Definitions: defs},
-	}
+	})
 }
 
 // optOut returns an LLMExports with every backend's slash-command export

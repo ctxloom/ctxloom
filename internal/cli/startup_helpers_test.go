@@ -198,7 +198,7 @@ func TestRecordExternalPluginIsolationDrop(t *testing.T) {
 }
 
 func TestLoadConfigOrFallback_Success(t *testing.T) {
-	want := &config.Config{AppPaths: []string{"/some/dir"}}
+	want := config.NewFixture(config.Fixture{AppPaths: []string{"/some/dir"}})
 	var buf bytes.Buffer
 
 	got := loadConfigOrFallback(func() (*config.Config, error) {
@@ -217,7 +217,7 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 	}, &buf)
 
 	assert.NotNil(t, got)
-	assert.Equal(t, []string{".ctxloom"}, got.AppPaths,
+	assert.Equal(t, []string{".ctxloom"}, got.GetAppPaths(),
 		"fallback config must be rooted at .ctxloom so downstream operations have somewhere to look")
 
 	out := buf.String()

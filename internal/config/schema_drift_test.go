@@ -38,11 +38,16 @@ func configSchemaProperties(t *testing.T) (props map[string]json.RawMessage, add
 	return doc.Properties, doc.AdditionalProperties
 }
 
-// configYAMLFields returns the serializable top-level yaml field names of Config
-// (those carrying a yaml tag; runtime-only fields like AppPaths have none).
+// configYAMLFields returns the serializable top-level yaml field names of
+// Config's persisted shape (those carrying a yaml tag; runtime-only fields
+// like AppPaths have none). Reflects over configDoc, not Config: Config's own
+// fields are unexported (Phase 3 of the config-manager rework) and invisible
+// to reflection regardless of which package does the reflecting — configDoc
+// is the exported-field mirror Config's own MarshalYAML/UnmarshalYAML round-
+// trip through for exactly this reason, so it carries the identical tag set.
 func configYAMLFields(t *testing.T) []string {
 	t.Helper()
-	rt := reflect.TypeFor[Config]()
+	rt := reflect.TypeFor[configDoc]()
 	var names []string
 	for i := 0; i < rt.NumField(); i++ {
 		tag := rt.Field(i).Tag.Get("yaml")

@@ -64,9 +64,9 @@ func TestResolveProfile_HookDedupWithinEvent(t *testing.T) {
 // that the run and hook paths read through.
 func TestProfileResolutionAccessors(t *testing.T) {
 	cfg := &Config{
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev", "go"}}},
-		Profiles:     ProfilesConfig{Definitions: map[string]Profile{"dev": {Description: "development"}}},
+		defaultAgent: "default",
+		agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev", "go"}}},
+		profiles:     ProfilesConfig{Definitions: map[string]Profile{"dev": {Description: "development"}}},
 	}
 
 	assert.Equal(t, []string{"dev", "go"}, cfg.DefaultAgentProfiles())
@@ -89,7 +89,7 @@ func TestConfig_ShouldUseDistilled(t *testing.T) {
 	assert.True(t, (&Config{}).ShouldUseDistilled(), "distilled defaults to true when unset")
 
 	off := false
-	cfg := &Config{Settings: SettingsConfig{UseDistilled: &off}}
+	cfg := &Config{settings: SettingsConfig{UseDistilled: &off}}
 	assert.False(t, cfg.ShouldUseDistilled(), "an explicit false must be honored")
 }
 
@@ -103,7 +103,7 @@ func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 	t.Run("nil_with_empty_lockfile", func(t *testing.T) {
 		testsupport.Isolate(t)
 		dir := t.TempDir() // real, empty .ctxloom: no remotes, no lockfile
-		cfg := &Config{AppPaths: []string{dir}}
+		cfg := &Config{appPaths: []string{dir}}
 		assert.Nil(t, cfg.loadRemoteBundleSeed(), "an empty lockfile means no remote bundles to seed")
 	})
 }

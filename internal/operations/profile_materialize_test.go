@@ -30,12 +30,12 @@ fragments:
     tags: ["security"]
     content: "`+mark+`"
 `)
-	cfg = &config.Config{
+	cfg = config.NewFixture(config.Fixture{
 		AppPaths: []string{appDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"reviewer": {SelectTags: []string{"security"}},
 		}},
-	}
+	})
 	return cfg, t.TempDir()
 }
 
@@ -133,17 +133,22 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 }
 
 // TestMaterializeProfile_FoldsProfileInlineMCP proves a profile's OWN inline mcp:
-// block reaches the exported .mcp.json. The pre-fix path passed only &cfg.MCP
+// block reaches the exported .mcp.json. The pre-fix path passed only &cfg.mcp
 // (config-level) + bundle MCP to WriteSettings, silently dropping the profile's
 // inline servers; AssembleManagedMCP folds them in.
 func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	// Give the inline reviewer profile its own MCP server (trusted-local, ungated).
-	p := cfg.Profiles.Definitions["reviewer"]
+	// Definitions is a map (reference type): mutating it through the Fixture
+	// view still lands in cfg's own backing map (GetProfilesConfig, by
+	// contrast, returns a copy-on-read clone — assigning into it would be a
+	// silent no-op).
+	defs := cfg.ToFixture().Profiles.Definitions
+	p := defs["reviewer"]
 	p.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{
 		"prof-srv": {Command: "prof-cmd"},
 	}}
-	cfg.Profiles.Definitions["reviewer"] = p
+	defs["reviewer"] = p
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
@@ -186,7 +191,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
 		[]byte("#!/bin/sh\necho hi\n"), 0755))
 
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
@@ -207,7 +212,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 // TestMaterializeProfile_Validation covers the guard rails.
 func TestMaterializeProfile_Validation(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{AppPaths: []string{t.TempDir()}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
 	_, err := MaterializeProfile(ctx, cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
 	assert.Error(t, err, "missing target is rejected")

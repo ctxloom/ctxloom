@@ -23,7 +23,7 @@ import (
 // HOME scrubbed so session accounting and trust stores stay in the sandbox.
 //
 // GAP 1 (prodSpawner.Resolve re-reads agent definitions FROM DISK per call —
-// spawner.go's resolveCfg) means the returned in-memory cfg.Agents is no
+// spawner.go's resolveCfg) means the returned in-memory cfg.GetConfiguredAgents() is no
 // longer the only thing a spawn sees: a REAL config.yaml describing the SAME
 // bindings must exist at app too, or the disk reload observes an empty
 // agent set the in-memory cfg promised. writeDelegationConfigYAML keeps the
@@ -38,7 +38,7 @@ func delegationFixture(t *testing.T, subs map[string]agents.Agent) (*config.Conf
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p1.yaml"),
 		"bundles:\n  - ctxloom:local@bundles/kit1\n")
 	writeDelegationConfigYAML(t, app, subs)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{app},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -47,7 +47,7 @@ func delegationFixture(t *testing.T, subs map[string]agents.Agent) (*config.Conf
 			Defaults: config.RoleDefaults{Primary: "fast"},
 		},
 		Agents: subs,
-	}
+	})
 	return cfg, root
 }
 

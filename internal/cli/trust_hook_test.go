@@ -45,7 +45,7 @@ func TestRunItemTrust_AcceptsHook(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
 	hookPayload, err := hook.ContentPayload()
@@ -67,7 +67,7 @@ func TestRunBlacklist_Hook(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "rm -rf danger", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
 	hookPayload, err := hook.ContentPayload()
@@ -91,7 +91,7 @@ func TestApplyItemTrustChoice_HookGrant(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
 	hookPayload, err := hook.ContentPayload()
@@ -112,7 +112,7 @@ func TestApplyItemTrustChoice_HookBlacklist(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "rm -rf danger", Type: "command"}
 	seedLocalHookBundle(t, appDir, "hookb", hook)
 	hookPayload, err := hook.ContentPayload()
@@ -143,7 +143,7 @@ func (r *toggleRejectRecords) Approved(trust.Ref, []byte, string) bool { return 
 // rejected step — rejection beats the exemption.
 func TestPrintBundleHookTrust_ReflectsTrust(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	entry := bundles.HookEntry{Event: bundles.HookEventPreTool, Index: 0, Hook: hook}
 

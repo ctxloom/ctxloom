@@ -117,7 +117,7 @@ func ScaffoldContainerBase(cfg *config.Config, relPath string, force bool) (stri
 		}
 	}
 
-	cfg.IsolationBaseContainerfile = relPath
+	cfg.SetIsolationBaseContainerfile(relPath)
 	if err := cfg.Save(); err != nil {
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}

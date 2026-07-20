@@ -37,37 +37,37 @@ func TestApplyConfigSections_EditorAndMCPPresence(t *testing.T) {
 		},
 		{
 			name:       "editor_command_only",
-			mutate:     func(c *Config) { c.Editor = EditorConfig{Command: "vim"} },
+			mutate:     func(c *Config) { c.editor = EditorConfig{Command: "vim"} },
 			wantEditor: true,
 		},
 		{
 			name:       "editor_args_only", // Command empty: only the len(Args)>0 disjunct holds
-			mutate:     func(c *Config) { c.Editor = EditorConfig{Args: []string{"-p"}} },
+			mutate:     func(c *Config) { c.editor = EditorConfig{Args: []string{"-p"}} },
 			wantEditor: true,
 		},
 		{
 			name:        "mcp_servers_only",
-			mutate:      func(c *Config) { c.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "x"}}} },
+			mutate:      func(c *Config) { c.mcp = wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "x"}}} },
 			wantMCP:     true,
 			wantSrvName: "srv",
 		},
 		{
 			name: "mcp_plugins_only",
 			mutate: func(c *Config) {
-				c.MCP = wire.MCPConfig{Plugins: map[string]map[string]wire.MCPServer{"claude": {"p": {Command: "x"}}}}
+				c.mcp = wire.MCPConfig{Plugins: map[string]map[string]wire.MCPServer{"claude": {"p": {Command: "x"}}}}
 			},
 			wantMCP: true,
 		},
 		{
 			name:    "mcp_auto_register_only", // only the AutoRegisterCtxloom != nil disjunct holds
-			mutate:  func(c *Config) { c.MCP = wire.MCPConfig{AutoRegisterCtxloom: ptrBool(false)} },
+			mutate:  func(c *Config) { c.mcp = wire.MCPConfig{AutoRegisterCtxloom: ptrBool(false)} },
 			wantMCP: true,
 		},
 		{
 			// The sync block keys on AutoSync != nil, so a zero value with the
 			// pointer set (even to false) must still be persisted.
 			name:     "sync_present_when_autosync_set",
-			mutate:   func(c *Config) { c.Sync = SyncConfig{AutoSync: ptrBool(false)} },
+			mutate:   func(c *Config) { c.sync = SyncConfig{AutoSync: ptrBool(false)} },
 			wantSync: true,
 		},
 		{
@@ -118,7 +118,7 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 		"custom_unknown: keepme\n"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(seed), 0o644))
 
-	cfg := &Config{AppPaths: []string{appDir}} // Editor + MCP left zero/empty
+	cfg := &Config{appPaths: []string{appDir}} // Editor + MCP left zero/empty
 	cfg.SetFS(fs)
 	require.NoError(t, cfg.Save())
 
@@ -138,9 +138,9 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 // releases — Save must write only user-authored LM configuration.
 func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &Config{AppPaths: []string{tmpDir}}
+	cfg := &Config{appPaths: []string{tmpDir}}
 	mergeDefaultConfig(cfg)
-	require.NotEmpty(t, cfg.LM.Configs, "precondition: the overlay populated the registry")
+	require.NotEmpty(t, cfg.lm.Configs, "precondition: the overlay populated the registry")
 
 	require.NoError(t, cfg.Save())
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
@@ -149,7 +149,7 @@ func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 		"the overlaid default registry must not be materialized into the user's config")
 
 	// A user-authored change persists without dragging the registry along.
-	cfg.LM.Defaults.Primary = "mine"
+	cfg.lm.Defaults.Primary = "mine"
 	require.NoError(t, cfg.Save())
 	data, err = os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
@@ -162,8 +162,8 @@ func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM: LMConfig{Configs: map[string]LLMConfig{
+		appPaths: []string{tmpDir},
+		lm: LMConfig{Configs: map[string]LLMConfig{
 			"mine": {Type: "claude-code"},
 		}},
 	}
@@ -181,8 +181,8 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &Config{
-		AppPaths: []string{tmpDir},
-		LM:       LMConfig{Configs: map[string]LLMConfig{"mine": {Type: "claude-code"}}},
+		appPaths: []string{tmpDir},
+		lm:       LMConfig{Configs: map[string]LLMConfig{"mine": {Type: "claude-code"}}},
 	}
 	require.NoError(t, cfg.Save())
 

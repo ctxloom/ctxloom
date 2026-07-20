@@ -219,7 +219,7 @@ func TestSeededBundleLoader_MergesCompanionAlongsideRemote(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 
 	loader := cfg.SeededBundleLoader(false)
 	infos, err := loader.List()
@@ -303,7 +303,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion hook is included", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
@@ -312,7 +312,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 		result := cfg.ResolveBundleHooks(nil)
 		assert.Empty(t, result.PreTool, "a companion hook must be withheld by a denying gate — a builtin would NOT be (it's exempt below rejection)")
@@ -329,7 +329,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion MCP server is included", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
@@ -337,7 +337,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 	})
 
 	t.Run("denying gate withholds it", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 		result := cfg.ResolveBundleMCPServers(nil)
 		assert.NotContains(t, result, "ltk-server")
@@ -360,7 +360,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion command is included with no profile selected", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return true })
 		result := cfg.ResolveBundleCommands(nil, gate)
 		require.Len(t, result, 1)
@@ -373,7 +373,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return false })
 		result := cfg.ResolveBundleCommands(nil, gate)
 		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
@@ -391,7 +391,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion fragment is included, ref carries the companion source (not builtin:)", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		var seenRef, seenSigner string
 		got := cfg.ResolveBuiltinBundleFragments(func(ref string, _ []byte, _, signer string) bool {
 			seenRef, seenSigner = ref, signer
@@ -409,7 +409,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{AppPaths: []string{appDir}}
+		cfg := &Config{appPaths: []string{appDir}}
 		got := cfg.ResolveBuiltinBundleFragments(func(string, []byte, string, string) bool { return false })
 		for _, f := range got {
 			assert.NotEqual(t, remote.CompanionSource+"@ltk#fragments/ltk", f.Name,

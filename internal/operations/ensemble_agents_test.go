@@ -23,7 +23,7 @@ import (
 //	agent sec : engine claude-fast over sec-profile  (overrides agy-code)
 //	agent perf: engine agy-code   over perf-profile  (overrides claude-fast)
 func agentFanConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -40,7 +40,7 @@ func agentFanConfig() *config.Config {
 			"sec":  {Engine: "claude-fast", Profiles: []string{"sec-profile"}},
 			"perf": {Engine: "agy-code", Profiles: []string{"perf-profile"}},
 		},
-	}
+	})
 }
 
 func emitFragmentsFactory(string, string, int) (pb.Client, error) {
@@ -155,7 +155,9 @@ func TestMapProfiles_LLMOverrideWinsOverAgentEngine(t *testing.T) {
 func TestWeave_FansAgentBareMixSynthesizesAndInjects(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := agentFanConfig()
-	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
+	// Definitions is a map (reference type), so mutating it through the Fixture
+	// view still lands in cfg's own backing map — no rebuild needed.
+	cfg.ToFixture().Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
 
 	// echo stub: the synthesizer's report is the framed synthesis input, so we can
 	// assert the member + injected parts flowed in.

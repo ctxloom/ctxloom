@@ -270,29 +270,20 @@ func isUnifiedBackend(backend string) bool {
 
 // addUnifiedServer inserts server into the unified map, erroring if name exists.
 func addUnifiedServer(cfg *config.Config, name string, server wire.MCPServer) error {
-	if cfg.MCP.Servers == nil {
-		cfg.MCP.Servers = make(map[string]wire.MCPServer)
-	}
-	if _, exists := cfg.MCP.Servers[name]; exists {
+	if cfg.HasMCPServer(name) {
 		return fmt.Errorf("MCP server %q already exists", name)
 	}
-	cfg.MCP.Servers[name] = server
+	cfg.SetMCPServer(name, server)
 	return nil
 }
 
 // addBackendServer inserts server into a backend's plugin map, erroring if name
 // already exists for that backend.
 func addBackendServer(cfg *config.Config, backend, name string, server wire.MCPServer) error {
-	if cfg.MCP.Plugins == nil {
-		cfg.MCP.Plugins = make(map[string]map[string]wire.MCPServer)
-	}
-	if cfg.MCP.Plugins[backend] == nil {
-		cfg.MCP.Plugins[backend] = make(map[string]wire.MCPServer)
-	}
-	if _, exists := cfg.MCP.Plugins[backend][name]; exists {
+	if cfg.HasMCPPluginServer(backend, name) {
 		return fmt.Errorf("MCP server %q already exists for backend %s", name, backend)
 	}
-	cfg.MCP.Plugins[backend][name] = server
+	cfg.SetMCPPluginServer(backend, name, server)
 	return nil
 }
 
@@ -387,34 +378,21 @@ func removeMCPServerEntries(cfg *config.Config, backend, name string) []string {
 // removeUnifiedServer deletes name from the unified map, reporting whether it
 // was present.
 func removeUnifiedServer(cfg *config.Config, name string) bool {
-	if _, exists := cfg.MCP.Servers[name]; !exists {
-		return false
-	}
-	delete(cfg.MCP.Servers, name)
-	return true
+	return cfg.DeleteMCPServer(name)
 }
 
 // removeBackendServer deletes name from a specific backend, reporting whether
 // it was present.
 func removeBackendServer(cfg *config.Config, backend, name string) bool {
-	servers, ok := cfg.MCP.Plugins[backend]
-	if !ok {
-		return false
-	}
-	if _, exists := servers[name]; !exists {
-		return false
-	}
-	delete(servers, name)
-	return true
+	return cfg.DeleteMCPPluginServer(backend, name)
 }
 
 // removeFromAllBackends deletes name from every plugin backend, returning the
 // backends it was removed from.
 func removeFromAllBackends(cfg *config.Config, name string) []string {
 	var removed []string
-	for backend, servers := range cfg.MCP.Plugins {
-		if _, exists := servers[name]; exists {
-			delete(servers, name)
+	for _, backend := range cfg.MCPPluginBackendNames() {
+		if cfg.DeleteMCPPluginServer(backend, name) {
 			removed = append(removed, backend)
 		}
 	}
@@ -450,7 +428,7 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 		return nil, err
 	}
 
-	freshCfg.MCP.AutoRegisterCtxloom = &req.Enabled
+	freshCfg.SetMCPAutoRegisterCtxloom(req.Enabled)
 
 	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
 		return nil, err

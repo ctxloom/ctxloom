@@ -16,12 +16,12 @@ func TestActiveLockfileHold(t *testing.T) {
 
 	mkCfg := func(t *testing.T) *config.Config {
 		t.Helper()
-		return &config.Config{AppPaths: []string{t.TempDir()}}
+		return config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	}
 
 	readActive := func(t *testing.T, cfg *config.Config) *remote.Lockfile {
 		t.Helper()
-		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
+		mgr := remote.NewLockfileManager(cfg.GetAppPaths()[0])
 		lock, err := mgr.Load()
 		require.NoError(t, err)
 		return lock
@@ -29,7 +29,7 @@ func TestActiveLockfileHold(t *testing.T) {
 
 	writeActive := func(t *testing.T, cfg *config.Config, entries map[string]string) {
 		t.Helper()
-		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
+		mgr := remote.NewLockfileManager(cfg.GetAppPaths()[0])
 		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 		for name, sha := range entries {
 			lock.Bundles[name] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}

@@ -330,7 +330,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 
 	// Create a mock config loader
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{
@@ -338,7 +338,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	// Set executable path for testing
@@ -374,7 +374,7 @@ func TestApplyHooks_AntigravityOnly(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{
@@ -382,7 +382,7 @@ func TestApplyHooks_AntigravityOnly(t *testing.T) {
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -410,7 +410,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{
@@ -418,7 +418,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -509,7 +509,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			MCP: wire.MCPConfig{
 				Servers: map[string]wire.MCPServer{
 					"test-server": {
@@ -518,7 +518,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -730,9 +730,9 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			// No profiles or fragments - regenerateContext should return empty
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -778,7 +778,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -789,7 +789,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -815,13 +815,13 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Hooks: wire.HooksConfig{
 				Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{{Command: "echo test", Type: "command"}},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -932,7 +932,7 @@ fragments:
 	defer restoreProbe()
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -943,7 +943,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -990,7 +990,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -1002,7 +1002,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -1050,7 +1050,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -1062,7 +1062,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	var result *ApplyHooksResult
@@ -1101,7 +1101,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -1112,7 +1112,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -1152,7 +1152,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default", "broken-profile"}}},
@@ -1167,7 +1167,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -1211,7 +1211,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -1226,7 +1226,7 @@ fragments:
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
@@ -1269,7 +1269,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{testBaseDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -1280,7 +1280,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 					},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{

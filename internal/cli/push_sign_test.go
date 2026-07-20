@@ -45,7 +45,7 @@ func pushSignTestSetup(t *testing.T) (cfg *config.Config, pub *stubPublisher, mg
 	t.Helper()
 	appDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
-	cfg = &config.Config{AppPaths: []string{appDir}}
+	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(`default: personal
 remotes:
@@ -112,7 +112,11 @@ func TestPushBundleCfg_NoFlagsMeansUnsignedByDefault(t *testing.T) {
 
 func TestPushBundleCfg_SignDefaultConfigSignsUnlessNoSign(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
-	cfg.Settings.Sign = &config.SignConfig{Default: true}
+	{
+		f := cfg.ToFixture()
+		f.Settings.Sign = &config.SignConfig{Default: true}
+		cfg = config.NewFixture(f)
+	}
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 
 	cmd, _ := testCmd()
@@ -123,7 +127,11 @@ func TestPushBundleCfg_SignDefaultConfigSignsUnlessNoSign(t *testing.T) {
 
 func TestPushBundleCfg_NoSignOverridesSignDefault(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
-	cfg.Settings.Sign = &config.SignConfig{Default: true}
+	{
+		f := cfg.ToFixture()
+		f.Settings.Sign = &config.SignConfig{Default: true}
+		cfg = config.NewFixture(f)
+	}
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 
 	cmd, _ := testCmd()

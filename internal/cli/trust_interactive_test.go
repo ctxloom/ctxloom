@@ -40,7 +40,7 @@ func TestApplyItemTrustChoice_Grant(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "trust-me body")
 
 	c, out := testCmd()
@@ -60,7 +60,7 @@ func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	c, out := testCmd()
@@ -81,7 +81,7 @@ func TestApplyItemTrustChoice_Skip(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "look-but-do-not-touch")
 
 	c, out := testCmd()
@@ -103,7 +103,7 @@ func TestApplyItemTrustChoice_Skip(t *testing.T) {
 func TestShowItem_NonInteractiveStdoutUnchanged(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "the fragment body")
 	t.Chdir(root) // GetConfig() (config.Load) resolves <root>/.ctxloom
 

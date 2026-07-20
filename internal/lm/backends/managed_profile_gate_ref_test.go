@@ -138,11 +138,11 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 		0o644))
 
 	profileRef := remote.LocalBundleRef("kit") + remote.ProfileSelector + "dev"
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
-	}
+	})
 	cfg.DisableCompanionProbe()
 
 	// A permissive gate: proves the ref PARSES and reaches a decision at all
@@ -177,11 +177,11 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 		0o644))
 
 	profileRef := remote.LocalBundleRef("kit") + remote.ProfileSelector + "dev"
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
-	}
+	})
 	cfg.DisableCompanionProbe()
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 

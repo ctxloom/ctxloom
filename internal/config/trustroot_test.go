@@ -36,7 +36,7 @@ func TestTrustRoot_ProjectStoreIsParsedAndTrusted(t *testing.T) {
 	line := "bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(line), 0o644))
 
-	cfg := &Config{AppPaths: []string{".ctxloom"}, fs: fs}
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
 
 	decision := cfg.TrustRoot().TrustedForNamespace(pub, signing.NamespacePublish, time.Now())
 	assert.True(t, decision.Trusted, "a key listed in the project allowed_signers is trusted for the namespace it lists")
@@ -52,7 +52,7 @@ func TestTrustRoot_NamespaceScopingIsEnforced(t *testing.T) {
 	line := "lead@team.example namespaces=\"" + signing.NamespaceApprove + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(line), 0o644))
 
-	cfg := &Config{AppPaths: []string{".ctxloom"}, fs: fs}
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
 	root := cfg.TrustRoot()
 
 	assert.True(t, root.TrustedForNamespace(pub, signing.NamespaceApprove, time.Now()).Trusted,
@@ -67,7 +67,7 @@ func TestTrustRoot_AbsentStoreTrustsNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	pub, _ := newTestKey(t)
 
-	cfg := &Config{AppPaths: []string{".ctxloom"}, fs: fs}
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
 
 	root := cfg.TrustRoot()
 	require.NotNil(t, root, "an absent trust root is an empty store, never nil")
@@ -84,7 +84,7 @@ func TestTrustRoot_MalformedLineSkippedRestStillLoads(t *testing.T) {
 		"bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(content), 0o644))
 
-	cfg := &Config{AppPaths: []string{".ctxloom"}, fs: fs}
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
 
 	assert.True(t, cfg.TrustRoot().TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
 		"a malformed line is skipped; the valid entries in the same file still load")

@@ -195,11 +195,11 @@ func loadStartupConfig() *config.Config {
 	cfg, err := config.Load()
 	if err != nil {
 		clidiag.Warn("ctxloom", "failed to load config: %v", err)
-		cfg = &config.Config{
+		cfg = config.NewFixture(config.Fixture{
 			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
 			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
 			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
-		}
+		})
 	}
 	printConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg

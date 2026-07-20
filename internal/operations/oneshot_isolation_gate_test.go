@@ -124,8 +124,11 @@ func TestMapProfiles_ContainerDegradeIsPerMember(t *testing.T) {
 	resetStrictness(t)
 	_, loader := setupContextTestFS(t)
 	cfg := mapTestConfig()
-	cfg.Profiles.Definitions["c"] = cfg.Profiles.Definitions["a"]
-	cfg.Profiles.Definitions["d"] = cfg.Profiles.Definitions["b"]
+	// Definitions is a map (reference type): mutating it through the Fixture
+	// view still lands in cfg's own backing map.
+	defs := cfg.ToFixture().Profiles.Definitions
+	defs["c"] = defs["a"]
+	defs["d"] = defs["b"]
 
 	stubPrepareIsolation(t, map[string]bool{"b": true, "d": true}, func() pb.Client { return &stubClient{out: "ok"} })
 

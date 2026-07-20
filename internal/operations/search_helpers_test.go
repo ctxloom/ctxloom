@@ -10,13 +10,13 @@ import (
 // searchProfiles matches profiles by name, then description, then tag (in that
 // precedence), recording which field matched.
 func TestSearchProfiles(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev":   {Description: "Golang work", Tags: []string{"backend"}},
 			"frontend": {Description: "UI things", Tags: []string{"react", "go-adjacent"}},
 			"infra":    {Description: "ops", Tags: []string{"k8s"}},
 		}},
-	}
+	})
 
 	t.Run("matches by name", func(t *testing.T) {
 		got := searchProfiles(cfg, "go-dev")
@@ -60,11 +60,12 @@ func TestSearchProfiles(t *testing.T) {
 
 // searchMCPServers matches servers by name or command substring.
 func TestSearchMCPServers(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.MCP.Servers = map[string]wire.MCPServer{
-		"spotify": {Command: "spotify-mcp"},
-		"github":  {Command: "gh-mcp-server"},
-	}
+	cfg := config.NewFixture(config.Fixture{
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"spotify": {Command: "spotify-mcp"},
+			"github":  {Command: "gh-mcp-server"},
+		}},
+	})
 
 	t.Run("matches by name", func(t *testing.T) {
 		got := searchMCPServers(cfg, "spotify")

@@ -20,7 +20,7 @@ import (
 // touching this repo's real bundle content.
 func authPingTestConfig(t *testing.T) *config.Config {
 	t.Helper()
-	return &config.Config{AppPaths: []string{t.TempDir()}}
+	return config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 }
 
 // stubPingClient is a minimal pb.Client for pingEngineAuth/launchDiscovery

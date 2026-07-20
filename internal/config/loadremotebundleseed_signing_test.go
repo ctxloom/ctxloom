@@ -84,7 +84,7 @@ func seedWith(t *testing.T, repoDir, sha, allowedSigners string) map[string]*bun
 		remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()})
 	require.NoError(t, lm.Save(lock))
 
-	cfg := &Config{AppPaths: []string{appDir}}
+	cfg := &Config{appPaths: []string{appDir}}
 	raw := cfg.loadRemoteBundleSeed()
 	out := map[string]*bundleForTest{}
 	for k, b := range raw {

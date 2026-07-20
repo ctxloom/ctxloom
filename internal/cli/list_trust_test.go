@@ -29,7 +29,7 @@ func findRow(rows []itemRow, ref string) (itemRow, bool) {
 // via the first-party local exemption.
 func TestStampItemTrust_LocalFragmentJSON(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "x", "always-local body")
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
@@ -54,7 +54,7 @@ func TestStampItemTrust_LocalFragmentJSON(t *testing.T) {
 func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
@@ -78,7 +78,7 @@ func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 // selector didn't know the "commands" kind.
 func TestStampItemTrust_LocalCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalCommand(t, cfg, "demo", "review", "always-local command body")
 
 	rows, err := listItemRows(cfg, ItemTypeCommand)
@@ -104,7 +104,7 @@ func TestStampItemTrust_LocalCommandJSON(t *testing.T) {
 func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalCommand(t, cfg, "demo", "review", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}
@@ -128,7 +128,7 @@ func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 // configured must not render a dead "untrusted" shield.
 func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	servers := []operations.MCPServerEntry{{Name: "local-srv", Command: "node", Backend: "unified"}}
 	rows := []mcpListRow{{Name: "local-srv", Command: "node", Backend: "unified"}}
@@ -151,7 +151,7 @@ func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	srv := operations.MCPServerEntry{Name: "local-srv", Command: "node", Args: []string{"-x"}, Backend: "unified"}
 	mcp := bundles.BundleMCP{Command: srv.Command, Args: srv.Args}

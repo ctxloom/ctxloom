@@ -29,7 +29,7 @@ func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := &config.Config{Workspace: "worktree"}
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container"},
 		WorkDir:  t.TempDir(),
@@ -43,7 +43,7 @@ func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
 
 // TestPrepareAgentChat_WorkspaceOverridesProjectDefault is GAP 2's final
 // hop: agent_run's per-call req.Workspace ("worktree") OVERRIDES the
-// project's cfg.Workspace default ("none" — shared checkout) on the SAME
+// project's cfg.GetWorkspace() default ("none" — shared checkout) on the SAME
 // axes Resolve/chainFor uses everywhere else (isolation_test.go's
 // TestResolve_DefaultsAndDegrades already pins that {worktree, host} always
 // selects the Worktree policy — a REAL, isolated git worktree distinct from
@@ -58,7 +58,7 @@ func TestPrepareAgentChat_WorkspaceOverridesProjectDefault(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := &config.Config{Workspace: "none"} // project default: the shared live checkout
+	cfg := config.NewFixture(config.Fixture{Workspace: "none"}) // project default: the shared live checkout
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
 		WorkDir:   t.TempDir(),
@@ -67,12 +67,12 @@ func TestPrepareAgentChat_WorkspaceOverridesProjectDefault(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Abort()
 
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the caller's per-call workspace wins over cfg.Workspace")
+	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the caller's per-call workspace wins over cfg.GetWorkspace()")
 }
 
 // TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault pins the
 // other half: an agent_run call that never sets workspace changes nothing —
-// cfg.Workspace still drives the axes exactly like before GAP 2.
+// cfg.GetWorkspace() still drives the axes exactly like before GAP 2.
 func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) {
 	resetStrictness(t)
 	var gotAxes isolation.Axes
@@ -83,7 +83,7 @@ func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) 
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := &config.Config{Workspace: "worktree"}
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
 		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
 		WorkDir:  t.TempDir(),
@@ -92,7 +92,7 @@ func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) 
 	require.NoError(t, err)
 	defer p.Abort()
 
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "an empty override changes nothing — cfg.Workspace still decides")
+	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "an empty override changes nothing — cfg.GetWorkspace() still decides")
 }
 
 // TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the

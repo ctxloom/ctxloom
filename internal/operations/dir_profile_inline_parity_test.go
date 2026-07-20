@@ -60,7 +60,9 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 
 	// Directory profile equivalent: the SAME ref, declared in a .yaml on disk.
 	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
-	cfgDir.AppPaths = []string{writeDirProfile(t, "fragpin", "fragments:\n  - \""+ref+"\"\n")}
+	dirFixture := cfgDir.ToFixture()
+	dirFixture.AppPaths = []string{writeDirProfile(t, "fragpin", "fragments:\n  - \""+ref+"\"\n")}
+	cfgDir = config.NewFixture(dirFixture)
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "fragpin", Loader: loaderDir})
 	require.NoError(t, err)
 
@@ -91,7 +93,9 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	require.Contains(t, inlineRes.Context, "V1-BODY")
 
 	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
-	cfgDir.AppPaths = []string{writeDirProfile(t, "pinned", "bundle_items:\n  - \""+ref+"\"\n")}
+	dirFixture := cfgDir.ToFixture()
+	dirFixture.AppPaths = []string{writeDirProfile(t, "pinned", "bundle_items:\n  - \""+ref+"\"\n")}
+	cfgDir = config.NewFixture(dirFixture)
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "pinned", Loader: loaderDir})
 	require.NoError(t, err)
 

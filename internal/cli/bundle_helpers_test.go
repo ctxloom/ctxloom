@@ -254,9 +254,9 @@ func TestLooksConversational(t *testing.T) {
 // =============================================================================
 
 func TestValidateExplicitLLM(t *testing.T) {
-	cfg := &config.Config{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 		"claude-fast": {Type: "claude-code"},
-	}}}
+	}}})
 
 	t.Run("configured label passes", func(t *testing.T) {
 		got, err := validateExplicitLLM(cfg, "claude-fast")

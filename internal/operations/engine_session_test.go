@@ -27,7 +27,7 @@ import (
 func TestACPSessionMCPServers(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	// taskloom's loadout is PATH-gated (companion discovery); this Config
 	// never calls SetExecutableTrustGate, so ResolveBundleMCPServers runs

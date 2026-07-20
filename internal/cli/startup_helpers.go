@@ -35,7 +35,7 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 		// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 		ew := iox.NewErrWriter(w)
 		clidiag.Fwarn(ew, "ctxloom", "failed to load config (%v); using minimal default rooted at .ctxloom", err)
-		return &config.Config{AppPaths: []string{".ctxloom"}}
+		return config.NewFixture(config.Fixture{AppPaths: []string{".ctxloom"}})
 	}
 	return cfg
 }

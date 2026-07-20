@@ -48,7 +48,7 @@ profiles:
 }
 
 func bundleProfileConfig(root string) *config.Config {
-	return &config.Config{AppPaths: []string{filepath.Join(root, ".ctxloom")}}
+	return config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join(root, ".ctxloom")}})
 }
 
 const kitProfileKey = "ctxloom:local@bundles/kit#profiles/p1"

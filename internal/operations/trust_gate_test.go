@@ -46,7 +46,7 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 // (withheld).
 func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Loader, *config.Config) {
 	t.Helper()
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
 	l := bundles.NewLoader(nil, true, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
 	return l, cfg
@@ -121,7 +121,7 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 // content swap (new hash, no acceptance, untrusted source) returns the item to
 // pending and is withheld; accepting the new content re-exposes it.
 func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	v1 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
@@ -163,7 +163,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 // to "no candidates found", which the decision function already denies by
 // construction (step 6, the terminal pending default).
 func TestExposureGate_FailClosed(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	// Unparseable ref → withhold (resolve error is fail-closed).
@@ -236,7 +236,7 @@ fragments:
 // this test is the companion proving the OTHER half: a malformed/unrecognized
 // scheme-qualified ref must fail closed instead.
 func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	// "https://github.com/acme/repo" is missing "@bundles/<name>" — it fails
@@ -275,13 +275,13 @@ fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0o644))
 
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	if _, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked"}); err != nil {
 		t.Fatalf("SetBlacklist: %v", err)
 	}
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			AppPaths:     []string{appDir},
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
@@ -293,7 +293,7 @@ fragments:
 					}},
 				},
 			},
-		}, nil
+		}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{

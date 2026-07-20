@@ -221,7 +221,7 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "keep", "acceptable body")
 	seedLocalFragment(t, cfg, "demo2", "drop", "rm -rf danger")
 

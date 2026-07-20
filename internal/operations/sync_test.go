@@ -123,7 +123,7 @@ func (m *syncMockRetractionPuller) RecordRetraction(itemType remote.ItemType, re
 func TestCollectRemoteReferences(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
@@ -143,7 +143,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -168,7 +168,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	seededDefaultBundle := "https://github.com/ctxloom/ctxloom-default@bundles/default"
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents: map[string]agents.Agent{"default": {Profiles: []string{
 			seededDefaultBundle + "#profiles/default", // bundle-profile default
@@ -176,7 +176,7 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 		}}},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	bundles, err := collectRemoteReferences(cfg, nil, fs)
@@ -207,7 +207,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	validBundle := "https://github.com/test/ctxloom@bundles/go-tools"
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{validBundle},
@@ -218,7 +218,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	bundles, err := collectRemoteReferences(cfg, nil, fs)
@@ -236,14 +236,14 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		Profiles: config.ProfilesConfig{
 			Definitions: map[string]config.Profile{},
 		},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	bundles, err := collectRemoteReferences(cfg, nil, fs)
@@ -303,14 +303,14 @@ func TestIsRemoteReference(t *testing.T) {
 func TestSyncDependencies_NoRemotes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"local": {
 				Bundles: []string{"local-bundle"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -330,14 +330,14 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 func TestSyncDependencies_WithRemotes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -386,14 +386,14 @@ remotes:
 func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
@@ -432,14 +432,14 @@ remotes:
 func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -486,14 +486,14 @@ remotes:
 func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -537,14 +537,14 @@ remotes:
 func TestSyncDependencies_NotRetractedInstalledRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -581,14 +581,14 @@ remotes:
 func TestSyncDependencies_SkipCanonicalizesRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools@^1.0"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -624,14 +624,14 @@ remotes:
 func TestSyncDependencies_ForceRedownload(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -671,14 +671,14 @@ remotes:
 func TestSyncDependencies_PullError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
@@ -727,14 +727,14 @@ func (p *overwritePuller) Pull(ctx context.Context, refStr string, opts remote.P
 func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 	_ = fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755)
@@ -801,7 +801,7 @@ func (f fakeBundleSource) HasBundle(name string) bool { return f.readable[name] 
 func TestCheckMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
@@ -811,7 +811,7 @@ func TestCheckMissingDependencies(t *testing.T) {
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
@@ -848,14 +848,14 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no host ~/.ctxloom leak into the defaults path
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		Profiles: config.ProfilesConfig{
 			Definitions: map[string]config.Profile{},
 		},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
@@ -872,14 +872,14 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/forge@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
@@ -910,12 +910,12 @@ func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T
 	parent := "https://github.com/test/forge@bundles/kit#profiles/dev"
 	bundleKey := "https://github.com/test/forge@bundles/kit"
 	cfgFor := func() *config.Config {
-		return &config.Config{
+		return config.NewFixture(config.Fixture{
 			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 				"test": {Parents: []string{parent}},
 			}},
 			AppPaths: []string{testBaseDir},
-		}
+		})
 	}
 
 	t.Run("retrievable parent bundle is installed", func(t *testing.T) {
@@ -949,7 +949,7 @@ func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T
 func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
@@ -959,7 +959,7 @@ func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
@@ -988,14 +988,14 @@ func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
 func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/forge@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
@@ -1030,14 +1030,14 @@ func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 func TestSyncOnStartup(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"local-only"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	// Create profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -1057,14 +1057,14 @@ func TestSyncOnStartup(t *testing.T) {
 func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 
 	// Create necessary directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -1090,14 +1090,14 @@ remotes:
 
 // TestCollectProfileReferences_ConfigProfile tests collecting refs from config-based profile.
 func TestCollectProfileReferences_ConfigProfile(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"dev": {
 				Bundles: []string{"golang", "python"},
 				Parents: []string{"base-config"},
 			},
 		}},
-	}
+	})
 
 	bundles, profiles := collectProfileReferences(cfg, "dev")
 	if len(bundles) != 2 || bundles[0] != "golang" || bundles[1] != "python" {
@@ -1109,9 +1109,9 @@ func TestCollectProfileReferences_ConfigProfile(t *testing.T) {
 }
 
 func TestCollectProfileReferences_NotFound(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
-	}
+	})
 	// No profile loader configured
 
 	bundles, profiles := collectProfileReferences(cfg, "nonexistent")
@@ -1122,17 +1122,17 @@ func TestCollectProfileReferences_NotFound(t *testing.T) {
 
 func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
 	// This test verifies the code path where a profile is loaded from the directory
-	// when it's not found in cfg.Profiles
+	// when it's not found in cfg.GetProfilesConfig()
 	//
 	// Note: Testing the full directory path requires OS filesystem or mocking
 	// the profiles.GetProfileDirs function, which uses os.Stat directly.
 	// For now, we test that the fallback path exists by creating a profile
 	// that will be found in a real directory, or by verifying the error path.
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{"/nonexistent"},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
-	}
+	})
 
 	// This should call GetProfileLoader and try to load from directory
 	// Since the directory doesn't exist, it will return empty slices
@@ -1218,7 +1218,7 @@ func TestAddSyncItem_FailedStatus(t *testing.T) {
 
 func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 	// Test that remote dependencies in nested local profile parents are discovered
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			// Top-level profile with local parent
 			"driftway": {
@@ -1231,7 +1231,7 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 				Parents: []string{"https://github.com/owner/repo@v1/bundles/base-kit#profiles/base"},
 			},
 		}},
-	}
+	})
 
 	bundleSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
@@ -1254,7 +1254,7 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 
 func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 	// Test that "profile:" prefix is properly stripped when following local parents
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"top": {
 				Parents: []string{"profile:nested/profile"},
@@ -1263,7 +1263,7 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 				Bundles: []string{"https://github.com/test/forge@bundles/remote-bundle"},
 			},
 		}},
-	}
+	})
 
 	bundleSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
@@ -1277,7 +1277,7 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 
 func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 	// Test that circular dependencies don't cause infinite loops
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"profile-a": {
 				Parents: []string{"profile:profile-b"},
@@ -1287,7 +1287,7 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 				Bundles: []string{"https://github.com/test/forge@bundles/bundle"},
 			},
 		}},
-	}
+	})
 
 	bundleSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
@@ -1366,7 +1366,13 @@ type revealingPuller struct {
 func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {
 	p.pulled = append(p.pulled, refStr)
 	if refStr == p.reveals {
-		p.cfg.Profiles.Definitions["revealed"] = config.Profile{Bundles: []string{p.revealedRef}}
+		// Definitions is a map (reference type): mutating it through the
+		// Fixture view still lands in cfg's own backing map. GetProfilesConfig
+		// (like every Get* accessor) returns a copy-on-read CLONE — assigning
+		// into it here would be exactly the silent-no-op this test exists to
+		// catch, just relocated into the test double instead of production
+		// code.
+		p.cfg.ToFixture().Profiles.Definitions["revealed"] = config.Profile{Bundles: []string{p.revealedRef}}
 	}
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/revealed.yaml"}, nil
 }
@@ -1392,12 +1398,12 @@ remotes:
     url: https://github.com/test/ctxloom
 `), 0644))
 
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"root": {Bundles: []string{rootRef}},
 		}},
 		AppPaths: []string{testBaseDir},
-	}
+	})
 	cfg.SetFS(fs)
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))

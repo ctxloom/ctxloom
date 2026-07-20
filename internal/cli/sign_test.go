@@ -210,6 +210,6 @@ func setupSignTestDir(t *testing.T) (string, *config.Config) {
 	t.Helper()
 	appDir := t.TempDir() + "/.ctxloom"
 	require.NoError(t, afero.NewOsFs().MkdirAll(paths.LocalBundlesPath(appDir), 0o755))
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	return appDir, cfg
 }

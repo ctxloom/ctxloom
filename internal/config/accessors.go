@@ -48,9 +48,8 @@ package config
 // 3/4) for the actual enforcement mechanism.
 
 import (
-	"sort"
-
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -272,69 +271,69 @@ func cloneEditor(e EditorConfig) EditorConfig {
 
 // GetAppPaths returns a copy of the resolved .ctxloom directory path(s) (at
 // most one today).
-func (c *Config) GetAppPaths() []string { return cloneStrings(c.AppPaths) }
+func (c *Config) GetAppPaths() []string { return cloneStrings(c.appPaths) }
 
 // GetAppDir returns the full path to the resolved .ctxloom directory.
-func (c *Config) GetAppDir() string { return c.AppDir }
+func (c *Config) GetAppDir() string { return c.appDir }
 
 // GetAppRoot returns the project root (parent of the .ctxloom directory).
-func (c *Config) GetAppRoot() string { return c.AppRoot }
+func (c *Config) GetAppRoot() string { return c.appRoot }
 
 // GetSource reports whether this config was resolved from a project or the
 // user home directory.
-func (c *Config) GetSource() ConfigSource { return c.Source }
+func (c *Config) GetSource() ConfigSource { return c.source }
 
 // GetVersion returns the config's on-disk schema version.
-func (c *Config) GetVersion() int { return c.Version }
+func (c *Config) GetVersion() int { return c.version }
 
 // GetWarnings returns a copy of the kind-tagged warnings collected during
 // load.
-func (c *Config) GetWarnings() []Warning { return cloneWarnings(c.Warnings) }
+func (c *Config) GetWarnings() []Warning { return cloneWarnings(c.warnings) }
 
 // GetWorkspace returns the project-wide default workspace axis
 // (none | worktree).
-func (c *Config) GetWorkspace() string { return c.Workspace }
+func (c *Config) GetWorkspace() string { return c.workspace }
 
 // GetRuntime returns the project-wide default runtime axis (host |
 // container).
-func (c *Config) GetRuntime() string { return c.Runtime }
+func (c *Config) GetRuntime() string { return c.runtime }
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).
-func (c *Config) GetDefaultAgent() string { return c.DefaultAgent }
+func (c *Config) GetDefaultAgent() string { return c.defaultAgent }
 
 // GetConfiguredAgents returns a copy of the RAW `agents:` config-key map —
 // unlike LoadAgents/Agent, it does NOT fold in the .ctxloom/agents/*.yaml
 // directory source.
-func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAgentsMap(c.Agents) }
+func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAgentsMap(c.agents) }
 
 // GetPendingUpgrade returns the PROJECT (or home, when no project layer)
 // pending schema upgrade, or nil when the on-disk schema was already
 // current.
-func (c *Config) GetPendingUpgrade() *upgrade.Pending { return c.PendingUpgrade }
+func (c *Config) GetPendingUpgrade() *upgrade.Pending { return c.pendingUpgrade }
 
 // GetHomePendingUpgrade returns the HOME layer's pending schema upgrade
 // (only populated when a project layer also exists), or nil.
-func (c *Config) GetHomePendingUpgrade() *upgrade.Pending { return c.HomePendingUpgrade }
+func (c *Config) GetHomePendingUpgrade() *upgrade.Pending { return c.homePendingUpgrade }
 
 // GetMCPConfig returns a copy of the whole MCP configuration block.
-func (c *Config) GetMCPConfig() wire.MCPConfig { return cloneMCPConfig(c.MCP) }
+func (c *Config) GetMCPConfig() wire.MCPConfig { return cloneMCPConfig(c.mcp) }
 
 // GetMCPServers returns a copy of the unified MCP server map.
-func (c *Config) GetMCPServers() map[string]wire.MCPServer { return cloneMCPServerMap(c.MCP.Servers) }
+func (c *Config) GetMCPServers() map[string]wire.MCPServer { return cloneMCPServerMap(c.mcp.Servers) }
 
 // GetMCPPlugins returns a copy of the per-backend MCP server override map.
 func (c *Config) GetMCPPlugins() map[string]map[string]wire.MCPServer {
-	return cloneMCPPlugins(c.MCP.Plugins)
+	return cloneMCPPlugins(c.mcp.Plugins)
 }
 
 // GetLMConfig returns a copy of the whole LLM registry + role-default block.
-func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.LM) }
+func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.lm) }
 
 // GetLLMEntry returns a copy of one labeled LLM registry entry, and whether
 // it exists.
 func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
-	entry, ok := c.LM.Configs[label]
+	entry, ok := c.lm.Configs[label]
 	if !ok {
 		return LLMConfig{}, false
 	}
@@ -343,18 +342,13 @@ func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
 
 // GetLLMLabels returns every configured LLM registry label, sorted.
 func (c *Config) GetLLMLabels() []string {
-	out := make([]string, 0, len(c.LM.Configs))
-	for label := range c.LM.Configs {
-		out = append(out, label)
-	}
-	sort.Strings(out)
-	return out
+	return collections.SortedKeys(c.lm.Configs)
 }
 
 // GetProfileDefinitions returns a copy of the inline `profiles.definitions`
 // map.
 func (c *Config) GetProfileDefinitions() map[string]Profile {
-	return cloneProfilesMap(c.Profiles.Definitions)
+	return cloneProfilesMap(c.profiles.Definitions)
 }
 
 // GetProfilesConfig returns a copy of the whole `profiles:` block (today just
@@ -362,32 +356,32 @@ func (c *Config) GetProfileDefinitions() map[string]Profile {
 // unwraps straight to the map; callers that need the wrapper shape itself
 // (e.g. `config get profiles`, which marshals the section verbatim) use this.
 func (c *Config) GetProfilesConfig() ProfilesConfig {
-	return ProfilesConfig{Definitions: cloneProfilesMap(c.Profiles.Definitions)}
+	return ProfilesConfig{Definitions: cloneProfilesMap(c.profiles.Definitions)}
 }
 
 // GetSettings returns a copy of the behavioral settings block.
-func (c *Config) GetSettings() SettingsConfig { return cloneSettings(c.Settings) }
+func (c *Config) GetSettings() SettingsConfig { return cloneSettings(c.settings) }
 
 // GetHooksConfig returns a copy of the whole hooks configuration block.
-func (c *Config) GetHooksConfig() wire.HooksConfig { return cloneHooksConfig(c.Hooks) }
+func (c *Config) GetHooksConfig() wire.HooksConfig { return cloneHooksConfig(c.hooks) }
 
 // GetSyncConfig returns a copy of the dependency-sync configuration block.
-func (c *Config) GetSyncConfig() SyncConfig { return cloneSync(c.Sync) }
+func (c *Config) GetSyncConfig() SyncConfig { return cloneSync(c.sync) }
 
 // GetEditor returns a copy of the editor configuration block.
-func (c *Config) GetEditor() EditorConfig { return cloneEditor(c.Editor) }
+func (c *Config) GetEditor() EditorConfig { return cloneEditor(c.editor) }
 
 // GetUI returns a copy of the interactive-run terminal-layer preferences.
-func (c *Config) GetUI() UIConfig { return cloneUIConfig(c.UI) }
+func (c *Config) GetUI() UIConfig { return cloneUIConfig(c.ui) }
 
 // GetIsolationImages returns a copy of the per-backend user-provided agent
 // image override map.
-func (c *Config) GetIsolationImages() map[string]string { return cloneStringMap(c.IsolationImages) }
+func (c *Config) GetIsolationImages() map[string]string { return cloneStringMap(c.isolationImages) }
 
 // GetIsolationDevcontainerService returns the docker-compose service name
 // adopted as the agent image's base, when set.
-func (c *Config) GetIsolationDevcontainerService() string { return c.IsolationDevcontainerService }
+func (c *Config) GetIsolationDevcontainerService() string { return c.isolationDevcontainerService }
 
 // GetIsolationEngines returns a copy of the engine fragment selection for the
 // shared multi-engine agent image.
-func (c *Config) GetIsolationEngines() []string { return cloneStrings(c.IsolationEngines) }
+func (c *Config) GetIsolationEngines() []string { return cloneStrings(c.isolationEngines) }

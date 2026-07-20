@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -142,7 +143,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	}
 
 	// Get the base .ctxloom directory
-	if len(c.AppPaths) == 0 {
+	if len(c.appPaths) == 0 {
 		return result
 	}
 
@@ -270,7 +271,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	}
 
 	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) == 0 || len(c.AppPaths) == 0 {
+	if len(profiles) == 0 || len(c.appPaths) == 0 {
 		return result
 	}
 	profileLoader := c.GetProfileLoader()
@@ -297,13 +298,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 // unconditional resolver here promises a stable result across runs (a
 // stable context/settings hash).
 func sortedCompanionRefs(c *Config) []string {
-	seed := c.companionBundleSeed()
-	refs := make([]string, 0, len(seed))
-	for ref := range seed {
-		refs = append(refs, ref)
-	}
-	sort.Strings(refs)
-	return refs
+	return collections.SortedKeys(c.companionBundleSeed())
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
@@ -350,7 +345,7 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 	}
 
 	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) > 0 && len(c.AppPaths) > 0 {
+	if len(profiles) > 0 && len(c.appPaths) > 0 {
 		profileLoader := c.GetProfileLoader()
 		for _, profileName := range profiles {
 			resolved, err := profileLoader.ResolveProfile(profileName, nil)
@@ -396,7 +391,7 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.Load
 	}
 
 	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) > 0 && len(c.AppPaths) > 0 {
+	if len(profiles) > 0 && len(c.appPaths) > 0 {
 		profileLoader := c.GetProfileLoader()
 		for _, profileName := range profiles {
 			resolved, err := profileLoader.ResolveProfile(profileName, nil)

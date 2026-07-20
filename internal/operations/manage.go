@@ -174,7 +174,7 @@ func SetStatusline(_ context.Context, _ *config.Config, req SetStatuslineRequest
 	}
 
 	enabled := req.Enabled
-	freshCfg.Settings.Statusline = &enabled
+	freshCfg.SetStatuslineEnabled(enabled)
 
 	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
 		return nil, err

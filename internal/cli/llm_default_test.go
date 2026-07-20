@@ -67,7 +67,7 @@ func memConfig(t *testing.T) *config.Config {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 	return cfg
 }

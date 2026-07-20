@@ -16,8 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -30,6 +30,13 @@ import (
 // wired), matching how GetProfileDirs/os.Stat resolve directory profiles in
 // production. The only bundle source remains the seed/resolver passed to
 // LoadCommandExports.
+//
+// Built through config.Load (a written config.yaml + WithAppDir), not a
+// struct literal: config.Config's fields are unexported outside the config
+// package (v0.7.0-pre1 config-manager rework) precisely so a caller can't
+// synthesize a Config that skips the loader's schema/upgrade/default-merge
+// pipeline — this test-only builder now goes through the same public path
+// every real caller does.
 func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]string, inline map[string]config.Profile) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -39,12 +46,23 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	for name, body := range dirProfiles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
-	cfg := &config.Config{
-		AppPaths:     []string{appDir},
-		DefaultAgent: "default",
-		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
-		Profiles:     config.ProfilesConfig{Definitions: inline},
+
+	doc := map[string]any{
+		"default_agent": "default",
+		"agents": map[string]any{
+			"default": map[string]any{"profiles": defaults},
+		},
 	}
+	if len(inline) > 0 {
+		doc["profiles"] = map[string]any{"definitions": inline}
+	}
+	data, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), data, 0o644))
+
+	cfg, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
 	// Setting AppPaths arms companion probing, which execs the companion
 	// binaries on the HOST's PATH — so these exact-set assertions would pick up
 	// e.g. ltk's commands on a machine that has ltk installed and pass on one that

@@ -225,7 +225,7 @@ commands:
 }
 
 func TestSearchContent_ValidationError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "",
@@ -237,7 +237,7 @@ func TestSearchContent_ValidationError(t *testing.T) {
 
 func TestSearchContent_SearchFragmentsByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "security",
@@ -287,7 +287,7 @@ fragments:
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{remoteName: b}),
 	)
 
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "threat-modeling",
 		Types:  []string{"fragment"},
@@ -308,7 +308,7 @@ fragments:
 
 func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "tdd",
@@ -332,7 +332,7 @@ func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 
 func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
@@ -340,7 +340,7 @@ func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
 			"filesystem": {Command: "npx"},
 		}},
-	}
+	})
 
 	// Tags-only search (empty query): tags filter fragments only. An empty query
 	// must NOT flood the results with every prompt, profile, and mcp_server
@@ -366,7 +366,7 @@ func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 
 func TestSearchContent_SearchPrompts(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "review",
@@ -403,7 +403,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
 
 	loader := bundles.NewLoader([]string{bundlesDir}, false, bundles.WithFS(fsys))
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "humanize",
@@ -431,7 +431,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 }
 
 func TestSearchContent_SearchProfiles(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-developer": {
@@ -443,7 +443,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 				Tags:        []string{"react", "javascript"},
 			},
 		}},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "go",
@@ -464,7 +464,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 }
 
 func TestSearchContent_SearchMCPServers(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -478,7 +478,7 @@ func TestSearchContent_SearchMCPServers(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "github",
@@ -493,7 +493,7 @@ func TestSearchContent_SearchMCPServers(t *testing.T) {
 
 func TestSearchContent_MultipleTypes(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"react-developer": {
@@ -501,7 +501,7 @@ func TestSearchContent_MultipleTypes(t *testing.T) {
 				Tags:        []string{"react", "frontend"},
 			},
 		}},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "react",
@@ -528,7 +528,7 @@ func TestSearchContent_MultipleTypes(t *testing.T) {
 
 func TestSearchContent_SortByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing" and other fragments
@@ -549,7 +549,7 @@ func TestSearchContent_SortByName(t *testing.T) {
 
 func TestSearchContent_SortByRelevance(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "go",
@@ -569,7 +569,7 @@ func TestSearchContent_SortByRelevance(t *testing.T) {
 
 func TestSearchContent_WithLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a", // Should match many items
@@ -595,7 +595,7 @@ func TestSearchContent_WithLimit(t *testing.T) {
 // that was already complete).
 func TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a",
@@ -610,7 +610,7 @@ func TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit(t *testing.T) {
 
 func TestSearchContent_DefaultLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a",
@@ -625,12 +625,12 @@ func TestSearchContent_DefaultLimit(t *testing.T) {
 
 func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test-profile": {Description: "Test"},
 		}},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",
@@ -645,12 +645,12 @@ func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 
 func TestSearchContent_SortByType(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test-profile": {Description: "Test profile"},
 		}},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",
@@ -670,7 +670,7 @@ func TestSearchContent_SortByType(t *testing.T) {
 
 func TestSearchContent_SortDescending(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing"
@@ -690,7 +690,7 @@ func TestSearchContent_SortDescending(t *testing.T) {
 }
 
 func TestSearchContent_ProfileByDescription(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"my-profile": {
@@ -698,7 +698,7 @@ func TestSearchContent_ProfileByDescription(t *testing.T) {
 				Tags:        []string{"go"},
 			},
 		}},
-	}
+	})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "unique description",
@@ -731,7 +731,7 @@ func TestSearchContentRequest_ScopeFlags(t *testing.T) {
 
 func TestSearchContent_LocalOnlyScope(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// SearchLocal=true, SearchRemote=false should only search local
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -778,7 +778,7 @@ func TestSearchResult_RemoteSource(t *testing.T) {
 func TestSearchContent_DefaultScopeBothLocalAndRemote(t *testing.T) {
 	// When neither SearchLocal nor SearchRemote is set, should default to both
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	// Empty scope flags should search both local and remote
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{

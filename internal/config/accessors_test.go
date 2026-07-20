@@ -15,12 +15,12 @@ import (
 // armed-chomp/tall-nanny shared-mutation bug to a new call site.
 func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 	cfg := &Config{
-		AppPaths: []string{"/proj/.ctxloom"},
-		Warnings: []Warning{{Kind: WarnKindRead, Text: "original"}},
-		Agents: map[string]agents.Agent{
+		appPaths: []string{"/proj/.ctxloom"},
+		warnings: []Warning{{Kind: WarnKindRead, Text: "original"}},
+		agents: map[string]agents.Agent{
 			"dev": {Name: "dev", Profiles: []string{"go", "review"}},
 		},
-		MCP: wire.MCPConfig{
+		mcp: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
 				"fs": {Command: "fs-server", Args: []string{"--root", "."}},
 			},
@@ -28,67 +28,67 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 				"claude-code": {"fs": {Command: "fs-server"}},
 			},
 		},
-		LM: LMConfig{
+		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"main": {Type: "claude-code", Body: map[string]any{"model": "opus"}},
 			},
 		},
-		Profiles: ProfilesConfig{
+		profiles: ProfilesConfig{
 			Definitions: map[string]Profile{
 				"go": {Description: "go work", Tags: []string{"lang"}},
 			},
 		},
-		IsolationImages: map[string]string{"claude-code": "img:latest"},
+		isolationImages: map[string]string{"claude-code": "img:latest"},
 	}
 
 	t.Run("AppPaths slice", func(t *testing.T) {
 		got := cfg.GetAppPaths()
 		got[0] = "MUTATED"
-		if cfg.AppPaths[0] != "/proj/.ctxloom" {
-			t.Fatalf("mutating GetAppPaths() result corrupted the source: %v", cfg.AppPaths)
+		if cfg.appPaths[0] != "/proj/.ctxloom" {
+			t.Fatalf("mutating GetAppPaths() result corrupted the source: %v", cfg.appPaths)
 		}
 	})
 
 	t.Run("Warnings slice", func(t *testing.T) {
 		got := cfg.GetWarnings()
 		got[0].Text = "MUTATED"
-		if cfg.Warnings[0].Text != "original" {
-			t.Fatalf("mutating GetWarnings() result corrupted the source: %v", cfg.Warnings)
+		if cfg.warnings[0].Text != "original" {
+			t.Fatalf("mutating GetWarnings() result corrupted the source: %v", cfg.warnings)
 		}
 	})
 
 	t.Run("ConfiguredAgents map and nested slice", func(t *testing.T) {
 		got := cfg.GetConfiguredAgents()
 		delete(got, "dev")
-		if _, ok := cfg.Agents["dev"]; !ok {
+		if _, ok := cfg.agents["dev"]; !ok {
 			t.Fatal("deleting from GetConfiguredAgents() result deleted the source entry")
 		}
 		got2 := cfg.GetConfiguredAgents()
 		dev := got2["dev"]
 		dev.Profiles[0] = "MUTATED"
-		if cfg.Agents["dev"].Profiles[0] != "go" {
-			t.Fatalf("mutating a nested slice on GetConfiguredAgents() result corrupted the source: %v", cfg.Agents["dev"].Profiles)
+		if cfg.agents["dev"].Profiles[0] != "go" {
+			t.Fatalf("mutating a nested slice on GetConfiguredAgents() result corrupted the source: %v", cfg.agents["dev"].Profiles)
 		}
 	})
 
 	t.Run("MCPServers map and nested slice", func(t *testing.T) {
 		got := cfg.GetMCPServers()
 		delete(got, "fs")
-		if _, ok := cfg.MCP.Servers["fs"]; !ok {
+		if _, ok := cfg.mcp.Servers["fs"]; !ok {
 			t.Fatal("deleting from GetMCPServers() result deleted the source entry")
 		}
 		got2 := cfg.GetMCPServers()
 		srv := got2["fs"]
 		srv.Args[0] = "MUTATED"
-		if cfg.MCP.Servers["fs"].Args[0] != "--root" {
-			t.Fatalf("mutating a nested slice on GetMCPServers() result corrupted the source: %v", cfg.MCP.Servers["fs"].Args)
+		if cfg.mcp.Servers["fs"].Args[0] != "--root" {
+			t.Fatalf("mutating a nested slice on GetMCPServers() result corrupted the source: %v", cfg.mcp.Servers["fs"].Args)
 		}
 	})
 
 	t.Run("MCPPlugins map of maps", func(t *testing.T) {
 		got := cfg.GetMCPPlugins()
 		delete(got["claude-code"], "fs")
-		if _, ok := cfg.MCP.Plugins["claude-code"]["fs"]; !ok {
+		if _, ok := cfg.mcp.Plugins["claude-code"]["fs"]; !ok {
 			t.Fatal("deleting from a nested map in GetMCPPlugins() result deleted the source entry")
 		}
 	})
@@ -97,11 +97,11 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		got := cfg.GetLMConfig()
 		got.Configs["main"].Body["model"] = "MUTATED"
 		delete(got.Configs, "main")
-		if _, ok := cfg.LM.Configs["main"]; !ok {
+		if _, ok := cfg.lm.Configs["main"]; !ok {
 			t.Fatal("deleting from GetLMConfig().Configs deleted the source entry")
 		}
-		if cfg.LM.Configs["main"].Body["model"] != "opus" {
-			t.Fatalf("mutating GetLMConfig().Configs[...].Body corrupted the source: %v", cfg.LM.Configs["main"].Body)
+		if cfg.lm.Configs["main"].Body["model"] != "opus" {
+			t.Fatalf("mutating GetLMConfig().Configs[...].Body corrupted the source: %v", cfg.lm.Configs["main"].Body)
 		}
 	})
 
@@ -110,18 +110,18 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 		p := got["go"]
 		p.Tags[0] = "MUTATED"
 		delete(got, "go")
-		if _, ok := cfg.Profiles.Definitions["go"]; !ok {
+		if _, ok := cfg.profiles.Definitions["go"]; !ok {
 			t.Fatal("deleting from GetProfileDefinitions() result deleted the source entry")
 		}
-		if cfg.Profiles.Definitions["go"].Tags[0] != "lang" {
-			t.Fatalf("mutating a nested slice on GetProfileDefinitions() result corrupted the source: %v", cfg.Profiles.Definitions["go"].Tags)
+		if cfg.profiles.Definitions["go"].Tags[0] != "lang" {
+			t.Fatalf("mutating a nested slice on GetProfileDefinitions() result corrupted the source: %v", cfg.profiles.Definitions["go"].Tags)
 		}
 	})
 
 	t.Run("ProfilesConfig wrapper map", func(t *testing.T) {
 		got := cfg.GetProfilesConfig()
 		delete(got.Definitions, "go")
-		if _, ok := cfg.Profiles.Definitions["go"]; !ok {
+		if _, ok := cfg.profiles.Definitions["go"]; !ok {
 			t.Fatal("deleting from GetProfilesConfig().Definitions result deleted the source entry")
 		}
 	})
@@ -129,17 +129,17 @@ func TestAccessor_ReturnedMapIsNotTheInternalOne(t *testing.T) {
 	t.Run("IsolationImages map", func(t *testing.T) {
 		got := cfg.GetIsolationImages()
 		got["claude-code"] = "MUTATED"
-		if cfg.IsolationImages["claude-code"] != "img:latest" {
-			t.Fatalf("mutating GetIsolationImages() result corrupted the source: %v", cfg.IsolationImages)
+		if cfg.isolationImages["claude-code"] != "img:latest" {
+			t.Fatalf("mutating GetIsolationImages() result corrupted the source: %v", cfg.isolationImages)
 		}
 	})
 
 	t.Run("Settings pointer fields", func(t *testing.T) {
 		trueVal := true
-		src := &Config{Settings: SettingsConfig{UseDistilled: &trueVal}}
+		src := &Config{settings: SettingsConfig{UseDistilled: &trueVal}}
 		got := src.GetSettings()
 		*got.UseDistilled = false
-		if !*src.Settings.UseDistilled {
+		if !*src.settings.UseDistilled {
 			t.Fatal("mutating GetSettings() result's pointer field corrupted the source")
 		}
 	})

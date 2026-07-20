@@ -19,14 +19,14 @@ import (
 // PendingUpgrade on success. Callers prompt the user before invoking this (see
 // cmd/run.go); ctxloom never rewrites a config without consent.
 func (c *Config) CommitUpgrade() error {
-	if c.PendingUpgrade == nil {
+	if c.pendingUpgrade == nil {
 		return nil
 	}
-	p := c.PendingUpgrade
+	p := c.pendingUpgrade
 	if err := iox.WriteFileAtomicFs(c.getFS(), p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
 	}
-	c.PendingUpgrade = nil
+	c.pendingUpgrade = nil
 	return nil
 }
 
@@ -116,7 +116,7 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 // model defaults that stops tracking future releases. Anything the user added
 // or changed since the overlay survives.
 func (c *Config) userAuthoredLM() LMConfig {
-	lm := c.LM
+	lm := c.lm
 	ov := c.lmDefaultOverlay
 	if ov == nil {
 		return lm
@@ -174,35 +174,35 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported
 
-	setOrDelete(existing, "config", c.Settings.hasAny(), c.Settings)
-	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
-	setOrDelete(existing, "profiles", c.Profiles.hasAny(), c.Profiles)
+	setOrDelete(existing, "config", c.settings.hasAny(), c.settings)
+	setOrDelete(existing, "editor", c.editor.Command != "" || len(c.editor.Args) > 0, c.editor)
+	setOrDelete(existing, "profiles", c.profiles.hasAny(), c.profiles)
 	delete(existing, "defaults") // superseded by config + profiles blocks
-	// Persist only the config-key agents (c.Agents). Directory-sourced
+	// Persist only the config-key agents (c.agents). Directory-sourced
 	// agents live in their own .ctxloom/agents/*.yaml files and are not
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
 	// the block rather than leaving `agents: {}` behind.
-	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
+	setOrDelete(existing, "agents", len(c.agents) > 0, c.agents)
 	// The always-bound default agent (replaces the retired profiles.defaults);
 	// pruned when empty so an unset default_agent leaves no key behind.
-	setOrDelete(existing, "default_agent", c.DefaultAgent != "", c.DefaultAgent)
+	setOrDelete(existing, "default_agent", c.defaultAgent != "", c.defaultAgent)
 	// Session-level workspace default + agent-level runtime default; pruned
 	// when empty ("none"/"host" are the implicit defaults, so unset axes
 	// leave no keys behind).
-	setOrDelete(existing, "workspace", c.Workspace != "", c.Workspace)
-	setOrDelete(existing, "runtime", c.Runtime != "", c.Runtime)
+	setOrDelete(existing, "workspace", c.workspace != "", c.workspace)
+	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
-	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)
-	setOrDelete(existing, "isolation_base_containerfile", c.IsolationBaseContainerfile != "", c.IsolationBaseContainerfile)
-	if c.IsolationDevcontainerBase != nil {
-		setOrDelete(existing, "isolation_devcontainer_base", true, *c.IsolationDevcontainerBase)
+	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)
+	setOrDelete(existing, "isolation_base_containerfile", c.isolationBaseContainerfile != "", c.isolationBaseContainerfile)
+	if c.isolationDevcontainerBase != nil {
+		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
 	} else {
 		delete(existing, "isolation_devcontainer_base")
 	}
-	setOrDelete(existing, "isolation_devcontainer_service", c.IsolationDevcontainerService != "", c.IsolationDevcontainerService)
-	setOrDelete(existing, "isolation_engines", len(c.IsolationEngines) > 0, c.IsolationEngines)
-	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
-	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
-	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)
+	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
+	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
+	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
+	setOrDelete(existing, "mcp", len(c.mcp.Servers) > 0 || len(c.mcp.Plugins) > 0 || c.mcp.AutoRegisterCtxloom != nil, c.mcp)
+	setOrDelete(existing, "hooks", c.hooks.HasAny(), c.hooks)
 }

@@ -44,9 +44,9 @@ func TestLoad_UnreadableConfigTaggedRead(t *testing.T) {
 
 	cfg, err := Load(WithFS(failOpenFs{Fs: base, path: cfgPath}), WithAppDir(appDir))
 	require.NoError(t, err, "unreadable config must not hard-error the load itself")
-	require.Len(t, cfg.Warnings, 1)
-	assert.Equal(t, WarnKindRead, cfg.Warnings[0].Kind)
-	assert.Contains(t, cfg.Warnings[0].Text, "failed to read config")
+	require.Len(t, cfg.warnings, 1)
+	assert.Equal(t, WarnKindRead, cfg.warnings[0].Kind)
+	assert.Contains(t, cfg.warnings[0].Text, "failed to read config")
 }
 
 // Broken YAML is tagged parse (plus the validator's validate warning), so the
@@ -59,12 +59,12 @@ func TestLoad_BrokenYAMLTaggedParse(t *testing.T) {
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
-	require.NotEmpty(t, cfg.Warnings)
+	require.NotEmpty(t, cfg.warnings)
 	kinds := make(map[WarningKind]bool)
-	for _, w := range cfg.Warnings {
+	for _, w := range cfg.warnings {
 		kinds[w.Kind] = true
 	}
-	assert.True(t, kinds[WarnKindParse], "broken YAML must carry a parse-kind warning; got %v", cfg.Warnings)
+	assert.True(t, kinds[WarnKindParse], "broken YAML must carry a parse-kind warning; got %v", cfg.warnings)
 }
 
 // An absent config file is fine: no warnings, no findings — strict mode only
@@ -76,7 +76,7 @@ func TestLoad_AbsentConfigNoWarnings(t *testing.T) {
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Empty(t, cfg.Warnings)
+	assert.Empty(t, cfg.warnings)
 }
 
 // A lossy schema migration (the dropped compaction model at
@@ -95,12 +95,12 @@ func TestLoad_LossyMigrationTaggedMigrationLossy(t *testing.T) {
 	require.NoError(t, err)
 
 	var lossyWarnings []Warning
-	for _, w := range cfg.Warnings {
+	for _, w := range cfg.warnings {
 		if w.Kind == WarnKindMigrationLossy {
 			lossyWarnings = append(lossyWarnings, w)
 		}
 	}
-	require.Len(t, lossyWarnings, 1, "the dropped compaction model must be tagged migration-lossy; warnings: %v", cfg.Warnings)
+	require.Len(t, lossyWarnings, 1, "the dropped compaction model must be tagged migration-lossy; warnings: %v", cfg.warnings)
 	assert.Contains(t, lossyWarnings[0].Text, "dropped compaction model")
 	assert.Contains(t, lossyWarnings[0].Text, "llm.defaults.fast", "the message must name the key to fix")
 
@@ -109,5 +109,5 @@ func TestLoad_LossyMigrationTaggedMigrationLossy(t *testing.T) {
 	require.NoError(t, fs2.MkdirAll(appDir, 0755))
 	cfg2, err := Load(WithFS(fs2), WithAppDir(appDir))
 	require.NoError(t, err)
-	assert.Empty(t, cfg2.Warnings, "migration warnings must not leak into later loads")
+	assert.Empty(t, cfg2.warnings, "migration warnings must not leak into later loads")
 }

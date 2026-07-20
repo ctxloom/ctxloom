@@ -247,7 +247,7 @@ func TestMCPBackendValues(t *testing.T) {
 // createTestMCPConfig creates a config with servers in both unified and
 // backend-specific locations for testing queries and sorting.
 func createTestMCPConfig() *config.Config {
-	return &config.Config{
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -269,7 +269,7 @@ func createTestMCPConfig() *config.Config {
 				},
 			},
 		},
-	}
+	})
 }
 
 func TestGetMCPServer_UnifiedScope(t *testing.T) {
@@ -301,7 +301,7 @@ func TestGetMCPServer_NotFound(t *testing.T) {
 }
 
 func TestGetMCPServer_MultipleScopes(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -311,7 +311,7 @@ func TestGetMCPServer_MultipleScopes(t *testing.T) {
 				"claude-code": {"shared": {Command: "backend-cmd"}},
 			},
 		},
-	}
+	})
 	result, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "shared", TestConfig: cfg})
 	require.NoError(t, err)
 	assert.True(t, result.Found)
@@ -447,12 +447,12 @@ func TestListMCPServers_QueryBackendServerByName(t *testing.T) {
 }
 
 func TestAddMCPServer_UnifiedBackend(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: make(map[string]wire.MCPServer),
 		},
-	}
+	})
 
 	result, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "new-server",
@@ -467,18 +467,18 @@ func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 	assert.Equal(t, "unified", result.Backend)
 
 	// Verify server was added to config
-	assert.Contains(t, cfg.MCP.Servers, "new-server")
-	assert.Equal(t, "node", cfg.MCP.Servers["new-server"].Command)
+	assert.Contains(t, cfg.GetMCPConfig().Servers, "new-server")
+	assert.Equal(t, "node", cfg.GetMCPConfig().Servers["new-server"].Command)
 }
 
 func TestAddMCPServer_SpecificBackend(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: make(map[string]wire.MCPServer),
 			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
-	}
+	})
 
 	result, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "claude-specific",
@@ -493,13 +493,13 @@ func TestAddMCPServer_SpecificBackend(t *testing.T) {
 	assert.Equal(t, "claude-code", result.Backend)
 
 	// Verify server was added to correct backend
-	assert.Contains(t, cfg.MCP.Plugins["claude-code"], "claude-specific")
+	assert.Contains(t, cfg.GetMCPConfig().Plugins["claude-code"], "claude-specific")
 }
 
 // TestAddMCPServer_ValidationErrors verifies that required fields are enforced.
 // Both name and command are required - the server won't function without them.
 func TestAddMCPServer_ValidationErrors(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	tests := []struct {
 		name        string
@@ -542,14 +542,14 @@ func TestAddMCPServer_ValidationErrors(t *testing.T) {
 // exist in unified AND in claude-code backend simultaneously. The check only
 // fails when adding to the same location where the name already exists.
 func TestAddMCPServer_AlreadyExists(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
 				"existing": {Command: "npx"},
 			},
 		},
-	}
+	})
 
 	_, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "existing",
@@ -562,7 +562,7 @@ func TestAddMCPServer_AlreadyExists(t *testing.T) {
 }
 
 func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Plugins: map[string]map[string]wire.MCPServer{
@@ -571,7 +571,7 @@ func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	_, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "existing",
@@ -593,10 +593,10 @@ func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 // the config is in, don't require perfect setup.
 func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	// Test that nil Plugins map is initialized
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP:      wire.MCPConfig{},
-	}
+	})
 
 	result, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "new-server",
@@ -608,13 +608,13 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
 	assert.Equal(t, "antigravity", result.Backend)
-	assert.NotNil(t, cfg.MCP.Plugins)
-	assert.NotNil(t, cfg.MCP.Plugins["antigravity"])
-	assert.Contains(t, cfg.MCP.Plugins["antigravity"], "new-server")
+	assert.NotNil(t, cfg.GetMCPConfig().Plugins)
+	assert.NotNil(t, cfg.GetMCPConfig().Plugins["antigravity"])
+	assert.Contains(t, cfg.GetMCPConfig().Plugins["antigravity"], "new-server")
 }
 
 func TestRemoveMCPServer_FromUnified(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -622,7 +622,7 @@ func TestRemoveMCPServer_FromUnified(t *testing.T) {
 				"keep":      {Command: "node"},
 			},
 		},
-	}
+	})
 
 	result, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "to-remove",
@@ -634,12 +634,12 @@ func TestRemoveMCPServer_FromUnified(t *testing.T) {
 	assert.Contains(t, result.RemovedFrom, "unified")
 
 	// Verify server was removed
-	assert.NotContains(t, cfg.MCP.Servers, "to-remove")
-	assert.Contains(t, cfg.MCP.Servers, "keep")
+	assert.NotContains(t, cfg.GetMCPConfig().Servers, "to-remove")
+	assert.Contains(t, cfg.GetMCPConfig().Servers, "keep")
 }
 
 func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Plugins: map[string]map[string]wire.MCPServer{
@@ -649,7 +649,7 @@ func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	result, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "to-remove",
@@ -662,12 +662,12 @@ func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
 	assert.Contains(t, result.RemovedFrom, "claude-code")
 
 	// Verify server was removed
-	assert.NotContains(t, cfg.MCP.Plugins["claude-code"], "to-remove")
-	assert.Contains(t, cfg.MCP.Plugins["claude-code"], "keep")
+	assert.NotContains(t, cfg.GetMCPConfig().Plugins["claude-code"], "to-remove")
+	assert.Contains(t, cfg.GetMCPConfig().Plugins["claude-code"], "keep")
 }
 
 func TestRemoveMCPServer_ValidationError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "",
@@ -679,12 +679,12 @@ func TestRemoveMCPServer_ValidationError(t *testing.T) {
 }
 
 func TestRemoveMCPServer_NotFound(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: make(map[string]wire.MCPServer),
 		},
-	}
+	})
 
 	_, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "nonexistent",
@@ -704,7 +704,7 @@ func TestRemoveMCPServer_NotFound(t *testing.T) {
 // The RemovedFrom slice in the result tells you where it was actually removed from,
 // which can be more than one location.
 func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			Servers: map[string]wire.MCPServer{
@@ -721,7 +721,7 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 				},
 			},
 		},
-	}
+	})
 
 	result, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "multi-server",
@@ -736,23 +736,23 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	assert.Contains(t, result.RemovedFrom, "unified")
 
 	// Verify removal
-	_, existsInUnified := cfg.MCP.Servers["multi-server"]
+	_, existsInUnified := cfg.GetMCPConfig().Servers["multi-server"]
 	assert.False(t, existsInUnified)
-	_, existsInClaude := cfg.MCP.Plugins["claude-code"]["multi-server"]
+	_, existsInClaude := cfg.GetMCPConfig().Plugins["claude-code"]["multi-server"]
 	assert.False(t, existsInClaude)
-	_, existsInAntigravity := cfg.MCP.Plugins["antigravity"]["multi-server"]
+	_, existsInAntigravity := cfg.GetMCPConfig().Plugins["antigravity"]["multi-server"]
 	assert.False(t, existsInAntigravity)
 
 	// Other servers should remain
-	assert.Contains(t, cfg.MCP.Servers, "keep")
-	assert.Contains(t, cfg.MCP.Plugins["claude-code"], "other")
+	assert.Contains(t, cfg.GetMCPConfig().Servers, "keep")
+	assert.Contains(t, cfg.GetMCPConfig().Plugins["claude-code"], "other")
 }
 
 func TestSetMCPAutoRegister_Enable(t *testing.T) {
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP:      wire.MCPConfig{},
-	}
+	})
 
 	result, err := SetMCPAutoRegister(context.Background(), cfg, SetMCPAutoRegisterRequest{
 		Enabled:    true,
@@ -762,18 +762,18 @@ func TestSetMCPAutoRegister_Enable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", result.Status)
 	assert.True(t, result.AutoRegister)
-	assert.NotNil(t, cfg.MCP.AutoRegisterCtxloom)
-	assert.True(t, *cfg.MCP.AutoRegisterCtxloom)
+	assert.NotNil(t, cfg.GetMCPConfig().AutoRegisterCtxloom)
+	assert.True(t, *cfg.GetMCPConfig().AutoRegisterCtxloom)
 }
 
 func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	enabled := true
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
 		MCP: wire.MCPConfig{
 			AutoRegisterCtxloom: &enabled,
 		},
-	}
+	})
 
 	result, err := SetMCPAutoRegister(context.Background(), cfg, SetMCPAutoRegisterRequest{
 		Enabled:    false,
@@ -783,8 +783,8 @@ func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", result.Status)
 	assert.False(t, result.AutoRegister)
-	assert.NotNil(t, cfg.MCP.AutoRegisterCtxloom)
-	assert.False(t, *cfg.MCP.AutoRegisterCtxloom)
+	assert.NotNil(t, cfg.GetMCPConfig().AutoRegisterCtxloom)
+	assert.False(t, *cfg.GetMCPConfig().AutoRegisterCtxloom)
 }
 
 func TestSetMCPAutoRegister_WithFS(t *testing.T) {
@@ -860,7 +860,7 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 // fail. Instead, it returns an empty config with warnings. This allows the
 // operation to proceed - the user's session isn't blocked by a config typo.
 //
-// The warnings are captured in result.Config.Warnings for user visibility.
+// The warnings are captured in result.Config.GetWarnings() for user visibility.
 // This is core to ctxloom's philosophy: never block the user from their LLM.
 func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -883,7 +883,7 @@ func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	assert.Equal(t, "added", result.Status)
 
 	// Config should have warnings about the invalid YAML
-	assert.NotEmpty(t, result.Config.Warnings)
+	assert.NotEmpty(t, result.Config.GetWarnings())
 }
 
 func TestRemoveMCPServer_WithFS(t *testing.T) {

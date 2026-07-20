@@ -147,8 +147,8 @@ func (c *Config) distrustedSignersPaths() []string {
 	if home, err := paths.HomeDistrustedSignersPath(); err == nil {
 		out = append(out, home)
 	}
-	if len(c.AppPaths) > 0 {
-		project := paths.DistrustedSignersPath(c.AppPaths[0])
+	if len(c.appPaths) > 0 {
+		project := paths.DistrustedSignersPath(c.appPaths[0])
 		if len(out) == 0 || out[0] != project {
 			out = append(out, project)
 		}
@@ -189,8 +189,8 @@ func (c *Config) allowedSignersPaths() []string {
 	if home, err := paths.HomeAllowedSignersPath(); err == nil {
 		out = append(out, home)
 	}
-	if len(c.AppPaths) > 0 {
-		project := paths.AllowedSignersPath(c.AppPaths[0])
+	if len(c.appPaths) > 0 {
+		project := paths.AllowedSignersPath(c.appPaths[0])
 		if len(out) == 0 || out[0] != project {
 			out = append(out, project)
 		}

@@ -31,7 +31,7 @@ commands:
   something-else:
     content: "NOT TOOLING"
 `)
-	cfg := &config.Config{AppPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the tooling command is collected")
@@ -70,7 +70,7 @@ func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 // (WIP safety) — unless force.
 func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 5\n")
-	target := filepath.Join(cfg.AppRoot, DefaultContainerBasePath)
+	target := filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath)
 	require.NoError(t, os.WriteFile(target, []byte("FROM my/custom:base\n"), 0o644))
 
 	path, err := ScaffoldContainerBase(cfg, "", false)
@@ -91,7 +91,7 @@ func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
 
 	path, err := ScaffoldContainerBase(cfg, "", false)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(cfg.AppRoot, "custom/base.Containerfile"), path)
-	_, statErr := os.Stat(filepath.Join(cfg.AppRoot, DefaultContainerBasePath))
+	assert.Equal(t, filepath.Join(cfg.GetAppRoot(), "custom/base.Containerfile"), path)
+	_, statErr := os.Stat(filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath))
 	assert.True(t, os.IsNotExist(statErr), "no default-path file is written when a base is already configured")
 }

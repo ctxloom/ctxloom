@@ -21,22 +21,25 @@ import (
 // section resolveConfigSection knows about, so each branch's return can
 // be distinguished in the marshaled YAML.
 func fixtureConfig() *config.Config {
-	cfg := &config.Config{
+	return config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{
 			Definitions: map[string]config.Profile{
 				"developer": {Bundles: []string{"alice/coding"}},
 			},
 		},
-	}
-	cfg.Settings.CompactionChunks = 8000
-	cfg.LM.Defaults.Primary = "big"
-	cfg.LM.Configs = map[string]config.LLMConfig{
-		"big": {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
-	}
-	cfg.MCP.Servers = map[string]wire.MCPServer{
-		"fs": {Command: "mcp-fs"},
-	}
-	return cfg
+		Settings: config.SettingsConfig{CompactionChunks: 8000},
+		LM: config.LMConfig{
+			Defaults: config.RoleDefaults{Primary: "big"},
+			Configs: map[string]config.LLMConfig{
+				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
+			},
+		},
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
+				"fs": {Command: "mcp-fs"},
+			},
+		},
+	})
 }
 
 func TestResolveConfigSection_KnownSections(t *testing.T) {
@@ -110,10 +113,11 @@ func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
 	// yaml:"-" tags, a config that upgraded on load dumped PendingUpgrade,
 	// whose []byte payload rendered as a raw integer array. Set the pending
 	// upgrade explicitly and assert none of the runtime keys leak.
-	cfg := fixtureConfig()
-	cfg.AppRoot = "/tmp/should-not-appear"
-	cfg.Warnings = []config.Warning{{Kind: config.WarnKindValidate, Text: "leaky"}}
-	cfg.PendingUpgrade = &upgrade.Pending{Path: "/x", Data: []byte("version: 6\n")}
+	f := fixtureConfig().ToFixture()
+	f.AppRoot = "/tmp/should-not-appear"
+	f.Warnings = []config.Warning{{Kind: config.WarnKindValidate, Text: "leaky"}}
+	f.PendingUpgrade = &upgrade.Pending{Path: "/x", Data: []byte("version: 6\n")}
+	cfg := config.NewFixture(f)
 
 	var buf bytes.Buffer
 	require.NoError(t, renderConfigYAML(cfg, &buf))

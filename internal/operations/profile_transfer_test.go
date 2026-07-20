@@ -22,7 +22,7 @@ func memProfileFS(t *testing.T) (afero.Fs, *config.Config) {
 	require.NoError(t, fs.MkdirAll(pdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(pdir, "dev.yaml"),
 		[]byte("description: dev\nbundles:\n  - x\n"), 0644))
-	return fs, &config.Config{AppPaths: []string{appDir}}
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func TestGetSetProfileContent(t *testing.T) {

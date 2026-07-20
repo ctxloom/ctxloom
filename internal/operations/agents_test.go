@@ -48,7 +48,14 @@ func writeAgentProfileFixture(t *testing.T, root string) {
 // agentTestConfig builds a Config over root with a small mock LLM registry and
 // the given config-key agents.
 func agentTestConfig(root string, subs map[string]agents.Agent) *config.Config {
-	return &config.Config{
+	return agentTestConfigWithDefault(root, subs, "")
+}
+
+// agentTestConfigWithDefault is agentTestConfig plus an explicit default_agent
+// (set via the Fixture directly, since Config's fields are unexported outside
+// internal/config and cannot be assigned after construction).
+func agentTestConfigWithDefault(root string, subs map[string]agents.Agent, defaultAgent string) *config.Config {
+	return config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -58,8 +65,9 @@ func agentTestConfig(root string, subs map[string]agents.Agent) *config.Config {
 			},
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
-		Agents: subs,
-	}
+		Agents:       subs,
+		DefaultAgent: defaultAgent,
+	})
 }
 
 // TestResolveAgent_ComposesAndOverridesEngine is the core of the entity:
@@ -89,23 +97,22 @@ func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
 
 // TestResolveAgent_BareLaunchBindsDefaultAgent is the resolution-layer contract
 // behind a bare `ctxloom run` (internal/cli/run.go): the bare-launch else branch
-// resolves cfg.DefaultAgent through ResolveAgent, inheriting the agent's composed
+// resolves cfg.defaultAgent through ResolveAgent, inheriting the agent's composed
 // profiles + engine + runtime + permissions exactly like --agent. profiles.defaults
 // was retired — DefaultAgentProfiles is the same set.
 func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
-	cfg := agentTestConfig(root, map[string]agents.Agent{
+	cfg := agentTestConfigWithDefault(root, map[string]agents.Agent{
 		"default": {Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
-	})
-	cfg.DefaultAgent = "default"
+	}, "default")
 
 	// The "default profile set" every non-run consumer reads matches the agent.
 	assert.Equal(t, []string{"p1", "p2"}, cfg.DefaultAgentProfiles())
 
-	// A bare run resolves cfg.DefaultAgent — profiles compose, engine/runtime/
+	// A bare run resolves cfg.GetDefaultAgent() — profiles compose, engine/runtime/
 	// permissions ride along.
-	res, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+	res, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Contains(t, res.Context, "FRAG-TWO")
@@ -115,7 +122,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 }
 
 // TestResolveAgent_MissingDefaultAgentDegrades pins the fault-tolerant half: a
-// bare run resolves an empty or unknown cfg.DefaultAgent, and ResolveAgent must
+// bare run resolves an empty or unknown cfg.defaultAgent, and ResolveAgent must
 // return an error the run path degrades on (warn + empty context, never a hard
 // stop — CLAUDE.md). Unlike --agent, this is not a fatal condition.
 func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
@@ -125,15 +132,14 @@ func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
 	t.Run("empty default_agent", func(t *testing.T) {
 		cfg := agentTestConfig(root, nil) // no DefaultAgent set
 		assert.Nil(t, cfg.DefaultAgentProfiles())
-		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		_, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
 		require.Error(t, err, "an empty default_agent is the run path's degrade signal")
 	})
 
 	t.Run("default_agent names an undefined agent", func(t *testing.T) {
-		cfg := agentTestConfig(root, nil)
-		cfg.DefaultAgent = "ghost"
+		cfg := agentTestConfigWithDefault(root, nil, "ghost")
 		assert.Nil(t, cfg.DefaultAgentProfiles())
-		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		_, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
 		require.Error(t, err, "an unresolvable default_agent is the run path's degrade signal")
 	})
 }
@@ -243,7 +249,7 @@ func TestListAgents_MultipleNamedBothSources(t *testing.T) {
 func TestResolveAgent_BundleProfileMember(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root) // ships bundle profile kitProfileKey (llm: fast)
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},
@@ -252,7 +258,7 @@ func TestResolveAgent_BundleProfileMember(t *testing.T) {
 		Agents: map[string]agents.Agent{
 			"reviewer": {Profiles: []string{kitProfileKey}},
 		},
-	}
+	})
 
 	res, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
 	require.NoError(t, err)
@@ -303,10 +309,10 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 func TestAgent_Ungated(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root) // kit: 1 fragment + 1 mcp + 1 hook + 1 profile
-	cfg := &config.Config{
+	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
 		Agents:   map[string]agents.Agent{"reviewer": {Profiles: []string{kitProfileKey}}},
-	}
+	})
 
 	// Ungated: resolves with no trust setup whatsoever.
 	_, err := ResolveAgent(context.Background(), cfg, "reviewer", "")

@@ -110,10 +110,11 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	b1 := initLocalRepoWithFile(t, srcB, ".ctxloom/content/bundles/demoB.yaml", "name: demoB\n")
 	refB := "file://" + srcB + "@bundles/demoB"
 
-	cfg := testConfigWithSCMPath(baseDir)
-	cfg.Profiles.Definitions = map[string]config.Profile{
+	f := testConfigWithSCMPath(baseDir).ToFixture()
+	f.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
 		"inlineprof": {Bundles: []string{refB}},
-	}
+	}}
+	cfg := config.NewFixture(f)
 
 	ctx := context.Background()
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})

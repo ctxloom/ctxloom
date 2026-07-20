@@ -148,7 +148,16 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		requestedAgent = resolveAgent
 		if resolveAgent != "" {
 			if rs, rerr := ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
-				clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
+				// An EXPLICIT --agent that cannot be honored is FATAL
+				// (sandy-boxer). See agentBindingError for why a degrade here
+				// is worse than a hard break. An agent auto-bound from
+				// cfg.DefaultAgent still degrades: the editor never asked for
+				// it, so a project that merely SET default_agent must not
+				// hard-break every plain session.
+				if agentBindingIsExplicit(flagAgent) {
+					return agentBindingError(cfg, resolveAgent, rerr)
+				}
+				clidiag.Warn("ctxloom", "acp agent: default agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
 			} else {
 				contextText = rs.Context
 				label = rs.Label
@@ -927,17 +936,19 @@ const sessionPermissionsLine = "every tool call is forwarded to your editor for 
 // show two different strings while this invariant holds.
 //
 // The agent-not-found case returns EARLY with its own dedicated message and
-// never falls through to the summary below: a failed agent resolution (see
-// OpenEngineSession's resolveAgent fallback) never sets currentAgent, so
-// there is no resolved binding to summarize — the session runs the bare,
-// unbound profile flow on the host (workDir is still known and named,
-// though — the session really is running there). This is exactly the
-// ctxloom-acp-2026-07-16 incident this slice exists to stop being invisible:
-// `--agent <typo>` degraded to an unbound session with ONE buried stderr
-// line editors never surface; this makes the SAME degrade impossible to
-// miss in the chat itself. Whether the degrade should instead be a hard
-// failure is task `sandy-boxer`'s decision, not this one — this function
-// only makes today's degrade loud.
+// never falls through to the summary below: a failed agent resolution never
+// sets currentAgent, so there is no resolved binding to summarize — the
+// session runs the bare, unbound profile flow on the host (workDir is still
+// known and named, though — the session really is running there).
+//
+// This now covers ONLY the AUTO-BOUND default agent. An explicit --agent that
+// cannot be resolved refuses the session outright (sandy-boxer, settled: see
+// agentBindingError), because substituting a generic session silently drops
+// the requested binding's runtime and permissions. A cfg.DefaultAgent naming
+// a missing agent still degrades — the editor never asked for that binding —
+// and this is what keeps that surviving degrade impossible to miss in the
+// chat itself rather than one buried stderr line, per the
+// ctxloom-acp-2026-07-16 incident.
 func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 	if in.requestedAgent != "" && in.currentAgent == "" {
 		return fmt.Sprintf(
@@ -1005,4 +1016,44 @@ func buildSessionInitSummary(in sessionInitSummaryInputs) string {
 		"  permissions: " + sessionPermissionsLine,
 	}
 	return strings.Join(lines, "\n")
+}
+
+// agentBindingIsExplicit reports whether the agent being resolved was named by
+// the caller (--agent) rather than auto-bound from cfg.DefaultAgent. Only an
+// explicit ask is fatal when it cannot be honored — see agentBindingError.
+func agentBindingIsExplicit(flagAgent string) bool { return flagAgent != "" }
+
+// agentBindingError renders the fatal session-open error for an explicit
+// --agent that does not resolve.
+//
+// This used to be a warning and a degrade to a generic session, which is a
+// worse failure than a hard break: an agent binding carries engine, profiles,
+// RUNTIME (host vs container) and PERMISSIONS, so the substitute session
+// silently drops every one of them. A typo'd `--agent codr` for an agent
+// declared `runtime: container` ran on the HOST while the user believed they
+// were isolated — the same class as an agent asking for runtime:container
+// silently running on the host, except by design. The lone stderr warning is
+// buried in a log by most editors; it already cost a 40-minute misdiagnosis
+// where an absent agent binding read as "ctxloom emits no thinking".
+//
+// The counter-argument — an editor config that outlives an agent rename now
+// hard-breaks rather than limping — is real, and is why the message lists the
+// agents that DO exist and names the flag to change. Limping while dropping
+// isolation and permissions is the worse outcome.
+func agentBindingError(cfg *config.Config, name string, cause error) error {
+	available := make([]string, 0)
+	if cfg != nil {
+		for _, a := range cfg.LoadAgents() {
+			available = append(available, a.Name)
+		}
+	}
+	if len(available) == 0 {
+		return fmt.Errorf("agent %q cannot be opened (%w), and no agents are defined in this project — "+
+			"define one under agents: in .ctxloom/config.yaml (or .ctxloom/agents/), or omit --agent to open a plain session", name, cause)
+	}
+	return fmt.Errorf("agent %q cannot be opened (%w); available: %s — "+
+		"fix --agent, or omit it to open a plain session. Not degrading to a generic session on purpose: "+
+		"an agent binding carries the engine, profiles, runtime (host vs container) and permissions, "+
+		"so substituting one would silently drop this session's isolation and permissions",
+		name, cause, strings.Join(available, ", "))
 }

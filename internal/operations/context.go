@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/cbroglie/mustache"
@@ -97,7 +100,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// failures stay hard errors.
 	fromDefaults := req.Profile == "" && len(req.Profiles) == 0
 
-	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc, fromDefaults)
+	allFragments, profileVars, profileLLM, declaredByProfile, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc, fromDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +148,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden, WHY, and how to review it.
 	warnWithheld(loader, gate)
+	// ...and name any SELECTED profile the gate emptied out completely: the
+	// per-item advisory above says WHICH items were withheld, never which
+	// profile they cost (legal-olive).
+	warnGuttedProfiles(declaredByProfile, loadedNames, gate)
 
 	return &AssembleContextResult{
 		Profiles:         profileNames,
@@ -242,9 +249,14 @@ func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.Fragment
 // its tag-matched + explicit fragments and variables. It also reports the
 // effective declared LLM: the first non-empty profile.LLM across the resolved
 // set, warning to stderr if a later profile disagrees.
-func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader, fromDefaults bool) ([]config.FragmentRef, map[string]string, string, error) {
+//
+// declared maps each profile to the fragment names it pushed, so a caller can
+// tell which PROFILE a withheld item cost (warnGuttedProfiles, legal-olive) —
+// the flat ref list alone cannot attribute a gap to the profile that opened it.
+func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader, fromDefaults bool) (refs []config.FragmentRef, vars map[string]string, llm string, declared map[string][]string, err error) {
 	var allFragments []config.FragmentRef
 	profileVars := make(map[string]string)
+	declaredByProfile := make(map[string][]string, len(profileNames))
 	effectiveLLM := ""
 
 	for _, pName := range profileNames {
@@ -260,7 +272,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 					"skipping default profile %s: %v", pName, err)
 				continue
 			}
-			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
+			return nil, nil, "", nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
 		}
 
 		if profile.LLM != "" {
@@ -279,7 +291,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 
 		tagFragments, err := fragmentsFromTags(loader, profile.SelectTags)
 		if err != nil {
-			return nil, nil, "", fmt.Errorf("failed to list fragments by profile tags: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}
 		// Exclusions always win (see profiles.md): a tag-matched fragment the
 		// profile excludes is dropped, matching the bundle-expansion filter in
@@ -291,6 +303,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 				continue
 			}
 			allFragments = append(allFragments, ref)
+			declaredByProfile[pName] = append(declaredByProfile[pName], ref.Name)
 		}
 		// Profile fragment refs may pin a content version ("@<commit>"); split it
 		// into FragmentRef.Version (canonicalizing the version-agnostic Name) so
@@ -298,11 +311,13 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 		// Bundle-expanded refs (resolveProfile) already carry Version and a
 		// canonical Name, so normalization is a no-op for them.
 		for _, ref := range profile.Fragments {
-			allFragments = append(allFragments, normalizeFragmentRef(ref))
+			norm := normalizeFragmentRef(ref)
+			allFragments = append(allFragments, norm)
+			declaredByProfile[pName] = append(declaredByProfile[pName], norm.Name)
 		}
 	}
 
-	return allFragments, profileVars, effectiveLLM, nil
+	return allFragments, profileVars, effectiveLLM, declaredByProfile, nil
 }
 
 // normalizeFragmentRef splits a "@<commit>" content version off a profile
@@ -639,5 +654,78 @@ func checkTags(tags []mustache.Tag, vars map[string]string, seen collections.Set
 				checkTags(children, vars, seen, warnFunc)
 			}
 		}
+	}
+}
+
+// guttedProfiles names the selected profiles that declared fragments but
+// contributed NONE of them to the assembled context, in the order the profiles
+// were selected. A profile that declared nothing was never going to contribute
+// and is not "gutted"; a partially-loaded one still carries some of its role.
+func guttedProfiles(declared map[string][]string, loaded []string) []string {
+	if len(declared) == 0 {
+		return nil
+	}
+	loadedSet := make(map[string]bool, len(loaded))
+	for _, n := range loaded {
+		loadedSet[n] = true
+	}
+	names := make([]string, 0, len(declared))
+	for p := range declared {
+		names = append(names, p)
+	}
+	sort.Strings(names)
+
+	var out []string
+	for _, p := range names {
+		refs := declared[p]
+		if len(refs) == 0 {
+			continue
+		}
+		contributed := false
+		for _, r := range refs {
+			if loadedSet[r] {
+				contributed = true
+				break
+			}
+		}
+		if !contributed {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// warnGuttedProfiles surfaces the legal-olive failure: a profile the user
+// explicitly SELECTED whose content the trust gate withheld in full. Assembly
+// then produces a stub and exits 0 — the agent still answers, with its whole
+// role missing, and the only signal was a generic "N item(s) awaiting review"
+// tally that named neither the profile nor what it cost. Silent context
+// degradation is the worst outcome for a trust gate, so the profile is named.
+//
+// It stays a WARNING rather than a startup fault, deliberately: assembly's
+// existing posture is that "trust withholding is never a startup fault" (see
+// warnFragmentLoadFailure, which exempts ErrFragmentWithheld from the
+// strictness classes on purpose). This closes the naming gap without
+// relitigating that decision.
+func warnGuttedProfiles(declared map[string][]string, loaded []string, gate *contentGate) {
+	warnGuttedProfilesTo(os.Stderr, declared, loaded, gate)
+}
+
+// warnGuttedProfilesTo is warnGuttedProfiles with the sink injected.
+func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, gate *contentGate) {
+	if gate == nil {
+		return
+	}
+	withheld := gate.withheldRefs()
+	if len(withheld) == 0 {
+		// The profile may be empty for reasons that are not the gate's doing
+		// (an empty bundle, an exclusion filter). Only speak to withholding.
+		return
+	}
+	for _, p := range guttedProfiles(declared, loaded) {
+		clidiag.Fwarn(w, "ctxloom",
+			"profile %q contributed NO content to this context: every fragment it declares was withheld. "+
+				"Withheld item(s): %s — run 'ctxloom review' to see and accept them",
+			p, strings.Join(withheld, ", "))
 	}
 }

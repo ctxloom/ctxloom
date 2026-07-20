@@ -47,7 +47,7 @@ Feature: Remote content
     And I run "ctxloom remote pull"
     When I run "ctxloom remote pull"
     Then the command succeeds
-    And the output contains "Skipped (already installed)"
+    And the output contains "Skipped (kept at their locked commit)"
 
   Scenario: Read a remote's contents over MCP
     Given an initialized ctxloom project
@@ -120,13 +120,13 @@ Feature: Remote content
     And the file "out/CLAUDE.md" contains "MARKER-STALE-CHECKOUT-current"
     And the file "out/CLAUDE.md" does not contain "Demo fragment content."
 
-  Scenario: A skipped pull leaves old content in place
-    # "Skipped (already installed)" is accurate about the pin — the reference
-    # already resolves — but it is easy to misread as "you have the latest
-    # content". A plain pull never moves an existing pin; only `remote upgrade`
-    # does. This is the behavior that once cost real time to diagnose as a
-    # false "stale content" bug: it is not a bug, but the wording invites the
-    # same mistake, so the invariant is pinned here.
+  Scenario: A skipped pull leaves old content in place, and says so
+    # A plain pull never moves an existing pin; only `remote upgrade` does. The
+    # BEHAVIOR is correct, but pull used to report it as "Skipped (already
+    # installed)", which reads as "you have the latest content" when upstream
+    # has in fact moved — once costing an hour diagnosing a false "stale
+    # content" bug. So this pins both halves: the old content stays, AND the
+    # output says what is actually true rather than implying currency.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
@@ -136,7 +136,10 @@ Feature: Remote content
     And the remote "origin" changes fragment "demo-frag" to "MARKER-SKIPPED-PULL-never-seen"
     When I run "ctxloom remote pull"
     Then the command succeeds
-    And the output contains "Skipped (already installed)"
+    And the output contains "Skipped (kept at their locked commit)"
+    And the output contains "may have upstream changes"
+    And the output contains "ctxloom remote upgrade"
+    And the output does not contain "already installed"
     When I run "ctxloom profile materialize dev --target out"
     Then the command succeeds
     And the file "out/CLAUDE.md" contains "Demo fragment content."

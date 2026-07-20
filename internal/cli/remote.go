@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -233,36 +234,51 @@ Examples:
 			return err
 		}
 
-		if result.Total == 0 {
-			fmt.Println("No remote dependencies to pull.")
-			return nil
-		}
-
-		fmt.Printf("\nPulled %d items:\n", result.Total)
-		if result.Installed > 0 {
-			fmt.Printf("  Installed: %d\n", result.Installed)
-		}
-		if result.Updated > 0 {
-			fmt.Printf("  Updated: %d\n", result.Updated)
-		}
-		if len(result.Skipped) > 0 {
-			fmt.Printf("  Skipped (already installed): %d\n", len(result.Skipped))
-		}
-		if len(result.Retracted) > 0 {
-			fmt.Printf("  Retracted: %d\n", len(result.Retracted))
-			for _, item := range result.Retracted {
-				fmt.Printf("    - %s: retracted (%s)\n", item.Reference, item.Error)
-			}
-		}
-		if result.Errors > 0 {
-			fmt.Printf("  Failed: %d\n", result.Errors)
-			for _, item := range result.Failed {
-				fmt.Printf("    - %s: %s\n", item.Reference, item.Error)
-			}
-		}
-
+		renderPullSummary(cmd.OutOrStdout(), result)
 		return nil
 	},
+}
+
+// renderPullSummary prints a completed pull.
+//
+// The skipped line deliberately does NOT say "already installed" (rare-vixen).
+// Pull installs exactly the PINNED set; moving an existing pin is `remote
+// upgrade`'s job. So an item whose upstream content has changed is skipped and
+// was being reported as "already installed" — which reads as "you are current"
+// when you are not: upstream moved and you are still served the old content. A
+// human (or an agent) reasonably concludes there is nothing to do. The line now
+// says what is actually true — the pin was honored — and names the command that
+// moves it.
+func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
+	if result.Total == 0 {
+		fmt.Fprintln(w, "No remote dependencies to pull.")
+		return
+	}
+
+	fmt.Fprintf(w, "\nPulled %d items:\n", result.Total)
+	if result.Installed > 0 {
+		fmt.Fprintf(w, "  Installed: %d\n", result.Installed)
+	}
+	if result.Updated > 0 {
+		fmt.Fprintf(w, "  Updated: %d\n", result.Updated)
+	}
+	if len(result.Skipped) > 0 {
+		fmt.Fprintf(w, "  Skipped (kept at their locked commit): %d\n", len(result.Skipped))
+		fmt.Fprintln(w, "    Pull never moves an existing pin, so these may have upstream changes.")
+		fmt.Fprintln(w, "    Run 'ctxloom remote upgrade' to advance them.")
+	}
+	if len(result.Retracted) > 0 {
+		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
+		for _, item := range result.Retracted {
+			fmt.Fprintf(w, "    - %s: retracted (%s)\n", item.Reference, item.Error)
+		}
+	}
+	if result.Errors > 0 {
+		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
+		for _, item := range result.Failed {
+			fmt.Fprintf(w, "    - %s: %s\n", item.Reference, item.Error)
+		}
+	}
 }
 
 func init() {

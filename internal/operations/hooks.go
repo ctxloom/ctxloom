@@ -456,7 +456,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// that disagrees with what `ctxloom run` assembles. The default set is the
 	// default agent's composed profiles (resolveContextProfileNames reads the
 	// same DefaultAgentProfiles; profiles.defaults was retired).
-	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.DefaultAgentProfiles(), nil, true)
+	allFragments, profileVars, _, _, err := collectProfileFragments(cfg, loader, cfg.DefaultAgentProfiles(), nil, true)
 	if err != nil {
 		return "", err
 	}

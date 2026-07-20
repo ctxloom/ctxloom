@@ -291,8 +291,17 @@ func resolveSelfExecutable() string {
 // seedTaskIntoSession marks the task with harpID In Progress (or the given
 // status) in the project's task log, attributing the change to the new session
 // (activeHarp). Tasks are project-scoped now (ADR 0025), so seeding is a status
-// change rather than a move between per-session stores. All failures warn and
-// return — seeding never blocks the launch.
+// change rather than a move between per-session stores.
+//
+// A failure is a FATAL ClassTask finding, not a bare warning (worst-pony).
+// Seeding only runs when the user passed --seed-task, so this is an explicit
+// ask: if the task log is corrupt or the harp does not resolve, the session
+// would otherwise launch looking successful while the task silently stayed
+// untouched — the user believing it is In Progress and attributed here when it
+// is not. Now that the task-log fold fails loud, swallowing that at a startup
+// choke point is exactly what CLAUDE.md says must route through strictness.
+// The never-block-launch behaviour survives as the DEGRADED mode (--degraded),
+// where the finding is recorded and the launch proceeds.
 func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	if status == "" {
 		status = tasks.StatusInProgress
@@ -303,7 +312,9 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
-		clidiag.Warn("ctxloom", "seed task %s: %v", harpID, err)
+		strictness.Fail(strictness.ClassTask,
+			"check the task harp id (taskloom list), or drop --seed-task to launch without seeding",
+			"seed task %s: %v", harpID, err)
 		return
 	}
 	if res.Warning != "" {
@@ -380,6 +391,12 @@ Examples:
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
+		// The HOME layer gets the same offer when a project config also exists
+		// (long-ice). Without this, a stale ~/.ctxloom/config.yaml was upgraded
+		// in memory on every load forever and never converged. The prompt names
+		// the path, so consenting to rewrite HOME is an informed choice rather
+		// than a surprise side effect of a project-scoped run.
+		confirmUpgrade(cfg.GetHomePendingUpgrade(), cfg.CommitHomeUpgrade)
 		// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)
@@ -1116,6 +1133,10 @@ Examples:
 			// signal-cancelled ctx) unwinds scroll region, held output, and
 			// raw mode together.
 			if stdin != nil && !runPlainTerminal {
+				// The TUI is about to own this terminal, so clidiag warnings
+				// must stop writing to it (large-album). Diverted to the
+				// session's diagnostics log, announced before the handover.
+				restoreDiag := redirectDiagnosticsForTUI(activeHarp, os.Stderr)
 				if ui := setupTerminalUI(ctx, cfg, sessionCoord, terminalUIIdentity{
 					WorkDir: workDir,
 					Harp:    activeHarp,
@@ -1125,7 +1146,11 @@ Examples:
 				}, stdin, resize); ui != nil {
 					stdin, stdout, resize = ui.Stdin(), ui.Stdout(), ui.Resize()
 					rawRestore := restoreTerm
-					restoreTerm = func() { ui.Close(); rawRestore() }
+					restoreTerm = func() { ui.Close(); restoreDiag(); rawRestore() }
+				} else {
+					// No TUI engaged after all — stderr is still the user's,
+					// so put the warnings back on it.
+					restoreDiag()
 				}
 			}
 			// Deferred via closure (the value above may be the composed one) so

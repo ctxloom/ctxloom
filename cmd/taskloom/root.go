@@ -182,7 +182,10 @@ func warnTask(warning string) {
 
 // summaryWidth caps the task text shown in the default human `list` so entries
 // stay scannable instead of running together into a wall; `--full` prints the
-// whole text.
+// whole text. This is the number the authoring guidance (task_add's jsonschema
+// description, mcpServerInstructions, `taskloom add --help`, loadout.yaml)
+// promises authors when it says "keep the subject line to ~80 characters" —
+// change one, change the other.
 const summaryWidth = 80
 
 // summarize collapses s to its first line, capped to width runes with a

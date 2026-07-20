@@ -175,12 +175,11 @@ type Config struct {
 	// populated only when a project layer ALSO exists (so home is being read
 	// as the lower-precedence layer, not as the effective single source —
 	// that case populates pendingUpgrade instead, exactly as before layering).
-	// Read-only today: no CommitUpgrade-style persister targets it yet, since
-	// committing an upgrade to a file OTHER than the one the ambient config
-	// resolved to is new, cross-cutting territory (see DEFERRED WORK). It
-	// exists so a caller that cares (`doctor`, a future `config upgrade
-	// --home`) can at least SEE that home's on-disk schema is stale instead
-	// of that fact being silently invisible now that home is always read.
+	// CommitHomeUpgrade persists it, on the same consent rule as
+	// PendingUpgrade: the caller prompts and the prompt names the path, so
+	// home is never rewritten as a silent side effect of a project-scoped
+	// run. Before that existed, home was upgraded in memory on every load and
+	// never written back — visible, but never converging (long-ice).
 	homePendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)

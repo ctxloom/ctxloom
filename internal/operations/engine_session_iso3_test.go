@@ -301,20 +301,30 @@ func TestOpenEngineSession_UnisolatedAnnouncesOnce(t *testing.T) {
 }
 
 // TestOpenEngineSession_UnknownAgentAnnouncementIsLoud is the headline ISO3
-// regression proof: the exact fail-soft that bit a real user today —
-// `--agent <typo>` silently degrading to an unbound session — must now be
-// IMPOSSIBLE to miss in the chat transcript itself, not just a stderr line.
+// regression proof, now covering the AUTO-BOUND default agent.
+//
+// An EXPLICIT `--agent <typo>` no longer degrades at all — it refuses the
+// session (sandy-boxer; see engine_session_iso2_test.go). But a project whose
+// cfg.DefaultAgent names a missing agent still degrades, because the editor
+// never asked for that binding and hard-breaking every plain session over a
+// stale config setting would punish a choice the user did not make here. That
+// surviving degrade is the one this proves is IMPOSSIBLE to miss in the chat
+// transcript itself, not just a stderr line editors bury.
 func TestOpenEngineSession_UnknownAgentAnnouncementIsLoud(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
-	repo := writeACPTestProject(t, "worktree")
+	repo := initTestRepo(t)
+	appDir := filepath.Join(repo, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	body := "version: 5\ndefault_agent: no-such-agent\n"
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}
 	stubACPEngineClient(t, client)
 
 	chat, err := OpenEngineSession(context.Background(), OpenRequest{Cwd: repo}, fakeEngineSessionCoord{},
-		"", "no-such-agent", "mock", "")
-	require.NoError(t, err)
+		"", "", "mock", "")
+	require.NoError(t, err, "an auto-bound default agent still degrades rather than refusing")
 	require.NotNil(t, chat)
 
 	assert.Contains(t, chat.InitSummary, `agent "no-such-agent" was requested but NOT FOUND`)

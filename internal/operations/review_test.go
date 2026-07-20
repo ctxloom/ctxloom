@@ -459,3 +459,38 @@ func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	assert.NotContains(t, refs, reviewSeedKey+"#mcp/pg", "rejected items are decided, not pending")
 	assert.Equal(t, 1, res.Updates)
 }
+
+// TestPendingReview_DualFormExposesBothForms closes the form-flip re-gate hole
+// (boned-stole): SetItemTrust countersigns BOTH the raw and the distilled form
+// of a distillable item, so review must hand the reviewer BOTH sets of bytes.
+// Showing only the effective form let an approval bless LLM-written distilled
+// bytes the human never read; flipping use_distilled then served them without
+// re-gating.
+func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
+	fx := newTrustFixture(t)
+	res, err := PendingReview(nil, PendingReviewRequest{
+		UserStore: fx.user, Root: fx.root,
+		Registry: newRegistry(t),
+		Loader:   reviewLoader(reviewBundle()),
+		FS:       afero.NewMemMapFs(),
+	})
+	require.NoError(t, err)
+
+	byRef := map[string]ReviewItem{}
+	for _, b := range res.Bundles {
+		for _, it := range b.Items {
+			byRef[it.Ref] = it
+		}
+	}
+
+	dual := byRef[reviewSeedKey+"#fragments/dual"]
+	assert.Equal(t, "dual distilled body", dual.CurrentContent)
+	assert.Equal(t, string(bundles.FormDistilled), dual.CurrentForm)
+	assert.Equal(t, "dual raw body", dual.AlternateContent,
+		"the raw form is countersigned by the same approval, so it must be shown too")
+	assert.Equal(t, string(bundles.FormRaw), dual.AlternateForm)
+
+	solid := byRef[reviewSeedKey+"#fragments/solid"]
+	assert.Equal(t, "solid raw body", solid.CurrentContent)
+	assert.Empty(t, solid.AlternateContent, "a single-form item has no second countersigned form")
+}

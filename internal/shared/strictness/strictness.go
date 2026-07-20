@@ -63,6 +63,14 @@ const (
 	// project `runtime:` default, or `--runtime container` — reaches this class;
 	// the ambient host default degrades silently and never lands here.
 	ClassIsolation Class = "isolation"
+	// ClassTask is an EXPLICITLY-requested task-store mutation that could not
+	// be applied — today `ctxloom run --seed-task <harp>` against a corrupt,
+	// unreadable, or non-matching project task log. Only an explicit request
+	// reaches this class, mirroring ClassIsolation: ambient task bookkeeping
+	// that nobody asked for stays a plain warning. The point is that a user
+	// who named a task must not be told the launch succeeded while the task
+	// silently stayed untouched.
+	ClassTask Class = "task"
 )
 
 // Finding is one collected fatal fault: what broke (Message, already

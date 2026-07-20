@@ -100,7 +100,7 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	// cannot record its result is a waste of a human's attention and an
 	// insult besides"). --project hard-requires a key; the personal store
 	// degrades to the unsigned path with an explicit confirmation.
-	signer, unsigned, err := resolveReviewSigner(cmd.Context(), reviewProjectFlag)
+	signer, unsigned, err := resolveReviewSigner(cmd.Context(), agentkey.NewDiscoverer(), cfg.SignKey(), reviewProjectFlag)
 	if err != nil {
 		return err
 	}
@@ -129,13 +129,22 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 // resolveReviewSigner resolves the key `ctxloom review` will countersign
 // with, via the unified zero-config discovery chain (internal/signing/agentkey:
 // explicit key, then `git config user.signingkey`, then the sole ssh-agent
-// identity — spec §7A.4). project=true hard-errors when no key is available —
+// identity — spec §7A.4).
+//
+// explicitKey is the caller's merged --key/sign.key value, exactly as
+// `ctxloom sign` supplies it. Review used to pass "" here, so sign.key
+// disambiguated signing but NOT approving: with several ssh-agent identities
+// and no git user.signingkey, sign worked, `ctxloom doctor`'s SIGNKEY-k1
+// check reported ok — and review still failed ambiguous (trim-gloss). "Unified
+// chain" means the same inputs, not just the same function.
+//
+// project=true hard-errors when no key is available —
 // spec §9.5: "ctxloom review --project therefore requires a key and refuses to
 // run without one" — because an unsigned record in the COMMITTABLE store would
 // be a forgery primitive with a friendly name. Otherwise a missing key
 // degrades to (nil, true, nil): the caller offers the unsigned path.
-func resolveReviewSigner(ctx context.Context, project bool) (signer ssh.Signer, unsigned bool, err error) {
-	discovered, agentErr := agentkey.NewDiscoverer().Discover(ctx, "")
+func resolveReviewSigner(ctx context.Context, discoverer *agentkey.Discoverer, explicitKey string, project bool) (signer ssh.Signer, unsigned bool, err error) {
+	discovered, agentErr := discoverer.Discover(ctx, explicitKey)
 	if agentErr == nil {
 		return discovered.Signer, false, nil
 	}
@@ -393,17 +402,40 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 		label = "UPDATE — changed since acceptance"
 	}
 	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, item.Kind, item.Name, label)
+	if item.AlternateContent != "" {
+		// Both forms follow, so the exposed one must be named too — an
+		// unlabelled block above a labelled one reads as "the only form".
+		fmt.Fprintf(w, "  --- %s form (exposed now) ---\n", item.CurrentForm)
+	}
 
+	shown := false
 	if item.Status == operations.ReviewStatusUpdate && item.PreviousContent != "" {
 		if diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); diff != "" {
 			fmt.Fprint(w, indentBlock(diff))
-			return
+			shown = true
 		}
 	}
-	if item.Status == operations.ReviewStatusUpdate && item.PreviousContent == "" && !item.Executable {
-		fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
+	if !shown {
+		if item.Status == operations.ReviewStatusUpdate && item.PreviousContent == "" && !item.Executable {
+			fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
+		}
+		fmt.Fprint(w, indentBlock(item.CurrentContent))
 	}
-	fmt.Fprint(w, indentBlock(item.CurrentContent))
+	printReviewAlternateForm(w, item)
+}
+
+// printReviewAlternateForm shows the item's OTHER form when it has one.
+// Accepting countersigns both the raw and the distilled bytes, so a reviewer
+// shown only the currently-exposed form would bless content they never read —
+// and flipping use_distilled would then serve it without re-gating
+// (boned-stole). The header names both forms so it is unambiguous which bytes
+// the decision covers.
+func printReviewAlternateForm(w io.Writer, item operations.ReviewItem) {
+	if item.AlternateContent == "" {
+		return
+	}
+	fmt.Fprintf(w, "\n  --- %s form (also covered by this approval) ---\n", item.AlternateForm)
+	fmt.Fprint(w, indentBlock(item.AlternateContent))
 }
 
 // unifiedReviewDiff renders a unified diff of the accepted vs incoming
@@ -444,4 +476,3 @@ func printReviewSummary(w io.Writer, sum reviewSummary) {
 	fmt.Fprintf(w, "\nReview complete: %d accepted, %d rejected, %d skipped — %d still pending.\n",
 		sum.accepted, sum.rejected, sum.skipped, sum.stillPending())
 }
-

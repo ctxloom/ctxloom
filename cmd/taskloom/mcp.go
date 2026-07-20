@@ -15,7 +15,7 @@ import (
 // store is shared with the `taskloom` CLI; the project resolves from the session
 // env (CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP, exported by ctxloom run) or
 // the working directory.
-const mcpServerInstructions = `Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the ` + "`taskloom`" + ` CLI.`
+const mcpServerInstructions = `Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the ` + "`taskloom`" + ` CLI. When writing task text, make the first line the subject (what the task IS, in ~80 characters or fewer) and put provenance like dates or session names on a later line — list views show only that truncated first line.`
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",

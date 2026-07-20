@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
@@ -19,14 +20,46 @@ import (
 // PendingUpgrade on success. Callers prompt the user before invoking this (see
 // cmd/run.go); ctxloom never rewrites a config without consent.
 func (c *Config) CommitUpgrade() error {
-	if c.pendingUpgrade == nil {
+	if err := c.commitPendingUpgrade(c.pendingUpgrade); err != nil {
+		return err
+	}
+	c.pendingUpgrade = nil
+	return nil
+}
+
+// CommitHomeUpgrade is CommitUpgrade for the HOME layer (HomePendingUpgrade),
+// used when a project config.yaml also exists and home is therefore read as
+// the lower-precedence layer.
+//
+// Without it, a stale ~/.ctxloom/config.yaml was upgraded in memory on every
+// single load and never written back: the home file never converged and the
+// upgrade pipeline redid identical work forever (long-ice). The write itself
+// needed no new machinery — the shared committer is keyed on Pending.Path, so
+// "a file other than the ambient one" was never actually the hard part.
+//
+// Same consent rule as CommitUpgrade, and it matters more here: the caller
+// prompts first (the prompt names the path, so a user sees it is their HOME
+// file), and ctxloom never rewrites home as a silent side effect of a
+// project-scoped run.
+func (c *Config) CommitHomeUpgrade() error {
+	if err := c.commitPendingUpgrade(c.homePendingUpgrade); err != nil {
+		return err
+	}
+	c.homePendingUpgrade = nil
+	return nil
+}
+
+// commitPendingUpgrade writes one pending upgrade's bytes to its own recorded
+// path, verbatim so the comments and key order preserved by the node rewrite
+// survive. Shared by both layers' committers so they cannot drift on how an
+// upgrade is persisted; nil is a no-op.
+func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
+	if p == nil {
 		return nil
 	}
-	p := c.pendingUpgrade
 	if err := iox.WriteFileAtomicFs(c.getFS(), p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
 	}
-	c.pendingUpgrade = nil
 	return nil
 }
 

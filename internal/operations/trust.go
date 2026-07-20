@@ -473,11 +473,18 @@ func resolveCountersignStore(cfg *config.Config, fs afero.Fs, project bool, inje
 // trust.yaml design and never silently promoted to the shared store. This
 // applies uniformly whether discovery failed with "no key anywhere"
 // (*agentkey.NoKeyError) or "ambiguous, didn't guess" (*agentkey.AmbiguousKeyError).
-func resolveSignerOrUnsigned(injected ssh.Signer, project bool) (signer ssh.Signer, unsigned bool, err error) {
+func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bool) (signer ssh.Signer, unsigned bool, err error) {
 	if injected != nil {
 		return injected, false, nil
 	}
-	discovered, agentErr := agentkey.NewDiscoverer().Discover(context.Background(), "")
+	// sign.key feeds the chain's explicit-key slot here exactly as it does for
+	// `ctxloom sign` and `ctxloom review`. Omitting it made the trust/blacklist
+	// plumbing disagree with the porcelain that calls it (trim-gloss).
+	var explicitKey string
+	if cfg != nil {
+		explicitKey = cfg.SignKey()
+	}
+	discovered, agentErr := agentkey.NewDiscoverer().Discover(context.Background(), explicitKey)
 	if agentErr == nil {
 		return discovered.Signer, false, nil
 	}
@@ -520,8 +527,8 @@ type SetItemTrustRequest struct {
 
 // SetItemTrustResult reports the recorded approval.
 type SetItemTrustResult struct {
-	Status string `json:"status"` // "approved"
-	Ref    string `json:"ref"`
+	Status  string `json:"status"` // "approved"
+	Ref     string `json:"ref"`
 	RepoURL string `json:"repo_url"`
 	// KeyFingerprint is the countersigning key's SHA256 fingerprint, empty
 	// when the approval was recorded UNSIGNED (spec §9.5).
@@ -562,7 +569,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 	if err != nil {
 		return nil, err
 	}
-	signer, unsigned, err := resolveSignerOrUnsigned(req.Signer, req.Project)
+	signer, unsigned, err := resolveSignerOrUnsigned(cfg, req.Signer, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -671,7 +678,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 	if err != nil {
 		return nil, err
 	}
-	signer, unsigned, err := resolveSignerOrUnsigned(req.Signer, req.Project)
+	signer, unsigned, err := resolveSignerOrUnsigned(cfg, req.Signer, req.Project)
 	if err != nil {
 		return nil, err
 	}

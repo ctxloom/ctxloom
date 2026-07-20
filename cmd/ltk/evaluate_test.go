@@ -393,3 +393,60 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 		t.Error("an elapsed window must not allow the repeat")
 	}
 }
+
+// TestEvaluateWarnsOnUngatedToolName closes stark-boxer: ltk's tool matcher is
+// a hand-maintained list over a VENDOR-OWNED, mutating tool set. If the vendor
+// ships or renames a shell/file tool, ltk stops gating it — silently, on a
+// security path. A tool name ltk does not recognise must therefore produce a
+// visible signal rather than a quiet pass-through.
+func TestEvaluateWarnsOnUngatedToolName(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := `version: 1
+rules:
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "no force pushes"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("unrecognised tool warns on stderr", func(t *testing.T) {
+		// "SmartEdit" is not in ltk's gated set but DOES reach the hook: Claude
+		// Code matchers are unanchored regexes, so the "Edit" alternative
+		// matches it — and ltk would then evaluate an empty command and allow.
+		payload := `{"tool_name":"SmartEdit","tool_input":{}}`
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stderr), "SmartEdit") {
+			t.Errorf("an ungated tool name must be named on stderr, got stderr=%q", out.Stderr)
+		}
+		if out.ExitCode != 0 {
+			t.Errorf("the warning must not change the exit code (both hosts fail OPEN on non-zero), got %d", out.ExitCode)
+		}
+	})
+
+	t.Run("recognised tool stays silent", func(t *testing.T) {
+		payload := `{"tool_name":"Bash","tool_input":{"command":"git status"}}`
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Stderr) != 0 {
+			t.Errorf("a gated tool must not warn, got stderr=%q", out.Stderr)
+		}
+	})
+
+	t.Run("antigravity warns too", func(t *testing.T) {
+		payload := `{"toolCall":{"name":"edit_file_v2","args":{}}}`
+		out, err := evaluate("antigravity", cfgPath, "", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stderr), "edit_file_v2") {
+			t.Errorf("an ungated agy tool must be named on stderr, got stderr=%q", out.Stderr)
+		}
+	})
+}

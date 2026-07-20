@@ -291,8 +291,17 @@ func resolveSelfExecutable() string {
 // seedTaskIntoSession marks the task with harpID In Progress (or the given
 // status) in the project's task log, attributing the change to the new session
 // (activeHarp). Tasks are project-scoped now (ADR 0025), so seeding is a status
-// change rather than a move between per-session stores. All failures warn and
-// return — seeding never blocks the launch.
+// change rather than a move between per-session stores.
+//
+// A failure is a FATAL ClassTask finding, not a bare warning (worst-pony).
+// Seeding only runs when the user passed --seed-task, so this is an explicit
+// ask: if the task log is corrupt or the harp does not resolve, the session
+// would otherwise launch looking successful while the task silently stayed
+// untouched — the user believing it is In Progress and attributed here when it
+// is not. Now that the task-log fold fails loud, swallowing that at a startup
+// choke point is exactly what CLAUDE.md says must route through strictness.
+// The never-block-launch behaviour survives as the DEGRADED mode (--degraded),
+// where the finding is recorded and the launch proceeds.
 func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	if status == "" {
 		status = tasks.StatusInProgress
@@ -303,7 +312,9 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
-		clidiag.Warn("ctxloom", "seed task %s: %v", harpID, err)
+		strictness.Fail(strictness.ClassTask,
+			"check the task harp id (taskloom list), or drop --seed-task to launch without seeding",
+			"seed task %s: %v", harpID, err)
 		return
 	}
 	if res.Warning != "" {

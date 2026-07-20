@@ -2,16 +2,22 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -275,4 +281,44 @@ func TestPrintReviewItem_UpdateShowsAlternateForm(t *testing.T) {
 	text := out.String()
 	assert.Contains(t, text, "new distilled body")
 	assert.Contains(t, text, "the raw body")
+}
+
+// TestResolveReviewSigner_HonoursSignKeyConfig closes trim-gloss: `ctxloom
+// sign` merges cfg.SignKey() into the discovery chain's explicit-key slot but
+// `ctxloom review` passed "", so approve never consulted sign.key. With
+// several ssh-agent identities and no git user.signingkey, sign worked and the
+// doctor SIGNKEY-k1 check reported "ok" — while review still failed ambiguous
+// and could not countersign. The doctor check's headline reason is approve, so
+// the OK was false.
+func TestResolveReviewSigner_HonoursSignKeyConfig(t *testing.T) {
+	_, wantedPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	_, otherPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	kr := agent.NewKeyring()
+	require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: otherPriv, Comment: "other@example.com"}))
+	require.NoError(t, kr.Add(agent.AddedKey{PrivateKey: wantedPriv, Comment: "ben@abbitt.me"}))
+
+	discoverer := &agentkey.Discoverer{
+		GitConfig: func(ctx context.Context, dir, key string) (string, bool, error) { return "", false, nil },
+		DialAgent: func() (agent.Agent, error) { return kr, nil },
+		ReadFile:  func(path string) ([]byte, error) { return nil, assert.AnError },
+	}
+
+	t.Run("sign.key disambiguates a multi-identity agent", func(t *testing.T) {
+		signer, unsigned, err := resolveReviewSigner(context.Background(), discoverer, "ben@abbitt", false)
+		require.NoError(t, err)
+		require.False(t, unsigned, "sign.key resolves a key, so review must not degrade to unsigned")
+		wanted, err := ssh.NewSignerFromSigner(wantedPriv)
+		require.NoError(t, err)
+		assert.Equal(t, ssh.FingerprintSHA256(wanted.PublicKey()),
+			ssh.FingerprintSHA256(signer.PublicKey()),
+			"review must countersign with the SAME key `ctxloom sign` would use")
+	})
+
+	t.Run("without sign.key a multi-identity agent stays ambiguous", func(t *testing.T) {
+		_, unsigned, err := resolveReviewSigner(context.Background(), discoverer, "", false)
+		require.NoError(t, err)
+		assert.True(t, unsigned, "no explicit key + ambiguous agent still degrades to the unsigned path")
+	})
 }

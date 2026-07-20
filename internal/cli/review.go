@@ -100,7 +100,7 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	// cannot record its result is a waste of a human's attention and an
 	// insult besides"). --project hard-requires a key; the personal store
 	// degrades to the unsigned path with an explicit confirmation.
-	signer, unsigned, err := resolveReviewSigner(cmd.Context(), reviewProjectFlag)
+	signer, unsigned, err := resolveReviewSigner(cmd.Context(), agentkey.NewDiscoverer(), cfg.SignKey(), reviewProjectFlag)
 	if err != nil {
 		return err
 	}
@@ -129,13 +129,22 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 // resolveReviewSigner resolves the key `ctxloom review` will countersign
 // with, via the unified zero-config discovery chain (internal/signing/agentkey:
 // explicit key, then `git config user.signingkey`, then the sole ssh-agent
-// identity — spec §7A.4). project=true hard-errors when no key is available —
+// identity — spec §7A.4).
+//
+// explicitKey is the caller's merged --key/sign.key value, exactly as
+// `ctxloom sign` supplies it. Review used to pass "" here, so sign.key
+// disambiguated signing but NOT approving: with several ssh-agent identities
+// and no git user.signingkey, sign worked, `ctxloom doctor`'s SIGNKEY-k1
+// check reported ok — and review still failed ambiguous (trim-gloss). "Unified
+// chain" means the same inputs, not just the same function.
+//
+// project=true hard-errors when no key is available —
 // spec §9.5: "ctxloom review --project therefore requires a key and refuses to
 // run without one" — because an unsigned record in the COMMITTABLE store would
 // be a forgery primitive with a friendly name. Otherwise a missing key
 // degrades to (nil, true, nil): the caller offers the unsigned path.
-func resolveReviewSigner(ctx context.Context, project bool) (signer ssh.Signer, unsigned bool, err error) {
-	discovered, agentErr := agentkey.NewDiscoverer().Discover(ctx, "")
+func resolveReviewSigner(ctx context.Context, discoverer *agentkey.Discoverer, explicitKey string, project bool) (signer ssh.Signer, unsigned bool, err error) {
+	discovered, agentErr := discoverer.Discover(ctx, explicitKey)
 	if agentErr == nil {
 		return discovered.Signer, false, nil
 	}

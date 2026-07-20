@@ -1114,6 +1114,10 @@ Examples:
 			// signal-cancelled ctx) unwinds scroll region, held output, and
 			// raw mode together.
 			if stdin != nil && !runPlainTerminal {
+				// The TUI is about to own this terminal, so clidiag warnings
+				// must stop writing to it (large-album). Diverted to the
+				// session's diagnostics log, announced before the handover.
+				restoreDiag := redirectDiagnosticsForTUI(activeHarp, os.Stderr)
 				if ui := setupTerminalUI(ctx, cfg, sessionCoord, terminalUIIdentity{
 					WorkDir: workDir,
 					Harp:    activeHarp,
@@ -1123,7 +1127,11 @@ Examples:
 				}, stdin, resize); ui != nil {
 					stdin, stdout, resize = ui.Stdin(), ui.Stdout(), ui.Resize()
 					rawRestore := restoreTerm
-					restoreTerm = func() { ui.Close(); rawRestore() }
+					restoreTerm = func() { ui.Close(); restoreDiag(); rawRestore() }
+				} else {
+					// No TUI engaged after all — stderr is still the user's,
+					// so put the warnings back on it.
+					restoreDiag()
 				}
 			}
 			// Deferred via closure (the value above may be the composed one) so

@@ -141,7 +141,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		return renderGlobalTaskTable(out, gres.Rows)
 	}
 
-	tc, err = requireHoming(tc)
+	tc, err = resolveHoming(tc)
 	if err != nil {
 		return err
 	}

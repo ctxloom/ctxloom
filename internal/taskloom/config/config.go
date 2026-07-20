@@ -11,20 +11,27 @@
 // Today's only setting is the task-store HOMING MODE (paths.ModeHome /
 // paths.ModeRepo — see the `homing` key in
 // resources/schema/input/taskloom-config-schema.json): where a project's
-// task log lives. taskloom refuses to guess it — ResolveMode fails loud,
-// naming both the config key and the --homing flag, when neither config
-// layer nor the flag decides it. That fail-loud policy is deliberately
-// scoped to taskloom's OWN CLI/MCP entry points (cmd/taskloom's
-// taskContextSingle, called immediately before any command touches a SINGLE
-// project's store) — every other caller of
-// internal/shared/tasks/operations.TaskContext (ctxloom's own internal/cli,
-// internal/operations, internal/lm/isolation) never sets HomingMode at all,
-// so it defaults to paths.ModeHome exactly like every call site behaved
-// before this package existed. Baking the fail-loud requirement into the
-// shared operations package itself would have broken every one of those
-// callers — none of them can supply a --homing flag, and forcing every
-// existing project to author a NEW .taskloom/config.yaml before ctxloom's
-// own trigger evaluation could run again is not this task's mandate.
+// task log lives. ResolveMode defaults to paths.ModeHome when NOTHING at any
+// layer (home config, project config, TASKLOOM_CONFIG_HOMING, --config-set,
+// --homing) sets it — silently, with no error and no diagnostic. This is
+// deliberate: ModeHome is the STATUS QUO, exactly what taskloom did before
+// homing-mode selection existed, so defaulting to it surprises nobody and is
+// a no-op for every existing project and every fresh clone (including this
+// repo, which ships no .taskloom/config.yaml of its own). The only
+// surprising default would be ModeRepo, which would silently relocate
+// someone's tasks into their tree — that direction is never defaulted, only
+// ever chosen explicitly. An INVALID value (anything other than "home"/
+// "repo" at any layer) is still a returned error naming the bad value and
+// the valid set: absent is fine, wrong is not.
+//
+// This default is completely uniform: every caller of
+// internal/shared/tasks/operations.TaskContext that never sets HomingMode at
+// all (ctxloom's own internal/cli, internal/operations,
+// internal/lm/isolation) already gets ModeHome via TaskContext's own zero
+// value, and cmd/taskloom's own frontend (via ResolveMode) now resolves to
+// the identical mode when it finds nothing configured either — there is no
+// longer a policy difference between "asked taskloom's own config" and
+// "never asked at all".
 package config
 
 import (
@@ -76,20 +83,12 @@ const (
 // Config is taskloom's own parsed, layered configuration.
 type Config struct {
 	// Homing selects the task-store homing mode ("home" or "repo" — see
-	// paths.Mode). Empty means unset at every config layer; ResolveMode is
-	// the fail-loud gate that turns "" (with no flag either) into an
-	// actionable error instead of a silent default.
+	// paths.Mode). Empty means unset at every config layer; ResolveMode
+	// silently resolves "" (with no flag either) to paths.ModeHome, the
+	// pre-homing status quo — see the package doc for why that default, and
+	// only that direction, is safe to pick without asking.
 	Homing string `yaml:"homing,omitempty"`
 }
-
-// FailLoudMessage is the exact diagnostic ResolveMode returns when NEITHER a
-// home/project config.yaml, TASKLOOM_CONFIG_HOMING, --config-set, nor the
-// dedicated --homing flag sets the task-store homing mode. It names both the
-// config key and the flag, per the fail-loud requirement: taskloom must never
-// silently pick a default.
-const FailLoudMessage = "taskloom: task-store location is not configured — " +
-	"set `" + HomingConfigKey + ": home` or `" + HomingConfigKey + ": repo` in .taskloom/config.yaml " +
-	"(home or project), or pass --" + HomingFlagName + " home or --" + HomingFlagName + " repo"
 
 // product builds the confload.Product describing taskloom's own on-disk/env
 // conventions, exactly mirroring internal/config's ctxloomProduct. validator
@@ -208,9 +207,18 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 // env < --config-set homing=...), then flagValue — the dedicated --homing
 // flag's current value ("" when not passed) — which wins over everything
 // else, completing the documented precedence chain (home < project < env <
-// CLI flag). Returns an error whose text is exactly FailLoudMessage when
-// nothing at any layer sets it, and a distinct error for a set-but-invalid
-// value (anything other than "home"/"repo").
+// CLI flag).
+//
+// The default sits BELOW that entire chain, not inside it: when value is ""
+// after every layer has had its say, ResolveMode returns paths.ModeHome
+// directly — no error, no diagnostic (see the package doc for why this
+// particular default is safe to pick silently). Any layer that DOES set a
+// value, however far down the chain, still wins over the default exactly as
+// it would win over a lower layer's explicit value.
+//
+// A value that IS set but invalid (anything other than "home"/"repo", at any
+// layer) is a returned error naming the bad value and the valid set — the
+// distinction that matters: absent is fine, wrong is not.
 func ResolveMode(workDir string, fs *pflag.FlagSet, flagValue string) (paths.Mode, error) {
 	cfg, err := Load(workDir, fs)
 	if err != nil {
@@ -221,7 +229,7 @@ func ResolveMode(workDir string, fs *pflag.FlagSet, flagValue string) (paths.Mod
 		value = flagValue
 	}
 	if value == "" {
-		return "", fmt.Errorf("%s", FailLoudMessage)
+		return paths.ModeHome, nil
 	}
 	switch paths.Mode(value) {
 	case paths.ModeHome, paths.ModeRepo:

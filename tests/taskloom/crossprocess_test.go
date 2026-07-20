@@ -76,13 +76,6 @@ func (e *env) run(extraEnv []string, args ...string) (stdout, stderr string, err
 		"HOME=" + e.homeDir,
 		"USERPROFILE=" + e.homeDir,
 		"PATH=" + os.Getenv("PATH"),
-		// taskloom's task-store homing mode (internal/taskloom/config) fails
-		// loud when unconfigured -- deliberately, since this package predates
-		// homing-mode selection and isn't testing it, pin "home" (today's
-		// pre-homing behavior) so every scenario here keeps exercising what
-		// it actually tests. extraEnv is appended last and wins, matching
-		// testenv.TestEnvironment.RunTaskloom's convention.
-		"TASKLOOM_CONFIG_HOMING=home",
 	}, extraEnv...)
 	var so, se bytes.Buffer
 	cmd.Stdout = &so

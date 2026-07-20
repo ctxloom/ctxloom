@@ -24,21 +24,6 @@ func mustTaskContext(t *testing.T) operations.TaskContext {
 	return tc
 }
 
-// setTestHoming pins the --homing flag's value for the duration of a test,
-// restoring it on cleanup — the fastest way for a test that is about mechanics
-// OTHER than homing-mode selection itself to opt into a resolvable homing
-// mode (mirroring how a real invocation would pass --homing, without
-// authoring a .taskloom/config.yaml fixture). Every test exercising the real
-// taskContextSingle/requireHoming path (directly or via a cobra
-// RunE/handleTask* call) needs this, or ResolveMode's fail-loud gate rejects
-// it — see taskloomconfig.FailLoudMessage.
-func setTestHoming(t *testing.T, mode string) {
-	t.Helper()
-	prev := tasksHoming
-	tasksHoming = mode
-	t.Cleanup(func() { tasksHoming = prev })
-}
-
 // TestNoteHiddenMatches pins the anti-silent-truncation hint: a --term or
 // --tag-query listing whose matches were partly suppressed by the default
 // active-only view says so (with per-kind counts and the flag that reveals
@@ -108,7 +93,6 @@ func TestNoteHiddenMatches(t *testing.T) {
 // directory.
 func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 	taskstest.ProjectDir(t)
-	setTestHoming(t, "home")
 
 	_, err := operations.AddTaskWithTags(mustTaskContext(t), "here's task", "", "", nil)
 	require.NoError(t, err)

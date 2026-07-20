@@ -106,20 +106,23 @@ func taskContext() (operations.TaskContext, error) {
 	}, nil
 }
 
-// requireHoming resolves tc's task-store homing mode via
+// resolveHoming resolves tc's task-store homing mode via
 // taskloomconfig.ResolveMode — taskloom's own layered config (home < project
 // .taskloom/config.yaml < TASKLOOM_CONFIG_HOMING env < --config-set) then the
-// dedicated --homing flag (highest precedence) — and sets it on tc, or
-// returns the FAIL LOUD error (taskloomconfig.FailLoudMessage) naming both
-// the `homing` config key and the --homing flag when nothing at any layer
-// decides it.
+// dedicated --homing flag (highest precedence) — and sets it on tc.
+//
+// When NOTHING at any layer sets it, ResolveMode silently defaults to
+// paths.ModeHome (today's pre-homing behavior — see
+// taskloomconfig's package doc for why only that direction is safe to
+// default without asking); this only ever returns an error for a value that
+// IS set but invalid (anything other than "home"/"repo").
 //
 // Every command that is about to touch ONE project's store calls this right
 // after taskContext() (taskContextSingle does both in one call); `taskloom
 // list`/task_list's --global aggregation, and the no-project fallback it
 // shares, never do — homing mode is meaningless for a read that spans every
 // project's store at once.
-func requireHoming(tc operations.TaskContext) (operations.TaskContext, error) {
+func resolveHoming(tc operations.TaskContext) (operations.TaskContext, error) {
 	mode, err := taskloomconfig.ResolveMode(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
 	if err != nil {
 		return tc, err
@@ -128,14 +131,14 @@ func requireHoming(tc operations.TaskContext) (operations.TaskContext, error) {
 	return tc, nil
 }
 
-// taskContextSingle is taskContext() plus requireHoming: the combined
+// taskContextSingle is taskContext() plus resolveHoming: the combined
 // resolution every command that touches exactly one project's store needs.
 func taskContextSingle() (operations.TaskContext, error) {
 	tc, err := taskContext()
 	if err != nil {
 		return tc, err
 	}
-	return requireHoming(tc)
+	return resolveHoming(tc)
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.

@@ -165,7 +165,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		}, nil
 	}
 
-	tc, err = requireHoming(tc)
+	tc, err = resolveHoming(tc)
 	if err != nil {
 		return nil, nil, err
 	}

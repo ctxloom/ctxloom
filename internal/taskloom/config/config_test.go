@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -185,20 +187,45 @@ func TestHoming_EnvOverridesConfigButNotFlag(t *testing.T) {
 	assert.Equal(t, paths.ModeHome, mode, "the dedicated flag must beat env")
 }
 
-// TestConfig_AbsentEverywhereFailsLoud is the fail-loud gate's core test:
-// nothing at any layer (no home config, no project config, no env, no flag)
-// sets the homing mode -- ResolveMode must return an error whose text names
-// BOTH the config key ("homing") and the flag ("--homing"), never pick a
-// silent default.
-func TestConfig_AbsentEverywhereFailsLoud(t *testing.T) {
+// TestConfig_AbsentEverywhereDefaultsToHome is the default-resolution core
+// test: nothing at any layer (no home config, no project config, no env, no
+// flag) sets the homing mode -- ResolveMode must silently resolve to
+// paths.ModeHome, with NO error. ModeHome is the pre-homing status quo, so
+// defaulting to it is a no-op for every project that predates this feature
+// (including this repo, which ships no .taskloom/config.yaml); see the
+// package doc for why only THIS direction is safe to default without asking.
+func TestConfig_AbsentEverywhereDefaultsToHome(t *testing.T) {
 	project := taskstest.ProjectDir(t)
 
 	mode, err := ResolveMode(project, nil, "")
-	require.Error(t, err)
-	assert.Empty(t, mode)
-	assert.Equal(t, FailLoudMessage, err.Error())
-	assert.Contains(t, err.Error(), HomingConfigKey, "message must name the config key")
-	assert.Contains(t, err.Error(), "--"+HomingFlagName, "message must name the flag")
+	require.NoError(t, err)
+	assert.Equal(t, paths.ModeHome, mode)
+}
+
+// TestHoming_MissingConfigIsSilent proves the default resolution above
+// produces NO diagnostic on the clidiag channel either -- not just no error.
+// A warning on every invocation of a correctly-configured-by-default tool
+// would be the same UX failure in a smaller costume as the fail-loud gate
+// this default replaced.
+func TestHoming_MissingConfigIsSilent(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStderr := os.Stderr
+	os.Stderr = w
+
+	mode, resolveErr := ResolveMode(project, nil, "")
+
+	os.Stderr = origStderr
+	require.NoError(t, w.Close())
+	var buf bytes.Buffer
+	_, copyErr := io.Copy(&buf, r)
+	require.NoError(t, copyErr)
+
+	require.NoError(t, resolveErr)
+	assert.Equal(t, paths.ModeHome, mode)
+	assert.Empty(t, buf.String(), "no diagnostic should be written when homing is simply unconfigured")
 }
 
 // TestSchema_TopLevelAdditionalPropertiesFalse mirrors

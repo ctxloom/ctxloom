@@ -29,13 +29,12 @@ type TaskContext struct {
 	// The zero value "" behaves exactly like paths.ModeHome — today's sole
 	// behavior — so every caller that predates homing-mode selection (every
 	// existing internal/cli, internal/operations, and internal/lm/isolation
-	// call site) keeps working completely unchanged. Only cmd/taskloom's own
-	// frontend resolves and sets this explicitly (via
-	// internal/taskloom/config.ResolveMode, which fails loud when NEITHER a
-	// config file nor a flag decides it) — that fail-loud policy lives at
-	// taskloom's CLI/MCP boundary, not here, precisely so it never reaches
-	// back and breaks an unrelated caller that has no way to supply a
-	// --homing flag of its own.
+	// call site) keeps working completely unchanged. cmd/taskloom's own
+	// frontend resolves this explicitly via internal/taskloom/config.
+	// ResolveMode, which resolves to the SAME paths.ModeHome default when
+	// neither a config file nor a flag decides it — see that package's doc
+	// for why ModeHome (the pre-homing status quo) is the one safe silent
+	// default, while ModeRepo is only ever chosen explicitly.
 	HomingMode paths.Mode
 }
 

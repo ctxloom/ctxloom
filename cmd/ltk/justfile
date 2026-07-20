@@ -15,3 +15,14 @@ compress: (_compress (TOP / "bin/ltk"))
 
 # Build then compress.
 build-compressed: build compress
+
+# Run this package's tests. GOWORK=off matches the container's plain
+# module-mode build (see root justfile.container) so a host go.work never
+# shadows the in-module github.com/ctxloom/ctxloom/pkg/clifmt package.
+test:
+    cd {{ TOP }} && GOWORK=off go test ./cmd/ltk/...
+
+# Vet + lint this package only (fast local loop; `just lint` at root runs
+# golangci-lint over the whole module).
+lint:
+    cd {{ TOP }} && GOWORK=off go vet ./cmd/ltk/...

@@ -847,6 +847,83 @@ func TestSubstituteVariables_DeeplyNestedSections(t *testing.T) {
 	assert.Contains(t, warnings[0], "level1")
 }
 
+// TestSubstituteVariables_LiteralJustSyntaxIsCorrupted is a payload-asserting
+// characterization test for the real-world bug found via a live ACP client
+// (Nori): a fragment that documents another {{...}}-flavored syntax (here,
+// justfile's `{{TOP}}` / `{{ARGS}}` / `{{justfile_directory()}}`) collides
+// with fragment templating. Every such tag looks like a ctxloom variable
+// reference, so today's contract — undefined variable renders as empty,
+// documented in docs/guides/templating.md's "Error Handling" section — means
+// the literal documentation text is silently stripped on its way to the
+// engine, not just warned about. This asserts the actual rendered BYTES (not
+// merely "no error" and not merely "a warning fired") so a fix that keeps the
+// warning but no longer blanks the text would fail this test, honestly
+// reflecting that the corrupting behavior is real and currently by design.
+//
+// This is deliberately NOT changing: the fix for fragment authors is the
+// escape mechanism proven by TestSubstituteVariables_SetDelimiterEscapesLiteralMustache
+// below, documented in docs/guides/templating.md ("Writing Literal {{...}}
+// in Prose"). Changing the undefined-variable-renders-empty default itself
+// is a cross-cutting template-contract decision (docs/guides/templating.md
+// promises it, and existing profiles rely on it for optional variables) and
+// is out of scope here.
+func TestSubstituteVariables_LiteralJustSyntaxIsCorrupted(t *testing.T) {
+	content := "Run `just build`:\n```just\nbuild:\n    go build {{ARGS}}\n```\nSee {{TOP}} and {{justfile_directory()}}."
+	vars := map[string]string{} // no ctxloom variables bound; this is unescaped prose
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	// The corruption: literal justfile syntax vanishes from the assembled bytes.
+	assert.NotContains(t, result, "{{ARGS}}", "literal {{ARGS}} should have survived unescaped prose but was stripped")
+	assert.NotContains(t, result, "{{TOP}}", "literal {{TOP}} should have survived unescaped prose but was stripped")
+	assert.NotContains(t, result, "{{justfile_directory()}}")
+	assert.Contains(t, result, "go build \n", "the ARGS token left only a dangling space where the literal text used to be")
+	assert.Contains(t, result, "See  and .", "TOP and justfile_directory() were blanked out entirely")
+
+	// The warnings are real signal, not spurious noise: they name exactly the
+	// tags that got stripped.
+	assert.GreaterOrEqual(t, len(warnings), 3)
+	joined := warnings[0] + warnings[1] + warnings[2]
+	assert.Contains(t, joined, "ARGS")
+	assert.Contains(t, joined, "TOP")
+	assert.Contains(t, joined, "justfile_directory()")
+}
+
+// TestSubstituteVariables_SetDelimiterEscapesLiteralMustache is the
+// payload-asserting proof that fragment authors already have a supported,
+// zero-code-change way to write literal `{{...}}` syntax: Mustache's
+// standard Set Delimiter tag (`{{=<% %>=}}` ... `<%={{ }}=%>`), which the
+// underlying cbroglie/mustache library implements today. Content inside the
+// escaped block is treated as plain text — never extracted as a Tag by
+// checkTags, never warned about, and reaches the engine byte-for-byte —
+// while a real ctxloom variable outside the escaped block still substitutes
+// normally. This is the fix landed for this bug: documentation
+// (docs/guides/templating.md) pointing fragment authors at working,
+// pre-existing library behavior, proven here so a future change to
+// checkTags/substituteVariables or a mustache library swap can't silently
+// take this escape hatch away again.
+func TestSubstituteVariables_SetDelimiterEscapesLiteralMustache(t *testing.T) {
+	content := "{{=<% %>=}}\n" +
+		"Use `{{ARGS}}` to forward recipe arguments; `{{justfile_directory()}}`\n" +
+		"is scoped to the local file, not a composing parent. See {{TOP}}.\n" +
+		"<%={{ }}=%>\n" +
+		"Real variable: {{name}}"
+	vars := map[string]string{"name": "World"}
+
+	var warnings []string
+	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
+
+	// The literal justfile syntax survives byte-for-byte inside the escaped block.
+	assert.Contains(t, result, "Use `{{ARGS}}` to forward recipe arguments; `{{justfile_directory()}}`")
+	assert.Contains(t, result, "is scoped to the local file, not a composing parent. See {{TOP}}.")
+	// The real ctxloom variable outside the escape still substitutes.
+	assert.Contains(t, result, "Real variable: World")
+	// No spurious warnings: the escaped tags were never treated as undefined
+	// ctxloom variables in the first place.
+	assert.Empty(t, warnings)
+}
+
 // ========== Directory-based profile resolution tests ==========
 
 func TestAssembleContext_ProfileFromDirectory(t *testing.T) {

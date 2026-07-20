@@ -118,6 +118,33 @@ This is not production - be careful!
 - **Render failures**: Original content returned unchanged
 - **All variables are strings**: Converted to `map[string]interface{}`
 
+## Writing Literal `{{...}}` in Prose
+
+A fragment that *documents* another `{{...}}`-flavored syntax — a `justfile`'s
+`{{TOP}}` / `{{justfile_directory()}}`, a Jinja2 template, a Vue/Handlebars
+binding — collides with fragment templating: every such tag looks like a
+ctxloom variable reference, so it's checked and (if the name isn't one of the
+profile's variables) rendered away as empty. The prose meant to say
+`{{ARGS}}` reaches the engine as nothing, silently.
+
+Mustache's standard "Set Delimiter" tag escapes exactly this case: temporarily
+switch delimiters, write the literal braces as plain text, then switch back.
+
+```mustache
+{{=<% %>=}}
+Use `{{ARGS}}` to forward recipe arguments; `{{justfile_directory()}}` is
+scoped to the local file, not a composing parent.
+<%={{ }}=%>
+```
+
+Everything between the two Set Delimiter tags is plain text as far as the
+templating engine is concerned — `{{ARGS}}` above is never parsed as a tag,
+never warned about, and reaches the engine byte-for-byte. Real ctxloom
+variables outside the escaped block still substitute normally.
+
+Do this whenever a fragment includes example code or prose for another tool
+that happens to share Mustache's `{{ }}` delimiter.
+
 ## Examples
 
 ### Project Context

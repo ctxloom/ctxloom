@@ -73,7 +73,17 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, comp
 // (e.g. the escalation ladder's relayed ApprovalRequest projection, Wave
 // C2); inReplyTo correlates this message to an earlier one's id.
 func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
-	msg := Message{ID: newMessageID(), From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
+	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
+}
+
+// queueMailPayloadID is queueMailPayload with the message id supplied by the
+// caller. It exists for correlation-carrying mail whose id must be REGISTERED
+// somewhere before the mail is observable: this function publishes, and after
+// it returns (indeed, from inside it — a parked recv completes synchronously)
+// a reply quoting the id can already arrive. relayApproval is the case that
+// forced it; see its comment (pulpy-whiff).
+func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailQueued, c.now(), mailQueued{
 			MessageID: msg.ID, From: from, To: to, Kind: kind, Body: body,

@@ -151,12 +151,20 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 		return nil, true
 	}
 	body := fmt.Sprintf("approval requested by %s: %s (%s)", rec.Harp, req.GetTitle(), approvalKindName(req.GetKind()))
-	msgID, _, err := c.queueMailPayload(rec.Harp, targetHarp, "approval_request", body, structured, "")
-	if err != nil {
-		clidiag.Warn("ctxloom", "coord: relay approval for %s: queue mail: %v", rec.Harp, err)
-		return nil, true
-	}
 
+	// REGISTER BEFORE PUBLISHING. The mailbox message id IS the correlation a
+	// reply carries, and the mail is observable to the parent the instant it
+	// is queued — a parked recv is even completed synchronously from inside
+	// queueMailPayload. Registering afterwards left a window in which a
+	// parent could drain, decide and reply before c.approvals held the id;
+	// resolveApprovalReply then missed, the reply degraded to ordinary mail,
+	// and this rung sat until its timeout and fell through to DECLINE. A
+	// human's approval silently became a denial (pulpy-whiff).
+	//
+	// So the id is minted up front and the pendingApproval is registered
+	// while the mail does not yet exist: a reply can only arrive after the
+	// mail is observable, which is strictly after registration.
+	msgID := newMessageID()
 	pa := &pendingApproval{targetHarp: targetHarp, ch: make(chan *agentcoordpb.ApprovalDecision, 1)}
 	c.mu.Lock()
 	if c.approvals == nil {
@@ -171,6 +179,14 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 		}
 		c.mu.Unlock()
 	}()
+
+	if _, _, err := c.queueMailPayloadID(msgID, rec.Harp, targetHarp, "approval_request", body, structured, ""); err != nil {
+		clidiag.Warn("ctxloom", "coord: relay approval for %s: queue mail: %v", rec.Harp, err)
+		return nil, true
+	}
+	if hook := c.onApprovalMailQueued; hook != nil {
+		hook(msgID)
+	}
 
 	timeout := rung.Timeout
 	if timeout <= 0 {

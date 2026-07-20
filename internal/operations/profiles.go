@@ -506,10 +506,10 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 // without it `profile list`/`profile show <canonical-ref>` would not see what
 // assembly resolves.
 func profileLoader(cfg *config.Config) *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.AppPaths)
-	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
+	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
+	if len(profileDirs) == 0 && len(cfg.GetAppPaths()) > 0 {
 		// Create profiles directory in first ctxloom path
-		profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
+		profileDirs = []string{filepath.Join(cfg.GetAppPaths()[0], "profiles")}
 	}
 	var opts []profiles.LoaderOption
 	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {

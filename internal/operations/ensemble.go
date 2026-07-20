@@ -320,5 +320,6 @@ func memberPermissions(rs *ResolvedAgent, cfg *config.Config) string {
 	if rs.Permissions != "" {
 		return rs.Permissions
 	}
-	return cfg.LM.Configs[rs.Label].Permissions
+	entry, _ := cfg.GetLLMEntry(rs.Label)
+	return entry.Permissions
 }

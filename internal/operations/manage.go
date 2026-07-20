@@ -118,10 +118,12 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 	workDir := manageWorkDir(req.WorkDir)
 	opts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 
+	mcpCfg := cfg.GetMCPConfig()
+	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{
 		WorkDir:          workDir,
-		AutoRegisterMCP:  cfg.MCP.ShouldAutoRegisterCtxloom(),
-		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
+		AutoRegisterMCP:  mcpCfg.ShouldAutoRegisterCtxloom(),
+		ManageStatusline: settings.ShouldManageStatusline(),
 		Backends:         []BackendWiring{},
 		RootFallback:     projectroot.RootFromFallback(),
 	}

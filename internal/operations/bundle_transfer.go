@@ -49,7 +49,7 @@ type ExportBundleResult struct {
 // outright (staleSignatureError): exporting that pair would plant a tamper alarm
 // at the destination.
 func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest) (*ExportBundleResult, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
 	}
 	fs := getFS(req.FS)
@@ -58,7 +58,7 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	// filesystem works; the loader filters non-existent dirs itself via
 	// afero.DirExists.
 	var dirs []string
-	for _, p := range cfg.AppPaths {
+	for _, p := range cfg.GetAppPaths() {
 		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
@@ -198,7 +198,7 @@ type ImportBundleResult struct {
 // carrying its detached `.sig` sibling when one exists. Refuses to overwrite
 // without Force.
 func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest) (*ImportBundleResult, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
@@ -211,7 +211,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	bundleDir := paths.LocalBundlesPath(cfg.AppPaths[0])
+	bundleDir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
 	destPath := filepath.Join(bundleDir, filepath.Base(req.SourcePath))
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return nil, err

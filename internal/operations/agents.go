@@ -219,7 +219,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 // only to gate the setup nudge, so a directory-scan failure degrades to "none"
 // (the nudge simply stays quiet) rather than erroring.
 func hasAnyProfiles(cfg *config.Config) bool {
-	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
+	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.GetProfileDefinitions()) > 0 {
 		return true
 	}
 	list, _ := cfg.GetProfileLoader().List()
@@ -342,8 +342,9 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// is byte-identical to today's host behaviour.
 	runtime := sub.Runtime
 	if runtime == "" {
-		runtime = cfg.Runtime
+		runtime = cfg.GetRuntime()
 	}
+	labelEntry, _ := cfg.GetLLMEntry(label)
 
 	return &ResolvedAgent{
 		Name:        name,
@@ -359,7 +360,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		// The interactive base an unflagged run resolves to (declared → label →
 		// built-in default), so a blank claude-code posture shows its real bypass.
 		EffectivePermissions: agent.ResolveDefault(
-			[]string{sub.Permissions, cfg.LM.Configs[label].Permissions},
+			[]string{sub.Permissions, labelEntry.Permissions},
 			backend == config.BackendClaudeCode).String(),
 		Escalation: sub.Escalation,
 	}, nil

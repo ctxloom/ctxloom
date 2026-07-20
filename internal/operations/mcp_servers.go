@@ -52,10 +52,11 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 	servers := collectMCPServers(freshCfg, strings.ToLower(req.Query))
 	sortMCPServers(servers, req.SortBy, req.SortOrder)
 
+	mcpCfg := freshCfg.GetMCPConfig()
 	return &ListMCPServersResult{
 		Servers:      servers,
 		Count:        len(servers),
-		AutoRegister: freshCfg.MCP.ShouldAutoRegisterCtxloom(),
+		AutoRegister: mcpCfg.ShouldAutoRegisterCtxloom(),
 	}, nil
 }
 
@@ -97,12 +98,12 @@ func mcpEntry(name string, srv wire.MCPServer, backend string) MCPServerEntry {
 // collectMCPServers gathers unified and backend-specific servers matching query.
 func collectMCPServers(cfg *config.Config, query string) []MCPServerEntry {
 	var servers []MCPServerEntry
-	for name, srv := range cfg.MCP.Servers {
+	for name, srv := range cfg.GetMCPServers() {
 		if mcpServerMatches(query, name, srv.Command) {
 			servers = append(servers, mcpEntry(name, srv, "unified"))
 		}
 	}
-	for backend, backendServers := range cfg.MCP.Plugins {
+	for backend, backendServers := range cfg.GetMCPPlugins() {
 		for name, srv := range backendServers {
 			if mcpServerMatches(query, name, srv.Command) {
 				servers = append(servers, mcpEntry(name, srv, backend))
@@ -164,10 +165,10 @@ func GetMCPServer(ctx context.Context, cfg *config.Config, req GetMCPServerReque
 	}
 
 	entries := []MCPServerEntry{}
-	if srv, ok := freshCfg.MCP.Servers[req.Name]; ok {
+	if srv, ok := freshCfg.GetMCPServers()[req.Name]; ok {
 		entries = append(entries, mcpEntry(req.Name, srv, "unified"))
 	}
-	for backend, backendServers := range freshCfg.MCP.Plugins {
+	for backend, backendServers := range freshCfg.GetMCPPlugins() {
 		if srv, ok := backendServers[req.Name]; ok {
 			entries = append(entries, mcpEntry(req.Name, srv, backend))
 		}

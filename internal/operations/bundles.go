@@ -145,11 +145,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	if err := bundles.ValidateBundleName(req.Name); err != nil {
 		return nil, err
 	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	dir := paths.LocalBundlesPath(cfg.AppPaths[0])
+	dir := paths.LocalBundlesPath(cfg.GetAppPaths()[0])
 	path := filepath.Join(dir, req.Name+".yaml")
 	if err := requireSafeBundlePath([]string{dir}, path); err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ type UpdateBundleRequest struct {
 
 	AddPrompts    map[string]BundleCommandInput `json:"add_prompts,omitempty"`
 	SetPrompts    map[string]BundleCommandInput `json:"set_prompts,omitempty"`
-	RemovePrompts []string                    `json:"remove_prompts,omitempty"`
+	RemovePrompts []string                      `json:"remove_prompts,omitempty"`
 
 	AddMCPServers    map[string]BundleMCPInput `json:"add_mcp_servers,omitempty"`
 	SetMCPServers    map[string]BundleMCPInput `json:"set_mcp_servers,omitempty"`
@@ -297,7 +297,7 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 	if err := bundles.ValidateBundleName(name); err != nil {
 		return nil, err
 	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
@@ -521,7 +521,7 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 	if err := bundles.ValidateBundleName(req.Name); err != nil {
 		return nil, err
 	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
@@ -695,7 +695,7 @@ func validatePushRequest(cfg *config.Config, req PushBundleRequest) error {
 	if req.Remote == "" {
 		return fmt.Errorf("remote is required (resolve it with ResolveBundleRemote)")
 	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return fmt.Errorf("no .ctxloom directory configured")
 	}
 	return nil
@@ -727,7 +727,7 @@ func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, c
 func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
-		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.AppPaths[0]))
+		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
 	}
 
 	opts := remote.PublishOptions{
@@ -775,7 +775,7 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 // ambiguous-remote error listing the candidates. Both the CLI and the VSCode
 // companion call this before PushBundle, so neither re-implements the inference.
 func ResolveBundleRemote(cfg *config.Config, bundlePath, override string) (string, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return "", fmt.Errorf("no .ctxloom directory configured")
 	}
 	absPath, err := filepath.Abs(bundlePath)
@@ -833,7 +833,7 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 // cache/bundles/<remote>/<rest>.yaml, requiring the first segment to be a known
 // remote.
 func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
-	cacheRoot := paths.CacheBundlesPath(cfg.AppPaths[0])
+	cacheRoot := paths.CacheBundlesPath(cfg.GetAppPaths()[0])
 	rel, err := filepath.Rel(cacheRoot, absPath)
 	if err != nil || isOutsideRel(rel) {
 		return "", false
@@ -880,7 +880,7 @@ func ambiguousRemoteError(all []*remote.Remote) error {
 
 // isUnderCtxloom reports whether absPath lives under cfg's .ctxloom directory.
 func isUnderCtxloom(cfg *config.Config, absPath string) bool {
-	for _, app := range cfg.AppPaths {
+	for _, app := range cfg.GetAppPaths() {
 		appAbs, err := filepath.Abs(app)
 		if err != nil {
 			continue

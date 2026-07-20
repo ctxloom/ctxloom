@@ -18,7 +18,7 @@ import (
 // an injected filesystem works; the loader filters non-existent dirs itself.
 func profileLoaderFS(cfg *config.Config, fs afero.Fs) *profiles.Loader {
 	var dirs []string
-	for _, p := range cfg.AppPaths {
+	for _, p := range cfg.GetAppPaths() {
 		dirs = append(dirs, paths.ProfilesPath(p))
 	}
 	return profiles.NewLoader(dirs, profiles.WithFS(fs))
@@ -102,7 +102,7 @@ type ImportProfileResult struct {
 // ImportProfile validates a profile YAML file and copies it into the project's
 // profiles directory, refusing to overwrite without Force.
 func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileRequest) (*ImportProfileResult, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
@@ -117,7 +117,7 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 		return nil, fmt.Errorf("invalid profile file: %w", err)
 	}
 
-	profileDir := paths.ProfilesPath(cfg.AppPaths[0])
+	profileDir := paths.ProfilesPath(cfg.GetAppPaths()[0])
 	if err := fs.MkdirAll(profileDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
 	}

@@ -49,7 +49,7 @@ func AvailableLLMNames(cfg *config.Config) []string {
 			names = append(names, n)
 		}
 	}
-	for n := range cfg.LM.Configs {
+	for _, n := range cfg.GetLLMLabels() {
 		if !seen[n] {
 			seen[n] = true
 			names = append(names, n)

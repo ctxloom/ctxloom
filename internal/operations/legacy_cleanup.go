@@ -27,10 +27,10 @@ import (
 // walking; cleanup is best-effort and a walk error is non-fatal.
 // Per-file removal failures are warned but do not abort the walk.
 func PurgeExtractedBundles(cfg *config.Config) (int, error) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return 0, nil
 	}
-	bundlesRoot := paths.CacheBundlesPath(cfg.AppPaths[0])
+	bundlesRoot := paths.CacheBundlesPath(cfg.GetAppPaths()[0])
 	info, err := os.Stat(bundlesRoot)
 	if err != nil || !info.IsDir() {
 		return 0, nil

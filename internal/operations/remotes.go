@@ -20,8 +20,8 @@ import (
 
 // getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
 func getBaseDir(cfg *config.Config) string {
-	if cfg != nil && len(cfg.AppPaths) > 0 {
-		return cfg.AppPaths[0]
+	if cfg != nil && len(cfg.GetAppPaths()) > 0 {
+		return cfg.GetAppPaths()[0]
 	}
 	return ".ctxloom"
 }

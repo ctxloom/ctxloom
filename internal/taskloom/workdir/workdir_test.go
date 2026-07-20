@@ -59,11 +59,41 @@ func TestResolve_LinkedWorktreeUsesPrimaryStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, mainRes.ProjectID, linkedRes.ProjectID, "same project id from both roots")
 
-	mainLog, err := paths.TasksLogPath(mainRes.ProjectID)
+	mainLog, err := paths.TasksLogPath(paths.ModeHome, "", mainRes.ProjectID)
 	require.NoError(t, err)
-	linkedLog, err := paths.TasksLogPath(linkedRes.ProjectID)
+	linkedLog, err := paths.TasksLogPath(paths.ModeHome, "", linkedRes.ProjectID)
 	require.NoError(t, err)
 	assert.Equal(t, mainLog, linkedLog, "same task log path from both roots")
+}
+
+// TestHoming_WorktreeRedirectAppliesInBothModes extends
+// TestResolve_LinkedWorktreeUsesPrimaryStore to prove the worktree redirect
+// keeps ONE shared task store for a linked worktree and its primary checkout
+// in BOTH task-store homing modes, not just today's home-homed one.
+// Repo-homed's log path is a pure function of the redirected root
+// (paths.TasksLogPath(paths.ModeRepo, root, "")), so this mostly confirms
+// ResolveBoundary's redirect feeds a repo-homed resolution identically to
+// how it already feeds home-homed's project-id resolution.
+func TestHoming_WorktreeRedirectAppliesInBothModes(t *testing.T) {
+	taskstest.Isolate(t)
+	main, linked := taskstest.RealGitWorktreeFixture(t)
+
+	taskstest.ChangeDir(t, main)
+	mainRoot, _, err := ResolveBoundary()
+	require.NoError(t, err)
+
+	taskstest.ChangeDir(t, linked)
+	linkedRoot, _, err := ResolveBoundary()
+	require.NoError(t, err)
+
+	require.Equal(t, mainRoot, linkedRoot, "precondition: the redirect must land both on the same root")
+
+	mainRepoLog, err := paths.TasksLogPath(paths.ModeRepo, mainRoot, "")
+	require.NoError(t, err)
+	linkedRepoLog, err := paths.TasksLogPath(paths.ModeRepo, linkedRoot, "")
+	require.NoError(t, err)
+	assert.Equal(t, mainRepoLog, linkedRepoLog, "repo-homed: same task log path from both worktree roots")
+	assert.Equal(t, filepath.Join(mainRoot, paths.RepoDirName, paths.RepoTasksFileName), mainRepoLog)
 }
 
 // TestResolve_WorktreeWithOwnCtxloomStaysSeparate is the opt-out: a linked

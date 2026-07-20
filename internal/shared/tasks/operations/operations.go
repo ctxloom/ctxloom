@@ -21,6 +21,22 @@ type TaskContext struct {
 	WorkDir     string
 	ProjectID   string
 	SessionHarp string
+
+	// HomingMode selects where the project's task-store log lives —
+	// paths.ModeHome (private, under ~/.ctxloom/tasks, keyed by a
+	// minted/registered project-id) or paths.ModeRepo (checked into the
+	// project tree at WorkDir/.taskloom/tasks.jsonl, no project-id involved).
+	// The zero value "" behaves exactly like paths.ModeHome — today's sole
+	// behavior — so every caller that predates homing-mode selection (every
+	// existing internal/cli, internal/operations, and internal/lm/isolation
+	// call site) keeps working completely unchanged. Only cmd/taskloom's own
+	// frontend resolves and sets this explicitly (via
+	// internal/taskloom/config.ResolveMode, which fails loud when NEITHER a
+	// config file nor a flag decides it) — that fail-loud policy lives at
+	// taskloom's CLI/MCP boundary, not here, precisely so it never reaches
+	// back and breaks an unrelated caller that has no way to supply a
+	// --homing flag of its own.
+	HomingMode paths.Mode
 }
 
 // TaskListResult is the render-agnostic result of ListTasks.
@@ -82,7 +98,18 @@ func ResolveProjectIdentity(workDir string) (projectID, warning string, err erro
 // pinned in tc (by `ctxloom run`) or a live registry resolution — without
 // opening the store. `taskloom watch` uses it to learn which file to watch, so
 // the path convention stays owned here rather than reconstructed by a frontend.
+//
+// In ModeRepo, projectID is always returned empty: the repo IS the identity
+// in that mode (see paths.TasksLogPath and internal/taskloom/config's doc),
+// so there is no id to mint or resolve.
 func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
+	if tc.HomingMode == paths.ModeRepo {
+		logPath, err = paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
+		if err != nil {
+			return "", "", fmt.Errorf("task log path: %w", err)
+		}
+		return "", logPath, nil
+	}
 	projectID = tc.ProjectID
 	if projectID == "" {
 		pm, perr := projectid.Open("")
@@ -95,7 +122,7 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 		}
 		projectID = res.ProjectID
 	}
-	logPath, err = paths.TasksLogPath(projectID)
+	logPath, err = paths.TasksLogPath(paths.ModeHome, "", projectID)
 	if err != nil {
 		return projectID, "", fmt.Errorf("task log path: %w", err)
 	}
@@ -330,11 +357,16 @@ type projectIdentity struct {
 	Dir string // registered project root; empty when not registered
 }
 
-// resolveTaskStore opens the per-project task log for tc: the project-id from
-// tc (set by `ctxloom run`) or a live registry resolution, then OpenLog. The
+// resolveTaskStore opens the project's task log for tc: in ModeRepo, the
+// checked-in log inside tc.WorkDir (resolveRepoHomedStore); otherwise
+// (ModeHome, or "" — every pre-homing caller) the project-id from tc (set by
+// `ctxloom run`) or a live registry resolution, then OpenLog. The
 // project-resolution warning is returned for the frontend to surface; it is
 // never printed here.
 func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
+	if tc.HomingMode == paths.ModeRepo {
+		return resolveRepoHomedStore(tc)
+	}
 	proj.ID = tc.ProjectID
 	pm, pmErr := projectid.Open("")
 	if proj.ID == "" {
@@ -376,7 +408,37 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 			}
 		}
 	}
-	logPath, err := paths.TasksLogPath(proj.ID)
+	logPath, err := paths.TasksLogPath(paths.ModeHome, "", proj.ID)
+	if err != nil {
+		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
+	}
+	store, err = tasks.OpenLog(logPath, tc.SessionHarp)
+	if err != nil {
+		return nil, proj, warning, err
+	}
+	return store, proj, warning, nil
+}
+
+// resolveRepoHomedStore opens the REPO-HOMED task store: the log lives
+// checked into the project tree at tc.WorkDir/paths.RepoDirName/
+// paths.RepoTasksFileName (.taskloom/tasks.jsonl), alongside
+// .taskloom/config.yaml. The repo IS the identity in this mode — no
+// project-id is minted or consulted (see paths.TasksLogPath's doc and
+// internal/taskloom/config's package doc for the full justification).
+// tc.WorkDir is expected to already be redirected through the
+// worktree-to-primary-checkout boundary by the caller (workdir.
+// ResolveBoundary via projectroot.TaskStoreRoot), so a linked worktree lands
+// on the SAME log a primary-checkout invocation would — exactly like
+// ModeHome's project-id resolution already does today.
+func resolveRepoHomedStore(tc TaskContext) (store *tasks.Store, proj projectIdentity, warning string, err error) {
+	if tc.WorkDir == "" {
+		return nil, proj, "", fmt.Errorf("repo-homed task store: no project root resolved (working directory unavailable)")
+	}
+	proj.Dir = tc.WorkDir
+	if tc.ProjectID != "" {
+		warning = fmt.Sprintf("--project %s is ignored in repo-homed mode; %s is the store's identity", tc.ProjectID, tc.WorkDir)
+	}
+	logPath, err := paths.TasksLogPath(paths.ModeRepo, tc.WorkDir, "")
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}

@@ -39,6 +39,15 @@ internal/**/.ctxloom/
 .mcp.json
 .tasks/
 
+# taskloom's OWN dot-dir (.taskloom/) is a DIFFERENT animal from .ctxloom/*
+# above: config.yaml and (in repo-homed mode) tasks.jsonl are meant to be
+# COMMITTED — that's the whole point of repo-homed homing (see
+# internal/taskloom/config). Do NOT copy the .ctxloom/* blanket-ignore
+# pattern here. Only the cross-process advisory filelock sidecar
+# (internal/shared/filelock, taken at internal/shared/tasks/log.go) is
+# private, ephemeral working state — ignore just that.
+.taskloom/*.lock
+
 # IDE
 .idea/
 *.swp

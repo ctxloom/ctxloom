@@ -16,13 +16,25 @@ type ConfigValidator struct {
 	schema *jsonschema.Schema
 }
 
-// NewConfigValidator creates a new schema validator using the embedded config schema.
+// NewConfigValidator creates a new schema validator using the embedded ctxloom
+// config schema.
 func NewConfigValidator() (*ConfigValidator, error) {
 	schemaData, err := resources.GetConfigSchema()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config schema: %w", err)
 	}
+	return NewValidatorFromSchema(schemaData)
+}
 
+// NewValidatorFromSchema compiles schemaData (a JSON Schema document) into a
+// ConfigValidator, exactly like NewConfigValidator but for a caller whose
+// schema isn't ctxloom's own embedded one — e.g. taskloom's
+// resources/schema/input/taskloom-config-schema.json, read via
+// resources.GetSchema. This package carries no ctxloom-specific assumption
+// beyond NewConfigValidator's convenience wrapper, so a second product's
+// config gets the identical validation/KnownPath machinery without a second
+// implementation.
+func NewValidatorFromSchema(schemaData []byte) (*ConfigValidator, error) {
 	compiler := jsonschema.NewCompiler()
 	if err := compiler.AddResource("config.json", strings.NewReader(string(schemaData))); err != nil {
 		return nil, fmt.Errorf("failed to add config schema resource: %w", err)

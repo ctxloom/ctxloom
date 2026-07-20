@@ -308,6 +308,16 @@ func (e *TestEnvironment) isolatedEnv() []string {
 		"USERPROFILE":     e.HomeDir, // Windows
 		"XDG_CONFIG_HOME": filepath.Join(e.HomeDir, ".config"),
 		"XDG_DATA_HOME":   filepath.Join(e.HomeDir, ".local", "share"),
+		// taskloom's task-store homing mode (internal/taskloom/config) is
+		// FAIL LOUD when unconfigured — a deliberate requirement, not an
+		// oversight, so a scenario that isn't itself about homing selection
+		// needs a resolvable default to keep exercising what it actually
+		// tests. "home" pins today's (pre-homing) behavior, matching every
+		// journey written before homing existed. A scenario that DOES test
+		// homing (see j-series homing feature) overrides this via its own
+		// extraEnv/--homing, which always wins (RunTaskloom's extraEnv is
+		// appended last).
+		"TASKLOOM_CONFIG_HOMING": "home",
 	}
 
 	var env []string

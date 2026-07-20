@@ -454,6 +454,67 @@ func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
 	}
 }
 
+// TestAddTaskWithTagsRejectsUnqueryableTags pins the write-seam guard: a tag
+// containing "/" (the tagquery grammar's separator) or a reserved operator
+// word ("and"/"or"/"not") would be permanently unqueryable once stored, so
+// AddTaskWithTags must reject the whole operation before any event is
+// written — no task, no partial tag set left behind.
+func TestAddTaskWithTagsRejectsUnqueryableTags(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	if _, err := AddTaskWithTags(tc, "bad slash tag", "", "", []string{"urgent", "foo/bar"}); err == nil {
+		t.Fatal("expected an error adding a task with a slash-bearing tag")
+	}
+	if _, err := AddTaskWithTags(tc, "bad reserved tag", "", "", []string{"and"}); err == nil {
+		t.Fatal("expected an error adding a task with a reserved-word tag")
+	}
+
+	// Neither rejected call should have written anything: the store stays
+	// empty.
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 0 {
+		t.Fatalf("expected no tasks written after rejected adds, got %+v", list.Tasks)
+	}
+}
+
+// TestTagTaskRejectsUnqueryableAddedTags pins the same guard on the other add
+// seam: TagTask's `add` list must be rejected before the event is appended,
+// leaving the task's existing tags untouched. Removing tags is unaffected —
+// subtracting a malformed tag never creates new unqueryable data.
+func TestTagTaskRejectsUnqueryableAddedTags(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"foo/bar"}, nil); err == nil {
+		t.Fatal("expected an error adding a slash-bearing tag via TagTask")
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"or"}, nil); err == nil {
+		t.Fatal("expected an error adding a reserved-word tag via TagTask")
+	}
+
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 1 || len(list.Tasks[0].Tags) != 1 || list.Tasks[0].Tags[0] != "urgent" {
+		t.Fatalf("tags after rejected TagTask add = %+v, want unchanged [urgent]", list.Tasks)
+	}
+
+	// Removing tags is not subject to this guard.
+	if _, err := TagTask(tc, add.Task.HarpID, nil, []string{"urgent"}); err != nil {
+		t.Fatalf("remove should be unaffected by the add-side guard: %v", err)
+	}
+}
+
 // TestHoming_ProjectFlagIgnoredInRepoMode proves a pinned --project is a
 // harmless no-op (with a warning, not silently swallowed) in repo-homed
 // mode: the repo path is the identity, so there is nothing for a

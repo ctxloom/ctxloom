@@ -243,3 +243,43 @@ func TestStringUniversalIsEmpty(t *testing.T) {
 	assert.Equal(t, "", tagquery.Universal().String())
 	assert.Equal(t, "", tagquery.Empty().String())
 }
+
+func TestValidateTagRejectsSlash(t *testing.T) {
+	err := tagquery.ValidateTag("foo/bar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "foo/bar")
+	assert.Contains(t, err.Error(), "/")
+}
+
+func TestValidateTagRejectsReservedWords(t *testing.T) {
+	for _, tag := range []string{"and", "or", "not", "AND", "Or", "NOT", " and ", "  not"} {
+		t.Run(tag, func(t *testing.T) {
+			err := tagquery.ValidateTag(tag)
+			require.Error(t, err, "tag %q should be rejected as a reserved operator word", tag)
+		})
+	}
+}
+
+func TestValidateTagAcceptsOrdinaryTags(t *testing.T) {
+	for _, tag := range []string{"urgent", "release", "android", "cannot", "note", "north"} {
+		t.Run(tag, func(t *testing.T) {
+			assert.NoError(t, tagquery.ValidateTag(tag))
+		})
+	}
+}
+
+func TestValidateTagEmptyDoesNotPanicAndIsNotRejected(t *testing.T) {
+	assert.NotPanics(t, func() {
+		err := tagquery.ValidateTag("")
+		assert.NoError(t, err)
+	})
+	assert.NoError(t, tagquery.ValidateTag("   "))
+}
+
+func TestValidateTagsReturnsFirstError(t *testing.T) {
+	require.NoError(t, tagquery.ValidateTags([]string{"urgent", "release"}))
+
+	err := tagquery.ValidateTags([]string{"urgent", "foo/bar", "and"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "foo/bar")
+}

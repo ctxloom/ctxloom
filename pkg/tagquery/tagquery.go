@@ -225,6 +225,61 @@ func DisableOr() Option {
 	return func(c *parseConfig) { c.orEnabled = false }
 }
 
+// ValidateTag reports whether tag would be PERMANENTLY UNQUERYABLE under this
+// package's postfix grammar — a shape check only, with no knowledge of any
+// existing tag vocabulary. It exists so the one place that owns the grammar
+// (this package) is also the one place that decides what the grammar can
+// never match, rather than that knowledge drifting into every writer.
+//
+// A tag is rejected when:
+//
+//   - it contains "/", the grammar's path separator: Parse splits a query on
+//     "/" before evaluating tokens, so a stored tag like "foo/bar" would
+//     split into the two tokens "foo" and "bar" and could never be matched
+//     as the single tag it was written as.
+//   - trimmed and compared case-insensitively, it equals a reserved operator
+//     word ("and", "or", "not"): Parse always treats such a token as an
+//     operator (see the package doc), so a tag with that exact name could
+//     never appear as a Term — it would always be consumed as an operator
+//     instead.
+//
+// An empty or all-whitespace tag is not rejected here (ValidateTag never
+// panics on ""): callers that drop empty tags before storage — see
+// normalizeTags in internal/shared/tasks — already handle that case, and it
+// is not something this grammar makes unqueryable.
+//
+// This is a write-time check only. It must never run on the read/fold path:
+// an existing log already containing a malformed tag must still fold and
+// list without error, so a reader stays lenient even where a writer is now
+// strict.
+func ValidateTag(tag string) error {
+	trimmed := strings.TrimSpace(tag)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.Contains(trimmed, "/") {
+		return fmt.Errorf("tagquery: tag %q contains %q, this grammar's path separator — it would split into multiple query tokens and could never be matched as a single tag", tag, "/")
+	}
+	switch strings.ToLower(trimmed) {
+	case "and", "or", "not":
+		return fmt.Errorf("tagquery: tag %q is a reserved operator word in this grammar — it would always parse as an operator, never as a matchable tag", tag)
+	}
+	return nil
+}
+
+// ValidateTags calls ValidateTag for every tag in tags, in order, returning
+// the first error encountered (nil if every tag is queryable). Intended for
+// a write seam validating a whole batch (e.g. a task's initial tag set) in
+// one call.
+func ValidateTags(tags []string) error {
+	for _, t := range tags {
+		if err := ValidateTag(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Parse parses a slash-separated postfix tag-query path into an Expr. See
 // the package doc comment for the full grammar. Malformed input (operator
 // arity underflow, or a disabled operator) is reported as an error rather

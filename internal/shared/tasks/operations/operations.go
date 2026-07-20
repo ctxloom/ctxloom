@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
 // TaskContext carries the inputs a frontend gathers for a task operation: the
@@ -202,8 +203,17 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 }
 
 // AddTaskWithTags is AddTask with an initial tag set stamped on the same
-// `add` event.
+// `add` event. This is a write seam: every tag is validated against
+// pkg/tagquery's grammar (rejecting a tag containing "/" or a reserved
+// operator word) BEFORE the store is touched, so a tag that would be
+// permanently unqueryable is rejected loudly instead of silently persisted —
+// see pkg/tagquery.ValidateTags. This check must never move onto the
+// fold/read path: an existing log already carrying such a tag must keep
+// loading without error.
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
+	if err := tagquery.ValidateTags(tags); err != nil {
+		return nil, fmt.Errorf("add task: %w", err)
+	}
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
@@ -219,9 +229,19 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 // attributing the change to the acting session. At least one of add/remove
 // must be non-empty. Add is applied before remove, so a tag named in both
 // lists ends up removed.
+//
+// This is a write seam for the `add` list only: those tags are validated
+// against pkg/tagquery's grammar before the store is touched (see
+// pkg/tagquery.ValidateTags and AddTaskWithTags), rejecting the whole call
+// before any event is written. `remove` is never validated — subtracting an
+// already-malformed tag never creates new unqueryable data, and an existing
+// log may legitimately carry one to remove.
 func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, error) {
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
+	}
+	if err := tagquery.ValidateTags(add); err != nil {
+		return nil, fmt.Errorf("add tags: %w", err)
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {

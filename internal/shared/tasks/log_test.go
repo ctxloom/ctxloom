@@ -220,6 +220,38 @@ func TestLogTaglessLogFoldsUnchanged(t *testing.T) {
 	}
 }
 
+// TestLogFoldToleratesPreExistingUnqueryableTags is the read-path-must-not-
+// validate guarantee: an existing log written before the write-seam guard
+// existed (or written by some other means) can carry a tag containing "/" or
+// a reserved operator word ("and") — both of which pkg/tagquery.ValidateTag
+// now rejects at write time. Folding that log must still succeed and surface
+// the tag verbatim; the reader degrades gracefully rather than failing to
+// load a task just because one of its tags is now unqueryable.
+func TestLogFoldToleratesPreExistingUnqueryableTags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
+	raw := `{"op":"add","task":"alpha","text":"pre-guard task","status":"To Do","session":"swift-amber-falcon","tags":["foo/bar","and","urgent"],"ts":"2026-01-01T00:00:00Z"}
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenLog(path, "")
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("list must not fail on a pre-existing unqueryable tag: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 task, got %d: %+v", len(got), got)
+	}
+	task := got[0]
+	want := []string{"and", "foo/bar", "urgent"}
+	if !slices.Equal(task.Tags, want) {
+		t.Fatalf("Tags = %v, want %v (normalizeTags sorts/dedupes but must not validate)", task.Tags, want)
+	}
+}
+
 func TestLogSetStatusLastWriteWins(t *testing.T) {
 	s := newLog(t, "")
 	a, _ := s.Add("ship it", "")

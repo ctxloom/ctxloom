@@ -713,7 +713,7 @@ gen-mcp-schemas:
 # Generate the reference docs for all three binaries from their sources of
 # truth: the CLI reference (man pages + website markdown) from each cobra
 # command tree, the MCP reference from the live tool/resource registrations, and
-# ctxloom's config reference from the tracked JSON Schema. One generator
+# ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
 # (internal/docsgen) serves all three; taskloom and ltk keep their trees in
 # `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
 # only under `-tags docsgen`. CI fails on drift (gen-docs-check in
@@ -728,7 +728,9 @@ gen-docs:
     go run -tags docsgen ./cmd/taskloom gendocs \
         --man man/man1 \
         --markdown website/src/content/docs/taskloom/reference/cli \
-        --mcp website/src/content/docs/taskloom/reference
+        --mcp website/src/content/docs/taskloom/reference \
+        --config website/src/content/docs/taskloom/reference \
+        --config-schema resources/schema/input/taskloom-config-schema.json
     go run -tags docsgen ./cmd/ltk gendocs \
         --man man/man1 \
         --markdown website/src/content/docs/ltk/reference/cli

@@ -11,11 +11,19 @@ import (
 
 // GenConfig renders the tracked JSON Schema at schemaPath into a Markdown
 // reference page at <dir>/config.md. It walks the schema rather than reflecting
-// config.Config directly: the Go struct's tags are yaml/mapstructure (not the
-// json the reflectors want) and it carries untagged runtime fields, whereas the
-// hand-annotated schema is the curated, user-facing surface. Output is
-// deterministic (object keys sorted; anyOf/oneOf array order preserved).
-func GenConfig(schemaPath, dir string) error {
+// p's own Go config struct directly: a hand-annotated schema's tags are
+// yaml/mapstructure (not the json the reflectors want) and it carries untagged
+// runtime fields, whereas the hand-annotated schema is the curated, user-facing
+// surface. Output is deterministic (object keys sorted; anyOf/oneOf array order
+// preserved).
+//
+// p supplies the product-specific conventions the intro prose names: its
+// config-dir name (p.Bin-derived, e.g. ~/.ctxloom/config.yaml vs.
+// ~/.taskloom/config.yaml) and its confload EnvPrefix (CTXLOOM_CONFIG_ vs.
+// TASKLOOM_CONFIG_) — see overrideChainSection. Without this, a second
+// product's generated page would describe ctxloom's own conventions verbatim,
+// which is wrong for every product but ctxloom.
+func GenConfig(p *Product, schemaPath, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -31,15 +39,16 @@ func GenConfig(schemaPath, dir string) error {
 
 	c := &configDoc{defs: objectMap(root["$defs"])}
 
-	c.b.WriteString(configFrontmatter())
+	c.b.WriteString(configFrontmatter(schemaPath))
 	if title, _ := root["title"].(string); title != "" {
 		fmt.Fprintf(&c.b, "%s.\n\n", strings.TrimRight(title, "."))
 	}
-	c.b.WriteString("These fields map to `~/.ctxloom/config.yaml` (and the per-project ")
-	c.b.WriteString("`.ctxloom/config.yaml`). The canonical machine-readable form is the JSON ")
-	c.b.WriteString("Schema at `resources/schema/input/config-schema.json`.\n\n")
+	dotDir := "." + p.Bin
+	fmt.Fprintf(&c.b, "These fields map to `~/%s/config.yaml` (and the per-project `%s/config.yaml`). ",
+		dotDir, dotDir)
+	fmt.Fprintf(&c.b, "The canonical machine-readable form is the JSON Schema at `%s`.\n\n", schemaPath)
 
-	c.b.WriteString(overrideChainSection(objectMap(root["properties"])))
+	c.b.WriteString(overrideChainSection(objectMap(root["properties"]), p.envPrefix()))
 
 	// Top-level fields (root has description on the schema itself; suppress it
 	// here since the intro above already covers it).
@@ -280,22 +289,25 @@ func branchTitle(br map[string]any, i int) string {
 // overrideChainSection renders the cross-cutting "how to override any of
 // this" explanation: the full precedence chain
 // (internal/shared/confload implements it) and
-// the CTXLOOM_CONFIG_ env-var / CLI-flag naming convention. This can't be
+// the envPrefix env-var / CLI-flag naming convention. This can't be
 // attached to any single schema property — it applies to EVERY field alike —
 // so it lives here as fixed prose rather than per-field description text,
 // with one concrete example derived from the schema itself (the first
 // scalar top-level property, alphabetically) so the convention reads as
-// real, not hypothetical.
-func overrideChainSection(topProps map[string]any) string {
+// real, not hypothetical. envPrefix is the product's own confload EnvPrefix
+// (e.g. "CTXLOOM_CONFIG_", "TASKLOOM_CONFIG_" — see Product.envPrefix), so
+// this reads correctly for every product sharing this generator, not just
+// ctxloom.
+func overrideChainSection(topProps map[string]any, envPrefix string) string {
 	var b strings.Builder
 	b.WriteString("## Overriding From The Environment Or A CLI Flag\n\n")
 	b.WriteString("Every field on this page can also be set without editing a config file, in ")
 	b.WriteString("ascending precedence: the home config file, then the project config file, ")
 	b.WriteString("then an environment variable, then a `--config-set` flag — the last one that sets a ")
 	b.WriteString("given key wins.\n\n")
-	b.WriteString("An environment variable override starts with `CTXLOOM_CONFIG_`, followed by ")
+	fmt.Fprintf(&b, "An environment variable override starts with `%s`, followed by ", envPrefix)
 	b.WriteString("the field's dotted path with each segment upper-cased and joined by `_` ")
-	b.WriteString("(e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). ")
+	fmt.Fprintf(&b, "(e.g. `agents.mycoder.runtime` becomes `%sAGENTS_MYCODER_RUNTIME`). ", envPrefix)
 	b.WriteString("A CLI override uses the repeatable `--config-set <dotted.path>=<value>` flag ")
 	b.WriteString("(`--config-set agents.mycoder.runtime=container`) — never a per-field flag of its own, ")
 	b.WriteString("since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. ")
@@ -306,8 +318,8 @@ func overrideChainSection(topProps map[string]any) string {
 	b.WriteString("cannot do.\n\n")
 
 	if name, ok := pickScalarExampleField(topProps); ok {
-		fmt.Fprintf(&b, "For example, `%s` can be set via `CTXLOOM_CONFIG_%s=<value>` or `--config-set %s=<value>`.\n\n",
-			name, envSegment(name), name)
+		fmt.Fprintf(&b, "For example, `%s` can be set via `%s%s=<value>` or `--config-set %s=<value>`.\n\n",
+			name, envPrefix, envSegment(name), name)
 	}
 	return b.String()
 }
@@ -337,17 +349,23 @@ func envSegment(name string) string { return strings.ToUpper(name) }
 
 // --- small schema helpers ---
 
-func configFrontmatter() string {
+// configFrontmatter renders the page's Starlight frontmatter + generated-file
+// banner. schemaPath is the exact path passed to GenConfig (and thus to `just
+// gen-docs`'s --config-schema), quoted verbatim so a reader always sees the
+// schema THIS page was actually generated from — ctxloom's own
+// resources/schema/input/config-schema.json, or a second product's own path
+// (e.g. taskloom's resources/schema/input/taskloom-config-schema.json).
+func configFrontmatter(schemaPath string) string {
 	return fmt.Sprintf(`---
 title: "Configuration"
 ---
-<!-- GENERATED by %[1]sjust gen-docs%[1]s from resources/schema/input/config-schema.json.
+<!-- GENERATED by %[1]sjust gen-docs%[1]s from %[2]s.
      Do not edit; edit the JSON Schema instead. -->
 :::note
-This page is generated from the config JSON Schema (%[1]sresources/schema/input/config-schema.json%[1]s).
+This page is generated from the config JSON Schema (%[1]s%[2]s%[1]s).
 :::
 
-`, "`")
+`, "`", schemaPath)
 }
 
 func refName(ref string) string {

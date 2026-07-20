@@ -34,6 +34,14 @@ taskloom manage install [flags]
       --project         Write the project-scoped config under --dir instead of the user-level one
 ```
 
+### Options inherited from parent commands
+
+```
+      --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
+      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+      --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+```
+
 ### SEE ALSO
 
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends

@@ -28,8 +28,11 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 ### Options
 
 ```
-  -h, --help             help for taskloom
-      --project string   Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
+      --config-set stringArray   Override a taskloom config value for this invocation: --config-set <dotted.path>=<value> (repeatable)
+      --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     help for taskloom
+      --homing homing            Task-store location for this invocation: "home" keeps it private under ~/.ctxloom/tasks (today's default behavior); "repo" checks it into .taskloom/tasks.jsonl so it travels with clones. Overrides the homing key in .taskloom/config.yaml and TASKLOOM_CONFIG_HOMING.
+      --project string           Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)
 ```
 
 ### SEE ALSO
@@ -43,6 +46,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom mcp](/taskloom/reference/cli/taskloom_mcp/)	 - Serve the task tools over MCP on stdio
 * [taskloom plan](/taskloom/reference/cli/taskloom_plan/)	 - Browse session plans (~/.ctxloom/sessions/<harp>/*.plan.md)
 * [taskloom run](/taskloom/reference/cli/taskloom_run/)	 - Browse a task and launch an agent on it (via ctxloom run)
+* [taskloom show](/taskloom/reference/cli/taskloom_show/)	 - Show one task's full detail
 * [taskloom status](/taskloom/reference/cli/taskloom_status/)	 - Change the status of a task
 * [taskloom statuses](/taskloom/reference/cli/taskloom_statuses/)	 - List the task status taxonomy (name, order, terminal, requires_trigger)
 * [taskloom summary](/taskloom/reference/cli/taskloom_summary/)	 - Show per-status counts and active in-progress tasks

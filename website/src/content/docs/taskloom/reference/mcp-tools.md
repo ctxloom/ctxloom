@@ -7,7 +7,7 @@ title: "MCP Tools Reference"
 This page is generated from taskloom's registered MCP tools and resources, as served by `taskloom mcp`.
 :::
 
-Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI.
+Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI. When writing task text, make the first line the subject (what the task IS, in ~80 characters or fewer) and put provenance like dates or session names on a later line — list views show only that truncated first line.
 
 ## Tools
 
@@ -19,7 +19,7 @@ Add a new task to the project's task log. Returns the assigned harp ID; referenc
 |------|------|----------|-------------|
 | `status` | string | No | Initial status (default: "To Do"). Free-form; standard values are "In Progress", "To Do", "Deferred", "Done", "Archived". |
 | `tags` | string[] | No | Optional flat tags to set on the task at creation (e.g. ["urgent", "release"]). Add more later with task_tag. |
-| `text` | string | Yes | Task text. Required, trimmed. |
+| `text` | string | Yes | Task text. Required, trimmed. Make the first line the subject: what the task IS, in ~80 characters or fewer — list views show only that line, truncated at 80 runes. Put provenance (dates, session names, "found while doing X") on a later line, not first, or it eats the whole summary before the subject appears. Fuller detail belongs in the body; "taskloom show" displays it. |
 | `trigger` | string | No | The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. "the v2 API ships"). REQUIRED when status is "Deferred"; ignored otherwise. |
 
 ### task_edit
@@ -29,7 +29,7 @@ Replace a task's text in place, keyed by its harp ID. Pass the full new text (th
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `harp_id` | string | Yes | The task's harp ID (e.g. "swift-amber-falcon") as returned by task_list or task_add. |
-| `text` | string | Yes | The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged. |
+| `text` | string | Yes | The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged. Keep the subject on the first line (~80 characters or fewer, since list views truncate there) and move provenance to a later line rather than overwriting the subject with it. |
 
 ### task_list
 

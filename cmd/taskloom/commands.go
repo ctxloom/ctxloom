@@ -246,9 +246,19 @@ var (
 var addCmd = &cobra.Command{
 	Use:   "add <text>",
 	Short: "Add a new task",
+	Long: `Add a new task.
+
+Make the first line the subject: what the task IS, in ~80 characters or
+fewer. The default list view shows only that first line, truncated at 80
+runes, so provenance (dates, session names, commit SHAs, "found while doing
+X") belongs on a later line, not the first — otherwise it eats the summary
+budget before the subject appears. Full text is always available via
+"taskloom show <harp-id>".`,
 	Example: `  taskloom add "ship the release notes" --tag release --tag docs
   taskloom add "investigate flaky TestFoo" --status "In Progress"
-  taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"`,
+  taskloom add "revisit caching" --status Deferred --trigger "the v2 API ships"
+  taskloom add "dedupe the retry loop in the sync client
+(found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")

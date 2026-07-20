@@ -55,7 +55,7 @@ type taskListResult struct {
 }
 
 type taskAddInput struct {
-	Text    string   `json:"text" jsonschema:"Task text. Required, trimmed."`
+	Text    string   `json:"text" jsonschema:"Task text. Required, trimmed. Make the first line the subject: what the task IS, in ~80 characters or fewer — list views show only that line, truncated at 80 runes. Put provenance (dates, session names, \"found while doing X\") on a later line, not first, or it eats the whole summary before the subject appears. Fuller detail belongs in the body; \"taskloom show\" displays it."`
 	Status  string   `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
 	Trigger string   `json:"trigger,omitempty" jsonschema:"The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise."`
 	Tags    []string `json:"tags,omitempty" jsonschema:"Optional flat tags to set on the task at creation (e.g. [\"urgent\", \"release\"]). Add more later with task_tag."`
@@ -79,7 +79,7 @@ type taskSetStatusResult struct {
 
 type taskEditInput struct {
 	HarpID string `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
-	Text   string `json:"text" jsonschema:"The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged."`
+	Text   string `json:"text" jsonschema:"The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged. Keep the subject on the first line (~80 characters or fewer, since list views truncate there) and move provenance to a later line rather than overwriting the subject with it."`
 }
 
 type taskEditResult struct {

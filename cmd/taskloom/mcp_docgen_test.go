@@ -51,4 +51,24 @@ func TestNewMCPServerRegistersTaskTools(t *testing.T) {
 	if init := cs.InitializeResult(); init == nil || init.Instructions == "" {
 		t.Error("server exposes no instructions — the MCP reference page would have no intro")
 	}
+
+	resRes, err := cs.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	gotResources := map[string]bool{}
+	for _, r := range resRes.Resources {
+		gotResources[r.URI] = true
+		if r.Description == "" {
+			t.Errorf("resource %q has no description — the reference page would render a blank entry", r.URI)
+		}
+	}
+	for _, want := range []string{tagSchemaResourceURI, tagVocabularyResourceURI} {
+		if !gotResources[want] {
+			t.Errorf("resource %q not registered", want)
+		}
+	}
+	if len(resRes.Resources) != 2 {
+		t.Errorf("registered %d resources, want 2 — add the new resource to this list and regenerate the docs", len(resRes.Resources))
+	}
 }

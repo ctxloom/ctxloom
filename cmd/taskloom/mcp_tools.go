@@ -18,7 +18,7 @@ import (
 type taskListInput struct {
 	Statuses         []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = active tasks only (completed Done/Archived and Deferred tasks are hidden unless include_completed is set or such a status is named here)."`
 	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
-	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter, e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". Empty = no tag filter."`
+	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter over query atoms shaped (namespace:)key(op value), e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". An atom with NO namespace (e.g. \"urgent\") matches ONLY tags that also have no namespace -- it never matches a namespaced tag with the same key, so \"urgent\" does NOT match \"triage:kind=urgent\"; query a namespaced key as \"ns:key\" or \"ns:key=value\" (e.g. \"triage:kind=fix\"). A bare key with no operator tests presence (valued or not); value comparisons use = != > >= < <= (numeric) or ~ (pattern match on the value, where . matches any single character, anchored to the whole value). * and + are wildcards: \"*:key\" matches key in any namespace including none, \"+:key\" matches key in any NAMED namespace, \"ns:*\" matches any key under namespace ns. Empty = no tag filter."`
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
 	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across EVERY project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all."`
@@ -69,7 +69,7 @@ type taskAddInput struct {
 	Text    string   `json:"text" jsonschema:"Task text. Required, trimmed. Make the first line the subject: what the task IS, in ~80 characters or fewer — list views show only that line, truncated at 80 runes. Put provenance (dates, session names, \"found while doing X\") on a later line, not first, or it eats the whole summary before the subject appears. Fuller detail belongs in the body; \"taskloom show\" displays it."`
 	Status  string   `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
 	Trigger string   `json:"trigger,omitempty" jsonschema:"The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise."`
-	Tags    []string `json:"tags,omitempty" jsonschema:"Optional flat tags to set on the task at creation (e.g. [\"urgent\", \"release\"]). Add more later with task_tag."`
+	Tags    []string `json:"tags,omitempty" jsonschema:"Optional tags to set on the task at creation, each shaped (namespace:)key(=value) -- e.g. \"triage:kind=fix\", \"triage:severity=3\", or a bare flat tag like \"urgent\" with no namespace. Read the taskloom://tag-schema and taskloom://tag-vocabulary MCP resources first for this project's actual declared/used vocabulary -- do not assume tags are flat labels. Add more later with task_tag."`
 }
 
 type taskAddResult struct {
@@ -100,7 +100,7 @@ type taskEditResult struct {
 
 type taskTagInput struct {
 	HarpID string   `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
-	Add    []string `json:"add,omitempty" jsonschema:"Tags to add (union onto the task's current tag set). Duplicates and already-present tags are no-ops."`
+	Add    []string `json:"add,omitempty" jsonschema:"Tags to add (union onto the task's current tag set), each shaped (namespace:)key(=value). A tag with an UNDECLARED-scalar or bare target is a plain union: a duplicate or already-present value is a no-op. But if the target IS declared scalar (at most one value -- see taskloom://tag-schema), adding a DIFFERENT value RETRACTS the previous one instead of accumulating a second -- this is a silent overwrite, not a no-op. Adding the exact same value again is still a no-op. A value violating a declared enum or numeric range is rejected, as are and/or/not and the tagma.* namespace."`
 	Remove []string `json:"remove,omitempty" jsonschema:"Tags to remove (subtracted from the task's current tag set). Removing an absent tag is a no-op. At least one of add/remove is required; a tag named in both ends up removed."`
 }
 
@@ -124,8 +124,11 @@ func registerTaskTools(server *mcp.Server) {
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name:        "task_add",
-			Description: "Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls.",
+			Name: "task_add",
+			Description: "Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls. " +
+				"Tags (optional, via `tags`) are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. " +
+				"If a tag's target is declared scalar (at most one value), setting a DIFFERENT value for it later via task_tag SILENTLY RETRACTS the value set here rather than adding a second one -- it is not a no-op. " +
+				"A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace.",
 		},
 		handleTaskAdd)
 
@@ -145,8 +148,12 @@ func registerTaskTools(server *mcp.Server) {
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name:        "task_tag",
-			Description: "Add and/or remove flat tags on a task, keyed by its harp ID. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). Filter task_list with tag_query using the resulting tags.",
+			Name: "task_tag",
+			Description: "Add and/or remove tags on a task, keyed by its harp ID. Tags are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. " +
+				"Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). " +
+				"WARNING: for a tag whose target is declared scalar (at most one value), adding a DIFFERENT value does NOT no-op like an already-present flat tag would -- it SILENTLY RETRACTS whatever value was there before. Adding the identical value again is still a no-op. " +
+				"A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. " +
+				"Filter task_list with tag_query using the resulting tags.",
 		},
 		handleTaskTag)
 }

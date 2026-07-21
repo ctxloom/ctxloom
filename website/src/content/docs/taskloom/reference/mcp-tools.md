@@ -7,18 +7,18 @@ title: "MCP Tools Reference"
 This page is generated from taskloom's registered MCP tools and resources, as served by `taskloom mcp`.
 :::
 
-Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's flat tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. The same store is scriptable via the `taskloom` CLI. When writing task text, make the first line the subject (what the task IS, in ~80 characters or fewer) and put provenance like dates or session names on a later line — list views show only that truncated first line.
+Per-project task tracking. Tasks are keyed by harp IDs (e.g. "swift-amber-falcon") in an append-only per-project log. Use task_list to read (echo a task's harp_id back when referencing it later; filter by tag with tag_query, a postfix boolean expression like "urgent/release/and"), task_add to create (optionally with initial tags), task_tag to add or remove a task's tags, task_set_status to move ("Done" completes; "Deferred" with a trigger parks a task on a revive condition), and task_edit to replace a task's text. Tags are `(namespace:)key(=value)`, not flat labels — read the `taskloom://tag-schema` and `taskloom://tag-vocabulary` resources before choosing one; a project may declare enums, numeric ranges, and scalar (at-most-one-value) targets that are enforced on write. The same store is scriptable via the `taskloom` CLI. When writing task text, make the first line the subject (what the task IS, in ~80 characters or fewer) and put provenance like dates or session names on a later line — list views show only that truncated first line.
 
 ## Tools
 
 ### task_add
 
-Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls.
+Add a new task to the project's task log. Returns the assigned harp ID; reference the task by that ID in subsequent calls. Tags (optional, via `tags`) are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. If a tag's target is declared scalar (at most one value), setting a DIFFERENT value for it later via task_tag SILENTLY RETRACTS the value set here rather than adding a second one -- it is not a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `status` | string | No | Initial status (default: "To Do"). Free-form; standard values are "In Progress", "To Do", "Deferred", "Done", "Archived". |
-| `tags` | string[] | No | Optional flat tags to set on the task at creation (e.g. ["urgent", "release"]). Add more later with task_tag. |
+| `tags` | string[] | No | Optional tags to set on the task at creation, each shaped (namespace:)key(=value) -- e.g. "triage:kind=fix", "triage:severity=3", or a bare flat tag like "urgent" with no namespace. Read the taskloom://tag-schema and taskloom://tag-vocabulary MCP resources first for this project's actual declared/used vocabulary -- do not assume tags are flat labels. Add more later with task_tag. |
 | `text` | string | Yes | Task text. Required, trimmed. Make the first line the subject: what the task IS, in ~80 characters or fewer — list views show only that line, truncated at 80 runes. Put provenance (dates, session names, "found while doing X") on a later line, not first, or it eats the whole summary before the subject appears. Fuller detail belongs in the body; "taskloom show" displays it. |
 | `trigger` | string | No | The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. "the v2 API ships"). REQUIRED when status is "Deferred"; ignored otherwise. |
 
@@ -42,7 +42,7 @@ List tasks, optionally filtered by status, text term, or tag query (tag_query). 
 | `include_summary` | boolean | No | When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set. |
 | `sort` | string | No | Optional sort order. "priority" sorts by derived, rank-normalized priority (descending) — a 0-5 score combining a project's priority_fn/decay_fn formulas over each task's tags, percentile-ranked against the project's non-terminal tasks; see each returned task's derived_priority field. Empty (default) leaves today's order unchanged. |
 | `statuses` | string[] | No | Optional list of statuses to filter by (e.g. ["In Progress", "To Do"]). Empty = active tasks only (completed Done/Archived and Deferred tasks are hidden unless include_completed is set or such a status is named here). |
-| `tag_query` | string | No | Optional postfix (RPN) boolean tag filter, e.g. "urgent/release/and" (tagged both urgent AND release), "urgent/release/or", or "urgent/not" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: "urgent/release" behaves like "urgent/release/and". Empty = no tag filter. |
+| `tag_query` | string | No | Optional postfix (RPN) boolean tag filter over query atoms shaped (namespace:)key(op value), e.g. "urgent/release/and" (tagged both urgent AND release), "urgent/release/or", or "urgent/not" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: "urgent/release" behaves like "urgent/release/and". An atom with NO namespace (e.g. "urgent") matches ONLY tags that also have no namespace -- it never matches a namespaced tag with the same key, so "urgent" does NOT match "triage:kind=urgent"; query a namespaced key as "ns:key" or "ns:key=value" (e.g. "triage:kind=fix"). A bare key with no operator tests presence (valued or not); value comparisons use = != > >= < <= (numeric) or ~ (pattern match on the value, where . matches any single character, anchored to the whole value). * and + are wildcards: "*:key" matches key in any namespace including none, "+:key" matches key in any NAMED namespace, "ns:*" matches any key under namespace ns. Empty = no tag filter. |
 | `term` | string | No | Optional case-insensitive substring filter against task text. |
 
 ### task_set_status
@@ -57,11 +57,20 @@ Move a task to a different status. Use "Done" to complete a task or "Archived" t
 
 ### task_tag
 
-Add and/or remove flat tags on a task, keyed by its harp ID. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). Filter task_list with tag_query using the resulting tags.
+Add and/or remove tags on a task, keyed by its harp ID. Tags are shaped (namespace:)key(=value), not flat labels -- read the taskloom://tag-schema and taskloom://tag-vocabulary resources for this project's declared vocabulary and tags already in use before choosing one. Pass `add`, `remove`, or both in one call (add is applied before remove, so a tag in both lists ends up removed). WARNING: for a tag whose target is declared scalar (at most one value), adding a DIFFERENT value does NOT no-op like an already-present flat tag would -- it SILENTLY RETRACTS whatever value was there before. Adding the identical value again is still a no-op. A tag value violating a declared enum or numeric range is rejected at write, as are the reserved words and/or/not and the tagma.* namespace. Filter task_list with tag_query using the resulting tags.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `add` | string[] | No | Tags to add (union onto the task's current tag set). Duplicates and already-present tags are no-ops. |
+| `add` | string[] | No | Tags to add (union onto the task's current tag set), each shaped (namespace:)key(=value). A tag with an UNDECLARED-scalar or bare target is a plain union: a duplicate or already-present value is a no-op. But if the target IS declared scalar (at most one value -- see taskloom://tag-schema), adding a DIFFERENT value RETRACTS the previous one instead of accumulating a second -- this is a silent overwrite, not a no-op. Adding the exact same value again is still a no-op. A value violating a declared enum or numeric range is rejected, as are and/or/not and the tagma.* namespace. |
 | `harp_id` | string | Yes | The task's harp ID (e.g. "swift-amber-falcon") as returned by task_list or task_add. |
 | `remove` | string[] | No | Tags to remove (subtracted from the task's current tag set). Removing an absent tag is a no-op. At least one of add/remove is required; a tag named in both ends up removed. |
+
+## Resources
+
+Read-only listings are exposed as MCP resources rather than tools.
+
+| URI | Name | Description |
+|-----|------|-------------|
+| `taskloom://tag-schema` | tag-schema | The project's RESOLVED tag_schema: every declared target (namespace:key), whether it's arity=scalar (re-tagging retracts the previous value), its closed enum values or numeric range if declared, and its priority_fn/decay_fn formulas if declared. This is the live vocabulary a task tag's value is validated against on write — read it before choosing a tag, rather than guessing. |
+| `taskloom://tag-vocabulary` | tag-vocabulary | Tags currently in use across the project's tasks, with active/total counts (the MCP twin of `taskloom tags`). "active" counts tasks visible in the default list view; "total" includes completed/Deferred ones too. Use this to spot an existing near-twin before coining a new ad-hoc tag. |
 

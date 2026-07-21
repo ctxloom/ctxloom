@@ -16,7 +16,9 @@ type gadgetInput struct {
 }
 
 // docServer builds a tiny MCP surface: one tool, no resources, no templates —
-// the shape of taskloom's server.
+// deliberately narrower than taskloom's real server (which does register
+// resources, see cmd/taskloom/mcp_resources.go), so GenMCPTools's "omit an
+// empty section" behavior stays covered by this fixture staying resource-less.
 func docServer(t *testing.T) *mcp.Server {
 	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "widget"}, nil)

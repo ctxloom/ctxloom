@@ -32,6 +32,7 @@ package tagschema
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -132,6 +133,30 @@ func (s *Schema) Get(facet, target string) (string, bool) {
 	}
 	v, ok := m[target]
 	return v, ok
+}
+
+// Targets returns every target declared for facet, sorted — e.g.
+// Targets(PriorityFnFacet) names every target a priority_fn is declared
+// against, however many there are. A caller that expects at most one
+// (internal/shared/tasks/priority's compileAll for priority_fn/decay_fn) is
+// responsible for treating more than one as an ambiguity; this accessor just
+// reports what's declared, same as Get. Nil-receiver-safe like every other
+// accessor on Schema: a nil Schema declares nothing, so Targets returns nil
+// rather than panicking.
+func (s *Schema) Targets(facet string) []string {
+	if s == nil {
+		return nil
+	}
+	m := s.facets[facet]
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for target := range m {
+		out = append(out, target)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // IsScalar reports whether target is declared arity=scalar — at most one

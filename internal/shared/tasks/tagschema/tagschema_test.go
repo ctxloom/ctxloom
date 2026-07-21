@@ -113,6 +113,29 @@ func TestPriorityFnAndDecayFn_RetrieveDeclaredFormulas(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestTargets_ReturnsSortedDeclaredTargetsForFacet pins Targets' contract:
+// every target declared for a facet, sorted, and only that facet — a target
+// declared under a different facet must not leak in.
+func TestTargets_ReturnsSortedDeclaredTargetsForFacet(t *testing.T) {
+	s, err := Parse([]string{
+		`tagma.priority_fn:"triage:severity"="{{triage:severity}}"`,
+		`tagma.priority_fn:"triage:aardvark"="{{triage:aardvark}}"`,
+		`tagma.decay_fn:"triage:severity"="1"`,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"triage:aardvark", "triage:severity"}, s.Targets(PriorityFnFacet))
+	assert.Equal(t, []string{"triage:severity"}, s.Targets(DecayFnFacet))
+	assert.Empty(t, s.Targets(EnumFacet), "an undeclared facet has no targets")
+}
+
+// TestTargets_NilSchemaIsEmpty mirrors every other accessor's nil-receiver
+// safety.
+func TestTargets_NilSchemaIsEmpty(t *testing.T) {
+	var s *Schema
+	assert.Empty(t, s.Targets(PriorityFnFacet))
+}
+
 func TestEnum_ParsesCommaSeparatedListAndDropsEmptyEntries(t *testing.T) {
 	s, err := Parse([]string{
 		`tagma.enum:"triage:type"="correctness,security, docs ,,build"`,

@@ -588,8 +588,9 @@ func (l *eventLog) list(statuses []string, term string) ([]Task, error) {
 }
 
 // listWithTagQuery is list with an additional postfix tag-query filter (see
-// pkg/tagquery). An empty tagQuery behaves exactly like list; a malformed
-// one surfaces as an error, never a silently empty or unfiltered result.
+// filterTasks, backed by tagma). An empty tagQuery behaves exactly like
+// list; a malformed one surfaces as an error, never a silently empty or
+// unfiltered result.
 func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {
 	all, err := l.snapshot()
 	if err != nil {

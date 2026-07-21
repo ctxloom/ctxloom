@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -66,6 +67,120 @@ func TestFilterTasksMalformedTagQueryErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a malformed tag query (bare operator, arity underflow)")
 	}
+}
+
+// A malformed --tag-query surfaces wrapped in ErrTagQuery, so a caller
+// (cmd/taskloom's wrapTagQueryError) can distinguish "the query itself is
+// bad" from an unrelated failure via errors.Is, without depending on
+// tagma's own error shape (a plain error, not a distinct type).
+func TestFilterTasksMalformedTagQueryWrapsErrTagQuery(t *testing.T) {
+	all := []Task{taskWithTags("a", "urgent")}
+	_, err := filterTasks(all, nil, "", "and")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, ErrTagQuery) {
+		t.Fatalf("expected err to wrap ErrTagQuery, got %v", err)
+	}
+}
+
+// Operators are matched case-insensitively — a leniency tagma's grammar was
+// deliberately extended with to match taskloom's pre-existing pkg/tagquery
+// behavior (see tagma's SPEC.md §2). Mixed/upper-case AND/OR/NOT must
+// behave identically to their lowercase forms.
+func TestFilterTasksTagQueryCaseInsensitiveOperators(t *testing.T) {
+	all := []Task{
+		taskWithTags("urgent-release", "urgent", "release"),
+		taskWithTags("urgent-only", "urgent"),
+	}
+	got, err := filterTasks(all, nil, "", "urgent/release/AND")
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	if len(got) != 1 || got[0].HarpID != "urgent-release" {
+		t.Fatalf("uppercase AND = %+v, want only urgent-release", got)
+	}
+
+	got, err = filterTasks(all, nil, "", "urgent/Not")
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("mixed-case Not on urgent = %+v, want none (both tasks are urgent)", got)
+	}
+}
+
+// filterTasks must preserve INPUT order, not tagma's internally-sorted
+// return order (QueryPostfix returns ids sorted lexically). Choose harp IDs
+// whose lexical order is the reverse of their input order, so a bug that
+// forwarded tagma's raw result slice would be caught.
+func TestFilterTasksTagQueryPreservesInputOrder(t *testing.T) {
+	all := []Task{
+		taskWithTags("zebra", "urgent"),
+		taskWithTags("mango", "urgent"),
+		taskWithTags("apple", "urgent"),
+	}
+	got, err := filterTasks(all, nil, "", "urgent")
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	wantOrder := []string{"zebra", "mango", "apple"}
+	if len(got) != len(wantOrder) {
+		t.Fatalf("got %d tasks, want %d", len(got), len(wantOrder))
+	}
+	for i, w := range wantOrder {
+		if got[i].HarpID != w {
+			t.Fatalf("order = %v, want %v (input order, not tagma's sorted return)", harpIDs(got), wantOrder)
+		}
+	}
+}
+
+// The tagma index backing a tag query must be scoped to the tasks that
+// already passed the status/term pre-filter, not the whole task list —
+// this is what makes `not` behave like the old per-task
+// Expr.Matches(taskHasTag(t)) loop instead of complementing against a wider
+// universe. A Done task carrying the queried tag must never leak into a
+// `not`-query result just because it exists in `all`; it's excluded by the
+// status filter before the tag query ever runs.
+func TestFilterTasksTagQueryNotScopedToStatusCandidates(t *testing.T) {
+	all := []Task{
+		{HarpID: "keep-me", Text: "keep-me", Status: StatusToDo},
+		{HarpID: "done-urgent", Text: "done-urgent", Status: StatusDone, Tags: []string{"urgent"}},
+	}
+	got, err := filterTasks(all, []string{StatusToDo}, "", "urgent/not")
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	if len(got) != 1 || got[0].HarpID != "keep-me" {
+		t.Fatalf("status+not = %+v, want only keep-me (done-urgent excluded by status, not leaked into the not-universe)", got)
+	}
+}
+
+// A tag written before write-time validation existed (pkg/tagquery.
+// ValidateTag / operations.validateTag) may not parse under tagma's grammar
+// (e.g. it contains "/"). filterTasks — the read path — must stay lenient:
+// skip the unparseable tag rather than erroring the whole query, matching
+// the old engine's taskHasTag, which was a plain string scan that never
+// errored on tag shape.
+func TestFilterTasksTagQueryLenientOnUnparseableStoredTag(t *testing.T) {
+	all := []Task{
+		{HarpID: "legacy", Text: "legacy", Status: StatusToDo, Tags: []string{"urgent", "legacy/malformed"}},
+	}
+	got, err := filterTasks(all, nil, "", "urgent")
+	if err != nil {
+		t.Fatalf("filterTasks must not error on an unparseable stored tag: %v", err)
+	}
+	if len(got) != 1 || got[0].HarpID != "legacy" {
+		t.Fatalf("got %+v, want the legacy task matched via its still-valid urgent tag", got)
+	}
+}
+
+func harpIDs(tasks []Task) []string {
+	ids := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.HarpID
+	}
+	return ids
 }
 
 func TestNormalizeTags(t *testing.T) {

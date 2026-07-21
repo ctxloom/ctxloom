@@ -178,7 +178,7 @@ func TestPinnedProjectMismatchWarns(t *testing.T) {
 // TestAddTaskWithTagsThenListTagQuery covers the whole tag-query wiring at
 // the layer both the CLI and MCP surfaces call into: AddTaskWithTags stamps
 // initial tags, TagTask adds/removes on an existing task, and
-// ListTasksWithTagQuery filters using pkg/tagquery's postfix grammar.
+// ListTasksWithTagQuery filters using tagma's postfix grammar.
 func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 	taskstest.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
@@ -455,7 +455,7 @@ func TestHoming_HomeHomedWritesUnderHome(t *testing.T) {
 }
 
 // TestAddTaskWithTagsRejectsUnqueryableTags pins the write-seam guard: a tag
-// containing "/" (the tagquery grammar's separator) or a reserved operator
+// containing "/" (outside tagma's bare-token charset) or a reserved operator
 // word ("and"/"or"/"not") would be permanently unqueryable once stored, so
 // AddTaskWithTags must reject the whole operation before any event is
 // written — no task, no partial tag set left behind.
@@ -512,6 +512,44 @@ func TestTagTaskRejectsUnqueryableAddedTags(t *testing.T) {
 	// Removing tags is not subject to this guard.
 	if _, err := TagTask(tc, add.Task.HarpID, nil, []string{"urgent"}); err != nil {
 		t.Fatalf("remove should be unaffected by the add-side guard: %v", err)
+	}
+}
+
+// TestValidateTagRejectsReservedWordsCaseInsensitively pins the
+// tagma-aware write guard's case-insensitive reserved-word rule: tagma's
+// grammar was deliberately extended to match "and"/"or"/"not" as operators
+// regardless of case (mirroring the retired pkg/tagquery's own leniency),
+// so a tag spelled "AND" is exactly as unqueryable as "and" and must be
+// rejected the same way.
+func TestValidateTagRejectsReservedWordsCaseInsensitively(t *testing.T) {
+	for _, tag := range []string{"and", "AND", "And", "or", "OR", "not", "NOT", " and "} {
+		if err := validateTag(tag); err == nil {
+			t.Errorf("validateTag(%q): expected an error (reserved operator word)", tag)
+		}
+	}
+}
+
+// TestValidateTagRejectsTagmaUnparseableTags pins the new-under-tagma half
+// of the write guard: tagma's bare-token grammar is narrower than the old
+// pkg/tagquery check (which only rejected "/" and reserved words) — it also
+// rejects "*", "+", and embedded whitespace, none of which tagma.ParseTag
+// can turn into a matchable atom.
+func TestValidateTagRejectsTagmaUnparseableTags(t *testing.T) {
+	for _, tag := range []string{"urgent*", "release+", "foo/bar", "has space"} {
+		if err := validateTag(tag); err == nil {
+			t.Errorf("validateTag(%q): expected an error (not a valid tagma tag)", tag)
+		}
+	}
+}
+
+// TestValidateTagAcceptsOrdinaryTags pins the non-rejection side: plain
+// bare-token tags, including ones that merely start with or contain a
+// reserved word as a substring, must stay valid.
+func TestValidateTagAcceptsOrdinaryTags(t *testing.T) {
+	for _, tag := range []string{"urgent", "release", "android", "cannot", "note", "north", "v1.2", "a-b_c"} {
+		if err := validateTag(tag); err != nil {
+			t.Errorf("validateTag(%q): unexpected error: %v", tag, err)
+		}
 	}
 }
 

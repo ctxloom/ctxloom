@@ -75,6 +75,7 @@ require (
 )
 
 require (
+	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260721041511-8220aa6712fe
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
 	github.com/knadh/koanf/providers/env/v2 v2.0.0

@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
-	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
 var (
@@ -166,13 +165,22 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 }
 
 // wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,
-// shared by both the single-project and --global list paths.
+// shared by both the single-project and --global list paths. tagma reports a
+// malformed query as a plain error (no dedicated type to type-assert, unlike
+// the retired pkg/tagquery.ParseError, whose message named the underflowing
+// operator's operand count), so this checks for tasks.ErrTagQuery via
+// errors.Is instead — the sentinel filterTasks wraps every tagma query
+// error with — to tell "the --tag-query itself is bad" apart from an
+// unrelated error (store I/O, project resolution) that shouldn't get the
+// hint appended. The hint itself still names "operand" explicitly (not just
+// tagma's own "stack underflow" wording) so a malformed query keeps failing
+// loud with the problem named in the same vocabulary it always has,
+// independent of the query engine underneath.
 func wrapTagQueryError(err error) error {
-	var perr *tagquery.ParseError
-	if errors.As(err, &perr) {
-		return fmt.Errorf("%w\nqueries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not (see 'taskloom list --help' for more)", err)
+	if err == nil || !errors.Is(err, tasks.ErrTagQuery) {
+		return err
 	}
-	return err
+	return fmt.Errorf("%w\nqueries are postfix: tags first, operator after — e.g. urgent/release/and, urgent/not; an and/or/not operator needs enough operands already on the query's stack, or it fails (see 'taskloom list --help' for more)", err)
 }
 
 // renderGlobalTaskTable prints a --global (or no-project-fallback) listing as

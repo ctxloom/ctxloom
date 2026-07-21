@@ -39,8 +39,8 @@ func (s *Store) List(statuses []string, term string) ([]Task, error) {
 	return s.log.list(statuses, term)
 }
 
-// ListWithTagQuery is List with an additional postfix tag-query filter (see
-// pkg/tagquery for the grammar, e.g. "urgent/release/and"). An empty
+// ListWithTagQuery is List with an additional postfix tag-query filter,
+// evaluated by tagma (see filterTasks, e.g. "urgent/release/and"). An empty
 // tagQuery behaves exactly like List. A malformed tagQuery is returned as an
 // error rather than a silently empty or unfiltered result.
 func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {

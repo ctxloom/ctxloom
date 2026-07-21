@@ -7,12 +7,13 @@ package operations
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
-	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
 // TaskContext carries the inputs a frontend gathers for a task operation: the
@@ -137,8 +138,9 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 }
 
 // ListTasksWithTagQuery is ListTasks with an additional postfix tag-query
-// filter (see pkg/tagquery for the grammar, e.g. "urgent/release/and"). An
-// empty tagQuery behaves exactly like ListTasks. A malformed tagQuery
+// filter, evaluated by tagma (see internal/shared/tasks.filterTasks, e.g.
+// "urgent/release/and"). An empty tagQuery behaves exactly like ListTasks.
+// A malformed tagQuery
 // surfaces as an error — never a silently empty or unfiltered result.
 func ListTasksWithTagQuery(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool) (*TaskListResult, error) {
 	return listTasks(tc, statuses, term, tagQuery, includeDone, includeSummary)
@@ -204,14 +206,13 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 
 // AddTaskWithTags is AddTask with an initial tag set stamped on the same
 // `add` event. This is a write seam: every tag is validated against
-// pkg/tagquery's grammar (rejecting a tag containing "/" or a reserved
-// operator word) BEFORE the store is touched, so a tag that would be
-// permanently unqueryable is rejected loudly instead of silently persisted —
-// see pkg/tagquery.ValidateTags. This check must never move onto the
-// fold/read path: an existing log already carrying such a tag must keep
-// loading without error.
+// validateTags (this file's tagma-aware grammar/reserved-word check)
+// BEFORE the store is touched, so a tag that would be permanently
+// unqueryable is rejected loudly instead of silently persisted. This check
+// must never move onto the fold/read path: an existing log already carrying
+// such a tag must keep loading without error.
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
-	if err := tagquery.ValidateTags(tags); err != nil {
+	if err := validateTags(tags); err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
@@ -231,16 +232,16 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 // lists ends up removed.
 //
 // This is a write seam for the `add` list only: those tags are validated
-// against pkg/tagquery's grammar before the store is touched (see
-// pkg/tagquery.ValidateTags and AddTaskWithTags), rejecting the whole call
-// before any event is written. `remove` is never validated — subtracting an
-// already-malformed tag never creates new unqueryable data, and an existing
-// log may legitimately carry one to remove.
+// against validateTags before the store is touched (see AddTaskWithTags),
+// rejecting the whole call before any event is written. `remove` is never
+// validated — subtracting an already-malformed tag never creates new
+// unqueryable data, and an existing log may legitimately carry one to
+// remove.
 func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, error) {
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
 	}
-	if err := tagquery.ValidateTags(add); err != nil {
+	if err := validateTags(add); err != nil {
 		return nil, fmt.Errorf("add tags: %w", err)
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
@@ -261,6 +262,62 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 		}
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// validateTags calls validateTag for every tag in tags, in order, returning
+// the first error encountered (nil if every tag is queryable). This is the
+// write-side counterpart to internal/shared/tasks.filterTasks's lenient
+// read side: a tag rejected here can never be stored, so filterTasks's
+// leniency (skipping a tag tagma.ParseTag can't parse) only ever has to
+// cover data written before this guard existed.
+func validateTags(tags []string) error {
+	for _, t := range tags {
+		if err := validateTag(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateTag reports whether tag would be PERMANENTLY UNQUERYABLE once
+// stored, under tagma's grammar plus this package's own reserved-word rule.
+// A tag is rejected when:
+//
+//   - trimmed and compared case-insensitively, it equals a reserved
+//     operator word ("and", "or", "not"): tagma's postfix evaluator always
+//     treats such a token as an operator (case-insensitively, per tagma's
+//     leniency — see evalPostfix), so a tag with that exact name could
+//     never appear as a queryable atom; it would always be consumed as an
+//     operator instead. It stays reachable only by quoting it at query
+//     time, which is a footgun this guard exists to steer users away from
+//     needing.
+//   - it fails tagma.ParseTag: tagma's tag grammar is a bare token
+//     ([A-Za-z0-9_][A-Za-z0-9_.-]*, optionally namespaced/valued), so a tag
+//     containing "/", "*", "+", whitespace, or any other character outside
+//     that charset can never be written as a single matchable atom.
+//
+// An empty or all-whitespace tag is not rejected here (validateTag never
+// panics on ""): callers that drop empty tags before storage — see
+// normalizeTags in internal/shared/tasks — already handle that case, and it
+// is not something this grammar makes unqueryable.
+//
+// This is a write-time check only. It must never run on the read/fold path:
+// an existing log already containing a malformed tag must still fold and
+// list without error (see internal/shared/tasks.tagsToTagmaTags), so a
+// reader stays lenient even where a writer is now strict.
+func validateTag(tag string) error {
+	trimmed := strings.TrimSpace(tag)
+	if trimmed == "" {
+		return nil
+	}
+	switch strings.ToLower(trimmed) {
+	case "and", "or", "not":
+		return fmt.Errorf("tag %q is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time", tag)
+	}
+	if _, err := tagma.ParseTag(trimmed); err != nil {
+		return fmt.Errorf("tag %q is not a valid tag under tagma's grammar and would be permanently unqueryable once stored: %w", tag, err)
+	}
+	return nil
 }
 
 // SetTaskStatus moves a task to a different status, attributing the change to

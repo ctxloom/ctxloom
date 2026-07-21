@@ -223,7 +223,7 @@ func TestLogTaglessLogFoldsUnchanged(t *testing.T) {
 // TestLogFoldToleratesPreExistingUnqueryableTags is the read-path-must-not-
 // validate guarantee: an existing log written before the write-seam guard
 // existed (or written by some other means) can carry a tag containing "/" or
-// a reserved operator word ("and") — both of which pkg/tagquery.ValidateTag
+// a reserved operator word ("and") — both of which operations.validateTag
 // now rejects at write time. Folding that log must still succeed and surface
 // the tag verbatim; the reader degrades gracefully rather than failing to
 // load a task just because one of its tags is now unqueryable.

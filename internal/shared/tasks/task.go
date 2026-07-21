@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/pkg/tagquery"
 )
 
 // Default status names. Hardcoded in v1; revisit if user-defined statuses
@@ -134,11 +134,33 @@ func uniqueHarpIDFromSet(used map[string]struct{}) string {
 	return harp.UniqueFrom(used, harp.GenerateShortName)
 }
 
+// ErrTagQuery marks an error as originating from a malformed --tag-query
+// (tagma's Compile/QueryPostfix), letting a caller distinguish "the query
+// itself is bad" from an unrelated failure (store I/O, project resolution)
+// without depending on tagma's own error shape — tagma reports a parse
+// failure as a plain error, not a distinct type, unlike the retired
+// pkg/tagquery.ParseError. cmd/taskloom's wrapTagQueryError uses this via
+// errors.Is to decide whether to append its postfix-grammar usage hint.
+var ErrTagQuery = errors.New("tag query")
+
 // filterTasks applies status/term/tag-query filters to a task list. An empty
-// tagQuery applies no tag filter; a non-empty one is parsed once (via
-// pkg/tagquery) and evaluated per task. A malformed tagQuery is returned as
-// an error — never silently degraded to an empty or unfiltered result (see
-// CLAUDE.md fail-loud philosophy).
+// tagQuery applies no tag filter — the tagma index is never even built in
+// that case. A non-empty tagQuery is evaluated by building a *tagma.Index
+// over the CANDIDATES that already passed the status/term filter (not the
+// full task list) and running QueryPostfix against it once. A malformed
+// tagQuery is returned as an error — never silently degraded to an empty or
+// unfiltered result (see CLAUDE.md fail-loud philosophy).
+//
+// Scoping the index to the status/term-passing candidates — rather than
+// building it over every task — matters specifically for `not`: tagma's
+// "not" complements over the index's *participating* universe (every item
+// that was given at least one query-visible tag via AddItem), not over some
+// wider notion of "everything". Building the index over all tasks would let
+// `not urgent` return every task minus the urgent ones, including tasks a
+// status/term filter should have excluded. Scoping to candidates first
+// makes `not urgent` mean exactly what the old per-task
+// Expr.Matches(taskHasTag(t)) loop meant: "true for every candidate that
+// doesn't carry the urgent tag".
 func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, error) {
 	var statusSet map[string]bool
 	if len(statuses) > 0 {
@@ -147,16 +169,9 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, 
 			statusSet[s] = true
 		}
 	}
-	var expr *tagquery.Expr
-	if strings.TrimSpace(tagQuery) != "" {
-		e, err := tagquery.Parse(tagQuery)
-		if err != nil {
-			return nil, fmt.Errorf("tag query %q: %w", tagQuery, err)
-		}
-		expr = &e
-	}
 	termLower := strings.ToLower(strings.TrimSpace(term))
-	out := make([]Task, 0, len(all))
+
+	candidates := make([]Task, 0, len(all))
 	for _, t := range all {
 		if statusSet != nil && !statusSet[t.Status] {
 			continue
@@ -164,26 +179,88 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, 
 		if termLower != "" && !strings.Contains(strings.ToLower(t.Text), termLower) {
 			continue
 		}
-		if expr != nil && !expr.Matches(taskHasTag(t)) {
-			continue
+		candidates = append(candidates, t)
+	}
+
+	if strings.TrimSpace(tagQuery) == "" {
+		return candidates, nil
+	}
+
+	idx := tagma.NewIndex()
+	for _, t := range candidates {
+		// AddItem only records an id in the index if it's given at least one
+		// tag — an item that never appears in idx.items doesn't participate
+		// in the universe QueryPostfix's `not` complements against (see
+		// tagma's Index.participatingIDs). A candidate with zero (or zero
+		// still-parseable, see tagsToTagmaTags) real tags would then be
+		// silently dropped from `not X` results even though the old engine
+		// included it (an untagged task has no tag named X, so `not X`
+		// matched it). presenceTag guarantees every candidate always
+		// contributes at least one tag, so every candidate always
+		// participates — matching the old per-task semantics exactly. Its
+		// reserved namespace never collides with a real bare-token tag (a
+		// bare tag always parses with a nil namespace), so it can never
+		// match a real query atom.
+		idx.AddItem(t.HarpID, append(tagsToTagmaTags(t.Tags), presenceTag()))
+	}
+	ids, err := idx.QueryPostfix(tagQuery)
+	if err != nil {
+		return nil, fmt.Errorf("%w %q: %w", ErrTagQuery, tagQuery, err)
+	}
+	matched := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		matched[id] = struct{}{}
+	}
+
+	// Preserve input order: today's per-task loop appends in candidate
+	// order, so iterate candidates and keep the ones tagma matched, rather
+	// than trusting QueryPostfix's (sorted-by-id) return order.
+	out := make([]Task, 0, len(candidates))
+	for _, t := range candidates {
+		if _, ok := matched[t.HarpID]; ok {
+			out = append(out, t)
 		}
-		out = append(out, t)
 	}
 	return out, nil
 }
 
-// taskHasTag returns a tagquery-shaped "has this tag" predicate for t. Tags
-// are always stored sorted+deduped, so a linear scan is ample for the small
-// per-task tag sets this system expects.
-func taskHasTag(t Task) func(tag string) bool {
-	return func(tag string) bool {
-		for _, has := range t.Tags {
-			if has == tag {
-				return true
-			}
+// presenceNamespace is a reserved tagma namespace used only by
+// presenceTag, never by a real stored tag: every stored tag comes from
+// normalizeTags/ValidateTag, which only ever accept plain bare tokens —
+// tagma.ParseTag on a bare token always yields a nil Namespace, so a tag
+// carrying this (or any) explicit namespace can never collide with one a
+// user wrote.
+const presenceNamespace = "taskloom.internal"
+
+// presenceTag is an inert marker tag added alongside every candidate's real
+// tags in filterTasks — see that function's doc for why. It never matches
+// a real query atom: taskloom's tag queries are always plain bare tokens
+// (see this package's own tests), and a bare query atom only matches tags
+// with a nil namespace (tagma's nsMatches), never a namespaced one like
+// this.
+func presenceTag() tagma.Tag {
+	ns := presenceNamespace
+	return tagma.Tag{Namespace: &ns, Key: "candidate"}
+}
+
+// tagsToTagmaTags converts a task's stored flat tag strings into tagma.Tag
+// values for indexing. Stored tags are always plain bare tokens under
+// today's write-time guard (see operations.validateTag), but the reader
+// stays lenient: an existing log may still carry a tag written before that
+// guard existed, so a tag that fails tagma.ParseTag here is skipped rather
+// than failing the whole query — mirroring the old engine, whose
+// taskHasTag predicate was a plain string scan that never errored on tag
+// shape either.
+func tagsToTagmaTags(tags []string) []tagma.Tag {
+	out := make([]tagma.Tag, 0, len(tags))
+	for _, s := range tags {
+		tag, err := tagma.ParseTag(s)
+		if err != nil {
+			continue
 		}
-		return false
+		out = append(out, tag)
 	}
+	return out
 }
 
 // normalizeTags trims, drops empties, dedupes, and sorts tags for

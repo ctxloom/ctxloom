@@ -2,7 +2,7 @@
 
 // J11: "taskloom's tag surface is real across the process boundary"
 // (j11_taskloom_tags.feature). taskloom's tag-query grammar, fold, and
-// handler I/O are already unit/op/handler-tested (pkg/tagquery,
+// handler I/O are already unit/op/handler-tested (tagma via
 // internal/shared/tasks, internal/shared/tasks/operations) — this journey
 // does not re-prove any of that. It drives the REAL `taskloom` binary as a
 // separate OS process (tests/integration/testenv/taskloom_acceptance.go) —

@@ -131,14 +131,39 @@ func resolveHoming(tc operations.TaskContext) (operations.TaskContext, error) {
 	return tc, nil
 }
 
-// taskContextSingle is taskContext() plus resolveHoming: the combined
-// resolution every command that touches exactly one project's store needs.
+// resolveTagSchema resolves tc's tag-schema (taskloom's own layered config —
+// home < project .taskloom/config.yaml < TASKLOOM_CONFIG_* env <
+// --config-set tag_schema=..., via taskloomconfig.Load — falling back to
+// taskloomconfig.DefaultTagSchema when unset at every layer, see
+// Config.ResolvedTagSchema's doc) and sets it on tc. A malformed declaration
+// is a returned error (fail loud: never run with a silently empty or
+// partial schema) naming the offending declaration.
+func resolveTagSchema(tc operations.TaskContext) (operations.TaskContext, error) {
+	cfg, err := taskloomconfig.Load(tc.WorkDir, rootCmd.PersistentFlags())
+	if err != nil {
+		return tc, err
+	}
+	schema, err := cfg.ParsedTagSchema()
+	if err != nil {
+		return tc, err
+	}
+	tc.TagSchema = schema
+	return tc, nil
+}
+
+// taskContextSingle is taskContext() plus resolveHoming and
+// resolveTagSchema: the combined resolution every command that touches
+// exactly one project's store needs.
 func taskContextSingle() (operations.TaskContext, error) {
 	tc, err := taskContext()
 	if err != nil {
 		return tc, err
 	}
-	return resolveHoming(tc)
+	tc, err = resolveHoming(tc)
+	if err != nil {
+		return tc, err
+	}
+	return resolveTagSchema(tc)
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.

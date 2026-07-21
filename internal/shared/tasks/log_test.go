@@ -99,6 +99,42 @@ func TestLogAddTagsUnionsAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestLogCurrentTags covers the read-only current-tags lookup the
+// operations write seam uses (scalar-collapse) to see a task's tags BEFORE
+// mutating them: it reflects the same folded state List/Snapshot would,
+// without appending anything, and errors on an unknown harp id exactly like
+// the other harp-keyed lookups (AddTags/RemoveTags).
+func TestLogCurrentTags(t *testing.T) {
+	s := newLog(t, "")
+	a, err := s.AddWithTags("ship it", "", "", "urgent")
+	if err != nil {
+		t.Fatalf("add with tags: %v", err)
+	}
+
+	got, err := s.CurrentTags(a.HarpID)
+	if err != nil {
+		t.Fatalf("current tags: %v", err)
+	}
+	if len(got) != 1 || got[0] != "urgent" {
+		t.Fatalf("CurrentTags = %v, want [urgent]", got)
+	}
+
+	if _, err := s.AddTags(a.HarpID, "release"); err != nil {
+		t.Fatalf("add tags: %v", err)
+	}
+	got, err = s.CurrentTags(a.HarpID)
+	if err != nil {
+		t.Fatalf("current tags after union: %v", err)
+	}
+	if len(got) != 2 || got[0] != "release" || got[1] != "urgent" {
+		t.Fatalf("CurrentTags after union = %v, want [release urgent]", got)
+	}
+
+	if _, err := s.CurrentTags("no-such-harp"); err == nil {
+		t.Fatal("expected an error for an unknown harp id")
+	}
+}
+
 // TestLogRemoveTagsSubtractsAndAbsentIsNoop covers the `untag` fold rule:
 // subtraction from the current set, and removing a tag the task never had is
 // a no-op rather than an error.

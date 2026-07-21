@@ -88,6 +88,15 @@ func (s *Store) RemoveTags(harpID string, tags ...string) (Task, error) {
 	return s.log.removeTags(harpID, tags)
 }
 
+// CurrentTags returns harpID's current (folded) tag set, without mutating
+// anything. Used by the write-seam scalar-collapse in
+// internal/shared/tasks/operations to compare an incoming tag against what
+// the task already carries before deciding whether a collapsing untag is
+// needed. Errors if the harp ID isn't present.
+func (s *Store) CurrentTags(harpID string) ([]string, error) {
+	return s.log.currentTags(harpID)
+}
+
 // Remove tombstones the task with harpID and returns the removed task. Errors
 // if the harp ID isn't present. The harp is never reissued.
 func (s *Store) Remove(harpID string) (Task, error) {

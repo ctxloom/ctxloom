@@ -46,6 +46,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -78,7 +79,30 @@ const (
 	// HomingFlagName is taskloom's dedicated root flag naming the same
 	// setting for a single invocation (highest precedence — see ResolveMode).
 	HomingFlagName = "homing"
+
+	// TagSchemaConfigKey is the dotted config key holding the tag-schema
+	// declaration list (see the TagSchema field and internal/shared/tasks/
+	// tagschema).
+	TagSchemaConfigKey = "tag_schema"
 )
+
+// DefaultTagSchema is the tag_schema shipped when a project's config leaves
+// the key unset at every layer: the triage-classification standard's
+// baseline. `triage:type` and `triage:impact` are declared arity=scalar (at
+// most one tag with that key survives on a task — see
+// internal/shared/tasks/operations's write-seam collapse), and the
+// priority_fn/decay_fn declarations for `triage:impact` are parsed and
+// stored (retrievable via tagschema.Schema.Get) but not evaluated until a
+// later phase (ranking/lint/sort are out of scope here). Shipping this by
+// default means a fresh project gets scalar-collapse on the triage
+// vocabulary with no opt-in required — exactly the ergonomics `homing`'s
+// own default (see the package doc) established the precedent for.
+var DefaultTagSchema = []string{
+	`tagma.arity:"triage:type"=scalar`,
+	`tagma.arity:"triage:impact"=scalar`,
+	`tagma.priority_fn:"triage:impact"="{{impact}} * {{modifier_mult}} * {{age_factor}}"`,
+	`tagma.decay_fn:"triage:impact"="{{impact}} * pow(0.5, {{age_days}} / {{half_life_days}})"`,
+}
 
 // Config is taskloom's own parsed, layered configuration.
 type Config struct {
@@ -88,6 +112,34 @@ type Config struct {
 	// pre-homing status quo — see the package doc for why that default, and
 	// only that direction, is safe to pick without asking.
 	Homing string `yaml:"homing,omitempty"`
+
+	// TagSchema declares taskloom's tag-schema: a list of tagma-syntax
+	// DECLARATION strings (see internal/shared/tasks/tagschema.Parse and
+	// TagSchemaConfigKey's doc). Empty means unset at every config layer;
+	// ResolvedTagSchema falls back to DefaultTagSchema in that case, exactly
+	// mirroring how Homing/ResolveMode default when unset (see this
+	// package's doc).
+	TagSchema []string `yaml:"tag_schema,omitempty"`
+}
+
+// ResolvedTagSchema returns c's TagSchema, falling back to DefaultTagSchema
+// when c declares none — the same "absent is fine, defaults silently"
+// policy Homing/ResolveMode already establishes for this config surface.
+func (c Config) ResolvedTagSchema() []string {
+	if len(c.TagSchema) > 0 {
+		return c.TagSchema
+	}
+	return DefaultTagSchema
+}
+
+// ParsedTagSchema resolves (ResolvedTagSchema) and parses (tagschema.Parse)
+// c's tag-schema declarations into a *tagschema.Schema, ready for
+// internal/shared/tasks/operations's write-seam scalar-collapse. A
+// malformed declaration — in either an explicit config or (a code defect in)
+// DefaultTagSchema itself — is a returned error naming the offending
+// declaration: fail loud, never silently run with an empty/partial schema.
+func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
+	return tagschema.Parse(c.ResolvedTagSchema())
 }
 
 // product builds the confload.Product describing taskloom's own on-disk/env

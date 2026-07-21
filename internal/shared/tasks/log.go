@@ -534,6 +534,29 @@ func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
 	return out, nil
 }
 
+// currentTags returns harpID's current (folded) tag set — a read-only
+// lookup, never appending anything. Mirrors snapshot()'s shared-lock
+// pattern: a SHARED cross-process lock so a concurrent mutator's in-flight
+// append (held under the EXCLUSIVE lock) can never be observed
+// half-written; best-effort, since a read must never block on a lock
+// failure.
+func (l *eventLog) currentTags(harpID string) ([]string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+		defer unlock()
+	}
+	f, err := l.fold()
+	if err != nil {
+		return nil, err
+	}
+	t := f.byID[harpID]
+	if t == nil {
+		return nil, fmt.Errorf("task not found: %s", harpID)
+	}
+	return t.Tags, nil
+}
+
 func (l *eventLog) snapshot() ([]Task, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

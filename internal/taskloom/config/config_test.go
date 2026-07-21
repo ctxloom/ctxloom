@@ -285,3 +285,65 @@ func TestHoming_InvalidValueIsRejected(t *testing.T) {
 	_, err := ResolveMode(project, nil, "")
 	require.Error(t, err)
 }
+
+// TestTagSchema_LoadsFromProjectConfig proves tag_schema round-trips through
+// the SAME layered Load path homing does -- a project .taskloom/config.yaml
+// setting the key wins, and Config.TagSchema carries the declarations
+// verbatim (parsing is ParsedTagSchema's job, tested separately below).
+func TestTagSchema_LoadsFromProjectConfig(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "tag_schema:\n  - 'tagma.arity:\"triage:type\"=scalar'\n")
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`tagma.arity:"triage:type"=scalar`}, cfg.TagSchema)
+}
+
+// TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline mirrors
+// TestConfig_AbsentEverywhereDefaultsToHome for tag_schema: no config at any
+// layer must still resolve (via ResolvedTagSchema/ParsedTagSchema) to
+// DefaultTagSchema's triage:type/triage:impact scalar baseline, so a fresh
+// project gets scalar-collapse with no opt-in required.
+func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.TagSchema, "unset at every layer must round-trip as empty, not silently filled in")
+	assert.Equal(t, DefaultTagSchema, cfg.ResolvedTagSchema())
+
+	schema, err := cfg.ParsedTagSchema()
+	require.NoError(t, err)
+	assert.True(t, schema.IsScalar("triage:type"))
+	assert.True(t, schema.IsScalar("triage:impact"))
+}
+
+// TestTagSchema_ExplicitConfigOverridesDefaultEntirely proves an explicit
+// tag_schema REPLACES the built-in default wholesale (confload's list
+// semantics -- see TestKoanf_ListsReplaceNotConcat) rather than merging
+// alongside it: a project that declares its own (smaller) schema loses the
+// triage baseline's scalar declarations entirely unless it restates them.
+func TestTagSchema_ExplicitConfigOverridesDefaultEntirely(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "tag_schema:\n  - 'tagma.arity:\"widget:kind\"=scalar'\n")
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	schema, err := cfg.ParsedTagSchema()
+	require.NoError(t, err)
+	assert.True(t, schema.IsScalar("widget:kind"))
+	assert.False(t, schema.IsScalar("triage:type"), "an explicit tag_schema must replace the default, not merge with it")
+}
+
+// TestTagSchema_MalformedDeclarationFailsLoud proves a tag_schema entry
+// tagschema.Parse rejects surfaces as a ParsedTagSchema error naming the
+// problem, never a silently empty or partial schema.
+func TestTagSchema_MalformedDeclarationFailsLoud(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+	writeConfig(t, project, "tag_schema:\n  - 'not.a.valid.declaration'\n")
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	_, err = cfg.ParsedTagSchema()
+	require.Error(t, err)
+}

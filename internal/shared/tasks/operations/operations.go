@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
 // TaskContext carries the inputs a frontend gathers for a task operation: the
@@ -38,6 +39,18 @@ type TaskContext struct {
 	// for why ModeHome (the pre-homing status quo) is the one safe silent
 	// default, while ModeRepo is only ever chosen explicitly.
 	HomingMode paths.Mode
+
+	// TagSchema is the project's parsed tag-schema (see
+	// internal/shared/tasks/tagschema and internal/taskloom/config's
+	// TagSchema field) — declares, among other things, which (namespace,
+	// key) targets are arity=scalar. nil (the zero value) means "no schema
+	// at all": AddTaskWithTags/TagTask skip scalar-collapse entirely in that
+	// case, so every caller that predates this feature (every existing
+	// internal/cli, internal/operations, and internal/lm/isolation call
+	// site, none of which construct a schema) keeps behaving exactly as
+	// before. Only cmd/taskloom's own frontend populates this today, via
+	// internal/taskloom/config.Config.ParsedTagSchema.
+	TagSchema *tagschema.Schema
 }
 
 // TaskListResult is the render-agnostic result of ListTasks.
@@ -211,9 +224,18 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 // unqueryable is rejected loudly instead of silently persisted. This check
 // must never move onto the fold/read path: an existing log already carrying
 // such a tag must keep loading without error.
+//
+// When tc.TagSchema declares a target arity=scalar, tags itself is
+// collapsed BEFORE the store is touched: if tags carries more than one
+// value for the same scalar (namespace, key), only the LAST one (in tags's
+// own order) survives — there is no existing task yet to retract a value
+// from, so this is pure intra-list dedup, not an untag (see scalarCollapse).
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
 	if err := validateTags(tags); err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
+	}
+	if tc.TagSchema != nil {
+		tags, _ = scalarCollapse(tc.TagSchema, nil, tags)
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
@@ -237,6 +259,17 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 // validated — subtracting an already-malformed tag never creates new
 // unqueryable data, and an existing log may legitimately carry one to
 // remove.
+//
+// When tc.TagSchema declares a target arity=scalar, the add list is passed
+// through scalarCollapse against the task's CURRENT tags (read via
+// store.CurrentTags, before any mutation): if a surviving incoming value
+// displaces an existing tag with the same (namespace, key) but a different
+// value, that existing tag is explicitly untagged first (store.RemoveTags),
+// then the new value is tagged (store.AddTags) — last wins, but the log
+// still records BOTH events, so history is never rewritten. An identical
+// value is left alone (no untag, no-op union). tc.TagSchema == nil (every
+// caller that predates this feature) skips the CurrentTags read and
+// collapse entirely, behaving exactly as before.
 func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, error) {
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
@@ -250,9 +283,25 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 	}
 	var task tasks.Task
 	if len(add) > 0 {
-		task, err = store.AddTags(harpID, add...)
-		if err != nil {
-			return nil, fmt.Errorf("add tags: %w", err)
+		addTags := add
+		if tc.TagSchema != nil {
+			existing, cerr := store.CurrentTags(harpID)
+			if cerr != nil {
+				return nil, fmt.Errorf("add tags: %w", cerr)
+			}
+			var toUntag []string
+			addTags, toUntag = scalarCollapse(tc.TagSchema, existing, add)
+			if len(toUntag) > 0 {
+				if _, uerr := store.RemoveTags(harpID, toUntag...); uerr != nil {
+					return nil, fmt.Errorf("add tags: collapse superseded scalar tag: %w", uerr)
+				}
+			}
+		}
+		if len(addTags) > 0 {
+			task, err = store.AddTags(harpID, addTags...)
+			if err != nil {
+				return nil, fmt.Errorf("add tags: %w", err)
+			}
 		}
 	}
 	if len(remove) > 0 {
@@ -262,6 +311,86 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 		}
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir}, nil
+}
+
+// scalarCollapse enforces schema's arity=scalar declarations over incoming
+// against a task's existingTags (nil for a brand-new task with no state
+// yet): it returns toAdd — incoming with every non-last duplicate value for
+// the same scalar target dropped (last wins, by incoming's own order) — and
+// toUntag — any tag in existingTags whose (namespace, key) matches a
+// SURVIVING incoming scalar target but whose value differs (an identical
+// value is left alone: re-tagging the same value is a no-op, not a
+// retraction). Every non-scalar (undeclared, or declared some other arity)
+// tag passes through untouched in both directions, preserving today's
+// multi-value behavior for anything not declared scalar. A malformed tag
+// (already rejected by validateTag on this write path, but tolerated here
+// for defense-in-depth — see tagsToTagmaTags's read-side leniency) is
+// treated as non-scalar: it is never dropped or collapsed, just passed
+// through as-is.
+func scalarCollapse(schema *tagschema.Schema, existingTags, incoming []string) (toAdd, toUntag []string) {
+	if schema == nil || len(incoming) == 0 {
+		return incoming, nil
+	}
+
+	// lastIdx maps a scalar target to the index of its LAST occurrence in
+	// incoming; only that occurrence survives into toAdd.
+	targets := make([]string, len(incoming))
+	lastIdx := map[string]int{}
+	for i, raw := range incoming {
+		target, scalar := scalarTargetOf(schema, raw)
+		if scalar {
+			targets[i] = target
+			lastIdx[target] = i
+		}
+	}
+	for i, raw := range incoming {
+		if targets[i] != "" && lastIdx[targets[i]] != i {
+			continue // superseded by a later value for the same scalar target
+		}
+		toAdd = append(toAdd, raw)
+	}
+
+	// surviving maps each scalar target that made it into toAdd to its
+	// (trimmed) raw tag string, so existingTags can be checked for a
+	// same-target-different-value tag that needs retracting.
+	surviving := map[string]string{}
+	for _, raw := range toAdd {
+		if target, scalar := scalarTargetOf(schema, raw); scalar {
+			surviving[target] = strings.TrimSpace(raw)
+		}
+	}
+	for _, existing := range existingTags {
+		target, scalar := scalarTargetOf(schema, existing)
+		if !scalar {
+			continue
+		}
+		newRaw, ok := surviving[target]
+		if ok && newRaw != strings.TrimSpace(existing) {
+			toUntag = append(toUntag, existing)
+		}
+	}
+	return toAdd, toUntag
+}
+
+// scalarTargetOf parses raw as a tagma tag and reports its schema Target
+// string and whether schema declares that target arity=scalar. Every caller
+// in this file gates on the returned bool before trusting target: an
+// unparseable or bare (no-namespace) tag always reports ("", false) — a
+// scalar declaration is always namespaced (e.g. "triage:type"), so a bare
+// flat tag can never match one — but a namespaced tag whose target simply
+// isn't declared scalar reports (target, false) with a NON-empty target,
+// since IsScalar(target) is what decided false, not an absent namespace.
+func scalarTargetOf(schema *tagschema.Schema, raw string) (target string, scalar bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+	parsed, err := tagma.ParseTag(trimmed)
+	if err != nil || parsed.Namespace == nil {
+		return "", false
+	}
+	target = tagschema.Target(parsed)
+	return target, schema.IsScalar(target)
 }
 
 // validateTags calls validateTag for every tag in tags, in order, returning
@@ -280,8 +409,9 @@ func validateTags(tags []string) error {
 }
 
 // validateTag reports whether tag would be PERMANENTLY UNQUERYABLE once
-// stored, under tagma's grammar plus this package's own reserved-word rule.
-// A tag is rejected when:
+// stored, under tagma's grammar plus this package's own reserved-word rule,
+// or would inject config into the reserved tag-schema namespace. A tag is
+// rejected when:
 //
 //   - trimmed and compared case-insensitively, it equals a reserved
 //     operator word ("and", "or", "not"): tagma's postfix evaluator always
@@ -295,6 +425,12 @@ func validateTags(tags []string) error {
 //     ([A-Za-z0-9_][A-Za-z0-9_.-]*, optionally namespaced/valued), so a tag
 //     containing "/", "*", "+", whitespace, or any other character outside
 //     that charset can never be written as a single matchable atom.
+//   - its namespace is tagschema.FacetNamespace ("tagma") or any
+//     "tagma.<facet>" sub-namespace: that namespace is reserved for
+//     tag-schema DECLARATIONS in .taskloom/config.yaml's tag_schema (see
+//     internal/shared/tasks/tagschema) — a task tag must never be able to
+//     inject schema config that a user-facing write path (add/tag) can
+//     reach, only config.yaml can.
 //
 // An empty or all-whitespace tag is not rejected here (validateTag never
 // panics on ""): callers that drop empty tags before storage — see
@@ -314,8 +450,14 @@ func validateTag(tag string) error {
 	case "and", "or", "not":
 		return fmt.Errorf("tag %q is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time", tag)
 	}
-	if _, err := tagma.ParseTag(trimmed); err != nil {
+	parsed, err := tagma.ParseTag(trimmed)
+	if err != nil {
 		return fmt.Errorf("tag %q is not a valid tag under tagma's grammar and would be permanently unqueryable once stored: %w", tag, err)
+	}
+	if parsed.Namespace != nil {
+		if ns := *parsed.Namespace; ns == tagschema.FacetNamespace || strings.HasPrefix(ns, tagschema.FacetNamespace+".") {
+			return fmt.Errorf("tag %q uses the %q namespace, which is reserved for tag-schema declarations in .taskloom/config.yaml's tag_schema — a task tag may not write into it", tag, ns)
+		}
 	}
 	return nil
 }

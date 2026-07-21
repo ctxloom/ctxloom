@@ -1,13 +1,16 @@
 package operations
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -571,5 +574,222 @@ func TestHoming_ProjectFlagIgnoredInRepoMode(t *testing.T) {
 	}
 	if !strings.Contains(res.Warning, "pinned-but-irrelevant") {
 		t.Fatalf("warning %q does not name the ignored project id", res.Warning)
+	}
+}
+
+// --- tagma-adoption phase 2: tag-schema config + scalar-collapse write seam ---
+
+// scalarSchema returns a *tagschema.Schema declaring triage:type
+// arity=scalar, the schema every collapse test below shares.
+func scalarSchema(t *testing.T) *tagschema.Schema {
+	t.Helper()
+	schema, err := tagschema.Parse([]string{`tagma.arity:"triage:type"=scalar`})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return schema
+}
+
+// readTaskEvents reads tc's raw JSONL log and returns every event whose Task
+// field matches harpID, in file order — used to assert on the LOG itself
+// (not just the folded Task.Tags view), so a collapse test can prove history
+// is preserved (both the untag and the tag survive) even though the fold
+// converges to one value.
+func readTaskEvents(t *testing.T, tc TaskContext, harpID string) []tasks.Event {
+	t.Helper()
+	_, logPath, err := ResolveLogPath(tc)
+	if err != nil {
+		t.Fatalf("resolve log path: %v", err)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	var out []tasks.Event
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if line == "" {
+			continue
+		}
+		var ev tasks.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("unmarshal event line %q: %v", line, err)
+		}
+		if ev.Task == harpID {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved pins the
+// phase-2 write-seam core case: re-tagging a declared-scalar (namespace,
+// key) with a DIFFERENT value collapses the task's FOLDED tags down to the
+// newest one (last wins) -- but the underlying log still records BOTH the
+// retracting untag and the new tag; history is never rewritten, only the
+// fold converges.
+func TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "triage this", "", "", []string{"triage:type=security"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	res, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=bug"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got := strings.Join(res.Task.Tags, ","); got != "triage:type=bug" {
+		t.Fatalf("folded tags after collapse = %q, want exactly %q", got, "triage:type=bug")
+	}
+
+	events := readTaskEvents(t, tc, add.Task.HarpID)
+	var sawUntagSecurity, sawTagBug bool
+	for _, ev := range events {
+		switch {
+		case ev.Op == "untag" && len(ev.Tags) == 1 && ev.Tags[0] == "triage:type=security":
+			sawUntagSecurity = true
+		case ev.Op == "tag" && len(ev.Tags) == 1 && ev.Tags[0] == "triage:type=bug":
+			sawTagBug = true
+		}
+	}
+	if !sawUntagSecurity {
+		t.Errorf("log events %+v do not record the retracting untag of triage:type=security", events)
+	}
+	if !sawTagBug {
+		t.Errorf("log events %+v do not record the tag of triage:type=bug", events)
+	}
+}
+
+// TestScalarCollapse_IdenticalValueEmitsNoUntag proves re-tagging a
+// declared-scalar key with the SAME value is a pure no-op collapse-wise: no
+// retracting untag is ever emitted for a value that didn't change.
+func TestScalarCollapse_IdenticalValueEmitsNoUntag(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "triage this too", "", "", []string{"triage:type=security"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	res, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=security"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got := strings.Join(res.Task.Tags, ","); got != "triage:type=security" {
+		t.Fatalf("folded tags = %q, want exactly %q", got, "triage:type=security")
+	}
+	for _, ev := range readTaskEvents(t, tc, add.Task.HarpID) {
+		if ev.Op == "untag" {
+			t.Fatalf("re-tagging the identical value must never emit an untag, got %+v", ev)
+		}
+	}
+}
+
+// TestScalarCollapse_UndeclaredKeyKeepsMultipleValues proves a key the
+// schema does NOT declare scalar is never collapsed: every distinct value
+// accumulates exactly like a plain flat tag always has.
+func TestScalarCollapse_UndeclaredKeyKeepsMultipleValues(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "track cwes", "", "", []string{"triage:cwe=79"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	res, err := TagTask(tc, add.Task.HarpID, []string{"triage:cwe=89"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got := strings.Join(res.Task.Tags, ","); got != "triage:cwe=79,triage:cwe=89" {
+		t.Fatalf("tags = %q, want both undeclared-key values preserved", got)
+	}
+}
+
+// TestScalarCollapse_InitialTagsCollapseToLastValue proves the SAME
+// last-wins rule applies to AddTaskWithTags's own initial tag list: when the
+// list itself carries two values for the same scalar target, only the last
+// (in list order) survives onto the brand-new task -- there is no existing
+// task yet to retract a value from, so this is pure intra-list dedup.
+func TestScalarCollapse_InitialTagsCollapseToLastValue(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: scalarSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "dup initial tags", "", "", []string{"triage:type=security", "urgent", "triage:type=bug"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if got := strings.Join(add.Task.Tags, ","); got != "triage:type=bug,urgent" {
+		t.Fatalf("initial tags after collapse = %q, want %q", got, "triage:type=bug,urgent")
+	}
+}
+
+// TestScalarCollapse_NilSchemaNeverCollapses proves TagSchema's zero value
+// (nil -- every pre-phase-2 caller) disables collapse entirely: a task can
+// still carry more than one value for what WOULD be a scalar target
+// elsewhere, exactly today's pre-tag-schema behavior.
+func TestScalarCollapse_NilSchemaNeverCollapses(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"} // TagSchema left nil
+
+	add, err := AddTaskWithTags(tc, "no schema here", "", "", []string{"triage:type=security"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	res, err := TagTask(tc, add.Task.HarpID, []string{"triage:type=bug"}, nil)
+	if err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+	if got := strings.Join(res.Task.Tags, ","); got != "triage:type=bug,triage:type=security" {
+		t.Fatalf("tags = %q, want both values uncollapsed with no schema", got)
+	}
+}
+
+// TestValidateTagRejectsTagmaNamespace proves a task tag in the reserved
+// "tagma" (or "tagma.<facet>") namespace is rejected: that namespace is
+// config-only (tag_schema declarations), and a task write must never be
+// able to inject into it.
+func TestValidateTagRejectsTagmaNamespace(t *testing.T) {
+	for _, tag := range []string{`tagma.arity:"triage:type"=scalar`, "tagma:foo", "tagma.priority_fn:x=y"} {
+		if err := validateTag(tag); err == nil {
+			t.Errorf("validateTag(%q): expected an error (reserved tagma namespace)", tag)
+		}
+	}
+}
+
+// TestValidateTagAcceptsNamespaceMerelyPrefixedWithTagma proves the
+// reserved-namespace guard matches "tagma" or "tagma.<facet>" EXACTLY, not
+// any namespace that merely starts with the same letters -- "tagmatic" is a
+// perfectly ordinary namespace.
+func TestValidateTagAcceptsNamespaceMerelyPrefixedWithTagma(t *testing.T) {
+	if err := validateTag("tagmatic:foo=bar"); err != nil {
+		t.Errorf("validateTag(tagmatic:foo=bar): unexpected error: %v", err)
+	}
+}
+
+// TestAddTaskWithTagsRejectsTagmaNamespaceTag and
+// TestTagTaskRejectsTagmaNamespaceTag pin the guard at both write seams
+// (mirroring TestAddTaskWithTagsRejectsUnqueryableTags/
+// TestTagTaskRejectsUnqueryableAddedTags for the reserved-namespace rule
+// specifically): a user-supplied tag naming the tagma namespace must be
+// rejected before any event is written.
+func TestAddTaskWithTagsRejectsTagmaNamespaceTag(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+	if _, err := AddTaskWithTags(tc, "should fail", "", "", []string{"tagma.arity:x=y"}); err == nil {
+		t.Fatal("expected an error adding a task tag in the reserved tagma namespace")
+	}
+}
+
+func TestTagTaskRejectsTagmaNamespaceTag(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"tagma.arity:x=y"}, nil); err == nil {
+		t.Fatal("expected an error adding a tagma-namespaced tag via TagTask")
 	}
 }

@@ -54,6 +54,42 @@ Feature: taskloom's tag surface is real across the process boundary
     And the folded task has text "Ship the v2 release", status "In Progress", and tags "blocked,release"
     And an independent re-fold reproduces the same task state
 
+  # Phase 2 of tagma adoption: taskloom's built-in tag_schema default (see
+  # internal/taskloom/config.DefaultTagSchema) declares triage:type
+  # arity=scalar, with NO .taskloom/config.yaml required — this fresh store
+  # never writes one. Re-tagging that key with a different value collapses
+  # the task down to the newest value, but the on-disk log still records
+  # BOTH the retracting untag and the new tag: history is never rewritten.
+  Scenario: Re-tagging a declared-scalar key collapses to the newest value, preserving history
+    When taskloom adds a task "Triage this" with tags "triage:type=security"
+    And taskloom tags it adding "triage:type=bug"
+    Then the folded task has text "Triage this", status "To Do", and tags "triage:type=bug"
+    And the on-disk task log records an untag of "triage:type=security" and a tag of "triage:type=bug" for it
+
+  # Re-tagging with the IDENTICAL value never displaces anything, so no
+  # collapsing untag is ever emitted for it.
+  Scenario: Re-tagging a declared-scalar key with the same value emits no collapsing untag
+    When taskloom adds a task "Triage that" with tags "triage:type=security"
+    And taskloom tags it adding "triage:type=security"
+    Then the folded task has text "Triage that", status "To Do", and tags "triage:type=security"
+    And the on-disk task log records no untag of "triage:type=security" for it
+
+  # A key the built-in schema does NOT declare scalar (or any key the
+  # project never mentions at all) is never collapsed: every value
+  # accumulates exactly like a plain flat tag always has.
+  Scenario: An undeclared tag key keeps every value, uncollapsed
+    When taskloom adds a task "Track CWEs" with tags "triage:cwe=79"
+    And taskloom tags it adding "triage:cwe=89"
+    Then the folded task has text "Track CWEs", status "To Do", and tags "triage:cwe=79,triage:cwe=89"
+
+  # The tagma namespace is reserved for tag_schema declarations in
+  # .taskloom/config.yaml only — a task tag must never be able to write into
+  # it, so injecting one fails loud rather than silently persisting.
+  Scenario: A task tag in the reserved tagma namespace is rejected
+    When taskloom adds a task "Should fail" with tags "tagma.arity:x=y" expecting failure
+    Then the taskloom command fails with a nonzero exit
+    And the taskloom command's error output mentions "reserved"
+
   # The agent-instruction-surface journey: an agent that has never read
   # taskloom's source discovers the tag surface exists and how to use it
   # purely from what `taskloom mcp` advertises over the wire — the server

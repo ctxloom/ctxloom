@@ -44,8 +44,8 @@ type j11State struct {
 	lastExitCode   int
 	lastStderr     string
 
-	harp      string     // append-only scenario: the one task being mutated
-	snapshots [][]string // append-only scenario: jsonl line snapshots, oldest first
+	harp      string      // append-only scenario: the one task being mutated
+	snapshots [][]string  // append-only scenario: jsonl line snapshots, oldest first
 	lastFold  *tasks.Task // append-only scenario: last folded task read back, for the re-fold comparison
 }
 
@@ -202,6 +202,69 @@ func registerJ11Steps(ctx *godog.ScenarioContext) {
 		}
 		j11.harp = fields[0]
 		return j11.snapshotTaskLog(w)
+	})
+
+	// --- Scenario: tagma-adoption phase 2 (tag-schema + scalar-collapse) ---
+
+	ctx.Step(`^taskloom adds a task "([^"]*)" with tags "([^"]*)" expecting failure$`, func(c context.Context, text, tagsCSV string) error {
+		w := worldFrom(c)
+		j11 := j11Of(w)
+		args := []string{"add", text}
+		for _, tag := range splitCSV(tagsCSV) {
+			args = append(args, "--tag", tag)
+		}
+		out, stderr, err := w.env.RunTaskloom(nil, args...)
+		if err == nil {
+			return fmt.Errorf("add task %q with tags %q unexpectedly succeeded: %s", text, tagsCSV, out)
+		}
+		j11.lastFailed = true
+		j11.lastExitCode = exitCodeOf(err)
+		j11.lastStderr = stderr
+		return nil
+	})
+
+	ctx.Step(`^the on-disk task log records an untag of "([^"]*)" and a tag of "([^"]*)" for it$`, func(c context.Context, untagged, tagged string) error {
+		w := worldFrom(c)
+		j11 := j11Of(w)
+		events, err := j11.taskEvents(w)
+		if err != nil {
+			return err
+		}
+		var sawUntag, sawTag bool
+		for _, ev := range events {
+			switch {
+			case ev.Op == "untag" && len(ev.Tags) == 1 && ev.Tags[0] == untagged:
+				sawUntag = true
+			case ev.Op == "tag" && len(ev.Tags) == 1 && ev.Tags[0] == tagged:
+				sawTag = true
+			}
+		}
+		if !sawUntag {
+			return fmt.Errorf("log events %+v do not record an untag of %q", events, untagged)
+		}
+		if !sawTag {
+			return fmt.Errorf("log events %+v do not record a tag of %q", events, tagged)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the on-disk task log records no untag of "([^"]*)" for it$`, func(c context.Context, value string) error {
+		w := worldFrom(c)
+		j11 := j11Of(w)
+		events, err := j11.taskEvents(w)
+		if err != nil {
+			return err
+		}
+		for _, ev := range events {
+			if ev.Op == "untag" {
+				for _, tag := range ev.Tags {
+					if tag == value {
+						return fmt.Errorf("expected no untag of %q, but found one: %+v", value, ev)
+					}
+				}
+			}
+		}
+		return nil
 	})
 
 	ctx.Step(`^taskloom tags it adding "([^"]*)"$`, func(c context.Context, add string) error {
@@ -405,6 +468,39 @@ func (j11 *j11State) foldedTask(w *World) (*tasks.Task, error) {
 		}
 	}
 	return nil, fmt.Errorf("task %s not found in %v", j11.harp, got)
+}
+
+// j11RawEvent decodes just the fields the tag-schema scalar-collapse
+// scenarios need from a raw JSONL log line (internal/shared/tasks.Event is
+// the authoritative shape; this is a same-tags-JSON subset so this file
+// doesn't need to import the tasks package for a build-tagged acceptance
+// test).
+type j11RawEvent struct {
+	Op   string   `json:"op"`
+	Task string   `json:"task"`
+	Tags []string `json:"tags"`
+}
+
+// taskEvents reads the current on-disk task log and returns every event
+// belonging to j11.harp, in file order — the raw seam the scalar-collapse
+// scenarios assert against directly (proving the log records BOTH a
+// collapsing untag and the new tag, not just the folded Task.Tags view).
+func (j11 *j11State) taskEvents(w *World) ([]j11RawEvent, error) {
+	lines, err := readTaskLogLines(w)
+	if err != nil {
+		return nil, err
+	}
+	var out []j11RawEvent
+	for _, line := range lines {
+		var ev j11RawEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			return nil, fmt.Errorf("unmarshal event line %q: %w", line, err)
+		}
+		if ev.Task == j11.harp {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
 }
 
 // readTaskLogLines reads the isolated env's single per-project task log and

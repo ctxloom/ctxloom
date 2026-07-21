@@ -162,3 +162,74 @@ func TestEnumRangePriorityFnDecayFn_NilSchemaIsEmpty(t *testing.T) {
 	_, ok = s.DecayFn("triage:impact")
 	assert.False(t, ok)
 }
+
+// TestHideFacts_NilSchemaIsEmpty mirrors the nil-receiver-safety every other
+// accessor on Schema has: a nil Schema (no tag_schema resolved at all) has
+// no hide declarations, same as an explicitly empty one.
+func TestHideFacts_NilSchemaIsEmpty(t *testing.T) {
+	var s *Schema
+	assert.Empty(t, s.HideFacts())
+}
+
+// TestHideFacts_EmptySchemaIsEmpty pins that a Schema with no tagma.hide:*
+// declarations at all yields no facts — the caller (cmd/taskloom's
+// hideConfigFor) then hands tagma.HideConfigFromPatterns an empty slice,
+// which still seeds tagma's own implicit tagma:*=true default.
+func TestHideFacts_EmptySchemaIsEmpty(t *testing.T) {
+	s, err := Parse([]string{`tagma.arity:"triage:type"=scalar`})
+	require.NoError(t, err)
+	assert.Empty(t, s.HideFacts())
+}
+
+// TestHideFacts_DecodesDeclaredTargets pins the decode shape HideFacts
+// promises: one tagma.HideFact per tagma.hide:<target>=<bool> declaration,
+// target carried through verbatim (the quoted key, opaque to this package),
+// hide decoded from "true"/"false".
+func TestHideFacts_DecodesDeclaredTargets(t *testing.T) {
+	s, err := Parse([]string{
+		`tagma.hide:"triage:cwe"=true`,
+		`tagma.hide:"*:secret"=false`,
+	})
+	require.NoError(t, err)
+
+	facts := s.HideFacts()
+	require.Len(t, facts, 2)
+	byTarget := map[string]bool{}
+	for _, f := range facts {
+		byTarget[f.Target] = f.Hide
+	}
+	assert.Equal(t, map[string]bool{"triage:cwe": true, "*:secret": false}, byTarget)
+}
+
+// TestHideFacts_UninterpretableValueIsSkipped mirrors tagma's own hideFact
+// decoding: a declared value that isn't exactly "true"/"false" configures
+// nothing rather than erroring or defaulting either way.
+func TestHideFacts_UninterpretableValueIsSkipped(t *testing.T) {
+	s, err := Parse([]string{`tagma.hide:"triage:cwe"="yes"`})
+	require.NoError(t, err)
+	assert.Empty(t, s.HideFacts())
+}
+
+// TestHideFacts_BuildsSameEffectiveHideSetAsTagma proves the reconciliation
+// this feature depends on: tagma.HideConfigFromPatterns(schema.HideFacts())
+// hides exactly the declared target PLUS tagma's own implicit tagma:*
+// default, matching what a caller that read tagma.hide tags straight off a
+// tag collection (tagma.HideConfigFromTags) would produce.
+func TestHideFacts_BuildsSameEffectiveHideSetAsTagma(t *testing.T) {
+	s, err := Parse([]string{`tagma.hide:"triage:cwe"=true`})
+	require.NoError(t, err)
+
+	cfg := tagma.HideConfigFromPatterns(s.HideFacts())
+
+	cwe, err := tagma.ParseTag("triage:cwe=79")
+	require.NoError(t, err)
+	assert.True(t, tagma.TagHidden(cwe, cfg), "the declared target must be hidden")
+
+	other, err := tagma.ParseTag("triage:type=security")
+	require.NoError(t, err)
+	assert.False(t, tagma.TagHidden(other, cfg), "an undeclared target must stay visible")
+
+	meta, err := tagma.ParseTag("tagma.arity:whatever=scalar")
+	require.NoError(t, err)
+	assert.True(t, tagma.TagHidden(meta, cfg), "tagma's own implicit tagma:* default must still hide the meta-family")
+}

@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
+
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
@@ -38,8 +40,9 @@ task for scripting.`,
 			return fmt.Errorf("no task with harp id %q (see `taskloom list`)", args[0])
 		}
 		noteTaskProject(res.ProjectID, res.ProjectDir)
+		cfg := hideConfigFor(tc)
 		return cliemit.Emit(cmd, task, func() error {
-			return renderTaskDetail(cmd.OutOrStdout(), task)
+			return renderTaskDetail(cmd.OutOrStdout(), task, cfg)
 		})
 	},
 }
@@ -50,16 +53,17 @@ func init() {
 
 // renderTaskDetail prints one task's full human view: a header line (harp id +
 // status), its tags and trigger if present, then the complete text — the
-// detail `taskloom list` deliberately summarizes into a single line.
-func renderTaskDetail(out io.Writer, t tasks.Task) error {
+// detail `taskloom list` deliberately summarizes into a single line. cfg is
+// applied to t's tags via visibleTags before printing — see hideConfigFor.
+func renderTaskDetail(out io.Writer, t tasks.Task, cfg tagma.HideConfig) error {
 	w := iox.NewErrWriter(out)
 	check := " "
 	if t.Checked {
 		check = "x"
 	}
 	w.Printf("[%s] %s  %s\n", check, t.HarpID, t.Status)
-	if len(t.Tags) > 0 {
-		w.Printf("    tags: %s\n", strings.Join(t.Tags, ", "))
+	if visible := visibleTags(t.Tags, cfg); len(visible) > 0 {
+		w.Printf("    tags: %s\n", strings.Join(visible, ", "))
 	}
 	if t.Trigger != "" {
 		w.Printf("    trigger: %s\n", t.Trigger)

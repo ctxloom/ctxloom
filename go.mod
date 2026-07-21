@@ -75,7 +75,7 @@ require (
 )
 
 require (
-	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260721041511-8220aa6712fe
+	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260721152603-3278de630da7
 	github.com/expr-lang/expr v1.17.8
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0

@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
+
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
@@ -248,7 +250,7 @@ func TestRenderTaskTable_SummarizesAndSeparates(t *testing.T) {
 	}
 
 	var b strings.Builder
-	require.NoError(t, renderTaskTable(&b, list))
+	require.NoError(t, renderTaskTable(&b, list, tagma.HideConfig{}))
 	out := b.String()
 	assert.Contains(t, out, "\n\n", "entries must be separated by a blank line, not run together")
 	assert.NotContains(t, out, long, "the list view summarizes rather than printing full text")
@@ -269,7 +271,7 @@ func TestRenderTaskDetail_ShowsFullTextAndMetadata(t *testing.T) {
 	}
 
 	var b strings.Builder
-	require.NoError(t, renderTaskDetail(&b, task))
+	require.NoError(t, renderTaskDetail(&b, task, tagma.HideConfig{}))
 	out := b.String()
 	assert.Contains(t, out, long, "show prints the complete text, untruncated")
 	assert.NotContains(t, out, "…", "show never summarizes")

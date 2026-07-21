@@ -50,7 +50,10 @@ const FacetNamespace = "tagma"
 // mustache-form formulas internal/shared/tasks/priority compiles (via
 // CompileFormula, this package) and evaluates read-time. EnumFacet/RangeFacet
 // declare the closed value set / numeric range `taskloom lint` validates a
-// tag's value against — see Enum/Range below.
+// tag's value against — see Enum/Range below. HideFacet declares DISPLAY-time
+// hiding (tagma.hide:<target>=<bool>, e.g. `tagma.hide:"triage:cwe"=true`) —
+// see HideFacts below; never enforced at write time, and never affects
+// storage, matching, or ranking, only what a listing shows.
 const (
 	ArityFacet      = "arity"
 	ArityScalar     = "scalar"
@@ -58,6 +61,7 @@ const (
 	DecayFnFacet    = "decay_fn"
 	EnumFacet       = "enum"
 	RangeFacet      = "range"
+	HideFacet       = "hide"
 )
 
 // Schema is the parsed form of a tag_schema declaration list: facet name ->
@@ -196,6 +200,39 @@ func (s *Schema) Range(target string) (min, max float64, ok bool, err error) {
 		return 0, 0, true, fmt.Errorf("tag_schema: range declaration for %q has invalid max %q: %w", target, parts[1], err)
 	}
 	return min, max, true, nil
+}
+
+// HideFacts returns every declared tagma.hide:<target>=<bool> fact in s, as
+// tagma.HideFact values ready for tagma.HideConfigFromPatterns — the
+// display-time hide config a caller filters a task's tags through (see
+// cmd/taskloom's hideConfigFor/visibleTags). A declared value other than
+// "true"/"false" is skipped (mirrors tagma's own hideFact decoding: an
+// uninterpretable value configures nothing rather than erroring, since it
+// only ever narrows what's hidden, never what's stored). A nil Schema
+// returns nil, same nil-receiver-safety as Get. Order is unspecified (map
+// iteration) — HideConfigFromPatterns's resolution doesn't depend on fact
+// order (a target with both a true and a false fact on record resolves
+// hidden regardless).
+func (s *Schema) HideFacts() []tagma.HideFact {
+	if s == nil {
+		return nil
+	}
+	m := s.facets[HideFacet]
+	if len(m) == 0 {
+		return nil
+	}
+	facts := make([]tagma.HideFact, 0, len(m))
+	for target, v := range m {
+		switch v {
+		case "true":
+			facts = append(facts, tagma.HideFact{Target: target, Hide: true})
+		case "false":
+			facts = append(facts, tagma.HideFact{Target: target, Hide: false})
+		default:
+			continue
+		}
+	}
+	return facts
 }
 
 // Target reconstructs the "namespace:key" (or bare "key", if t carries no

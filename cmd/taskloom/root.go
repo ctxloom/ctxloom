@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -233,8 +235,9 @@ func summarize(s string, width int) string {
 // separated so adjacent tasks are easy to tell apart, each a scannable one-line
 // summary. The harp id is never truncated (it's a copy-paste identifier); the
 // text is summarized — a task's full text is `taskloom show <harp>` (or the
-// machine-readable --format json).
-func renderTaskTable(out io.Writer, list []tasks.Task) error {
+// machine-readable --format json). cfg is applied to each task's tags via
+// visibleTags before printing — see hideConfigFor.
+func renderTaskTable(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
 		w.Println("(no tasks)")
@@ -262,8 +265,8 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		if t.Trigger != "" {
 			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
 		}
-		if len(t.Tags) > 0 {
-			text = fmt.Sprintf("%s  [%s]", text, strings.Join(t.Tags, ", "))
+		if visible := visibleTags(t.Tags, cfg); len(visible) > 0 {
+			text = fmt.Sprintf("%s  [%s]", text, strings.Join(visible, ", "))
 		}
 		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, text)
 	}

@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -159,7 +161,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		if err := w.Err(); err != nil {
 			return err
 		}
-		return renderGlobalTaskTable(out, gres.Rows)
+		return renderGlobalTaskTable(out, gres.Rows, hideConfigFor(tc))
 	}
 
 	tc, err = resolveHoming(tc)
@@ -191,7 +193,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	if err := w.Err(); err != nil {
 		return err
 	}
-	return renderTaskTable(out, res.Tasks)
+	return renderTaskTable(out, res.Tasks, hideConfigFor(tc))
 }
 
 // attachPriority sets each task's DerivedPriority (in place) from results,
@@ -245,8 +247,9 @@ func wrapTagQueryError(err error) error {
 
 // renderGlobalTaskTable prints a --global (or no-project-fallback) listing as
 // one table section per project, reusing renderTaskTable per section so the
-// per-row formatting matches the single-project view exactly.
-func renderGlobalTaskTable(out io.Writer, rows []taskRow) error {
+// per-row formatting matches the single-project view exactly. cfg is passed
+// straight through to each section's renderTaskTable.
+func renderGlobalTaskTable(out io.Writer, rows []taskRow, cfg tagma.HideConfig) error {
 	w := iox.NewErrWriter(out)
 	if len(rows) == 0 {
 		w.Println("(no tasks)")
@@ -266,7 +269,7 @@ func renderGlobalTaskTable(out io.Writer, rows []taskRow) error {
 		for j, r := range group {
 			plain[j] = r.Task
 		}
-		if err := renderTaskTable(out, plain); err != nil {
+		if err := renderTaskTable(out, plain, cfg); err != nil {
 			return err
 		}
 		w.Println("")
@@ -477,19 +480,23 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
 		return cliemit.Emit(cmd, res.Tags, func() error {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
 			w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
-			if len(res.Tags) == 0 {
+			// The vocabulary enumeration goes through the same display-hide
+			// filter as list/show: a tag hidden by tag_schema's tagma.hide:*
+			// declarations shouldn't surface here either — see hideConfigFor.
+			visible := visibleTagCounts(res.Tags, hideConfigFor(tc))
+			if len(visible) == 0 {
 				w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
 				return w.Err()
 			}
 			// Pad the tag column so the counts align; the counts are labeled so
 			// the output is self-describing without a header row.
 			tagWidth := 0
-			for _, t := range res.Tags {
+			for _, t := range visible {
 				if len(t.Tag) > tagWidth {
 					tagWidth = len(t.Tag)
 				}
 			}
-			for _, t := range res.Tags {
+			for _, t := range visible {
 				w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
 			}
 			return w.Err()

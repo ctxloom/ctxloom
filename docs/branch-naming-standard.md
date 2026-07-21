@@ -18,7 +18,7 @@ error.
 | Released line | `main` | `main` (advances only at a release) |
 | Integration line (in-progress version) | `release/<major>.<minor>` *(or a permanent `develop`)* | `release/0.7` |
 | Short-lived work | `<type>/<kebab-desc>` | `feat/tagma-adoption`, `fix/harp-collision` |
-| Version / pre-release | **tag** `v<x>.<y>.<z>[-<pre>.<n>]` | `v0.7.0-pre.1`, `v0.7.0-rc.1`, `v0.7.0` |
+| Version / pre-release | **tag** `v<x>.<y>.<z>[-<pre><NNN>]` | `v0.7.0-pre001`, `v0.7.0-rc001`, `v0.7.0` |
 
 You already do three of these four (`feat/*`, `release/*`, `vX.Y.Z` tags). The gap
 is the fourth row collapsing into branch-space — `v0.7.0-pre1` is the *integration
@@ -57,7 +57,7 @@ name lies the instant you make the next commit — the branch called "0.7.0-pre1
 holds work that isn't 0.7.0-pre1. And it has no answer to *"what do you name pre2?"*
 Rename the branch (breaking every reference, worktree, and the two pushed copies)?
 Cut a new `v0.7.0-pre2` and strand pre1? Both are the smell. Tags don't have this
-problem: `v0.7.0-pre.1` and `v0.7.0-pre.2` are two pins on one moving line.
+problem: `v0.7.0-pre001` and `v0.7.0-pre002` are two pins on one moving line.
 
 ---
 
@@ -144,7 +144,7 @@ the integration line, then merged down to `main`.
 
 ### Release/version mechanics (the "merge to main after tag" you described)
 - Pre-releases and the release itself are **tags on the integration line**:
-  `v0.7.0-pre.1`, `v0.7.0-rc.1`, then `v0.7.0`.
+  `v0.7.0-pre001`, `v0.7.0-rc001`, then `v0.7.0`.
 - At release: **merge the integration line into `main`** and ensure the `v0.7.0`
   tag sits on that released commit. `main` now == 0.7.0.
 - `.z` patches are tags too — never a branch per patch. This replaces the current
@@ -167,17 +167,45 @@ the integration line, then merged down to `main`.
 
 ### Versions & pre-releases — always tags, never branches
 - Release: `v<x>.<y>.<z>` (you already do this cleanly — keep it).
-- Pre-release: `v<x>.<y>.<z>-<id>.<n>` — `-pre.1`, `-rc.1`, `-alpha.1`. Prefer
-  **dot-separated numeric** (`-pre.1`, not `-pre1`) so SemVer precedence sorts them.
+- Pre-release: `v<x>.<y>.<z>-<id><NNN>` — `-pre001`, `-rc001`, `-alpha001`. The
+  counter is **zero-padded to exactly three digits**.
+
+  **Why padding, and why not `-pre.1`.** SemVer compares a pre-release as
+  dot-separated identifiers: a *numeric* identifier compares numerically, an
+  *alphanumeric* one compares lexically ([semver.org](https://semver.org/) §11).
+  `pre1` is a single **alphanumeric** identifier, so it sorts lexically — giving
+  `pre1 < pre10 < pre11 < pre2 < pre9`. That is the bug. Two fixes exist:
+
+  | Form | Sorts under SemVer | Sorts under a plain string sort | Ceiling |
+  |---|---|---|---|
+  | `-pre1` | ✗ `pre10 < pre2` | ✗ | — |
+  | `-pre.1` | ✓ (numeric identifier) | ✗ `pre.1 < pre.10 < pre.2` | none |
+  | **`-pre001`** | **✓** | **✓** | **999** |
+
+  We use `-pre001`. It stays a single alphanumeric identifier, but zero-padding
+  makes its *lexical* order match its numeric order — so it sorts correctly
+  **everywhere**, not just in SemVer-aware tools. `git tag --list`, `ls`, `sort`,
+  and any script that string-sorts all agree with `semver.Compare`. `-pre.1` is
+  more canonical SemVer, but it only sorts correctly in tools that parse SemVer;
+  a bare `git tag --list` (which sorts lexically unless given
+  `--sort=version:refname`) gets it wrong.
+
+  **The cap is real:** padding fixes ordering only up to the padded width —
+  `pre1000 < pre999` lexically. Three digits means at most 999 pre-releases in a
+  series, which is not a constraint any release line will meet. Do not drop to two
+  digits.
+
+  Verified against `github.com/Masterminds/semver/v3`: `0.7.0-pre001 <
+  0.7.0-pre002 < 0.7.0-pre009 < 0.7.0-pre010 < 0.7.0-pre011 < 0.7.0`.
 - Keep **versionator** as the authority so tags and build stamps agree (your stamp
   is `v<maj.min.patch>-<short-sha>-<date>`). Agents don't cut tags (ltk blocks
   `git tag`); human/CI cuts them — correct and unchanged.
-- Fix the one tag outlier: `ox`'s `v0.1.0-mvp` → `v0.1.0-mvp.0` (or just `v0.1.0`)
+- Fix the one tag outlier: `ox`'s `v0.1.0-mvp` → `v0.1.0-mvp001` (or just `v0.1.0`)
   so it stays SemVer-sortable.
 
 ### Cross-repo release trains — coordinate by *version*, not a shared branch name
 The 0.7.0 train spans ctxloom + reprise + ctxloom-vscode. Coordinate it with a
-**shared version/tag** (`v0.7.0-pre.1` tagged in each repo at the train point) and,
+**shared version/tag** (`v0.7.0-pre001` tagged in each repo at the train point) and,
 if you need stabilization, `release/0.7` in each — **not** a shared `v0.7.0-pre1`
 *branch* in each. A shared version-named branch re-creates the category error once
 per repo and lets the three drift independently.
@@ -234,9 +262,9 @@ git push origin :v0.7.0-pre1          # delete origin/v0.7.0-pre1
 #   (update the local checkout's upstream: git branch -u origin/release/0.7)
 
 # 3. pin the pre-releases you actually cut, as TAGS on this line
-git tag -a v0.7.0-pre.1 <the commit that was "pre1">
-git push origin v0.7.0-pre.1
-#   ...and v0.7.0-rc.1 as you reach RC, etc.
+git tag -a v0.7.0-pre001 <the commit that was "pre1">
+git push origin v0.7.0-pre001
+#   ...and v0.7.0-rc001 as you reach RC, etc.
 ```
 
 Then, **at release**: `git checkout main && git merge --no-ff release/0.7`, tag
@@ -263,7 +291,7 @@ three other repos/worktrees may track, so do it deliberately.
 | Fix a bug | `fix/<desc>` | `bugfix/x`, `patch-1` |
 | Urgent fix to a released version | `hotfix/<desc>` (off `main`/the release line) | |
 | Mark a release | tag `v<x>.<y>.<z>`, then merge the line → `main` | a branch |
-| Mark a pre-release | tag `v<x>.<y>.<z>-rc.1` / `-pre.1` on the line | a branch |
+| Mark a pre-release | tag `v<x>.<y>.<z>-rc001` / `-pre001` on the line | a branch |
 | Coordinate a multi-repo train | shared **version/tag** | a shared version **branch** |
 
 ---

@@ -55,6 +55,14 @@ type taskListResult struct {
 	// when include_completed or an explicit status filter was used.
 	HiddenCompleted int `json:"hidden_completed,omitempty"`
 	HiddenDeferred  int `json:"hidden_deferred,omitempty"`
+
+	// PriorityWarning is set when sort="priority" was requested and the
+	// resulting ranking came back MEANINGLESS — no priority_fn declared, or
+	// every candidate task tied at the same raw score (see
+	// priority.Diagnostics) — so a caller sees WHY the numbers don't mean
+	// anything instead of trusting a fully-populated but empty ranking. Empty
+	// when sort wasn't "priority", or the ranking was fine.
+	PriorityWarning string `json:"priority_warning,omitempty"`
 }
 
 type taskAddInput struct {
@@ -174,6 +182,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 			Notice:          scope.Notice,
 			HiddenCompleted: gres.HiddenCompleted,
 			HiddenDeferred:  gres.HiddenDeferred,
+			PriorityWarning: gres.PriorityWarning,
 		}, nil
 	}
 
@@ -186,13 +195,15 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
+	var priorityWarning string
 	if in.Sort == sortPriority {
-		results, perr := operations.ComputeTaskPriorities(tc, time.Now())
+		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
 		if perr != nil {
 			return nil, nil, fmt.Errorf("compute priorities: %w", perr)
 		}
 		attachPriority(res.Tasks, results)
 		sortTasksByPriorityDesc(res.Tasks)
+		priorityWarning = priorityDiagnosticWarning(diag)
 	}
 	rows := make([]taskRow, len(res.Tasks))
 	for i, t := range res.Tasks {
@@ -206,6 +217,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		Summary:         res.Summary,
 		HiddenCompleted: res.HiddenCompleted,
 		HiddenDeferred:  res.HiddenDeferred,
+		PriorityWarning: priorityWarning,
 	}
 	return nil, out, nil
 }

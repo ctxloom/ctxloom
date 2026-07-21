@@ -116,6 +116,13 @@ type globalListResult struct {
 	ProjectCount    int
 	HiddenCompleted int
 	HiddenDeferred  int
+
+	// PriorityWarning is non-empty when sortPriority was requested and at
+	// least one scanned project's ranking came back MEANINGLESS (see
+	// priority.Diagnostics) — one line per affected project, joined. Empty
+	// when sortPriority wasn't requested, or every scanned project's ranking
+	// was fine.
+	PriorityWarning string
 }
 
 // listAllProjects aggregates every project's task log under ~/.ctxloom/tasks
@@ -155,6 +162,7 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, sort
 	}
 
 	out := &globalListResult{}
+	var priorityWarnings []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), paths.TasksLogExt) {
 			continue
@@ -177,16 +185,20 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, sort
 			if serr != nil {
 				return nil, fmt.Errorf("snapshot project %s for priority computation: %w", projectID, serr)
 			}
-			results, perr := priority.Compute(all, schema, now)
+			results, diag, perr := priority.Compute(all, schema, now)
 			if perr != nil {
 				return nil, fmt.Errorf("compute priorities for project %s: %w", projectID, perr)
 			}
 			attachPriority(visible, results)
+			if msg := priorityDiagnosticWarning(diag); msg != "" {
+				priorityWarnings = append(priorityWarnings, fmt.Sprintf("project %s: %s", projectID, msg))
+			}
 		}
 		for _, t := range visible {
 			out.Rows = append(out.Rows, taskRow{Task: t, ProjectID: projectID})
 		}
 	}
+	out.PriorityWarning = strings.Join(priorityWarnings, "; ")
 	sort.SliceStable(out.Rows, func(i, j int) bool {
 		if out.Rows[i].ProjectID != out.Rows[j].ProjectID {
 			return out.Rows[i].ProjectID < out.Rows[j].ProjectID

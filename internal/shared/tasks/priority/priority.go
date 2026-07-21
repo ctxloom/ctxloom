@@ -22,20 +22,16 @@ package priority
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
-
-// ImpactTarget is the tag_schema target priority_fn/decay_fn are declared
-// against today — triage's sole formula-bearing key (see
-// internal/taskloom/config.DefaultTagSchema). A future multi-target design
-// would key formulas off more than one target; today there is exactly one.
-const ImpactTarget = "triage:impact"
 
 // ExploitedInWildTarget is the modifier tag whose presence forces a task's
 // display Priority to Max, regardless of what priority_fn computed.
@@ -66,9 +62,9 @@ type Result struct {
 	HarpID string
 
 	// Raw is priority_fn's own output (0 if the schema declares no
-	// priority_fn for ImpactTarget). Computed for every task regardless of
-	// status, for completeness/debugging, but only ever feeds Priority for a
-	// non-terminal task.
+	// priority_fn at all — see Diagnostics.NoPriorityFn). Computed for every
+	// task regardless of status, for completeness/debugging, but only ever
+	// feeds Priority for a non-terminal task.
 	Raw float64
 
 	// Priority is the rank-normalized [0,Max] display value. Left 0 for a
@@ -80,6 +76,37 @@ type Result struct {
 	// exploited-in-wild override rather than left at its rank-normalized
 	// value.
 	Overridden bool
+}
+
+// Diagnostics reports conditions under which Compute produced a ranking that
+// EXISTS but is MEANINGLESS — the silent-no-op failure mode this package
+// exists to make impossible to miss (a project with no priority_fn declared,
+// or one where formula-referenced tags are absent from the data, still gets
+// back a fully-populated, plausible-looking Priority for every task; nothing
+// about Result itself distinguishes that from a real ranking). A caller that
+// asked for `--sort priority` and gets a degenerate Diagnostics back must
+// tell the user, not render the numbers as if they meant something — see
+// cmd/taskloom's priorityDiagnosticWarning.
+type Diagnostics struct {
+	// NoPriorityFn is true when schema declares no priority_fn at all: every
+	// task's Raw is 0, so rank-normalization's percentile math still runs but
+	// produces a ranking with no basis in any task's data.
+	NoPriorityFn bool
+
+	// AllTied is true when more than one non-terminal task exists and every
+	// one of them has the exact same Raw score (whether that's because
+	// NoPriorityFn is also true, or a configured priority_fn just happens to
+	// evaluate identically for this project's current data — e.g. every task
+	// is missing the tags the formula reads).
+	AllTied bool
+
+	// ScoredTasks counts the non-terminal tasks that carry at least one tag
+	// whose target is referenced by priority_fn or decay_fn's own formula
+	// text — i.e. tasks that could possibly have moved the needle. A low
+	// ScoredTasks against a large non-terminal population is the signature
+	// of a schema/data mismatch (formulas declared, but the tags they read
+	// are never actually applied to tasks).
+	ScoredTasks int
 }
 
 // Compute derives a Result for every task in all (any status). Raw scores
@@ -97,16 +124,20 @@ type Result struct {
 // rank-normalization rule below, Priority=Max (a raw score of 0 tied
 // across the whole population sits at the 100th percentile of itself). This
 // mirrors tagschema.Schema's own nil-receiver-safety: a Compute call is
-// never a hard error just because a project hasn't configured formulas.
-func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[string]Result, error) {
-	priorityFn, decayFn, err := compileFormulas(schema)
+// never a hard error just because a project hasn't configured formulas. The
+// returned Diagnostics tells a caller when that's exactly what happened —
+// see its doc.
+func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[string]Result, Diagnostics, error) {
+	priorityFn, decayFn, err := compileAll(schema)
 	if err != nil {
-		return nil, err
+		return nil, Diagnostics{}, err
 	}
+	referenced := referencedTagTargets(priorityFn, decayFn)
 
 	raw := make(map[string]float64, len(all))
 	overridden := make(map[string]bool, len(all))
 	nonTerminal := make([]string, 0, len(all))
+	scoredTasks := 0
 
 	for _, t := range all {
 		tagValues := resolveTagValues(t.Tags)
@@ -123,7 +154,7 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 				lookup(map[string]float64{BuiltinAgeDays: ageDays}),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("priority: task %s: decay_fn: %w", t.HarpID, err)
+				return nil, Diagnostics{}, fmt.Errorf("priority: task %s: decay_fn: %w", t.HarpID, err)
 			}
 		}
 
@@ -134,7 +165,7 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 				lookup(map[string]float64{BuiltinAgeDays: ageDays, BuiltinAgeFactor: ageFactor}),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("priority: task %s: priority_fn: %w", t.HarpID, err)
+				return nil, Diagnostics{}, fmt.Errorf("priority: task %s: priority_fn: %w", t.HarpID, err)
 			}
 		}
 		raw[t.HarpID] = score
@@ -148,7 +179,23 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 		}
 		if !isTerminal(t.Status) {
 			nonTerminal = append(nonTerminal, t.HarpID)
+			if hasAnyTarget(tagValues, referenced) {
+				scoredTasks++
+			}
 		}
+	}
+
+	diag := Diagnostics{NoPriorityFn: priorityFn == nil, ScoredTasks: scoredTasks}
+	if len(nonTerminal) > 1 {
+		first := raw[nonTerminal[0]]
+		tied := true
+		for _, id := range nonTerminal[1:] {
+			if raw[id] != first {
+				tied = false
+				break
+			}
+		}
+		diag.AllTied = tied
 	}
 
 	normalized := rankNormalize(raw, nonTerminal)
@@ -162,28 +209,111 @@ func Compute(all []tasks.Task, schema *tagschema.Schema, now time.Time) (map[str
 		}
 		out[t.HarpID] = res
 	}
-	return out, nil
+	return out, diag, nil
 }
 
-// compileFormulas compiles schema's priority_fn/decay_fn declarations for
-// ImpactTarget, if declared; either (or both) come back nil when schema
-// declares nothing for that facet, and Compute treats a nil priority_fn as
-// "raw score 0" and a nil decay_fn as "no decay" (age_factor stays 1) rather
-// than erroring — an absent formula is a valid (if inert) configuration, not
-// a fault. A DECLARED formula that fails to compile (bad expr syntax) is
-// still a hard error: that's a config defect, not an absent-feature no-op.
-func compileFormulas(schema *tagschema.Schema) (priorityFn, decayFn *tagschema.Formula, err error) {
-	if raw, ok := schema.PriorityFn(ImpactTarget); ok {
-		if priorityFn, err = tagschema.CompileFormula(raw); err != nil {
-			return nil, nil, fmt.Errorf("priority: %w", err)
-		}
+// compileAll compiles EVERY declared priority_fn and EVERY declared decay_fn
+// across every target in schema — so a formula on any target is
+// syntax-checked, never silently skipped just because it isn't the one
+// target this package happens to evaluate (see this package's history: a
+// formula declared on the wrong target used to compile-check nothing at
+// all) — but EVALUATES exactly one of each. Declaring more than one
+// priority_fn (or more than one decay_fn), across different targets, is an
+// AMBIGUITY error naming every conflicting target — never a silent pick of
+// whichever one happened to sort first.
+//
+// Either return value (or both) comes back nil when schema declares nothing
+// for that facet, and Compute treats a nil priorityFn as "raw score 0" and a
+// nil decayFn as "no decay" (age_factor stays 1) rather than erroring — an
+// absent formula is a valid (if inert) configuration, not a fault. A
+// DECLARED formula that fails to compile (bad expr syntax) is still a hard
+// error: that's a config defect, not an absent-feature no-op.
+func compileAll(schema *tagschema.Schema) (priorityFn, decayFn *tagschema.Formula, err error) {
+	if priorityFn, err = compileFacet(schema, tagschema.PriorityFnFacet, schema.PriorityFn); err != nil {
+		return nil, nil, err
 	}
-	if raw, ok := schema.DecayFn(ImpactTarget); ok {
-		if decayFn, err = tagschema.CompileFormula(raw); err != nil {
-			return nil, nil, fmt.Errorf("priority: %w", err)
-		}
+	if decayFn, err = compileFacet(schema, tagschema.DecayFnFacet, schema.DecayFn); err != nil {
+		return nil, nil, err
 	}
 	return priorityFn, decayFn, nil
+}
+
+// compileFacet compiles EVERY target schema declares under facet (via
+// getter — schema.PriorityFn or schema.DecayFn), syntax-checking each one
+// regardless of how many there are, then returns the compiled Formula for
+// the single declared target — or nil if none is declared. More than one
+// declared target for facet is a returned ambiguity error naming all of
+// them; it is never silently resolved by picking one.
+func compileFacet(schema *tagschema.Schema, facet string, getter func(string) (string, bool)) (*tagschema.Formula, error) {
+	var compiled []*tagschema.Formula
+	var declared []string
+	for _, target := range schema.Targets(facet) {
+		raw, ok := getter(target)
+		if !ok {
+			continue
+		}
+		f, err := tagschema.CompileFormula(raw)
+		if err != nil {
+			return nil, fmt.Errorf("priority: %s on %s: %w", facet, target, err)
+		}
+		compiled = append(compiled, f)
+		declared = append(declared, target)
+	}
+	switch len(declared) {
+	case 0:
+		return nil, nil
+	case 1:
+		return compiled[0], nil
+	default:
+		return nil, fmt.Errorf("priority: more than one %s declared (targets %s) — exactly one is allowed",
+			facet, strings.Join(declared, ", "))
+	}
+}
+
+// formulaTagPlaceholderPattern mirrors tagschema.CompileFormula's own
+// "{{...}}" placeholder syntax awareness, duplicated here rather than
+// exported from tagschema: this is a diagnostics-only concern (which bare
+// tag TARGETS a compiled formula's source text references, used only to
+// size Diagnostics.ScoredTasks), not part of the compile/eval bridge itself.
+var formulaTagPlaceholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
+
+// referencedTagTargets collects every bare tag TARGET ("ns:key", stripped of
+// any "=value" qualifier — e.g. "{{triage:impact=capability}}" contributes
+// "triage:impact") referenced by any placeholder in any of formulas' source
+// text. A nil formula (compileAll returns nil when a facet declares nothing)
+// is skipped.
+func referencedTagTargets(formulas ...*tagschema.Formula) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range formulas {
+		if f == nil {
+			continue
+		}
+		for _, m := range formulaTagPlaceholderPattern.FindAllStringSubmatch(f.Source(), -1) {
+			name := m[1]
+			if !strings.Contains(name, ":") {
+				continue // a Builtin(...) reference (e.g. age_days), not a tag
+			}
+			if i := strings.Index(name, "="); i >= 0 {
+				name = name[:i]
+			}
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// hasAnyTarget reports whether tagValues (one task's resolveTagValues
+// result) carries a key for any target in targets — presence, not value: a
+// bare target key is always present once resolveTagValues sees that tag at
+// all, whether it's a modifier, a numeric value, or a non-numeric value (see
+// resolveTagValues's composite-key doc).
+func hasAnyTarget(tagValues map[string]float64, targets map[string]bool) bool {
+	for target := range targets {
+		if _, ok := tagValues[target]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // lookup adapts a plain map into the func(string) float64 shape
@@ -198,11 +328,21 @@ func lookup(m map[string]float64) func(string) float64 {
 // calls read from, for one task's current (sorted) tag set:
 //
 //   - a value-carrying tag (parsed via tagma, e.g. "triage:impact=3")
-//     contributes its value parsed as float64 — 0 when unparseable. A
-//     malformed tag value never fails a priority computation; `taskloom
-//     lint` (internal/shared/tasks/lint) is what flags it as a violation.
+//     contributes its value parsed as float64 under the bare target — 0 when
+//     unparseable. A malformed tag value never fails a priority computation;
+//     `taskloom lint` (internal/shared/tasks/lint) is what flags it as a
+//     violation.
+//   - EVERY value-carrying tag ALSO contributes a composite presence key,
+//     "target=value" -> 1.0 — in BOTH the numeric and non-numeric case. This
+//     is what makes a "{{triage:impact=capability}}" placeholder (a
+//     non-numeric, ENUM-valued tag) resolvable at all: without this entry
+//     the bare "triage:impact" key alone can't tell a formula which of
+//     several possible enum values is actually present, and a non-numeric
+//     value would otherwise resolve to a silent, indistinguishable 0 exactly
+//     like an absent tag — this composite key is what breaks that tie.
 //   - a valueless tag (a plain modifier, e.g. "triage:regression")
-//     contributes 1.0 — presence itself is the signal.
+//     contributes 1.0 under the bare target only — presence itself is the
+//     signal, there's no value to key a composite entry on.
 //   - an absent target has no map entry at all, which lookup's zero-value
 //     fallback already turns into 0 for any Tag(...) call that asks for it.
 //
@@ -223,6 +363,7 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 			out[target] = 1.0
 			continue
 		}
+		out[target+"="+*t.Value] = 1.0
 		f, err := strconv.ParseFloat(*t.Value, 64)
 		if err != nil {
 			out[target] = 0

@@ -582,14 +582,20 @@ func DeferredSince(tc TaskContext) (map[string]time.Time, error) {
 // now is injected (never time.Now() internally) — production call sites
 // (cmd/taskloom's `list --sort priority` and task_list's sort="priority")
 // pass time.Now(); tests pin it for determinism.
-func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.Result, error) {
+//
+// The returned priority.Diagnostics tells a caller when the ranking it just
+// got back, however fully populated it looks, is actually MEANINGLESS (no
+// priority_fn declared, or every non-terminal task tied) — see that type's
+// doc. A caller driving `--sort priority` is expected to surface a degenerate
+// Diagnostics to the user rather than silently rendering the numbers.
+func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.Result, priority.Diagnostics, error) {
 	store, _, _, err := resolveTaskStore(tc)
 	if err != nil {
-		return nil, err
+		return nil, priority.Diagnostics{}, err
 	}
 	all, err := store.Snapshot()
 	if err != nil {
-		return nil, fmt.Errorf("snapshot for priority computation: %w", err)
+		return nil, priority.Diagnostics{}, fmt.Errorf("snapshot for priority computation: %w", err)
 	}
 	return priority.Compute(all, tc.TagSchema, now)
 }

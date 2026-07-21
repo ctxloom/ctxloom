@@ -20,9 +20,15 @@ violations of the triage tag standard, sourced from this project's own
 tag_schema config (` + "`.taskloom/config.yaml`" + `'s ` + "`tag_schema`" + ` key, or the shipped
 default) so the check always matches what THIS project actually declares:
 
-  - a "triage:type" value that isn't one of the declared enum values
-  - a "triage:impact" value that doesn't parse as a number, or parses but
-    falls outside the declared range
+  - for every target the schema declares an enum for (e.g. "triage:impact",
+    "triage:kind" in the shipped default): a value that isn't one of the
+    declared enum values
+  - for every target the schema declares a numeric range for (e.g.
+    "triage:severity", "triage:effort" in the shipped default): a value that
+    doesn't parse as a number, or parses but falls outside the declared range
+  - a value-qualified placeholder in a declared priority_fn/decay_fn (e.g.
+    "{{triage:impact=foo}}") whose value isn't one of that target's own
+    declared enum values
   - an arity=scalar target carrying more than one distinct value on the same
     task (shouldn't happen once a task is only ever tagged through taskloom —
     the write-seam already collapses those — but foreign or hand-edited log

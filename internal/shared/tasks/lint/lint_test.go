@@ -113,15 +113,86 @@ func TestLint_NoEnumOrRangeDeclaredSkipsThoseChecks(t *testing.T) {
 	assert.Empty(t, violations)
 }
 
-func TestLint_NilSchemaSkipsEnumRangeCardinalityButStillCatchesNonNumericImpact(t *testing.T) {
+// TestLint_NilSchemaSkipsEverything proves EVERY check (enum, range —
+// including the "must parse as a number" check, which is now purely a
+// CONSEQUENCE of a declared range — and cardinality) is schema-driven: with
+// no schema at all, there's nothing to check task data against, not even a
+// blanket "impact must be numeric" rule (that used to hold unconditionally,
+// which is exactly what wrongly rejected an ENUM value like
+// "triage:impact=compatibility" — a non-numeric value is only ever a defect
+// against a target the schema itself declared a range for).
+func TestLint_NilSchemaSkipsEverything(t *testing.T) {
 	all := []tasks.Task{
 		{HarpID: "a", Tags: []string{"triage:type=anything", `triage:impact="oops"`}},
 	}
 
 	violations, err := Lint(all, nil)
 	require.NoError(t, err)
-	require.Len(t, violations, 1, "a non-numeric impact is always a defect, schema or not")
-	assert.Contains(t, violations[0].Reason, "does not parse as a number")
+	assert.Empty(t, violations)
+}
+
+// TestLint_NonNumericValueOnEnumOnlyTargetIsNotFlagged is the regression
+// test for the exact bug that motivated dropping the old unconditional
+// "impact must parse as a number" check: a target declared an ENUM (never a
+// range) whose value is a legitimate non-numeric vocabulary word (e.g.
+// "compatibility") must NOT be flagged as "does not parse as a number" — the
+// numeric-parse check only ever applies to a target the schema declared a
+// RANGE for.
+func TestLint_NonNumericValueOnEnumOnlyTargetIsNotFlagged(t *testing.T) {
+	schema := mustSchema(t, `tagma.enum:"triage:impact"="correctness,security,compatibility"`)
+	all := []tasks.Task{
+		{HarpID: "a", Tags: []string{"triage:impact=compatibility"}},
+	}
+
+	violations, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Empty(t, violations)
+}
+
+// TestLint_FormulaEnumRef_FlagsValueNotInDeclaredEnum proves a
+// value-qualified placeholder in a declared formula — e.g.
+// "{{triage:impact=foo}}" — is checked against triage:impact's OWN declared
+// enum: a value that isn't a member is a SCHEMA-level violation (never
+// silently inert), tagged with SchemaViolationHarpID rather than any task's
+// harp ID.
+func TestLint_FormulaEnumRef_FlagsValueNotInDeclaredEnum(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.enum:"triage:impact"="correctness,security"`,
+		`tagma.decay_fn:"triage:severity"="{{triage:impact=nonexistent}} > 0 ? 2 : 1"`,
+	)
+
+	violations, err := Lint(nil, schema)
+	require.NoError(t, err)
+	require.Len(t, violations, 1)
+	assert.Equal(t, SchemaViolationHarpID, violations[0].HarpID)
+	assert.Contains(t, violations[0].Reason, "triage:impact")
+	assert.Contains(t, violations[0].Reason, "nonexistent")
+}
+
+// TestLint_FormulaEnumRef_AllowsDeclaredValue is the negative case: a
+// composite placeholder referencing an actual enum member raises nothing.
+func TestLint_FormulaEnumRef_AllowsDeclaredValue(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.enum:"triage:impact"="correctness,security"`,
+		`tagma.decay_fn:"triage:severity"="{{triage:impact=security}} > 0 ? 2 : 1"`,
+	)
+
+	violations, err := Lint(nil, schema)
+	require.NoError(t, err)
+	assert.Empty(t, violations)
+}
+
+// TestLint_FormulaEnumRef_SkipsWhenReferencedTargetHasNoEnum proves the
+// check only fires when the REFERENCED target itself declares an enum —
+// nothing to validate a composite reference against otherwise.
+func TestLint_FormulaEnumRef_SkipsWhenReferencedTargetHasNoEnum(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.decay_fn:"triage:severity"="{{triage:impact=whatever}} > 0 ? 2 : 1"`,
+	)
+
+	violations, err := Lint(nil, schema)
+	require.NoError(t, err)
+	assert.Empty(t, violations)
 }
 
 func TestLint_MalformedRangeDeclarationIsAReturnedError(t *testing.T) {

@@ -824,7 +824,7 @@ func TestComputeTaskPriorities_RanksAcrossTheFullProjectSnapshot(t *testing.T) {
 		t.Fatalf("add high: %v", err)
 	}
 
-	results, err := ComputeTaskPriorities(tc, time.Now())
+	results, _, err := ComputeTaskPriorities(tc, time.Now())
 	if err != nil {
 		t.Fatalf("compute priorities: %v", err)
 	}

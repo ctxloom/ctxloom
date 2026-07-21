@@ -152,6 +152,9 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		if err != nil {
 			return wrapTagQueryError(err)
 		}
+		if gres.PriorityWarning != "" {
+			clidiag.Fwarn(errw, "taskloom", "%s", gres.PriorityWarning)
+		}
 		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, filtered)
 		if opts.Format != clifmt.FormatText {
 			return clifmt.Render(out, gres.Rows, opts.Format)
@@ -175,12 +178,15 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	warnTask(res.Warning)
 	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, filtered)
 	if opts.Sort == sortPriority {
-		results, perr := operations.ComputeTaskPriorities(tc, time.Now())
+		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
 		if perr != nil {
 			return fmt.Errorf("compute priorities: %w", perr)
 		}
 		attachPriority(res.Tasks, results)
 		sortTasksByPriorityDesc(res.Tasks)
+		if msg := priorityDiagnosticWarning(diag); msg != "" {
+			clidiag.Fwarn(errw, "taskloom", "%s", msg)
+		}
 	}
 	if opts.Format != clifmt.FormatText {
 		return clifmt.Render(out, res.Tasks, opts.Format)
@@ -224,6 +230,24 @@ func priorityOf(t tasks.Task) float64 {
 		return 0
 	}
 	return *t.DerivedPriority
+}
+
+// priorityDiagnosticWarning renders a priority.Diagnostics into a
+// plain-English warning when `--sort priority`/task_list's sort="priority"
+// just produced a ranking that EXISTS but is MEANINGLESS (see that type's
+// doc) — or "" when the ranking is fine. NoPriorityFn is checked first and
+// reported on its own (not folded into the tied-scores wording below) since
+// its fix — declare a priority_fn — is a different fix from a genuinely-tied
+// population's (apply the tags the formula reads).
+func priorityDiagnosticWarning(d priority.Diagnostics) string {
+	switch {
+	case d.NoPriorityFn:
+		return "--sort priority is meaningless here: this project's tag_schema declares no priority_fn, so every task's raw score is 0 and the ranking reflects nothing"
+	case d.AllTied:
+		return fmt.Sprintf("--sort priority is meaningless here: every active task ties at the same raw priority score (only %d carry a tag any priority_fn/decay_fn formula actually reads) — the ranking reflects nothing", d.ScoredTasks)
+	default:
+		return ""
+	}
 }
 
 // wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,

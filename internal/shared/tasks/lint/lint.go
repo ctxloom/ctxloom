@@ -10,23 +10,22 @@ package lint
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
-// TypeTarget/ImpactTarget name the triage standard's two config-driven check
-// points: TypeTarget's value is checked against a declared enum, ImpactTarget's
-// against a declared numeric range. Both also happen to be arity=scalar
-// declared by taskloomconfig.DefaultTagSchema, but the cardinality check below
-// applies to every scalar-declared target on a task, not just these two.
-const (
-	TypeTarget   = "triage:type"
-	ImpactTarget = "triage:impact"
-)
+// SchemaViolationHarpID is the synthetic HarpID a Violation carries when it
+// names a defect in the SCHEMA (a declared formula) rather than in any one
+// task's data — see the composite-value enum-reference check below. It sorts
+// before every real harp ID's lowercase-word shape, so schema-level
+// violations surface first.
+const SchemaViolationHarpID = "(schema)"
 
 // Violation is one triage-standard violation Lint found on a task.
 type Violation struct {
@@ -36,61 +35,86 @@ type Violation struct {
 
 // Lint folds every task in all (any status — even a Done task's tags stay
 // part of the historical record, so lint checks them too) and reports
-// triage-standard violations, sourced from schema's own enum/range/arity
-// facets so the check always matches what THIS project actually declares
-// rather than a hardcoded vocabulary:
+// triage-standard violations, sourced ENTIRELY from schema's own
+// enum/range/arity facets so the check always matches what THIS project
+// actually declares rather than a hardcoded vocabulary:
 //
-//   - TypeTarget's value isn't a member of schema's declared enum for it
-//     (tagschema.EnumFacet) — skipped entirely if no enum is declared;
-//   - ImpactTarget's value doesn't parse as a float, or parses but falls
-//     outside schema's declared [min,max] (tagschema.RangeFacet) — the
-//     parse check always applies (a non-numeric impact is never valid,
-//     declared range or not), the range check only when one is declared;
+//   - for every target schema declares an enum for (tagschema.EnumFacet, via
+//     Schema.Targets): that target's value on a task isn't a member of the
+//     declared enum;
+//   - for every target schema declares a range for (tagschema.RangeFacet):
+//     that target's value on a task doesn't parse as a float, or parses but
+//     falls outside the declared [min,max]. The "must parse as a number"
+//     check is now purely a CONSEQUENCE of a declared range on that specific
+//     target — there is no longer a blanket "impact must be numeric"
+//     check independent of what the schema actually declares (that used to
+//     wrongly reject legitimate non-numeric — e.g. ENUM — values on a target
+//     that was never meant to be numeric in the first place);
+//   - a value-qualified placeholder in a declared priority_fn/decay_fn (e.g.
+//     "{{triage:impact=foo}}") whose value isn't a member of that target's
+//     OWN declared enum — a schema-level defect (Violation.HarpID ==
+//     SchemaViolationHarpID), not a task-data one: without this check, a
+//     formula that references an enum value that can never actually occur is
+//     one more silent-zero surface;
 //   - any arity=scalar target (tagschema.IsScalar) carrying more than one
 //     DISTINCT value on the same task — should be unreachable after phase
 //     2's write-seam collapse, but foreign/legacy data (an older binary, a
 //     hand-edited log, a union-merge artifact) might still carry it.
 //
-// A nil schema reports nothing at all for the enum/range/cardinality checks
-// (tagschema.Schema's own nil-receiver-safety means every Get/Enum/Range/
-// IsScalar call already degrades to "nothing declared" — Lint doesn't
-// duplicate that guard), except the impact-parses-as-a-number check, which
-// holds regardless of schema (an unparseable impact is a defect against the
-// well-known shape of the standard, not something a schema opts into).
+// A nil schema reports NOTHING at all — every one of the checks above is
+// schema-driven (tagschema.Schema's own nil-receiver-safety means every
+// Targets/Get/Enum/Range/IsScalar call already degrades to "nothing
+// declared"), so a project with no tag_schema resolved has nothing to check
+// tasks against.
 //
 // Violations are returned sorted by (HarpID, Reason) for deterministic
 // output; a returned error is reserved for a malformed RANGE DECLARATION
 // itself (a config defect, distinct from a task-data violation).
 func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
-	min, max, hasRange, err := schema.Range(ImpactTarget)
-	if err != nil {
-		return nil, fmt.Errorf("lint: %w", err)
+	enums := make(map[string][]string)
+	for _, target := range schema.Targets(tagschema.EnumFacet) {
+		enum, _ := schema.Enum(target)
+		enums[target] = enum
 	}
-	enum, hasEnum := schema.Enum(TypeTarget)
 
-	var out []Violation
+	type bounds struct{ min, max float64 }
+	ranges := make(map[string]bounds)
+	for _, target := range schema.Targets(tagschema.RangeFacet) {
+		min, max, ok, err := schema.Range(target)
+		if err != nil {
+			return nil, fmt.Errorf("lint: %w", err)
+		}
+		if ok {
+			ranges[target] = bounds{min, max}
+		}
+	}
+
+	out := formulaEnumRefViolations(schema, enums)
+
 	for _, t := range all {
 		values := groupByTarget(t.Tags)
 
-		if hasEnum {
-			for _, v := range values[TypeTarget] {
+		for target, enum := range enums {
+			for _, v := range values[target] {
 				if !contains(enum, v) {
 					out = append(out, Violation{t.HarpID,
-						fmt.Sprintf("%s=%q is not one of the declared enum values %v", TypeTarget, v, enum)})
+						fmt.Sprintf("%s=%q is not one of the declared enum values %v", target, v, enum)})
 				}
 			}
 		}
 
-		for _, v := range values[ImpactTarget] {
-			f, perr := strconv.ParseFloat(v, 64)
-			if perr != nil {
-				out = append(out, Violation{t.HarpID,
-					fmt.Sprintf("%s=%q does not parse as a number", ImpactTarget, v)})
-				continue
-			}
-			if hasRange && (f < min || f > max) {
-				out = append(out, Violation{t.HarpID,
-					fmt.Sprintf("%s=%v is outside the declared range [%v,%v]", ImpactTarget, f, min, max)})
+		for target, b := range ranges {
+			for _, v := range values[target] {
+				f, perr := strconv.ParseFloat(v, 64)
+				if perr != nil {
+					out = append(out, Violation{t.HarpID,
+						fmt.Sprintf("%s=%q does not parse as a number", target, v)})
+					continue
+				}
+				if f < b.min || f > b.max {
+					out = append(out, Violation{t.HarpID,
+						fmt.Sprintf("%s=%v is outside the declared range [%v,%v]", target, f, b.min, b.max)})
+				}
 			}
 		}
 
@@ -115,6 +139,48 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) ([]Violation, error) {
 		return out[i].Reason < out[j].Reason
 	})
 	return out, nil
+}
+
+// formulaPlaceholderPattern mirrors tagschema.CompileFormula's own "{{...}}"
+// placeholder syntax awareness, duplicated here (a lint-only, CONFIG
+// validation concern — checking a value-qualified tag placeholder like
+// "{{triage:impact=foo}}" against the target's own declared enum) rather
+// than exported from tagschema.
+var formulaPlaceholderPattern = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*}}`)
+
+// formulaEnumRefViolations scans every declared priority_fn/decay_fn formula
+// (across every target — see tagschema.Schema.Targets) for a value-qualified
+// tag placeholder ("{{ns:key=value}}") and flags one whose value is not a
+// member of ns:key's own declared enum, if any. A target with no declared
+// enum is skipped (nothing to check the reference against). Violations are
+// tagged with SchemaViolationHarpID: this is a defect in the SCHEMA itself,
+// not any one task's data.
+func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]string) []Violation {
+	var out []Violation
+	for _, facet := range []string{tagschema.PriorityFnFacet, tagschema.DecayFnFacet} {
+		for _, target := range schema.Targets(facet) {
+			raw, ok := schema.Get(facet, target)
+			if !ok {
+				continue
+			}
+			for _, m := range formulaPlaceholderPattern.FindAllStringSubmatch(raw, -1) {
+				name := m[1]
+				eq := strings.Index(name, "=")
+				if eq < 0 || !strings.Contains(name[:eq], ":") {
+					continue // a builtin, or a bare (non-value-qualified) tag reference
+				}
+				refTarget, refValue := name[:eq], name[eq+1:]
+				enum, hasEnum := enums[refTarget]
+				if !hasEnum || contains(enum, refValue) {
+					continue
+				}
+				out = append(out, Violation{SchemaViolationHarpID, fmt.Sprintf(
+					"%s on %s references {{%s}}, but %s=%q is not one of %s's declared enum values %v",
+					facet, target, name, refTarget, refValue, refTarget, enum)})
+			}
+		}
+	}
+	return out
 }
 
 // groupByTarget groups a task's stored tag strings by their "ns:key" target,

@@ -72,31 +72,32 @@ func TestHandleTaskList_FiltersByStatusAndTerm(t *testing.T) {
 	assert.Len(t, res.Summary.InProgress, 1)
 }
 
-// TestHandleTaskList_SortPriorityOrdersDescendingByImpact exercises
+// TestHandleTaskList_SortPriorityOrdersDescendingBySeverity exercises
 // task_list's sort="priority" against the project's DEFAULT tag_schema
 // (taskloomconfig.DefaultTagSchema) end to end: three tasks with different
-// triage:impact values must come back highest-impact first, each carrying a
-// populated derived_priority.
-func TestHandleTaskList_SortPriorityOrdersDescendingByImpact(t *testing.T) {
+// triage:severity values must come back highest-severity first, each
+// carrying a populated derived_priority.
+func TestHandleTaskList_SortPriorityOrdersDescendingBySeverity(t *testing.T) {
 	withProjectDir(t)
 
-	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "low impact", Tags: []string{"triage:impact=1"}})
+	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "low severity", Tags: []string{"triage:severity=1"}})
 	require.NoError(t, err)
-	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "high impact", Tags: []string{"triage:impact=9"}})
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "high severity", Tags: []string{"triage:severity=5"}})
 	require.NoError(t, err)
-	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "mid impact", Tags: []string{"triage:impact=5"}})
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "mid severity", Tags: []string{"triage:severity=3"}})
 	require.NoError(t, err)
 
 	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Sort: "priority"})
 	require.NoError(t, err)
 	require.Len(t, res.Tasks, 3)
-	assert.Equal(t, "high impact", res.Tasks[0].Text)
-	assert.Equal(t, "mid impact", res.Tasks[1].Text)
-	assert.Equal(t, "low impact", res.Tasks[2].Text)
+	assert.Equal(t, "high severity", res.Tasks[0].Text)
+	assert.Equal(t, "mid severity", res.Tasks[1].Text)
+	assert.Equal(t, "low severity", res.Tasks[2].Text)
 	for _, row := range res.Tasks {
 		require.NotNil(t, row.DerivedPriority, "sort=priority must populate derived_priority")
 	}
 	assert.Greater(t, *res.Tasks[0].DerivedPriority, *res.Tasks[2].DerivedPriority)
+	assert.Empty(t, res.PriorityWarning, "a real spread of severities is a meaningful ranking")
 }
 
 // TestHandleTaskList_UnknownSortValueErrors mirrors the CLI's --sort

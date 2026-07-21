@@ -24,86 +24,104 @@ func mustSchema(t *testing.T, decls ...string) *tagschema.Schema {
 }
 
 // defaultTriageSchema mirrors internal/taskloom/config.DefaultTagSchema's
-// priority_fn/decay_fn declarations verbatim (both on target
-// "triage:severity"), so these tests exercise the actual shipped formulas,
-// not a simplified stand-in.
+// priority_fn/decay_fn declarations verbatim (both on target "triage:kind"),
+// so these tests exercise the actual shipped formulas, not a simplified
+// stand-in.
 func defaultTriageSchema(t *testing.T) *tagschema.Schema {
 	t.Helper()
 	return mustSchema(t,
-		`tagma.decay_fn:"triage:severity"="{{triage:exposed}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:impact=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:impact=tooling}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : {{triage:impact=maintainability}} > 0 ? 0.6 + 0.4 * 0.5 ** ({{age_days}}/270) : {{triage:impact=performance}} > 0 ? 0.7 + 0.3 * 0.5 ** ({{age_days}}/365) : 1"`,
-		`tagma.priority_fn:"triage:severity"="{{triage:severity}} * (1 + 0.25*{{triage:regression}} + 0.5*{{triage:data-loss}}) * {{age_factor}} / (1 + {{triage:effort}}/2) * (1 + {{triage:blocks-release}})"`,
+		`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1"`,
+		`tagma.priority_fn:"triage:kind"="({{triage:kind=defect}} > 0 ? 3 : {{triage:kind=capability}} > 0 ? 2 : 1) * (1 + {{triage:data-loss}} + {{triage:security=*}} + 0.75*{{triage:no-workaround}} + 0.5*{{triage:crashes}} + 0.5*{{triage:regression=*}}) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)"`,
 	)
 }
 
-func TestCompute_SeverityOnly(t *testing.T) {
+// TestCompute_KindOnly proves the base weight priority_fn assigns per
+// triage:kind value (defect=3, capability=2, chore=1, see the ternary
+// chain's own doc) with no other modifiers present — at age_days=0 every
+// decay_fn branch's 0.5**(age_days/K) term is 1, so age_factor is 1
+// regardless of which branch triage:kind selects, isolating the weight
+// itself.
+func TestCompute_KindOnly(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "low", Status: tasks.StatusToDo, Tags: []string{`triage:severity=2`}, CreatedAt: fixedNow},
-		{HarpID: "high", Status: tasks.StatusToDo, Tags: []string{`triage:severity=8`}, CreatedAt: fixedNow},
+		{HarpID: "low", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
+		{HarpID: "high", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	// age_days=0, no escalation tag present -> decay_fn's final "else"
-	// branch, the literal 1; no effort/blocks-release -> raw == severity.
-	assert.Equal(t, 2.0, results["low"].Raw)
-	assert.Equal(t, 8.0, results["high"].Raw)
+	assert.Equal(t, 1.0, results["low"].Raw, "chore weight, no modifiers")
+	assert.Equal(t, 3.0, results["high"].Raw, "defect weight, no modifiers")
 	assert.False(t, results["low"].Overridden)
 	assert.False(t, results["high"].Overridden)
 
-	// Rank-normalized over {2,8}: low is <= itself only (1/2 of the
+	// Rank-normalized over {1,3}: low is <= itself only (1/2 of the
 	// population) -> 2.5; high is <= both (2/2) -> 5 (the population max
 	// always reaches the ceiling).
 	assert.Equal(t, 2.5, results["low"].Priority)
 	assert.Equal(t, Max, results["high"].Priority)
 }
 
+// TestCompute_WithModifiersRaisesRawScore proves defect+data-loss > defect >
+// capability > chore at equal effort — the ranking invariant the schema
+// revision is built around — by layering the additive risk-modifier factors
+// onto a fixed triage:kind weight.
 func TestCompute_WithModifiersRaisesRawScore(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`}, CreatedAt: fixedNow},
-		{HarpID: "regressed", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`, `triage:regression`}, CreatedAt: fixedNow},
-		{HarpID: "both", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`, `triage:regression`, `triage:data-loss`}, CreatedAt: fixedNow},
+		{HarpID: "chore", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
+		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`}, CreatedAt: fixedNow},
+		{HarpID: "defect", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`}, CreatedAt: fixedNow},
+		{HarpID: "defect-regressed", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, `triage:regression=abc123`}, CreatedAt: fixedNow},
+		{HarpID: "defect-data-loss", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, `triage:regression=abc123`, `triage:data-loss`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.Equal(t, 4.0, results["plain"].Raw)
-	assert.Equal(t, 5.0, results["regressed"].Raw, "4 * (1 + 0.25)")
-	assert.Equal(t, 7.0, results["both"].Raw, "4 * (1 + 0.25 + 0.5)")
+	assert.Equal(t, 1.0, results["chore"].Raw)
+	assert.Equal(t, 2.0, results["capability"].Raw)
+	assert.Equal(t, 3.0, results["defect"].Raw)
+	assert.Equal(t, 4.5, results["defect-regressed"].Raw, "3 * (1 + 0.5)")
+	assert.Equal(t, 7.5, results["defect-data-loss"].Raw, "3 * (1 + 1 + 0.5)")
 
-	// Monotonic: a strictly higher raw score must never rank below a lower one.
-	assert.Greater(t, results["both"].Priority, results["regressed"].Priority)
-	assert.Greater(t, results["regressed"].Priority, results["plain"].Priority)
+	// The invariant: defect+data-loss > defect > capability > chore, at
+	// equal effort (here, effort unset on every task).
+	assert.Greater(t, results["defect-data-loss"].Priority, results["defect"].Priority)
+	assert.Greater(t, results["defect"].Priority, results["capability"].Priority)
+	assert.Greater(t, results["capability"].Priority, results["chore"].Priority)
 }
 
 // TestCompute_EffortAndBlocksReleaseAdjustRawScore pins the two priority_fn
 // factors TestCompute_WithModifiersRaisesRawScore doesn't touch: effort
 // divides the score down (a more expensive fix ranks lower, all else equal),
-// blocks-release multiplies it up.
+// blocks-release multiplies it up — and specifically with a NON-NUMERIC
+// value ("0.7.0"), the exact case Part 1's presence-testing fix exists for:
+// before that fix, "{{triage:blocks-release=*}}" could never see a
+// non-numeric-valued tag at all, so the release gate silently never doubled
+// anything.
 func TestCompute_EffortAndBlocksReleaseAdjustRawScore(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`}, CreatedAt: fixedNow},
-		{HarpID: "costly", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`, `triage:effort=2`}, CreatedAt: fixedNow},
-		{HarpID: "blocker", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`, `triage:blocks-release`}, CreatedAt: fixedNow},
+		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`}, CreatedAt: fixedNow},
+		{HarpID: "costly", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`, `triage:effort=2`}, CreatedAt: fixedNow},
+		{HarpID: "blocker", Status: tasks.StatusToDo, Tags: []string{`triage:kind=capability`, `triage:blocks-release=0.7.0`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.Equal(t, 4.0, results["plain"].Raw)
-	assert.Equal(t, 2.0, results["costly"].Raw, "4 / (1 + 2/2) == 2")
-	assert.Equal(t, 8.0, results["blocker"].Raw, "4 * (1 + 1) == 8")
+	assert.Equal(t, 2.0, results["plain"].Raw)
+	assert.Equal(t, 1.0, results["costly"].Raw, "2 / (1 + 2/2) == 1")
+	assert.Equal(t, 4.0, results["blocker"].Raw, "2 * (1 + 1) == 4 -- the release gate doubles the score even though 0.7.0 never parses as a number")
 }
 
 func TestCompute_ExploitedInWildOverridesToMax(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "boring", Status: tasks.StatusToDo, Tags: []string{`triage:severity=1`}, CreatedAt: fixedNow},
-		{HarpID: "exploited", Status: tasks.StatusToDo, Tags: []string{`triage:severity=1`, `triage:exploited-in-wild`}, CreatedAt: fixedNow},
+		{HarpID: "boring", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
+		{HarpID: "exploited", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`, `triage:exploited-in-wild`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -119,15 +137,17 @@ func TestCompute_ExploitedInWildOverridesToMax(t *testing.T) {
 
 // TestCompute_DeferredTaskSkipsDecay uses the "exposed" escalation branch
 // (the only way the shipped default decay_fn moves with age at all — see
-// TestCompute_SeverityAgeCrossover_MaxEscalationCapsAt2x) to prove a
-// Deferred task's age never moves its score, while an otherwise-identical
-// non-Deferred task's does.
+// TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x) to prove a Deferred
+// task's age never moves its score, while an otherwise-identical
+// non-Deferred task's does. triage:exposed is applied BARE (no surface
+// named), proving the "=*" universal presence key (Part 1's fix) is what
+// drives the escalation branch, not a specific enum value.
 func TestCompute_DeferredTaskSkipsDecay(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	created := fixedNow.Add(-100 * 24 * time.Hour) // 100 days old
 	all := []tasks.Task{
-		{HarpID: "parked", Status: tasks.StatusDeferred, Trigger: "something", Tags: []string{`triage:severity=4`, "triage:exposed"}, CreatedAt: created},
-		{HarpID: "active", Status: tasks.StatusToDo, Tags: []string{`triage:severity=4`, "triage:exposed"}, CreatedAt: created},
+		{HarpID: "parked", Status: tasks.StatusDeferred, Trigger: "something", Tags: []string{`triage:kind=defect`, "triage:exposed"}, CreatedAt: created},
+		{HarpID: "active", Status: tasks.StatusToDo, Tags: []string{`triage:kind=defect`, "triage:exposed"}, CreatedAt: created},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -135,16 +155,17 @@ func TestCompute_DeferredTaskSkipsDecay(t *testing.T) {
 
 	// active: age_factor = 1 + 100/(100+90); parked: age must not move a
 	// Deferred task's score, so age_factor stays exactly 1 regardless of age.
-	assert.Equal(t, 4.0, results["parked"].Raw, "Deferred: decay is skipped, age_factor pinned to 1")
-	assert.InDelta(t, 4.0*(1+100.0/190.0), results["active"].Raw, 1e-9, "non-Deferred: decay raises the score with age (exposed branch)")
+	assert.Equal(t, 3.0, results["parked"].Raw, "Deferred: decay is skipped, age_factor pinned to 1")
+	assert.InDelta(t, 3.0*(1+100.0/190.0), results["active"].Raw, 1e-9, "non-Deferred: decay raises the score with age (bare-exposed branch)")
 	assert.Greater(t, results["active"].Raw, results["parked"].Raw)
 }
 
 func TestCompute_DecayRaisesRawScoreWithAge(t *testing.T) {
-	// Isolate decay's effect: priority_fn is just age_factor itself.
+	// Isolate decay's effect: priority_fn is just age_factor itself, on a
+	// scratch target unrelated to the shipped default vocabulary.
 	schema := mustSchema(t,
-		`tagma.priority_fn:"triage:impact"="{{age_factor}}"`,
-		`tagma.decay_fn:"triage:impact"="1 + {{age_days}} / 365"`,
+		`tagma.priority_fn:"widget:score"="{{age_factor}}"`,
+		`tagma.decay_fn:"widget:score"="1 + {{age_days}} / 365"`,
 	)
 	fresh := tasks.Task{HarpID: "fresh", Status: tasks.StatusToDo, CreatedAt: fixedNow}
 	yearOld := tasks.Task{HarpID: "year-old", Status: tasks.StatusToDo, CreatedAt: fixedNow.Add(-365 * 24 * time.Hour)}
@@ -157,17 +178,16 @@ func TestCompute_DecayRaisesRawScoreWithAge(t *testing.T) {
 	assert.Greater(t, results["year-old"].Raw, results["fresh"].Raw)
 }
 
-// TestCompute_SeverityAgeCrossover_MaxEscalationCapsAt2x locks the INVARIANT
-// the shipped default decay_fn's exposed/blind-gate branches are designed
+// TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x locks the INVARIANT the
+// shipped default decay_fn's exposed/blind-gate branches are designed
 // around: 1 + age_days/(age_days+K) asymptotically approaches (but never
 // reaches) 2 as age_days grows without bound, so escalation is capped at
-// exactly 2x a task's bare severity, however old it gets. That cap produces
-// an exact crossover point: an ancient severity-2 task (ceiling ~4.0) must
-// NEVER outrank a merely fresh severity-5 task (raw exactly 5.0, no
-// escalation tag), but an ancient severity-3 EXPOSED task (ceiling ~6.0)
-// DOES exceed it — 2.5 is the exact severity threshold 2x escalation must
-// clear to beat a fresh 5.
-func TestCompute_SeverityAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
+// exactly 2x a task's bare triage:kind weight, however old it gets. That cap
+// produces an exact crossover point: an ancient LOW-weight (chore=1) exposed
+// task (ceiling ~2.0) must NEVER outrank a merely fresh HIGH-weight
+// (defect=3) task (raw exactly 3.0, no escalation tag), but an ancient
+// MID-weight (capability=2) EXPOSED task (ceiling ~4.0) DOES exceed it.
+func TestCompute_KindAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	// Asymptotically old (bounded by time.Duration's int64-nanosecond range,
 	// ~292 years, so this stays well inside it): age_days/(age_days+90) is
@@ -176,22 +196,22 @@ func TestCompute_SeverityAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
 	ancient := fixedNow.Add(-100_000 * 24 * time.Hour)
 
 	all := []tasks.Task{
-		{HarpID: "ancient-sev2-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:severity=2", "triage:exposed"}, CreatedAt: ancient},
-		{HarpID: "ancient-sev3-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:severity=3", "triage:exposed"}, CreatedAt: ancient},
-		{HarpID: "fresh-sev5", Status: tasks.StatusToDo, Tags: []string{"triage:severity=5"}, CreatedAt: fixedNow},
+		{HarpID: "ancient-chore-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore", "triage:exposed"}, CreatedAt: ancient},
+		{HarpID: "ancient-capability-exposed", Status: tasks.StatusToDo, Tags: []string{"triage:kind=capability", "triage:exposed"}, CreatedAt: ancient},
+		{HarpID: "fresh-defect", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	assert.InDelta(t, 4.0, results["ancient-sev2-exposed"].Raw, 0.01, "severity 2 at the ~2x escalation ceiling")
-	assert.InDelta(t, 6.0, results["ancient-sev3-exposed"].Raw, 0.01, "severity 3 at the ~2x escalation ceiling")
-	assert.Equal(t, 5.0, results["fresh-sev5"].Raw, "fresh, no escalation tag: decay_fn's final else branch is the literal 1")
+	assert.InDelta(t, 2.0, results["ancient-chore-exposed"].Raw, 0.01, "chore weight 1 at the ~2x escalation ceiling")
+	assert.InDelta(t, 4.0, results["ancient-capability-exposed"].Raw, 0.01, "capability weight 2 at the ~2x escalation ceiling")
+	assert.Equal(t, 3.0, results["fresh-defect"].Raw, "fresh, no escalation tag: decay_fn's final else branch is the literal 1")
 
-	assert.Less(t, results["ancient-sev2-exposed"].Raw, results["fresh-sev5"].Raw,
-		"an ancient LOW-severity task must never outrank a fresh HIGH-severity one once escalation is capped at 2x")
-	assert.Greater(t, results["ancient-sev3-exposed"].Raw, results["fresh-sev5"].Raw,
-		"but a high enough severity DOES cross a fresh higher-severity task once escalated")
+	assert.Less(t, results["ancient-chore-exposed"].Raw, results["fresh-defect"].Raw,
+		"an ancient LOW-weight task must never outrank a fresh HIGH-weight one once escalation is capped at 2x")
+	assert.Greater(t, results["ancient-capability-exposed"].Raw, results["fresh-defect"].Raw,
+		"but a high enough weight DOES cross a fresh higher-weight task once escalated")
 }
 
 // TestCompute_TerminalTasksExcludedFromNormalizationPopulation proves a
@@ -201,8 +221,8 @@ func TestCompute_SeverityAgeCrossover_MaxEscalationCapsAt2x(t *testing.T) {
 func TestCompute_TerminalTasksExcludedFromNormalizationPopulation(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "finished", Status: tasks.StatusDone, Tags: []string{`triage:severity=5`}, CreatedAt: fixedNow},
-		{HarpID: "only-live", Status: tasks.StatusToDo, Tags: []string{`triage:severity=1`}, CreatedAt: fixedNow},
+		{HarpID: "finished", Status: tasks.StatusDone, Tags: []string{`triage:kind=defect`}, CreatedAt: fixedNow},
+		{HarpID: "only-live", Status: tasks.StatusToDo, Tags: []string{`triage:kind=chore`}, CreatedAt: fixedNow},
 	}
 
 	results, _, err := Compute(all, schema, fixedNow)
@@ -282,7 +302,7 @@ func TestCompute_Diagnostics_NoPriorityFn(t *testing.T) {
 // case: a declared (and evaluated) priority_fn clears NoPriorityFn.
 func TestCompute_Diagnostics_NoPriorityFn_FalseWhenDeclared(t *testing.T) {
 	schema := defaultTriageSchema(t)
-	all := []tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:severity=1"}, CreatedAt: fixedNow}}
+	all := []tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore"}, CreatedAt: fixedNow}}
 	_, diag, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 	assert.False(t, diag.NoPriorityFn)
@@ -308,8 +328,8 @@ func TestCompute_Diagnostics_AllTied(t *testing.T) {
 func TestCompute_Diagnostics_AllTied_FalseWhenScoresDiffer(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:severity=1"}, CreatedAt: fixedNow},
-		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:severity=5"}, CreatedAt: fixedNow},
+		{HarpID: "a", Status: tasks.StatusToDo, Tags: []string{"triage:kind=chore"}, CreatedAt: fixedNow},
+		{HarpID: "b", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
 	}
 	_, diag, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
@@ -329,19 +349,19 @@ func TestCompute_Diagnostics_AllTied_FalseWithSingleNonTerminalTask(t *testing.T
 
 // TestCompute_Diagnostics_ScoredTasks counts only the non-terminal tasks
 // carrying a tag priority_fn/decay_fn's own formula text actually
-// references — here "triage:severity" (read by priority_fn) — so a task
+// references — here "triage:kind" (read by priority_fn) — so a task
 // carrying only unrelated tags doesn't count as "scored".
 func TestCompute_Diagnostics_ScoredTasks(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	all := []tasks.Task{
-		{HarpID: "scored", Status: tasks.StatusToDo, Tags: []string{"triage:severity=3"}, CreatedAt: fixedNow},
+		{HarpID: "scored", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
 		{HarpID: "unrelated-tag", Status: tasks.StatusToDo, Tags: []string{"urgent"}, CreatedAt: fixedNow},
 		{HarpID: "no-tags", Status: tasks.StatusToDo, CreatedAt: fixedNow},
-		{HarpID: "terminal-scored", Status: tasks.StatusDone, Tags: []string{"triage:severity=3"}, CreatedAt: fixedNow},
+		{HarpID: "terminal-scored", Status: tasks.StatusDone, Tags: []string{"triage:kind=defect"}, CreatedAt: fixedNow},
 	}
 	_, diag, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
-	assert.Equal(t, 1, diag.ScoredTasks, "only the non-terminal task carrying triage:severity counts")
+	assert.Equal(t, 1, diag.ScoredTasks, "only the non-terminal task carrying triage:kind counts")
 }
 
 // TestResolveTagValues_AbsentTagIsZero / ValuelessModifierIsOne /
@@ -398,24 +418,59 @@ func TestResolveTagValues_CompositeKey_NonNumericValue(t *testing.T) {
 	assert.False(t, absent, "a DIFFERENT enum value's composite key must not be set")
 }
 
+// TestResolveTagValues_UniversalPresenceKey_BareTag proves the load-bearing
+// "or valueless" half of the "target=*" composite key: a BARE modifier tag
+// (no value at all, e.g. "triage:exposed" with no surface named) still sets
+// "target=*" -> 1.0. Without this, "{{triage:exposed=*}}" -- a universal
+// presence test meant to catch a bare tag too -- would silently see nothing
+// and never escalate, exactly the silent-no-op class this key exists to
+// close.
+func TestResolveTagValues_UniversalPresenceKey_BareTag(t *testing.T) {
+	values := resolveTagValues([]string{"triage:exposed"})
+	assert.Equal(t, 1.0, values["triage:exposed=*"], "a bare (valueless) tag must still set the universal presence key")
+	assert.Equal(t, 1.0, values["triage:exposed"], "and the ordinary bare-target modifier key")
+}
+
+// TestResolveTagValues_UniversalPresenceKey_ValuedTag proves the "target=*"
+// key is also set for a value-carrying tag, independent of whether that
+// value parses as a number -- e.g. "triage:blocks-release=0.7.0" (a
+// non-numeric, version-shaped value) must still make
+// "{{triage:blocks-release=*}}" true.
+func TestResolveTagValues_UniversalPresenceKey_ValuedTag(t *testing.T) {
+	values := resolveTagValues([]string{"triage:blocks-release=0.7.0"})
+	assert.Equal(t, 1.0, values["triage:blocks-release=*"], "a valued (even non-numeric-valued) tag must set the universal presence key")
+	assert.Equal(t, 1.0, values["triage:blocks-release=0.7.0"], "and its own specific composite value key")
+	assert.Equal(t, 0.0, values["triage:blocks-release"], "the bare numeric entry still falls back to 0 for a non-numeric value")
+}
+
+// TestResolveTagValues_UniversalPresenceKey_AbsentTag proves the negative:
+// a target that was never applied at all sets no "target=*" entry (lookup's
+// zero-value fallback already makes an absent key read as 0 for any
+// Tag(...) call).
+func TestResolveTagValues_UniversalPresenceKey_AbsentTag(t *testing.T) {
+	values := resolveTagValues([]string{"triage:kind=defect"})
+	_, present := values["triage:exposed=*"]
+	assert.False(t, present, "a target never applied to the task must not set a universal presence key")
+}
+
 // TestCompute_CompositeKeyDrivesDecayEnumBranch is the end-to-end proof that
-// {{triage:impact=capability}} — inert before this feature, since the
-// composite key didn't exist — now actually selects decay_fn's capability
-// branch.
+// {{triage:kind=capability}} — inert before the composite-key feature landed
+// — actually selects decay_fn's capability branch.
 func TestCompute_CompositeKeyDrivesDecayEnumBranch(t *testing.T) {
 	schema := defaultTriageSchema(t)
 	old := fixedNow.Add(-120 * 24 * time.Hour) // exactly one capability half-life
 	all := []tasks.Task{
-		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{"triage:severity=4", "triage:impact=capability"}, CreatedAt: old},
-		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{"triage:severity=4"}, CreatedAt: old},
+		{HarpID: "capability", Status: tasks.StatusToDo, Tags: []string{"triage:kind=capability"}, CreatedAt: old},
+		{HarpID: "plain", Status: tasks.StatusToDo, Tags: []string{"triage:kind=defect"}, CreatedAt: old},
 	}
 	results, _, err := Compute(all, schema, fixedNow)
 	require.NoError(t, err)
 
-	// capability branch at one half-life: 0.4 + 0.6*0.5 == 0.7 -> raw = 2.8.
-	assert.InDelta(t, 2.8, results["capability"].Raw, 1e-9)
-	// plain: no escalation/decay tag present -> decay_fn's final else (1).
-	assert.Equal(t, 4.0, results["plain"].Raw)
+	// capability branch at one half-life: weight 2 * (0.4 + 0.6*0.5) == 1.4.
+	assert.InDelta(t, 1.4, results["capability"].Raw, 1e-9)
+	// plain (defect): no escalation/decay tag present -> decay_fn's final
+	// else (1) -> raw == defect's bare weight, 3.
+	assert.Equal(t, 3.0, results["plain"].Raw)
 }
 
 // TestRankNormalize_HigherRawGetsHigherOrEqualPriority is a small property

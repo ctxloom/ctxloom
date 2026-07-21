@@ -305,9 +305,8 @@ func TestTagSchema_LoadsFromProjectConfig(t *testing.T) {
 // TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline mirrors
 // TestConfig_AbsentEverywhereDefaultsToHome for tag_schema: no config at any
 // layer must still resolve (via ResolvedTagSchema/ParsedTagSchema) to
-// DefaultTagSchema's triage:impact/triage:kind/triage:severity/triage:effort
-// scalar baseline, so a fresh project gets scalar-collapse with no opt-in
-// required.
+// DefaultTagSchema's triage:kind/triage:effort/triage:blocks-release scalar
+// baseline, so a fresh project gets scalar-collapse with no opt-in required.
 func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T) {
 	project := taskstest.ProjectDir(t)
 
@@ -318,10 +317,9 @@ func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T)
 
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
-	assert.True(t, schema.IsScalar("triage:impact"))
 	assert.True(t, schema.IsScalar("triage:kind"))
-	assert.True(t, schema.IsScalar("triage:severity"))
 	assert.True(t, schema.IsScalar("triage:effort"))
+	assert.True(t, schema.IsScalar("triage:blocks-release"))
 }
 
 // TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError is an
@@ -344,15 +342,14 @@ func TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError(t *testing.T)
 		Status:    tasks.StatusToDo,
 		CreatedAt: time.Now(),
 		Tags: []string{
-			"triage:impact=security",
-			"triage:kind=fix",
-			"triage:severity=3",
+			"triage:kind=defect",
 			"triage:effort=1",
+			"triage:blocks-release=0.7.0",
 		},
 	}}
 	results, diag, err := priority.Compute(all, schema, time.Now())
 	require.NoError(t, err)
-	assert.False(t, diag.NoPriorityFn, "the baseline declares exactly one priority_fn, on triage:severity")
+	assert.False(t, diag.NoPriorityFn, "the baseline declares exactly one priority_fn, on triage:kind")
 	assert.NotZero(t, results["a"].Raw)
 }
 
@@ -370,7 +367,7 @@ func TestTagSchema_ExplicitConfigOverridesDefaultEntirely(t *testing.T) {
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
 	assert.True(t, schema.IsScalar("widget:kind"))
-	assert.False(t, schema.IsScalar("triage:severity"), "an explicit tag_schema must replace the default, not merge with it")
+	assert.False(t, schema.IsScalar("triage:kind"), "an explicit tag_schema must replace the default, not merge with it")
 }
 
 // TestTagSchema_MalformedDeclarationFailsLoud proves a tag_schema entry

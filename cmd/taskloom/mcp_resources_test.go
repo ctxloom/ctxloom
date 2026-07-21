@@ -15,8 +15,8 @@ import (
 // TestHandleTagSchemaResource_DefaultSchema exercises the tag-schema
 // resource against a fresh project (no config.yaml — the project's default
 // tag_schema, taskloomconfig.DefaultTagSchema, resolves): the response must
-// carry triage:severity's declared scalar arity, its 0-5 range, and its
-// priority_fn/decay_fn formulas, plus triage:kind's declared enum.
+// carry triage:kind's declared scalar arity, its enum, and its
+// priority_fn/decay_fn formulas, plus triage:effort's declared 0-5 range.
 func TestHandleTagSchemaResource_DefaultSchema(t *testing.T) {
 	withProjectDir(t)
 
@@ -35,19 +35,21 @@ func TestHandleTagSchemaResource_DefaultSchema(t *testing.T) {
 		byTarget[e.Target] = e
 	}
 
-	require.Contains(t, byTarget, "triage:severity")
-	sev := byTarget["triage:severity"]
-	assert.True(t, sev.Scalar, "triage:severity must be reported scalar")
-	require.NotNil(t, sev.Range, "triage:severity must carry a declared range")
-	assert.Equal(t, 0.0, sev.Range.Min)
-	assert.Equal(t, 5.0, sev.Range.Max)
-	assert.NotEmpty(t, sev.PriorityFn, "triage:severity's priority_fn must be present")
-	assert.NotEmpty(t, sev.DecayFn, "triage:severity's decay_fn must be present")
-
 	require.Contains(t, byTarget, "triage:kind")
-	assert.True(t, byTarget["triage:kind"].Scalar)
-	assert.Contains(t, byTarget["triage:kind"].Enum, "fix")
-	assert.Contains(t, byTarget["triage:kind"].Enum, "feature")
+	kind := byTarget["triage:kind"]
+	assert.True(t, kind.Scalar, "triage:kind must be reported scalar")
+	assert.Contains(t, kind.Enum, "defect")
+	assert.Contains(t, kind.Enum, "capability")
+	assert.Contains(t, kind.Enum, "chore")
+	assert.NotEmpty(t, kind.PriorityFn, "triage:kind's priority_fn must be present")
+	assert.NotEmpty(t, kind.DecayFn, "triage:kind's decay_fn must be present")
+
+	require.Contains(t, byTarget, "triage:effort")
+	effort := byTarget["triage:effort"]
+	assert.True(t, effort.Scalar)
+	require.NotNil(t, effort.Range, "triage:effort must carry a declared range")
+	assert.Equal(t, 0.0, effort.Range.Min)
+	assert.Equal(t, 5.0, effort.Range.Max)
 }
 
 // TestHandleTagVocabularyResource_ReflectsTagsInUse proves the vocabulary

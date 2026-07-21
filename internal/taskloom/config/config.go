@@ -93,57 +93,83 @@ const (
 // opt-in required, the same ergonomics `homing`'s own default (see the
 // package doc) established the precedent for.
 //
-// Four targets, each arity=scalar (at most one tag with that key survives on
-// a task — see internal/shared/tasks/operations's write-seam collapse):
+// This is REV 2 of the standard. Rev 1 scored a quality-attribute enum
+// (`triage:impact`, 9 values) and a 0-5 `triage:severity` scalar directly.
+// Measured distributions across several large FOSS trackers (Debian, KDE,
+// Mozilla, FreeBSD, GNOME, Godot, Kubernetes) showed no project scores a
+// quality-attribute dimension as a priority input, and that an effective
+// triage vocabulary collapses to roughly three kind-of-work buckets. Rev 2
+// replaces both the enum and the scalar with a small discrete `triage:kind`
+// plus a set of independently-checkable FACTUAL flags — priority is DERIVED
+// from which flags are present, not hand-assigned. No `triage:impact`/
+// `triage:severity` tag exists in any real task store as of this rev, so
+// this is a clean replacement, not a migration.
 //
-//   - `triage:impact` — a QUALITY-ATTRIBUTE enum: which dimension of the
-//     system a task is about (correctness, security, reliability,
-//     performance, usability, maintainability, compatibility, capability,
-//     tooling). Advisory only (`taskloom lint`); never itself numeric.
-//   - `triage:kind` — a work-KIND enum (fix, feature, maintenance, docs,
-//     build, test).
-//   - `triage:severity` — the 0-5 numeric magnitude priority_fn/decay_fn
-//     actually operate on (see below).
+// Three declared targets, each arity=scalar (at most one tag with that key
+// survives on a task — see internal/shared/tasks/operations's write-seam
+// collapse):
+//
+//   - `triage:kind` — a work-KIND enum (defect, capability, chore) and the
+//     target priority_fn/decay_fn are declared on (see below).
 //   - `triage:effort` — a 0-5 numeric estimate of cost; priority_fn divides
 //     it back out (a costlier fix ranks lower, all else equal).
+//   - `triage:blocks-release` — a scalar, valued (e.g. a semver like
+//     "0.7.0"), never itself numeric; priority_fn only ever presence-tests
+//     it (see the `=*` composite key below), so its value is free-form.
+//
+// `triage:exposed` (enum: wire, cli, config, on-disk, api) is declared for
+// lint's enum check but is NOT arity=scalar — it, like every other flag
+// below, is read purely by presence.
+//
+// A number of additional tags are FLAGS this schema's formulas read but
+// declares no arity/enum/range for at all — bare presence (or, for the
+// valued ones, presence of ANY value) is the entire signal:
+//
+//   - `triage:crashes`, `triage:data-loss`, `triage:no-workaround` — bare
+//     modifier tags.
+//   - `triage:security=<cwe>`, `triage:regression=<version-or-sha>`,
+//     `triage:blind-gate=<gate>` — conventionally valued, but bare is also
+//     accepted (priority_fn/decay_fn only ever presence-test them via the
+//     `=*` composite key, never read the value itself).
+//   - `triage:exploited-in-wild` — bare; forces a task's derived Priority to
+//     the ceiling regardless of what the formula computes (existing
+//     behaviour, unchanged — see priority.ExploitedInWildTarget).
 //
 // priority_fn/decay_fn (mustache form — a `{{ns:key}}` placeholder reads a
-// tag's value by its full "namespace:key" — or, for an ENUM-valued tag, a
-// `{{ns:key=value}}` placeholder reads whether that EXACT value is present;
-// any other `{{name}}` is a taskloom-provided built-in; see
+// tag's value by its full "namespace:key"; a `{{ns:key=value}}` placeholder
+// reads whether that EXACT value is present; a `{{ns:key=*}}` placeholder
+// reads whether the target is present AT ALL, valued or not (see
+// internal/shared/tasks/priority's resolveTagValues doc for why the bare
+// "or valueless" half of that last form is load-bearing); any other
+// `{{name}}` is a taskloom-provided built-in; see
 // internal/shared/tasks/tagschema's CompileFormula and
 // internal/shared/tasks/priority's builtin set) are declared on
-// `triage:severity` and evaluated read-time by
+// `triage:kind` and evaluated read-time by
 // internal/shared/tasks/priority.Compute, never stored:
 //
-//   - priority_fn multiplies severity by a bump for each present modifier
-//     (regression, data-loss), by decay_fn's own age_factor, divides by a
-//     cost penalty for declared effort, and multiplies again if the task
-//     blocks a release.
-//   - decay_fn is a TARGETED escalation/rot curve, branching on which kind
-//     of unaddressed problem a task is: a currently-EXPOSED or otherwise
-//     actively-exploitable (`triage:exposed`, `triage:blind-gate`) issue
-//     escalates upward with age (asymptotically capped at 2x — an ancient
-//     low-severity exposed issue never outranks a merely fresh
-//     higher-severity one, see internal/shared/tasks/priority's crossover
-//     invariant test), while a capability/tooling/maintainability/
-//     performance-flavored `triage:impact` value DECAYS gently downward with
-//     age instead (aging quality-debt loses urgency over time, absent an
-//     active exposure signal). Everything else holds steady at 1 — no
-//     escalation, no decay — until one of those signals is actually present.
-//     `triage:exploited-in-wild` overrides the result to the ceiling
-//     regardless of the formula (see priority.ExploitedInWildTarget).
+//   - priority_fn assigns a base weight by triage:kind (defect=3,
+//     capability=2, chore=1), multiplies it by a risk bump for each present
+//     factual flag (data-loss, security, no-workaround, crashes,
+//     regression), by decay_fn's own age_factor, again if the task blocks a
+//     release, and divides by a cost penalty for declared effort.
+//   - decay_fn is a TARGETED escalation/rot curve: a currently-EXPOSED or
+//     otherwise actively-exploitable (`triage:exposed`, `triage:blind-gate`)
+//     issue escalates upward with age (asymptotically capped at 2x — an
+//     ancient low-weight exposed issue never outranks a merely fresh
+//     higher-weight one, see internal/shared/tasks/priority's crossover
+//     invariant test), while a capability/chore-kinded task DECAYS gently
+//     downward with age instead (aging low-stakes work loses urgency over
+//     time, absent an active exposure signal). A defect with neither signal
+//     holds steady at 1 — no escalation, no decay.
 var DefaultTagSchema = []string{
-	`tagma.arity:"triage:impact"=scalar`,
 	`tagma.arity:"triage:kind"=scalar`,
-	`tagma.arity:"triage:severity"=scalar`,
 	`tagma.arity:"triage:effort"=scalar`,
-	`tagma.enum:"triage:impact"="correctness,security,reliability,performance,usability,maintainability,compatibility,capability,tooling"`,
-	`tagma.enum:"triage:kind"="fix,feature,maintenance,docs,build,test"`,
-	`tagma.range:"triage:severity"="0,5"`,
+	`tagma.arity:"triage:blocks-release"=scalar`,
+	`tagma.enum:"triage:kind"="defect,capability,chore"`,
+	`tagma.enum:"triage:exposed"="wire,cli,config,on-disk,api"`,
 	`tagma.range:"triage:effort"="0,5"`,
-	`tagma.decay_fn:"triage:severity"="{{triage:exposed}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:impact=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:impact=tooling}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : {{triage:impact=maintainability}} > 0 ? 0.6 + 0.4 * 0.5 ** ({{age_days}}/270) : {{triage:impact=performance}} > 0 ? 0.7 + 0.3 * 0.5 ** ({{age_days}}/365) : 1"`,
-	`tagma.priority_fn:"triage:severity"="{{triage:severity}} * (1 + 0.25*{{triage:regression}} + 0.5*{{triage:data-loss}}) * {{age_factor}} / (1 + {{triage:effort}}/2) * (1 + {{triage:blocks-release}})"`,
+	`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+90) : {{triage:blind-gate=*}} > 0 ? 1 + {{age_days}}/({{age_days}}+30) : {{triage:kind=capability}} > 0 ? 0.4 + 0.6 * 0.5 ** ({{age_days}}/120) : {{triage:kind=chore}} > 0 ? 0.5 + 0.5 * 0.5 ** ({{age_days}}/180) : 1"`,
+	`tagma.priority_fn:"triage:kind"="({{triage:kind=defect}} > 0 ? 3 : {{triage:kind=capability}} > 0 ? 2 : 1) * (1 + {{triage:data-loss}} + {{triage:security=*}} + 0.75*{{triage:no-workaround}} + 0.5*{{triage:crashes}} + 0.5*{{triage:regression=*}}) * {{age_factor}} * (1 + {{triage:blocks-release=*}}) / (1 + {{triage:effort}}/2)"`,
 }
 
 // Config is taskloom's own parsed, layered configuration.

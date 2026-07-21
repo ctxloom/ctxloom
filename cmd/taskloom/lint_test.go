@@ -64,7 +64,7 @@ func TestRunLintCmd_CleanDataPassesWithZeroExit(t *testing.T) {
 	tc, err := taskContextSingle()
 	require.NoError(t, err)
 
-	_, err = operations.AddTaskWithTags(tc, "triage this", "", "", []string{"triage:kind=fix", "triage:impact=security", "triage:severity=3"})
+	_, err = operations.AddTaskWithTags(tc, "triage this", "", "", []string{"triage:kind=defect", "triage:exposed=cli", "triage:effort=3"})
 	require.NoError(t, err)
 
 	var out strings.Builder
@@ -73,17 +73,17 @@ func TestRunLintCmd_CleanDataPassesWithZeroExit(t *testing.T) {
 	assert.Contains(t, out.String(), "no triage-standard violations found")
 }
 
-// TestRunLintCmd_FlagsOutOfRangeSeverity pins the range-facet check against
-// the shipped default (triage:severity declared "0,5"). The out-of-range
+// TestRunLintCmd_FlagsOutOfRangeEffort pins the range-facet check against
+// the shipped default (triage:effort declared "0,5"). The out-of-range
 // value is seeded via addLegacyTags -- AddTaskWithTags itself now rejects
-// "triage:severity=9" at write time (see
+// "triage:effort=9" at write time (see
 // operations.TestAddTaskWithTagsRejectsDeclaredRangeViolation).
-func TestRunLintCmd_FlagsOutOfRangeSeverity(t *testing.T) {
+func TestRunLintCmd_FlagsOutOfRangeEffort(t *testing.T) {
 	taskstest.ProjectDir(t)
 	tc, err := taskContextSingle()
 	require.NoError(t, err)
 
-	addLegacyTags(t, tc, "triage this", "triage:severity=9")
+	addLegacyTags(t, tc, "triage this", "triage:effort=9")
 
 	var out strings.Builder
 	err = runLintCmd(&out, tc, clifmt.FormatText)

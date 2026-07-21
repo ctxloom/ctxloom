@@ -170,6 +170,13 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 					continue // a builtin, or a bare (non-value-qualified) tag reference
 				}
 				refTarget, refValue := name[:eq], name[eq+1:]
+				if refValue == "*" {
+					continue // universal presence test (see internal/shared/tasks/priority's
+					// resolveTagValues "target=*" composite key) -- reserved syntax, not an
+					// enum-member reference. "*" can never be a real task value in the first
+					// place: tagma's bare-token charset already rejects it, so this can never
+					// collide with a legitimate enum member.
+				}
 				enum, hasEnum := enums[refTarget]
 				if !hasEnum || contains(enum, refValue) {
 					continue

@@ -560,14 +560,14 @@ func TestValidateTagAcceptsOrdinaryTags(t *testing.T) {
 // --- write-seam enum/range enforcement (validateTag's schema-aware half) ---
 
 // triageValueSchema returns a *tagschema.Schema declaring a closed enum for
-// triage:kind and a numeric range for triage:severity — a minimal slice of
+// triage:kind and a numeric range for triage:effort — a minimal slice of
 // the shipped DefaultTagSchema, enough to exercise validateTag's enum/range
 // branches without depending on taskloomconfig.
 func triageValueSchema(t *testing.T) *tagschema.Schema {
 	t.Helper()
 	schema, err := tagschema.Parse([]string{
-		`tagma.enum:"triage:kind"="fix,feature,maintenance,docs,build,test"`,
-		`tagma.range:"triage:severity"="0,5"`,
+		`tagma.enum:"triage:kind"="defect,capability,chore"`,
+		`tagma.range:"triage:effort"="0,5"`,
 	})
 	if err != nil {
 		t.Fatalf("parse schema: %v", err)
@@ -582,8 +582,8 @@ func triageValueSchema(t *testing.T) *tagschema.Schema {
 // the declared members.
 func TestValidateTagAcceptsDeclaredEnumValue(t *testing.T) {
 	schema := triageValueSchema(t)
-	if err := validateTag("triage:kind=fix", schema); err != nil {
-		t.Errorf("validateTag(triage:kind=fix): unexpected error: %v", err)
+	if err := validateTag("triage:kind=defect", schema); err != nil {
+		t.Errorf("validateTag(triage:kind=defect): unexpected error: %v", err)
 	}
 }
 
@@ -604,24 +604,24 @@ func TestValidateTagRejectsDeclaredEnumViolation(t *testing.T) {
 // non-numeric ones are rejected.
 func TestValidateTagAcceptsDeclaredRangeValue(t *testing.T) {
 	schema := triageValueSchema(t)
-	if err := validateTag("triage:severity=3", schema); err != nil {
-		t.Errorf("validateTag(triage:severity=3): unexpected error: %v", err)
+	if err := validateTag("triage:effort=3", schema); err != nil {
+		t.Errorf("validateTag(triage:effort=3): unexpected error: %v", err)
 	}
-	if err := validateTag("triage:severity=0", schema); err != nil {
-		t.Errorf("validateTag(triage:severity=0): unexpected error (range boundary): %v", err)
+	if err := validateTag("triage:effort=0", schema); err != nil {
+		t.Errorf("validateTag(triage:effort=0): unexpected error (range boundary): %v", err)
 	}
-	if err := validateTag("triage:severity=5", schema); err != nil {
-		t.Errorf("validateTag(triage:severity=5): unexpected error (range boundary): %v", err)
+	if err := validateTag("triage:effort=5", schema); err != nil {
+		t.Errorf("validateTag(triage:effort=5): unexpected error (range boundary): %v", err)
 	}
 }
 
 func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
 	schema := triageValueSchema(t)
-	if err := validateTag("triage:severity=9", schema); err == nil {
-		t.Error("validateTag(triage:severity=9): expected an error (outside the declared range)")
+	if err := validateTag("triage:effort=9", schema); err == nil {
+		t.Error("validateTag(triage:effort=9): expected an error (outside the declared range)")
 	}
-	if err := validateTag("triage:severity=notanumber", schema); err == nil {
-		t.Error("validateTag(triage:severity=notanumber): expected an error (doesn't parse as a number under a declared range)")
+	if err := validateTag("triage:effort=notanumber", schema); err == nil {
+		t.Error("validateTag(triage:effort=notanumber): expected an error (doesn't parse as a number under a declared range)")
 	}
 }
 
@@ -630,7 +630,7 @@ func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
 // same values that TestValidateTagRejectsDeclaredEnumViolation/
 // TestValidateTagRejectsDeclaredRangeViolation reject are accepted here.
 func TestValidateTagSkipsEnumRangeChecksWithNilSchema(t *testing.T) {
-	for _, tag := range []string{"triage:kind=sparkles", "triage:severity=9", "triage:severity=notanumber"} {
+	for _, tag := range []string{"triage:kind=sparkles", "triage:effort=9", "triage:effort=notanumber"} {
 		if err := validateTag(tag, nil); err != nil {
 			t.Errorf("validateTag(%q, nil): unexpected error: %v", tag, err)
 		}
@@ -663,7 +663,7 @@ func TestAddTaskWithTagsRejectsDeclaredRangeViolation(t *testing.T) {
 	taskstest.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
-	if _, err := AddTaskWithTags(tc, "bad severity", "", "", []string{"triage:severity=9"}); err == nil {
+	if _, err := AddTaskWithTags(tc, "bad effort", "", "", []string{"triage:effort=9"}); err == nil {
 		t.Fatal("expected an error adding a tag whose value is outside the declared range")
 	}
 

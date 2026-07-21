@@ -195,6 +195,25 @@ func TestLint_FormulaEnumRef_SkipsWhenReferencedTargetHasNoEnum(t *testing.T) {
 	assert.Empty(t, violations)
 }
 
+// TestLint_FormulaEnumRef_SkipsUniversalPresenceWildcard proves a
+// "{{ns:key=*}}" placeholder (the universal presence test — see
+// internal/shared/tasks/priority's resolveTagValues "target=*" composite
+// key) is never flagged as an invalid enum reference, even when the target
+// DOES declare an enum: "*" is reserved syntax for "any value, or none",
+// never a literal enum member (and tagma's own tag-value charset already
+// rejects a literal "*" in real task data, so this can never collide with a
+// legitimate enum member either).
+func TestLint_FormulaEnumRef_SkipsUniversalPresenceWildcard(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.enum:"triage:exposed"="wire,cli,config,on-disk,api"`,
+		`tagma.decay_fn:"triage:kind"="{{triage:exposed=*}} > 0 ? 2 : 1"`,
+	)
+
+	violations, err := Lint(nil, schema)
+	require.NoError(t, err)
+	assert.Empty(t, violations, "the universal presence wildcard must never be checked against a declared enum")
+}
+
 func TestLint_MalformedRangeDeclarationIsAReturnedError(t *testing.T) {
 	schema := mustSchema(t, `tagma.range:"triage:impact"="not-a-range"`)
 	_, err := Lint(nil, schema)

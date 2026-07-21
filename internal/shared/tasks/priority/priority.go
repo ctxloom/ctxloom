@@ -340,9 +340,21 @@ func lookup(m map[string]float64) func(string) float64 {
 //     several possible enum values is actually present, and a non-numeric
 //     value would otherwise resolve to a silent, indistinguishable 0 exactly
 //     like an absent tag — this composite key is what breaks that tie.
+//   - EVERY tag whose target is present AT ALL — valued OR valueless —
+//     ALSO contributes a universal presence key, "target=*" -> 1.0. This is
+//     what makes a "{{triage:blocks-release=*}}" (or a bare
+//     "{{triage:exposed=*}}", with no specific value named) placeholder a
+//     working presence test regardless of whether the tag happens to carry a
+//     value at all: a formula that only cares WHETHER a target was applied —
+//     not which value — doesn't have to enumerate every possible value (or
+//     guess whether the tag is ever used bare) to test for it. Without this
+//     key a bare "triage:exposed" (no surface named) is invisible to a
+//     "{{triage:exposed=*}}" test — it would silently fail to escalate,
+//     exactly the class of bug this key exists to close.
 //   - a valueless tag (a plain modifier, e.g. "triage:regression")
-//     contributes 1.0 under the bare target only — presence itself is the
-//     signal, there's no value to key a composite entry on.
+//     contributes 1.0 under the bare target only (plus the universal
+//     presence key above) — presence itself is the signal, there's no value
+//     to key a "target=value" composite entry on.
 //   - an absent target has no map entry at all, which lookup's zero-value
 //     fallback already turns into 0 for any Tag(...) call that asks for it.
 //
@@ -359,6 +371,7 @@ func resolveTagValues(tagStrings []string) map[string]float64 {
 			continue
 		}
 		target := tagschema.Target(t)
+		out[target+"=*"] = 1.0
 		if t.Value == nil {
 			out[target] = 1.0
 			continue

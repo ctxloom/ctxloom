@@ -98,7 +98,8 @@ func handleTagSchemaResource(_ context.Context, _ *mcp.ReadResourceRequest) (*mc
 // buildTagSchemaDoc unions every target named across schema's arity, enum,
 // range, priority_fn, and decay_fn facets (tagschema.Schema.Targets) into
 // one sorted tagSchemaDoc entry per target — a target declared under more
-// than one facet (e.g. triage:severity: scalar AND range AND priority_fn)
+// than one facet (e.g. triage:kind: scalar AND enum AND priority_fn AND
+// decay_fn)
 // gets one entry carrying all of it, rather than one row per facet. Display
 // (tagma.hide) declarations are deliberately excluded: this resource
 // describes the WRITE-time vocabulary an agent chooses a value from, not

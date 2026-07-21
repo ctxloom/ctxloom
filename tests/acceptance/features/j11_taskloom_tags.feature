@@ -55,24 +55,24 @@ Feature: taskloom's tag surface is real across the process boundary
     And an independent re-fold reproduces the same task state
 
   # Phase 2 of tagma adoption: taskloom's built-in tag_schema default (see
-  # internal/taskloom/config.DefaultTagSchema) declares triage:type
+  # internal/taskloom/config.DefaultTagSchema) declares triage:kind
   # arity=scalar, with NO .taskloom/config.yaml required — this fresh store
   # never writes one. Re-tagging that key with a different value collapses
   # the task down to the newest value, but the on-disk log still records
   # BOTH the retracting untag and the new tag: history is never rewritten.
   Scenario: Re-tagging a declared-scalar key collapses to the newest value, preserving history
-    When taskloom adds a task "Triage this" with tags "triage:type=security"
-    And taskloom tags it adding "triage:type=bug"
-    Then the folded task has text "Triage this", status "To Do", and tags "triage:type=bug"
-    And the on-disk task log records an untag of "triage:type=security" and a tag of "triage:type=bug" for it
+    When taskloom adds a task "Triage this" with tags "triage:kind=fix"
+    And taskloom tags it adding "triage:kind=feature"
+    Then the folded task has text "Triage this", status "To Do", and tags "triage:kind=feature"
+    And the on-disk task log records an untag of "triage:kind=fix" and a tag of "triage:kind=feature" for it
 
   # Re-tagging with the IDENTICAL value never displaces anything, so no
   # collapsing untag is ever emitted for it.
   Scenario: Re-tagging a declared-scalar key with the same value emits no collapsing untag
-    When taskloom adds a task "Triage that" with tags "triage:type=security"
-    And taskloom tags it adding "triage:type=security"
-    Then the folded task has text "Triage that", status "To Do", and tags "triage:type=security"
-    And the on-disk task log records no untag of "triage:type=security" for it
+    When taskloom adds a task "Triage that" with tags "triage:kind=fix"
+    And taskloom tags it adding "triage:kind=fix"
+    Then the folded task has text "Triage that", status "To Do", and tags "triage:kind=fix"
+    And the on-disk task log records no untag of "triage:kind=fix" for it
 
   # A key the built-in schema does NOT declare scalar (or any key the
   # project never mentions at all) is never collapsed: every value

@@ -9,13 +9,16 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -302,8 +305,9 @@ func TestTagSchema_LoadsFromProjectConfig(t *testing.T) {
 // TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline mirrors
 // TestConfig_AbsentEverywhereDefaultsToHome for tag_schema: no config at any
 // layer must still resolve (via ResolvedTagSchema/ParsedTagSchema) to
-// DefaultTagSchema's triage:type/triage:impact scalar baseline, so a fresh
-// project gets scalar-collapse with no opt-in required.
+// DefaultTagSchema's triage:impact/triage:kind/triage:severity/triage:effort
+// scalar baseline, so a fresh project gets scalar-collapse with no opt-in
+// required.
 func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T) {
 	project := taskstest.ProjectDir(t)
 
@@ -314,8 +318,42 @@ func TestTagSchema_AbsentEverywhereDefaultsToBuiltinTriageBaseline(t *testing.T)
 
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
-	assert.True(t, schema.IsScalar("triage:type"))
 	assert.True(t, schema.IsScalar("triage:impact"))
+	assert.True(t, schema.IsScalar("triage:kind"))
+	assert.True(t, schema.IsScalar("triage:severity"))
+	assert.True(t, schema.IsScalar("triage:effort"))
+}
+
+// TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError is an
+// end-to-end smoke test proving DefaultTagSchema's priority_fn/decay_fn
+// declarations actually compile and evaluate cleanly against a real task
+// carrying the new-vocabulary tags — the exact concern this feature exists
+// for: a schema that parses but silently never evaluates (a syntax error on
+// the wrong target, an unreferenced/renamed field) is worse than one that
+// fails loud.
+func TestTagSchema_BuiltinBaselineCompilesAndEvaluatesWithoutError(t *testing.T) {
+	project := taskstest.ProjectDir(t)
+
+	cfg, err := Load(project, nil)
+	require.NoError(t, err)
+	schema, err := cfg.ParsedTagSchema()
+	require.NoError(t, err)
+
+	all := []tasks.Task{{
+		HarpID:    "a",
+		Status:    tasks.StatusToDo,
+		CreatedAt: time.Now(),
+		Tags: []string{
+			"triage:impact=security",
+			"triage:kind=fix",
+			"triage:severity=3",
+			"triage:effort=1",
+		},
+	}}
+	results, diag, err := priority.Compute(all, schema, time.Now())
+	require.NoError(t, err)
+	assert.False(t, diag.NoPriorityFn, "the baseline declares exactly one priority_fn, on triage:severity")
+	assert.NotZero(t, results["a"].Raw)
 }
 
 // TestTagSchema_ExplicitConfigOverridesDefaultEntirely proves an explicit
@@ -332,7 +370,7 @@ func TestTagSchema_ExplicitConfigOverridesDefaultEntirely(t *testing.T) {
 	schema, err := cfg.ParsedTagSchema()
 	require.NoError(t, err)
 	assert.True(t, schema.IsScalar("widget:kind"))
-	assert.False(t, schema.IsScalar("triage:type"), "an explicit tag_schema must replace the default, not merge with it")
+	assert.False(t, schema.IsScalar("triage:severity"), "an explicit tag_schema must replace the default, not merge with it")
 }
 
 // TestTagSchema_MalformedDeclarationFailsLoud proves a tag_schema entry

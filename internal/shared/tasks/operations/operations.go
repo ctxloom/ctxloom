@@ -7,6 +7,7 @@ package operations
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,7 +234,7 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 // own order) survives — there is no existing task yet to retract a value
 // from, so this is pure intra-list dedup, not an untag (see scalarCollapse).
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
-	if err := validateTags(tags); err != nil {
+	if err := validateTags(tags, tc.TagSchema); err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
 	if tc.TagSchema != nil {
@@ -276,7 +277,7 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
 	}
-	if err := validateTags(add); err != nil {
+	if err := validateTags(add, tc.TagSchema); err != nil {
 		return nil, fmt.Errorf("add tags: %w", err)
 	}
 	store, proj, warning, err := resolveTaskStore(tc)
@@ -395,15 +396,19 @@ func scalarTargetOf(schema *tagschema.Schema, raw string) (target string, scalar
 	return target, schema.IsScalar(target)
 }
 
-// validateTags calls validateTag for every tag in tags, in order, returning
-// the first error encountered (nil if every tag is queryable). This is the
-// write-side counterpart to internal/shared/tasks.filterTasks's lenient
-// read side: a tag rejected here can never be stored, so filterTasks's
-// leniency (skipping a tag tagma.ParseTag can't parse) only ever has to
-// cover data written before this guard existed.
-func validateTags(tags []string) error {
+// validateTags calls validateTag for every tag in tags, in order, against
+// schema, returning the first error encountered (nil if every tag is
+// queryable and, where schema declares an enum/range for its target,
+// schema-conformant). This is the write-side counterpart to
+// internal/shared/tasks.filterTasks's lenient read side: a tag rejected here
+// can never be stored, so filterTasks's leniency (skipping a tag
+// tagma.ParseTag can't parse, or one violating an enum/range it never
+// checks) only ever has to cover data written before this guard existed —
+// see validateTag's own doc for why schema is applied ONLY to tags, never to
+// a task's pre-existing stored tags.
+func validateTags(tags []string, schema *tagschema.Schema) error {
 	for _, t := range tags {
-		if err := validateTag(t); err != nil {
+		if err := validateTag(t, schema); err != nil {
 			return err
 		}
 	}
@@ -411,9 +416,10 @@ func validateTags(tags []string) error {
 }
 
 // validateTag reports whether tag would be PERMANENTLY UNQUERYABLE once
-// stored, under tagma's grammar plus this package's own reserved-word rule,
-// or would inject config into the reserved tag-schema namespace. A tag is
-// rejected when:
+// stored, under tagma's grammar plus this package's own reserved-word rule;
+// would inject config into the reserved tag-schema namespace; or — when
+// schema declares an enum or range for tag's (namespace, key) target —
+// carries a value schema doesn't allow. A tag is rejected when:
 //
 //   - trimmed and compared case-insensitively, it equals a reserved
 //     operator word ("and", "or", "not"): tagma's postfix evaluator always
@@ -433,6 +439,24 @@ func validateTags(tags []string) error {
 //     internal/shared/tasks/tagschema) — a task tag must never be able to
 //     inject schema config that a user-facing write path (add/tag) can
 //     reach, only config.yaml can.
+//   - schema declares a tagma.enum:<target> for tag's target and tag's value
+//     is not one of the declared members — the same closed-vocabulary check
+//     internal/shared/tasks/lint.Lint already performs read-time, now also
+//     enforced before the value is ever stored.
+//   - schema declares a tagma.range:<target> for tag's target and tag's
+//     value either does not parse as a number or falls outside the declared
+//     [min,max] — same source of truth as lint's own range check.
+//
+// schema is applied ONLY to tag itself — the value being written — never to
+// any tag already stored on the task being mutated. AddTaskWithTags/TagTask
+// only ever pass their own incoming add-list through validateTags; a task's
+// EXISTING tags (including 318 live legacy/foreign ones predating this
+// standard, or tags any other project's schema wrote) are never
+// re-validated on a write that doesn't touch them, so e.g. task_set_status
+// or task_edit on such a task keeps working. A nil schema (every caller that
+// predates this feature, and any call site that never resolved one) skips
+// the enum/range checks entirely — see tagschema.Schema's own
+// nil-receiver-safety.
 //
 // An empty or all-whitespace tag is not rejected here (validateTag never
 // panics on ""): callers that drop empty tags before storage — see
@@ -440,10 +464,13 @@ func validateTags(tags []string) error {
 // is not something this grammar makes unqueryable.
 //
 // This is a write-time check only. It must never run on the read/fold path:
-// an existing log already containing a malformed tag must still fold and
-// list without error (see internal/shared/tasks.tagsToTagmaTags), so a
-// reader stays lenient even where a writer is now strict.
-func validateTag(tag string) error {
+// an existing log already containing a malformed or schema-violating tag
+// must still fold and list without error (see
+// internal/shared/tasks.tagsToTagmaTags), so a reader stays lenient even
+// where a writer is now strict — `taskloom lint` is the read-time,
+// advisory-only sweep for exactly that pre-existing data (see
+// internal/shared/tasks/lint's package doc).
+func validateTag(tag string, schema *tagschema.Schema) error {
 	trimmed := strings.TrimSpace(tag)
 	if trimmed == "" {
 		return nil
@@ -461,7 +488,37 @@ func validateTag(tag string) error {
 			return fmt.Errorf("tag %q uses the %q namespace, which is reserved for tag-schema declarations in .taskloom/config.yaml's tag_schema — a task tag may not write into it", tag, ns)
 		}
 	}
+	if parsed.Value == nil {
+		return nil
+	}
+	target := tagschema.Target(parsed)
+	value := *parsed.Value
+	if enum, ok := schema.Enum(target); ok && !containsString(enum, value) {
+		return fmt.Errorf("tag %q's value %q is not one of %s's declared enum values %v", tag, value, target, enum)
+	}
+	if min, max, ok, rerr := schema.Range(target); ok {
+		if rerr != nil {
+			return fmt.Errorf("tag %q: %w", tag, rerr)
+		}
+		f, perr := strconv.ParseFloat(value, 64)
+		if perr != nil {
+			return fmt.Errorf("tag %q's value %q does not parse as a number, required by %s's declared range [%v,%v]", tag, value, target, min, max)
+		}
+		if f < min || f > max {
+			return fmt.Errorf("tag %q's value %v is outside %s's declared range [%v,%v]", tag, f, target, min, max)
+		}
+	}
 	return nil
+}
+
+// containsString reports whether v is a member of list.
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // SetTaskStatus moves a task to a different status, attributing the change to

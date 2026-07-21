@@ -527,7 +527,7 @@ func TestTagTaskRejectsUnqueryableAddedTags(t *testing.T) {
 // rejected the same way.
 func TestValidateTagRejectsReservedWordsCaseInsensitively(t *testing.T) {
 	for _, tag := range []string{"and", "AND", "And", "or", "OR", "not", "NOT", " and "} {
-		if err := validateTag(tag); err == nil {
+		if err := validateTag(tag, nil); err == nil {
 			t.Errorf("validateTag(%q): expected an error (reserved operator word)", tag)
 		}
 	}
@@ -540,7 +540,7 @@ func TestValidateTagRejectsReservedWordsCaseInsensitively(t *testing.T) {
 // can turn into a matchable atom.
 func TestValidateTagRejectsTagmaUnparseableTags(t *testing.T) {
 	for _, tag := range []string{"urgent*", "release+", "foo/bar", "has space"} {
-		if err := validateTag(tag); err == nil {
+		if err := validateTag(tag, nil); err == nil {
 			t.Errorf("validateTag(%q): expected an error (not a valid tagma tag)", tag)
 		}
 	}
@@ -551,9 +551,204 @@ func TestValidateTagRejectsTagmaUnparseableTags(t *testing.T) {
 // reserved word as a substring, must stay valid.
 func TestValidateTagAcceptsOrdinaryTags(t *testing.T) {
 	for _, tag := range []string{"urgent", "release", "android", "cannot", "note", "north", "v1.2", "a-b_c"} {
-		if err := validateTag(tag); err != nil {
+		if err := validateTag(tag, nil); err != nil {
 			t.Errorf("validateTag(%q): unexpected error: %v", tag, err)
 		}
+	}
+}
+
+// --- write-seam enum/range enforcement (validateTag's schema-aware half) ---
+
+// triageValueSchema returns a *tagschema.Schema declaring a closed enum for
+// triage:kind and a numeric range for triage:severity — a minimal slice of
+// the shipped DefaultTagSchema, enough to exercise validateTag's enum/range
+// branches without depending on taskloomconfig.
+func triageValueSchema(t *testing.T) *tagschema.Schema {
+	t.Helper()
+	schema, err := tagschema.Parse([]string{
+		`tagma.enum:"triage:kind"="fix,feature,maintenance,docs,build,test"`,
+		`tagma.range:"triage:severity"="0,5"`,
+	})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return schema
+}
+
+// TestValidateTagAcceptsDeclaredEnumValue and
+// TestValidateTagRejectsDeclaredEnumViolation pin validateTag's new
+// enum-checking half directly: a value that IS a member of a declared enum
+// passes; one that isn't is rejected with an error naming the target and
+// the declared members.
+func TestValidateTagAcceptsDeclaredEnumValue(t *testing.T) {
+	schema := triageValueSchema(t)
+	if err := validateTag("triage:kind=fix", schema); err != nil {
+		t.Errorf("validateTag(triage:kind=fix): unexpected error: %v", err)
+	}
+}
+
+func TestValidateTagRejectsDeclaredEnumViolation(t *testing.T) {
+	schema := triageValueSchema(t)
+	err := validateTag("triage:kind=sparkles", schema)
+	if err == nil {
+		t.Fatal("validateTag(triage:kind=sparkles): expected an error (not a declared enum member)")
+	}
+	if !strings.Contains(err.Error(), "triage:kind") || !strings.Contains(err.Error(), "sparkles") {
+		t.Errorf("error %q does not name the target and offending value", err)
+	}
+}
+
+// TestValidateTagAcceptsDeclaredRangeValue and
+// TestValidateTagRejectsDeclaredRangeViolation pin the same for the
+// range-checking half: in-bounds numeric values pass, out-of-bounds or
+// non-numeric ones are rejected.
+func TestValidateTagAcceptsDeclaredRangeValue(t *testing.T) {
+	schema := triageValueSchema(t)
+	if err := validateTag("triage:severity=3", schema); err != nil {
+		t.Errorf("validateTag(triage:severity=3): unexpected error: %v", err)
+	}
+	if err := validateTag("triage:severity=0", schema); err != nil {
+		t.Errorf("validateTag(triage:severity=0): unexpected error (range boundary): %v", err)
+	}
+	if err := validateTag("triage:severity=5", schema); err != nil {
+		t.Errorf("validateTag(triage:severity=5): unexpected error (range boundary): %v", err)
+	}
+}
+
+func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
+	schema := triageValueSchema(t)
+	if err := validateTag("triage:severity=9", schema); err == nil {
+		t.Error("validateTag(triage:severity=9): expected an error (outside the declared range)")
+	}
+	if err := validateTag("triage:severity=notanumber", schema); err == nil {
+		t.Error("validateTag(triage:severity=notanumber): expected an error (doesn't parse as a number under a declared range)")
+	}
+}
+
+// TestValidateTagSkipsEnumRangeChecksWithNilSchema proves a nil schema (every
+// caller that predates this feature) never enforces enum/range at all — the
+// same values that TestValidateTagRejectsDeclaredEnumViolation/
+// TestValidateTagRejectsDeclaredRangeViolation reject are accepted here.
+func TestValidateTagSkipsEnumRangeChecksWithNilSchema(t *testing.T) {
+	for _, tag := range []string{"triage:kind=sparkles", "triage:severity=9", "triage:severity=notanumber"} {
+		if err := validateTag(tag, nil); err != nil {
+			t.Errorf("validateTag(%q, nil): unexpected error: %v", tag, err)
+		}
+	}
+}
+
+// TestAddTaskWithTagsRejectsDeclaredEnumViolation and
+// TestAddTaskWithTagsRejectsDeclaredRangeViolation pin the enum/range gate
+// at the AddTaskWithTags write seam end to end: a rejected add must persist
+// nothing at all, mirroring TestAddTaskWithTagsRejectsUnqueryableTags for
+// the structural checks.
+func TestAddTaskWithTagsRejectsDeclaredEnumViolation(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	if _, err := AddTaskWithTags(tc, "bad kind", "", "", []string{"triage:kind=sparkles"}); err == nil {
+		t.Fatal("expected an error adding a tag whose value violates the declared enum")
+	}
+
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 0 {
+		t.Fatalf("expected no tasks written after a rejected enum violation, got %+v", list.Tasks)
+	}
+}
+
+func TestAddTaskWithTagsRejectsDeclaredRangeViolation(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	if _, err := AddTaskWithTags(tc, "bad severity", "", "", []string{"triage:severity=9"}); err == nil {
+		t.Fatal("expected an error adding a tag whose value is outside the declared range")
+	}
+
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 0 {
+		t.Fatalf("expected no tasks written after a rejected range violation, got %+v", list.Tasks)
+	}
+}
+
+// TestTagTaskRejectsDeclaredEnumViolation mirrors the above on the TagTask
+// add seam (see TestTagTaskRejectsUnqueryableAddedTags).
+func TestTagTaskRejectsDeclaredEnumViolation(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+
+	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := TagTask(tc, add.Task.HarpID, []string{"triage:kind=sparkles"}, nil); err == nil {
+		t.Fatal("expected an error adding an enum-violating tag via TagTask")
+	}
+
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 1 || len(list.Tasks[0].Tags) != 1 || list.Tasks[0].Tags[0] != "urgent" {
+		t.Fatalf("tags after rejected TagTask add = %+v, want unchanged [urgent]", list.Tasks)
+	}
+}
+
+// TestWriteSeamNeverRevalidatesPreExistingTags pins the CRITICAL constraint
+// this whole feature depends on: validateTag/validateTags examine ONLY the
+// tags being WRITTEN on a given call, never a task's already-stored tag
+// set. Without this, task_set_status/task_edit/task_tag on any of this
+// project's 318 live tasks carrying bare unnamespaced legacy tags — or, as
+// simulated here, a tag that flatly violates a schema declared after it was
+// written — would start failing on writes that never even touch tags.
+//
+// The offending tag is seeded DIRECTLY through the underlying tasks.Store,
+// bypassing validateTag entirely (exactly like real pre-existing/foreign
+// data would have been written, before this gate — or this project's
+// tag_schema — existed).
+func TestWriteSeamNeverRevalidatesPreExistingTags(t *testing.T) {
+	taskstest.Isolate(t)
+	schema := triageValueSchema(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
+
+	_, logPath, err := ResolveLogPath(tc)
+	if err != nil {
+		t.Fatalf("resolve log path: %v", err)
+	}
+	store, err := tasks.OpenLog(logPath, tc.SessionHarp)
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	seeded, err := store.AddWithTags("legacy task", "", "", "triage:kind=sparkles", "legacy-flat-tag")
+	if err != nil {
+		t.Fatalf("seed legacy task (bypassing the write-seam gate): %v", err)
+	}
+
+	// None of these writes touch the offending tags, and none may be
+	// rejected on their account.
+	if _, err := SetTaskStatus(tc, seeded.HarpID, "In Progress", ""); err != nil {
+		t.Fatalf("SetTaskStatus on a task carrying pre-existing schema-violating tags: %v", err)
+	}
+	if _, err := EditTask(tc, seeded.HarpID, "legacy task, edited"); err != nil {
+		t.Fatalf("EditTask on a task carrying pre-existing schema-violating tags: %v", err)
+	}
+	res, err := TagTask(tc, seeded.HarpID, []string{"urgent"}, nil)
+	if err != nil {
+		t.Fatalf("TagTask add (of an unrelated, valid tag) on a task carrying pre-existing schema-violating tags: %v", err)
+	}
+	if !containsString(res.Task.Tags, "urgent") {
+		t.Fatalf("tags after add = %+v, want \"urgent\" included", res.Task.Tags)
+	}
+	if !containsString(res.Task.Tags, "triage:kind=sparkles") {
+		t.Fatalf("pre-existing schema-violating tag must survive untouched, got %+v", res.Task.Tags)
+	}
+	if !containsString(res.Task.Tags, "legacy-flat-tag") {
+		t.Fatalf("pre-existing bare legacy tag must survive untouched, got %+v", res.Task.Tags)
 	}
 }
 
@@ -753,7 +948,7 @@ func TestScalarCollapse_NilSchemaNeverCollapses(t *testing.T) {
 // able to inject into it.
 func TestValidateTagRejectsTagmaNamespace(t *testing.T) {
 	for _, tag := range []string{`tagma.arity:"triage:type"=scalar`, "tagma:foo", "tagma.priority_fn:x=y"} {
-		if err := validateTag(tag); err == nil {
+		if err := validateTag(tag, nil); err == nil {
 			t.Errorf("validateTag(%q): expected an error (reserved tagma namespace)", tag)
 		}
 	}
@@ -764,7 +959,7 @@ func TestValidateTagRejectsTagmaNamespace(t *testing.T) {
 // any namespace that merely starts with the same letters -- "tagmatic" is a
 // perfectly ordinary namespace.
 func TestValidateTagAcceptsNamespaceMerelyPrefixedWithTagma(t *testing.T) {
-	if err := validateTag("tagmatic:foo=bar"); err != nil {
+	if err := validateTag("tagmatic:foo=bar", nil); err != nil {
 		t.Errorf("validateTag(tagmatic:foo=bar): unexpected error: %v", err)
 	}
 }
@@ -840,6 +1035,15 @@ func TestComputeTaskPriorities_RanksAcrossTheFullProjectSnapshot(t *testing.T) {
 // TestLintTasks_FindsAndClearsViolations exercises operations.LintTasks
 // end-to-end against a real store: a bad triage:type value is flagged, and
 // an all-clean store reports nothing.
+//
+// The bad value is written DIRECTLY through the underlying tasks.Store,
+// bypassing validateTag's write-seam gate (see
+// TestAddTaskWithTagsRejectsDeclaredEnumViolation, which pins that
+// AddTaskWithTags itself now rejects this exact value outright) — this
+// simulates data written before the gate existed, or by a foreign writer
+// this schema never saw, which is exactly the pre-existing data lint's
+// read-time, advisory-only sweep exists to catch (see
+// internal/shared/tasks/lint's package doc).
 func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 	taskstest.Isolate(t)
 	schema, err := tagschema.Parse([]string{
@@ -850,8 +1054,16 @@ func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
 	}
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
 
-	if _, err := AddTaskWithTags(tc, "bad", "", "", []string{"triage:type=nonsense"}); err != nil {
-		t.Fatalf("add: %v", err)
+	logPath, err := paths.TasksLogPath(paths.ModeHome, "", "p")
+	if err != nil {
+		t.Fatalf("log path: %v", err)
+	}
+	store, err := tasks.OpenLog(logPath, "sess")
+	if err != nil {
+		t.Fatalf("open log: %v", err)
+	}
+	if _, err := store.AddWithTags("bad", "", "", "triage:type=nonsense"); err != nil {
+		t.Fatalf("add (bypassing the write-seam gate): %v", err)
 	}
 
 	violations, err := LintTasks(tc)

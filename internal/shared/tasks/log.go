@@ -210,6 +210,7 @@ func (f *folded) apply(ev Event) error {
 		t.Checked = statusIsDone(t.Status)
 		t.TextHash = hashText(t.Text)
 		t.Tags = normalizeTags(ev.Tags)
+		t.CreatedAt = ev.Ts
 		f.byID[ev.Task] = t
 		f.order = append(f.order, ev.Task)
 		if t.Status == StatusDeferred {
@@ -370,7 +371,12 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 		return Task{}, err
 	}
 	id := uniqueHarpIDFromSet(f.issued)
-	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Trigger: trigger, Session: l.session, Tags: tags}); err != nil {
+	// Stamped explicitly (rather than left zero for append() to default)
+	// so the Ts actually written matches the CreatedAt returned below —
+	// otherwise a caller reading the just-added task's CreatedAt back would
+	// see a zero value until the next fold.
+	now := time.Now().UTC()
+	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Trigger: trigger, Session: l.session, Tags: tags, Ts: now}); err != nil {
 		return Task{}, err
 	}
 	return Task{
@@ -382,6 +388,7 @@ func (l *eventLog) addWithTags(text, status, trigger string, tags []string) (Tas
 		Trigger:       trigger,
 		OriginSession: l.session,
 		Tags:          tags,
+		CreatedAt:     now,
 	}, nil
 }
 

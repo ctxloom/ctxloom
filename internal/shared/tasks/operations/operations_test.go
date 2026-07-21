@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -791,5 +792,85 @@ func TestTagTaskRejectsTagmaNamespaceTag(t *testing.T) {
 	}
 	if _, err := TagTask(tc, add.Task.HarpID, []string{"tagma.arity:x=y"}, nil); err == nil {
 		t.Fatal("expected an error adding a tagma-namespaced tag via TagTask")
+	}
+}
+
+func priorityFormulaSchema(t *testing.T) *tagschema.Schema {
+	t.Helper()
+	schema, err := tagschema.Parse([]string{
+		`tagma.priority_fn:"triage:impact"="{{triage:impact}}"`,
+	})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return schema
+}
+
+// TestComputeTaskPriorities_RanksAcrossTheFullProjectSnapshot proves the
+// scoping decision this feature made deliberately: percentile rank is
+// computed over the store's FULL current snapshot, not just whatever a
+// caller happens to be displaying — ComputeTaskPriorities takes no
+// term/tag-query/status filter at all, unlike ListTasks*.
+func TestComputeTaskPriorities_RanksAcrossTheFullProjectSnapshot(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: priorityFormulaSchema(t)}
+
+	low, err := AddTaskWithTags(tc, "low", "", "", []string{"triage:impact=1"})
+	if err != nil {
+		t.Fatalf("add low: %v", err)
+	}
+	high, err := AddTaskWithTags(tc, "high", "", "", []string{"triage:impact=9"})
+	if err != nil {
+		t.Fatalf("add high: %v", err)
+	}
+
+	results, err := ComputeTaskPriorities(tc, time.Now())
+	if err != nil {
+		t.Fatalf("compute priorities: %v", err)
+	}
+	if results[low.Task.HarpID].Priority >= results[high.Task.HarpID].Priority {
+		t.Fatalf("expected low's priority (%v) below high's (%v)",
+			results[low.Task.HarpID].Priority, results[high.Task.HarpID].Priority)
+	}
+	if results[high.Task.HarpID].Priority != 5.0 {
+		t.Fatalf("the population maximum should reach the ceiling, got %v", results[high.Task.HarpID].Priority)
+	}
+}
+
+// TestLintTasks_FindsAndClearsViolations exercises operations.LintTasks
+// end-to-end against a real store: a bad triage:type value is flagged, and
+// an all-clean store reports nothing.
+func TestLintTasks_FindsAndClearsViolations(t *testing.T) {
+	taskstest.Isolate(t)
+	schema, err := tagschema.Parse([]string{
+		`tagma.enum:"triage:type"="correctness,security"`,
+	})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: schema}
+
+	if _, err := AddTaskWithTags(tc, "bad", "", "", []string{"triage:type=nonsense"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	violations, err := LintTasks(tc)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("violations = %+v, want exactly one", violations)
+	}
+
+	tc2 := TaskContext{WorkDir: t.TempDir(), ProjectID: "clean", SessionHarp: "sess", TagSchema: schema}
+	if _, err := AddTaskWithTags(tc2, "good", "", "", []string{"triage:type=security"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	violations, err = LintTasks(tc2)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("violations = %+v, want none for clean data", violations)
 	}
 }

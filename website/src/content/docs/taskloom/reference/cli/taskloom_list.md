@@ -76,6 +76,7 @@ taskloom list [flags]
       --global             aggregate tasks across every project instead of just the current one
   -h, --help               help for list
       --json               shorthand for --format json (for jq)
+      --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged
       --status strings     filter by status (repeatable)
       --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")
       --term string        filter by case-insensitive substring of task text

@@ -72,6 +72,43 @@ func TestHandleTaskList_FiltersByStatusAndTerm(t *testing.T) {
 	assert.Len(t, res.Summary.InProgress, 1)
 }
 
+// TestHandleTaskList_SortPriorityOrdersDescendingByImpact exercises
+// task_list's sort="priority" against the project's DEFAULT tag_schema
+// (taskloomconfig.DefaultTagSchema) end to end: three tasks with different
+// triage:impact values must come back highest-impact first, each carrying a
+// populated derived_priority.
+func TestHandleTaskList_SortPriorityOrdersDescendingByImpact(t *testing.T) {
+	withProjectDir(t)
+
+	_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "low impact", Tags: []string{"triage:impact=1"}})
+	require.NoError(t, err)
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "high impact", Tags: []string{"triage:impact=9"}})
+	require.NoError(t, err)
+	_, _, err = handleTaskAdd(context.Background(), nil, taskAddInput{Text: "mid impact", Tags: []string{"triage:impact=5"}})
+	require.NoError(t, err)
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Sort: "priority"})
+	require.NoError(t, err)
+	require.Len(t, res.Tasks, 3)
+	assert.Equal(t, "high impact", res.Tasks[0].Text)
+	assert.Equal(t, "mid impact", res.Tasks[1].Text)
+	assert.Equal(t, "low impact", res.Tasks[2].Text)
+	for _, row := range res.Tasks {
+		require.NotNil(t, row.DerivedPriority, "sort=priority must populate derived_priority")
+	}
+	assert.Greater(t, *res.Tasks[0].DerivedPriority, *res.Tasks[2].DerivedPriority)
+}
+
+// TestHandleTaskList_UnknownSortValueErrors mirrors the CLI's --sort
+// validation: task_list's sort input has the same closed value set.
+func TestHandleTaskList_UnknownSortValueErrors(t *testing.T) {
+	withProjectDir(t)
+
+	_, _, err := handleTaskList(context.Background(), nil, taskListInput{Sort: "bogus"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown sort value")
+}
+
 func TestHandleTaskSetStatus_MovesTask(t *testing.T) {
 	withProjectDir(t)
 

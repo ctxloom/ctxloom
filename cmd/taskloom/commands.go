@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,8 +16,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
+
+// sortPriority is the only recognized `--sort` / task_list `sort` value
+// today: derived, rank-normalized priority (internal/shared/tasks/priority),
+// descending. Anything else (including the default "") leaves a listing in
+// its existing order — this feature is purely additive, never a change to
+// what an unmodified `list`/task_list call returns.
+const sortPriority = "priority"
 
 var (
 	tasksListStatuses []string
@@ -24,6 +33,7 @@ var (
 	tasksListTagQuery string
 	tasksListAll      bool
 	tasksListGlobal   bool
+	tasksListSort     string
 )
 
 var listCmd = &cobra.Command{
@@ -84,12 +94,20 @@ tags in use (with counts) via "taskloom tags".`,
 		if err != nil {
 			return err
 		}
+		// Resolved unconditionally (not just when --sort priority is passed):
+		// it's a cheap config read, and priority computation needs it — see
+		// runListCmd's --sort priority branch.
+		tc, err = resolveTagSchema(tc)
+		if err != nil {
+			return err
+		}
 		return runListCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{
 			Statuses: tasksListStatuses,
 			Term:     tasksListTerm,
 			TagQuery: tasksListTagQuery,
 			All:      tasksListAll,
 			Global:   tasksListGlobal,
+			Sort:     tasksListSort,
 			Format:   format,
 		})
 	},
@@ -108,12 +126,16 @@ type listOptions struct {
 	Statuses []string
 	Term     string
 	TagQuery string
-	All      bool // include the default-hidden tasks: Done/Archived and Deferred
-	Global   bool // aggregate across every project, not just the resolved one
+	All      bool   // include the default-hidden tasks: Done/Archived and Deferred
+	Global   bool   // aggregate across every project, not just the resolved one
+	Sort     string // "" (default: unsorted) or sortPriority
 	Format   clifmt.Format
 }
 
 func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
+	if opts.Sort != "" && opts.Sort != sortPriority {
+		return fmt.Errorf("taskloom: unknown --sort value %q (must be %q)", opts.Sort, sortPriority)
+	}
 	scope, err := resolveListScope(opts.Global, tc.ProjectID, tc.WorkDir)
 	if err != nil {
 		return err
@@ -124,7 +146,7 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		if scope.Notice != "" {
 			clidiag.Fwarn(errw, "taskloom", "%s", scope.Notice)
 		}
-		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, tc.SessionHarp)
+		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
 		if err != nil {
 			return wrapTagQueryError(err)
 		}
@@ -150,6 +172,14 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	}
 	warnTask(res.Warning)
 	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, filtered)
+	if opts.Sort == sortPriority {
+		results, perr := operations.ComputeTaskPriorities(tc, time.Now())
+		if perr != nil {
+			return fmt.Errorf("compute priorities: %w", perr)
+		}
+		attachPriority(res.Tasks, results)
+		sortTasksByPriorityDesc(res.Tasks)
+	}
 	if opts.Format != clifmt.FormatText {
 		return clifmt.Render(out, res.Tasks, opts.Format)
 	}
@@ -162,6 +192,36 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		return err
 	}
 	return renderTaskTable(out, res.Tasks)
+}
+
+// attachPriority sets each task's DerivedPriority (in place) from results,
+// looked up by harp ID. A harp missing from results (e.g. a task added in
+// the narrow race between the normalization snapshot and this page) is left
+// at 0 rather than failing the whole listing over it.
+func attachPriority(list []tasks.Task, results map[string]priority.Result) {
+	for i := range list {
+		p := 0.0
+		if r, ok := results[list[i].HarpID]; ok {
+			p = r.Priority
+		}
+		list[i].DerivedPriority = &p
+	}
+}
+
+// sortTasksByPriorityDesc stable-sorts list by DerivedPriority descending
+// (highest priority first); ties keep their existing relative order (add
+// order, or whatever a prior filter/sort left them in).
+func sortTasksByPriorityDesc(list []tasks.Task) {
+	sort.SliceStable(list, func(i, j int) bool {
+		return priorityOf(list[i]) > priorityOf(list[j])
+	})
+}
+
+func priorityOf(t tasks.Task) float64 {
+	if t.DerivedPriority == nil {
+		return 0
+	}
+	return *t.DerivedPriority
 }
 
 // wrapTagQueryError adds the postfix-grammar hint to a malformed --tag-query,
@@ -505,6 +565,7 @@ func init() {
 	listCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
 	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every project instead of just the current one")
+	listCmd.Flags().StringVar(&tasksListSort, "sort", "", `sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged`)
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 	addCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")

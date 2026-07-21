@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -20,6 +22,7 @@ type taskListInput struct {
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
 	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across EVERY project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all."`
+	Sort             string   `json:"sort,omitempty" jsonschema:"Optional sort order. \"priority\" sorts by derived, rank-normalized priority (descending) — a 0-5 score combining a project's priority_fn/decay_fn formulas over each task's tags, percentile-ranked against the project's non-terminal tasks; see each returned task's derived_priority field. Empty (default) leaves today's order unchanged."`
 }
 
 type taskListResult struct {
@@ -141,7 +144,16 @@ func registerTaskTools(server *mcp.Server) {
 }
 
 func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
+	if in.Sort != "" && in.Sort != sortPriority {
+		return nil, nil, fmt.Errorf("taskloom: unknown sort value %q (must be %q)", in.Sort, sortPriority)
+	}
 	tc, err := taskContext()
+	if err != nil {
+		return nil, nil, err
+	}
+	// Resolved unconditionally, mirroring cmd/taskloom's `list` command: a
+	// cheap config read, and priority computation needs it.
+	tc, err = resolveTagSchema(tc)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,7 +163,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 
 	if scope.Global {
-		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, tc.SessionHarp)
+		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -174,6 +186,14 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		return nil, nil, err
 	}
 	warnTask(res.Warning)
+	if in.Sort == sortPriority {
+		results, perr := operations.ComputeTaskPriorities(tc, time.Now())
+		if perr != nil {
+			return nil, nil, fmt.Errorf("compute priorities: %w", perr)
+		}
+		attachPriority(res.Tasks, results)
+		sortTasksByPriorityDesc(res.Tasks)
+	}
 	rows := make([]taskRow, len(res.Tasks))
 	for i, t := range res.Tasks {
 		rows[i] = taskRow{Task: t, ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}

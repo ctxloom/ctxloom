@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
@@ -99,6 +100,24 @@ type Task struct {
 	// deterministic output across `taskloom list --json` and MCP. Not part of
 	// TextHash — tagging a task never changes its text identity.
 	Tags []string `json:"tags,omitempty"`
+
+	// CreatedAt is the task's creation timestamp — the `add` event's Ts, set
+	// once at fold-time and never overwritten by a later event (a status/tag/
+	// text change never touches it). internal/shared/tasks/priority reads it
+	// to derive a task's age (now - CreatedAt) for decay_fn/priority_fn
+	// evaluation. omitzero (not omitempty — time.Time isn't one of the types
+	// omitempty recognizes) drops it from JSON only for the zero value, which
+	// in practice means never once a task actually exists.
+	CreatedAt time.Time `json:"created_at,omitzero"`
+
+	// DerivedPriority is a task's rank-normalized [0,5] display priority (see
+	// internal/shared/tasks/priority.Compute) — computed at READ time, never
+	// persisted, and populated only when a caller actually asked for it
+	// (`taskloom list --sort priority`, task_list's sort="priority"). nil
+	// otherwise, so every other read path is byte-for-byte unaffected. A
+	// pointer (not a bare float64) so a genuinely computed 0 is distinguishable
+	// from "not computed".
+	DerivedPriority *float64 `json:"derived_priority,omitempty"`
 }
 
 // Summary holds counts per status and the harp IDs currently in-progress.

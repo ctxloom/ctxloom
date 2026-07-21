@@ -88,20 +88,38 @@ const (
 
 // DefaultTagSchema is the tag_schema shipped when a project's config leaves
 // the key unset at every layer: the triage-classification standard's
-// baseline. `triage:type` and `triage:impact` are declared arity=scalar (at
-// most one tag with that key survives on a task — see
-// internal/shared/tasks/operations's write-seam collapse), and the
-// priority_fn/decay_fn declarations for `triage:impact` are parsed and
-// stored (retrievable via tagschema.Schema.Get) but not evaluated until a
-// later phase (ranking/lint/sort are out of scope here). Shipping this by
-// default means a fresh project gets scalar-collapse on the triage
-// vocabulary with no opt-in required — exactly the ergonomics `homing`'s
-// own default (see the package doc) established the precedent for.
+// baseline. Shipping this by default means a fresh project gets the full
+// standard — scalar-collapse, derived priority, and lint coverage — with no
+// opt-in required, the same ergonomics `homing`'s own default (see the
+// package doc) established the precedent for.
+//
+//   - `triage:type` and `triage:impact` are declared arity=scalar (at most
+//     one tag with that key survives on a task — see
+//     internal/shared/tasks/operations's write-seam collapse).
+//   - priority_fn/decay_fn (mustache form — a `{{ns:key}}` placeholder reads
+//     a tag's value by its full "namespace:key", any other `{{name}}` is a
+//     taskloom-provided built-in; see internal/shared/tasks/tagschema's
+//     CompileFormula and internal/shared/tasks/priority's builtin set) are
+//     evaluated read-time by internal/shared/tasks/priority.Compute, never
+//     stored:
+//     priority_fn multiplies impact by a bump for each present modifier
+//     (regression, data-loss) and by decay_fn's own age_factor; decay_fn is
+//     an ANTI-rot curve — age gently RAISES the score over a task's first
+//     year (1 + age_days/365) rather than letting an old, unaddressed
+//     problem quietly fade in ranking the way a decaying-relevance curve
+//     would. `triage:exploited-in-wild` overrides the result to the
+//     ceiling regardless of the formula (see priority.ExploitedInWildTarget).
+//   - enum/range declare the closed `triage:type` vocabulary and the
+//     `triage:impact` numeric range internal/shared/tasks/lint.Lint checks
+//     tag values against — advisory only (`taskloom lint`), never a write
+//     gate.
 var DefaultTagSchema = []string{
 	`tagma.arity:"triage:type"=scalar`,
 	`tagma.arity:"triage:impact"=scalar`,
-	`tagma.priority_fn:"triage:impact"="{{impact}} * {{modifier_mult}} * {{age_factor}}"`,
-	`tagma.decay_fn:"triage:impact"="{{impact}} * pow(0.5, {{age_days}} / {{half_life_days}})"`,
+	`tagma.priority_fn:"triage:impact"="{{triage:impact}} * (1 + 0.25*{{triage:regression}} + 0.5*{{triage:data-loss}}) * {{age_factor}}"`,
+	`tagma.decay_fn:"triage:impact"="1 + {{age_days}} / 365"`,
+	`tagma.enum:"triage:type"="correctness,security,performance,reliability,docs,build,feature,chore"`,
+	`tagma.range:"triage:impact"="0,5"`,
 }
 
 // Config is taskloom's own parsed, layered configuration.

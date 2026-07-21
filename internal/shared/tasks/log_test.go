@@ -305,6 +305,38 @@ func TestLogSetStatusLastWriteWins(t *testing.T) {
 	}
 }
 
+// TestLogAddSetsCreatedAtAndFoldPreservesIt pins the task's creation
+// timestamp: Add's returned Task already carries a non-zero CreatedAt (the
+// same instant stamped on the `add` event, not left for a later fold to
+// backfill), and a subsequent status/tag change never touches it —
+// internal/shared/tasks/priority reads it to derive a task's age, so it must
+// stay pinned to creation, not the most recent event.
+func TestLogAddSetsCreatedAtAndFoldPreservesIt(t *testing.T) {
+	s := newLog(t, "")
+	a, err := s.Add("ship it", "")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if a.CreatedAt.IsZero() {
+		t.Fatal("Add's returned Task must already carry a non-zero CreatedAt")
+	}
+
+	if _, err := s.SetStatus(a.HarpID, StatusInProgress); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if _, err := s.AddTags(a.HarpID, "urgent"); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+
+	got, err := s.List(nil, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || !got[0].CreatedAt.Equal(a.CreatedAt) {
+		t.Fatalf("CreatedAt must survive a status/tag change unchanged: got %+v, want %v", got, a.CreatedAt)
+	}
+}
+
 func TestLogSetStatusUnknownErrors(t *testing.T) {
 	s := newLog(t, "")
 	if _, err := s.SetStatus("nope", StatusDone); err == nil {

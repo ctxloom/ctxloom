@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -168,6 +169,72 @@ func TestRunListCmd_JSONOutputTagsEachRowWithItsProject(t *testing.T) {
 
 	assert.Contains(t, stdout.String(), `"project_id": "proj-a"`)
 	assert.Contains(t, stdout.String(), `"text": "a's task"`)
+}
+
+// TestRunListCmd_SortPriorityOrdersDescendingByImpact exercises `taskloom
+// list --sort priority` end to end against a real store: three tasks with
+// different triage:impact values must render highest-impact first, and each
+// rendered task's derived priority must actually be populated and ordered.
+func TestRunListCmd_SortPriorityOrdersDescendingByImpact(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	tc := mustTaskContext(t)
+	schema, err := tagschema.Parse([]string{
+		`tagma.priority_fn:"triage:impact"="{{triage:impact}}"`,
+	})
+	require.NoError(t, err)
+	tc.TagSchema = schema
+
+	_, err = operations.AddTaskWithTags(tc, "low impact", "", "", []string{"triage:impact=1"})
+	require.NoError(t, err)
+	_, err = operations.AddTaskWithTags(tc, "high impact", "", "", []string{"triage:impact=9"})
+	require.NoError(t, err)
+	_, err = operations.AddTaskWithTags(tc, "mid impact", "", "", []string{"triage:impact=5"})
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, tc, listOptions{Sort: sortPriority, Format: clifmt.FormatText})
+	require.NoError(t, err)
+
+	out := stdout.String()
+	hi := strings.Index(out, "high impact")
+	mid := strings.Index(out, "mid impact")
+	lo := strings.Index(out, "low impact")
+	require.True(t, hi >= 0 && mid >= 0 && lo >= 0, "all three tasks must appear: %q", out)
+	assert.Less(t, hi, mid, "highest impact renders before mid")
+	assert.Less(t, mid, lo, "mid impact renders before lowest")
+}
+
+// TestRunListCmd_UnknownSortValueErrors pins --sort's closed value set: only
+// "priority" (sortPriority) is recognized; anything else is a loud error,
+// never a silent no-op sort.
+func TestRunListCmd_UnknownSortValueErrors(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	var stdout, stderr strings.Builder
+	err := runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Sort: "bogus", Format: clifmt.FormatText})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown --sort value")
+}
+
+// TestRunListCmd_DefaultSortLeavesOrderUnchanged pins the additive-only
+// promise: omitting --sort must leave today's add-order behavior exactly as
+// it was before this feature existed.
+func TestRunListCmd_DefaultSortLeavesOrderUnchanged(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	tc := mustTaskContext(t)
+	_, err := operations.AddTaskWithTags(tc, "first added", "", "", nil)
+	require.NoError(t, err)
+	_, err = operations.AddTaskWithTags(tc, "second added", "", "", nil)
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, tc, listOptions{Format: clifmt.FormatText})
+	require.NoError(t, err)
+
+	out := stdout.String()
+	assert.Less(t, strings.Index(out, "first added"), strings.Index(out, "second added"))
 }
 
 // TestRenderTaskTable_SummarizesAndSeparates pins the human `list` view: entries

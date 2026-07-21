@@ -20,16 +20,19 @@
 // compared, as a plain string, against the "namespace:key" identity a real
 // task tag reconstructs to (see Target).
 //
-// Phase 2 defines and enforces exactly one facet, ArityFacet, whose only
-// legal value is ArityScalar (internal/shared/tasks/operations's write seam
-// collapses a task's tags so at most one survives per scalar target — "last
-// wins"). PriorityFnFacet and DecayFnFacet are parsed and stored like any
-// other facet (Schema.Get can retrieve them) but are not evaluated until a
-// later phase — see the design doc this package's tests cite.
+// ArityFacet, whose only legal value is ArityScalar, is enforced at WRITE
+// time (internal/shared/tasks/operations's write seam collapses a task's
+// tags so at most one survives per scalar target — "last wins").
+// PriorityFnFacet/DecayFnFacet and EnumFacet/RangeFacet are read-time-only:
+// the former pair is compiled (CompileFormula, this package) and evaluated
+// by internal/shared/tasks/priority.Compute; the latter pair is checked by
+// internal/shared/tasks/lint.Lint. Neither ever blocks a write — see
+// operations's own arity-only enforcement.
 package tagschema
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
@@ -42,14 +45,19 @@ import (
 // config-only, never task-writable.
 const FacetNamespace = "tagma"
 
-// Facet name and value constants. ArityFacet/ArityScalar are enforced in
-// phase 2; PriorityFnFacet/DecayFnFacet are recognized (parsed and stored)
-// but their mustache-equation values are inert until a later phase.
+// Facet name and value constants. ArityFacet/ArityScalar are enforced at
+// write time (scalar-collapse). PriorityFnFacet/DecayFnFacet declare the
+// mustache-form formulas internal/shared/tasks/priority compiles (via
+// CompileFormula, this package) and evaluates read-time. EnumFacet/RangeFacet
+// declare the closed value set / numeric range `taskloom lint` validates a
+// tag's value against — see Enum/Range below.
 const (
 	ArityFacet      = "arity"
 	ArityScalar     = "scalar"
 	PriorityFnFacet = "priority_fn"
 	DecayFnFacet    = "decay_fn"
+	EnumFacet       = "enum"
+	RangeFacet      = "range"
 )
 
 // Schema is the parsed form of a tag_schema declaration list: facet name ->
@@ -127,6 +135,67 @@ func (s *Schema) Get(facet, target string) (string, bool) {
 func (s *Schema) IsScalar(target string) bool {
 	v, ok := s.Get(ArityFacet, target)
 	return ok && v == ArityScalar
+}
+
+// PriorityFn returns target's declared priority_fn formula (mustache form,
+// e.g. `"{{triage:impact}} * {{age_factor}}"`) and whether one was declared.
+// Compile it with CompileFormula before evaluating.
+func (s *Schema) PriorityFn(target string) (string, bool) {
+	return s.Get(PriorityFnFacet, target)
+}
+
+// DecayFn returns target's declared decay_fn formula (mustache form) and
+// whether one was declared. Compile it with CompileFormula before
+// evaluating.
+func (s *Schema) DecayFn(target string) (string, bool) {
+	return s.Get(DecayFnFacet, target)
+}
+
+// Enum returns target's declared closed enum values — a facet="enum"
+// declaration whose raw value is a comma-separated list, e.g.
+// `tagma.enum:"triage:type"="correctness,security,..."` — and whether one
+// was declared. Each returned value is trimmed; empty entries (e.g. a
+// trailing comma) are dropped rather than surfacing as a spurious "" member.
+func (s *Schema) Enum(target string) ([]string, bool) {
+	v, ok := s.Get(EnumFacet, target)
+	if !ok {
+		return nil, false
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, true
+}
+
+// Range returns target's declared numeric [min,max] range — a facet="range"
+// declaration whose raw value is "min,max", e.g.
+// `tagma.range:"triage:impact"="0,5"` — and whether one was declared. A
+// declared value that isn't exactly two comma-separated floats is a returned
+// error naming the bad declaration (fail loud: never silently skip range
+// validation over a typo in config).
+func (s *Schema) Range(target string) (min, max float64, ok bool, err error) {
+	v, has := s.Get(RangeFacet, target)
+	if !has {
+		return 0, 0, false, nil
+	}
+	parts := strings.Split(v, ",")
+	if len(parts) != 2 {
+		return 0, 0, true, fmt.Errorf("tag_schema: range declaration for %q must be \"min,max\", got %q", target, v)
+	}
+	min, err = strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("tag_schema: range declaration for %q has invalid min %q: %w", target, parts[0], err)
+	}
+	max, err = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("tag_schema: range declaration for %q has invalid max %q: %w", target, parts[1], err)
+	}
+	return min, max, true, nil
 }
 
 // Target reconstructs the "namespace:key" (or bare "key", if t carries no

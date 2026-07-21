@@ -12,7 +12,9 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/lint"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
@@ -564,6 +566,49 @@ func DeferredSince(tc TaskContext) (map[string]time.Time, error) {
 		return nil, fmt.Errorf("deferred since: %w", err)
 	}
 	return since, nil
+}
+
+// ComputeTaskPriorities resolves tc's task store and derives a
+// priority.Result for every task currently in it (any status), rank-
+// normalizing raw scores across the project's NON-TERMINAL tasks (see
+// priority.Compute) against the store's FULL current snapshot — never just
+// whatever term/tag-query/status page a caller's own listing already
+// filtered down to. Percentile rank is a property of the whole active
+// population; letting an already-narrow filtered view supply its own
+// reference frame would distort it (e.g. filtering to one tag would make its
+// single highest-raw-score member look artificially maximal against a
+// population of one, rather than against the project's real spread).
+//
+// now is injected (never time.Now() internally) — production call sites
+// (cmd/taskloom's `list --sort priority` and task_list's sort="priority")
+// pass time.Now(); tests pin it for determinism.
+func ComputeTaskPriorities(tc TaskContext, now time.Time) (map[string]priority.Result, error) {
+	store, _, _, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	all, err := store.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("snapshot for priority computation: %w", err)
+	}
+	return priority.Compute(all, tc.TagSchema, now)
+}
+
+// LintTasks resolves tc's task store and reports internal/shared/tasks/
+// lint.Lint's triage-standard violations across EVERY task in it, regardless
+// of status — lint is read-time and advisory (see that package's doc); it
+// never blocks a write and never filters what it inspects, unlike ListTasks'
+// active-only default view.
+func LintTasks(tc TaskContext) ([]lint.Violation, error) {
+	store, _, _, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	all, err := store.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("snapshot for lint: %w", err)
+	}
+	return lint.Lint(all, tc.TagSchema)
 }
 
 // projectIdentity names the project a task operation resolved to, so

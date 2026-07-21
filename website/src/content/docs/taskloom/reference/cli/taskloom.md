@@ -40,6 +40,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom add](/taskloom/reference/cli/taskloom_add/)	 - Add a new task
 * [taskloom completion](/taskloom/reference/cli/taskloom_completion/)	 - Generate the autocompletion script for the specified shell
 * [taskloom edit](/taskloom/reference/cli/taskloom_edit/)	 - Replace a task's text in place (full new text)
+* [taskloom lint](/taskloom/reference/cli/taskloom_lint/)	 - Report triage tag-standard violations across every task (advisory, never a write gate)
 * [taskloom list](/taskloom/reference/cli/taskloom_list/)	 - List tasks, optionally filtered by status, term, or tag query
 * [taskloom loadout](/taskloom/reference/cli/taskloom_loadout/)	 - Print taskloom's ctxloom loadout — the bundle content taskloom contributes to a session
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends

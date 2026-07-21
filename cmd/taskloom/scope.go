@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
@@ -119,10 +122,26 @@ type globalListResult struct {
 // (one <project-id>.jsonl per project), applying the same
 // status/term/tag-query filter and default active-only view
 // operations.ListTasksWithTagQuery applies for a single project. Rows are
-// sorted by project-id, then by harp-id within a project, so the output is
-// deterministic. A tasks dir that doesn't exist yet (nothing has ever been
-// tracked anywhere) is zero projects, zero tasks — not an error.
-func listAllProjects(statuses []string, term, tagQuery string, includeDone bool, sessionHarp string) (*globalListResult, error) {
+// grouped by project-id (renderGlobalTaskTable relies on that grouping being
+// consecutive); WITHIN a group they're ordered by harp-id, or — when
+// sortPriority is set — by derived priority descending instead. Priority is
+// computed against each project's own FULL current snapshot (schema shared
+// across every project, since a --global read has only one resolved
+// tag_schema to apply — see cmd/taskloom/root.go's resolveTagSchema),
+// mirroring operations.ComputeTaskPriorities' single-project scoping
+// decision: percentile rank is a property of each project's whole
+// non-terminal population, not of whatever page the term/tag-query/status
+// filter narrowed that project's rows to.
+//
+// A project grouping is preserved even when sorting by priority — a fully
+// cross-project intermixed sort would need renderGlobalTaskTable's
+// consecutive-project-id grouping to change too; scoping the reorder to
+// within each project's own section is a deliberate, bounded choice, not an
+// oversight.
+//
+// A tasks dir that doesn't exist yet (nothing has ever been tracked
+// anywhere) is zero projects, zero tasks — not an error.
+func listAllProjects(statuses []string, term, tagQuery string, includeDone, sortPriority bool, schema *tagschema.Schema, now time.Time, sessionHarp string) (*globalListResult, error) {
 	dir, err := paths.HomeTasksDir()
 	if err != nil {
 		return nil, fmt.Errorf("tasks dir: %w", err)
@@ -153,13 +172,27 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone bool,
 		out.ProjectCount++
 		out.HiddenCompleted += hiddenCompleted
 		out.HiddenDeferred += hiddenDeferred
+		if sortPriority {
+			all, serr := store.Snapshot()
+			if serr != nil {
+				return nil, fmt.Errorf("snapshot project %s for priority computation: %w", projectID, serr)
+			}
+			results, perr := priority.Compute(all, schema, now)
+			if perr != nil {
+				return nil, fmt.Errorf("compute priorities for project %s: %w", projectID, perr)
+			}
+			attachPriority(visible, results)
+		}
 		for _, t := range visible {
 			out.Rows = append(out.Rows, taskRow{Task: t, ProjectID: projectID})
 		}
 	}
-	sort.Slice(out.Rows, func(i, j int) bool {
+	sort.SliceStable(out.Rows, func(i, j int) bool {
 		if out.Rows[i].ProjectID != out.Rows[j].ProjectID {
 			return out.Rows[i].ProjectID < out.Rows[j].ProjectID
+		}
+		if sortPriority {
+			return priorityOf(out.Rows[i].Task) > priorityOf(out.Rows[j].Task)
 		}
 		return out.Rows[i].HarpID < out.Rows[j].HarpID
 	})

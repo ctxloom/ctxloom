@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,7 +148,7 @@ func TestFilterActiveDefault_ExplicitStatusBypassesFiltering(t *testing.T) {
 func TestListAllProjects_EmptyTasksDirIsNotAnError(t *testing.T) {
 	taskstest.Isolate(t) // fresh HOME: ~/.ctxloom/tasks doesn't exist yet
 
-	got, err := listAllProjects(nil, "", "", false, "")
+	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "")
 	require.NoError(t, err)
 	assert.Zero(t, got.ProjectCount)
 	assert.Empty(t, got.Rows)
@@ -163,7 +164,7 @@ func TestListAllProjects_AggregatesAcrossProjectFilesSortedDeterministically(t *
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "a's active task", "", "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "", "", false, "")
+	got, err := listAllProjects(nil, "", "", false, false, nil, time.Time{}, "")
 	require.NoError(t, err)
 	assert.Equal(t, 2, got.ProjectCount)
 	assert.Equal(t, 1, got.HiddenCompleted, "the done task in proj-b is hidden by the default active-only view")
@@ -181,7 +182,7 @@ func TestListAllProjects_IncludeDoneSurfacesHiddenTasksToo(t *testing.T) {
 	_, err := operations.AddTask(operations.TaskContext{ProjectID: "proj-a"}, "done", tasks.StatusDone, "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "", "", true, "")
+	got, err := listAllProjects(nil, "", "", true, false, nil, time.Time{}, "")
 	require.NoError(t, err)
 	require.Len(t, got.Rows, 1)
 	assert.Zero(t, got.HiddenCompleted)
@@ -195,7 +196,7 @@ func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
 	_, err = operations.AddTask(operations.TaskContext{ProjectID: "proj-b"}, "write docs", "", "")
 	require.NoError(t, err)
 
-	got, err := listAllProjects(nil, "parser", "", false, "")
+	got, err := listAllProjects(nil, "parser", "", false, false, nil, time.Time{}, "")
 	require.NoError(t, err)
 	require.Len(t, got.Rows, 1)
 	assert.Equal(t, "proj-a", got.Rows[0].ProjectID)

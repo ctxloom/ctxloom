@@ -20,7 +20,9 @@ func TestParse_ArityScalar(t *testing.T) {
 }
 
 // TestParse_MultipleFacets proves priority_fn/decay_fn declarations are
-// parsed and retrievable via Get even though phase 2 never evaluates them.
+// parsed and retrievable via Get (formula.go's CompileFormula/
+// internal/shared/tasks/priority is what actually evaluates them; this test
+// only pins the generic parse/Get plumbing against arbitrary example text).
 func TestParse_MultipleFacets(t *testing.T) {
 	s, err := Parse([]string{
 		`tagma.arity:"triage:impact"=scalar`,
@@ -90,4 +92,73 @@ func TestTarget_NamespacedAndBare(t *testing.T) {
 	ns := "triage"
 	assert.Equal(t, "triage:type", Target(tagma.Tag{Namespace: &ns, Key: "type"}))
 	assert.Equal(t, "urgent", Target(tagma.Tag{Key: "urgent"}))
+}
+
+func TestPriorityFnAndDecayFn_RetrieveDeclaredFormulas(t *testing.T) {
+	s, err := Parse([]string{
+		`tagma.priority_fn:"triage:impact"="{{triage:impact}} * {{age_factor}}"`,
+		`tagma.decay_fn:"triage:impact"="1 + {{age_days}} / 365"`,
+	})
+	require.NoError(t, err)
+
+	v, ok := s.PriorityFn("triage:impact")
+	require.True(t, ok)
+	assert.Equal(t, "{{triage:impact}} * {{age_factor}}", v)
+
+	v, ok = s.DecayFn("triage:impact")
+	require.True(t, ok)
+	assert.Equal(t, "1 + {{age_days}} / 365", v)
+
+	_, ok = s.PriorityFn("unrelated")
+	assert.False(t, ok)
+}
+
+func TestEnum_ParsesCommaSeparatedListAndDropsEmptyEntries(t *testing.T) {
+	s, err := Parse([]string{
+		`tagma.enum:"triage:type"="correctness,security, docs ,,build"`,
+	})
+	require.NoError(t, err)
+
+	v, ok := s.Enum("triage:type")
+	require.True(t, ok)
+	assert.Equal(t, []string{"correctness", "security", "docs", "build"}, v)
+
+	_, ok = s.Enum("unrelated")
+	assert.False(t, ok)
+}
+
+func TestRange_ParsesMinMax(t *testing.T) {
+	s, err := Parse([]string{`tagma.range:"triage:impact"="0,5"`})
+	require.NoError(t, err)
+
+	min, max, ok, err := s.Range("triage:impact")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, 0.0, min)
+	assert.Equal(t, 5.0, max)
+
+	_, _, ok, err = s.Range("unrelated")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func TestRange_MalformedValueIsAReturnedError(t *testing.T) {
+	s, err := Parse([]string{`tagma.range:"triage:impact"="not-a-range"`})
+	require.NoError(t, err)
+
+	_, _, _, err = s.Range("triage:impact")
+	require.Error(t, err)
+}
+
+func TestEnumRangePriorityFnDecayFn_NilSchemaIsEmpty(t *testing.T) {
+	var s *Schema
+	_, ok := s.Enum("triage:type")
+	assert.False(t, ok)
+	_, _, ok, err := s.Range("triage:impact")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	_, ok = s.PriorityFn("triage:impact")
+	assert.False(t, ok)
+	_, ok = s.DecayFn("triage:impact")
+	assert.False(t, ok)
 }

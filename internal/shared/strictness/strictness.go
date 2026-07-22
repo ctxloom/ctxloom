@@ -230,18 +230,23 @@ func Checkpoint() Mark {
 
 // Since returns a copy of the findings this mark's goroutine recorded after
 // it, in record order. Safe to call more than once against the same mark
-// (some callers re-check the same window at two gates).
+// (some callers re-check the same window at two gates). A zero-value Mark
+// (the Go zero value, e.g. a literal 0 carried over from callers written
+// against the old int-typed Mark) means "from the very start" — resolved
+// against the CALLING goroutine's own window, the same meaning index 0 had
+// against the old process-global slice for a caller that never checkpointed.
 func Since(mark Mark) []Finding {
-	if mark.w == nil {
+	w := mark.w
+	if w == nil {
+		w = currentWindow()
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if mark.idx >= len(w.findings) {
 		return nil
 	}
-	mark.w.mu.Lock()
-	defer mark.w.mu.Unlock()
-	if mark.idx >= len(mark.w.findings) {
-		return nil
-	}
-	out := make([]Finding, len(mark.w.findings)-mark.idx)
-	copy(out, mark.w.findings[mark.idx:])
+	out := make([]Finding, len(w.findings)-mark.idx)
+	copy(out, w.findings[mark.idx:])
 	return out
 }
 

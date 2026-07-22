@@ -287,7 +287,7 @@ func TestPrintConfigWarnings_UnknownKeyIsFatalAndNamesTheKey(t *testing.T) {
 
 	// The gate must actually refuse to launch.
 	var gate bytes.Buffer
-	err := failOnFindings(&gate, 0)
+	err := failOnFindings(&gate, strictness.Mark{})
 	require.Error(t, err, "strict startup aborts on the unknown-key finding")
 	var exitErr *ExitError
 	require.ErrorAs(t, err, &exitErr)
@@ -312,7 +312,7 @@ func TestPrintConfigWarnings_UnknownKeyDegradesToWarning(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "profilez", "degraded mode still prints the warning")
 	assert.Empty(t, strictness.All(), "degraded mode records no fatal finding")
-	assert.NoError(t, failOnFindings(&bytes.Buffer{}, 0), "degraded mode launches anyway")
+	assert.NoError(t, failOnFindings(&bytes.Buffer{}, strictness.Mark{}), "degraded mode launches anyway")
 }
 
 func TestPrintConfigWarnings_NoWarningsIsSilent(t *testing.T) {

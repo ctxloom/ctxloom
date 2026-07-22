@@ -15,10 +15,13 @@ informed instead of assumed.
 ## Worktree isolation is a workspace boundary, not a security one
 
 `workspace: worktree` gives an agent its own git checkout to write into. That's genuinely
-useful: two agents working the same repo don't stomp each other's uncommitted edits, and a
-long unattended run has a blast radius smaller than your whole working tree. It is a
-*workspace* control — which copy of the repo gets mutated — and it is honest about being
-exactly that much.
+useful: two agents working the same repo write into separate checkouts instead of racing to
+stomp each other's edits, and a long unattended run has a blast radius smaller than your whole
+working tree. It is a *workspace* control — which copy of the repo gets mutated — and it is
+honest about being exactly that much. It is a boundary *between agents*, not a guarantee about
+what happens to your own uncommitted work when you hand it to one — a worktree checkout only
+ever contains committed state, so something has to happen to whatever isn't committed yet. See
+[Delegating into a dirty tree](#delegating-into-a-dirty-tree) below.
 
 It is **best effort** against anything that isn't "which directory did the write land in,"
 because it was never built to hold back the three things below. None of these is a bug. Each
@@ -122,6 +125,52 @@ or session state, which is exactly the boundary the three vectors above describe
 default for delegated children is not a claim that delegated children are sandboxed from your
 engine's global state. It never was, on any path.
 
+## Delegating into a dirty tree
+
+A worktree checkout only ever contains committed state — that's a property of `git worktree
+add`, not a choice ctxloom made. HEAD and everything reachable from it, nothing you haven't
+committed yet. So when a delegated `agent_run` child spawns into its own worktree (the default
+above) and your own live checkout has uncommitted changes, something has to give: either the
+child doesn't see those changes, or ctxloom does something to make it see them. Which one
+happens is `dirty_tree_handler`, and it's a choice, not a fixed behavior — set per project, or
+overridden per call.
+
+Four options:
+
+- **`commit`** (the default). ctxloom commits your uncommitted changes onto your current branch
+  first, so the child sees everything. The change becomes real git history — at the cost of a
+  commit landing on your branch that you didn't type `git commit` for.
+- **`copy`**. The worktree is carved at HEAD as usual, then your uncommitted changes — tracked
+  and untracked both — are reproduced *inside it* as uncommitted WIP. The child sees the same
+  content `commit` would have shown it; your branch is never touched, and nothing durable is
+  created beyond that one worktree. Not available when the agent has no structured-chat backend
+  and runs the per-turn oneshot fallback, which tears its worktree down every turn anyway.
+- **`stale`**. The child spawns against committed state only. ctxloom warns you which files it
+  won't see. Cheap and honest, but the child works from whatever you last committed, not what's
+  actually on disk right now.
+- **`fail`**. ctxloom refuses the spawn outright and names the uncommitted paths. No automatic
+  action at all; you decide what happens next.
+
+`commit` being the default is why it's the one gated behind more than a config value. A commit
+landing on your branch that you didn't ask for in the moment is the one outcome here worth a
+deliberate yes, so it doesn't fire the first time you hit it: it requires a separate, one-time
+project acknowledgement — `dirty_tree_commit_ack: true` in `.ctxloom/config.yaml` — and until
+that's set, the spawn is refused, naming the exact key to add. That acknowledgement is
+deliberately config-only. It can't be supplied as an `agent_run` call parameter, and it's never
+inferred from anything an agent does — a coordinator agent calling `agent_run` typically has no
+TTY and is often running while you're away, so an agent consenting on your behalf wouldn't be
+your consent. Only a human, editing the file, grants it. Once granted, every individual
+auto-commit still prints a warning naming the branch and the files being touched — the
+acknowledgement authorizes the behavior once, not any single commit silently.
+
+The handler choice itself is lighter-weight than that acknowledgement: a project default you
+can set in `.ctxloom/config.yaml`, and any `agent_run` call can override it for itself. It's
+only the *permission to commit on your behalf* that's locked to a human editing config —
+picking among the three alternatives that never touch your branch is not.
+
+See the [config reference](/reference/config/#top-level-fields) and [`agent_run`'s
+parameters](/reference/mcp-tools/#agent_run) for the exact keys, values, and precedence.
+
 ## How to choose
 
 There's no single right answer here, and this page isn't going to manufacture one. What
@@ -139,8 +188,10 @@ changes the trade is what's actually true of the run in front of you:
   to talk it into something, the boundary you want is the one that doesn't depend on the agent
   declining to try.
 - **You need conflict-safety, not a security boundary.** Parallel agents trampling each other's
-  uncommitted edits is a real, common problem, and it's exactly what worktree isolation is for.
-  Don't reach for a container to solve a merge-conflict-shaped problem.
+  edits is a real, common problem, and giving each one its own checkout is exactly what worktree
+  isolation is for. Don't reach for a container to solve a merge-conflict-shaped problem. That's
+  a different question from what happens to *your own* uncommitted edits when you delegate work
+  into a worktree — see [Delegating into a dirty tree](#delegating-into-a-dirty-tree).
 - **Time and complexity are real constraints too.** A container that takes longer to iterate in
   than the task takes to finish isn't a safer choice on this run — it's a slower one that also
   happens to be safer, and whether that trade is worth it is yours to weigh, not a default

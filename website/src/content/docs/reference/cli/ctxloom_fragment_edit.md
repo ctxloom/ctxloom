@@ -17,11 +17,15 @@ Edit a fragment's content using your configured editor.
 
 Reference format: bundle#fragments/name
 
-After editing, the fragment will be automatically re-distilled unless marked as no_distill.
+After editing, the fragment will be automatically re-distilled unless marked as
+no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
+typo fix) without burning an LLM call — the distilled form is left empty
+(never stale) until you run 'ctxloom fragment distill'.
 
 Examples:
   ctxloom fragment edit core#fragments/tdd
   ctxloom fragment edit go-tools#fragments/testing
+  ctxloom fragment edit core#fragments/tdd --no-distill
 
 ```
 ctxloom fragment edit <bundle>#fragments/<name> [flags]
@@ -30,7 +34,8 @@ ctxloom fragment edit <bundle>#fragments/<name> [flags]
 ### Options
 
 ```
-  -h, --help   help for edit
+  -h, --help         help for edit
+      --no-distill   Skip re-distillation for this edit (leaves the distilled form empty, never stale)
 ```
 
 ### Options inherited from parent commands

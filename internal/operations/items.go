@@ -44,10 +44,14 @@ type GetItemRequest struct {
 	Name   string   `json:"name"`
 }
 
-// GetItemResult carries an item's raw and distilled content.
+// GetItemResult carries an item's raw and distilled content, plus its
+// persistent no_distill flag — a frontend deciding whether a per-invocation
+// distill-skip (e.g. `edit --no-distill`) is redundant with the item's own
+// standing setting needs this without a second bundle load.
 type GetItemResult struct {
 	Content   string `json:"content"`
 	Distilled string `json:"distilled,omitempty"`
+	NoDistill bool   `json:"no_distill,omitempty"`
 }
 
 // GetItemContent returns a bundle item's content (and distilled form). It is the
@@ -65,7 +69,8 @@ func GetItemContent(_ context.Context, cfg *config.Config, req GetItemRequest) (
 	if !ok {
 		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
 	}
-	return &GetItemResult{Content: content, Distilled: distilled}, nil
+	noDistill, _, _ := itemDistillState(bundle, req.Kind, req.Name)
+	return &GetItemResult{Content: content, Distilled: distilled, NoDistill: noDistill}, nil
 }
 
 // AddItemRequest is the input for AddItem.

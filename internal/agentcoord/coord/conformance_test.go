@@ -20,6 +20,12 @@ import (
 
 const conformanceWait = 5 * time.Second
 
+// crashRedeliverWait is a wider bound for TestRunChannel_CrashBeforeConsumeRedelivers
+// only (runchannel_test.go) — see the comment at its call site (damp-pupil,
+// 2026-07-21) for why that one assertion needs headroom conformanceWait
+// doesn't give it.
+const crashRedeliverWait = 20 * time.Second
+
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()

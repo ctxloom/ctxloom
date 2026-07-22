@@ -1001,10 +1001,14 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		return
 	}
 	// GAP 2 deferral: the ORIGINAL agent_run's workspace override is not
-	// journaled on runEnqueued, so a resumed harp always falls back to the
-	// project default (cfg.Workspace) rather than reusing its prior
-	// worktree choice. Persisting it is a durable-fact/fold change outside
-	// this fix's scope (agent_run/spawner/delegate/mcp-input surface only);
+	// journaled on runEnqueued, so a resumed harp always falls back to
+	// PrepareAgentChat's normal resolution (per-call empty → project
+	// cfg.Workspace if explicit → else the delegated-child worktree
+	// default) rather than reusing its prior workspace choice. A resume can
+	// therefore land in a DIFFERENT (fresh) worktree than the original run
+	// used, or flip from none to worktree or vice versa, depending on what
+	// changed. Persisting it is a durable-fact/fold change outside this
+	// fix's scope (agent_run/spawner/delegate/mcp-input surface only);
 	// tracked as deferred work.
 	// D5: the resumed run's own parent_run_id must reflect the PARENT'S
 	// CURRENT live run (not the stale run_id recorded at the ORIGINAL

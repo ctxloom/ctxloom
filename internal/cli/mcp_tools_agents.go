@@ -73,13 +73,27 @@ func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
 type agentRunInput struct {
 	Agent  string `json:"agent" jsonschema:"Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored)"`
 	Prompt string `json:"prompt" jsonschema:"The child's briefing — delivered as its first turn"`
-	// Workspace is GAP 2's per-call workspace-axis override: today every
-	// agent_run child shares the parent's live project checkout, so a
-	// code-editing child can stomp it mid-session. "worktree" carves the
-	// child its own isolated git worktree instead — matching run/map/weave
-	// --workspace's enum. Empty falls back to the project's cfg.Workspace
-	// default (unchanged behavior).
-	Workspace string `json:"workspace,omitempty" jsonschema:"Session workspace axis for this child: \"none\" (shared project checkout) or \"worktree\" (its own isolated git worktree — use this for a code-editing child so it never touches the shared checkout). Empty = project default"`
+	// Workspace is GAP 2's per-call workspace-axis override: "none" runs the
+	// child in the parent's live project checkout (it can stomp it
+	// mid-session); "worktree" carves the child its own git worktree instead
+	// — matching run/map/weave --workspace's enum. Empty defers to the
+	// project's cfg.Workspace when THAT is set explicitly; if neither this
+	// nor the project config says anything, a delegated child now DEFAULTS
+	// to worktree (own checkout) rather than the shared one — see
+	// operations.PrepareAgentChat's workspace-resolution comment. This is a
+	// file-level default only: a worktree isolates the child's WORKSPACE,
+	// never the engine's own global config/credential/session store, which
+	// some engines keep outside any per-agent env override entirely.
+	//
+	// A worktree spawn (explicit or defaulted) is REFUSED when the parent
+	// project tree carries uncommitted changes: `git worktree add` only ever
+	// checks out committed state, so those edits would silently be invisible
+	// to the child — this project's signature failure mode, self-inflicted
+	// by the very isolation meant to protect the child's blast radius. The
+	// refusal names the uncommitted paths (bounded) and both ways forward:
+	// commit them, or pass workspace: "none" for this call
+	// (operations.checkParentTreeForWorktreeSpawn).
+	Workspace string `json:"workspace,omitempty" jsonschema:"Session workspace axis for this child: \"none\" (shared project checkout — the child can stomp the parent's live files) or \"worktree\" (its own isolated git worktree, checked out at HEAD — the child will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly; otherwise defaults to worktree. Isolates the workspace only, never the engine's own global config/credentials/session store. A worktree spawn is REFUSED if the parent project tree has uncommitted changes (a worktree checkout only ever sees committed state): commit first, or pass workspace: \"none\" for this call."`
 }
 
 type agentRunResult struct {

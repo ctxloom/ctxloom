@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/hashicorp/go-hclog"
@@ -194,7 +195,36 @@ type realLLMConnection struct {
 }
 
 func (r *realLLMConnection) Client() (plugin.ClientProtocol, error) { return r.client.Client() }
-func (r *realLLMConnection) Kill()                                  { r.client.Kill() }
+
+// Kill terminates the runner. go-plugin's own Client.Kill (called first,
+// unchanged) only ever reaches the runner's OWN pid — the graceful path
+// (close the RPC connection, let the runner exit on its own) or, failing
+// that, a raw cmd.Process.Kill() fallback. Neither reaches a grandchild the
+// runner deliberately isolated into its own process group (internal/acp's
+// setpgid'd claude-code-acp, moral-scorn) — a hard kill never gives the
+// runner a chance to run ITS OWN cleanup for that. killSession is the
+// defensive sweep for that gap (damp-pupil 3): the runner was spawned via
+// setsid (dialLLMConnection), so its pid doubles as its session id, and
+// every descendant that never called setsid itself — including one in a
+// separate process group — stays tagged with it. A no-op for a container
+// runner (its ID() is a container name, not numeric — containers get their
+// own whole-subtree teardown via `docker rm -f`, isolation/runner.go, so
+// this fix is host-only by construction, matching where the bug lives).
+func (r *realLLMConnection) Kill() {
+	pid, ok := runnerSessionPID(r.client)
+	r.client.Kill()
+	if ok {
+		killSession(pid)
+	}
+}
+
+// runnerSessionPID reads the runner's pid off the still-live *plugin.Client
+// (its ID() is the OS pid for a real Cmd-based runner; call BEFORE Kill(),
+// which clears the client's runner reference so ID() goes empty afterward).
+func runnerSessionPID(c *plugin.Client) (int, bool) {
+	pid, err := strconv.Atoi(c.ID())
+	return pid, err == nil
+}
 
 // dialLLMConnection is the IoC seam tests override to avoid spawning
 // real subprocesses. Production points it at the real go-plugin machinery.
@@ -207,6 +237,9 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 		// a non-nil cmd.Env, so the base environment must ride along.
 		c.Env = append(os.Environ(), env...)
 	}
+	// Fresh session leader (damp-pupil 3): gives killSession a safe,
+	// scoped boundary — see realLLMConnection.Kill's doc comment.
+	setsid(c)
 	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: HandshakeConfig,
 		Plugins:         PluginMap,

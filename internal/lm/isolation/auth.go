@@ -339,21 +339,32 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 	return out
 }
 
-// claudeCredentialCopyMounts builds the READ-WRITE credential mounts that
-// authenticate a subscription (OAuth) claude inside the container: the OAuth
-// token file plus the ~/.claude.json account association are COPIED into
-// scratchDir and the COPIES are mapped into containerHome, read-write. A plain
-// read-only bind of the host originals (the prior behaviour) collides with
-// claude's token-refresh write-back to those exact files — the refresh would
-// either fail against the read-only mount or (worse) silently no-op, leaving a
-// long-running container's auth to expire mid-session. Mounting a copy
-// read-write instead lets the refresh land in the EPHEMERAL scratch copy,
-// which is discarded at teardown along with the rest of the scratch root
-// (containerWorkspace.Cleanup removes it recursively) — the host's own
-// credential file is never touched, mirroring the copy-not-symlink rationale
-// the host+worktree seed path already uses (this file's package doc above).
-// Returns ok=false when the host OAuth token file is absent (nothing to
-// copy) or the scratch copy cannot be written.
+// claudeCredentialCopyMounts builds the READ-WRITE credential mount that
+// authenticates a subscription (OAuth) claude inside the container: the OAuth
+// token file is COPIED into scratchDir and the copy is mapped into
+// containerHome, read-write. A plain read-only bind of the host original (the
+// prior behaviour) collides with claude's token-refresh write-back to that
+// exact file — the refresh would either fail against the read-only mount or
+// (worse) silently no-op, leaving a long-running container's auth to expire
+// mid-session. Mounting a copy read-write instead lets the refresh land in the
+// EPHEMERAL scratch copy, which is discarded at teardown along with the rest
+// of the scratch root (containerWorkspace.Cleanup removes it recursively) —
+// the host's own credential file is never touched, mirroring the
+// copy-not-symlink rationale the host+worktree seed path already uses (this
+// file's package doc above). Returns ok=false when the host OAuth token file
+// is absent (nothing to copy) or the scratch copy cannot be written.
+//
+// tangy-heave: this used to ALSO copy+mount ~/.claude.json — not a narrow
+// OAuth-association record but claude's WHOLE top-level config, including
+// the host user's OWN mcpServers registrations (and whatever secrets those
+// carry) on a real machine. That handed every isolated agent read access to
+// the user's personal integrations — a confidentiality leak, not the
+// convenience (skip re-onboarding's trust dialog) it was seeded for. Dropped
+// entirely rather than filtered: filtering would mean maintaining an
+// allowlist against claude's own evolving config schema, an unpins fight
+// this package has no way to win, and this file's own live-verification
+// (credentialSeedSpecs' claude-code entry doc) already established
+// .credentials.json alone is sufficient to authenticate.
 func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
@@ -371,26 +382,11 @@ func claudeCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool
 	if err := copyCredentialFile(creds, credsCopy); err != nil {
 		return nil, false
 	}
-	mounts := []Mount{{
+	return []Mount{{
 		Host:      credsCopy,
 		Container: filepath.Join(containerHome, ".claude", ".credentials.json"),
 		ReadOnly:  false,
-	}}
-	// ~/.claude.json carries the OAuth account association claude reads at startup;
-	// copy+mount it read-write when present (it is not strictly required for the
-	// token file alone, so its absence is not fatal, and a copy failure here does
-	// not fail the whole plan — the token file alone is enough to authenticate).
-	if dotClaude := filepath.Join(home, ".claude.json"); fileExists(dotClaude) {
-		dotClaudeCopy := filepath.Join(dir, ".claude.json")
-		if err := copyCredentialFile(dotClaude, dotClaudeCopy); err == nil {
-			mounts = append(mounts, Mount{
-				Host:      dotClaudeCopy,
-				Container: filepath.Join(containerHome, ".claude.json"),
-				ReadOnly:  false,
-			})
-		}
-	}
-	return mounts, true
+	}}, true
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).
@@ -555,25 +551,25 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		destSubdir: "claude",
 		envTrigger: "ANTHROPIC_API_KEY",
 		sourceFiles: func(hostHome string) []seedFile {
+			// tangy-heave: ~/.claude.json used to be seeded here too
+			// (optional, "carries over account association/trust-dialog
+			// state instead of re-onboarding"). Dropped: on a real host
+			// that file is claude's WHOLE top-level config, including the
+			// user's OWN mcpServers registrations — seeding it handed
+			// every isolated agent read access to the user's personal
+			// integrations (and whatever secrets they carry), a
+			// confidentiality leak this package must not reproduce for
+			// mere onboarding convenience. Live-verified (2026-07, claude
+			// 2.1.210): claude auto-creates its own .claude.json inside
+			// CLAUDE_CONFIG_DIR when the var is set and none exists there
+			// yet, so .credentials.json alone remains sufficient to
+			// authenticate — nothing here needs .claude.json's contents
+			// at all.
 			return []seedFile{
 				{
 					host:     filepath.Join(hostHome, ".claude", ".credentials.json"),
 					destName: ".credentials.json",
 					required: true,
-				},
-				// ~/.claude.json carries the OAuth account association claude
-				// reads at startup — optional. Live-verified (2026-07, claude
-				// 2.1.210): claude auto-creates its own .claude.json inside
-				// CLAUDE_CONFIG_DIR when the var is set and none exists there
-				// yet (a fresh onboarding record), so its absence does NOT
-				// block auth — .credentials.json alone was sufficient for a
-				// `claude -p` run to authenticate and answer. Seeding it when
-				// present just carries over the existing account
-				// association/trust-dialog state instead of re-onboarding.
-				{
-					host:     filepath.Join(hostHome, ".claude.json"),
-					destName: ".claude.json",
-					required: false,
 				},
 			}
 		},

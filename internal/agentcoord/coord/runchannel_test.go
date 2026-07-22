@@ -218,6 +218,25 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 	// (at-least-once, end to end).
 	h.crash()
 	sp := c.spawner.(*fakeSpawner)
+	// damp-pupil (2026-07-21, session woozy-hasty-karma): this assertion was
+	// caught failing at conformanceWait (5s) during a full `just test` run
+	// under real host contention ("Condition never satisfied"), then
+	// verified 3/3 on a quiet machine — a load-dependent flake, investigated
+	// rather than dismissed. Reproduced deliberately under artificial
+	// contention (CPU fork-storm via dozens of concurrent `yes` processes,
+	// compounded by a near-full tmpfs at the time) and confirmed the failure
+	// is TIMING, not data loss: the redelivered payload is always correct
+	// when the assertion is given enough time, including 10/10 clean passes
+	// at a longer bound while sustaining a synthetic load average >50 on a
+	// 20-core box. Unlike the package's other conformanceWait assertions,
+	// this one spans the FULL crash→loss-detect→terminateRun→goTracked
+	// resumeChild→spawner.Resolve→enqueueRun→new engine spawn→new Home
+	// dial-home→HelloAck→redeliver pipeline — strictly more goroutine/RPC
+	// hops than a single round-trip, so it is the one assertion in this
+	// file most exposed to scheduler-latency stacking under contention.
+	// crashRedeliverWait gives it headroom the shared 5s bound doesn't,
+	// without touching conformanceWait for the rest of the suite (which
+	// would blunt everyone else's sensitivity to a genuine hang).
 	require.Eventually(t, func() bool {
 		if sp.spawnCount() < 2 {
 			return false
@@ -228,7 +247,7 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 			}
 		}
 		return false
-	}, conformanceWait, 10*time.Millisecond, "the unconsumed push re-delivers into the resumed run's first turn")
+	}, crashRedeliverWait, 10*time.Millisecond, "the unconsumed push re-delivers into the resumed run's first turn")
 }
 
 // TestRunChannel_RecvPreemptionAndTimeout: the newest recv preempts a parked

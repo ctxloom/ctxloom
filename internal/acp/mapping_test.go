@@ -184,30 +184,35 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 	})
 
 	t.Run("unknown sessionUpdate variant never crashes the stream", func(t *testing.T) {
-		// BEHAVIOR CHANGE from the hand-rolled union this replaced: that decoder
-		// rejected any unmodeled discriminator outright (a decode error the live
-		// handler turned into a logged warning). The fork's generated
-		// SessionUpdate.UnmarshalJSON is more lenient: once its discriminator
-		// switch and per-variant required-field checks both miss, it falls back
-		// to trying a bare json.Unmarshal into EVERY variant type in turn and
-		// accepts the first one that doesn't error — and an ordinary
-		// encoding/json Unmarshal never complains about a struct's fields all
-		// being absent. For a body with no variant-identifying fields at all
-		// (like this one), that means it silently decodes into
-		// UserMessageChunk{} (the first candidate in that fallback list) rather
-		// than returning an error. mapSessionUpdate still degrades safely: a
-		// user_message_chunk maps to nothing (see mapSessionUpdate's "don't echo
-		// the user's own message" case), so the STREAM never crashes and no
-		// entry is ever emitted for an unrecognized frame — the outcome this
-		// test actually guards. What is LOST is the diagnostic: session.go's
-		// HandleNotification no longer logs "dropping malformed session/update"
-		// for a body shaped like this, because there is no error to log. That
-		// loss of a warning (not a functional regression) is flagged in this
-		// slice's report as a candidate follow-up, not fixed here (out of
-		// scope: a fix would mean adding discriminator pre-validation, which is
-		// new behavior, not a type swap).
+		// RESTORED (shiny-drool, acp-go-sdk fork commit 48f638c): the
+		// hand-rolled union this SDK replaced rejected any unmodeled
+		// discriminator outright — a decode error the live handler turned
+		// into a logged warning. The fork's GENERATED SessionUpdate.
+		// UnmarshalJSON regressed that: once its discriminator switch and
+		// per-variant required-field checks both missed, it fell back to a
+		// bare json.Unmarshal into EVERY variant type in turn and accepted
+		// the first one that didn't error — silently decoding a body like
+		// this one into UserMessageChunk{} instead of reporting it as the
+		// unrecognized frame it actually was. The generator now rejects an
+		// unrecognized discriminator outright for unions (like
+		// SessionUpdate) where every variant carries its own const value,
+		// so decodeSessionUpdate correctly errors here again.
+		//
+		// What this test still guards, unchanged: the STREAM must never
+		// crash and no entry must ever be emitted for an unrecognized
+		// frame. That now happens the way it always should have — a real
+		// decode error, which HandleNotification's existing "dropping
+		// malformed session/update" warn-and-continue path (session.go)
+		// already handles — not by silently mis-decoding into a real (but
+		// wrong) variant that happens to map to nothing.
 		upd, err := decodeSessionUpdate([]byte(`{"sessionId":"s","update":{"sessionUpdate":"quantum_flux"}}`))
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unrecognized")
+		assert.Nil(t, upd)
+		// mapSessionUpdate itself is nil-safe (see the "nil update" case
+		// above) — HandleNotification's caller-side drop never reaches it
+		// for a decode failure, but the nil-safety is what makes the drop
+		// path harmless either way.
 		assert.Empty(t, mapSessionUpdate(upd))
 	})
 }

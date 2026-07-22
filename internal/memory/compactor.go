@@ -67,6 +67,15 @@ type CompactionConfig struct {
 	// knows the mounted transcript path, not a session id. The caller loads the
 	// session by path itself and hands it in here.
 	PreloadedSession *agent.Session
+	// IncludeThinking, when true, includes agent.EntryTypeThinking entries in
+	// the text handed to distillation. Default false (proud-heap): thinking is
+	// the model's scratch work, verbose and not decision-bearing, and is
+	// exactly the wrong thing to spend a compacted context window on — see
+	// appendEntryText. The escape hatch exists for someone debugging a
+	// reasoning failure who genuinely wants the model's route preserved in the
+	// essence; it is not exposed as a CLI/MCP flag yet (deliberately deferred,
+	// narrow use case — wire one if the need becomes real).
+	IncludeThinking bool
 }
 
 // CompactionResult holds the result of a compaction operation.
@@ -658,7 +667,7 @@ func buildPickerDetail(body string) []string {
 func (c *Compactor) sessionToText(session *agent.Session) string {
 	var builder strings.Builder
 	for _, entry := range session.Entries {
-		appendEntryText(&builder, entry)
+		appendEntryText(&builder, entry, c.config.IncludeThinking)
 	}
 	return builder.String()
 }
@@ -673,7 +682,20 @@ func truncateForSummary(s string) string {
 }
 
 // appendEntryText renders one session entry as a markdown section.
-func appendEntryText(builder *strings.Builder, entry agent.SessionEntry) {
+//
+// proud-heap: EntryTypeThinking is deliberately excluded by default (the
+// switch below has no case for it unless includeThinking is set, so it falls
+// through the switch and contributes nothing). This used to be an accident of
+// the switch simply predating the entry type; it is now an explicit policy.
+// Thinking is the model's scratch work — verbose, and the model talking to
+// itself — not the conclusions a compacted context should spend tokens on.
+// Suppressing it here (at SELECTION time, in distill/compact) rather than at
+// capture time is deliberate: the canonical transcript is the durable record
+// cross-engine resume reads, and dropping thinking there would be an
+// unrecoverable loss the IR2/IR3 fidelity work explicitly guards against.
+// includeThinking (CompactionConfig.IncludeThinking) is the debugging escape
+// hatch for someone who wants the model's reasoning preserved in the essence.
+func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, includeThinking bool) {
 	switch entry.Type {
 	case agent.EntryTypeUser:
 		builder.WriteString("## User\n")
@@ -682,6 +704,14 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry) {
 
 	case agent.EntryTypeAssistant:
 		builder.WriteString("## Assistant\n")
+		builder.WriteString(entry.Content)
+		builder.WriteString("\n\n")
+
+	case agent.EntryTypeThinking:
+		if !includeThinking {
+			return
+		}
+		builder.WriteString("## Thinking\n")
 		builder.WriteString(entry.Content)
 		builder.WriteString("\n\n")
 

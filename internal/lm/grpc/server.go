@@ -88,6 +88,23 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		env = make(map[string]string)
 	}
 
+	// prim-bluff (SILENT NO-OP, fail-loudly half of the fix): Fragments are
+	// delivered to the backend ONLY inside the !SkipSetup branch just below —
+	// Setup is the sole path that converts+delivers req.Fragments; the
+	// SkipSetup Execute path (built further down as execReq) carries no
+	// Fragments field at all. A caller that sets both SkipSetup and Fragments
+	// has its fragments silently discarded — exit 0, plausible output, wrong
+	// behaviour. Warning here (rather than erroring) keeps every currently-
+	// working caller running while making the drop visible instead of mute;
+	// a hard fail was rejected because at least one existing caller
+	// (operations/oneshot.go's runResolvedAgent, the "none"-isolation
+	// fan-out/weave member path) currently relies on this exact combination
+	// and has NOT been separately investigated/fixed here — see prim-bluff
+	// findings. Escalate before turning this into a hard error.
+	if opts.GetSkipSetup() && len(req.GetFragments()) > 0 {
+		clidiag.Warn("ctxloom", "SkipSetup run received %d fragment(s) that cannot be delivered (Setup is skipped) — they will be silently dropped unless the prompt smuggles their content itself", len(req.GetFragments()))
+	}
+
 	// Setup the backend (skip for distillation/minimal mode)
 	if !opts.GetSkipSetup() {
 		setupReq := &agent.SetupRequest{

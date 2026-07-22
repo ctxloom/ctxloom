@@ -95,6 +95,93 @@ func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) 
 	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "an empty override changes nothing — cfg.GetWorkspace() still decides")
 }
 
+// TestPrepareAgentChat_DelegatedDefaultsToWorktree pins the DELEGATED-CHILD
+// default flip: when NEITHER the agent_run caller (req.Workspace) NOR the
+// project config (cfg.GetWorkspace()) says anything explicit, a delegated
+// child now gets its OWN git worktree rather than inheriting the
+// none/shared-checkout default `ctxloom run` still uses at the top level
+// (internal/cli/run.go's runAxes, an entirely separate call site that never
+// goes through PrepareAgentChat). This is a WORKSPACE-axis (file-level)
+// change only — it says nothing about the engine's global config/credential
+// store, which worktree isolation never touches (see EnvWorkspace's doc and
+// the antigravity fail-loud gate in isolation.go for the load-bearing
+// caveat: some engines honour a config-home env override and some do not).
+func TestPrepareAgentChat_DelegatedDefaultsToWorktree(t *testing.T) {
+	resetStrictness(t)
+	var gotAxes isolation.Axes
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		gotAxes = axes
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := config.NewFixture(config.Fixture{}) // no project workspace: default config
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+		// Workspace left empty: no per-call override supplied.
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace,
+		"a delegated child with no explicit workspace anywhere defaults to worktree, not the shared checkout")
+}
+
+// TestPrepareAgentChat_ExplicitNoneStillNone_ProjectConfig pins the opt-out:
+// a project config that EXPLICITLY says `workspace: none` must still be
+// honored for a delegated child — the new default only fills in when NOTHING
+// explicit was said, never overrides an explicit choice.
+func TestPrepareAgentChat_ExplicitNoneStillNone_ProjectConfig(t *testing.T) {
+	resetStrictness(t)
+	var gotAxes isolation.Axes
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		gotAxes = axes
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := config.NewFixture(config.Fixture{Workspace: "none"}) // explicit project opt-out
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, isolation.WorkspaceAxis("none"), gotAxes.Workspace,
+		"an explicit project-level `workspace: none` must still be honored for a delegated child")
+}
+
+// TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride pins the other
+// opt-out lever: the agent_run caller passing Workspace: "none" explicitly
+// must win, even when the project config has no opinion (would otherwise
+// default to worktree per the flip above).
+func TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride(t *testing.T) {
+	resetStrictness(t)
+	var gotAxes isolation.Axes
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		gotAxes = axes
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := config.NewFixture(config.Fixture{}) // no project default
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:   t.TempDir(),
+		Workspace: "none", // the agent_run caller's explicit opt-out
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	assert.Equal(t, isolation.WorkspaceAxis("none"), gotAxes.Workspace,
+		"an explicit per-call Workspace: \"none\" must still be honored for a delegated child")
+}
+
 // TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the
 // fan's member gate: an explicitly-requested container that can't start
 // (ClassIsolation finding during Prepare) refuses the child in strict mode —

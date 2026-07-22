@@ -41,9 +41,14 @@ type AgentChatRequest struct {
 	Permissions agent.PermissionMode
 	// Workspace is the caller's per-invocation workspace-axis override
 	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
-	// cfg.Workspace when set; empty falls back to cfg.Workspace exactly like
-	// today — the same session-level-orchestration-trait-vs-agent-trait split
-	// operations.memberAxes already draws for map/weave's --workspace.
+	// cfg.Workspace when set; empty falls back to cfg.Workspace — the same
+	// session-level-orchestration-trait-vs-agent-trait split
+	// operations.memberAxes already draws for map/weave's --workspace. If
+	// BOTH this and cfg.Workspace are empty (no explicit choice anywhere),
+	// PrepareAgentChat now defaults a delegated child to worktree rather
+	// than the shared checkout — an explicit "none" at either level still
+	// wins. See PrepareAgentChat's workspace-resolution comment for the
+	// scope of what worktree isolation does and does not cover.
 	Workspace string
 	// MCPServers is the composed managed set for the child session (the
 	// chat paths never run Setup, so the servers ride the session).
@@ -103,11 +108,32 @@ type PreparedAgentChat struct {
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
 	// GAP 2: the caller's per-agent_run workspace choice overrides the
-	// project default; empty (the common case — no override supplied)
-	// preserves today's cfg.Workspace behavior exactly.
+	// project default; empty (no override supplied) falls back to
+	// cfg.GetWorkspace().
+	//
+	// DELEGATED-CHILD DEFAULT (this is the one place that default is
+	// decided — internal/cli/run.go's top-level `ctxloom run` axes are a
+	// separate call site untouched by this function): when NEITHER the
+	// caller NOR the project config says anything explicit, a delegated
+	// child now defaults to its OWN worktree instead of inheriting the
+	// none/shared-checkout default the top-level run still uses. An
+	// explicit choice at either level — a per-call Workspace or a project
+	// `workspace:` setting, "none" or "worktree" — always wins; this only
+	// fills the silence.
+	//
+	// This is a WORKSPACE-axis (file-level) change only. It narrows a
+	// delegated child's blast radius on the PROJECT CHECKOUT — it does NOT
+	// isolate the engine's global config/credential/conversation store,
+	// which some engines keep outside any per-agent config-home env lever
+	// entirely (see EnvWorkspace's doc and the antigravity fail-loud gate
+	// in isolation.go). Do not read a worktree default as "delegated
+	// children are now sandboxed from the user's engine state" — they are
+	// not.
 	workspace := cfg.GetWorkspace()
 	if req.Workspace != "" {
 		workspace = req.Workspace
+	} else if workspace == "" {
+		workspace = string(isolation.WorkspaceWorktree)
 	}
 	p := &PreparedAgentChat{
 		cfg:         cfg,

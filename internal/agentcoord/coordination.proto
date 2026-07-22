@@ -634,7 +634,7 @@ message SpawnAgentRequest {
   // child task input
   google.protobuf.Struct input = 2 [(field_schema) = {
     required: true,
-    doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"; empty = the project default) carves this child its own isolated git worktree instead of the shared checkout — use it for a code-editing child so it never stomps the live project directory",
+    doc: "Child task input. `prompt` carries the child's briefing, delivered as its first turn. Optional `workspace` (\"none\"|\"worktree\"): \"none\" runs the child in the parent's live project checkout (it can stomp the parent's files, and sees the parent's uncommitted edits); \"worktree\" carves the child its own git worktree, checked out at HEAD (it will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly, otherwise defaults to worktree. This isolates the child's WORKING FILES only — it does not isolate the engine's own global config/credentials/session store from the parent's",
     example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
   }];
   google.protobuf.Struct constraints = 3 [(field_schema) = {

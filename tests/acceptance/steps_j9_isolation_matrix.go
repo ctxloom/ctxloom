@@ -1,0 +1,501 @@
+//go:build acceptance
+
+// J9 matrix: the per-engine config-home isolation payload the top of
+// j9_isolation.feature's own doc used to flag as "needs a real
+// registered-engine fixture... out of hermetic scope here" (grave-prize).
+// Filled here via a SPY fixture, WITHOUT giving up the mock's hermetic,
+// no-live-credential, no-network guarantee.
+//
+// SAFETY (the single load-bearing property of every step in this file):
+// config.yaml names a REAL registered backend type (claude-code/codex/kiro/
+// antigravity/opencode), which drives isolation.Prepare exactly as a live
+// run would — but PATH is rebuilt FROM SCRATCH to "<spy dir>:/usr/bin:/bin"
+// for the duration of the run (isoMatrixSanitizedPATH), never merely
+// prepended to the inherited PATH. That distinction is load-bearing: an
+// early version of this fixture prepended a spy dir onto the inherited PATH
+// and, for the one engine (opencode) whose spy never got invoked (see
+// below), silently fell through to the REAL, already-authenticated opencode
+// binary elsewhere on the developer's PATH and made a real (if cheap)
+// completion call — discovered by hand while building this file, not by a
+// gate. Rebuilding PATH from scratch instead means the literal binary name
+// a backend execs ("claude"/"codex"/"kiro-cli"/"agy"/"opencode") resolves
+// ONLY to the recording script this file writes, or to nothing at all
+// (ENOENT) — never to a real installed engine. No scenario in this file
+// makes a network call or touches a real credential.
+//
+// THE SPY: isoMatrixSpyScript dumps its OWN os.Environ() — exactly what a
+// real engine process would receive, per internal/shared/agent/base.go's
+// BuildEnv (os.Environ() of the plugin subprocess + the backend's own env +
+// the request env) — plus a `cat` of whatever credential file its own env
+// vars point it at, and (for antigravity) a resolved listing of its curated
+// $HOME. This is captured from INSIDE the spawned process because the
+// per-agent scratch config-home does NOT survive past the run: Cleanup
+// removes it unconditionally once the run exits (confirmed by hand — a
+// naive design that tried to inspect the scratch dir from outside, after
+// the `ctxloom run` subprocess returned, always found it already gone).
+//
+// OPENCODE IS SCOPED DIFFERENTLY. Every other engine here is launched via a
+// plain oneshot exec (agent.LaunchBackend.ExecuteCLI); opencode's real
+// launch path is ACP, a stateful JSON-RPC handshake over stdio
+// (internal/opencode) — a spy that just dumps its env and exits never
+// completes that handshake, so the run errors before any output reaches the
+// spy's output file at all (confirmed by hand: the file is never created).
+// opencode's fail-loud/warn CONTRACT is still proven for it below (Scenario
+// Outlines "refuses to start" / "proceed without any isolation finding" —
+// both fire BEFORE any engine spawn is attempted, so they need no spy
+// cooperation), but the exact spawned-env PAYLOAD (the
+// XDG_DATA_HOME-vs-XDG_DATA_HOME/opencode nesting subtlety) is not
+// independently re-proven here. It is already pinned at the Go level by
+// internal/lm/isolation/auth_test.go's
+// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode. See
+// j9_isolation.doc.md for the full accounting of what is and is not proven
+// where.
+package acceptance
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/cucumber/godog"
+)
+
+// isoMatrixSpyScript is the recording fixture every scenario in this file
+// installs in place of a real engine binary. POSIX sh (not bash) — the
+// sanitized PATH deliberately carries no promise bash itself resolves from
+// it; /usr/bin/sh is on every box that can run this suite at all.
+const isoMatrixSpyScript = `#!/bin/sh
+out="$CTXLOOM_ISOSPY_OUT"
+{
+  echo "===ENV==="
+  env
+  echo "===CLAUDE_CONFIG_DIR_CREDS==="
+  [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
+  echo "===CODEX_HOME_CREDS==="
+  [ -n "$CODEX_HOME" ] && cat "$CODEX_HOME/auth.json" 2>/dev/null
+  echo "===GITCONFIG_RESOLVED==="
+  [ -n "$HOME" ] && readlink -f "$HOME/.gitconfig" 2>/dev/null
+  echo "===SSH_RESOLVED==="
+  [ -n "$HOME" ] && readlink -f "$HOME/.ssh" 2>/dev/null
+} > "$out" 2>/dev/null
+echo '{"result":"ctxloom-isolation-matrix-spy","modelUsage":{"m":{"inputTokens":1,"outputTokens":1}}}'
+exit 0
+`
+
+// isoFixtureCredMarker is the deterministic, obviously-fake host credential
+// content every "credential fixture" step seeds — never a real token, so
+// there is nothing to leak even if a bug somehow let this content escape
+// the throwaway test HOME.
+const isoFixtureCredMarker = "ISO-MATRIX-FIXTURE-CREDENTIAL-NOT-A-REAL-SECRET"
+
+// isoBinaryNames maps a scenario's engine token to the literal binary
+// name(s) that engine's backend execs (internal/{claude,codex,kiro,
+// antigravity,opencode}/backend.go's BinaryPath defaults) — the name(s) the
+// spy script must answer to on the sanitized PATH.
+func isoBinaryNames(engine string) ([]string, error) {
+	switch engine {
+	case "claude-code":
+		return []string{"claude"}, nil
+	case "codex":
+		return []string{"codex"}, nil
+	case "kiro":
+		return []string{"kiro-cli"}, nil
+	case "antigravity":
+		return []string{"agy"}, nil
+	case "opencode":
+		return []string{"opencode"}, nil
+	default:
+		return nil, fmt.Errorf("iso matrix: unknown engine %q", engine)
+	}
+}
+
+// isoAPIKeyEnvVar maps an engine to the env var whose presence bypasses
+// credential seeding (auth.go's credentialSeedSpecs[...].envTrigger /
+// kiroAuthEnvVars). Antigravity has none — HOME is its only lever and it
+// carries no API-key bypass at all (curatedhome.go).
+func isoAPIKeyEnvVar(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return "ANTHROPIC_API_KEY", nil
+	case "codex":
+		return "OPENAI_API_KEY", nil
+	case "opencode":
+		return "OPENROUTER_API_KEY", nil
+	case "kiro":
+		return "KIRO_API_KEY", nil
+	default:
+		return "", fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
+	}
+}
+
+// isoCredHostPath maps an engine to its host credential file's path,
+// relative to HOME (auth.go's credentialSeedSpecs[...].sourceFiles).
+func isoCredHostPath(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return filepath.Join(".claude", ".credentials.json"), nil
+	case "codex":
+		return filepath.Join(".codex", "auth.json"), nil
+	default:
+		return "", fmt.Errorf("iso matrix: no known host credential path for engine %q", engine)
+	}
+}
+
+// isoCredsSectionMarker maps an engine to the spy script's own marker line
+// preceding its credential dump (see isoMatrixSpyScript).
+func isoCredsSectionMarker(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return "===CLAUDE_CONFIG_DIR_CREDS===", nil
+	case "codex":
+		return "===CODEX_HOME_CREDS===", nil
+	default:
+		return "", fmt.Errorf("iso matrix: no credential section marker for engine %q", engine)
+	}
+}
+
+// isoMatrixState is this file's per-scenario fixture state: where the spy's
+// output landed for the last run.
+type isoMatrixState struct {
+	spyOut string
+}
+
+func isoMatrixOf(w *World) *isoMatrixState {
+	if w.isoMatrix == nil {
+		w.isoMatrix = &isoMatrixState{}
+	}
+	return w.isoMatrix
+}
+
+// isoMatrixSanitizedPATH returns "<spyDir>:/usr/bin:/bin" — rebuilt from
+// scratch, never merely prepended to the inherited PATH. See the package
+// doc for why this exact shape is the load-bearing safety property of every
+// scenario in this file.
+func isoMatrixSanitizedPATH(spyDir string) string {
+	return spyDir + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
+}
+
+// installIsoSpy writes the spy script once and symlinks it under each of
+// names, so every engine's exec resolves to the SAME recording behavior.
+func installIsoSpy(dir string, names ...string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create spy dir: %w", err)
+	}
+	scriptPath := filepath.Join(dir, ".ctxloom-iso-spy.sh")
+	if err := os.WriteFile(scriptPath, []byte(isoMatrixSpyScript), 0o755); err != nil {
+		return fmt.Errorf("write spy script: %w", err)
+	}
+	for _, name := range names {
+		target := filepath.Join(dir, name)
+		_ = os.Remove(target)
+		if err := os.Symlink(scriptPath, target); err != nil {
+			return fmt.Errorf("symlink spy as %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// isoMatrixConfigYAML renders config.yaml for one engine, binding a single
+// agent "iso" to it. env.CTXLOOM_ISOSPY_OUT is the spy's own output path —
+// it flows into agent.LaunchBackend.ExecuteEnv (the request env layer) via
+// ApplyLocalCLIConfig, exactly like j9's own CTXLOOM_MOCK_RECORD_FILE.
+func isoMatrixConfigYAML(engineType, spyOut string) string {
+	return fmt.Sprintf(`version: 4
+llm:
+  configs:
+    iso:
+      type: %s
+      env:
+        CTXLOOM_ISOSPY_OUT: %q
+  defaults:
+    primary: iso
+    fast: iso
+agents:
+  iso:
+    engine: iso
+    profiles: []
+`, engineType, spyOut)
+}
+
+// runIsoMatrix is every scenario's core action: install the spy, sanitize
+// PATH (unconditionally — even a scenario expected to abort before any spawn
+// gets the same safety net), write config.yaml for engine, and run `ctxloom
+// run --agent iso --workspace <workspace> --print`. The run's own
+// success/failure is asserted by later Then steps, not here.
+func runIsoMatrix(c context.Context, engine, workspace string) error {
+	w := worldFrom(c)
+	j := isoMatrixOf(w)
+
+	binNames, err := isoBinaryNames(engine)
+	if err != nil {
+		return err
+	}
+	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
+	if err := installIsoSpy(spyDir, binNames...); err != nil {
+		return err
+	}
+	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))
+
+	spyOut := filepath.Join(w.env.Root, "iso-spy-out.txt")
+	_ = os.Remove(spyOut)
+	j.spyOut = spyOut
+
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, spyOut)); err != nil {
+		return err
+	}
+	if err := w.env.GitCommit("iso matrix config for " + engine); err != nil {
+		return err
+	}
+
+	_ = w.env.Run("run", "--agent", "iso", "--workspace", workspace, "--print", "hello")
+	return nil
+}
+
+// isoReadSpyOut reads the spy's recorded output, erroring with a clear
+// message (not a bare os.ReadFile error) when the spy was never invoked —
+// itself diagnostic evidence for a scenario asserting an isolated success
+// path (a run that aborted before spawning, or a backend like opencode whose
+// launch never reaches a plain exec, leaves no file).
+func isoReadSpyOut(j *isoMatrixState) (string, error) {
+	if j.spyOut == "" {
+		return "", fmt.Errorf("iso matrix: no run recorded yet")
+	}
+	data, err := os.ReadFile(j.spyOut)
+	if err != nil {
+		return "", fmt.Errorf("spy process was never invoked (or wrote no output) — %w", err)
+	}
+	return string(data), nil
+}
+
+// isoParseSpyEnv extracts the ===ENV=== block (the spy's own os.Environ())
+// into a lookup map.
+func isoParseSpyEnv(body string) map[string]string {
+	env := map[string]string{}
+	inEnv := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "===") {
+			inEnv = line == "===ENV==="
+			continue
+		}
+		if !inEnv {
+			continue
+		}
+		if i := strings.IndexByte(line, '='); i > 0 {
+			env[line[:i]] = line[i+1:]
+		}
+	}
+	return env
+}
+
+// isoParseSpySection extracts the content between a "===MARKER===" line and
+// the next "===" line (or EOF).
+func isoParseSpySection(body, marker string) string {
+	idx := strings.Index(body, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx+len(marker):]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[nl+1:]
+	}
+	if next := strings.Index(rest, "\n==="); next >= 0 {
+		rest = rest[:next]
+	}
+	return strings.TrimSpace(rest)
+}
+
+func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
+	ctx.Step(`^Alice has a git-backed project$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := w.env.InitGitRepo(); err != nil {
+			return err
+		}
+		if err := w.env.WriteFile("README.md", "iso matrix fixture project\n"); err != nil {
+			return err
+		}
+		return w.env.GitCommit("initial commit")
+	})
+
+	ctx.Step(`^Alice has a "([^"]*)" credential fixture on the host$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		rel, err := isoCredHostPath(engine)
+		if err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(rel, isoFixtureCredMarker+"\n")
+	})
+
+	ctx.Step(`^Alice has no "([^"]*)" credentials or API key on the host$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		key, err := isoAPIKeyEnvVar(engine)
+		if err != nil {
+			return err
+		}
+		// Explicit empty-set, not a bare assumption of absence: the acceptance
+		// binary inherits the developer's own shell env (isolatedEnv only
+		// replaces HOME/XDG_*), so a locally-exported ANTHROPIC_API_KEY (etc.)
+		// would otherwise silently flip this scenario's premise.
+		w.env.SetEnv(key, "")
+		return nil
+	})
+
+	ctx.Step(`^Alice has no "([^"]*)" credentials on the host$`, func(context.Context) error {
+		return nil // the fresh TestEnvironment HOME never has one; nothing to do
+	})
+
+	ctx.Step(`^Alice has set the "([^"]*)" API key in the environment$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		key, err := isoAPIKeyEnvVar(engine)
+		if err != nil {
+			return err
+		}
+		w.env.SetEnv(key, "sk-fixture-not-a-real-key")
+		return nil
+	})
+
+	ctx.Step(`^Alice has a "([^"]*)" and "([^"]*)" on the host$`, func(c context.Context, gitconfig, ssh string) error {
+		w := worldFrom(c)
+		if err := w.env.WriteHomeFile(gitconfig, "[user]\n\tname = Alice Fixture\n\temail = alice@example.com\n"); err != nil {
+			return err
+		}
+		return os.MkdirAll(filepath.Join(w.env.HomeDir, ssh), 0o700)
+	})
+
+	ctx.Step(`^Alice runs the isolated "([^"]*)" agent under workspace "([^"]*)"$`, func(c context.Context, engine, workspace string) error {
+		return runIsoMatrix(c, engine, workspace)
+	})
+
+	ctx.Step(`^the run touches no isolation mechanism at all$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		for _, needle := range []string{"worktree isolation for agent", "AUTHENTICATION IS NOT", "[isolation]"} {
+			if strings.Contains(out, needle) {
+				return fmt.Errorf("workspace \"none\" unexpectedly triggered isolation machinery (%q); output:\n%s", needle, out)
+			}
+		}
+		return nil
+	})
+
+	ctx.Step(`^the run aborts with an isolation finding naming "([^"]*)"$`, func(c context.Context, needle string) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if code := w.env.LastExitCode(); code != 3 {
+			return fmt.Errorf("expected exit 3 (fatal isolation finding), got %d; output:\n%s", code, out)
+		}
+		if !strings.Contains(out, needle) {
+			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)
+		}
+		if !strings.Contains(out, "--degraded") {
+			return fmt.Errorf("output does not carry the --degraded escape hatch; output:\n%s", out)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the run reports no isolation finding$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
+			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the run reports a non-fatal isolation warning naming "([^"]*)"$`, func(c context.Context, needle string) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("expected exit 0 (non-fatal warning, no --degraded needed), got %d; output:\n%s", code, out)
+		}
+		if !strings.Contains(out, needle) {
+			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)
+		}
+		if strings.Contains(out, "aborting startup") {
+			return fmt.Errorf("run unexpectedly aborted (should be a non-fatal warning, not a ClassIsolation fatal); output:\n%s", out)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points to an isolated per-agent directory, not the host's own$`, func(c context.Context, engine, varName string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		env := isoParseSpyEnv(body)
+		val, ok := env[varName]
+		if !ok || val == "" {
+			return fmt.Errorf("spy %s process's env carries no %s; full env dump:\n%s", engine, varName, body)
+		}
+		hostDotDir := filepath.Join(w.env.HomeDir, ".claude")
+		if val == hostDotDir || val == filepath.Join(w.env.HomeDir, ".codex") || val == w.env.HomeDir {
+			return fmt.Errorf("%s=%q is the shared host directory, not an isolated one", varName, val)
+		}
+		marker := filepath.Join(".ctxloom", "sessions")
+		if !strings.Contains(val, marker) {
+			return fmt.Errorf("%s=%q does not look like a per-session isolated scratch path (expected it to contain %q)", varName, val, marker)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the isolated "([^"]*)" credential matches the host fixture byte-for-byte$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		marker, err := isoCredsSectionMarker(engine)
+		if err != nil {
+			return err
+		}
+		got := isoParseSpySection(body, marker)
+		want := strings.TrimSpace(isoFixtureCredMarker)
+		if got != want {
+			return fmt.Errorf("isolated %s credential content = %q, want the host fixture %q; full spy dump:\n%s", engine, got, want, body)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the host "([^"]*)" credential file was never modified$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		rel, err := isoCredHostPath(engine)
+		if err != nil {
+			return err
+		}
+		got, err := w.env.ReadHomeFile(rel)
+		if err != nil {
+			return fmt.Errorf("host %s credential file missing after run: %w", engine, err)
+		}
+		if strings.TrimSpace(got) != strings.TrimSpace(isoFixtureCredMarker) {
+			return fmt.Errorf("host %s credential file content changed by the run — the seed path must be a COPY, never a mutation of the host original; got:\n%s", engine, got)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the curated antigravity HOME symlinks the host's "([^"]*)" and "([^"]*)" rather than copying them$`, func(c context.Context, gitconfig, ssh string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return err
+		}
+		gitResolved := isoParseSpySection(body, "===GITCONFIG_RESOLVED===")
+		sshResolved := isoParseSpySection(body, "===SSH_RESOLVED===")
+		wantGit := filepath.Join(w.env.HomeDir, gitconfig)
+		wantSSH := filepath.Join(w.env.HomeDir, ssh)
+		if gitResolved != wantGit {
+			return fmt.Errorf("%s inside the curated HOME resolved to %q, want the host original %q (absent, a dangling link, or a COPY rather than a symlink); full spy dump:\n%s", gitconfig, gitResolved, wantGit, body)
+		}
+		if sshResolved != wantSSH {
+			return fmt.Errorf("%s inside the curated HOME resolved to %q, want the host original %q; full spy dump:\n%s", ssh, sshResolved, wantSSH, body)
+		}
+		return nil
+	})
+}

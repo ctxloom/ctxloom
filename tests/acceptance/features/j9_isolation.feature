@@ -42,6 +42,26 @@ Feature: Isolation axes — where an agent's workspace and runtime actually land
   # Credential SEEDING into an isolated config-home (grave-prize) is a
   # further, separate claim this journey does not make either way — see (2).
   #
+  # UPDATE (isolation-matrix task): (2)'s gap is now filled, below, WITHOUT
+  # abandoning the mock's hermetic guarantee. A real registered backend name
+  # (claude-code/codex/kiro/antigravity/opencode) drives isolation.Prepare
+  # exactly as a live run would — but PATH is rebuilt from scratch to a
+  # scratch dir plus /usr/bin:/bin, so the literal binary a backend execs
+  # ("claude"/"codex"/"kiro-cli"/"agy"/"opencode") resolves ONLY to a
+  # recording spy script this suite writes, NEVER to a real installed engine
+  # — no live credential, no network call, ever, in any scenario in this
+  # file. The spy dumps its OWN os.Environ() (exactly what a real engine
+  # process receives — internal/shared/agent/base.go's BuildEnv) plus a `cat`
+  # of whatever credential file its own env points it at, captured from
+  # INSIDE the spawned process — the per-agent scratch config-home does not
+  # survive past the run (Cleanup removes it unconditionally), so this is the
+  # only vantage point from which the seeded byte content is observable at
+  # all. See j9_isolation.doc.md for the rendered matrix this proves and does
+  # not prove, and steps_j9_isolation_matrix.go's own package doc for why
+  # opencode (a stateful ACP handshake, not a plain oneshot exec) gets the
+  # fail-loud/warn CONTRACT below but not the exact spawned-env payload —
+  # that half stays pinned at the Go level (auth_test.go).
+  #
   # The RUNTIME axis's real container LAUNCH boundary needs a live container
   # daemon plus a built agent image; that is out of hermetic scope and
   # deliberately deferred (no @container scenario exists in this file). What
@@ -98,3 +118,138 @@ Feature: Isolation axes — where an agent's workspace and runtime actually land
       | flags      | outcome                           |
       |            | aborts with an isolation finding  |
       | --degraded | runs on the host                  |
+
+  # ===========================================================================
+  # PER-ENGINE CONFIG-HOME ISOLATION MATRIX — fills the gap the journey's own
+  # top note used to flag as out of hermetic scope. Every scenario below
+  # drives a REAL registered backend name through isolation.Prepare via a
+  # PATH-sandboxed recording spy (see the top-of-file UPDATE note) — never a
+  # real engine binary, never a live credential, never a network call. See
+  # j9_isolation.doc.md for the rendered outcome matrix (isolated / LEAKS /
+  # not executed) these scenarios and their Go-level siblings together prove.
+  # ===========================================================================
+
+  # workspace "none" is the baseline every other row in the matrix is
+  # measured against: it shares the live project dir AND the engine's shared
+  # global config — by design, not a bug — so NONE of the config-home
+  # machinery below (seeding, gating, curated HOME, findings) fires at all.
+  # Asserting this explicitly is what lets a later "worktree" cell's finding
+  # read as isolation actually engaging, rather than the isolation machinery
+  # just always firing regardless of which axis was requested.
+  Scenario Outline: workspace "none" never touches any engine's config-home isolation at all
+    Given Alice has a git-backed project
+    When Alice runs the isolated "<engine>" agent under workspace "none"
+    Then the run touches no isolation mechanism at all
+
+    Examples:
+      | engine      |
+      | claude-code |
+      | codex       |
+      | kiro        |
+      | opencode    |
+      | antigravity |
+
+  # LOCKED — the safety net grave-prize exists to guarantee: an isolated
+  # worktree run for an engine that DOES relocate credentials with its
+  # config-home var (claude/codex/opencode all HonoursVarForCreds=true —
+  # auth.go) refuses to start rather than silently handing the engine an
+  # empty, logged-out config-home. This is provable without any engine binary
+  # at all: the finding fires, and the run aborts, BEFORE isolation.Prepare
+  # ever tries to spawn one.
+  Scenario Outline: A worktree run refuses to start an engine it cannot authenticate, rather than silently sharing the host's global credentials
+    Given Alice has a git-backed project
+    And Alice has no "<engine>" credentials or API key on the host
+    When Alice runs the isolated "<engine>" agent under workspace "worktree"
+    Then the run aborts with an isolation finding naming "<needle>"
+
+    Examples:
+      | engine      | needle                                                              |
+      | claude-code | no ANTHROPIC_API_KEY and no host claude credentials                |
+      | codex       | no OPENAI_API_KEY and no host codex credentials                    |
+      | opencode    | no OPENROUTER_API_KEY and no host opencode credentials             |
+
+  # The bypass half of the SAME gate: an API key riding the environment is
+  # its own proof of intent to authenticate that way (auth.go's
+  # resolveEnvOrMountAuth precedence), so seeding is skipped and the run is
+  # never blocked on a missing host credential file.
+  Scenario Outline: The same engines proceed without any isolation finding once their API key rides the environment
+    Given Alice has a git-backed project
+    And Alice has no "<engine>" credentials on the host
+    And Alice has set the "<engine>" API key in the environment
+    When Alice runs the isolated "<engine>" agent under workspace "worktree"
+    Then the run reports no isolation finding
+
+    Examples:
+      | engine      |
+      | claude-code |
+      | codex       |
+      | opencode    |
+
+  # LOCKED — the ISOLATED case, positively proven: the engine process itself
+  # (not ctxloom's own bookkeeping) sees its config-home var pointed at a
+  # per-agent scratch directory, and the credential material that lands there
+  # is byte-for-byte the host's own — a real COPY, not a symlink or a stub —
+  # while the host's original file is never written to. This is the exact
+  # claim that would go RED the moment a vendor engine, or a ctxloom
+  # regression, stopped honoring the var, or the seeding started mutating the
+  # host original.
+  Scenario Outline: A worktree run copies the host credential into the isolated config-home verbatim, and never touches the host's own copy
+    Given Alice has a git-backed project
+    And Alice has a "<engine>" credential fixture on the host
+    When Alice runs the isolated "<engine>" agent under workspace "worktree"
+    Then the spy "<engine>" process's "<var>" env var points to an isolated per-agent directory, not the host's own
+    And the isolated "<engine>" credential matches the host fixture byte-for-byte
+    And the host "<engine>" credential file was never modified
+
+    Examples:
+      | engine      | var               |
+      | claude-code | CLAUDE_CONFIG_DIR |
+      | codex       | CODEX_HOME        |
+
+  # LOCKED — kiro's PARTIAL isolation, and this IS the leak: subscription auth
+  # lives in a GLOBAL sqlite under $XDG_DATA_HOME that KIRO_HOME does not
+  # touch (auth.go's resolveKiroContainerAuth doc, verified live against
+  # kiro-cli 2.12.1). Isolating XDG_DATA_HOME anyway with nothing to
+  # authenticate a fresh store would silently strand the agent logged out —
+  # so ctxloom refuses instead, the SAME ClassIsolation mechanism as the
+  # claude/codex/opencode no-credential case above. The finding text itself
+  # names the mechanism: the credential store would NOT relocate. This is the
+  # positive leak assertion — it fails the moment kiro's credential store
+  # becomes genuinely KIRO_HOME-scoped (a vendor fix ctxloom would then need
+  # to widen HonoursVarForCreds to match), not merely an absent check.
+  Scenario: A worktree run for kiro isolates only session state without an API key, and refuses to silently share the global credential store
+    Given Alice has a git-backed project
+    When Alice runs the isolated "kiro" agent under workspace "worktree"
+    Then the run aborts with an isolation finding naming "isolating XDG_DATA_HOME would relocate kiro's credential store"
+
+  # The other half of kiro's story: KIRO_API_KEY genuinely authenticates a
+  # FRESH per-agent XDG_DATA_HOME headlessly (live-verified against kiro-cli
+  # 2.12.1, auth.go's own doc) — so once it is present, isolation widens to
+  # cover the credential store too, not just session state.
+  Scenario: A worktree run for kiro isolates its credential store too once KIRO_API_KEY authenticates a fresh one
+    Given Alice has a git-backed project
+    And Alice has set the "kiro" API key in the environment
+    When Alice runs the isolated "kiro" agent under workspace "worktree"
+    Then the run reports no isolation finding
+    And the spy "kiro" process's "KIRO_HOME" env var points to an isolated per-agent directory, not the host's own
+    And the spy "kiro" process's "XDG_DATA_HOME" env var points to an isolated per-agent directory, not the host's own
+
+  # LOCKED — antigravity's PARTIAL isolation, the STRONGEST failure in the
+  # matrix: HOME is its only lever, and pointing it at a curated scratch dir
+  # genuinely relocates config and session state (a fresh .gemini/ tree
+  # materializes there — curatedhome.go's own measurement) — but never
+  # authentication, which rides an OS-session keyring reached via a
+  # UID-derived socket ($DBUS one) that ignores $HOME entirely. This finding
+  # is deliberately NON-fatal (clidiag.Warn, never strictness.Fail — see
+  # curatedHomeAuthFinding's own doc): a partial boundary the run proceeds
+  # through by design, never silently promoted to "isolated". Distinguishing
+  # this from kiro's FATAL leak above is the point of pairing them: two
+  # different-severity partial isolations, two different exit-code
+  # contracts, both provable from the same suite.
+  Scenario: A worktree run for antigravity relocates config and session state via a curated HOME, but never authentication
+    Given Alice has a git-backed project
+    And Alice has a ".gitconfig" and ".ssh" on the host
+    When Alice runs the isolated "antigravity" agent under workspace "worktree"
+    Then the run reports a non-fatal isolation warning naming "AUTHENTICATION IS NOT"
+    And the spy "antigravity" process's "HOME" env var points to an isolated per-agent directory, not the host's own
+    And the curated antigravity HOME symlinks the host's ".gitconfig" and ".ssh" rather than copying them

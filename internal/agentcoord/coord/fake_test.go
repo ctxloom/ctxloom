@@ -136,6 +136,10 @@ type fakeSpawner struct {
 	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
 	// -> here), without needing real isolation machinery.
 	workspaces []string
+	// dirtyTreeHandlers records each Launch/StartEngine call's
+	// plan.DirtyTreeHandler, in spawn order — the identical threading proof
+	// as workspaces, for AgentRun's dirty_tree_handler override.
+	dirtyTreeHandlers []string
 }
 
 type fakeAgent struct {
@@ -227,6 +231,7 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 	s.engines = append(s.engines, e)
 	s.perms = append(s.perms, plan.Perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
+	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	s.mu.Unlock()
 	return e.launch(ctx, contextText, env, runnerEnv), nil
 }
@@ -247,6 +252,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	s.chats = append(s.chats, sc)
 	s.perms = append(s.perms, plan.Perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
+	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
@@ -325,6 +331,17 @@ func (s *fakeSpawner) lastWorkspace() string {
 		return ""
 	}
 	return s.workspaces[len(s.workspaces)-1]
+}
+
+// lastDirtyTreeHandler returns the SpawnPlan.DirtyTreeHandler the most
+// recent Launch/StartEngine call carried.
+func (s *fakeSpawner) lastDirtyTreeHandler() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.dirtyTreeHandlers) == 0 {
+		return ""
+	}
+	return s.dirtyTreeHandlers[len(s.dirtyTreeHandlers)-1]
 }
 
 func (s *fakeSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {

@@ -367,7 +367,7 @@ func TestCoordContainerBus_RoundTrip(t *testing.T) {
 
 	owner := ownerIdentity()
 	seedPayload := "SEED-" + randID("", 6)
-	out, err := c.AgentRun(ctx, owner, containerBusAgentName, seedPayload, "")
+	out, err := c.AgentRun(ctx, owner, containerBusAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 	require.Equal(t, "container", out.Runtime, "AgentRun must report the container runtime axis it actually resolved")

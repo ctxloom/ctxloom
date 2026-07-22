@@ -49,6 +49,43 @@ type Fake struct {
 	ListErr   error
 	RemoveErr error
 
+	// CurrentBranchValue is what CurrentBranch returns ("main" when empty);
+	// CurrentBranchErr, when set, fails it instead.
+	CurrentBranchValue string
+	CurrentBranchErr   error
+
+	// CommitAllSHA is the SHA CommitAll returns ("fake-commit-sha" when
+	// empty); CommitAllChanged is the changed-file list it returns (the
+	// commit's own self-reported verification — leave nil to simulate an
+	// EMPTY commit landing, the case the dirty-tree commit handler must
+	// refuse). CommitAllErr, when set, fails it instead. CommitMessages
+	// records every message CommitAll was called with, in order, so a test
+	// can assert on the exact generated commit message text.
+	CommitAllSHA     string
+	CommitAllChanged []string
+	CommitAllErr     error
+	CommitMessages   []string
+
+	// DiffPatchValue is what DiffPatch returns; DiffPatchErr, when set,
+	// fails it instead.
+	DiffPatchValue string
+	DiffPatchErr   error
+
+	// UntrackedList is what ListUntracked returns; UntrackedErr, when set,
+	// fails it instead.
+	UntrackedList []string
+	UntrackedErr  error
+
+	// DiffNameOnlyFiles is what DiffNameOnly returns; DiffNameOnlyErr, when
+	// set, fails it instead.
+	DiffNameOnlyFiles []string
+	DiffNameOnlyErr   error
+
+	// ApplyPatchErr, when set, fails ApplyPatch. AppliedPatches records every
+	// patch ApplyPatch was called with, in order.
+	ApplyPatchErr  error
+	AppliedPatches []string
+
 	// Calls records every mutating call in order, e.g. "add /tmp/wt",
 	// "remove(force=false) /tmp/wt/inner", "prune". Read for ordering assertions.
 	Calls []string
@@ -210,6 +247,78 @@ func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]st
 		changes = changes[:maxEntries]
 	}
 	return append([]string(nil), changes...), nil
+}
+
+// CurrentBranch returns CurrentBranchValue, or "main" when unset.
+func (f *Fake) CurrentBranch(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.CurrentBranchErr != nil {
+		return "", f.CurrentBranchErr
+	}
+	if f.CurrentBranchValue != "" {
+		return f.CurrentBranchValue, nil
+	}
+	return "main", nil
+}
+
+// CommitAll records the message and (unless CommitAllErr is set) returns the
+// configured CommitAllSHA/CommitAllChanged — a test drives the "empty
+// commit" case by leaving CommitAllChanged nil.
+func (f *Fake) CommitAll(_ context.Context, dir, message string) (string, []string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("commit-all %s", dir))
+	f.CommitMessages = append(f.CommitMessages, message)
+	if f.CommitAllErr != nil {
+		return "", nil, f.CommitAllErr
+	}
+	sha := f.CommitAllSHA
+	if sha == "" {
+		sha = "fake-commit-sha"
+	}
+	return sha, append([]string(nil), f.CommitAllChanged...), nil
+}
+
+// DiffNameOnly returns the configured DiffNameOnlyFiles (a copy).
+func (f *Fake) DiffNameOnly(_ context.Context, _, _, _ string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.DiffNameOnlyErr != nil {
+		return nil, f.DiffNameOnlyErr
+	}
+	return append([]string(nil), f.DiffNameOnlyFiles...), nil
+}
+
+// DiffPatch returns the configured DiffPatchValue.
+func (f *Fake) DiffPatch(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.DiffPatchErr != nil {
+		return "", f.DiffPatchErr
+	}
+	return f.DiffPatchValue, nil
+}
+
+// ListUntracked returns the configured UntrackedList (a copy).
+func (f *Fake) ListUntracked(_ context.Context, _ string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.UntrackedErr != nil {
+		return nil, f.UntrackedErr
+	}
+	return append([]string(nil), f.UntrackedList...), nil
+}
+
+// ApplyPatch records patch and returns ApplyPatchErr (nil = success). Unlike
+// the real implementation it never actually applies anything — tests that
+// need a REAL apply-and-verify round trip use initRepo + execGit directly.
+func (f *Fake) ApplyPatch(_ context.Context, dir, patch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("apply-patch %s", dir))
+	f.AppliedPatches = append(f.AppliedPatches, patch)
+	return f.ApplyPatchErr
 }
 
 // drop removes the worktree with the given path from the list (caller holds mu).

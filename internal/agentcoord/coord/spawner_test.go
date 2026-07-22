@@ -149,7 +149,7 @@ func TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan(t *testing.T) {
 
 	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
 		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "worktree")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "worktree", "")
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 		assert.Equal(t, "worktree", sp.lastWorkspace())
@@ -157,9 +157,40 @@ func TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan(t *testing.T) {
 
 	t.Run("omitting workspace carries no override", func(t *testing.T) {
 		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 		assert.Empty(t, sp.lastWorkspace())
+	})
+}
+
+// TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan is the identical
+// threading proof as TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan, for
+// AgentRun's dirty_tree_handler override: AgentRun -> SpawnPlan.DirtyTreeHandler
+// -> the Spawner's Launch/StartEngine call. Omitting it carries nothing —
+// PrepareAgentChat is where an empty override falls back to the project's
+// cfg.GetDirtyTreeHandler() default (delegate_test.go pins that hop).
+func TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan(t *testing.T) {
+	newWorker := func(t *testing.T) (*fakeSpawner, *Coordinator) {
+		t.Helper()
+		resetStrictness(t)
+		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+		return sp, newTestCoordinator(t, sp, nil)
+	}
+
+	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
+		sp, c := newWorker(t)
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "stale")
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+		assert.Equal(t, "stale", sp.lastDirtyTreeHandler())
+	})
+
+	t.Run("omitting dirty_tree_handler carries no override", func(t *testing.T) {
+		sp, c := newWorker(t)
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+		assert.Empty(t, sp.lastDirtyTreeHandler())
 	})
 }

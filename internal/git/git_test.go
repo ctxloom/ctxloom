@@ -220,3 +220,145 @@ func TestExecGit_ListTracked(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, empty, "an empty pathspec list matches nothing")
 }
+
+// TestExecGit_CurrentBranch pins both shapes: an attached checkout reports
+// its real branch name, and a detached one (exactly what `git worktree add
+// --detach` leaves every ctxloom-created worktree in) reports git's own
+// sentinel "HEAD" — the dirty-tree commit handler's guard against
+// auto-committing inside a ref-less checkout depends on telling these apart.
+func TestExecGit_CurrentBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CurrentBranch integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t) // initRepo names the branch "main"
+
+	branch, err := g.CurrentBranch(ctx, repo)
+	require.NoError(t, err)
+	assert.Equal(t, "main", branch)
+
+	wt := filepath.Join(t.TempDir(), "detached-wt")
+	require.NoError(t, g.WorktreeAdd(ctx, repo, wt, "HEAD"))
+	detached, err := g.CurrentBranch(ctx, wt)
+	require.NoError(t, err)
+	assert.Equal(t, "HEAD", detached, `git's own sentinel for detached HEAD`)
+}
+
+// TestExecGit_CommitAll_StagesAndVerifies proves the real commit lands
+// (staged tracked mod + untracked file both captured), advances HEAD, and
+// its self-reported changedFiles list is the actual post-commit diff —
+// exercising the mechanism the dirty-tree commit handler leans on instead of
+// trusting a bare "commit succeeded" (this codebase's documented empty-commit
+// pre-commit-hook bug is exactly what that verification exists to catch).
+func TestExecGit_CommitAll_StagesAndVerifies(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping CommitAll integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	require.NoError(t, writeFile(filepath.Join(repo, "README.md"), "changed"))            // tracked mod
+	require.NoError(t, writeFile(filepath.Join(repo, "new/untracked.go"), "package new")) // untracked
+
+	preOut, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "HEAD").Output()
+	require.NoError(t, err)
+	preSHA := strings.TrimSpace(string(preOut))
+
+	sha, changed, err := g.CommitAll(ctx, repo, "test commit\n\nbody line")
+	require.NoError(t, err)
+	assert.NotEqual(t, preSHA, sha, "HEAD advanced")
+	assert.ElementsMatch(t, []string{"README.md", "new/untracked.go"}, changed,
+		"both the tracked mod AND the previously-untracked file were staged and committed")
+
+	dirty, err := g.IsDirty(ctx, repo)
+	require.NoError(t, err)
+	assert.False(t, dirty, "nothing left uncommitted")
+}
+
+// TestExecGit_DiffPatch_ApplyPatch_RoundTrip proves the copy handler's
+// tracked-changes mechanism end to end: a patch captured from one checkout
+// (modification + deletion) applies cleanly to a SEPARATE checkout at the
+// same HEAD, reproducing the same uncommitted working-tree state there.
+func TestExecGit_DiffPatch_ApplyPatch_RoundTrip(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping DiffPatch/ApplyPatch integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+	commit(t, repo, "keep.txt", "keep me", "add keep.txt")
+	commit(t, repo, "gone.txt", "delete me", "add gone.txt")
+
+	// Uncommitted in the SOURCE: modify one tracked file, delete another.
+	require.NoError(t, writeFile(filepath.Join(repo, "keep.txt"), "keep me, modified"))
+	require.NoError(t, rm(filepath.Join(repo, "gone.txt")))
+
+	patch, err := g.DiffPatch(ctx, repo)
+	require.NoError(t, err)
+	require.NotEmpty(t, patch)
+
+	// A second, independent worktree checked out at the SAME HEAD, clean.
+	target := filepath.Join(t.TempDir(), "copy-target")
+	require.NoError(t, g.WorktreeAdd(ctx, repo, target, "HEAD"))
+	dirtyBefore, err := g.IsDirty(ctx, target)
+	require.NoError(t, err)
+	require.False(t, dirtyBefore)
+
+	require.NoError(t, g.ApplyPatch(ctx, target, patch))
+
+	got, err := os.ReadFile(filepath.Join(target, "keep.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "keep me, modified", string(got), "the modification reproduced")
+	_, err = os.Stat(filepath.Join(target, "gone.txt"))
+	assert.True(t, os.IsNotExist(err), "the deletion reproduced")
+
+	dirtyAfter, err := g.IsDirty(ctx, target)
+	require.NoError(t, err)
+	assert.True(t, dirtyAfter, "the reproduced changes are UNCOMMITTED WIP in the target, exactly like the source")
+}
+
+// TestExecGit_ApplyPatch_EmptyIsNoop proves an empty patch (nothing tracked
+// to reproduce — the copy handler's "untracked files only" case) never
+// invokes git in a way that could fail or mutate anything.
+func TestExecGit_ApplyPatch_EmptyIsNoop(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping ApplyPatch integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+	assert.NoError(t, g.ApplyPatch(ctx, repo, ""))
+	assert.NoError(t, g.ApplyPatch(ctx, repo, "   \n"))
+}
+
+// TestExecGit_ListUntracked proves the untracked inventory honors BOTH
+// .gitignore and .git/info/exclude (the same noise the copy handler must
+// never try to reproduce, since it never counted as dirty in the first
+// place), and reports a genuinely untracked file.
+func TestExecGit_ListUntracked(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping ListUntracked integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t)
+
+	require.NoError(t, writeFile(filepath.Join(repo, "fresh.go"), "package fresh"))
+	require.NoError(t, writeFile(filepath.Join(repo, "ignored-by-gitignore.log"), "noise"))
+	require.NoError(t, writeFile(filepath.Join(repo, ".gitignore"), "*.log\n"))
+	excludeCmd := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--git-path", "info/exclude")
+	out, err := excludeCmd.Output()
+	require.NoError(t, err)
+	excludePath := filepath.Join(repo, strings.TrimSpace(string(out)))
+	require.NoError(t, writeFile(excludePath, "ignored-by-info-exclude.tmp\n"))
+	require.NoError(t, writeFile(filepath.Join(repo, "ignored-by-info-exclude.tmp"), "noise"))
+
+	files, err := g.ListUntracked(ctx, repo)
+	require.NoError(t, err)
+	assert.Contains(t, files, "fresh.go")
+	assert.NotContains(t, files, "ignored-by-gitignore.log")
+	assert.NotContains(t, files, "ignored-by-info-exclude.tmp")
+	assert.Contains(t, files, ".gitignore", ".gitignore itself is untracked and not itself excluded by anything")
+}

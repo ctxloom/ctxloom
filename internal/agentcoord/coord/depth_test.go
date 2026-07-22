@@ -34,7 +34,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	c := newTestCoordinator(t, workerSpawner(), nil)
 
 	// depth 0 -> depth 1
-	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "")
+	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "", "")
 	require.NoError(t, err)
 	childH := childHome(t, c, child.RunID)
 

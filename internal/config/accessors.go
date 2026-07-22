@@ -294,6 +294,19 @@ func (c *Config) GetWarnings() []Warning { return cloneWarnings(c.warnings) }
 // (none | worktree).
 func (c *Config) GetWorkspace() string { return c.workspace }
 
+// GetDirtyTreeHandler returns the project-wide default for what a delegated
+// agent_run spawn does when it resolves to worktree isolation while the
+// parent tree is dirty (commit | copy | stale | fail). Empty means "commit"
+// (see operations.defaultDirtyTreeHandler).
+func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
+
+// GetDirtyTreeCommitAck reports whether this PROJECT has explicitly
+// acknowledged (a human, in config) that dirty_tree_handler: "commit" may
+// auto-commit uncommitted changes on the user's behalf. See
+// Config.dirtyTreeCommitAck's doc for why this is config-only and never
+// exposed as a per-call override.
+func (c *Config) GetDirtyTreeCommitAck() bool { return c.dirtyTreeCommitAck }
+
 // GetRuntime returns the project-wide default runtime axis (host |
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }

@@ -35,7 +35,7 @@ func TestEnqueueRun_JournalsPermissionAndMCPServerNames(t *testing.T) {
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 
 	var rec *RunRecord
@@ -76,9 +76,9 @@ func TestEnqueueRun_ChildMCPServers_JournalDisjointPerAgent(t *testing.T) {
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	outA, err := c.AgentRun(context.Background(), ownerIdentity(), "workerA", "go", "")
+	outA, err := c.AgentRun(context.Background(), ownerIdentity(), "workerA", "go", "", "")
 	require.NoError(t, err)
-	outB, err := c.AgentRun(context.Background(), ownerIdentity(), "workerB", "go", "")
+	outB, err := c.AgentRun(context.Background(), ownerIdentity(), "workerB", "go", "", "")
 	require.NoError(t, err)
 
 	var recA, recB *RunRecord
@@ -115,7 +115,7 @@ func TestListRuns_SurfacesPermissionAndMCPServerNames(t *testing.T) {
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 
 	var result = c.ListRuns(true, "")
@@ -182,7 +182,7 @@ func TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs(t *testing.T) {
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 
 	var rec *RunRecord

@@ -250,6 +250,15 @@
       "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
       "enum": ["none", "worktree"]
     },
+    "dirty_tree_handler": {
+      "type": "string",
+      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires dirty_tree_commit_ack: true, and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
+      "enum": ["commit", "copy", "stale", "fail"]
+    },
+    "dirty_tree_commit_ack": {
+      "type": "boolean",
+      "description": "Per-project, HUMAN-set acknowledgement that dirty_tree_handler: \"commit\" may auto-commit uncommitted changes onto this project's current branch on your behalf so a delegated agent_run child can see them (a worktree checkout only ever contains committed state). Without this set true, the \"commit\" handler REFUSES the spawn instead of committing, naming this key. Deliberately config-only: it cannot be set via agent_run's per-call parameters, and is never inferred from anything an agent does — only a human editing this file grants it. Each individual auto-commit is still announced when it happens, regardless of this setting."
+    },
     "runtime": {
       "type": "string",
       "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together.",

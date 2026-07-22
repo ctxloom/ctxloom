@@ -64,7 +64,7 @@ func TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText(t *testing.T) {
 
 	// Spawn the migrated child AFTER the watcher attached — proving genuinely
 	// LIVE delivery, not a replay.
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
 	frames := make(chan *agentcoordpb.WatchEvent, 32)
@@ -241,7 +241,7 @@ func TestConsumerService_ListRuns(t *testing.T) {
 	resetStrictness(t)
 	sp := startRunSpawner(nil)
 	c := newTestCoordinator(t, sp, nil)
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
 	client, _ := dialConsumer(t, c.LoopbackURL(), c.consumerCreds.token())

@@ -65,7 +65,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "")
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)
@@ -73,7 +73,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	// A second run queues behind the cap.
-	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "")
+	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
@@ -119,7 +119,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 
-	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.engine(0)

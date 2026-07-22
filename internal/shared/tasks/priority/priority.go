@@ -9,7 +9,9 @@
 //     project-specific score from the task's own tag values plus a handful
 //     of taskloom-provided BUILT-INS (age_days, age_factor — see the
 //     Builtin* constants; the set is designed to be extended by adding a
-//     line to computeBuiltins, not by changing the formula bridge).
+//     name to builtinsByFacet (and supplying it from Compute's Eval calls),
+//     not by changing the formula bridge). A formula referencing any OTHER
+//     name is a compile-time error (checkKnownBuiltins), not a silent 0.
 //  2. The `triage:exploited-in-wild` modifier tag, when present, overrides
 //     the result to Max regardless of what the formula computed — an
 //     actively-exploited issue is never left ranked below the ceiling by a
@@ -43,10 +45,12 @@ const Max = 5.0
 
 // Built-in datum names taskloom fills into every formula evaluation's
 // Builtin(...) lookup (see tagschema.CompileFormula's bridge). This is
-// deliberately a small, named, EXTENSIBLE set: adding a new one is a single
-// line in computeBuiltins plus a doc line here — no change to the formula
-// bridge itself, since Builtin(name) already resolves any name from a plain
-// map.
+// deliberately a small, named, EXTENSIBLE set: adding a new one is a new
+// constant here, a facet entry in builtinsByFacet, and a value supplied from
+// Compute's own decayFn.Eval / priorityFn.Eval calls — no change to the
+// formula bridge itself, since Builtin(name) already resolves any name from
+// a plain map. checkKnownBuiltins is what keeps that plain map from silently
+// swallowing anything NOT added this way.
 const (
 	// BuiltinAgeDays is a task's age in days: (now - CreatedAt) / 24h.
 	// Available to both decay_fn and priority_fn.
@@ -238,6 +242,52 @@ func compileAll(schema *tagschema.Schema) (priorityFn, decayFn *tagschema.Formul
 	return priorityFn, decayFn, nil
 }
 
+// builtinsByFacet is the FIXED set of builtin names each facet's formulas
+// may reference, per Compute's own Eval calls: decay_fn's Eval supplies only
+// BuiltinAgeDays (age_factor is what decay_fn PRODUCES, not a consumer of —
+// see BuiltinAgeFactor's doc), while priority_fn's Eval supplies both
+// BuiltinAgeDays and BuiltinAgeFactor. checkKnownBuiltins uses this to fail
+// loud at compile time on any OTHER placeholder name, closing the gap
+// lookup's bare map index would otherwise leave open: an unrecognized
+// Builtin(...) call used to compile clean and silently resolve to 0 at Eval
+// time (inane-scuba) — indistinguishable from a legitimate zero, and
+// capable of zeroing an entire multiplicative term with no signal at all.
+var builtinsByFacet = map[string]map[string]bool{
+	tagschema.PriorityFnFacet: {BuiltinAgeDays: true, BuiltinAgeFactor: true},
+	tagschema.DecayFnFacet:    {BuiltinAgeDays: true},
+}
+
+// checkKnownBuiltins fails loud when f's compiled source references a
+// Builtin(...) placeholder (a "{{name}}" whose name contains no ":", per
+// tagschema.CompileFormula's own Tag-vs-Builtin split) that isn't in
+// builtinsByFacet[facet] — a typo'd or made-up name, the same class of
+// config defect a bad expr syntax already is.
+func checkKnownBuiltins(f *tagschema.Formula, facet, target string) error {
+	known := builtinsByFacet[facet]
+	for _, m := range formulaTagPlaceholderPattern.FindAllStringSubmatch(f.Source(), -1) {
+		name := m[1]
+		if strings.Contains(name, ":") {
+			continue // a Tag(...) reference, not a Builtin(...) one
+		}
+		if !known[name] {
+			return fmt.Errorf("priority: %s on %s: unknown builtin {{%s}} (known: %s)",
+				facet, target, name, strings.Join(sortedBuiltinNames(known), ", "))
+		}
+	}
+	return nil
+}
+
+// sortedBuiltinNames returns known's keys sorted, for a deterministic error
+// message.
+func sortedBuiltinNames(known map[string]bool) []string {
+	names := make([]string, 0, len(known))
+	for name := range known {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // compileFacet compiles EVERY target schema declares under facet (via
 // getter — schema.PriorityFn or schema.DecayFn), syntax-checking each one
 // regardless of how many there are, then returns the compiled Formula for
@@ -255,6 +305,9 @@ func compileFacet(schema *tagschema.Schema, facet string, getter func(string) (s
 		f, err := tagschema.CompileFormula(raw)
 		if err != nil {
 			return nil, fmt.Errorf("priority: %s on %s: %w", facet, target, err)
+		}
+		if err := checkKnownBuiltins(f, facet, target); err != nil {
+			return nil, err
 		}
 		compiled = append(compiled, f)
 		declared = append(declared, target)

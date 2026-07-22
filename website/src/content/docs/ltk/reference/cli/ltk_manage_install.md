@@ -29,6 +29,12 @@ ltk manage install [flags]
       --settings string    explicit settings file path (overrides the engine default)
 ```
 
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+```
+
 ### SEE ALSO
 
 * [ltk manage](/ltk/reference/cli/ltk_manage/)	 - Install or remove the pre-tool hook in your LLM agent's config

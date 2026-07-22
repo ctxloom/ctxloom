@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -210,16 +211,26 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 
 // checkHookTargetScope refuses to apply hooks when the resolved workDir would
 // write a TARGET backend's user-GLOBAL scope instead of a project's
-// per-PROJECT scope — claude's settings.json (prim-guy) and codex's whole
-// config.toml/prompts/skills home (comfy-lion, the SAME collision class:
-// codex's cell-scoped home IS a project-dir join, so it collapses onto the
-// bare global exactly when workDir == $HOME too). Scoped to backend
-// ("all" runs both checks; "claude-code"/"codex" run only their own) so a
-// single-backend apply is never blocked on a collision for a DIFFERENT
-// backend it never touches. See checkClaudeHookTargetScope's doc for why the
-// whole apply is refused, not just one surface's write. force downgrades
-// every collision to a loud warning and proceeds — the deliberate escape
-// hatch for a genuine intentional global install.
+// per-PROJECT scope — claude's settings.json (prim-guy), codex's whole
+// config.toml/prompts/skills home (comfy-lion), and kiro's whole
+// agents/settings/steering home (flaky-spool) — all the SAME collision
+// class: each backend's project-scoped home is a workDir join, so it
+// collapses onto the bare global exactly when workDir == $HOME too. Scoped
+// to backend ("all" runs every backend's own check; a named backend runs
+// only its own) so a single-backend apply is never blocked on a collision
+// for a DIFFERENT backend it never touches. See checkClaudeHookTargetScope's
+// doc for why the whole apply is refused, not just one surface's write.
+// force downgrades every collision to a loud warning and proceeds — the
+// deliberate escape hatch for a genuine intentional global install.
+//
+// antigravity and opencode are AUDITED, not guarded, because neither can hit
+// this collision class: antigravity has no usable global location at all in
+// agy v1.0.7 (see AntigravityHookWriter.SettingsPath's doc — there is
+// nothing for the project write to collapse onto), and opencode's actual
+// global config lives at a DIFFERENT path (~/.config/opencode/opencode.json,
+// per opencode's own docs) than its project file
+// (workDir/opencode.json — see OpencodeWriter.SettingsPath), so
+// workDir==$HOME never makes the two paths equal.
 func checkHookTargetScope(workDir, backend string, force bool) error {
 	if backend == "all" || backend == "claude-code" {
 		if err := checkClaudeHookTargetScope(workDir, force); err != nil {
@@ -228,6 +239,11 @@ func checkHookTargetScope(workDir, backend string, force bool) error {
 	}
 	if backend == "all" || backend == "codex" {
 		if err := checkCodexHookTargetScope(workDir, force); err != nil {
+			return err
+		}
+	}
+	if backend == "all" || backend == "kiro" {
+		if err := checkKiroHookTargetScope(workDir, force); err != nil {
 			return err
 		}
 	}
@@ -295,6 +311,32 @@ func checkCodexHookTargetScope(workDir string, force bool) error {
 		return nil
 	}
 	return fmt.Errorf("refusing to install hooks: %s resolves to codex's global home (%s), which would apply ctxloom's codex config/prompts/skills to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, globalPath)
+}
+
+// checkKiroHookTargetScope is checkClaudeHookTargetScope's kiro analog
+// (flaky-spool — completing the 5-backend audit prim-guy's own doc deferred).
+// kiro's project-scoped .kiro dir (kiro.ProjectHome(workDir), a plain
+// workDir join) collapses onto its bare GLOBAL home (kiro.GlobalHome(),
+// $KIRO_HOME if set else ~/.kiro) exactly when workDir == $HOME — the same
+// bare-cwd-fallback collision prim-guy found for claude and comfy-lion found
+// for codex, but for kiro's WHOLE agents/settings/steering home. kiro-cli's
+// own "workspace wins over global" agent precedence (see kiro's NewWriter
+// doc) does not help here: when workDir == $HOME there is no separate
+// workspace copy to prefer, only the global one being directly overwritten.
+func checkKiroHookTargetScope(workDir string, force bool) error {
+	globalPath, err := kiro.GlobalHome()
+	if err != nil {
+		return nil
+	}
+	projectPath := kiro.ProjectHome(workDir)
+	if cleanAbsPath(projectPath) != cleanAbsPath(globalPath) {
+		return nil
+	}
+	if force {
+		clidiag.Warn("ctxloom", "hooks target %s resolves to kiro's global home (%s); proceeding because --force was given — this applies ctxloom's kiro agent/mcp/steering config to EVERY project, not just this one.", workDir, globalPath)
+		return nil
+	}
+	return fmt.Errorf("refusing to install hooks: %s resolves to kiro's global home (%s), which would apply ctxloom's kiro agent/mcp/steering config to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, globalPath)
 }
 
 // cleanAbsPath returns p's cleaned absolute form for path comparison, falling

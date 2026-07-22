@@ -31,7 +31,8 @@ retry the right way. See docs/RULES.md for the full rule model.
 ### Options
 
 ```
-  -h, --help   help for ltk
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help            help for ltk
 ```
 
 ### SEE ALSO

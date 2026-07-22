@@ -23,7 +23,7 @@ replace github.com/hashicorp/go-plugin => ./third_party/go-plugin
 // replace line and bump the github.com/coder/acp-go-sdk require version to
 // that release — no source changes needed, ctxloom imports the upstream
 // path already.
-replace github.com/coder/acp-go-sdk => github.com/benjaminabbitt/acp-go-sdk v0.13.6-0.20260716172546-89c5c8173ab4
+replace github.com/coder/acp-go-sdk => github.com/benjaminabbitt/acp-go-sdk v0.13.6-0.20260722031316-48f638c79f55
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0

@@ -316,6 +316,7 @@ func runDoorViaACPLoopback(t *testing.T, harp string) []agent.ChatEvent {
 
 	h := &doorACPHandler{t: t}
 	conn := jsonrpc.NewConn(ctx, clientR, clientW, jsonrpc.CloserFunc(clientW.Close), h)
+	conn.Start(ctx)
 	t.Cleanup(func() { _ = conn.Close() })
 
 	var initResp api.InitializeResponse

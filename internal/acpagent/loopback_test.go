@@ -211,6 +211,7 @@ func startL1Proc(t *testing.T) *l1Proc {
 	h := newL1Handler()
 	ctx, cancel := context.WithCancel(context.Background())
 	conn := jsonrpc.NewConn(ctx, stdout, stdin, jsonrpc.CloserFunc(stdin.Close), h)
+	conn.Start(ctx)
 
 	p := &l1Proc{t: t, cmd: cmd, conn: conn, handler: h, stderr: &stderr}
 	t.Cleanup(func() {

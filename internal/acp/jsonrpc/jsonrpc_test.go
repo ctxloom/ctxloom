@@ -45,6 +45,7 @@ func newTestConn(t *testing.T, handler Handler) (*Conn, *json.Decoder, func(rpcM
 		return nil
 	})
 	conn := NewConn(context.Background(), s2cR, c2sW, closer, handler)
+	conn.Start(context.Background())
 	t.Cleanup(func() { _ = conn.Close() })
 
 	serverDec := json.NewDecoder(c2sR)

@@ -100,12 +100,21 @@ func TestServe_PromptExpandsCommand(t *testing.T) {
 	go func() {
 		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
 	}()
-	c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"/code-review focus on auth"}]}`)
+	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"/code-review focus on auth"}]}`)
 
 	msg := eng.receivedText(t)
 	assert.Contains(t, msg, "Please review the following code for bugs.")
 	assert.Contains(t, msg, "focus on auth")
 	assert.NotContains(t, msg, "/code-review", "the raw slash invocation must not reach the engine once expanded")
+
+	// Wait for the prompt to actually resolve: without this, the test can
+	// return (and t.Cleanup tear the server down) before the goroutine above
+	// finishes its send on eng.events — racing fakeEngine's Close (which
+	// closes that same channel) against a still-live sender. See
+	// TestServe_PromptUnmatchedSlashPassesThrough's identical fix for the
+	// full explanation.
+	resp, _ := c.waitResponse(id)
+	require.Nil(t, resp.Error)
 }
 
 // TestServe_PromptExpandsCommand_BlocksParity pins the B2/B4 merge invariant
@@ -212,10 +221,25 @@ func TestServe_PromptUnmatchedSlashPassesThrough(t *testing.T) {
 		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
 	}()
 	const original = "/etc/passwd contains secrets, please don't leak it"
-	c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"`+original+`"}]}`)
+	id := c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"`+original+`"}]}`)
 
 	msg := eng.receivedText(t)
 	assert.Equal(t, original, msg, "an unmatched leading slash must reach the engine byte-for-byte unchanged")
+
+	// Wait for the prompt to resolve before returning. Without this the test
+	// can return — and t.Cleanup cancel the server, which tears down the
+	// session and calls fakeEngine's Close (closing eng.events) — before the
+	// goroutine above finishes sending on eng.events. That is a genuine
+	// close-vs-send data race on the channel (confirmed with -race under
+	// load); it is NOT a production defect: production's own Close never
+	// closes a channel it doesn't exclusively own (internal/lm/grpc/chat.go's
+	// events goroutine is the sole sender AND the sole closer). The fake
+	// violates that invariant only when a test's own unsynchronized goroutine
+	// is still writing when Close fires — so the fix belongs here, in the
+	// test, matching every other test in this file that scripts an event via
+	// a goroutine and then waits for the response.
+	resp, _ := c.waitResponse(id)
+	require.Nil(t, resp.Error)
 }
 
 // TestServe_PromptCommandResolveError proves a MATCHED command whose

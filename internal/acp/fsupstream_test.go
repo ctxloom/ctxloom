@@ -47,7 +47,7 @@ func (f *fakeFsUpstream) acceptLoop() {
 		if err != nil {
 			return
 		}
-		jsonrpc.NewConn(context.Background(), conn, conn, jsonrpc.CloserFunc(conn.Close), f)
+		jsonrpc.NewConn(context.Background(), conn, conn, jsonrpc.CloserFunc(conn.Close), f).Start(context.Background())
 	}
 }
 

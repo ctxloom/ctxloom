@@ -110,10 +110,12 @@ type Conn struct {
 	readErr   atomic.Pointer[error]
 }
 
-// NewConn binds a peer to a reader/writer (and optional closer for teardown)
-// and starts its read loop. handler receives inbound requests and notifications.
+// NewConn binds a peer to a reader/writer (and optional closer for teardown).
+// handler receives inbound requests and notifications. The read loop does
+// NOT start until Start is called (see its doc) — call Start once
+// construction is complete.
 func NewConn(ctx context.Context, r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
-	c := &Conn{
+	return &Conn{
 		dec:     json.NewDecoder(r),
 		w:       w,
 		closer:  closer,
@@ -121,8 +123,36 @@ func NewConn(ctx context.Context, r io.Reader, w io.Writer, closer io.Closer, ha
 		pending: make(map[int64]chan rpcMessage),
 		done:    make(chan struct{}),
 	}
+}
+
+// Start begins the read loop, dispatching inbound frames to handler. It must
+// be called exactly once, after NewConn.
+//
+// Splitting this from NewConn closes a real data race a caller can otherwise
+// fall into: a Handler that stores the *Conn NewConn returns back onto
+// itself (so its own methods can call Notify/Call — acpagent's Server does
+// exactly this: `s.conn = jsonrpc.NewConn(ctx, r, w, nil, s)`) has no
+// guarantee that assignment is visible to the read loop, because — before
+// this split — the read loop's goroutine was spawned INSIDE NewConn, before
+// NewConn had even returned to the caller, let alone before the caller's
+// assignment executed. The read loop (and anything IT spawns, e.g. a
+// request handler goroutine) is a goroutine distinct from the caller's, so
+// Go's memory model gives it no happens-before edge to a write that occurs
+// strictly after its own creation — any Handler method reading that
+// self-stored field is racing the store, however astronomically unlikely a
+// same-process interleaving makes it look. It surfaced for real under
+// heavy scheduling contention (many concurrent test processes), confirmed
+// with -race: `s.conn` written by Serve() racing a read in
+// (*Server).emitUpdate, reached from a request the read loop dispatched
+// before Serve()'s assignment had committed.
+//
+// Calling Start only after the handler has finished publishing whatever
+// state it needs (as acpagent.Serve now does: assign s.conn, THEN Start)
+// makes Start's own goroutine creation the happens-before edge instead —
+// the read loop, and everything it dispatches, is guaranteed to see
+// everything the caller did up to and including the Start call.
+func (c *Conn) Start(ctx context.Context) {
 	go c.readLoop(ctx)
-	return c
 }
 
 // Call issues a request and blocks until the matching response arrives, ctx is

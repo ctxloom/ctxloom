@@ -25,6 +25,7 @@ func dialAndCallFsUpstream(t *testing.T, addr, method string, params any) (json.
 	require.NoError(t, err)
 	defer conn.Close()
 	rpc := jsonrpc.NewConn(context.Background(), conn, conn, jsonrpc.CloserFunc(conn.Close), noopHandler{})
+	rpc.Start(context.Background())
 	var result json.RawMessage
 	callErr := rpc.Call(context.Background(), method, params, &result)
 	return result, callErr

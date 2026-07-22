@@ -79,6 +79,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		}
 	}
 	conn := jsonrpc.NewConn(ctx, tr.stdout, tr.stdin, jsonrpc.CloserFunc(tr.close), sess)
+	conn.Start(ctx)
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
 	// transport (unblocking a parked reader), then waits for the read loop to exit

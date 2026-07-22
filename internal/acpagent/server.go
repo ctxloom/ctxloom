@@ -149,6 +149,13 @@ type session struct {
 func Serve(ctx context.Context, r io.Reader, w io.Writer, open ChatOpener) error {
 	s := &Server{open: open, ctx: ctx, sessions: make(map[api.SessionId]*session)}
 	s.conn = jsonrpc.NewConn(ctx, r, w, nil, s)
+	// s.conn must be FULLY assigned before the read loop can start — Server
+	// is its own Handler, and its request handling (emitUpdate) reads
+	// s.conn back. Starting the read loop is deferred to Start (see its
+	// doc) specifically so this assignment happens-before any dispatch,
+	// closing a real (load-only-reproducible) data race. Do not reorder or
+	// inline this into the NewConn call above.
+	s.conn.Start(ctx)
 	defer s.closeAllSessions()
 	select {
 	case <-ctx.Done():

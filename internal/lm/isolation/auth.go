@@ -317,6 +317,47 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 // containerized antigravity run silently authenticating with the user's
 // ANTHROPIC_* credentials — the wrong provider entirely). Always degrades;
 // the profile's authHint explains why.
+//
+// PARTIALLY MEASURED (curated-scratch-home task, 2026-07-22): the premise a
+// container-based fix would rely on — "a container is keyring-less, so agy
+// falls back to a file-based credential path and IS isolable there" — is
+// HALF confirmed and half still open. Running agy inside a plain docker
+// container (no D-Bus session bus reachable) DID trip its own fallback:
+// its log recorded "Using file-based token storage because no D-Bus session
+// bus detected", proving the detection+fallback TRIGGER is real, not
+// inferred. What remains UNVERIFIED: whether that fallback path actually
+// authenticates end-to-end. The one attempt made here — mounting the host's
+// existing ~/.gemini/oauth_creds.json into the container — failed ("You are
+// not logged into Antigravity"), but inconclusively so: that file's
+// access_token was already stale (this host's day-to-day auth has run
+// through the keyring since initial login, so the file is never rewritten
+// after the fact) — the failure is consistent with a stale credential, not
+// necessarily with a broken fallback mechanism. Confirming the mechanism
+// fully needs either a genuinely fresh file-based credential (which requires
+// completing an interactive OAuth login with no keyring reachable — not
+// attempted here: it needs a real browser + user consent, and was out of
+// scope for a non-destructive check) or reverse-engineering the token
+// refresh call, which this task deliberately did not attempt. Do not upgrade
+// this from "mechanism confirmed, full success unverified" without a fresh
+// measurement.
+//
+// UNRECONCILED WITH AN EARLIER FINDING: the website's security/isolation.md
+// ("Four: there is no boundary to draw") documents an EARLIER container
+// experiment against this same engine that reports the OPPOSITE outcome —
+// with a fresh HOME, no API-key env var, and "the system keyring made
+// unreachable" by some means that page does not specify, the engine "still
+// authenticated and answered a real prompt" via a credential source that
+// investigation could not identify after probing four ways. That is a
+// stronger and more troubling result than this task's own (it implies a
+// containerized run might authenticate through a channel neither
+// oauth_creds.json nor the D-Bus keyring is), and it directly undermines
+// this package's fixIt advice of "switch to runtime:container for real auth
+// isolation" — if that mystery channel is real, a container may not be a
+// real auth boundary for this engine either. The two results are NOT
+// reconciled here (this task did not have that page's exact method to
+// reproduce it); treat "runtime:container gives real auth isolation" as
+// UNCONFIRMED, not established, until someone repeats that earlier
+// experiment with a documented method.
 func resolveAntigravityContainerAuth(string, string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }
@@ -512,10 +553,20 @@ type seedFile struct {
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
 // credential-seed behaviour HonoursVarForCreds selects. antigravity has NO
-// entry — it has no config-home lever at all (vast-rut: its settings are
-// cwd-relative and its state/creds live under an unlocatable ~/.gemini/* no
-// env var relocates), so Env() contributes nothing for it and host-mode
-// isolation for antigravity is out of scope here (container-only).
+// entry here — but NOT because it has no lever at all (that claim was
+// FALSE and has been corrected): agy reads $HOME directly for its whole
+// config/session-state tree — a full .gemini/ tree DOES relocate with it,
+// measured by chmod-000-crashes-agy on a fake HOME. What it does NOT
+// relocate is CREDENTIALS: agy authenticates through an OS-session-scoped
+// D-Bus Secret Service keyring that HOME does not gate at all (measured
+// with `env -i` + an empty fake HOME — still authenticated via keyring).
+// credentialSeedSpecs exists to copy CREDENTIAL material into a scoped
+// subdir a HonoursVarForCreds engine's isolation var points at; antigravity
+// has no such var (HOME itself is the only lever, and HOME does not carry
+// credentials), so it does not fit this registry's shape at all — it is
+// handled by the SEPARATE curatedHomeSpecs registry (curatedhome.go) instead,
+// which overrides HOME wholesale and is explicit that only config/session
+// state — never auth — moves with it.
 //
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+

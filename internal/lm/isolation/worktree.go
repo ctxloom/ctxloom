@@ -91,23 +91,35 @@ func (Worktree) Approvals() Approvals { return ApprovalsPrompt }
 
 // PrepareWorkspace creates a fresh detached worktree for the member. It errors
 // (→ caller degrades to None) when projectDir is not a git repo or the worktree
-// add fails. On success it also, best-effort, (a) provisions a per-agent
-// config-home dir whose CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME isolate the engine
-// GLOBAL layer, and (b) writes the broadened ctxloom-config excludes to the shared
-// common-dir .git/info/exclude so a developer member's merge-back never carries
-// per-agent config (§3.1). Neither best-effort step fails the workspace.
+// add fails. On success it also, best-effort, provisions the member's HOST
+// isolation lever and writes the broadened ctxloom-config excludes to the
+// shared common-dir .git/info/exclude so a developer member's merge-back never
+// carries per-agent config (§3.1). Neither best-effort step fails the
+// workspace.
 //
-// The deferred recover below exists because the worktree checkout and the
-// config-home are real on-disk resources created BEFORE this function returns
-// a Workspace the caller could Cleanup() — if anything after WorktreeAdd
-// panics (a bug in excludeConfigFromMerge/skipTrackedConfig, or — the case
-// that surfaced this — a mutation-testing mutant deliberately breaking one of
-// them), the caller never gets a handle to clean up, and the checkout +
-// config-home leak under the OS temp dir with nothing left to remove them.
-// Recovering here, best-effort removing what THIS call created, and
-// re-panicking preserves the original failure (a real bug still crashes / a
-// mutant still gets killed) while guaranteeing no resource outlives the call
-// that made it.
+// The lever is one of two SHAPES, chosen by backend registry membership
+// (mutually exclusive — a backend appears in at most one):
+//   - credentialSeedSpecs (auth.go): a SCOPED env var (CLAUDE_CONFIG_DIR/
+//     CODEX_HOME/KIRO_HOME) points at a per-agent subdir; the rest of the
+//     process env, including HOME, is untouched.
+//   - curatedHomeSpecs (curatedhome.go): no scoped var exists, so HOME itself
+//     is pointed at a curated scratch dir with a minimal host-dotfile
+//     allowlist symlinked in (antigravity today).
+//
+// A backend in neither registry gets the pre-fix, config-only-isolation
+// no-op (no per-agent env at all).
+//
+// The deferred recover below exists because the worktree checkout and
+// whichever scratch home was provisioned are real on-disk resources created
+// BEFORE this function returns a Workspace the caller could Cleanup() — if
+// anything after WorktreeAdd panics (a bug in excludeConfigFromMerge/
+// skipTrackedConfig, or — the case that surfaced this — a mutation-testing
+// mutant deliberately breaking one of them), the caller never gets a handle
+// to clean up, and the checkout + scratch home leak under the OS temp dir
+// with nothing left to remove them. Recovering here, best-effort removing
+// what THIS call created, and re-panicking preserves the original failure (a
+// real bug still crashes / a mutant still gets killed) while guaranteeing no
+// resource outlives the call that made it.
 func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	if !w.git.IsRepo(projectDir) {
 		// The caller degrades to None (shared cwd). NOTE the user edge: concurrent
@@ -134,13 +146,43 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 			if ws.configHome != "" {
 				_ = os.RemoveAll(ws.configHome)
 			}
+			if ws.curatedHome != "" {
+				_ = os.RemoveAll(ws.curatedHome)
+			}
 			panic(r)
 		}
 	}()
-	ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
+	if spec, ok := curatedHomeSpecs[w.backend]; ok {
+		ws.curatedHome = w.provisionCuratedHomeFor(agentID, spec)
+	} else {
+		ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
+	}
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
 	return ws, nil
+}
+
+// provisionCuratedHomeFor creates the per-agent curated HOME (curatedhome.go)
+// for a curatedHomeSpecs-registered backend and, when the spec's lever does
+// NOT also isolate authentication, emits the loud non-fatal
+// curatedHomeAuthFinding. Returns "" on the MkdirAll/symlink-setup failure —
+// the run still proceeds against the shared host HOME (warn), mirroring
+// provisionConfigHome's own best-effort contract; never blocking.
+func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) string {
+	home := worktreeScratchPath(w.scratchBase(), "ctxloom-home", agentID)
+	if err := provisionCuratedHome(home); err != nil {
+		clidiag.Warn("ctxloom", "worktree: curated HOME for %s unavailable (using the shared host HOME): %v", spec.engine, err)
+		// Defensive against a mutant flipping this check, mirroring
+		// provisionConfigHome's identical guard: home is a deterministic
+		// path, so a real success misclassified as failure would otherwise
+		// leave a fully-created, unreferenced dir on disk.
+		_ = os.RemoveAll(home)
+		return ""
+	}
+	if !spec.authIsolated {
+		curatedHomeAuthFinding(agentID, spec)
+	}
+	return home
 }
 
 // SpawnClient launches the bare self-invoked plugin subprocess via the Host
@@ -185,9 +227,12 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 // whose isolation env var relocates CREDENTIALS, not just config), or — for a
 // HonoursVarForCreds==false spec whose creds live in an unrelocatable global
 // store (kiro) — gates each GatedOnCreds HomeVar on its bypass env instead (see
-// gateHomeVars). No spec (w.backend == "", or a backend deliberately left out of
-// the registry — antigravity, vast-rut) is a silent no-op: the pre-fix,
-// config-only provisioning.
+// gateHomeVars). No spec (w.backend == "", or a backend genuinely left out of
+// BOTH registries, with no host isolation lever at all) is a silent no-op: the
+// pre-fix, config-only provisioning. This function is never reached for a
+// curatedHomeSpecs-registered backend (antigravity) at all — PrepareWorkspace
+// dispatches those to provisionCuratedHomeFor instead, which is loud rather
+// than silent about what it can and cannot isolate (curatedhome.go).
 //
 // The copy mechanics (I/O failure) stay best-effort like the rest of this
 // provisioning step — a warn, not a block. But "nothing seedable" is NOT
@@ -292,16 +337,26 @@ func (w Worktree) skipTrackedConfig(ctx context.Context, wtPath string) {
 }
 
 // worktreeWorkspace is the Worktree policy's workspace: Dir() is the per-agent
-// worktree checkout, Env() the per-agent config-home envs (EnvWorkspace), and
+// worktree checkout, Env() the per-agent host-lever envs (EnvWorkspace), and
 // Cleanup() the WIP-safe, nested-worktree-aware teardown.
 type worktreeWorkspace struct {
 	git        git.Git
 	repoDir    string
 	dir        string
 	configHome string
-	// backend is the registered backend name this workspace's config-home was
-	// provisioned for (Worktree.backend, copied at PrepareWorkspace time) —
-	// Env() looks up credentialSeedSpecs[backend] to build its HomeVars set.
+	// curatedHome is the per-agent curated scratch HOME (curatedhome.go) for
+	// a curatedHomeSpecs-registered backend (antigravity) — mutually
+	// exclusive with configHome (PrepareWorkspace sets exactly one,
+	// dispatching on backend registry membership). Env() returns
+	// {"HOME": curatedHome} when set, overriding the process HOME entirely
+	// rather than a scoped subdir var, because this backend has no scoped
+	// var to point instead.
+	curatedHome string
+	// backend is the registered backend name this workspace's scratch home
+	// was provisioned for (Worktree.backend, copied at PrepareWorkspace
+	// time) — Env() looks up credentialSeedSpecs[backend] to build its
+	// HomeVars set (configHome path only; curatedHome needs no lookup, its
+	// env shape is fixed).
 	backend string
 	// deniedHomeVars names GatedOnCreds env vars seedCredentials decided NOT
 	// to isolate (gateHomeVars — kiro's XDG_DATA_HOME with no KIRO_API_KEY);
@@ -309,21 +364,35 @@ type worktreeWorkspace struct {
 	deniedHomeVars map[string]bool
 }
 
-// Ensure the workspace exposes its per-agent config-home envs.
+// Ensure the workspace exposes its per-agent host-lever envs.
 var _ EnvWorkspace = (*worktreeWorkspace)(nil)
 
 // Dir returns the worktree checkout the member's engine runs in.
 func (w *worktreeWorkspace) Dir() string { return w.dir }
 
-// Env returns the per-agent config-home envs that isolate each engine's GLOBAL
-// config/state/creds home (T0.6, widened per per-engine-isolation-home plan
-// §6). Driven entirely by credentialSeedSpecs[w.backend].HomeVars — a single
-// per-engine descriptor instead of a hardcoded var map — so claude/codex each
-// get their one var and kiro gets two (KIRO_HOME always, XDG_DATA_HOME unless
-// gateHomeVars denied it). Empty when no config-home could be provisioned, the
-// backend has no registered spec (antigravity — no lever, "" — no backend
-// context), or every var was denied.
+// Env returns the per-agent host-lever envs, in one of two mutually exclusive
+// shapes (see worktreeWorkspace.curatedHome's doc):
+//
+//   - curatedHome set (antigravity): {"HOME": curatedHome} — the ONLY lever
+//     this backend has is HOME itself, so the whole process HOME is
+//     overridden rather than a scoped var pointed elsewhere.
+//   - configHome set (claude/codex/kiro): the SCOPED config-home envs that
+//     isolate each engine's GLOBAL config/state/creds home (T0.6, widened
+//     per per-engine-isolation-home plan §6), driven entirely by
+//     credentialSeedSpecs[w.backend].HomeVars — claude/codex each get their
+//     one var, kiro gets two (KIRO_HOME always, XDG_DATA_HOME unless
+//     gateHomeVars denied it). HOME itself is left untouched, deliberately:
+//     a blanket HOME override would strip the ~/.gitconfig/~/.ssh identity
+//     the worktree still needs for git itself, which a scoped var avoids by
+//     construction.
+//
+// Empty when neither scratch home could be provisioned, the backend has no
+// registered spec in either registry ("" — no backend context; a truly
+// lever-less backend), or every configHome var was denied.
 func (w *worktreeWorkspace) Env() map[string]string {
+	if w.curatedHome != "" {
+		return map[string]string{"HOME": w.curatedHome}
+	}
 	if w.configHome == "" {
 		return nil
 	}
@@ -344,11 +413,19 @@ func (w *worktreeWorkspace) Env() map[string]string {
 	return env
 }
 
-// Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes the
-// per-agent config-home. Idempotent (guarded by clearing dir). It NEVER returns
-// an error — every git inability warns and continues (fault tolerance), and WIP
-// is sacred: an inner worktree with uncommitted work, or an unknowable state,
-// leaves the whole tree in place rather than risk destroying it.
+// Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes
+// whichever scratch home was provisioned (configHome or curatedHome — at
+// most one is ever set). Idempotent (guarded by clearing dir). It NEVER
+// returns an error — every git inability warns and continues (fault
+// tolerance), and WIP is sacred: an inner worktree with uncommitted work, or
+// an unknowable state, leaves the whole tree in place rather than risk
+// destroying it.
+//
+// Removing curatedHome is safe for the allowlisted symlinks it contains:
+// os.RemoveAll never follows a symlink to recurse into it (it Lstats each
+// entry and unlinks a symlink directly), so the real ~/.gitconfig / ~/.ssh
+// on the host are never touched here — only the pointer inside the curated
+// dir is removed.
 func (w *worktreeWorkspace) Cleanup() error {
 	if w.dir == "" {
 		return nil
@@ -365,6 +442,13 @@ func (w *worktreeWorkspace) Cleanup() error {
 		w.configHome = ""
 		if err := os.RemoveAll(home); err != nil {
 			warnCleanupResidue("per-agent config-home", home, err)
+		}
+	}
+	if w.curatedHome != "" {
+		home := w.curatedHome
+		w.curatedHome = ""
+		if err := os.RemoveAll(home); err != nil {
+			warnCleanupResidue("per-agent curated HOME", home, err)
 		}
 	}
 	return nil

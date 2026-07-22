@@ -288,41 +288,38 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 	})
 }
 
-// TestChainFor_AntigravityHostWorktree_FatalUnlessDegraded pins task
-// sweet-fruit's host-mode fail-loud: antigravity has no config-home env lever
-// (worktreeWorkspace.Env() contributes nothing for it — see
-// credentialSeedSpecs' doc, auth.go), so a host+worktree antigravity agent
-// would otherwise run UN-isolated with no signal. The choke fires both for a
-// bare {worktree, host} request and for a {worktree, container} request that
-// degraded to host (the container axis dropped, worktree stays) — either way
-// the agent ends up unisolated on the host. It must NOT fire for any other
-// backend, and must NOT fire for the worktree-in-container composition (a
-// real container boundary already contains the blast radius there).
-func TestChainFor_AntigravityHostWorktree_FatalUnlessDegraded(t *testing.T) {
-	t.Run("strict {worktree,host}: antigravity gets exactly one fatal isolation finding", func(t *testing.T) {
+// TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding is the
+// successor to the former sweet-fruit fail-loud gate here: chainFor USED TO
+// record a fatal ClassIsolation finding for host+worktree antigravity (a
+// choke owner abort unless --degraded), on the premise that antigravity has
+// "no config-home lever at all". That premise was measurably false (HOME
+// does relocate its config/session state — see curatedhome.go's doc) and the
+// gate has been REPLACED: chainFor itself no longer treats antigravity
+// specially at all — the curated-HOME provisioning AND its accompanying
+// loud-but-non-fatal finding now live entirely in
+// Worktree.PrepareWorkspace/provisionCuratedHomeFor (see worktree_test.go's
+// TestWorktree_Antigravity_* for that coverage). This test pins the negative
+// space: chainFor never records ANYTHING for antigravity, in strict mode or
+// degraded, worktree-only or worktree-degraded-from-container.
+func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testing.T) {
+	t.Run("strict {worktree,host}: worktree granted, no finding", func(t *testing.T) {
 		resetStrictness(t)
 
 		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeHost}, "antigravity", ImageConfig{})
 		require.NotEmpty(t, chain)
-		assert.IsType(t, Worktree{}, chain[0], "the run still gets a worktree — this is a loud degrade, not a block")
-
-		findings := strictness.All()
-		require.Len(t, findings, 1)
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "agy cannot be isolated on the host")
-		assert.Contains(t, findings[0].FixIt, "runtime:container", "the fix-it must name the escape hatch")
-		assert.Contains(t, findings[0].FixIt, "--degraded")
+		assert.IsType(t, Worktree{}, chain[0], "the run gets a worktree unconditionally now — no refusal")
+		assert.Empty(t, strictness.All(), "chainFor no longer records anything for antigravity — see curatedhome.go for where the (non-fatal) finding now lives")
 	})
 
-	t.Run("strict {worktree,host}: no finding for a backend WITH a config-home lever", func(t *testing.T) {
+	t.Run("strict {worktree,host}: no finding for a backend WITH a config-home lever either", func(t *testing.T) {
 		resetStrictness(t)
 
 		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeHost}, "claude-code", ImageConfig{})
 		require.NotEmpty(t, chain)
-		assert.Empty(t, strictness.All(), "claude has a config-home lever — no antigravity-specific finding")
+		assert.Empty(t, strictness.All())
 	})
 
-	t.Run("strict {worktree,container} degraded to host: antigravity still gets its finding", func(t *testing.T) {
+	t.Run("strict {worktree,container} degraded to host: still no antigravity-specific finding from chainFor", func(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
@@ -330,15 +327,15 @@ func TestChainFor_AntigravityHostWorktree_FatalUnlessDegraded(t *testing.T) {
 		require.NotEmpty(t, chain)
 		assert.IsType(t, Worktree{}, chain[0])
 
+		// The generic no-runtime degrade finding still fires (unrelated to
+		// antigravity) — but nothing ELSE does.
 		findings := strictness.All()
-		require.Len(t, findings, 2, "the generic no-runtime finding plus the antigravity-specific one")
+		require.Len(t, findings, 1, "only the generic no-runtime finding — no antigravity-specific one")
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 		assert.Contains(t, findings[0].Message, "keeping the worktree")
-		assert.Equal(t, strictness.ClassIsolation, findings[1].Class)
-		assert.Contains(t, findings[1].Message, "agy cannot be isolated on the host")
 	})
 
-	t.Run("degraded: no finding — the host degrade is the accepted outcome", func(t *testing.T) {
+	t.Run("degraded: no finding — unchanged", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 

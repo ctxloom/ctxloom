@@ -102,6 +102,7 @@ export default defineConfig({
 					label: 'taskloom',
 					items: [
 						{ label: 'Overview', link: '/taskloom/' },
+						{ label: 'Tags', link: '/taskloom/tags/' },
 						{ label: 'CLI', autogenerate: { directory: 'taskloom/reference/cli' } },
 						{ label: 'MCP Tools', link: '/taskloom/reference/mcp-tools/' },
 					],

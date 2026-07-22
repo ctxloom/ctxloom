@@ -493,6 +493,23 @@ test-acceptance-live-container: container-build-acceptance
             go build -o /home/ctxloom/ctxloom . && \
             CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
+# Run the standalone isolation probe (tests/acceptance/features/
+# isolation_probe.feature) for exactly ONE engine x axis cell — the
+# per-engine-release regression check, not the whole live suite. ENGINE is
+# one of claude-code|codex|kiro|opencode|antigravity; AXIS is worktree or
+# container (or "bypass" for the engine's env-API-key-forced worktree row,
+# or "kiro-leak" for the dedicated --degraded credential-store-leak proof —
+# that one ignores ENGINE/AXIS). Makes AT MOST one real, paid engine call.
+# Requires real credentials for ENGINE (a host credential file, or its
+# API-key env var) — self-skips loudly, naming exactly what is missing, when
+# absent. See website/src/content/docs/security/isolation.md's "The
+# executable probe" section.
+isolation-probe ENGINE AXIS: build
+    ACCEPTANCE_PATHS=features/isolation_probe.feature \
+    ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \
+    CTXLOOM_ACCEPTANCE_LIVE=1 \
+    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Run a single package's tests under -race (fast local iteration)
 test-pkg PKG *ARGS:
     go test -race {{ARGS}} {{PKG}}

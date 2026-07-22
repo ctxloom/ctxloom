@@ -185,14 +185,26 @@ Feature: Isolation axes — where an agent's workspace and runtime actually land
       | codex       |
       | opencode    |
 
-  # LOCKED — the ISOLATED case, positively proven: the engine process itself
-  # (not ctxloom's own bookkeeping) sees its config-home var pointed at a
-  # per-agent scratch directory, and the credential material that lands there
-  # is byte-for-byte the host's own — a real COPY, not a symlink or a stub —
-  # while the host's original file is never written to. This is the exact
-  # claim that would go RED the moment a vendor engine, or a ctxloom
-  # regression, stopped honoring the var, or the seeding started mutating the
-  # host original.
+  # LOCKED — the ISOLATED case, positively proven, but only ONE HALF of the
+  # claim its own name suggests. What this scenario actually proves: ctxloom's
+  # OWN bookkeeping — the env var it sets, the byte-for-byte copy it seeds,
+  # the host original it leaves untouched — is correct. The spy is
+  # cooperative BY CONSTRUCTION (see the file-level UPDATE note above): it
+  # dumps whatever env it was handed and cats whatever file that env points
+  # at, so this scenario is INCAPABLE of going red if a real vendor engine
+  # read CLAUDE_CONFIG_DIR/CODEX_HOME and then wrote somewhere else anyway —
+  # that engine would never run here at all. A prior version of this comment
+  # claimed otherwise ("this is the exact claim that would go RED the moment
+  # a vendor engine... stopped honoring the var"); that claim was false and
+  # has been corrected. The vendor half of the claim — does a REAL engine
+  # binary actually honor the variable it was handed, credentials and all —
+  # is proven live, against real engine binaries and real credentials, by
+  # tests/acceptance/features/isolation_probe.feature (`just isolation-probe
+  # <engine> worktree`). The two layers are complementary, not redundant:
+  # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
+  # every commit; the probe is slow, costs a real paid call, and is the one
+  # that would have caught kiro's actual credential-store leak (legal-hula) —
+  # discovered by running kiro live, not by any spy.
   Scenario Outline: A worktree run copies the host credential into the isolated config-home verbatim, and never touches the host's own copy
     Given Alice has a git-backed project
     And Alice has a "<engine>" credential fixture on the host

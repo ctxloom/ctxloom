@@ -441,6 +441,7 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(val, marker) {
 			return fmt.Errorf("%s=%q does not look like a per-session isolated scratch path (expected it to contain %q)", varName, val, marker)
 		}
+		w.docStepMaterialized = fmt.Sprintf("spy %s process env: %s=%s\n(host original would have been %s or %s)", engine, varName, val, hostDotDir, w.env.HomeDir)
 		return nil
 	})
 
@@ -460,6 +461,7 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if got != want {
 			return fmt.Errorf("isolated %s credential content = %q, want the host fixture %q; full spy dump:\n%s", engine, got, want, body)
 		}
+		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s):\n%s", engine, marker, got)
 		return nil
 	})
 
@@ -476,6 +478,7 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if strings.TrimSpace(got) != strings.TrimSpace(isoFixtureCredMarker) {
 			return fmt.Errorf("host %s credential file content changed by the run — the seed path must be a COPY, never a mutation of the host original; got:\n%s", engine, got)
 		}
+		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))
 		return nil
 	})
 
@@ -496,6 +499,7 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		if sshResolved != wantSSH {
 			return fmt.Errorf("%s inside the curated HOME resolved to %q, want the host original %q; full spy dump:\n%s", ssh, sshResolved, wantSSH, body)
 		}
+		w.docStepMaterialized = fmt.Sprintf("curated HOME %s -> %s\ncurated HOME %s -> %s", gitconfig, gitResolved, ssh, sshResolved)
 		return nil
 	})
 }

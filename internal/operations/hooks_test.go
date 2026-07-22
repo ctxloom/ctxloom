@@ -1143,6 +1143,70 @@ fragments:
 	assert.Contains(t, stderr, "ctxloom: warning: undefined variable: {{missing_hook_var}}")
 }
 
+// TestApplyHooks_RegenerateContextUndefinedVariableWarningNamesFragment is
+// the hooks.go counterpart of
+// context_test.go's TestAssembleContext_UndefinedVariableWarningNamesFragment:
+// the SessionStart-injected context path assembles two fragments and the
+// undefined-variable warning must name the offending one, not the clean one,
+// so a mustache mistake surfaced on session start is directly actionable.
+func TestApplyHooks_RegenerateContextUndefinedVariableWarningNamesFragment(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "content", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle
+fragments:
+  hook-attribution-clean:
+    content: |
+      Nothing templated here.
+  hook-attribution-leaky:
+    content: |
+      Hello {{hook_attribution_check_variable}}.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return config.NewFixture(config.Fixture{
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+			Profiles: config.ProfilesConfig{
+				Definitions: map[string]config.Profile{
+					"default": {
+						Fragments: []config.FragmentRef{
+							{Name: "test#fragments/hook-attribution-clean"},
+							{Name: "test#fragments/hook-attribution-leaky"},
+						},
+						// No variables bound — hook_attribution_check_variable is undefined.
+					},
+				},
+			},
+		}), nil
+	}
+
+	var result *ApplyHooksResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:           "claude-code",
+			RegenerateContext: true,
+			ExecPath:          "/usr/bin/ctxloom",
+			ConfigLoader:      mockConfigLoader,
+			WorkDir:           tmpDir,
+		})
+		require.NoError(t, err)
+	})
+
+	require.NotEmpty(t, result.ContextHash)
+	assert.Contains(t, stderr, "ctxloom: warning: undefined variable: {{hook_attribution_check_variable}}")
+	assert.Contains(t, stderr, "test#fragments/hook-attribution-leaky",
+		"the warning must name the fragment the undefined variable actually came from")
+	assert.NotContains(t, stderr, "test#fragments/hook-attribution-clean",
+		"the warning must not implicate the fragment that had nothing wrong")
+}
+
 // TestApplyHooks_RegenerateContextWithFragments tests regenerateContext with direct fragments.
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()

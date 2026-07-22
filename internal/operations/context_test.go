@@ -526,6 +526,57 @@ fragments:
 	assert.Empty(t, second, "identical warning must not repeat on a second assembly of the same content")
 }
 
+// TestAssembleContext_UndefinedVariableWarningNamesFragment closes the
+// attribution gap left by TestAssembleContext_UndefinedVariableWarns: when
+// SEVERAL fragments assemble together, "undefined variable: {{version}}"
+// alone doesn't say which of them to fix. Two fragments are assembled here —
+// one clean, one with an undefined variable — and the warning must name the
+// OFFENDING fragment specifically, not the clean one, so an author with a
+// multi-fragment profile can go straight to the right file instead of
+// grepping every assembled fragment for the placeholder.
+func TestAssembleContext_UndefinedVariableWarningNamesFragment(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(paths.LocalBundlesPath(testBaseDir), 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle for warning attribution
+fragments:
+  attribution-clean:
+    content: |
+      Nothing templated here.
+  attribution-leaky:
+    content: |
+      Leaky: {{attribution_check_variable}}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+
+	cfg := config.NewFixture(config.Fixture{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"attribution": {Fragments: []config.FragmentRef{
+				{Name: "dev#fragments/attribution-clean"},
+				{Name: "dev#fragments/attribution-leaky"},
+			}},
+		}},
+	})
+
+	stderr := captureStderr(t, func() {
+		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+			Profile: "attribution",
+			Loader:  loader,
+		})
+		require.NoError(t, err)
+	})
+
+	assert.Contains(t, stderr, "ctxloom: warning: undefined variable: {{attribution_check_variable}}")
+	assert.Contains(t, stderr, `dev#fragments/attribution-leaky`,
+		"the warning must name the fragment the undefined variable actually came from")
+	assert.NotContains(t, stderr, `dev#fragments/attribution-clean`,
+		"the warning must not implicate the fragment that had nothing wrong")
+}
+
 func TestAssembleContext_EmptyRequest(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})

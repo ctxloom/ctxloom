@@ -516,7 +516,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:         content.Name,
-			Content:      substituteVariables(content.Content, profileVars, warnSubstitution),
+			Content:      substituteVariables(content.Content, profileVars, warnSubstitutionFor(content.Name)),
 			Installation: content.Installation,
 		})
 	}

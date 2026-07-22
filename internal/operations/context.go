@@ -334,12 +334,21 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 }
 
 // loadAssembledContext loads the ordered fragments (honoring per-ref content
-// versions) and applies variable substitution. Returns empty content when there
-// are no fragments. A fragment that fails to load — not found, gate-withheld, or
-// a pinned version that fails to fetch — is skipped so the rest still assemble
-// in degraded mode; in strict mode the skip records a fatal finding (see
+// versions) and applies variable substitution PER FRAGMENT, before joining —
+// not on the joined whole. Returns empty content when there are no fragments.
+// A fragment that fails to load — not found, gate-withheld, or a pinned
+// version that fails to fetch — is skipped so the rest still assemble in
+// degraded mode; in strict mode the skip records a fatal finding (see
 // warnFragmentLoadFailure) so a profile-pushed fragment can never silently
 // vanish from the session.
+//
+// Substituting per-fragment (rather than joining first, as this used to)
+// buys two things: warnSubstitutionFor can name the offending fragment in
+// the warning, and a fragment that opens a Mustache Set Delimiter escape
+// block and forgets to close it (docs/guides/templating.md's documented
+// footgun) can no longer swallow a NEIGHBORING fragment's real variables —
+// the escape state is scoped to one substituteVariables call, hence one
+// fragment, same as hooks.go's regenerateContext already did.
 func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
 	if len(ordered) == 0 {
 		return "", nil, nil
@@ -351,24 +360,33 @@ func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, 
 			warnFragmentLoadFailure(ref, err)
 			continue
 		}
-		parts = append(parts, strings.TrimSpace(lc.Content))
+		substituted := substituteVariables(strings.TrimSpace(lc.Content), profileVars, warnSubstitutionFor(ref.Name))
+		parts = append(parts, substituted)
 		loadedNames = append(loadedNames, ref.Name)
 	}
 	// Joined with the same separator LoadMultiple uses so the output is
 	// indistinguishable regardless of which load path produced each fragment.
 	content := strings.Join(parts, "\n\n---\n\n")
-	content = substituteVariables(content, profileVars, warnSubstitution)
 	return content, loadedNames, nil
 }
 
-// warnSubstitution surfaces a substituteVariables finding — an undefined
-// variable, a template parse failure, or a template render failure — to the
-// user via the standard clidiag warning line ("ctxloom: warning: ..."),
-// exactly as docs/concepts/fragments.md and docs/guides/templating.md
-// promise for an undefined variable. Both substituteVariables call sites
-// (this file's loadAssembledContext and hooks.go's regenerateContext) share
-// this one warnFunc so the wording and dedup behavior can't drift between
-// the two.
+// warnSubstitutionFor returns a substituteVariables warnFunc that names
+// fragmentName in the finding it surfaces — an undefined variable, a
+// template parse failure, or a template render failure — via the standard
+// clidiag warning line ("ctxloom: warning: ..."), exactly as
+// docs/concepts/fragments.md and docs/guides/templating.md promise for an
+// undefined variable. Both substituteVariables call sites (this file's
+// loadAssembledContext and hooks.go's regenerateContext) build their warnFunc
+// through this one helper so the wording and dedup behavior can't drift
+// between the two.
+//
+// The fragment name is APPENDED, not prepended, so the message keeps
+// starting with "undefined variable: {{name}}" / "failed to parse template:
+// ..." exactly as documented and already asserted by
+// TestAssembleContext_UndefinedVariableWarns and its siblings — this is
+// additive attribution, not a reformat. Without it, a warning from a
+// multi-fragment assembly names the undefined variable but not WHICH of the
+// assembled fragments to open and fix.
 //
 // Deliberately NOT a strictness.Fail/FailOnce finding: an undefined variable
 // renders empty and is recoverable (making it fatal-by-default would break
@@ -383,9 +401,14 @@ func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, 
 // SessionStart), so an unchanged fragment's undefined variable would
 // otherwise re-warn on every call. WarnOnce is the same dedup
 // strictness.FailOnce already layers over for chokes that "re-fire per
-// subsystem" — this is that shape without a recorded finding.
-func warnSubstitution(msg string) {
-	clidiag.WarnOnce("ctxloom", "%s", msg)
+// subsystem" — this is that shape without a recorded finding. The dedup key
+// is the full formatted line (fragment name included), so the SAME variable
+// left undefined in TWO different fragments still warns once per fragment,
+// not once total.
+func warnSubstitutionFor(fragmentName string) func(string) {
+	return func(msg string) {
+		clidiag.WarnOnce("ctxloom", "%s (fragment %q)", msg, fragmentName)
+	}
 }
 
 // loadFragmentRef resolves one fragment ref, honoring a pinned content version.

@@ -174,3 +174,42 @@ func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
 	assert.Contains(t, mcp.Servers, "keep-srv")
 	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
 }
+
+// TestAssembleManagedDenyTools_DirProfile proves a directory profile's
+// deny_tools reaches assembleManagedDenyTools — the deny-tools mirror of
+// TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate. Deliberately no
+// executable trust gate set (deny_tools is never gated), so this ALSO proves
+// an ungated cfg does not accidentally withhold it.
+func TestAssembleManagedDenyTools_DirProfile(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{
+		"dir": "deny_tools:\n  - Task\n",
+	}, nil)
+
+	got := assembleManagedDenyTools(cfg, nil)
+	assert.Equal(t, []string{"Task"}, got)
+}
+
+// TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes is the deny-tools
+// mirror of TestAssembleManagedMCP_DirProfileMergesWithInlineDefault: the
+// union spans an inline default profile and a directory default profile, and
+// a tool named by both collapses to one entry.
+func TestAssembleManagedDenyTools_MergesInlineAndDirAndDedupes(t *testing.T) {
+	cfg := dirProfileCfg(t, []string{"inlineP", "dirP"},
+		map[string]string{"dirP": "deny_tools:\n  - Task\n  - WebFetch\n"},
+		map[string]config.Profile{
+			"inlineP": {DenyTools: []string{"WebFetch"}},
+		})
+
+	got := assembleManagedDenyTools(cfg, nil)
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, got, "union across inline+directory defaults, deduped")
+}
+
+// TestAssembleManagedDenyTools_Empty proves a nil cfg and a profile set with
+// no deny_tools both degrade to an empty result (never nil-panics, never
+// fabricates a denial) — the silent-no-op guard for the empty-input case.
+func TestAssembleManagedDenyTools_Empty(t *testing.T) {
+	assert.Nil(t, assembleManagedDenyTools(nil, nil))
+
+	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": "description: plain\n"}, nil)
+	assert.Empty(t, assembleManagedDenyTools(cfg, nil))
+}

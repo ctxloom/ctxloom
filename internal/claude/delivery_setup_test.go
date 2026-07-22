@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +137,43 @@ func TestSetup_SharedCell_SettingsOutOfCwd(t *testing.T) {
 		"a SharedCell run loads settings via --settings")
 }
 
+// TestSetup_SharedCell_DenyToolsInSettings is the deny-tools payload test for a
+// SharedCell run: it proves ManagedConfig.DenyTools reaches the OUT-OF-CWD
+// --settings file's permissions.deny — not just that Setup exits without
+// error (ctxloom's characteristic silent-no-op failure mode is exit 0 /
+// zero bytes delivered, so this asserts the actual JSON payload, not merely
+// that the call succeeded).
+func TestSetup_SharedCell_DenyToolsInSettings(t *testing.T) {
+	work := t.TempDir()
+	managed := &agent.ManagedConfig{DenyTools: []string{"Task"}}
+	backend, ephem := setupClaudeInTempHome(t, work, "perky-same-chevy", managed)
+
+	// The live cwd stays clean — same SharedCell invariant as the hooks case.
+	assert.NoFileExists(t, filepath.Join(work, ".claude", "settings.json"),
+		"SharedCell must NOT write settings into the live cwd")
+
+	settingsPath := backend.surfaces.Settings.Path()
+	require.NotEmpty(t, settingsPath, "Setup must materialize the out-of-cwd settings file")
+	assert.True(t, strings.HasPrefix(settingsPath, ephem),
+		"settings scratch must live under the harp ephemeral dir: %q", settingsPath)
+
+	data, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	assert.Equal(t, []string{"Task"}, parsed.Permissions.Deny,
+		"the resolved deny_tools must land verbatim in permissions.deny — payload, not just a successful write")
+
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindShared})
+	assert.True(t, argPair(args, "--settings", settingsPath),
+		"a SharedCell run loads the deny-carrying settings via --settings — the same flag delivers the deny")
+}
+
 // TestSetup_SharedCell_MCPOutOfCwd proves the approved SharedCell change for MCP:
 // the managed .mcp.json rides an OUT-OF-CWD --mcp-config file, not the live cwd,
 // and WITHOUT --strict-mcp-config so claude LAYERS ctxloom's servers on top of the
@@ -207,6 +245,37 @@ func TestSetup_IsolatedCell_WellKnownFilesNoFlags(t *testing.T) {
 
 	// No context scratch leaks into the tree (context is CLAUDE.md, not a sysprompt file).
 	assertNoSyspromptUnder(t, work)
+}
+
+// TestSetup_IsolatedCell_DenyToolsInSettings is the isolated-cell twin of
+// TestSetup_SharedCell_DenyToolsInSettings: the well-known
+// .claude/settings.json written INTO the private working dir must carry
+// permissions.deny — the deny-tools fix applies identically whether the
+// cell is a SharedCell (out-of-cwd flag file) or an isolated cell
+// (worktree/container well-known file).
+func TestSetup_IsolatedCell_DenyToolsInSettings(t *testing.T) {
+	work := t.TempDir()
+	managed := &agent.ManagedConfig{DenyTools: []string{"Task"}}
+	backend := setupClaudeIsolated(t, work, managed)
+
+	settingsPath := filepath.Join(work, ".claude", "settings.json")
+	require.FileExists(t, settingsPath)
+
+	data, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	assert.Equal(t, []string{"Task"}, parsed.Permissions.Deny,
+		"the resolved deny_tools must land verbatim in the well-known settings.json's permissions.deny")
+
+	// No out-of-cwd flag in an isolated cell — same invariant as the plain case.
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, CellKind: agent.CellKindDirectoryIsolated})
+	assert.NotContains(t, args, "--settings")
 }
 
 // TestCleanup_RemovesDeliveredSurfaces proves teardown reverses the delivered

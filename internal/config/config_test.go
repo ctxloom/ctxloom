@@ -475,6 +475,43 @@ func TestResolveProfile_ExcludeMCP(t *testing.T) {
 	assert.NotContains(t, resolved.MCP.Servers, "server-b")
 }
 
+// TestResolveProfile_DenyTools proves an inline profile's deny_tools
+// resolves through ResolveProfile (schema round-trip: YAML-shaped Profile in,
+// resolved DenyTools out) — the config-side half of the deny-tools fix.
+func TestResolveProfile_DenyTools(t *testing.T) {
+	profiles := map[string]Profile{
+		"solo": {
+			DenyTools: []string{"Task", "WebFetch"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "solo")
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, resolved.DenyTools)
+}
+
+// TestResolveProfile_DenyToolsAccumulateAndDedupe proves deny_tools accumulates
+// through parent inheritance (a child cannot un-deny what a parent denied,
+// matching ExcludeMCP/ExcludeFragments semantics) and a tool named by both
+// parent and child appears once.
+func TestResolveProfile_DenyToolsAccumulateAndDedupe(t *testing.T) {
+	profiles := map[string]Profile{
+		"parent": {
+			DenyTools: []string{"Task"},
+		},
+		"child": {
+			Parents:   []string{"parent"},
+			DenyTools: []string{"Task", "WebFetch"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, resolved.DenyTools)
+}
+
 func TestResolveProfile_ExclusionsAccumulate(t *testing.T) {
 	profiles := map[string]Profile{
 		"grandparent": {

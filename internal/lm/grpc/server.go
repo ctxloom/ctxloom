@@ -88,21 +88,33 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		env = make(map[string]string)
 	}
 
-	// prim-bluff (SILENT NO-OP, fail-loudly half of the fix): Fragments are
-	// delivered to the backend ONLY inside the !SkipSetup branch just below —
-	// Setup is the sole path that converts+delivers req.Fragments; the
-	// SkipSetup Execute path (built further down as execReq) carries no
-	// Fragments field at all. A caller that sets both SkipSetup and Fragments
-	// has its fragments silently discarded — exit 0, plausible output, wrong
-	// behaviour. Warning here (rather than erroring) keeps every currently-
-	// working caller running while making the drop visible instead of mute;
-	// a hard fail was rejected because at least one existing caller
-	// (operations/oneshot.go's runResolvedAgent, the "none"-isolation
-	// fan-out/weave member path) currently relies on this exact combination
-	// and has NOT been separately investigated/fixed here — see prim-bluff
-	// findings. Escalate before turning this into a hard error.
-	if opts.GetSkipSetup() && len(req.GetFragments()) > 0 {
-		clidiag.Warn("ctxloom", "SkipSetup run received %d fragment(s) that cannot be delivered (Setup is skipped) — they will be silently dropped unless the prompt smuggles their content itself", len(req.GetFragments()))
+	// dire-petal (SILENT NO-OP, now fixed at the seam): Fragments are converted
+	// +delivered to the backend by Setup — the SkipSetup Execute path (built
+	// further down as execReq) carries no Fragments field at all. Confirmed
+	// live: operations/oneshot.go's runResolvedAgent (the "none"-isolation
+	// fan-out/weave member path) sets BOTH SkipSetup:true and
+	// Fragments:[{Content: composedContext}] so the shared project cwd is
+	// never touched with per-member config — and until this fix, that
+	// composed context was silently discarded: the member ran context-free,
+	// reported exit 0, and produced plausible output with zero context
+	// delivered (prim-bluff had only made the drop visible via clidiag.Warn,
+	// not fixed it — see the removed warning this replaces).
+	//
+	// Fixed by smuggling the fragments into the prompt itself — the one
+	// channel a SkipSetup run still has — framed with the EXACT SAME envelope
+	// (agent.FrameProjectContext) claude's --append-system-prompt-file
+	// delivery already uses for a full-setup run, so a SkipSetup run's
+	// content reads identically to what a full-setup run would have written.
+	// Every current SkipSetup+Fragments caller (today, only the fan-out/weave
+	// "none" member) now gets its content delivered instead of dropped; a
+	// caller that only ever meant the bare prompt never sets Fragments in the
+	// first place, so this is a strict improvement with no new requirement on
+	// anyone. promptContent feeds execReq.Prompt below.
+	promptContent := req.GetPrompt().GetContent()
+	if opts.GetSkipSetup() {
+		if framed := agent.FrameProjectContext(agent.AssembleContext(convertFragments(req.Fragments))); framed != "" {
+			promptContent = framed + "\n\n" + promptContent
+		}
 	}
 
 	// Setup the backend (skip for distillation/minimal mode)
@@ -182,9 +194,20 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		}
 	}()
 
-	// Build execute request from RunStart
+	// Build execute request from RunStart. execPrompt carries promptContent
+	// (the original prompt, prefixed with any smuggled Fragments above) rather
+	// than the raw req.Prompt, but keeps req.Prompt's other fields (Name,
+	// Tags, ...) intact when a prompt was actually sent; a nil req.Prompt with
+	// smuggled content still needs a Fragment to carry it.
+	execPrompt := convertFragment(req.Prompt)
+	if promptContent != req.GetPrompt().GetContent() {
+		if execPrompt == nil {
+			execPrompt = &agent.Fragment{}
+		}
+		execPrompt.Content = promptContent
+	}
 	execReq := &agent.ExecuteRequest{
-		Prompt:      convertFragment(req.Prompt),
+		Prompt:      execPrompt,
 		WorkDir:     workDir,
 		Mode:        agent.ExecutionMode(opts.GetMode()),
 		Model:       opts.GetModel(),

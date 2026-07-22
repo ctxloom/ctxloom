@@ -246,22 +246,29 @@ Feature: Isolation axes — where an agent's workspace and runtime actually land
     And the spy "kiro" process's "KIRO_HOME" env var points to an isolated per-agent directory, not the host's own
     And the spy "kiro" process's "XDG_DATA_HOME" env var points to an isolated per-agent directory, not the host's own
 
-  # LOCKED — antigravity's PARTIAL isolation, the STRONGEST failure in the
-  # matrix: HOME is its only lever, and pointing it at a curated scratch dir
-  # genuinely relocates config and session state (a fresh .gemini/ tree
-  # materializes there — curatedhome.go's own measurement) — but never
-  # authentication, which rides an OS-session keyring reached via a
-  # UID-derived socket ($DBUS one) that ignores $HOME entirely. This finding
-  # is deliberately NON-fatal (clidiag.Warn, never strictness.Fail — see
-  # curatedHomeAuthFinding's own doc): a partial boundary the run proceeds
-  # through by design, never silently promoted to "isolated". Distinguishing
-  # this from kiro's FATAL leak above is the point of pairing them: two
-  # different-severity partial isolations, two different exit-code
-  # contracts, both provable from the same suite.
-  Scenario: A worktree run for antigravity relocates config and session state via a curated HOME, but never authentication
+  # UPDATED 2026-07-22 — antigravity's host-worktree posture escalated from a
+  # non-fatal warning to a REFUSAL, the same severity as kiro's credential
+  # leak above. HOME is antigravity's only lever, and pointing it at a
+  # curated scratch dir genuinely relocates config and session state (a
+  # fresh .gemini/ tree materializes there — curatedhome.go's own
+  # measurement) — but a worktree request's two ACTUAL payoffs are both
+  # absent for this engine: not authentication (an OS-session keyring reached
+  # via a UID-derived socket that ignores $HOME entirely) and, MEASURED THE
+  # SAME DAY, not file writes either (`agy -p` ignores the launch cwd
+  # entirely and always writes to its own fixed global scratch,
+  # ~/.gemini/antigravity-cli/scratch/ — see curatedhome.go's package doc).
+  # A curated HOME here isolates neither of the two things a worktree
+  # request is actually for, so ctxloom refuses instead of warning through
+  # it — the SAME ClassIsolation mechanism as kiro's leak, fatal unless
+  # --degraded. The run aborts BEFORE the engine spawns (isolation.Prepare's
+  # second gate, run.go), so — unlike the prior non-fatal version of this
+  # scenario — there is no spy process left to inspect; the HOME-override
+  # and symlink payload this used to also assert here stays proven at the Go
+  # level (curatedhome_test.go's TestWorktree_Antigravity_HomeOverrideAndSymlinks
+  # /_CuratedHomeCleanedUpOnTeardown), where PrepareWorkspace can be called
+  # directly without the CLI's fatal gate in the way.
+  Scenario: A worktree run for antigravity refuses to start — neither authentication nor file writes are isolated by a curated HOME
     Given Alice has a git-backed project
-    And Alice has a ".gitconfig" and ".ssh" on the host
     When Alice runs the isolated "antigravity" agent under workspace "worktree"
-    Then the run reports a non-fatal isolation warning naming "AUTHENTICATION IS NOT"
-    And the spy "antigravity" process's "HOME" env var points to an isolated per-agent directory, not the host's own
-    And the curated antigravity HOME symlinks the host's ".gitconfig" and ".ssh" rather than copying them
+    Then the run aborts with an isolation finding naming "AUTHENTICATION escapes it"
+    And the run aborts with an isolation finding naming "FILE WRITES escape it"

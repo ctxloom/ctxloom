@@ -162,6 +162,15 @@ func buildMockResponse(customResponse, contextStr, promptContent string, mode ag
 
 	if contextStr != "" {
 		_, _ = fmt.Fprintf(&response, "[mock] context_length=%d\n", len(contextStr))
+		// The doc comment above ("echoes back prompts and context") promised
+		// the CONTENT, not just its length — before this line, a hermetic
+		// caller could prove a fragment was ASSEMBLED (the length changed) but
+		// never that its actual guidance reached the child's own output. J17
+		// (cross-engine delegation) needs exactly that: two children with
+		// different composed profiles must each emit evidence, in their OWN
+		// stdout, of guidance present in their OWN context and absent from a
+		// sibling's — a length number cannot carry that, verbatim text can.
+		_, _ = fmt.Fprintf(&response, "[mock] context=%s\n", contextStr)
 	}
 	if promptContent != "" {
 		_, _ = fmt.Fprintf(&response, "[mock] prompt=%s\n", promptContent)

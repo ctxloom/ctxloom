@@ -192,13 +192,14 @@ var knownUncoveredCLI = []string{
 // set of registered tools (from a plain, non-forwarding `mcp serve`) this
 // gate accepts as uncovered, checked for exact-set equality the same way.
 var knownUncoveredTools = []string{
-	// Agent-delegation bus + trigger evaluation: agent_run is now exercised by
-	// J6 (steps_j6_delegation.go, j6_delegation.feature — a coordinator
-	// spawning delegated children and auditing their journaled privilege
-	// grant). send/recv/stop and trigger evaluation remain unexercised.
-	// Backfill: task spry-niece.
-	"agent_send",
-	"agent_recv",
+	// Agent-delegation bus + trigger evaluation: agent_run is exercised by J6
+	// (steps_j6_delegation.go, j6_delegation.feature — a coordinator spawning
+	// delegated children and auditing their journaled privilege grant).
+	// agent_send/agent_recv are now exercised by J17
+	// (steps_j17_cross_engine_delegation.go, j17_cross_engine_delegation.feature
+	// — the real two-way bus, both directions, content asserted on each side).
+	// agent_stop and trigger evaluation remain unexercised. Backfill: task
+	// spry-niece.
 	"agent_stop",
 	"evaluate_triggers",
 	// Session-memory tools named only in mcp_tools.feature's prose, never

@@ -398,6 +398,23 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 		return fmt.Errorf("entry %q escapes the extraction root — rejected (zip-slip guard)", name)
 	}
 
+	// safeSkillRelJoin's check above is purely LEXICAL (filepath.Join/Rel
+	// string arithmetic) — it cannot see that an ancestor directory of
+	// target might already be a real symlink on disk, planted in destDir
+	// before this call, pointing somewhere outside destDir entirely. No
+	// archive entry can introduce one mid-extraction (every symlink-typed
+	// entry is rejected above, unconditionally), but a hardened extractor's
+	// confinement guarantee must hold regardless of what destDir already
+	// contained when it was invoked — resolve any symlinks actually present
+	// along the path and re-verify confinement against the resolved result.
+	escapes, err := symlinkEscapesRoot(fsys, destDir, target)
+	if err != nil {
+		return fmt.Errorf("entry %q: checking for a pre-existing symlink escape: %w", name, err)
+	}
+	if escapes {
+		return fmt.Errorf("entry %q escapes the extraction root via a pre-existing symlink — rejected (zip-slip guard)", name)
+	}
+
 	if kind == kindDir {
 		return fsys.MkdirAll(target, 0o755)
 	}
@@ -427,6 +444,99 @@ func processArchiveEntry(fsys afero.Fs, destDir string, topDir *string, name str
 		return fmt.Errorf("writing entry %q: %w", name, err)
 	}
 	return nil
+}
+
+// symlinkEscapesRoot reports whether resolving any symlink ALREADY PRESENT
+// under root, along the path to target, would land outside root. It exists
+// because safeSkillRelJoin's confinement check is purely lexical (string
+// path arithmetic) — it does not know that one of target's ancestor
+// directories might be a symlink planted before extraction began, which the
+// OS resolves at write time regardless of what the string looked like.
+// HardenedExtract itself never introduces a symlink mid-extraction (every
+// symlink-typed entry is rejected outright), so only a PRE-EXISTING symlink
+// under destDir can trigger this — but the confinement guarantee must hold
+// regardless of what destDir already contained when this function was
+// called.
+//
+// Walks target's path one component at a time from root down, fully
+// resolving (following chains of) any symlink it finds and re-checking
+// confinement after each resolution. A component that does not exist yet is
+// fine — HardenedExtract is about to create it — nothing further along the
+// path can already be a symlink once we reach one. Filesystems that cannot
+// represent a real symlink at all (afero.MemMapFs — its LstatIfPossible
+// always reports ok=false, see afero's own TestMemFsLstatIfPossible) have
+// nothing to check: there is no way a symlink escape could exist there.
+func symlinkEscapesRoot(fsys afero.Fs, root, target string) (bool, error) {
+	lstater, ok := fsys.(afero.Lstater)
+	if !ok {
+		return false, nil
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false, err
+	}
+	if rel == "." {
+		return false, nil
+	}
+
+	cur := root
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		resolved, err := resolveSymlinkChain(fsys, lstater, cur)
+		if err != nil {
+			return false, err
+		}
+		if resolved == cur {
+			continue
+		}
+		relResolved, err := filepath.Rel(root, resolved)
+		if err != nil || relResolved == ".." || strings.HasPrefix(relResolved, ".."+string(filepath.Separator)) {
+			return true, nil
+		}
+		cur = resolved
+	}
+	return false, nil
+}
+
+// maxSymlinkChain bounds resolveSymlinkChain's traversal so a maliciously
+// looping or absurdly deep symlink chain planted in destDir cannot hang
+// extraction — mirrors the kind of depth cap real OS symlink resolution
+// (ELOOP) enforces.
+const maxSymlinkChain = 40
+
+// resolveSymlinkChain follows p through as many symlink hops as it actually
+// is (zero if p is not a symlink, or does not exist yet), returning the
+// final resolved path. Relative link targets are resolved against their
+// symlink's own directory, matching real OS symlink semantics.
+func resolveSymlinkChain(fsys afero.Fs, lstater afero.Lstater, p string) (string, error) {
+	for range maxSymlinkChain {
+		info, lstatOK, err := lstater.LstatIfPossible(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return p, nil // not created yet — nothing to resolve
+			}
+			return "", err
+		}
+		if !lstatOK || info.Mode()&os.ModeSymlink == 0 {
+			return p, nil
+		}
+		reader, ok := fsys.(afero.LinkReader)
+		if !ok {
+			return "", fmt.Errorf("%q is a symlink but this filesystem cannot read it", p)
+		}
+		linkTarget, err := reader.ReadlinkIfPossible(p)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(linkTarget) {
+			linkTarget = filepath.Join(filepath.Dir(p), linkTarget)
+		}
+		p = filepath.Clean(linkTarget)
+	}
+	return "", fmt.Errorf("symlink chain too deep at %q (possible loop)", p)
 }
 
 // normalizeExtractedMode collapses any incoming archive mode to exactly one

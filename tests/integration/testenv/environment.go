@@ -55,6 +55,50 @@ type TestEnvironment struct {
 	runCount int
 }
 
+// forceRemoveAll removes dir even when it contains read-only files or
+// directories. This matters here specifically because of a bug this package
+// used to have (see taskloom_acceptance.go's realProcessEnv comment): a `go
+// build` run with HOME pointed at a scenario's fake home populated a full
+// GOMODCACHE tree under it, and the Go toolchain deliberately marks module
+// cache directories 0555 to guard cached module sources against accidental
+// edits. Plain os.RemoveAll cannot unlink through a read-only directory and
+// returns an error — an error every current caller discards (Cleanup's
+// return value is thrown away as `_ = env.Cleanup()` at every call site), so
+// a scenario that ever produced such a tree left a permanent partial
+// directory behind even on a normal, non-killed test run. That was the
+// primary, always-reproducible mechanism behind the observed /tmp leak, not
+// a killed-process edge case: every current call site already wires Cleanup
+// via t.Cleanup/ctx.After, but a silently-discarded error means Cleanup runs,
+// reports nothing, and removes nothing. Walking the tree first and restoring
+// owner-write everywhere makes the subsequent RemoveAll unconditional, so
+// Cleanup actually finishes the job even if something upstream misbehaves
+// the same way again.
+//
+// Deliberately NOT paired with a "sweep other stale ctxloom-integration-*
+// dirs on startup" step: multiple test processes legitimately run
+// concurrently on this box (parallel agent worktrees, a live acceptance
+// suite), each with its own live directory under the same /tmp prefix. A
+// blind glob-and-remove has no reliable way to tell "orphaned by a SIGKILLed
+// run" apart from "another process's directory, still very much in use" —
+// getting that wrong turns a cheap, cosmetic disk leak into an
+// impossible-to-reproduce cross-run flake (one suite deletes another's
+// project/home mid-scenario). This forceRemoveAll fix is sufficient on its
+// own: it's what makes every EXISTING Cleanup call site (which already
+// fires on every current entry point) actually succeed, so no leak
+// accumulates going forward without adding that cross-process risk.
+func forceRemoveAll(dir string) error {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // let RemoveAll below surface the real error
+		}
+		if info, ierr := d.Info(); ierr == nil && info.Mode().Perm()&0200 == 0 {
+			_ = os.Chmod(path, info.Mode().Perm()|0700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
+}
+
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
 	// Create root temp directory
@@ -236,9 +280,11 @@ func (e *TestEnvironment) Cleanup() error {
 		}
 	}
 
-	// Remove temp directory
+	// Remove temp directory. forceRemoveAll (not a bare os.RemoveAll) because
+	// this Root can end up containing a read-only GOMODCACHE tree — see its
+	// doc comment for why that isn't just theoretical.
 	if e.Root != "" {
-		return os.RemoveAll(e.Root)
+		return forceRemoveAll(e.Root)
 	}
 	return nil
 }

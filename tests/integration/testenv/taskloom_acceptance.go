@@ -23,6 +23,24 @@ var (
 	taskloomBuildErr  error
 )
 
+// realProcessEnv snapshots this process's environment at package-init time —
+// before any scenario's TestEnvironment.Setup() has had a chance to run.
+// Setup() overwrites HOME and XDG_CONFIG_HOME on the WHOLE process (godog
+// runs every scenario serially in one binary), not just for a spawned
+// subprocess, so any later `exec.Command` that leaves cmd.Env nil inherits
+// whatever fake home the CURRENTLY ACTIVE scenario happens to have set. The
+// `go build` below is exactly that: because TaskloomBinary() builds lazily
+// (sync.Once, first call wins) and can therefore fire mid-scenario, an
+// unguarded build resolves GOPATH/GOMODCACHE (and the go env config file
+// itself, via XDG_CONFIG_HOME) underneath that scenario's ephemeral
+// /tmp/ctxloom-integration-* home instead of the real one — pulling a fresh
+// ~150MB module cache into a directory that (a) is normally short-lived but
+// (b) becomes a much bigger-than-usual orphan if this process is ever killed
+// before the scenario's Cleanup runs (mutation-test timeouts, Ctrl-C). Using
+// the real, pre-scenario environment keeps the build on the machine's real
+// module cache, exactly like every other `go build` invocation.
+var realProcessEnv = os.Environ()
+
 // TaskloomBinary builds the taskloom binary once per test process and returns
 // its path. Acceptance's own `just test-acceptance` only builds ctxloom (see
 // justfile's build/_run build), so there is no pre-built taskloom binary to
@@ -43,6 +61,7 @@ func TaskloomBinary() (string, error) {
 		taskloomBinPath = filepath.Join(dir, "taskloom")
 		cmd := exec.Command("go", "build", "-o", taskloomBinPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
 		cmd.Dir = findProjectRoot()
+		cmd.Env = realProcessEnv
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			taskloomBuildErr = fmt.Errorf("build taskloom binary: %v\n%s", err, out)

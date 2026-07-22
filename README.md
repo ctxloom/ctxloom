@@ -158,9 +158,23 @@ Most users should use the standard build. The full build adds tree-sitter for AS
 ```bash
 just build          # Standard build (recommended)
 just build-ctxloom-full # Full build with tree-sitter
-just test           # Run all tests
+just test           # Run unit + race tests (integration compiles but does NOT run — see below)
 just lint           # Lint code
 just install        # Build and install to ~/go/bin
+```
+
+**What `just test` actually covers:** exit 0 means the unit/race suites are
+green and `tests/integration/...` (the `-tags integration` build fence)
+*compiles* cleanly. It does not mean those integration tests ran — neither
+`go test` invocation inside the `test` recipe passes `-tags integration`, so
+they're skipped by construction; only `go vet -tags integration` runs
+against them, as a cheap rot gate against the tag-gated files bit-rotting
+unseen. For real coverage of the CLI/bundle/path surface and cross-surface
+journeys, run these explicitly:
+
+```bash
+just test-integration  # Actually executes tests/integration/... (requires the built binary)
+just test-acceptance   # Full-stack godog journeys (CLI + MCP + files)
 ```
 
 See [Contributing](https://ctxloom.dev/contributing) for full development guide.

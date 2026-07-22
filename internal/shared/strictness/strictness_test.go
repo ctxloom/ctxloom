@@ -1,6 +1,8 @@
 package strictness
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,4 +138,80 @@ func TestSince_StaleMarkIsNil(t *testing.T) {
 	mark := Checkpoint()
 	Reset()
 	assert.Nil(t, Since(mark))
+}
+
+// TestConcurrentWindows_NoCrossAttribution is the crux regression for the
+// concurrency defect documented on Mark: two open windows share ONE
+// process-global findings slice, so a finding recorded by goroutine B lands
+// inside goroutine A's still-open window too, even though A's own work never
+// produced it. Ordering is pinned with channel handshakes (not sleeps), so
+// the interleaving — B's Fail landing strictly BETWEEN A's Checkpoint and A's
+// Since — is guaranteed on every run, not just likely under load. This must
+// fail for a SPECIFIC reason: foundA is non-empty and contains B's message,
+// not merely "flaky."
+func TestConcurrentWindows_NoCrossAttribution(t *testing.T) {
+	resetForTest(t)
+
+	aCheckpointed := make(chan struct{})
+	bRecorded := make(chan struct{})
+	aDone := make(chan struct{})
+	var foundA []Finding
+
+	go func() {
+		defer close(aDone)
+		markA := Checkpoint()
+		close(aCheckpointed)
+		<-bRecorded // wait until B has recorded ITS OWN finding
+		foundA = Since(markA)
+	}()
+
+	<-aCheckpointed // A's window is open before B does any work
+	Fail(ClassSync, "", "goroutine B's own finding")
+	close(bRecorded)
+	<-aDone
+
+	assert.Empty(t, foundA,
+		"goroutine A's window must not see a finding recorded by a DIFFERENT concurrent goroutine (B) — cross-attribution")
+}
+
+// TestConcurrentWindows_EachSeesOnlyOwnFindings widens the same scenario to N
+// goroutines, each opening its own window, recording its OWN uniquely
+// identifiable finding, and reading back only after every goroutine has
+// recorded (maximizing interleaving opportunity) — pinning "each window
+// contains EXACTLY the finding(s) its own goroutine produced, nothing more,
+// nothing less" as the general per-window-ownership contract, not just the
+// 2-goroutine minimal repro above.
+func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
+	resetForTest(t)
+
+	const n = 12
+	var start sync.WaitGroup
+	var recorded sync.WaitGroup
+	var done sync.WaitGroup
+	release := make(chan struct{})
+	results := make([][]Finding, n)
+
+	start.Add(n)
+	recorded.Add(n)
+	done.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer done.Done()
+			mark := Checkpoint()
+			start.Done()
+			start.Wait() // maximize the window all goroutines have open at once
+			Fail(ClassSync, "", "finding from goroutine %d", i)
+			recorded.Done()
+			recorded.Wait() // every goroutine has now recorded before anyone reads
+			<-release
+			results[i] = Since(mark)
+		}(i)
+	}
+	close(release)
+	done.Wait()
+
+	for i, got := range results {
+		require.Len(t, got, 1, "goroutine %d's window must contain exactly its own finding", i)
+		assert.Equal(t, fmt.Sprintf("finding from goroutine %d", i), got[0].Message)
+	}
 }

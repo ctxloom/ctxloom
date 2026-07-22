@@ -41,6 +41,102 @@ func TestInitializeProject(t *testing.T) {
 	assert.True(t, remotesExists, "remotes.yaml should be written")
 }
 
+// TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys proves the init
+// interview's single dirty-tree question actually LANDS both
+// dirty_tree_handler and dirty_tree_commit_ack ON DISK — not just that
+// InitializeProject returns success. This is the exact silent-no-op shape
+// this project is known for (exit 0, success message, zero bytes delivered):
+// config_save.go's applyConfigSections (the Save()/Marshal() persist path)
+// used to omit both keys entirely regardless of what was passed in, so a
+// naive "call returned nil error" assertion would have stayed green through
+// that bug. Every assertion here re-reads the raw bytes InitializeProject
+// wrote to the injected memfs and re-parses them with config.ParseConfig — a
+// SEPARATE read path from whatever InitializeProject used to write — plus a
+// direct string payload check for the ack, since bool omitempty means "ack:
+// true" must appear verbatim or not at all.
+func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
+	tests := []struct {
+		name               string
+		dirtyTreeHandler   string
+		dirtyTreeCommitAck bool
+		wantHandlerKeyOnly bool // true: assert the raw "dirty_tree_handler: <value>" line is present
+		wantAckLine        bool // true: assert the raw "dirty_tree_commit_ack: true" line is present
+	}{
+		{
+			name: "commit answer writes handler commit and ack true",
+			dirtyTreeHandler: "commit", dirtyTreeCommitAck: true,
+			wantHandlerKeyOnly: true, wantAckLine: true,
+		},
+		{
+			name: "copy answer writes handler copy and ack stays false (no ack line)",
+			dirtyTreeHandler: "copy", dirtyTreeCommitAck: false,
+			wantHandlerKeyOnly: true, wantAckLine: false,
+		},
+		{
+			name: "stale answer writes handler stale and ack stays false (no ack line)",
+			dirtyTreeHandler: "stale", dirtyTreeCommitAck: false,
+			wantHandlerKeyOnly: true, wantAckLine: false,
+		},
+		{
+			name: "fail answer writes handler fail and ack stays false (no ack line)",
+			dirtyTreeHandler: "fail", dirtyTreeCommitAck: false,
+			wantHandlerKeyOnly: true, wantAckLine: false,
+		},
+		{
+			// The question never having run (flag-selected engine,
+			// --non-interactive) must reproduce the pre-interview shape
+			// exactly: neither key written, so an existing project loads the
+			// built-in "commit" default, unacknowledged (still refused).
+			name: "unanswered (zero values) writes neither key",
+			dirtyTreeHandler: "", dirtyTreeCommitAck: false,
+			wantHandlerKeyOnly: false, wantAckLine: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			appDir := "/proj/.ctxloom"
+
+			res, err := InitializeProject(context.Background(), InitializeProjectRequest{
+				AppDir:             appDir,
+				Engine:             "claude-code",
+				DirtyTreeHandler:   tt.dirtyTreeHandler,
+				DirtyTreeCommitAck: tt.dirtyTreeCommitAck,
+				FS:                 fs,
+			})
+			require.NoError(t, err)
+			require.Equal(t, "initialized", res.Status)
+
+			// Independent read #1: raw bytes off disk, byte-level payload check.
+			cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
+			require.NoError(t, err, "config.yaml should be written")
+			body := string(cfgData)
+			if tt.wantHandlerKeyOnly {
+				assert.Contains(t, body, "dirty_tree_handler: "+tt.dirtyTreeHandler)
+			} else {
+				assert.NotContains(t, body, "dirty_tree_handler:")
+			}
+			if tt.wantAckLine {
+				assert.Contains(t, body, "dirty_tree_commit_ack: true")
+			} else {
+				assert.NotContains(t, body, "dirty_tree_commit_ack:")
+			}
+
+			// Independent read #2: parse those same bytes through the config
+			// package's real loader and assert via its typed accessors — the
+			// same GetDirtyTreeHandler/GetDirtyTreeCommitAck the delegate
+			// gate itself reads, so this proves the payload round-trips
+			// usably, not just that the substring happens to appear.
+			cfg, err := config.ParseConfig(cfgData)
+			require.NoError(t, err)
+			wantHandler := tt.dirtyTreeHandler
+			assert.Equal(t, wantHandler, cfg.GetDirtyTreeHandler())
+			assert.Equal(t, tt.dirtyTreeCommitAck, cfg.GetDirtyTreeCommitAck())
+		})
+	}
+}
+
 func TestInitializeProject_RequiresAppDir(t *testing.T) {
 	_, err := InitializeProject(context.Background(), InitializeProjectRequest{Engine: "claude-code", FS: afero.NewMemMapFs()})
 	require.Error(t, err)
@@ -131,7 +227,7 @@ func TestBuildInitialConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := BuildInitialConfig(tt.engine)
+			data, err := BuildInitialConfig(tt.engine, "", false)
 			require.NoError(t, err)
 
 			// `role` is registry-only — it must be stripped from the written config.

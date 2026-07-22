@@ -58,11 +58,12 @@ func TestSelectSoleEngine(t *testing.T) {
 }
 
 // writeInitialConfig creates the .ctxloom skeleton: the dir tree plus config.yaml
-// (carrying the chosen engine) and remotes.yaml (default remotes).
+// (carrying the chosen engine and the interview's dirty-tree answer) and
+// remotes.yaml (default remotes).
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "antigravity"); err != nil {
+	if err := writeInitialConfig(appDir, "antigravity", "copy", false); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -74,13 +75,19 @@ func TestWriteInitialConfig(t *testing.T) {
 		}
 	}
 
-	// config.yaml exists and reflects the chosen engine.
+	// config.yaml exists and reflects the chosen engine and dirty-tree answer.
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
 	if !strings.Contains(string(cfg), "antigravity") {
 		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
+	}
+	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
+		t.Errorf("config.yaml should carry the interview's dirty_tree_handler answer; got:\n%s", cfg)
+	}
+	if strings.Contains(string(cfg), "dirty_tree_commit_ack:") {
+		t.Errorf("dirty_tree_commit_ack must be absent (omitempty) when the answer wasn't \"commit\"; got:\n%s", cfg)
 	}
 
 	// remotes.yaml exists and is non-empty.
@@ -93,13 +100,34 @@ func TestWriteInitialConfig(t *testing.T) {
 	}
 }
 
+// TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue is
+// TestWriteInitialConfig's counterpart for the "commit" answer specifically:
+// it is the only one of the four that must also write dirty_tree_commit_ack:
+// true, since that flag exists to gate the commit handler alone.
+func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	if err := writeInitialConfig(appDir, "claude-code", "commit", true); err != nil {
+		t.Fatalf("writeInitialConfig: %v", err)
+	}
+	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if !strings.Contains(string(cfg), "dirty_tree_handler: commit") {
+		t.Errorf("config.yaml should carry dirty_tree_handler: commit; got:\n%s", cfg)
+	}
+	if !strings.Contains(string(cfg), "dirty_tree_commit_ack: true") {
+		t.Errorf("config.yaml should carry dirty_tree_commit_ack: true for the commit answer; got:\n%s", cfg)
+	}
+}
+
 func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	// Re-running over an existing dir must not error (MkdirAll + overwrite).
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code"); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", "", false); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "antigravity"); err != nil {
+	if err := writeInitialConfig(appDir, "antigravity", "", false); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))

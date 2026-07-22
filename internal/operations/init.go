@@ -19,6 +19,18 @@ type InitializeProjectRequest struct {
 	AppDir string `json:"app_dir"`
 	Engine string `json:"engine"`
 
+	// DirtyTreeHandler and DirtyTreeCommitAck carry the init interview's
+	// single dirty-tree-handler answer (internal/cli/init.go's
+	// promptDirtyTreeHandler) through to BuildInitialConfig. Both empty/false
+	// (the zero values) reproduce today's behavior exactly: an unset project
+	// default resolving to the built-in "commit" default, unacknowledged, so
+	// the commit handler still refuses a delegated spawn until a human
+	// explicitly sets dirty_tree_commit_ack — see
+	// config.Config.dirtyTreeCommitAck's doc for why that flag is never
+	// settable any other way.
+	DirtyTreeHandler   string `json:"dirty_tree_handler"`
+	DirtyTreeCommitAck bool   `json:"dirty_tree_commit_ack"`
+
 	// FS is an optional filesystem (defaults to the OS filesystem).
 	FS afero.Fs `json:"-"`
 }
@@ -57,7 +69,7 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		}
 	}
 
-	configData, err := BuildInitialConfig(req.Engine)
+	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.DirtyTreeCommitAck)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
 	}
@@ -110,7 +122,12 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // copied in (role stripped) and pointed at by llm.defaults. Engines without
 // role-marked entries (e.g. codex, mock) get a single self-contained
 // {type: engine} entry serving both roles.
-func BuildInitialConfig(engine string) ([]byte, error) {
+//
+// dirtyTreeHandler/dirtyTreeCommitAck carry the init interview's dirty-tree
+// answer straight into the scaffolded config (config.Fixture.DirtyTreeHandler/
+// DirtyTreeCommitAck) — both empty/false reproduces the pre-interview shape
+// (no keys written, built-in "commit" default, unacknowledged).
+func BuildInitialConfig(engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) ([]byte, error) {
 	scaffold, err := config.ParseConfig(mustResource(resources.GetInitConfig))
 	if err != nil {
 		return nil, fmt.Errorf("parse init scaffold: %w", err)
@@ -123,6 +140,8 @@ func BuildInitialConfig(engine string) ([]byte, error) {
 
 	f := scaffold.ToFixture()
 	f.LM = engineRegistry(engine, registry.GetLMConfig())
+	f.DirtyTreeHandler = dirtyTreeHandler
+	f.DirtyTreeCommitAck = dirtyTreeCommitAck
 	// PrimaryLabel reads f.LM.Defaults.Primary; resolve it through a throwaway
 	// Config carrying just that update so the seed agent's Engine matches
 	// exactly what scaffold.PrimaryLabel() would have returned post-mutation.

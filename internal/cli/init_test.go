@@ -16,7 +16,7 @@ import (
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "antigravity", "codex"} {
 		t.Run(engine, func(t *testing.T) {
-			data, err := operations.BuildInitialConfig(engine)
+			data, err := operations.BuildInitialConfig(engine, "", false)
 			require.NoError(t, err)
 			body := string(data)
 			assert.Contains(t, body, "type: "+engine,
@@ -30,7 +30,7 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data, err := operations.BuildInitialConfig("claude-code")
+	data, err := operations.BuildInitialConfig("claude-code", "", false)
 	require.NoError(t, err)
 	body := string(data)
 	// The scaffold settings survive into the written config.
@@ -39,6 +39,40 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	// The engine's role pair is wired into llm.defaults.
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")
+}
+
+// TestPromptDirtyTreeHandler_EachOptionAndDefault exercises the init
+// interview's single dirty-tree question end to end at the reader level: a
+// blank line (Enter) picks the recommended "commit" answer with ack true, and
+// each numbered choice returns its handler with ack true ONLY for "commit" —
+// proving the one answer really does decide both dirty_tree_handler AND
+// dirty_tree_commit_ack together, never asking a second question for the ack.
+func TestPromptDirtyTreeHandler_EachOptionAndDefault(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantHandler string
+		wantAck     bool
+	}{
+		{"blank_enter_picks_recommended_commit", "\n", "commit", true},
+		{"1_is_commit_with_ack", "1\n", "commit", true},
+		{"2_is_copy_without_ack", "2\n", "copy", false},
+		{"3_is_stale_without_ack", "3\n", "stale", false},
+		{"4_is_fail_without_ack", "4\n", "fail", false},
+		// An out-of-range/garbage entry re-prompts rather than accepting it;
+		// the loop must recover on the next valid line.
+		{"invalid_then_valid_retries", "0\nnotanumber\n2\n", "copy", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newInitPromptsFrom(strings.NewReader(tt.input))
+			handler, ack, err := p.promptDirtyTreeHandler()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHandler, handler)
+			assert.Equal(t, tt.wantAck, ack)
+		})
+	}
 }
 
 // TestPersonalRemoteRequests covers the pure request builder behind

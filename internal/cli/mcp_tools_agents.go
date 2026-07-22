@@ -84,7 +84,16 @@ type agentRunInput struct {
 	// file-level default only: a worktree isolates the child's WORKSPACE,
 	// never the engine's own global config/credential/session store, which
 	// some engines keep outside any per-agent env override entirely.
-	Workspace string `json:"workspace,omitempty" jsonschema:"Session workspace axis for this child: \"none\" (shared project checkout — the child can stomp the parent's live files) or \"worktree\" (its own isolated git worktree, checked out at HEAD — the child will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly; otherwise defaults to worktree. Isolates the workspace only, never the engine's own global config/credentials/session store."`
+	//
+	// A worktree spawn (explicit or defaulted) is REFUSED when the parent
+	// project tree carries uncommitted changes: `git worktree add` only ever
+	// checks out committed state, so those edits would silently be invisible
+	// to the child — this project's signature failure mode, self-inflicted
+	// by the very isolation meant to protect the child's blast radius. The
+	// refusal names the uncommitted paths (bounded) and both ways forward:
+	// commit them, or pass workspace: "none" for this call
+	// (operations.checkParentTreeForWorktreeSpawn).
+	Workspace string `json:"workspace,omitempty" jsonschema:"Session workspace axis for this child: \"none\" (shared project checkout — the child can stomp the parent's live files) or \"worktree\" (its own isolated git worktree, checked out at HEAD — the child will NOT see the parent's uncommitted edits). Empty defers to the project config if it sets one explicitly; otherwise defaults to worktree. Isolates the workspace only, never the engine's own global config/credentials/session store. A worktree spawn is REFUSED if the parent project tree has uncommitted changes (a worktree checkout only ever sees committed state): commit first, or pass workspace: \"none\" for this call."`
 }
 
 type agentRunResult struct {

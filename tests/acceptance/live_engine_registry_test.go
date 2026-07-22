@@ -110,6 +110,23 @@ func TestFormatLiveEngineReport(t *testing.T) {
 	assert.Equal(t, "live engines: claude ✓ · antigravity ✓ · kiro ✓ · codex ✗ (binary not found)", got)
 }
 
+// TestComputeLiveEngineReport_OrderAndCoverage is computeLiveEngineReport's
+// only untagged exercise: its one real caller, tests/acceptance/acceptance_test.go,
+// lives behind `//go:build acceptance` (see live_engine_registry.go's header
+// comment), which `just lint`'s default-tag golangci-lint run never compiles
+// — so without a test here the function reads as dead code to the linter
+// even though it is load-bearing for `just test-acceptance`. This proves it
+// walks every registered engine, in liveAgentOrder, without needing a real
+// binary (they're all expected absent in CI, which is itself a valid status).
+func TestComputeLiveEngineReport_OrderAndCoverage(t *testing.T) {
+	report := computeLiveEngineReport("/fake/home", false)
+	if assert.Len(t, report, len(liveAgentOrder)) {
+		for i, name := range liveAgentOrder {
+			assert.Equal(t, name, report[i].name)
+		}
+	}
+}
+
 func TestFormatLiveEngineReport_AllUnavailable(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: false, reason: "installed, but CTXLOOM_ACCEPTANCE_LIVE=1 not set (subscription credential path is opt-in)"},

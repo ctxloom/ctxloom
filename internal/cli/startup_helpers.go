@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -99,17 +98,6 @@ func failOnFindings(w io.Writer, mark strictness.Mark) error {
 	}
 	fmt.Fprintln(w, msg)
 	return &ExitError{Code: exitCodeFatalFindings}
-}
-
-// findingsError is the per-session variant for servers that must keep running
-// (`ctxloom acp`): the same full-list rendering, returned as an error for the
-// protocol layer to surface to the client instead of exiting the process.
-func findingsError(mark strictness.Mark) error {
-	msg := formatFindings(strictness.Since(mark))
-	if msg == "" {
-		return nil
-	}
-	return errors.New(msg)
 }
 
 // formatFindings renders the collected findings block: a header naming the

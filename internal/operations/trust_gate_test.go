@@ -183,7 +183,7 @@ func TestExposureGate_FailClosed(t *testing.T) {
 
 // TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds drives the REAL
 // exposure path (no injected loader): AssembleContext → exposureLoader →
-// newContentGate. It proves (a) project-local content is exposed via the
+// buildContentGate. It proves (a) project-local content is exposed via the
 // first-party exemption with NO prior trust state (a fresh store — no baseline
 // exists in the three-state model), and (b) a rejected item is withheld while
 // its sibling is not — all on a virtualized fs (no OS pollution), proving

@@ -14,7 +14,9 @@
 package strictness
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -155,6 +157,32 @@ func Since(mark Mark) []Finding {
 // All returns a copy of every finding recorded so far.
 func All() []Finding {
 	return Since(0)
+}
+
+// FindingsError renders the findings recorded since mark as a single error —
+// "fatal startup findings:" followed by one "  - message (fix: ...)" line
+// per finding — or nil when nothing was collected or the process is
+// degraded. This is the one shared owner for the per-call, keeps-running
+// error-render variant (as opposed to a process-exit abort, which prints a
+// richer class-tagged listing and belongs to its own callers): internal/cli,
+// internal/agentcoord/coord, and internal/operations each used to carry a
+// byte-identical copy of this rendering because none of those three may
+// import one another — but all three already import this leaf package, so
+// hoisting the render here removes the duplication without an import cycle.
+func FindingsError(mark Mark) error {
+	found := Since(mark)
+	if len(found) == 0 || Degraded() {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("fatal startup findings:")
+	for _, f := range found {
+		b.WriteString("\n  - " + f.Message)
+		if f.FixIt != "" {
+			b.WriteString(" (fix: " + f.FixIt + ")")
+		}
+	}
+	return errors.New(b.String())
 }
 
 // Reset clears the collected findings, the FailOnce dedup set, and the

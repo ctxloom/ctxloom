@@ -27,8 +27,8 @@ type contentGate struct {
 	cfg     *config.Config
 	records ReviewRecords
 	// retraction is a test-injection seam for the RETRACTION step (mirroring
-	// records above): nil (the production default for every real
-	// constructor — newContentGate/buildContentGate never set it) lets
+	// records above): nil (the production default — buildContentGate never
+	// sets it) lets
 	// EffectiveTrust build its own default (the active lockfile, see
 	// buildLockfileRetraction). Tests construct a *contentGate literal
 	// directly (see gatedAcmeLoader, trust_exec_gate_test.go) and set this to
@@ -152,16 +152,12 @@ func (g *contentGate) withheldItems() []withheldItem {
 	return out
 }
 
-// newContentGate builds the fragment/prompt content gate for cfg. records/fs
-// are injection points for testing; production passes nil records and they
-// are built from cfg (OS fs unless cfg carries an injected one).
-func newContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) bundles.ContentGate {
-	return buildContentGate(cfg, records, fs).allow
-}
-
-// buildContentGate constructs the *contentGate behind newContentGate (and the
-// executable gate). It is the shared builder. Returning the struct (not just
-// g.allow) lets the executable gate read the withheld tally afterward.
+// buildContentGate constructs the *contentGate every real caller uses
+// (exposureLoaderGated, NewExecutableTrustGate). It is the shared builder.
+// records/fs are injection points for testing; production passes nil records
+// and they are built from cfg (OS fs unless cfg carries an injected one).
+// Returning the struct (not just g.allow) lets callers read the withheld
+// tally afterward.
 func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *contentGate {
 	g := &contentGate{cfg: cfg, fs: fs}
 	if records == nil {

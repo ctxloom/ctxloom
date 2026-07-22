@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // fakeEngine is one scripted child engine conversation. Turn texts are
@@ -183,7 +184,7 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 	if gerr := func() error {
 		mark := strictnessCheckpoint()
 		perm, degraded = headlessSafePermission(agentName, a.perm)
-		return findingsError(mark)
+		return strictness.FindingsError(mark)
 	}(); gerr != nil {
 		return nil, gerr
 	}

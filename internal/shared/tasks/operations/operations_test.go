@@ -179,6 +179,82 @@ func TestPinnedProjectMismatchWarns(t *testing.T) {
 	}
 }
 
+// TestMissingLogWarnsWhenSiblingIDHasLogAtSamePath is the reproduction and
+// regression test for the silent-empty-backlog design gap (see grand-slum):
+// a project-id resolves CLEANLY (no pin-vs-cwd disagreement — the existing
+// mismatch check in resolveTaskStore has nothing to fire on), but its own
+// task log was never written, while a DIFFERENT id also registered at the
+// exact same path already has a real one. Before the fix, ListTasks silently
+// returned zero tasks with no warning — indistinguishable from a genuinely
+// empty project. The assertion that matters is the WARNING PAYLOAD naming
+// the sibling id, not just a non-empty string or exit success.
+func TestMissingLogWarnsWhenSiblingIDHasLogAtSamePath(t *testing.T) {
+	taskstest.Isolate(t)
+	cwd := t.TempDir()
+
+	pm, err := projectid.Open("")
+	if err != nil {
+		t.Fatalf("open registry: %v", err)
+	}
+	if _, err := pm.Adopt("empty-id", cwd); err != nil {
+		t.Fatalf("adopt empty-id: %v", err)
+	}
+	if _, err := pm.Adopt("full-id", cwd); err != nil {
+		t.Fatalf("adopt full-id: %v", err)
+	}
+
+	// full-id already carries a real backlog at this exact path.
+	if _, err := AddTask(TaskContext{WorkDir: cwd, ProjectID: "full-id"}, "the real backlog lives here", "", ""); err != nil {
+		t.Fatalf("seed full-id: %v", err)
+	}
+
+	// A session resolves (or is pinned) to empty-id instead -- its own log
+	// was never written, but nothing here DISAGREES about identity, so the
+	// existing pinned-vs-cwd check stays silent.
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "empty-id"}, nil, "", false, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(res.Tasks) != 0 {
+		t.Fatalf("expected an empty list for empty-id (its log was never written), got %+v", res.Tasks)
+	}
+	if res.Warning == "" {
+		t.Fatal("expected a warning naming the sibling project whose log actually has the backlog, got none -- this is the silent-empty-backlog bug")
+	}
+	if !strings.Contains(res.Warning, "full-id") {
+		t.Fatalf("warning = %q, want it to name full-id (the sibling with the real log)", res.Warning)
+	}
+}
+
+// TestMissingLogStaysSilentWithoutASibling covers the overwhelmingly common
+// case: a resolved project genuinely has no tasks yet, and no OTHER id is
+// registered at the same path. missingLogSiblingNote must stay a no-op here
+// -- a project's very first `taskloom list` before its first `add` must not
+// print a spurious warning about a backlog that doesn't exist anywhere.
+func TestMissingLogStaysSilentWithoutASibling(t *testing.T) {
+	taskstest.Isolate(t)
+	cwd := t.TempDir()
+
+	pm, err := projectid.Open("")
+	if err != nil {
+		t.Fatalf("open registry: %v", err)
+	}
+	if _, err := pm.Adopt("only-id", cwd); err != nil {
+		t.Fatalf("adopt only-id: %v", err)
+	}
+
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "only-id"}, nil, "", false, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(res.Tasks) != 0 {
+		t.Fatalf("expected an empty list, got %+v", res.Tasks)
+	}
+	if res.Warning != "" {
+		t.Fatalf("warning = %q, want none: a genuinely empty project with no sibling must stay silent", res.Warning)
+	}
+}
+
 // TestAddTaskWithTagsThenListTagQuery covers the whole tag-query wiring at
 // the layer both the CLI and MCP surfaces call into: AddTaskWithTags stamps
 // initial tags, TagTask adds/removes on an existing task, and

@@ -267,8 +267,9 @@ func TestHandleTaskList_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 
 // TestHandleTaskList_GlobalAggregatesAcrossProjects pins the --global /
 // all_projects opt-in: every project's tasks come back in one result, tagged
-// with the project they came from, and no notice is attached (an explicit
-// opt-in needs no explaining).
+// with the project they came from. Notice is NEVER empty when Global is true
+// (see smart-veal/globalScopeLimitationNote): even an explicit opt-in must
+// declare that repo-homed stores are outside what this aggregation can see.
 func TestHandleTaskList_GlobalAggregatesAcrossProjects(t *testing.T) {
 	withProjectDir(t)
 
@@ -282,7 +283,8 @@ func TestHandleTaskList_GlobalAggregatesAcrossProjects(t *testing.T) {
 	require.Len(t, res.Tasks, 2)
 	assert.True(t, res.Global)
 	assert.Equal(t, 2, res.ProjectCount)
-	assert.Empty(t, res.Notice)
+	require.NotEmpty(t, res.Notice, "the scope limitation must always be disclosed for a global listing")
+	assert.Contains(t, res.Notice, "repo-homed")
 
 	byHarp := map[string]taskRow{}
 	for _, row := range res.Tasks {
@@ -323,4 +325,22 @@ func TestHandleTaskList_NoProjectContextDefaultsGlobalWithNotice(t *testing.T) {
 	assert.Contains(t, res.Notice, "no project detected")
 	require.Len(t, res.Tasks, 1)
 	assert.Equal(t, "somewhere", res.Tasks[0].ProjectID)
+}
+
+// TestHandleTaskList_GlobalNamesCurrentProjectWhenRepoHomed sharpens the
+// scope notice (mirrors TestRunListCmd_GlobalNamesCurrentProjectWhenRepoHomed
+// on the CLI side): when the CURRENT project is itself repo-homed, the
+// notice returned to an MCP caller must name it specifically -- the case
+// most likely to bite, since the agent is standing inside the very project
+// that would otherwise vanish from an "everything" listing with no trace.
+func TestHandleTaskList_GlobalNamesCurrentProjectWhenRepoHomed(t *testing.T) {
+	proj := withProjectDir(t)
+	writeConfigForTest(t, proj, "homing: repo\n")
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Global: true})
+	require.NoError(t, err)
+	assert.True(t, res.Global)
+	require.NotEmpty(t, res.Notice)
+	assert.Contains(t, res.Notice, proj, "the notice must name the excluded project's own path")
+	assert.Contains(t, res.Notice, "repo-homed")
 }

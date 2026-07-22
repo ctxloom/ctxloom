@@ -115,6 +115,30 @@ func (m *Manager) ResolveByPath(projectDir string) (*Entry, error) {
 	return &out, nil
 }
 
+// EntriesAtPath returns every registry entry whose path matches projectDir
+// (cleanPath-compared), regardless of project-id. Normally exactly one entry
+// maps to a given path — ResolveByPath's "first match" is the common case —
+// but a path can end up registered under more than one id (e.g. Adopt
+// registering a marker's unknown id at a path the registry already had a
+// DIFFERENT id for; Adopt never checks for or removes such a collision, only
+// for a duplicate of its own id). Detecting a task-log/identity mismatch (see
+// tasks/operations.missingLogSiblingNote) needs every such entry, not just
+// whichever one ResolveByPath's fast path happens to prefer.
+func (m *Manager) EntriesAtPath(projectDir string) ([]Entry, error) {
+	reg, err := m.Load()
+	if err != nil {
+		return nil, err
+	}
+	want := cleanPath(projectDir)
+	var out []Entry
+	for _, e := range reg.Projects {
+		if cleanPath(e.Path) == want {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 // ResolveByID returns a copy of the entry with the given project-id, or nil.
 func (m *Manager) ResolveByID(id string) (*Entry, error) {
 	reg, err := m.Load()

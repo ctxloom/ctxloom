@@ -188,6 +188,43 @@ func TestListAllProjects_IncludeDoneSurfacesHiddenTasksToo(t *testing.T) {
 	assert.Zero(t, got.HiddenCompleted)
 }
 
+// TestGlobalScopeLimitationNote_GeneralWhenWorkDirNotRepoHomed covers the
+// common case: an ordinary (home-homed, or unconfigured) project gets the
+// general caveat naming the ~/.ctxloom/tasks-only scope, not a
+// project-specific claim it can't back up.
+func TestGlobalScopeLimitationNote_GeneralWhenWorkDirNotRepoHomed(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+
+	got := globalScopeLimitationNote(dir, rootCmd.PersistentFlags(), "")
+	assert.Equal(t, globalScopeGeneralLimitation, got)
+}
+
+// TestGlobalScopeLimitationNote_EmptyWorkDirFallsBackToGeneral covers the
+// no-WorkDir case (e.g. a stale worktree pointer with a pin, see
+// cmd/taskloom's taskContext doc): there's nothing to resolve a homing mode
+// against, so the general caveat is the only honest answer.
+func TestGlobalScopeLimitationNote_EmptyWorkDirFallsBackToGeneral(t *testing.T) {
+	got := globalScopeLimitationNote("", nil, "")
+	assert.Equal(t, globalScopeGeneralLimitation, got)
+}
+
+// TestGlobalScopeLimitationNote_NamesRepoHomedWorkDirSpecifically is the unit
+// test behind TestRunListCmd_GlobalNamesCurrentProjectWhenRepoHomed /
+// TestHandleTaskList_GlobalNamesCurrentProjectWhenRepoHomed: a workDir whose
+// own .taskloom/config.yaml declares `homing: repo` gets a note naming that
+// exact project, not the generic caveat.
+func TestGlobalScopeLimitationNote_NamesRepoHomedWorkDirSpecifically(t *testing.T) {
+	taskstest.Isolate(t)
+	dir := t.TempDir()
+	writeConfigForTest(t, dir, "homing: repo\n")
+
+	got := globalScopeLimitationNote(dir, rootCmd.PersistentFlags(), "")
+	assert.Contains(t, got, dir)
+	assert.Contains(t, got, "repo-homed")
+	assert.NotEqual(t, globalScopeGeneralLimitation, got)
+}
+
 func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
 	taskstest.Isolate(t)
 

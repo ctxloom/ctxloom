@@ -5,7 +5,9 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -757,11 +759,65 @@ func resolveTaskStore(tc TaskContext) (store *tasks.Store, proj projectIdentity,
 	if err != nil {
 		return nil, proj, warning, fmt.Errorf("task log path: %w", err)
 	}
+	// The resolution above ended in agreement (no pin-vs-cwd mismatch, or none
+	// to check) — that's exactly the case the note above never covers. But
+	// "resolved cleanly" and "has a task log" are different facts: a project-id
+	// can resolve normally to an id whose jsonl was simply never written (a
+	// fresh id adopted over a stale one, a lost/rebuilt registry, ...). Opened
+	// via tasks.OpenLog below with no existence check, that reads back as a
+	// plain empty project — "(no tasks)" — even when a DIFFERENT id also
+	// registered at this same path already has a real backlog sitting right
+	// there. Say so instead of staying silent; see missingLogSiblingNote.
+	if pmErr == nil && tc.WorkDir != "" {
+		if note := missingLogSiblingNote(pm, tc.WorkDir, proj.ID, logPath); note != "" {
+			if warning != "" {
+				warning += "; " + note
+			} else {
+				warning = note
+			}
+		}
+	}
 	store, err = tasks.OpenLog(logPath, tc.SessionHarp)
 	if err != nil {
 		return nil, proj, warning, err
 	}
 	return store, proj, warning, nil
+}
+
+// missingLogSiblingNote reports a human-facing note when resolvedID's own
+// task log doesn't exist yet AND workDir is also registered (in pm) under a
+// DIFFERENT project-id whose log DOES exist on disk. This is the silent-
+// empty-backlog case ADR 0025's mismatch warning doesn't cover: nothing here
+// DISAGREES about identity (no stale pin fighting the cwd — that's
+// resolveTaskStore's separate check, just above), so nothing would otherwise
+// warn, and a listing under resolvedID would print an honest-looking
+// "(no tasks)" while a sibling id bound to the exact same path already has
+// real ones. Returns "" (nothing to say) when resolvedID's log already
+// exists, workDir has no other registrations, or none of them has an
+// on-disk log — the overwhelmingly common case, so this stays a no-op for
+// every project that has never hit the mismatch.
+func missingLogSiblingNote(pm *projectid.Manager, workDir, resolvedID, logPath string) string {
+	if _, err := os.Stat(logPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return "" // resolvedID's own log exists (or its state is otherwise inconclusive) -- nothing hidden.
+	}
+	entries, err := pm.EntriesAtPath(workDir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.ProjectID == resolvedID {
+			continue
+		}
+		siblingPath, perr := paths.TasksLogPath(paths.ModeHome, "", e.ProjectID)
+		if perr != nil {
+			continue
+		}
+		if _, serr := os.Stat(siblingPath); serr == nil {
+			return fmt.Sprintf("project %s has no task log yet, but %s is ALSO registered here under project %s, which has one -- pass --project %s to see those tasks",
+				resolvedID, workDir, e.ProjectID, e.ProjectID)
+		}
+	}
+	return ""
 }
 
 // resolveRepoHomedStore opens the REPO-HOMED task store: the log lives

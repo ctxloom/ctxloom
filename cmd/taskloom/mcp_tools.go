@@ -21,7 +21,7 @@ type taskListInput struct {
 	TagQuery         string   `json:"tag_query,omitempty" jsonschema:"Optional postfix (RPN) boolean tag filter over query atoms shaped (namespace:)key(op value), e.g. \"urgent/release/and\" (tagged both urgent AND release), \"urgent/release/or\", or \"urgent/not\" (not tagged urgent). A bare slash-separated list with no operator is an implicit AND: \"urgent/release\" behaves like \"urgent/release/and\". An atom with NO namespace (e.g. \"urgent\") matches ONLY tags that also have no namespace -- it never matches a namespaced tag with the same key, so \"urgent\" does NOT match \"triage:kind=urgent\"; query a namespaced key as \"ns:key\" or \"ns:key=value\" (e.g. \"triage:kind=defect\"). A bare key with no operator tests presence (valued or not); value comparisons use = != > >= < <= (numeric) or ~ (pattern match on the value, where . matches any single character, anchored to the whole value). * and + are wildcards: \"*:key\" matches key in any namespace including none, \"+:key\" matches key in any NAMED namespace, \"ns:*\" matches any key under namespace ns. Empty = no tag filter."`
 	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include the tasks hidden by default: completed (Done/Archived) and Deferred ones. When a filter matches hidden tasks, the result's hidden_completed/hidden_deferred counts say how many were suppressed."`
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
-	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across EVERY project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all."`
+	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across every PRIVATELY-homed project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all. A repo-homed project (homing: repo, its log checked into <repo>/.taskloom/tasks.jsonl) is registered nowhere global and is NEVER included, even if it is the current project -- every global listing's notice field says so."`
 	Sort             string   `json:"sort,omitempty" jsonschema:"Optional sort order. \"priority\" sorts by derived, rank-normalized priority (descending) — a 0-5 score combining a project's priority_fn/decay_fn formulas over each task's tags, percentile-ranked against the project's non-terminal tasks; see each returned task's derived_priority field. Empty (default) leaves today's order unchanged."`
 }
 
@@ -41,12 +41,16 @@ type taskListResult struct {
 	Global       bool `json:"global,omitempty"`
 	ProjectCount int  `json:"project_count,omitempty"`
 
-	// Notice is set when a listing fell back to Global on its own — no
-	// CTXLOOM_PROJECT_ID/--project pin, no CTXLOOM_ROOT or enclosing git repo,
-	// and no established identity for the working directory — so the caller
-	// sees WHY it got every project's tasks instead of silently getting an
-	// unexpected result. Empty otherwise, including for an explicit
-	// global=true (an opt-in needs no explanation).
+	// Notice is always set when Global is true: it names the scope
+	// limitation every global aggregation carries (only PRIVATELY-homed
+	// projects under ~/.ctxloom/tasks are discoverable at all — see
+	// globalScopeLimitationNote — sharpened to name the current project
+	// specifically when IT is the repo-homed one being missed), and — when
+	// the listing fell back to Global on its own (no CTXLOOM_PROJECT_ID/
+	// --project pin, no CTXLOOM_ROOT or enclosing git repo, and no
+	// established identity for the working directory) — is prefixed with WHY
+	// it fell back. Never empty when Global is true; always empty when it
+	// isn't.
 	Notice string `json:"notice,omitempty"`
 
 	// HiddenCompleted/HiddenDeferred count tasks that matched the requested
@@ -118,7 +122,7 @@ func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every project instead. When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global and the result's notice field says so. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
+			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		handleTaskList)
 
@@ -178,6 +182,13 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 	}
 
 	if scope.Global {
+		notice := scope.Notice
+		limitation := globalScopeLimitationNote(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
+		if notice != "" {
+			notice += "; " + limitation
+		} else {
+			notice = limitation
+		}
 		gres, err := listAllProjects(in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
 		if err != nil {
 			return nil, nil, err
@@ -186,7 +197,7 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 			Tasks:           gres.Rows,
 			Global:          true,
 			ProjectCount:    gres.ProjectCount,
-			Notice:          scope.Notice,
+			Notice:          notice,
 			HiddenCompleted: gres.HiddenCompleted,
 			HiddenDeferred:  gres.HiddenDeferred,
 			PriorityWarning: gres.PriorityWarning,

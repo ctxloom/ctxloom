@@ -24,6 +24,12 @@ listing falls back to --global on its own, with a notice on stderr saying
 why, rather than minting a throwaway project identity for an arbitrary
 directory.
 
+--global (explicit or fallback) only ever aggregates PRIVATELY-homed projects
+under ~/.ctxloom/tasks; a repo-homed project (homing: repo, its log checked
+into <repo>/.taskloom/tasks.jsonl) is registered nowhere global and is never
+included, even if it's the very project you're standing in. Every --global
+listing says so on stderr.
+
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
@@ -73,7 +79,7 @@ taskloom list [flags]
 
 ```
       --all                include the tasks hidden by default: completed (Done/Archived) and Deferred
-      --global             aggregate tasks across every project instead of just the current one
+      --global             aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)
   -h, --help               help for list
       --json               shorthand for --format json (for jq)
       --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged

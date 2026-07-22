@@ -14,6 +14,7 @@ import (
 
 	_ "modernc.org/sqlite" // registers driver "sqlite" — see kiro/store.go's own doc for why this exact name/driver
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -158,6 +159,84 @@ func TestLocateKiroConversation_NoProjectDirNoSessionID(t *testing.T) {
 
 	_, ok := locateKiroConversation(context.Background(), sessions.Entry{})
 	assert.False(t, ok, "no SessionID and no ProjectDir leaves nothing to match against")
+}
+
+// isolatedKiroFixtureDB seeds a kiro sqlite db at the exact path an
+// isolated (worktree) kiro run's own XDG_DATA_HOME override resolves to
+// (isolation/worktree.go's provisionConfigHome:
+// <HarpEphemeralDir>/ctxloom-cfg-<agentID>-<randSuffix>/xdg-data/kiro-cli/data.sqlite3)
+// — everything BUT the random suffix, which locateKiroConversation must
+// discover by globbing rather than reconstructing (isolation/worktree.go's
+// worktreeScratchPath appends a fresh random token per launch, so the exact
+// leaf name is never knowable in advance).
+func isolatedKiroFixtureDB(t *testing.T, harp string, rows ...kiroFixtureRow) string {
+	t.Helper()
+	ephemeral, err := paths.HarpEphemeralDir(harp)
+	require.NoError(t, err)
+	configHome := filepath.Join(ephemeral, "ctxloom-cfg-agent-a-rand7xk9")
+	dataHome := filepath.Join(configHome, "xdg-data")
+	dbPath := filepath.Join(dataHome, "kiro-cli", "data.sqlite3")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS conversations_v2 (
+		key TEXT NOT NULL,
+		conversation_id TEXT NOT NULL,
+		value TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (key, conversation_id)
+	)`)
+	require.NoError(t, err)
+	for _, row := range rows {
+		_, err := db.Exec(
+			`INSERT INTO conversations_v2 (key, conversation_id, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			row.Key, row.ConversationID, string(row.Value), row.CreatedAt, row.UpdatedAt,
+		)
+		require.NoError(t, err)
+	}
+	return dbPath
+}
+
+// TestLocateKiroConversation_PrefersIsolatedHarpDBOverHostAmbient pins
+// dizzy-zoom's second caveat: kiroDBPath() previously read only the HOST
+// process's own $XDG_DATA_HOME, invisible to an isolated (worktree/
+// container) kiro run's own per-agent override — so a conversation that
+// happened entirely inside an isolated sqlite db was never found by the
+// post-exit locate, even though (confirmed by reading run.go's ordering)
+// the isolated config-home is still on disk at locate time — Cleanup() is
+// deferred and fires only after this call returns. locateKiroConversation
+// must now check the isolated harp-scoped db FIRST.
+func TestLocateKiroConversation_PrefersIsolatedHarpDBOverHostAmbient(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "isolated-kiro-harp"
+
+	row := loadKiroFixtureRow(t)
+	isolatedRow := kiroFixtureRow{
+		Key: row.Key, ConversationID: "isolated-only-conversation",
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Value: row.Value,
+	}
+	isolatedDB := isolatedKiroFixtureDB(t, harp, isolatedRow)
+
+	// A host-ambient db also exists, with a DIFFERENT conversation in the
+	// same project dir — proving the isolated db is preferred, not merely
+	// found when nothing else is available.
+	hostRow := kiroFixtureRow{
+		Key: row.Key, ConversationID: "host-ambient-conversation",
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt + 1, Value: row.Value,
+	}
+	newKiroFixtureDB(t, hostRow)
+
+	src, ok := locateKiroConversation(context.Background(), sessions.Entry{
+		HarpName:   harp,
+		ProjectDir: row.Key,
+		StartedAt:  msToTime(row.UpdatedAt - 5_000),
+	})
+	require.True(t, ok)
+	assert.Equal(t, isolatedDB+"#isolated-only-conversation", src,
+		"an isolated run's own per-agent sqlite db must be checked before falling back to the host-ambient one")
 }
 
 // TestConvertVendorTranscript_KiroEnumerateFallback is the end-to-end kiro

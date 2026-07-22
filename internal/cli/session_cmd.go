@@ -309,6 +309,20 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 			payload.TranscriptPath = p.TranscriptPath
 		}
 	}
+	// dizzy-zoom, confirmed live 2026-07-21 against real kiro-cli 2.12.1:
+	// kiro's agentSpawn hook stdin payload carries NO session identifier at
+	// all ({"hook_event_name":"agentSpawn","cwd":...,"prompt":...} — no
+	// session_id/conversation_id field), unlike Claude/Codex/Antigravity's
+	// payloads. It DOES set KIRO_SESSION_ID in the hook subprocess's OWN
+	// environment, confirmed (by direct sqlite query against the real
+	// conversations_v2 table) to equal that conversation's actual
+	// conversation_id. Falling back to it here means locateKiroConversation
+	// (vendorimport_kiro.go) hits its SessionID-bound fast path — an exact
+	// match, not the best-effort enumerate-by-workdir heuristic — for every
+	// ctxloom-launched kiro session, since the agentSpawn hook always fires.
+	if payload.SessionID == "" {
+		payload.SessionID = os.Getenv("KIRO_SESSION_ID")
+	}
 	// operations.BindSession applies first-bind-wins and no-ops a harp that is
 	// absent or already bound.
 	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)

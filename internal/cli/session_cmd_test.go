@@ -133,6 +133,41 @@ func TestBindSessionFromPayload(t *testing.T) {
 		assert.False(t, isAntigravityHookPayload([]byte(`not json`)))
 	})
 
+	t.Run("kiro_agentSpawn_payload_falls_back_to_KIRO_SESSION_ID_env", func(t *testing.T) {
+		mgr, entry := seedHomeSession(t)
+
+		// Live-verified against real kiro-cli 2.12.1 (2026-07-21, dizzy-zoom):
+		// kiro's agentSpawn hook stdin payload carries NO session identifier
+		// at all — {"hook_event_name":"agentSpawn","cwd":"...","prompt":"..."}
+		// — but kiro-cli sets KIRO_SESSION_ID in the hook subprocess's OWN
+		// environment, and that value was confirmed (by direct sqlite query
+		// against conversations_v2) to equal the conversation's real
+		// conversation_id. bindSessionFromPayload must fall back to it when
+		// the payload itself carries none.
+		t.Setenv("KIRO_SESSION_ID", "7150ba7d-fe97-46a2-b68f-d228359ef546")
+		payload := `{"hook_event_name":"agentSpawn","cwd":"/tmp/project","prompt":"say hi"}`
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+
+		got, err := mgr.Find(entry.HarpName)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "7150ba7d-fe97-46a2-b68f-d228359ef546", got.SessionID,
+			"kiro's own KIRO_SESSION_ID env var must bind when the JSON payload carries no session id")
+	})
+
+	t.Run("KIRO_SESSION_ID_env_never_overrides_an_explicit_payload_session_id", func(t *testing.T) {
+		mgr, entry := seedHomeSession(t)
+
+		t.Setenv("KIRO_SESSION_ID", "should-not-be-used")
+		payload := `{"session_id":"explicit-id","hook_event_name":"SessionStart"}`
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+
+		got, err := mgr.Find(entry.HarpName)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "explicit-id", got.SessionID, "an explicit payload session id always wins over the env fallback")
+	})
+
 	t.Run("empty_harp_is_noop", func(t *testing.T) {
 		testsupport.Isolate(t)
 		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "")

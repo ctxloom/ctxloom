@@ -402,7 +402,18 @@ func deleteItem(ref string, itemType ItemType) error {
 // editItem opens an item in the editor, then writes the new content back through
 // the operations core. The $EDITOR round-trip is the only CLI-specific concern;
 // the load, guard, distillation, and save all live in the library.
-func editItem(ref string, itemType ItemType) error {
+//
+// noDistill is the per-invocation `--no-distill` opt-out (distinct from the
+// item's own persistent no_distill field): when set, no Distiller is passed to
+// SetItemContent, so the LLM is never called for this edit. The stale
+// distilled form is not left behind describing the old content — the
+// operations core (applyFragmentEdits/applyPromptEdits) already clears
+// Distilled/DistilledBy/ContentHash unconditionally the instant raw content
+// changes, before it even decides whether to redistill — so a skipped
+// distillation leaves the item with NO distilled form (falls back to raw in
+// distilled-mode assembly) rather than a WRONG one. See docs at those
+// functions for the invariant this relies on.
+func editItem(ref string, itemType ItemType, noDistill bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -437,7 +448,7 @@ func editItem(ref string, itemType ItemType) error {
 		Kind:      kind,
 		Name:      itemName,
 		Content:   newContent,
-		Distiller: newLLMDistiller(cfg),
+		Distiller: distillerForEdit(cfg, noDistill),
 	})
 	if err != nil {
 		return err
@@ -448,8 +459,39 @@ func editItem(ref string, itemType ItemType) error {
 		fmt.Print(" (re-distilled)")
 	}
 	fmt.Println()
+	fmt.Print(editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
 	printPushReminder(bundleName)
 	return nil
+}
+
+// distillerForEdit resolves which Distiller SetItemContent should use for an
+// edit: nil (skip distillation entirely) when --no-distill was passed, the
+// real LLM-backed one otherwise. Split out so the flag's effect — nil vs. a
+// live distiller — is a plain, fast unit-testable decision, independent of
+// whatever backend newLLMDistiller resolves to.
+func distillerForEdit(cfg *config.Config, noDistill bool) operations.Distiller {
+	if noDistill {
+		return nil
+	}
+	return newLLMDistiller(cfg)
+}
+
+// editNoDistillWarning returns the exact line to print when --no-distill
+// skipped a distillation that would otherwise have run, or "" when no warning
+// is warranted: the flag wasn't passed, or the item was already marked
+// (persistent) no_distill, in which case the flag changed nothing — the item
+// was never going to auto-distill, so pointing at `... distill <ref>` (which
+// would itself just report "marked as no_distill" and skip) would be noise,
+// not signal. The distilled form is never left stale-but-present after this:
+// applyFragmentEdits/applyPromptEdits already clear Distilled/DistilledBy/
+// ContentHash unconditionally the instant raw content changes, so skipping
+// distillation here leaves the item with NO distilled form (raw content is
+// served in distilled-mode assembly) rather than a WRONG one.
+func editNoDistillWarning(itemType ItemType, ref string, noDistillFlag, wasAlreadyNoDistill bool) string {
+	if !noDistillFlag || wasAlreadyNoDistill {
+		return ""
+	}
+	return fmt.Sprintf("warning: distilled form not refreshed (--no-distill); run `ctxloom %s distill %s` before relying on distilled-mode output\n", itemType, ref)
 }
 
 // distillSource returns the content and distill flags for an item, erroring

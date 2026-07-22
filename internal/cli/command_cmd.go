@@ -92,16 +92,22 @@ var commandEditCmd = &cobra.Command{
 
 Reference format: bundle#commands/name
 
-After editing, the command will be automatically re-distilled unless marked as no_distill.
+After editing, the command will be automatically re-distilled unless marked as
+no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
+typo fix) without burning an LLM call — the distilled form is left empty
+(never stale) until you run 'ctxloom command distill'.
 
 Examples:
   ctxloom command edit core#commands/code-review
-  ctxloom command edit go-tools#commands/testing`,
+  ctxloom command edit go-tools#commands/testing
+  ctxloom command edit core#commands/code-review --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(args[0], ItemTypeCommand)
+		return editItem(args[0], ItemTypeCommand, commandEditNoDistill)
 	},
 }
+
+var commandEditNoDistill bool
 
 var commandDistillCmd = &cobra.Command{
 	Use:   "distill <bundle>#commands/<name>",
@@ -179,6 +185,7 @@ func init() {
 	commandListCmd.Flags().StringVarP(&commandListBundle, "bundle", "b", "", "Filter by bundle name")
 	commandShowCmd.Flags().BoolVarP(&commandShowDistilled, "distilled", "d", false, "Show distilled version")
 	commandShowCmd.Flags().BoolVarP(&commandShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
+	commandEditCmd.Flags().BoolVar(&commandEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	commandDistillCmd.Flags().BoolVarP(&commandDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	commandPushCmd.Flags().BoolVar(&commandPushPR, "pr", false, "Create a pull request")

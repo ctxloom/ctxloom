@@ -92,16 +92,22 @@ var fragmentEditCmd = &cobra.Command{
 
 Reference format: bundle#fragments/name
 
-After editing, the fragment will be automatically re-distilled unless marked as no_distill.
+After editing, the fragment will be automatically re-distilled unless marked as
+no_distill. Use --no-distill to skip re-distillation for just this edit (e.g. a
+typo fix) without burning an LLM call — the distilled form is left empty
+(never stale) until you run 'ctxloom fragment distill'.
 
 Examples:
   ctxloom fragment edit core#fragments/tdd
-  ctxloom fragment edit go-tools#fragments/testing`,
+  ctxloom fragment edit go-tools#fragments/testing
+  ctxloom fragment edit core#fragments/tdd --no-distill`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(args[0], ItemTypeFragment)
+		return editItem(args[0], ItemTypeFragment, fragmentEditNoDistill)
 	},
 }
+
+var fragmentEditNoDistill bool
 
 var fragmentDistillCmd = &cobra.Command{
 	Use:   "distill <bundle>#fragments/<name>",
@@ -211,6 +217,7 @@ func init() {
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
+	fragmentEditCmd.Flags().BoolVar(&fragmentEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")

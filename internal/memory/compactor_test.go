@@ -63,6 +63,29 @@ func TestCompactor_SessionToText(t *testing.T) {
 	assert.Contains(t, text, "## System: System message")
 }
 
+// TestCompactor_SessionToText_ThinkingExcludedByDefault is the proud-heap
+// payload assertion: a thinking entry's content must not reach the text
+// handed to distillation unless IncludeThinking is explicitly set. "It ran"
+// proves nothing here — assert the actual bytes.
+func TestCompactor_SessionToText_ThinkingExcludedByDefault(t *testing.T) {
+	session := &agent.Session{
+		ID: "thinking-session",
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeUser, Content: "ASK"},
+			{Type: agent.EntryTypeThinking, Content: "SCRATCH_REASONING_TEXT"},
+			{Type: agent.EntryTypeAssistant, Content: "CONCLUSION"},
+		},
+	}
+
+	suppressed := (&Compactor{config: CompactionConfig{}}).sessionToText(session)
+	assert.Contains(t, suppressed, "ASK")
+	assert.Contains(t, suppressed, "CONCLUSION")
+	assert.NotContains(t, suppressed, "SCRATCH_REASONING_TEXT", "thinking content must not reach distillation by default")
+
+	included := (&Compactor{config: CompactionConfig{IncludeThinking: true}}).sessionToText(session)
+	assert.Contains(t, included, "SCRATCH_REASONING_TEXT", "IncludeThinking:true must preserve the escape hatch")
+}
+
 func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{}}
 
@@ -557,6 +580,57 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	assert.Contains(t, joined, "MAIN_THREAD_ASK")
 	assert.Contains(t, joined, "MAIN_THREAD_ANSWER")
 	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach distillation")
+}
+
+// TestCompact_ThinkingExcludedFromLLMPrompt is the proud-heap end-to-end
+// payload assertion: the thinking-budget slice (2026-07-16) means a real
+// interactive session's canonical transcript now carries EntryTypeThinking
+// entries, and this asserts they never reach the prompt the compression LLM
+// actually sees, all the way through the real Compact() pipeline.
+func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "thinking-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
+				{Type: agent.EntryTypeThinking, Content: "SCRATCH_REASONING_TEXT"},
+				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	var mu sync.Mutex
+	var prompts []string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			mu.Lock()
+			prompts = append(prompts, req.GetPrompt().GetContent())
+			mu.Unlock()
+			_, _ = stdout.Write([]byte("Distilled."))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, prompts)
+	joined := strings.Join(prompts, "\n")
+	assert.Contains(t, joined, "MAIN_THREAD_ASK")
+	assert.Contains(t, joined, "MAIN_THREAD_ANSWER")
+	assert.NotContains(t, joined, "SCRATCH_REASONING_TEXT", "thinking content must not reach the compression LLM's prompt")
 }
 
 // TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is

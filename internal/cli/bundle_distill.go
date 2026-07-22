@@ -408,6 +408,16 @@ func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
 func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	// buildDistillMessage already leads with distillPrompt (see its own doc):
+	// SkipSetup below means Setup never runs, and Setup is the ONLY path that
+	// delivers RunStart.Fragments to the backend (internal/lm/grpc/server.go's
+	// Run handler only converts+delivers req.Fragments inside the
+	// !opts.GetSkipSetup() branch) — a Fragments entry here would be silently
+	// dropped, never reaching the model. prim-bluff (SILENT NO-OP): this
+	// caller used to also set Fragments:[{Content: distillPrompt}] alongside
+	// the already-smuggled message, which did nothing but read as if the
+	// instructions had a second, redundant delivery path. Removed; the prompt
+	// body is the ONLY delivery path for a SkipSetup run, by design.
 	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
 
 	// Create plugin client. The label rides along so serve configures the exact
@@ -422,9 +432,6 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
 			Content: message,
-		},
-		Fragments: []*pb.Fragment{
-			{Content: distillPrompt},
 		},
 		Options: &pb.RunOptions{
 			PermissionMode: agent.PermissionBypass.String(),

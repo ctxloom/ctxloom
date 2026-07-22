@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
 // Event is one line in a per-project append-only task log (ADR 0025). The log
@@ -614,19 +615,21 @@ func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 }
 
 func (l *eventLog) list(statuses []string, term string) ([]Task, error) {
-	return l.listWithTagQuery(statuses, term, "")
+	return l.listWithTagQuery(statuses, term, "", nil)
 }
 
 // listWithTagQuery is list with an additional postfix tag-query filter (see
 // filterTasks, backed by tagma). An empty tagQuery behaves exactly like
 // list; a malformed one surfaces as an error, never a silently empty or
-// unfiltered result.
-func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {
+// unfiltered result. schema feeds filterTasks's client-loadable type
+// comparison bridging (tagma SPEC.md §9); nil is fine (no type config
+// contributed), which is why list above passes it through unconditionally.
+func (l *eventLog) listWithTagQuery(statuses []string, term, tagQuery string, schema *tagschema.Schema) ([]Task, error) {
 	all, err := l.snapshot()
 	if err != nil {
 		return nil, err
 	}
-	return filterTasks(all, statuses, term, tagQuery)
+	return filterTasks(all, statuses, term, tagQuery, schema)
 }
 
 func (l *eventLog) summarize() (Summary, error) {

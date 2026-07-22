@@ -54,7 +54,13 @@ const FacetNamespace = "tagma"
 // tag's value against — see Enum/Range below. HideFacet declares DISPLAY-time
 // hiding (tagma.hide:<target>=<bool>, e.g. `tagma.hide:"triage:cwe"=true`) —
 // see HideFacts below; never enforced at write time, and never affects
-// storage, matching, or ranking, only what a listing shows.
+// storage, matching, or ranking, only what a listing shows. TypeFacet
+// declares a target's client-loadable comparison type (tagma.type:<target>=
+// <name>, e.g. `tagma.type:"triage:blocks-release"=semver`) — a query-time-
+// only declaration (like Hide) that switches '>' '>=' '<' '<=' matching over
+// to a registered tagma.TypeComparator instead of tagma's own numeric
+// grammar; see SemverTypeName and internal/shared/tasks, the only current
+// registrant.
 const (
 	ArityFacet      = "arity"
 	ArityScalar     = "scalar"
@@ -63,7 +69,18 @@ const (
 	EnumFacet       = "enum"
 	RangeFacet      = "range"
 	HideFacet       = "hide"
+	TypeFacet       = "type"
 )
+
+// SemverTypeName is the tagma.type value naming taskloom's semver
+// TypeComparator (tagma SPEC.md §9, "client-loadable type comparison"):
+// internal/shared/tasks registers a TypeComparator under this exact name, so
+// a declaration `tagma.type:<target>=semver` (e.g. DefaultTagSchema's
+// `triage:blocks-release`) switches that target's relational-operator
+// matching ('>' '>=' '<' '<=') from tagma's own numeric grammar (which
+// rejects a two-dot value like "0.7.0" outright) to real SemVer 2.0.0
+// precedence.
+const SemverTypeName = "semver"
 
 // Schema is the parsed form of a tag_schema declaration list: facet name ->
 // target string -> declared value.
@@ -178,6 +195,16 @@ func (s *Schema) PriorityFn(target string) (string, bool) {
 // evaluating.
 func (s *Schema) DecayFn(target string) (string, bool) {
 	return s.Get(DecayFnFacet, target)
+}
+
+// Type returns target's declared tagma.type name (SPEC.md §9) — e.g.
+// SemverTypeName — and whether one was declared. This is the read side of a
+// `tagma.type:<target>=<name>` declaration; the write side (bridging every
+// declared type into a tagma.Index's config so its query-time typeConfig
+// scan finds it, and registering the actual TypeComparator) lives in
+// internal/shared/tasks, this package's only current TypeFacet consumer.
+func (s *Schema) Type(target string) (string, bool) {
+	return s.Get(TypeFacet, target)
 }
 
 // Enum returns target's declared closed enum values — a facet="enum"

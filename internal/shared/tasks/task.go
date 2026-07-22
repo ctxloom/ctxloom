@@ -15,6 +15,7 @@ import (
 
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
 // Default status names. Hardcoded in v1; revisit if user-defined statuses
@@ -180,7 +181,17 @@ var ErrTagQuery = errors.New("tag query")
 // makes `not urgent` mean exactly what the old per-task
 // Expr.Matches(taskHasTag(t)) loop meant: "true for every candidate that
 // doesn't carry the urgent tag".
-func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, error) {
+//
+// schema — the project's resolved tag-schema — feeds the index's
+// client-loadable type comparison (tagma SPEC.md §9): registerTypes always
+// registers this package's semver comparator, and typeConfigTags bridges
+// schema's declared tagma.type:<target>=<name> facts into the index as a
+// synthetic config item (see typeConfigItemID), exactly the way presenceTag
+// bridges the candidate-participation marker. schema == nil (every caller
+// that predates this feature) contributes no type config, so relational
+// operators on an undeclared target keep matching tagma's own numeric
+// grammar unchanged.
+func filterTasks(all []Task, statuses []string, term, tagQuery string, schema *tagschema.Schema) ([]Task, error) {
 	var statusSet map[string]bool
 	if len(statuses) > 0 {
 		statusSet = make(map[string]bool, len(statuses))
@@ -206,6 +217,16 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, 
 	}
 
 	idx := tagma.NewIndex()
+	registerTypes(idx)
+	if cfgTags := typeConfigTags(schema); len(cfgTags) > 0 {
+		// A synthetic config item, exactly like presenceTag below: bridges
+		// schema's tagma.type:<target>=<name> declarations into the index so
+		// tagma's own query-time typeConfig scan (SPEC.md §9) finds them.
+		// typeConfigItemID can never collide with a real t.HarpID (a harp is
+		// always a plain hyphenated word pair; this id carries a reserved
+		// namespaced colon), so it never leaks into a query result.
+		idx.AddItem(typeConfigItemID, cfgTags)
+	}
 	for _, t := range candidates {
 		// AddItem only records an id in the index if it's given at least one
 		// tag — an item that never appears in idx.items doesn't participate
@@ -250,6 +271,13 @@ func filterTasks(all []Task, statuses []string, term, tagQuery string) ([]Task, 
 // carrying this (or any) explicit namespace can never collide with one a
 // user wrote.
 const presenceNamespace = "taskloom.internal"
+
+// typeConfigItemID is the reserved synthetic item id typeConfigTags' config
+// tags are indexed under (see filterTasks) — never a real t.HarpID (a harp
+// is always a plain lowercase hyphenated word pair; this id's colon can
+// never occur in one), so it never participates in a query's matched-id set
+// even though it briefly enters idx.items.
+const typeConfigItemID = "taskloom.internal:type-config"
 
 // presenceTag is an inert marker tag added alongside every candidate's real
 // tags in filterTasks — see that function's doc for why. It never matches

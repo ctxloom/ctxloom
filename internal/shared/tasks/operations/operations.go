@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	semver "github.com/Masterminds/semver/v3"
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/lint"
@@ -167,7 +168,7 @@ func listTasks(tc TaskContext, statuses []string, term, tagQuery string, include
 	if err != nil {
 		return nil, err
 	}
-	list, err := store.ListWithTagQuery(statuses, term, tagQuery)
+	list, err := store.ListWithTagQuery(statuses, term, tagQuery, tc.TagSchema)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -446,6 +447,19 @@ func validateTags(tags []string, schema *tagschema.Schema) error {
 //   - schema declares a tagma.range:<target> for tag's target and tag's
 //     value either does not parse as a number or falls outside the declared
 //     [min,max] — same source of truth as lint's own range check.
+//   - schema declares a tagma.type:<target>=semver (tagschema.SemverTypeName
+//     — tagma SPEC.md §9's client-loadable type comparison) for tag's target
+//     and tag's value does not parse as a strict SemVer 2.0.0 version (via
+//     github.com/Masterminds/semver/v3's StrictNewVersion, the same parser
+//     internal/shared/tasks's registered comparator uses for matching): a
+//     value this rejects could never match one of the target's own
+//     relational-operator ('>' '>=' '<' '<=') queries either, since the
+//     comparator would report it NotComparable forever — rejecting it here
+//     keeps a malformed value from being silently unqueryable once stored,
+//     the same motivation as the enum/range checks above. A declared type
+//     name this package doesn't recognize (anything other than
+//     tagschema.SemverTypeName) is not checked here — nothing else is a
+//     write-time-checkable format yet.
 //
 // schema is applied ONLY to tag itself — the value being written — never to
 // any tag already stored on the task being mutated. AddTaskWithTags/TagTask
@@ -506,6 +520,11 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 		}
 		if f < min || f > max {
 			return fmt.Errorf("tag %q's value %v is outside %s's declared range [%v,%v]", tag, f, target, min, max)
+		}
+	}
+	if typeName, ok := schema.Type(target); ok && typeName == tagschema.SemverTypeName {
+		if _, verr := semver.StrictNewVersion(value); verr != nil {
+			return fmt.Errorf("tag %q's value %q is not a valid SemVer 2.0.0 version, required by %s's declared type %q: %w", tag, value, target, typeName, verr)
 		}
 	}
 	return nil

@@ -114,8 +114,13 @@ const (
 //   - `triage:effort` — a 0-5 numeric estimate of cost; priority_fn divides
 //     it back out (a costlier fix ranks lower, all else equal).
 //   - `triage:blocks-release` — a scalar, valued (e.g. a semver like
-//     "0.7.0"), never itself numeric; priority_fn only ever presence-tests
-//     it (see the `=*` composite key below), so its value is free-form.
+//     "0.7.0"); priority_fn only ever presence-tests it (see the `=*`
+//     composite key below). It also declares `tagma.type:...=semver`
+//     (tagma SPEC.md §9, client-loadable type comparison), so a relational
+//     `--tag-query` over it (e.g. `triage:blocks-release<=0.7.0`) orders by
+//     real SemVer 2.0.0 precedence instead of tagma's own numeric grammar —
+//     which rejects a two-dot value like "0.7.0" outright — see
+//     internal/shared/tasks's registerTypes/typeConfigTags.
 //
 // `triage:exposed` (enum: wire, cli, config, on-disk, api) is declared for
 // lint's enum check but is NOT arity=scalar — it, like every other flag
@@ -165,6 +170,7 @@ var DefaultTagSchema = []string{
 	`tagma.arity:"triage:kind"=scalar`,
 	`tagma.arity:"triage:effort"=scalar`,
 	`tagma.arity:"triage:blocks-release"=scalar`,
+	`tagma.type:"triage:blocks-release"=` + tagschema.SemverTypeName,
 	`tagma.enum:"triage:kind"="defect,capability,chore"`,
 	`tagma.enum:"triage:exposed"="wire,cli,config,on-disk,api"`,
 	`tagma.range:"triage:effort"="0,5"`,

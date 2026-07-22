@@ -3,6 +3,8 @@ package tasks
 import (
 	"fmt"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
 // Store is the public face of a per-project task log. The append-only JSONL
@@ -42,9 +44,15 @@ func (s *Store) List(statuses []string, term string) ([]Task, error) {
 // ListWithTagQuery is List with an additional postfix tag-query filter,
 // evaluated by tagma (see filterTasks, e.g. "urgent/release/and"). An empty
 // tagQuery behaves exactly like List. A malformed tagQuery is returned as an
-// error rather than a silently empty or unfiltered result.
-func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string) ([]Task, error) {
-	return s.log.listWithTagQuery(statuses, term, tagQuery)
+// error rather than a silently empty or unfiltered result. schema — the
+// project's resolved tag-schema, or nil — feeds the tag-query index's
+// client-loadable type comparison (tagma SPEC.md §9), e.g. so a
+// `tagma.type:"triage:blocks-release"=semver` declaration makes a relational
+// query ('<=' etc.) over that target compare by real SemVer 2.0.0 precedence
+// instead of tagma's own numeric grammar. nil behaves exactly as before this
+// feature existed.
+func (s *Store) ListWithTagQuery(statuses []string, term, tagQuery string, schema *tagschema.Schema) ([]Task, error) {
+	return s.log.listWithTagQuery(statuses, term, tagQuery, schema)
 }
 
 // Add appends a new task with an auto-generated unique harp ID. Empty

@@ -625,6 +625,86 @@ func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
 	}
 }
 
+// blocksReleaseSemverSchema returns a *tagschema.Schema declaring
+// triage:blocks-release's tagma.type=semver (tagschema.SemverTypeName) —
+// the same declaration DefaultTagSchema ships (tagma SPEC.md §9,
+// client-loadable type comparison).
+func blocksReleaseSemverSchema(t *testing.T) *tagschema.Schema {
+	t.Helper()
+	schema, err := tagschema.Parse([]string{
+		`tagma.type:"triage:blocks-release"=` + tagschema.SemverTypeName,
+	})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return schema
+}
+
+// TestValidateTagAcceptsDeclaredSemverType and
+// TestValidateTagRejectsDeclaredSemverTypeViolation pin validateTag's
+// tagma.type=semver branch directly: a value that parses as a strict SemVer
+// 2.0.0 version passes; one that doesn't is rejected with an error naming
+// the target and the offending value — the write-seam counterpart to
+// internal/shared/tasks's registered comparator, so a value this rejects
+// could never have matched a relational query on the target either.
+func TestValidateTagAcceptsDeclaredSemverType(t *testing.T) {
+	// "1.0.0+build.5" (SemVer build metadata) is deliberately not exercised
+	// here: tagma's own tag-value grammar has no charset room for '+' in a
+	// bare (unquoted) value token, so a task tag can never carry build
+	// metadata at all regardless of any tagma.type declaration — validateTag
+	// rejects it at the ParseTag step, before this branch is ever reached.
+	// Build-metadata EQUALITY (SemVer 2.0.0 §10) is still pinned directly at
+	// the comparator (TestSemverComparatorBuildMetadataEquality,
+	// internal/shared/tasks), which never goes through tag storage.
+	schema := blocksReleaseSemverSchema(t)
+	for _, tag := range []string{
+		"triage:blocks-release=0.7.0",
+		"triage:blocks-release=0.7.0-pre001",
+	} {
+		if err := validateTag(tag, schema); err != nil {
+			t.Errorf("validateTag(%q): unexpected error: %v", tag, err)
+		}
+	}
+}
+
+func TestValidateTagRejectsDeclaredSemverTypeViolation(t *testing.T) {
+	schema := blocksReleaseSemverSchema(t)
+	for _, tag := range []string{
+		"triage:blocks-release=notasemver",
+		"triage:blocks-release=0.7",    // strict semver requires major.minor.patch
+		"triage:blocks-release=v0.7.0", // strict semver rejects a "v" prefix
+	} {
+		err := validateTag(tag, schema)
+		if err == nil {
+			t.Fatalf("validateTag(%q): expected an error (not a valid SemVer 2.0.0 version)", tag)
+		}
+		if !strings.Contains(err.Error(), "triage:blocks-release") {
+			t.Errorf("validateTag(%q): error %q does not name the target", tag, err)
+		}
+	}
+}
+
+// TestAddTaskWithTagsRejectsDeclaredSemverTypeViolation pins the semver-type
+// gate at the AddTaskWithTags write seam end to end, mirroring
+// TestAddTaskWithTagsRejectsDeclaredEnumViolation for tagma.type=semver: a
+// rejected add must persist nothing at all.
+func TestAddTaskWithTagsRejectsDeclaredSemverTypeViolation(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: blocksReleaseSemverSchema(t)}
+
+	if _, err := AddTaskWithTags(tc, "bad version", "", "", []string{"triage:blocks-release=notasemver"}); err == nil {
+		t.Fatal("expected an error adding a tag whose value isn't a valid SemVer 2.0.0 version")
+	}
+
+	list, err := ListTasks(tc, nil, "", true, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Tasks) != 0 {
+		t.Fatalf("expected no tasks written after a rejected semver-type violation, got %+v", list.Tasks)
+	}
+}
+
 // TestValidateTagSkipsEnumRangeChecksWithNilSchema proves a nil schema (every
 // caller that predates this feature) never enforces enum/range at all — the
 // same values that TestValidateTagRejectsDeclaredEnumViolation/

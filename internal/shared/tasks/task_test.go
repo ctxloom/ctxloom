@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
 func taskWithTags(harpID string, tags ...string) Task {
@@ -35,7 +37,7 @@ func TestFilterTasksTagQuery(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := filterTasks(all, nil, "", c.query)
+			got, err := filterTasks(all, nil, "", c.query, nil)
 			if err != nil {
 				t.Fatalf("filterTasks(%q): %v", c.query, err)
 			}
@@ -63,7 +65,7 @@ func TestFilterTasksTagQuery(t *testing.T) {
 // to a silent empty or unfiltered result.
 func TestFilterTasksMalformedTagQueryErrors(t *testing.T) {
 	all := []Task{taskWithTags("a", "urgent")}
-	_, err := filterTasks(all, nil, "", "and")
+	_, err := filterTasks(all, nil, "", "and", nil)
 	if err == nil {
 		t.Fatal("expected an error for a malformed tag query (bare operator, arity underflow)")
 	}
@@ -75,7 +77,7 @@ func TestFilterTasksMalformedTagQueryErrors(t *testing.T) {
 // tagma's own error shape (a plain error, not a distinct type).
 func TestFilterTasksMalformedTagQueryWrapsErrTagQuery(t *testing.T) {
 	all := []Task{taskWithTags("a", "urgent")}
-	_, err := filterTasks(all, nil, "", "and")
+	_, err := filterTasks(all, nil, "", "and", nil)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -93,7 +95,7 @@ func TestFilterTasksTagQueryCaseInsensitiveOperators(t *testing.T) {
 		taskWithTags("urgent-release", "urgent", "release"),
 		taskWithTags("urgent-only", "urgent"),
 	}
-	got, err := filterTasks(all, nil, "", "urgent/release/AND")
+	got, err := filterTasks(all, nil, "", "urgent/release/AND", nil)
 	if err != nil {
 		t.Fatalf("filterTasks: %v", err)
 	}
@@ -101,7 +103,7 @@ func TestFilterTasksTagQueryCaseInsensitiveOperators(t *testing.T) {
 		t.Fatalf("uppercase AND = %+v, want only urgent-release", got)
 	}
 
-	got, err = filterTasks(all, nil, "", "urgent/Not")
+	got, err = filterTasks(all, nil, "", "urgent/Not", nil)
 	if err != nil {
 		t.Fatalf("filterTasks: %v", err)
 	}
@@ -120,7 +122,7 @@ func TestFilterTasksTagQueryPreservesInputOrder(t *testing.T) {
 		taskWithTags("mango", "urgent"),
 		taskWithTags("apple", "urgent"),
 	}
-	got, err := filterTasks(all, nil, "", "urgent")
+	got, err := filterTasks(all, nil, "", "urgent", nil)
 	if err != nil {
 		t.Fatalf("filterTasks: %v", err)
 	}
@@ -147,7 +149,7 @@ func TestFilterTasksTagQueryNotScopedToStatusCandidates(t *testing.T) {
 		{HarpID: "keep-me", Text: "keep-me", Status: StatusToDo},
 		{HarpID: "done-urgent", Text: "done-urgent", Status: StatusDone, Tags: []string{"urgent"}},
 	}
-	got, err := filterTasks(all, []string{StatusToDo}, "", "urgent/not")
+	got, err := filterTasks(all, []string{StatusToDo}, "", "urgent/not", nil)
 	if err != nil {
 		t.Fatalf("filterTasks: %v", err)
 	}
@@ -166,12 +168,92 @@ func TestFilterTasksTagQueryLenientOnUnparseableStoredTag(t *testing.T) {
 	all := []Task{
 		{HarpID: "legacy", Text: "legacy", Status: StatusToDo, Tags: []string{"urgent", "legacy/malformed"}},
 	}
-	got, err := filterTasks(all, nil, "", "urgent")
+	got, err := filterTasks(all, nil, "", "urgent", nil)
 	if err != nil {
 		t.Fatalf("filterTasks must not error on an unparseable stored tag: %v", err)
 	}
 	if len(got) != 1 || got[0].HarpID != "legacy" {
 		t.Fatalf("got %+v, want the legacy task matched via its still-valid urgent tag", got)
+	}
+}
+
+// blocksReleaseSemverSchema returns a *tagschema.Schema declaring
+// triage:blocks-release's tagma.type=semver (tagschema.SemverTypeName) —
+// the same declaration DefaultTagSchema ships, isolated here so this file's
+// end-to-end query tests don't depend on internal/taskloom/config.
+func blocksReleaseSemverSchema(t *testing.T) *tagschema.Schema {
+	t.Helper()
+	schema, err := tagschema.Parse([]string{
+		`tagma.type:"triage:blocks-release"=` + tagschema.SemverTypeName,
+	})
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return schema
+}
+
+// TestFilterTasksSemverRelationalQuery is the end-to-end proof this whole
+// feature exists for: a `--tag-query`-shaped relational atom over a target
+// declared tagma.type=semver orders by real SemVer 2.0.0 precedence, not
+// tagma's own numeric grammar (which would reject a two-dot value like
+// "0.7.0" outright, so '<='/'>=' etc. could never match it at all). Includes
+// a prerelease boundary case (0.7.0-pre001 sorts strictly before the release
+// 0.7.0, SemVer 2.0.0 §11.4) to prove pre-release ordering, not just
+// major.minor.patch, is live through the whole index-injection path.
+func TestFilterTasksSemverRelationalQuery(t *testing.T) {
+	all := []Task{
+		taskWithTags("below", "triage:blocks-release=0.6.9"),
+		taskWithTags("prerelease-boundary", "triage:blocks-release=0.7.0-pre001"),
+		taskWithTags("exact", "triage:blocks-release=0.7.0"),
+		taskWithTags("above", "triage:blocks-release=0.8.0"),
+		taskWithTags("untagged"),
+	}
+	schema := blocksReleaseSemverSchema(t)
+
+	got, err := filterTasks(all, nil, "", `triage:blocks-release<=0.7.0`, schema)
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	want := map[string]bool{"below": true, "prerelease-boundary": true, "exact": true}
+	if len(got) != len(want) {
+		t.Fatalf("query <=0.7.0 = %v, want exactly %v", harpIDs(got), want)
+	}
+	for _, task := range got {
+		if !want[task.HarpID] {
+			t.Errorf("query <=0.7.0: unexpected match %q", task.HarpID)
+		}
+	}
+
+	// The complementary '>' query proves the boundary is exclusive the other
+	// way too, and that "above" (0.8.0) is reachable at all — nothing would
+	// match if the type declaration were silently ignored and the numeric
+	// grammar (which can't parse "0.7.0" as a number) took over instead.
+	gotAbove, err := filterTasks(all, nil, "", `triage:blocks-release>0.7.0`, schema)
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	if len(gotAbove) != 1 || gotAbove[0].HarpID != "above" {
+		t.Fatalf("query >0.7.0 = %v, want only [above]", harpIDs(gotAbove))
+	}
+}
+
+// TestFilterTasksSemverRelationalQueryWithoutSchemaFallsBackToNumericGrammar
+// pins the precedence direction the other way: with no schema (nil, every
+// caller that predates this feature), tagma's own numeric grammar governs —
+// and that grammar rejects a two-dot value like "0.7.0" outright, so the
+// relational query matches nothing rather than silently using string or
+// float comparison.
+func TestFilterTasksSemverRelationalQueryWithoutSchemaFallsBackToNumericGrammar(t *testing.T) {
+	all := []Task{
+		taskWithTags("below", "triage:blocks-release=0.6.9"),
+		taskWithTags("exact", "triage:blocks-release=0.7.0"),
+	}
+	got, err := filterTasks(all, nil, "", `triage:blocks-release<=0.7.0`, nil)
+	if err != nil {
+		t.Fatalf("filterTasks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("query <=0.7.0 with no schema = %v, want none (tagma's numeric grammar can't parse a two-dot value)", harpIDs(got))
 	}
 }
 

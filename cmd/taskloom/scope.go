@@ -172,7 +172,7 @@ func listAllProjects(statuses []string, term, tagQuery string, includeDone, sort
 		if err != nil {
 			return nil, fmt.Errorf("open project %s: %w", projectID, err)
 		}
-		list, err := store.ListWithTagQuery(statuses, term, tagQuery)
+		list, err := store.ListWithTagQuery(statuses, term, tagQuery, schema)
 		if err != nil {
 			return nil, fmt.Errorf("list project %s: %w", projectID, err)
 		}

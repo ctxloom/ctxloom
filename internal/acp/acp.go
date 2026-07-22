@@ -170,7 +170,26 @@ type ACP struct {
 	// real (credentialed, multi-hundred-MB) engine image; every production
 	// construction path leaves it empty.
 	containerImage string
+
+	// shutdownGrace bounds how long spawnHostTransport's close() waits for
+	// the spawned agent to exit ON ITS OWN (after stdin EOF) before force-
+	// killing its process group. tidy-gush: claude-code-acp writes its own
+	// NATIVE session transcript asynchronously; a zero-grace immediate kill
+	// (the pre-fix behavior) raced that flush and truncated it — reproduced
+	// by bypassing ctxloom entirely and hitting the identical symptom
+	// against the real binary, so this is a teardown-timing bug, not a
+	// ctxloom capture bug. Zero (every production construction path) means
+	// DefaultShutdownGrace; test-only seam to keep tests fast.
+	shutdownGrace time.Duration
 }
+
+// DefaultShutdownGrace is how long a spawned ACP agent gets to exit on its
+// own after stdin closes before teardown force-kills its process group. Long
+// enough to cover an async native-transcript flush (tidy-gush's manual
+// repro: "sleep a few seconds" before terminate let the flush complete
+// cleanly every time); short enough that a hung/misbehaving agent doesn't
+// meaningfully delay teardown.
+const DefaultShutdownGrace = 3 * time.Second
 
 // NewChatDriver builds an ACP client for EMBEDDING inside a target agent's own
 // backend: kiro/codex implement agent.StructuredChat by delegating to this
@@ -417,18 +436,47 @@ func (b *ACP) spawnHostTransport(ctx context.Context, argv []string, env map[str
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+
+	// waitErr/processDone let close() below observe the natural exit without
+	// racing a second cmd.Wait() call (only ever one caller of Wait — Go's
+	// os/exec forbids more than one) and without blocking teardown
+	// indefinitely on an agent that never reacts to stdin closing.
+	var waitErr error
+	processDone := make(chan struct{})
+	go func() {
+		waitErr = cmd.Wait()
+		close(processDone)
+	}()
+
+	grace := b.shutdownGrace
+	if grace <= 0 {
+		grace = DefaultShutdownGrace
+	}
+
 	return &transport{
 		stdin:  stdin,
 		stdout: stdout,
 		close: func() error {
 			_ = stdin.Close()
 			if cmd.Process != nil {
-				// Kill the WHOLE process group (not just cmd.Process) — this is
-				// the moral-scorn fix: a plain Process.Kill here left codex-acp's
-				// detached worker running indefinitely after every Chat().
-				_ = killProcessGroup(cmd)
+				// tidy-gush: give the agent a bounded grace period to exit ON
+				// ITS OWN after stdin EOF — long enough to cover an async
+				// native-transcript flush — before force-killing. Killing the
+				// instant stdin closes (the pre-fix behavior) raced exactly
+				// that flush.
+				select {
+				case <-processDone:
+					// exited on its own within the grace period.
+				case <-time.After(grace):
+					// Kill the WHOLE process group (not just cmd.Process) —
+					// this is the moral-scorn fix: a plain Process.Kill here
+					// left codex-acp's detached worker running indefinitely
+					// after every Chat().
+					_ = killProcessGroup(cmd)
+					<-processDone
+				}
 			}
-			return cmd.Wait()
+			return waitErr
 		},
 	}, nil
 }

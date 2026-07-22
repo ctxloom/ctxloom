@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,7 +103,12 @@ func TestSpawnTransport_CloseReapsDetachedWorker(t *testing.T) {
 	require.NoError(t, os.WriteFile(script, []byte(leakingAgentScript), 0o755))
 	pidFile := filepath.Join(dir, "worker.pid")
 
-	b := &ACP{}
+	// Grace period set SHORT and explicit: this test's own concern (does
+	// close() reap a detached worker) is orthogonal to tidy-gush's flush
+	// grace period, and leakingAgentScript never reacts to stdin closing at
+	// all — the default grace would always fully elapse here, needlessly
+	// slowing the test down.
+	b := &ACP{shutdownGrace: 20 * time.Millisecond}
 	b.BinaryPath = "/bin/sh"
 
 	tr, err := b.spawnTransport(context.Background(), []string{script, pidFile}, nil, dir)
@@ -120,4 +126,72 @@ func TestSpawnTransport_CloseReapsDetachedWorker(t *testing.T) {
 
 	require.Eventually(t, func() bool { return !processAlive(workerPID) }, 2*time.Second, 10*time.Millisecond,
 		"close() must reap the WHOLE process group, including a worker the immediate child detached without setsid (moral-scorn) — a plain Process.Kill on just the child leaves this process running")
+}
+
+// flushingAgentScript emulates claude-code-acp's ASYNC transcript flush
+// (tidy-gush): it doesn't exit the instant stdin closes — `cat >/dev/null`
+// blocks reading stdin until EOF, then it sleeps briefly (standing in for
+// "writing its own native session transcript to disk") before writing a
+// marker file and exiting cleanly. A teardown that force-kills the process
+// group the instant stdin closes, with no grace period, races this and the
+// marker is never written — exactly the shape tidy-gush found against the
+// real claude-code-acp binary (a 1-line native transcript with no assistant
+// records), reproduced here hermetically with a throwaway shell script.
+const flushingAgentScript = `#!/bin/sh
+cat >/dev/null
+sleep 0.2
+echo flushed > "$1"
+exit 0
+`
+
+// TestSpawnTransport_CloseGivesFlushGracePeriod pins tidy-gush's fix: close()
+// must give the spawned agent a bounded grace period to exit ON ITS OWN
+// after stdin EOF — long enough for a real async flush to land — before
+// force-killing the process group. Before the fix, close() killed
+// immediately after stdin.Close(), racing (and here, reliably losing to) the
+// script's 0.2s post-EOF work.
+func TestSpawnTransport_CloseGivesFlushGracePeriod(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "flushing-agent.sh")
+	require.NoError(t, os.WriteFile(script, []byte(flushingAgentScript), 0o755))
+	markerFile := filepath.Join(dir, "flushed.marker")
+
+	b := &ACP{shutdownGrace: time.Second} // comfortably longer than the script's 0.2s "flush"
+	b.BinaryPath = "/bin/sh"
+
+	tr, err := b.spawnTransport(context.Background(), []string{script, markerFile}, nil, dir)
+	require.NoError(t, err)
+
+	_ = tr.close()
+
+	data, err := os.ReadFile(markerFile)
+	require.NoError(t, err, "the spawned agent's post-stdin-EOF flush must be allowed to complete before teardown kills it")
+	assert.Equal(t, "flushed\n", string(data))
+}
+
+// TestSpawnTransport_CloseKillsAfterGraceExpires proves the OTHER half of the
+// contract: a spawned agent that does NOT exit within the grace period is
+// still force-killed (bounded), not waited on forever.
+func TestSpawnTransport_CloseKillsAfterGraceExpires(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hanging-agent.sh")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\ncat >/dev/null\nsleep 100\n"), 0o755))
+
+	b := &ACP{shutdownGrace: 50 * time.Millisecond}
+	b.BinaryPath = "/bin/sh"
+
+	tr, err := b.spawnTransport(context.Background(), []string{script}, nil, dir)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		_ = tr.close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("close() never returned — the grace-period fallback failed to force-kill a hung agent")
+	}
 }

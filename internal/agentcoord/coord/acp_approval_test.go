@@ -269,3 +269,28 @@ func TestACPLivePath_ChildResultBridgesToParentMailbox(t *testing.T) {
 	require.Len(t, msgs, 1, "the parent must receive the child's result without the child choosing to report")
 	assert.Equal(t, "result", msgs[0].Kind)
 }
+
+// TestInjectMCPSocketEnv covers the codex-child reach-back fix: the ctxloom
+// forwarder MCP entry gets the runner's socket in its OWN declared env, so
+// delivery does not depend on the engine adapter propagating ambient env
+// (codex-acp does not — j17 @live).
+func TestInjectMCPSocketEnv(t *testing.T) {
+	servers := []agent.ChatMCPServer{
+		{Name: agent.MCPServerName, Command: "ctxloom", Args: []string{"mcp"}},
+		{Name: "other", Command: "x", Env: map[string]string{"K": "v"}},
+	}
+	injectMCPSocketEnv(servers, "/run/ctxloom/local/mcp-1.sock")
+	assert.Equal(t, "/run/ctxloom/local/mcp-1.sock", servers[0].Env[EnvMCPSocket],
+		"the ctxloom forwarder entry must carry the socket in its own env")
+	assert.NotContains(t, servers[1].Env, EnvMCPSocket, "only the ctxloom entry is stamped")
+
+	// No socket (bare/degraded runner): nothing injected.
+	bare := []agent.ChatMCPServer{{Name: agent.MCPServerName}}
+	injectMCPSocketEnv(bare, "")
+	assert.NotContains(t, bare[0].Env, EnvMCPSocket)
+
+	// A user override is never clobbered.
+	override := []agent.ChatMCPServer{{Name: agent.MCPServerName, Env: map[string]string{EnvMCPSocket: "/custom"}}}
+	injectMCPSocketEnv(override, "/run/ctxloom/local/mcp-1.sock")
+	assert.Equal(t, "/custom", override[0].Env[EnvMCPSocket])
+}

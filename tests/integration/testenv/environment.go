@@ -410,6 +410,7 @@ func (e *TestEnvironment) Command(extraEnv []string, args ...string) *exec.Cmd {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = append(e.isolatedEnv(), extraEnv...)
+	cmd.SysProcAttr = pdeathsigSysProcAttr()
 	return cmd
 }
 
@@ -418,6 +419,7 @@ func (e *TestEnvironment) Run(args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
+	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -494,6 +496,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
+	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {

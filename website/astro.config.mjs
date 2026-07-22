@@ -88,6 +88,7 @@ export default defineConfig({
 						{ label: 'Distillation', link: '/guides/distillation/' },
 						{ label: 'Ad-hoc Context', link: '/guides/adhoc-context/' },
 						{ label: 'Workflows', link: '/guides/workflows/' },
+						{ label: 'Diagnosing a Setup (doctor)', link: '/guides/doctor/' },
 					],
 				},
 				{

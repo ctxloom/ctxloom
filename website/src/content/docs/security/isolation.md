@@ -44,9 +44,15 @@ four real, currently-shipping CLIs actually did. **Kiro** **leaked** credential 
 the boundary. **Codex** **flooded** its entire runtime state into the project tree — into a
 directory tracked in git. **Claude Code**, pointed at an unseeded config-home, isolated so
 perfectly that it **locked the agent out**, unable to authenticate at all — a gap that turned
-out to be ctxloom's to close, and is now closed. And **Antigravity**'s lever relocates its
-configuration and session state cleanly — but not its authentication, which turns out to live
-one layer beneath anything a process environment variable can reach.
+out to be ctxloom's to close, and is now closed. And **Antigravity** is worse than any of the
+first three, in a way that does not fit the same headline: its `HOME` lever relocates
+configuration and session state cleanly, but not authentication, which lives one layer beneath
+anything a process environment variable can reach — and, measured separately, its headless
+oneshot mode **ignores the launch working directory entirely for file writes**, so the
+workspace axis (worktrees) does nothing for it either. Antigravity is the one engine here
+unproven on *both* isolation axes at once: the workspace axis is measured broken (silently, not
+even a warning today), and the container axis has no credential path wired in production at
+all, so it currently fails loud instead — the two gaps do not cancel out, they compound.
 
 Four engines. Four different answers to "where does your state live?" — three about a variable
 honoured, ignored, or pulling in two directions, and one about a layer no per-process variable
@@ -190,15 +196,38 @@ regardless of which worktree ctxloom launched each one from. Whether Antigravity
 `-i` mode respects the launch directory was not tested here — this finding is scoped to headless
 `-p`, the mode ctxloom's non-interactive `run` command actually uses.
 
+**Unlike the auth/keyring gap above, ctxloom raises no finding for this one today.** The
+loud, non-fatal warning described earlier in this section (config and session state isolated,
+authentication not) covers only the `HOME`-relocation axis. Nothing currently tells an operator
+that `workspace: worktree` bought Antigravity's headless writes nothing — the run reports
+success, the worktree exists, and the token still lands in the shared global scratch
+directory. That silence is the specific thing this page exists to rule out elsewhere (see [Why
+it fails silently](#why-it-fails-silently) below); it has not yet been closed for this axis.
+Whether ctxloom should refuse `workspace: worktree` for Antigravity outright — the same posture
+it already takes for Kiro when `KIRO_API_KEY` is absent — rather than continuing to run
+unwarned is an open decision, not yet made.
+
 Containers close that channel, and not because Antigravity cooperates. A container gets its own
 mount, IPC, and PID namespaces, so the keyring's socket does not exist inside it — there is
-nothing at that path to fall back to. We measured this directly too: Antigravity, run in a
-fresh container with no session bus reachable, logged its own fallback ("Using file-based token
-storage because no D-Bus session bus detected") to a file-based credential store
-(`oauth_creds.json` under `HOME`), and then failed outright — not logged in, because nothing had
-been seeded into that fallback path for this run. That failure is the correct, advertisable
-property: a containerized run of Antigravity cannot silently authenticate as the host user. It
-can only refuse, loudly. Two edges stay open and unverified rather than ruled out either way:
+nothing at that path to fall back to. We measured this directly too, by hand, outside ctxloom's
+own launch path: Antigravity, run in a fresh container with no session bus reachable, logged its
+own fallback ("Using file-based token storage because no D-Bus session bus detected") to a
+file-based credential store (`oauth_creds.json` under `HOME`), and then failed outright — not
+logged in, because nothing had been seeded into that fallback path for this manual experiment.
+
+That experiment is about whether the D-Bus channel *could* be closed; it is a separate question
+from what `ctxloom run --runtime container` itself does today, and the honest answer there is
+narrower than "it authenticates or refuses cleanly": **there is no antigravity container auth
+resolver in production at all.** `resolveAntigravityContainerAuth`
+(`internal/lm/isolation/auth.go`) is a permanent stub — it always returns "no credentials
+available," unconditionally, and is wired as antigravity's actual `resolveAuth` in
+`internal/lm/isolation/profile.go`. That is not a missed test case; it is the whole
+implementation. In practice this means ctxloom's own container launch aborts before the
+container ever starts — a fatal `ClassIsolation` finding in the default strict mode, exactly the
+same fail-loud posture Kiro gets when `KIRO_API_KEY` is absent, downgradeable to a warning only
+with `--degraded`. That refusal is correct and worth keeping: it is a lever nobody has built yet,
+not a lever that silently does the wrong thing. Two edges stay open and unverified rather than
+ruled out either way:
 whether a deliberately *seeded* file-based credential would let a container authenticate
 end-to-end (not attempted here — it needs a real interactive OAuth login with no keyring
 reachable, which needs a browser and a human, not a script), and whether Antigravity's binary
@@ -267,6 +296,16 @@ to the vendors who happen to have picked the harder design:
   still help outside a container — an explicit, caller-selectable file-based credential mode
   that Antigravity would consult before ever touching the keyring — but that closes a
   convenience gap, not the structural one; the boundary is still what does the real work here.
+
+- **Antigravity, second gap — vendor-side, and currently unwarned by ctxloom.** Headless
+  `agy -p` ignores the launch working directory entirely and writes to a fixed global scratch
+  path regardless of `--add-dir` or anything else on its command line — the concrete ask is a
+  flag or environment variable that actually relocates that scratch directory, mirroring what
+  every other engine's config-home variable does for its own state. Until that exists, only a
+  container boundary closes this one too (a fresh filesystem has no shared global scratch dir to
+  collide in). Unlike the credential gap above, ctxloom does not yet raise any finding — loud or
+  otherwise — when it hands Antigravity a worktree it cannot use; whether it should refuse
+  instead of proceeding unwarned is open (see the note earlier in this section).
 
 None of this is a report of negligence. Four different teams made four different, defensible
 design calls for a single-user tool, and none of those calls anticipated a caller running many

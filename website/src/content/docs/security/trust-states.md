@@ -13,8 +13,8 @@ place is "the agent never sees it".
 
 ## Three states
 
-Every remote item — fragment, command, MCP server, hook — is in exactly one of three states.
-There is no fourth.
+Every remote item — fragment, command, MCP server, hook, skill — is in exactly one of three
+states. There is no fourth.
 
 **pending** — never reviewed, or its content changed since a human approved it. Withheld from
 the agent. This is the implicit state of anything with no valid countersignature over its
@@ -48,24 +48,35 @@ local and builtin content, and a fatal trust-store finding is raised. Fix or rem
 then re-review.
 
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes → **deny**
-2. **local** — authored in this project, any kind including executables → **allow**
-3. **builtin** — shipped inside the binary → **allow**
-4. **trusted signer** — a key you trust for the `publish` namespace signed exactly these
+2. **retracted** — the *publisher* withdrew this bundle (or this exact version of it) via
+   their remote manifest, recorded locally at sync time → **deny**
+3. **local** — authored in this project, any kind including executables → **allow**
+4. **builtin** — shipped inside the binary → **allow**
+5. **trusted signer** — a key you trust for the `publish` namespace signed exactly these
    bytes, verified at load, before any YAML parse → **allow**
-5. **approved** — a countersignature from a key you trust for the `approve` namespace
+6. **approved** — a countersignature from a key you trust for the `approve` namespace
    verifies over exactly these bytes, at this ref, in this form → **allow**
-6. **otherwise** — pending → **deny**
+7. **otherwise** — pending → **deny**
 
 ### Rejection is step 1 for a reason
 
-Rejection beats everything below it: the local exemption, the builtin exemption, a trusted
-publisher, and ctxloom's own release key. You can reject a builtin. You can reject something
-Trent signed. Step 1 is evaluated even when a publisher signature is absent or failed to
-verify, because **a rejection is of bytes, not of provenance**.
+Rejection beats everything below it: retraction, the local exemption, the builtin exemption, a
+trusted publisher, and ctxloom's own release key. You can reject a builtin. You can reject
+something Trent signed. Step 1 is evaluated even when a publisher signature is absent or
+failed to verify, because **a rejection is of bytes, not of provenance**.
 
 This is the structural consequence of "signed does not mean safe". A signature authenticates;
 it never authorizes. If signatures could outrank a human's refusal, the refusal would be
 decorative.
+
+### Retraction is a peer of rejection, not a subset
+
+A rejection is a human's decision about bytes. A retraction is the *publisher's own*
+withdrawal of a bundle — sourced from their remote manifest, not a countersignature — and it
+is checked at step 2, just as early, so it too beats every allow below it, including a
+trusted signer's own key: a publisher can retract content signed by a key this machine still
+trusts. Retraction renders as the **rejected** state in listings (withheld permanently,
+awaiting nothing) rather than as a fourth state — the three-state model above still holds.
 
 ### Builtins go through the gate
 
@@ -96,12 +107,18 @@ on stderr — `N item(s) awaiting review — run 'ctxloom review'`.
 
 | Choke | Covers | On deny |
 |---|---|---|
-| Content gate | fragments, commands | absent from assembled context |
+| Content gate | fragments, commands, skills | absent from assembled context / not returned by `ctxloom skill show` |
 | Executable gate — MCP | bundle MCP servers | omitted from backend settings |
 | Executable gate — hooks | bundle hooks | omitted from backend settings |
 | Executable gate — command export | command slash-commands | not exported |
 | Tooling collection | a bundle's `tooling` command | withheld from Containerfile proposals |
 | Listing stamp | JSON listings | stamped `trusted: false` |
+
+A [reference journey](/journeys/trust-surface/) drives every one of these chokes directly and
+checks the withheld item never reaches the payload the assistant actually receives — not just
+that a status field says "pending". It exists because "the gate returns deny" and "the content
+is actually absent downstream" are different claims, and this project has shipped the first
+without the second before.
 
 **Ungated by design:** profile *definitions*. A profile is orchestration — a list of what to
 compose. Its constituent items still gate at their own chokes, and executables a profile

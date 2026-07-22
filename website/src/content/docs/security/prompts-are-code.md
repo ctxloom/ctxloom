@@ -19,8 +19,13 @@ prompts from bad ones. Because nobody can, and pretending otherwise is how you g
 
 ## Three tiers of execution
 
-A bundle carries fragments, commands, profiles, MCP servers, and hooks. The last two are not
-metaphorically executable. They are command lines.
+A bundle carries fragments, commands, skills, profiles, MCP servers, and hooks. Hooks and MCP
+are not metaphorically executable — they are command lines. Skills are a fourth kind worth
+naming on its own: unlike a fragment or command, a skill is not inline text at all — it is a
+directory of real files (a required `SKILL.md` plus arbitrary siblings, commonly a `scripts/`
+folder), and an executable bit set on one of those files is preserved onto your disk. See
+[What a bundle can do to you](/security/bundle-anatomy/#skills--the-package-on-disk) for the
+detail.
 
 ### Tier 1 — direct and immediate: `hooks`
 

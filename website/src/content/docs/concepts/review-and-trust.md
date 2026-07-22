@@ -11,7 +11,7 @@ every later change to it is withheld again. Reviewing is one command —
 
 First-party content reaches the agent without review:
 
-- **Local** — fragments, commands, MCP servers, and hooks you authored in this
+- **Local** — fragments, commands, MCP servers, hooks, and skills you authored in this
   project. A *copy* of a remote item is not local: items are keyed by their true
   source, so cloning a bundle into the cache doesn't manufacture local trust.
 - **Builtin** — bundles shipped inside the binary. Trusting ctxloom trusts them.
@@ -31,7 +31,7 @@ don't trust — is **pending** until you review it.
 
 ## The three states
 
-Every remote item — fragment, command, MCP server, or hook — is in exactly one
+Every remote item — fragment, command, MCP server, hook, or skill — is in exactly one
 state:
 
 - **pending** — never reviewed, or its content changed since you approved it.
@@ -170,7 +170,7 @@ ctxloom blacklist <ref>   # reject one item everywhere
 Both write the same countersignatures `ctxloom review` writes, through the same
 path, so porcelain and plumbing produce identical results on disk. Refs use the
 selector syntax — `<bundle>#fragments/<name>`, `<bundle>#commands/<name>`,
-`<bundle>#mcp/<name>`, or `<bundle>#hooks/<event>/<index>`.
+`<bundle>#mcp/<name>`, `<bundle>#hooks/<event>/<index>`, or `<bundle>#skills/<name>`.
 
 ## How a trust decision is made
 
@@ -186,13 +186,16 @@ match wins, and the default is withhold:
    raised. Fix or remove the store, then re-review.
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes →
    withhold
-2. **local** — authored in this project, every kind → allow
-3. **builtin** — shipped inside the binary → allow
-4. **trusted signer** — a key you trust to publish signed exactly these bytes →
+2. **retracted** — the *publisher* withdrew this bundle via their remote manifest
+   (recorded locally the last time you synced) → withhold, even if you trust the
+   key that signed it
+3. **local** — authored in this project, every kind → allow
+4. **builtin** — shipped inside the binary → allow
+5. **trusted signer** — a key you trust to publish signed exactly these bytes →
    allow
-5. **approved** — a countersignature from a key you trust to approve verifies
+6. **approved** — a countersignature from a key you trust to approve verifies
    over exactly these bytes, at this ref, in this form → allow
-6. otherwise → **pending**, withhold
+7. otherwise → **pending**, withhold
 
 Builtins get their own step *below* rejection precisely so you can reject one;
 they are routed through the same resolver as everything else rather than skipping

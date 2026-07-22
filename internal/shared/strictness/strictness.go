@@ -14,8 +14,11 @@
 package strictness
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -86,6 +89,10 @@ type Finding struct {
 var (
 	mu       sync.Mutex
 	degraded bool
+	// findings is the process-wide chronological log — every finding ever
+	// recorded, in record order, across every goroutine. It backs ONLY All()
+	// and Reset(); a Mark never indexes into it (see window below) — that
+	// indirection through ONE shared slice was the concurrency defect.
 	findings []Finding
 	// generation counts Checkpoint calls. onceRecorded keys FailOnce
 	// recordings by generation+class+message, so the RECORDING dedup is
@@ -96,9 +103,68 @@ var (
 	// retry would open silently on broken context. The PRINT dedup
 	// (clidiag.WarnOnce) deliberately stays process-wide; worst case of the
 	// window scoping is a duplicate line inside one findings listing.
+	//
+	// generation stays a single global counter (not per-window) even after
+	// the per-window ownership fix below: two concurrently-opened windows
+	// simply get two different generations (each Checkpoint call bumps it
+	// once, under mu), so a FailOnce message fired in window A's generation
+	// never dedups against the same message fired in window B's — each
+	// window still sees its own message exactly once. Concurrency-safe as-is;
+	// nothing here needed to change for the fix.
 	generation   int
 	onceRecorded = map[string]struct{}{}
+
+	// windowsMu guards windows, the goroutine-id -> *window registry.
+	windowsMu sync.Mutex
+	windows   = map[int64]*window{}
 )
+
+// window is ONE GOROUTINE's privately-owned findings log — the fix for the
+// cross-attribution defect: record() appends a finding to the window of the
+// SPECIFIC goroutine that recorded it, never to a window some other,
+// concurrently-running goroutine happens to have open. A goroutine's window
+// lives for that goroutine's whole life unless explicitly released (Close),
+// so repeated/sequential Checkpoint calls on one goroutine share ONE
+// continuously growing log — Mark indices behave exactly as they did against
+// the old process-global slice, just narrowed in scope to one goroutine, so
+// nesting/sequential-reread semantics are unchanged for the sequential
+// callers that already worked correctly.
+type window struct {
+	gid      int64
+	mu       sync.Mutex
+	findings []Finding
+}
+
+// currentWindow returns (creating if absent) the calling goroutine's window.
+func currentWindow() *window {
+	gid := goroutineID()
+	windowsMu.Lock()
+	w, ok := windows[gid]
+	if !ok {
+		w = &window{gid: gid}
+		windows[gid] = w
+	}
+	windowsMu.Unlock()
+	return w
+}
+
+// goroutineID extracts the runtime's own goroutine id from the "goroutine
+// 123 [running]:" preamble runtime.Stack prints for the calling goroutine.
+// Go hands out ids from a monotonically increasing process-lifetime counter
+// and never recycles them (runtime/proc.go's goidgen), so a window keyed by
+// this id can never later be handed to a DIFFERENT, unrelated goroutine —
+// the only correctness property this package leans on; the id is never used
+// for scheduling or anything else runtime.Stack was not designed to expose.
+func goroutineID() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	b := bytes.TrimPrefix(buf[:n], []byte("goroutine "))
+	if i := bytes.IndexByte(b, ' '); i >= 0 {
+		b = b[:i]
+	}
+	id, _ := strconv.ParseInt(string(b), 10, 64)
+	return id
+}
 
 // SetDegraded switches the process into (or out of) degraded mode. Called once
 // at startup from the CTXLOOM_DEGRADED env read and the --degraded flag (flag
@@ -117,46 +183,94 @@ func Degraded() bool {
 	return degraded
 }
 
-// Mark is a checkpoint into the findings list; Since(mark) returns only the
-// findings recorded after it. Choke owners checkpoint at the start of their
-// own startup sequence so an EARLIER, COMPLETED invocation in the same
-// process (a previous ACP session, another test) never bleeds into their
-// abort decision.
+// Mark is a checkpoint into ONE GOROUTINE's own findings window; Since(mark)
+// returns only the findings THAT GOROUTINE recorded after it. Choke owners
+// checkpoint at the start of their own startup sequence so an EARLIER,
+// COMPLETED invocation in the same process (a previous ACP session, another
+// test) never bleeds into their abort decision.
 //
-// LIMITATION: windows are only isolated when they run SEQUENTIALLY. A Mark is
-// an index into the one process-global findings list, so windows that overlap
-// in time interleave: a finding recorded by a concurrent goroutine lands
-// inside every open window and is attributed to all of them. Callers that
-// checkpoint on concurrent goroutines (the ACP server's session opens, the
-// fan-out's per-member isolation gate) must serialize their checkpoint→gate
-// sections externally; per-window finding ownership inside this package is
-// the eventual fix.
-type Mark int
-
-// Checkpoint returns a Mark for the current findings position and opens a new
-// FailOnce recording-dedup window (see generation above).
-func Checkpoint() Mark {
-	mu.Lock()
-	defer mu.Unlock()
-	generation++
-	return Mark(len(findings))
+// PER-WINDOW OWNERSHIP (the fix for the former cross-attribution defect): a
+// finding is attributed to the window open on the SAME GOROUTINE that
+// recorded it — never to a window some OTHER, concurrently-running goroutine
+// happens to have open. This is what makes Checkpoint/Since safe for
+// CONCURRENT callers (the ACP server's session opens, agent_run's per-child
+// spawn, the fan-out's per-member isolation gate) with no external
+// serialization required. The one invariant this places on callers: the code
+// that RECORDS a finding (Fail/FailOnce/Record, however deep the call chain)
+// must run on the SAME goroutine that opened the window — do not fan a
+// checkpointed bracket of work out onto new goroutines and call
+// Fail/FailOnce/Record from them; a finding recorded there attributes to
+// whatever window (if any) THAT goroutine has open, never to this one. Every
+// current caller already holds this invariant: isolation.Prepare, the config
+// loaders, and their call trees never spawn goroutines of their own between a
+// Checkpoint and its Since.
+type Mark struct {
+	w   *window
+	idx int
 }
 
-// Since returns a copy of the findings recorded after mark, in record order.
-func Since(mark Mark) []Finding {
+// Checkpoint returns a Mark for the current findings position on the CALLING
+// GOROUTINE and opens a new FailOnce recording-dedup window (see generation's
+// doc). Pair a checkpoint opened on a goroutine that will not outlive its own
+// bracket (a per-request handler, a fan-out member) with a deferred
+// Close(mark), so a long-lived process does not accumulate one registry entry
+// per goroutine forever; a checkpoint on a goroutine that exits with the
+// process (a one-shot CLI command) may skip it — the entry dies with the
+// process either way.
+func Checkpoint() Mark {
 	mu.Lock()
-	defer mu.Unlock()
-	if int(mark) >= len(findings) {
+	generation++
+	mu.Unlock()
+
+	w := currentWindow()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return Mark{w: w, idx: len(w.findings)}
+}
+
+// Since returns a copy of the findings this mark's goroutine recorded after
+// it, in record order. Safe to call more than once against the same mark
+// (some callers re-check the same window at two gates).
+func Since(mark Mark) []Finding {
+	if mark.w == nil {
 		return nil
 	}
-	out := make([]Finding, len(findings)-int(mark))
-	copy(out, findings[mark:])
+	mark.w.mu.Lock()
+	defer mark.w.mu.Unlock()
+	if mark.idx >= len(mark.w.findings) {
+		return nil
+	}
+	out := make([]Finding, len(mark.w.findings)-mark.idx)
+	copy(out, mark.w.findings[mark.idx:])
 	return out
 }
 
-// All returns a copy of every finding recorded so far.
+// All returns a copy of every finding recorded so far, PROCESS-WIDE across
+// every goroutine — unlike Since, which is scoped to one goroutine's window.
 func All() []Finding {
-	return Since(0)
+	mu.Lock()
+	defer mu.Unlock()
+	out := make([]Finding, len(findings))
+	copy(out, findings)
+	return out
+}
+
+// Close releases the goroutine-keyed registry entry backing mark. Safe to
+// call multiple times, or with a zero Mark; a no-op either way. See
+// Checkpoint's doc for when a caller should bother — long-lived processes
+// that open many short-lived concurrent windows (one per request goroutine)
+// should call it so the registry does not grow one entry per goroutine
+// forever; a window on a goroutine that terminates with the process (a
+// one-shot CLI command) needs no explicit release.
+func Close(mark Mark) {
+	if mark.w == nil {
+		return
+	}
+	windowsMu.Lock()
+	if windows[mark.w.gid] == mark.w {
+		delete(windows, mark.w.gid)
+	}
+	windowsMu.Unlock()
 }
 
 // FindingsError renders the findings recorded since mark as a single error —
@@ -185,15 +299,25 @@ func FindingsError(mark Mark) error {
 	return errors.New(b.String())
 }
 
-// Reset clears the collected findings, the FailOnce dedup set, and the
-// checkpoint generation (test seam; the mode is left untouched — use
-// SetDegraded).
+// Reset clears the collected findings — the process-wide log AND every
+// goroutine's window (so no outstanding Mark from before the reset can still
+// read stale data) — the FailOnce dedup set, and the checkpoint generation
+// (test seam; the mode is left untouched — use SetDegraded).
 func Reset() {
 	mu.Lock()
-	defer mu.Unlock()
 	findings = nil
 	generation = 0
 	onceRecorded = map[string]struct{}{}
+	mu.Unlock()
+
+	windowsMu.Lock()
+	for _, w := range windows {
+		w.mu.Lock()
+		w.findings = nil
+		w.mu.Unlock()
+	}
+	windows = map[int64]*window{}
+	windowsMu.Unlock()
 }
 
 // Fail reports a fatal-class fault at a choke. The warning line streams to
@@ -228,19 +352,30 @@ func Record(class Class, fixit, format string, args ...any) {
 // record appends a finding in strict mode, honoring the FailOnce dedup set
 // when once is set. The dedup key includes the current checkpoint generation,
 // so the dedup collapses repeats WITHIN one window but never swallows a
-// re-fire in a later window (see generation's doc).
+// re-fire in a later window (see generation's doc). The finding lands in
+// BOTH the process-wide log (All()/Reset()'s view) and the CALLING
+// GOROUTINE's own window (Since()'s view) — never any other goroutine's
+// window, which is the per-window ownership fix.
 func record(class Class, fixit, msg string, once bool) {
 	mu.Lock()
-	defer mu.Unlock()
 	if degraded {
+		mu.Unlock()
 		return
 	}
 	if once {
 		key := fmt.Sprintf("%d\x00%s\x00%s", generation, class, msg)
 		if _, seen := onceRecorded[key]; seen {
+			mu.Unlock()
 			return
 		}
 		onceRecorded[key] = struct{}{}
 	}
-	findings = append(findings, Finding{Class: class, Message: msg, FixIt: fixit})
+	f := Finding{Class: class, Message: msg, FixIt: fixit}
+	findings = append(findings, f)
+	mu.Unlock()
+
+	w := currentWindow()
+	w.mu.Lock()
+	w.findings = append(w.findings, f)
+	w.mu.Unlock()
 }

@@ -56,6 +56,7 @@ export default defineConfig({
 						{ label: 'Commands', link: '/concepts/commands/' },
 						{ label: 'Profiles', link: '/concepts/profiles/' },
 						{ label: 'Agents & Isolation', link: '/concepts/agents/' },
+						{ label: 'Agent Delegation', link: '/concepts/agent-delegation/' },
 						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
 						{ label: 'Review and Trust', link: '/concepts/review-and-trust/' },
@@ -102,6 +103,7 @@ export default defineConfig({
 					label: 'taskloom',
 					items: [
 						{ label: 'Overview', link: '/taskloom/' },
+						{ label: 'Tags', link: '/taskloom/tags/' },
 						{ label: 'CLI', autogenerate: { directory: 'taskloom/reference/cli' } },
 						{ label: 'MCP Tools', link: '/taskloom/reference/mcp-tools/' },
 					],

@@ -94,13 +94,16 @@ print a warning.
 
 ## Working with agents
 
-Agents reach the same store through `taskloom mcp`, which serves four tools: `task_list`,
-`task_add`, `task_set_status`, and `task_edit`. The intended shape of a coordinator session
-is straightforward. It opens by calling `task_list` to see what is already outstanding rather
-than re-deriving the work from scratch. It files anything it discovers but won't do now with
-`task_add` — the follow-up it would otherwise mention once in prose and lose when the context
-window turns over. It moves work with `task_set_status` as it goes, and echoes a task's
+Agents reach the same store through `taskloom mcp`, which serves five tools: `task_list`,
+`task_add`, `task_tag`, `task_set_status`, and `task_edit`. The intended shape of a coordinator
+session is straightforward. It opens by calling `task_list` to see what is already outstanding
+rather than re-deriving the work from scratch. It files anything it discovers but won't do now
+with `task_add` — the follow-up it would otherwise mention once in prose and lose when the
+context window turns over. It moves work with `task_set_status` as it goes, and echoes a task's
 `harp_id` back whenever it refers to that task later, which is what the stable ids are for.
+Every task can also carry [tags](/taskloom/tags/) — flat markers like `urgent`, or
+namespace-scoped facts like `triage:kind=defect` — set with `task_add`'s `tags` parameter or
+added/removed later with `task_tag`, and filtered on with `task_list`'s `tag_query`.
 
 The discipline that makes this pay off is the deferral rule. An agent that finishes a job and
 notices three things it deliberately did not do should file them, not bury them in a summary.
@@ -130,6 +133,8 @@ instead of polling. It is hidden from `--help` and there is little reason to run
 
 ## Reference
 
+- **[Tags](/taskloom/tags/)** — flat tags, `tag_query`'s postfix boolean grammar, scalar
+  targets, and priority ranking.
 - **[CLI reference](/taskloom/reference/cli/)** — every command, generated from the binary.
 - **[MCP tools reference](/taskloom/reference/mcp-tools/)** — `task_list`, `task_add`,
   `task_set_status`, `task_edit`, generated from the tool registrations.

@@ -71,6 +71,16 @@ The MCP surface is deliberately small: it retrieves context, works with session 
 | `agent_recv` | Receive pending mailbox messages for this session, waiting up to a bounded timeout |
 | `agent_stop` | Stop a delegated child session; it stays resumable via a later `agent_send` |
 
+:::note
+This is the standalone `ctxloom mcp serve` surface — the one this page documents. A normal
+`ctxloom run` / `ctxloom acp` session gets a **richer, runner-terminated** delegation surface
+instead (different `agent_run`/`agent_send`/`agent_recv`/`agent_stop` schemas, plus
+`agent_report`, `agent_fetch_artifact`, and `roster`), reached automatically — you never
+register `ctxloom mcp serve` yourself for a normal session. See [Agent
+Delegation](/concepts/agent-delegation/) for that surface, and the [MCP Tools
+Reference](/reference/mcp-tools/) for the schema difference in full.
+:::
+
 ### Resources
 
 Read-only listings are exposed as MCP resources rather than tools:

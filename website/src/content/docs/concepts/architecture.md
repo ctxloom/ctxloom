@@ -131,7 +131,8 @@ Local agent definitions live in `.ctxloom/agents/<name>.yaml`.
 Agents are also the unit of **delegation**: a primary agent can spawn child
 agents as full child sessions — each with its own composed profiles, engine, and
 isolation — and exchange messages with them. That surface is exposed over MCP
-(see below).
+(see below). See [Agent Delegation](/concepts/agent-delegation/) for how a
+child's grant is resolved and journaled.
 
 ### Context Assembly
 

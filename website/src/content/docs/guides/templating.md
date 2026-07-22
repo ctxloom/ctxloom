@@ -25,7 +25,7 @@ fragments:
 
 ## Defining Variables
 
-Template data comes entirely from the resolved profile's `variables:` map — there are no built-in variables. Undefined variables render as empty and log a warning (`ctxloom: warning: undefined variable: {{FOO}}`). (The `CTXLOOM_ROOT` shell environment variable overrides project-root detection; it is not available inside templates.)
+Template data comes entirely from the resolved profile's `variables:` map — there are no built-in variables. Undefined variables render as empty and log a warning naming both the variable and the fragment it came from (`ctxloom: warning: undefined variable: {{FOO}} (fragment "bundle#fragments/name")`). (The `CTXLOOM_ROOT` shell environment variable overrides project-root detection; it is not available inside templates.)
 
 ### In Profiles
 
@@ -114,7 +114,7 @@ This is not production - be careful!
 
 ## Error Handling
 
-- **Undefined variables**: Logged as a warning (`ctxloom: warning: undefined variable: {{NAME}}`), rendered as empty
+- **Undefined variables**: Logged as a warning naming the fragment (`ctxloom: warning: undefined variable: {{NAME}} (fragment "bundle#fragments/name")`), rendered as empty
 - **Render failures**: Original content returned unchanged
 - **All variables are strings**: Converted to `map[string]interface{}`
 

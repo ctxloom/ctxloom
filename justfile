@@ -194,6 +194,22 @@ _ensure-covdata:
 # Coverage is filtered through .coverignore so generated files
 # (protobuf, gRPC) don't drag the reported number down.
 # vet-integration is the tag-gated-test compile rot gate (see its comment).
+#
+# SCOPE (soft-elm, measured 2026-07-21): exit 0 from `just test` means
+# unit/race suites green + `tests/integration/...` (the `-tags integration`
+# build fence) COMPILES — it does NOT mean the integration tests ran.
+# Neither `go test` invocation below carries `-tags integration`, so those
+# tests are silently skipped by this recipe (vet-integration only
+# type-checks them). Measured cost of folding `test-integration` in here
+# was real but not prohibitive (~47s added to a ~260s baseline, +18%); kept
+# separate anyway because changing what `just test` covers changes what CI
+# gates on, which needs a deliberate decision, not a side effect of a
+# doc pass. CI itself is NOT blind to this — .github/workflows/ci.yml runs
+# `test-integration` and `test-acceptance` as their own required jobs — but
+# a local `just test` (or an agent verifying "green" by that alone) is. Run
+# `just test-integration` (CLI/bundle/path changes) and `just test-acceptance`
+# (cross-surface journeys) explicitly for real local verification — see
+# README's Development section.
 test: build _ensure-covdata vet-integration
     #!/usr/bin/env bash
     set -e

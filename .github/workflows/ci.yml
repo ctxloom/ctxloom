@@ -1,18 +1,21 @@
 name: CI
 
 on:
-  # 'v*' covers release branches (v0.7.0-pre1 today, v0.8.0-pre1 next, ...) so
-  # a new release branch is covered automatically instead of needing another
-  # hardcoded entry here each time. Work lands directly on the release branch
-  # with no PR, so the push trigger is what actually matters for it; the
-  # pull_request entry is added too in case a PR against a release branch ever
-  # happens. Deliberately NOT a wildcard over all branches: agent worktrees
-  # push disposable branches constantly and none of those start with 'v', so
-  # this stays scoped to main + long-lived release branches.
+  # 'release/*' covers integration lines (release/0.7 today, release/0.8 next,
+  # ...) so a new release line is covered automatically instead of needing
+  # another hardcoded entry here each time. 'v*' is retained for the older
+  # version-named branches that predate the branch-naming standard.
+  #
+  # Work lands directly on the integration line with no PR, so the push
+  # trigger is what actually matters for it; the pull_request entry is added
+  # too in case a PR against one ever happens. Deliberately NOT a wildcard
+  # over all branches: agent worktrees push disposable branches constantly,
+  # and none of those start with 'release/' or 'v', so this stays scoped to
+  # main plus long-lived integration lines.
   push:
-    branches: [main, initial-prototyping, 'v*']
+    branches: [main, initial-prototyping, 'release/*', 'v*']
   pull_request:
-    branches: [main, 'v*']
+    branches: [main, 'release/*', 'v*']
 
 env:
   REGISTRY: ghcr.io

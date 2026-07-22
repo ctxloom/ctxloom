@@ -902,47 +902,107 @@ func TestSubstituteVariables_DeeplyNestedSections(t *testing.T) {
 	assert.Contains(t, warnings[0], "level1")
 }
 
-// TestSubstituteVariables_LiteralJustSyntaxIsCorrupted is a payload-asserting
-// characterization test for the real-world bug found via a live ACP client
-// (Nori): a fragment that documents another {{...}}-flavored syntax (here,
-// justfile's `{{TOP}}` / `{{ARGS}}` / `{{justfile_directory()}}`) collides
-// with fragment templating. Every such tag looks like a ctxloom variable
-// reference, so today's contract — undefined variable renders as empty,
-// documented in docs/guides/templating.md's "Error Handling" section — means
-// the literal documentation text is silently stripped on its way to the
-// engine, not just warned about. This asserts the actual rendered BYTES (not
-// merely "no error" and not merely "a warning fired") so a fix that keeps the
-// warning but no longer blanks the text would fail this test, honestly
-// reflecting that the corrupting behavior is real and currently by design.
+// TestSubstituteVariables_UndefinedPlainVariableRendersVerbatim is the
+// payload-asserting proof of the fixed contract (task fatal-raven): the
+// real-world bug found via a live ACP client (Nori) was that a fragment
+// documenting another {{...}}-flavored syntax (here, justfile's `{{TOP}}` /
+// `{{ARGS}}` / `{{justfile_directory()}}`) collided with fragment
+// templating — every such tag looks like a ctxloom variable reference, and
+// the old contract ("undefined variable renders as empty") silently
+// stripped the literal documentation text on its way to the engine. The
+// DECIDED fix: an unresolved plain variable tag now renders as the literal
+// text the author wrote, instead of vanishing. This asserts the actual
+// rendered BYTES (not merely "no error" and not merely "a warning fired")
+// so a regression that starts blanking the text again — even with the
+// warning intact — fails this test.
 //
-// This is deliberately NOT changing: the fix for fragment authors is the
-// escape mechanism proven by TestSubstituteVariables_SetDelimiterEscapesLiteralMustache
-// below, documented in docs/guides/templating.md ("Writing Literal {{...}}
-// in Prose"). Changing the undefined-variable-renders-empty default itself
-// is a cross-cutting template-contract decision (docs/guides/templating.md
-// promises it, and existing profiles rely on it for optional variables) and
-// is out of scope here.
-func TestSubstituteVariables_LiteralJustSyntaxIsCorrupted(t *testing.T) {
+// This was formerly TestSubstituteVariables_LiteralJustSyntaxIsCorrupted,
+// which characterized the OLD (corrupting) behavior as by-design; that
+// characterization is exactly what this task changes.
+//
+// The Set Delimiter escape (TestSubstituteVariables_SetDelimiterEscapesLiteralMustache
+// below) remains the more surgical tool — it silences the warning entirely —
+// but verbatim rendering is now the default safety net for authors who
+// didn't use it.
+func TestSubstituteVariables_UndefinedPlainVariableRendersVerbatim(t *testing.T) {
 	content := "Run `just build`:\n```just\nbuild:\n    go build {{ARGS}}\n```\nSee {{TOP}} and {{justfile_directory()}}."
 	vars := map[string]string{} // no ctxloom variables bound; this is unescaped prose
 
 	var warnings []string
 	result := substituteVariables(content, vars, func(s string) { warnings = append(warnings, s) })
 
-	// The corruption: literal justfile syntax vanishes from the assembled bytes.
-	assert.NotContains(t, result, "{{ARGS}}", "literal {{ARGS}} should have survived unescaped prose but was stripped")
-	assert.NotContains(t, result, "{{TOP}}", "literal {{TOP}} should have survived unescaped prose but was stripped")
-	assert.NotContains(t, result, "{{justfile_directory()}}")
-	assert.Contains(t, result, "go build \n", "the ARGS token left only a dangling space where the literal text used to be")
-	assert.Contains(t, result, "See  and .", "TOP and justfile_directory() were blanked out entirely")
+	// The fix: literal justfile syntax survives byte-for-byte in the
+	// assembled output instead of vanishing.
+	assert.Contains(t, result, "{{ARGS}}", "undefined plain variable must render verbatim, not vanish")
+	assert.Contains(t, result, "{{TOP}}", "undefined plain variable must render verbatim, not vanish")
+	assert.Contains(t, result, "{{justfile_directory()}}", "undefined plain variable must render verbatim, not vanish")
+	assert.Equal(t,
+		"Run `just build`:\n```just\nbuild:\n    go build {{ARGS}}\n```\nSee {{TOP}} and {{justfile_directory()}}.",
+		result,
+		"rendered output must be byte-identical to the input when nothing resolves")
 
-	// The warnings are real signal, not spurious noise: they name exactly the
-	// tags that got stripped.
+	// The warnings are STILL real signal, not silenced by the verbatim fix:
+	// they name exactly the tags that stayed unresolved, so the author can
+	// still find and fix (or intentionally escape) them.
 	assert.GreaterOrEqual(t, len(warnings), 3)
 	joined := warnings[0] + warnings[1] + warnings[2]
 	assert.Contains(t, joined, "ARGS")
 	assert.Contains(t, joined, "TOP")
 	assert.Contains(t, joined, "justfile_directory()")
+}
+
+// TestSubstituteVariables_SectionIdiomUnchangedByVerbatimFix PINS the
+// section/inverted-section presence-toggle idiom against the verbatim-render
+// fix above: an undefined SECTION name must still omit its body (falsy, key
+// absent from the data map, exactly as before) and an undefined INVERTED
+// SECTION name must still emit its body (falsy triggers the inverse), even
+// though the fix now seeds literal text into the data map for undefined
+// PLAIN variable tags. This is the documented, sanctioned idiom
+// (`{{#DEBUG}}...{{/DEBUG}}`, `{{^DEBUG}}...{{/DEBUG}}`) used across existing
+// profiles; seeding a literal (truthy, non-empty) string for a section name
+// would silently flip every optional block's polarity. If this regresses,
+// every profile relying on the idiom breaks silently.
+func TestSubstituteVariables_SectionIdiomUnchangedByVerbatimFix(t *testing.T) {
+	content := "{{#DEBUG}}debug on{{/DEBUG}}{{^DEBUG}}debug off{{/DEBUG}}"
+	vars := map[string]string{} // DEBUG undefined
+
+	result := substituteVariables(content, vars, func(s string) {})
+
+	// Section body omitted (undefined section is falsy, same as before).
+	assert.NotContains(t, result, "debug on")
+	// Inverted-section body emitted (undefined section is falsy, so the
+	// inverse still fires, same as before).
+	assert.Contains(t, result, "debug off")
+	// Crucially: the section name itself must NOT leak into the output as
+	// literal "{{DEBUG}}" text either — that would mean the seeding
+	// mistakenly treated the section tag as a plain variable.
+	assert.NotContains(t, result, "{{DEBUG}}")
+	assert.NotContains(t, result, "{{#DEBUG}}")
+	assert.NotContains(t, result, "{{^DEBUG}}")
+}
+
+// TestSubstituteVariables_NameUsedAsBothSectionAndPlainVariableStaysFalsy
+// documents the deliberate, defensive edge-case choice: if one name is used
+// BOTH as a section/inverted-section tag AND as a plain variable tag
+// somewhere in the same fragment, and it's undefined, the verbatim-render
+// seeding is skipped for that name entirely — protecting the section idiom
+// takes priority over verbatim rendering for the plain-variable use. This is
+// a rare collision (typically a fragment would only use a name one way), but
+// getting it wrong would risk flipping a section's polarity, which is the
+// one behavior this task must never change.
+func TestSubstituteVariables_NameUsedAsBothSectionAndPlainVariableStaysFalsy(t *testing.T) {
+	content := "{{#DEBUG}}on{{/DEBUG}} plain:{{DEBUG}}"
+	vars := map[string]string{} // DEBUG undefined
+
+	result := substituteVariables(content, vars, func(s string) {})
+
+	// The section is still falsy/omitted (idiom protected).
+	assert.NotContains(t, result, "on")
+	// The plain-variable occurrence is NOT seeded literal in this collision
+	// case (it renders empty, same as the historical default) — a
+	// conservative tradeoff documented here so it can't silently change.
+	assert.NotContains(t, result, "plain:{{DEBUG}}")
+	assert.Contains(t, result, "plain:")
 }
 
 // TestSubstituteVariables_SetDelimiterEscapesLiteralMustache is the

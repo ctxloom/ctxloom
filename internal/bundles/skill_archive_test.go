@@ -253,6 +253,79 @@ func TestHardenedExtract_RejectsZipSymlinkEntry(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
+// ADVERSARIAL: a symlink ALREADY PRESENT in destDir (not an archive entry)
+// -----------------------------------------------------------------------------
+
+// TestHardenedExtract_RejectsPreExistingSymlinkEscapeInDestDir is the
+// regression guard for tepid-emu: safeSkillRelJoin's confinement check is
+// purely LEXICAL (string path arithmetic via filepath.Join/Rel) — it has no
+// way to know that one of a target path's ancestor directories might already
+// be a REAL symlink on disk, planted in destDir before this call, pointing
+// somewhere outside destDir entirely. The archive itself can never smuggle a
+// symlink in (every symlink-typed ENTRY is rejected outright — see the tests
+// above), but a hardened extractor's confinement guarantee has to hold
+// regardless of what destDir already contained when it was invoked. Before
+// this fix it did not: an entirely ordinary, non-symlink, non-".." archive
+// entry ("subdir/evil.txt") lexically resolves to a path that LOOKS like it
+// is under destDir, so the old check passed it straight through to
+// afero.WriteFile — which the real OS then resolves through the symlink,
+// landing the write OUTSIDE destDir. Classic directory-traversal-by-symlink.
+//
+// Uses a REAL OS filesystem (not MemMapFs, which cannot represent a symlink
+// at all — LstatIfPossible's ok return is always false, see afero's own
+// TestMemFsLstatIfPossible) so the write exercises genuine OS-level
+// symlink-following semantics, not an abstraction that could never
+// reproduce the bug.
+func TestHardenedExtract_RejectsPreExistingSymlinkEscapeInDestDir(t *testing.T) {
+	outside := t.TempDir()
+	destDir := filepath.Join(t.TempDir(), "skill")
+	fsys := afero.NewOsFs()
+	require.NoError(t, fsys.MkdirAll(destDir, 0o755))
+
+	// Plant the trap: destDir/subdir is a symlink pointing OUTSIDE destDir,
+	// as if left behind by a previous partial extraction, a hostile
+	// co-tenant of a shared staging directory, or a TOCTOU race.
+	require.NoError(t, os.Symlink(outside, filepath.Join(destDir, "subdir")))
+
+	archive := buildRawZip(t, []rawZipEntry{
+		{name: "myskill/subdir/evil.txt", content: []byte("pwned")},
+	})
+
+	_, err := HardenedExtract(fsys, archive, FormatZip, destDir, ExtractOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlink")
+
+	// The negative assertion that matters: nothing landed OUTSIDE destDir
+	// via the pre-existing symlink, even though the archive entry itself
+	// carried no ".." and was never classified as a symlink entry.
+	_, statErr := os.Stat(filepath.Join(outside, "evil.txt"))
+	assert.True(t, os.IsNotExist(statErr), "the escape must not write outside destDir via a pre-existing symlink")
+}
+
+// TestHardenedExtract_PreExistingOrdinaryNestedDirStillWorks is the negative
+// control for the fix above: a destDir that already contains ORDINARY
+// (non-symlink) nested directories from a previous extraction must still
+// extract normally — the symlink-escape guard must not start rejecting
+// every pre-existing directory, only ones that are actually symlinks
+// resolving outside destDir.
+func TestHardenedExtract_PreExistingOrdinaryNestedDirStillWorks(t *testing.T) {
+	destDir := filepath.Join(t.TempDir(), "skill")
+	fsys := afero.NewOsFs()
+	require.NoError(t, fsys.MkdirAll(filepath.Join(destDir, "subdir"), 0o755))
+
+	archive := buildRawZip(t, []rawZipEntry{
+		{name: "myskill/subdir/fine.txt", content: []byte("ok")},
+	})
+
+	_, err := HardenedExtract(fsys, archive, FormatZip, destDir, ExtractOptions{})
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(filepath.Join(destDir, "subdir", "fine.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "ok", string(got))
+}
+
+// -----------------------------------------------------------------------------
 // ADVERSARIAL: hardlinks + device/special files (tar)
 // -----------------------------------------------------------------------------
 

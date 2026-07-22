@@ -692,6 +692,24 @@ clean:
     rm -rf bin/ man/
     go clean
 
+# Reclaim regenerable Go caches (build cache + leftover temp/aux caches)
+clean-caches:
+    #!/usr/bin/env bash
+    # The build cache (~/.cache/go-build) has NO native size cap and grows large
+    # under heavy multi-agent build days (98G in one day here); Go's own 5-day
+    # trim is healthy but does not bound total size. Does NOT touch the module
+    # cache (~/go/pkg/mod) — expensive to refetch and not the problem. The aux
+    # dirs hold Go module-cache copies at mode 0444, so chmod -R u+w before rm.
+    set -uo pipefail
+    echo "before: $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
+    go clean -cache
+    for d in "$HOME/.cache/gotmp" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
+        [ -d "$d" ] || continue
+        chmod -R u+w "$d" 2>/dev/null || true
+        rm -rf "$d" 2>/dev/null || echo "  (some of $d was container-owned and left in place)"
+    done
+    echo "after:  $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
+
 # Prune ephemeral docker images this repo's tooling produces — per-agent-run
 # images (ctxloom-agent:<hash>), integration-test images (ctxloom-*-itest,
 # ctxloom-iso*, ctxloom-coord*), and VS Code devcontainer builds (vsc-*) — plus

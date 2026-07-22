@@ -25,6 +25,26 @@ bodies. Quoted text is *not* a command, so `echo "go test"` does not match a
 > cooperative agent, it does not stop a determined one. For hard guarantees,
 > run the agent in a sandbox/container.
 
+**One deliberate exception to fail-open: an unrecognized tool that matched the
+installed hook is denied, not allowed.** ltk's gated-tool lists
+(`claudeGatedTools`, `antigravityGatedTools`) are the single source of truth
+for both the installed `PreToolUse` matcher and runtime tool-name recognition
+— but a vendor-renamed tool can still fire the installed matcher while ltk's
+exact-name recognition misses it (agy's matcher is a genuine unanchored regex
+today; Claude Code's takes the same unanchored path once its matcher contains
+a real regex metacharacter — see [ARCHITECTURE.md](ARCHITECTURE.md#gated-tools-an-unrecognized-tool-is-denied-not-allowed)
+for the verified specifics of each). When that happens, ltk cannot read the
+payload's fields at all, so no rule can be evaluated against it — the
+difference between "this rule doesn't apply" and "nothing is even looking" is
+not one this guard is willing to gloss over. So where every other uncertainty
+here (an unparseable command, `unless`, `mode: confirm`) resolves to *allow*,
+this one resolves to *deny*: the call is
+refused with a reason naming the tool, and the fix is to add it to the
+engine's gated tools and reinstall (`ltk manage install`). This is narrower
+than it sounds — it only fires for a tool the installed matcher was already
+told to watch, never for tools that don't match it at all (Read, Grep,
+WebSearch, …), which stay fail-open as always.
+
 ```yaml
 version: 1
 

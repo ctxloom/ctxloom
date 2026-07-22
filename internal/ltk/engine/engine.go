@@ -24,12 +24,17 @@ type Request struct {
 	// empty for command invocations. When set, the request is evaluated against
 	// path rules instead of command rules.
 	FilePath string
-	// ToolUngated marks a payload whose tool name the adapter does not know how
-	// to read. Such a request carries neither a Command nor a FilePath, so every
-	// rule silently misses and ltk allows — the fail-open the caller must make
-	// visible rather than swallow (stark-boxer). ltk is a cooperative redirect,
-	// not a sandbox; a redirect that silently stops redirecting is worse than
-	// one known to be absent.
+	// ToolUngated marks a payload whose tool name the adapter does not
+	// recognise, even though the installed hook matched it (that match is why
+	// evaluate is running at all — Decode is only ever called with a matched
+	// tool name). Extraction is NOT gated on name recognition — Command/FilePath
+	// may still be populated when the payload happens to reuse a known field
+	// name — but a truly unrecognized payload schema yields neither, and every
+	// rule would silently miss (stark-boxer). ltk is a cooperative redirect,
+	// not a sandbox, but this one case is a deliberate exception to its
+	// fail-open posture: cmd/ltk/evaluate.go denies on ToolUngated rather than
+	// evaluating a request it cannot fully trust the shape of. See
+	// ungatedToolDenyReason there for the full reasoning.
 	ToolUngated bool
 }
 

@@ -394,12 +394,27 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 	}
 }
 
-// TestEvaluateWarnsOnUngatedToolName closes stark-boxer: ltk's tool matcher is
-// a hand-maintained list over a VENDOR-OWNED, mutating tool set. If the vendor
-// ships or renames a shell/file tool, ltk stops gating it — silently, on a
-// security path. A tool name ltk does not recognise must therefore produce a
-// visible signal rather than a quiet pass-through.
-func TestEvaluateWarnsOnUngatedToolName(t *testing.T) {
+// TestEvaluateDeniesUnrecognizedToolName closes stark-boxer: ltk's tool
+// matcher is a hand-maintained list over a VENDOR-OWNED, mutating tool set. If
+// the vendor ships or renames a shell/file tool, the installed PreToolUse
+// matcher can end up firing on it while Decode does not recognise the exact
+// tool name (see claudecode.go's claudeMatcher comment for when Claude Code's
+// matcher takes its regex path vs. its exact-list path; agy's matcher is
+// unconditionally regex). Decode then reads only the payload field names it
+// knows (tool_input.command/file_path/notebook_path) — an unrecognized tool
+// using different field names (e.g. target_path/new_content) yields an empty
+// Request, and an empty Request used to evaluate as an unconditional allow.
+// This is the live demonstrated bypass: a tool named "SmartEdit" writing
+// tool_input.target_path/new_content sailed straight through with no decision
+// at all when piped directly into `ltk evaluate` (evaluate's own robustness —
+// not trusting an unrecognised tool's payload shape — matters regardless of
+// which path put the payload on its stdin: a live-firing matcher, a
+// hand-broadened one, or a direct/manual invocation).
+//
+// The narrow posture: when the installed matcher fired (proving the tool name
+// matched what ltk was told to gate) but the exact name is not recognised,
+// deny — rather than the previous warn-and-allow.
+func TestEvaluateDeniesUnrecognizedToolName(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
 	cfg := `version: 1
 rules:
@@ -411,20 +426,22 @@ rules:
 		t.Fatal(err)
 	}
 
-	t.Run("unrecognised tool warns on stderr", func(t *testing.T) {
-		// "SmartEdit" is not in ltk's gated set but DOES reach the hook: Claude
-		// Code matchers are unanchored regexes, so the "Edit" alternative
-		// matches it — and ltk would then evaluate an empty command and allow.
-		payload := `{"tool_name":"SmartEdit","tool_input":{}}`
+	t.Run("unrecognised tool with an unrecognised payload schema is denied", func(t *testing.T) {
+		// The exact demonstrated bypass: "SmartEdit" is not in ltk's gated set;
+		// its payload uses target_path/new_content, fields Decode does not read.
+		payload := `{"tool_name":"SmartEdit","tool_input":{"target_path":"/repo/VERSION","new_content":"9.9.9"}}`
 		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(out.Stderr), "SmartEdit") {
-			t.Errorf("an ungated tool name must be named on stderr, got stderr=%q", out.Stderr)
+		if !strings.Contains(string(out.Stdout), `"deny"`) {
+			t.Errorf("an unrecognized tool that matched the hook must be denied, got stdout=%q", out.Stdout)
+		}
+		if !strings.Contains(string(out.Stdout), "SmartEdit") {
+			t.Errorf("the deny reason must name the unrecognized tool, got stdout=%q", out.Stdout)
 		}
 		if out.ExitCode != 0 {
-			t.Errorf("the warning must not change the exit code (both hosts fail OPEN on non-zero), got %d", out.ExitCode)
+			t.Errorf("claude-code denials exit 0 (both hosts fail OPEN on non-zero), got %d", out.ExitCode)
 		}
 	})
 
@@ -434,19 +451,22 @@ rules:
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(out.Stderr) != 0 {
-			t.Errorf("a gated tool must not warn, got stderr=%q", out.Stderr)
+		if len(out.Stdout) != 0 || len(out.Stderr) != 0 {
+			t.Errorf("a gated tool must not be affected, got stdout=%q stderr=%q", out.Stdout, out.Stderr)
 		}
 	})
 
-	t.Run("antigravity warns too", func(t *testing.T) {
+	t.Run("antigravity denies too", func(t *testing.T) {
 		payload := `{"toolCall":{"name":"edit_file_v2","args":{}}}`
 		out, err := evaluate("antigravity", cfgPath, "", strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(out.Stderr), "edit_file_v2") {
-			t.Errorf("an ungated agy tool must be named on stderr, got stderr=%q", out.Stderr)
+		if !strings.Contains(string(out.Stdout), "edit_file_v2") {
+			t.Errorf("an ungated agy tool must be named in the deny reason, got stdout=%q", out.Stdout)
+		}
+		if !strings.Contains(string(out.Stdout), `"deny"`) {
+			t.Errorf("agy must also deny, got stdout=%q", out.Stdout)
 		}
 	})
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // These three tests are the behaviour proof for
@@ -27,33 +27,6 @@ import (
 // chdir the whole test process to simulate the shim's real precondition
 // (it always runs IN the cell's own cwd), which would race any concurrently
 // running test that also depends on process cwd.
-
-// unsetMCPSocketEnv guarantees CTXLOOM_MCP_SOCKET is absent for the
-// duration of the test — the codex-acp scenario this whole fix targets
-// (the adapter drops mcpServers.env, so the shim's fast path finds
-// nothing), restoring whatever was there before on cleanup.
-func unsetMCPSocketEnv(t *testing.T) {
-	t.Helper()
-	orig, had := os.LookupEnv(coord.EnvMCPSocket)
-	require.NoError(t, os.Unsetenv(coord.EnvMCPSocket))
-	t.Cleanup(func() {
-		if had {
-			_ = os.Setenv(coord.EnvMCPSocket, orig)
-		} else {
-			_ = os.Unsetenv(coord.EnvMCPSocket)
-		}
-	})
-}
-
-// chdirTemp chdirs the process into dir for the test's duration, restoring
-// the original cwd on cleanup.
-func chdirTemp(t *testing.T, dir string) {
-	t.Helper()
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-}
 
 // deadProcessPID returns a pid that is guaranteed NOT to name a live
 // process: a child this test starts, waits for, and fully reaps.
@@ -93,11 +66,11 @@ func dialForwardClient(t *testing.T, socket string) *mcp.ClientSession {
 // reading back its own session instructions over the wire, not merely by a
 // non-error return.
 func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
-	unsetMCPSocketEnv(t)
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
 	runtimeDir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
-	chdirTemp(t, cellDir)
+	testsupport.ChangeDir(t, cellDir)
 
 	const harp = "codex-drop-scenario-harp"
 	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t))
@@ -129,11 +102,11 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 // exactly the failure mode (a rogue second coordinator whose agent_send
 // can never reach the real parent) this whole fix exists to close.
 func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
-	unsetMCPSocketEnv(t)
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
 	runtimeDir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
-	chdirTemp(t, cellDir)
+	testsupport.ChangeDir(t, cellDir)
 
 	markerDir := filepath.Join(runtimeDir, "ctxloom")
 	require.NoError(t, os.MkdirAll(markerDir, 0o700))
@@ -167,7 +140,7 @@ func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 // still get local mode — the pre-existing, legitimate `ctxloom mcp serve`
 // behaviour for a bare stdio session.
 func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
-	unsetMCPSocketEnv(t)
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
 	runtimeDir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()

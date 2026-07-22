@@ -41,10 +41,14 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 }
 
 // TestClaudeCredentialCopyMounts_PresentAndAbsent: absent OAuth creds → not
-// ok; when present, the mounts are COPIES of the two credential files under
+// ok; when present, the mount is a COPY of the credential file under
 // scratchDir, mounted read-write into the container HOME, byte-identical to
-// the host originals (payload assertion — the copy, not just its presence,
-// is what makes the refresh-safe rw mount correct).
+// the host original (payload assertion — the copy, not just its presence,
+// is what makes the refresh-safe rw mount correct). tangy-heave: this used
+// to also assert a SECOND mount carrying ~/.claude.json — removed along with
+// that mount (see claudeCredentialCopyMounts' doc): it leaked the host
+// user's own mcpServers registrations into every isolated agent, for mere
+// onboarding convenience .credentials.json alone doesn't need.
 func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	home := withFakeHome(t)
 	scratch := t.TempDir()
@@ -55,7 +59,7 @@ func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	writeCreds(t, home, true)
 	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
 	require.True(t, ok)
-	require.Len(t, mounts, 2)
+	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
 	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh can write back into the scratch copy")
 	assert.NotEqual(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the mount targets a SCRATCH COPY, never the host original")
@@ -64,20 +68,17 @@ func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	wantCreds, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	require.NoError(t, err)
 	assert.Equal(t, wantCreds, gotCreds, "the scratch copy is byte-identical to the host source")
-
-	assert.Equal(t, "/root/.claude.json", mounts[1].Container)
-	assert.False(t, mounts[1].ReadOnly)
-	assert.NotEqual(t, filepath.Join(home, ".claude.json"), mounts[1].Host)
 }
 
-// TestClaudeCredentialCopyMounts_OmitsAbsentDotClaude: ~/.claude.json is
-// optional — only the OAuth token file is required.
-func TestClaudeCredentialCopyMounts_OmitsAbsentDotClaude(t *testing.T) {
+// TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent: ~/.claude.json
+// is never mounted at all (tangy-heave), regardless of whether it exists on
+// the host — the OAuth token file is the only thing required or copied.
+func TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
-	writeCreds(t, home, false)
+	writeCreds(t, home, true) // withDotClaude=true: ~/.claude.json DOES exist on the host
 	mounts, ok := claudeCredentialCopyMounts("/root", t.TempDir())
 	require.True(t, ok)
-	require.Len(t, mounts, 1, "only the OAuth token file is mounted when ~/.claude.json is absent")
+	require.Len(t, mounts, 1, "~/.claude.json must never be mounted, present or not")
 	assert.False(t, mounts[0].ReadOnly)
 }
 
@@ -224,15 +225,21 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dest, "claude"), "no seed dir is created when the env trigger covers auth")
 }
 
-// TestHostCredentialSeed_CopiesBothFilesWhenPresent is the PAYLOAD-asserting
-// test that would have caught the original grave-prize bug: it does not just
-// check for a nil error, it reads the seeded bytes back and proves they are
-// byte-identical to the host source, owner-only (0600), and land at the exact
-// paths worktree.go's Env() (CLAUDE_CONFIG_DIR = <configHome>/claude) expects.
-func TestHostCredentialSeed_CopiesBothFilesWhenPresent(t *testing.T) {
+// TestHostCredentialSeed_CopiesCredentialFileWhenPresent is the
+// PAYLOAD-asserting test that would have caught the original grave-prize
+// bug: it does not just check for a nil error, it reads the seeded bytes
+// back and proves they are byte-identical to the host source, owner-only
+// (0600), and land at the exact path worktree.go's Env()
+// (CLAUDE_CONFIG_DIR = <configHome>/claude) expects. tangy-heave: this used
+// to also assert a seeded ~/.claude.json copy — removed along with that
+// seed (see credentialSeedSpecs' claude-code sourceFiles doc): it leaked
+// the host user's own mcpServers registrations into every isolated agent's
+// config-home, for mere onboarding convenience .credentials.json alone
+// doesn't need.
+func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	writeCreds(t, home, true)
+	writeCreds(t, home, true) // withDotClaude=true: host ALSO has ~/.claude.json — must not be seeded
 	dest := t.TempDir()
 
 	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
@@ -249,18 +256,14 @@ func TestHostCredentialSeed_CopiesBothFilesWhenPresent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 
-	wantDotClaude, err := os.ReadFile(filepath.Join(home, ".claude.json"))
-	require.NoError(t, err)
-	gotDotClaude, err := os.ReadFile(filepath.Join(dest, "claude", ".claude.json"))
-	require.NoError(t, err, "the seeded account-association file must exist too")
-	assert.Equal(t, wantDotClaude, gotDotClaude)
+	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"),
+		"~/.claude.json must never be seeded, present on the host or not (tangy-heave)")
 }
 
-// TestHostCredentialSeed_OptionalDotClaudeAbsentStillSeedsOK: ~/.claude.json is
-// optional (live-verified: claude auto-creates its own inside
-// CLAUDE_CONFIG_DIR when absent) — only the OAuth token file is required, and
-// its presence alone is sufficient for seedOK.
-func TestHostCredentialSeed_OptionalDotClaudeAbsentStillSeedsOK(t *testing.T) {
+// TestHostCredentialSeed_OnlyCredentialFileRequired: only the OAuth token
+// file is required for seedOK — and (tangy-heave) ~/.claude.json is never
+// seeded regardless of whether it exists on the host.
+func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, false)
@@ -270,7 +273,7 @@ func TestHostCredentialSeed_OptionalDotClaudeAbsentStillSeedsOK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
 	assert.FileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
-	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"), "never fabricated when absent on the host")
+	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"), "never seeded")
 }
 
 // TestHostCredentialSeed_NoSourceReturnsNoSourceNotError: no ANTHROPIC_API_KEY
@@ -366,4 +369,74 @@ func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OPENAI_API_KEY")
 	assert.Contains(t, err.Error(), "auth.json")
+}
+
+// realisticDotClaudeJSON is a stand-in for a real user's ~/.claude.json: on a
+// live host that file is not a narrow OAuth-association record — it is
+// claude's WHOLE top-level config, including mcpServers entries for the
+// user's OWN personal integrations (tangy-heave's incident named Spotify,
+// Gmail, Google Drive/Calendar, Todoist). Whatever value is under
+// "mcpServers" here stands in for that live confidential data.
+const realisticDotClaudeJSON = `{
+	"oauthAccount": {"emailAddress": "user@example.com"},
+	"mcpServers": {
+		"spotify": {"command": "spotify-mcp", "args": ["--token", "SECRET-SPOTIFY-TOKEN"]},
+		"gmail": {"command": "gmail-mcp", "env": {"GMAIL_REFRESH_TOKEN": "SECRET-GMAIL-TOKEN"}}
+	}
+}`
+
+// TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig is tangy-heave's
+// container-path regression test: claudeCredentialCopyMounts must not carry
+// the user's own mcpServers registrations (or any other non-auth state) into
+// an isolated agent's mounted config — an isolated agent seeing the host
+// user's personal Spotify/Gmail/etc. integrations (and their embedded
+// tokens) is a confidentiality leak, not a convenience. Only the OAuth token
+// file (.credentials.json) is required to authenticate — already
+// live-verified elsewhere in this package's own comments — so nothing here
+// needs .claude.json's contents at all.
+func TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
+	home := withFakeHome(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
+	scratch := t.TempDir()
+
+	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
+	require.True(t, ok)
+	for _, m := range mounts {
+		data, err := os.ReadFile(m.Host)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "mcpServers",
+			"an isolated agent's mounted config must never carry the host user's OWN mcpServers registrations")
+		assert.NotContains(t, string(data), "SECRET-SPOTIFY-TOKEN")
+		assert.NotContains(t, string(data), "SECRET-GMAIL-TOKEN")
+	}
+}
+
+// TestHostCredentialSeed_NeverLeaksPersonalMCPConfig is tangy-heave's
+// host+worktree-path counterpart: the same confidentiality property for
+// hostCredentialSeed (worktree.go's provisionConfigHome, grave-prize).
+func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["claude-code"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+
+	seededDir := filepath.Join(dest, "claude")
+	entries, err := os.ReadDir(seededDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(seededDir, e.Name()))
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "mcpServers",
+			"an isolated agent's seeded config-home must never carry the host user's OWN mcpServers registrations")
+		assert.NotContains(t, string(data), "SECRET-SPOTIFY-TOKEN")
+		assert.NotContains(t, string(data), "SECRET-GMAIL-TOKEN")
+	}
 }

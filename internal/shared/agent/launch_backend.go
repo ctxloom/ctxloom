@@ -254,6 +254,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		Commands:           req.Managed.Commands,
 		Skills:             req.Managed.Skills,
 		MCPCommandOverride: req.Env[MCPCommandOverrideEnv],
+		DenyTools:          req.Managed.DenyTools,
 	}
 
 	// A SharedCell's race-safe surfaces land in the session's PRIVATE ephemeral dir

@@ -449,6 +449,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		Hooks:            hooksCfg,
 		ManageStatusline: settings.ShouldManageStatusline(),
 		Commands:         backends.CommandExportsFor(backendName, p.prompts),
+		DenyTools:        backends.AssembleManagedDenyTools(p.freshCfg, nil),
 	}, p.fs)
 
 	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)

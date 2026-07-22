@@ -94,9 +94,24 @@ type claudeCodeStatusLine struct {
 // claudeCodeSettings represents the structure of .claude/settings.json
 // Note: MCP servers are now stored in .mcp.json, not here.
 type claudeCodeSettings struct {
-	Hooks      map[string][]claudeCodeHookMatcher `json:"hooks,omitempty"`
-	StatusLine *claudeCodeStatusLine              `json:"statusLine,omitempty"`
+	Hooks       map[string][]claudeCodeHookMatcher `json:"hooks,omitempty"`
+	StatusLine  *claudeCodeStatusLine              `json:"statusLine,omitempty"`
+	Permissions *claudeCodePermissions             `json:"permissions,omitempty"`
 	// Preserve other settings (including legacy mcpServers for backwards compat)
+	Other map[string]json.RawMessage `json:"-"`
+}
+
+// claudeCodePermissions represents the "permissions" block of settings.json.
+// ctxloom manages only Deny — the per-tool deny list (deny-tools.md's
+// root-cause fix: denying claude-code's built-in Task tool forces delegation
+// through ctxloom's own agent_run path, which resolves child profiles
+// correctly, instead of Task's in-process sub-agent that inherits the
+// coordinator's system prompt). Other preserves every other permissions key
+// (allow, ask, defaultMode, additionalDirectories, …) verbatim — the same
+// raw-passthrough idiom claudeCodeSettings.Other uses for unrelated top-level
+// keys, so a user's own allow/ask rules round-trip untouched.
+type claudeCodePermissions struct {
+	Deny  []string                   `json:"deny,omitempty"`
 	Other map[string]json.RawMessage `json:"-"`
 }
 
@@ -144,8 +159,14 @@ type claudeCodeHook struct {
 // Hooks are written to .claude/settings.json
 // MCP servers are written to .mcp.json (where variable expansion works)
 func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
-	// Write hooks + statusline to settings.json
-	if err := w.writeSettingsFile(hooks, projectDir); err != nil {
+	// Write hooks + statusline to settings.json. This legacy interface method
+	// carries no deny_tools payload (the agent.SettingsWriter interface is
+	// shared across every backend, so extending its signature is a
+	// cross-module change out of scope here) — real launches deliver
+	// deny_tools through the surfaces × cells seam (surfacedelivery.go's
+	// DeliverSettings) instead, which this method's only live callers
+	// (opencode's own writer, conformance tests) never route through.
+	if err := w.writeSettingsFile(hooks, nil, projectDir); err != nil {
 		return err
 	}
 
@@ -154,12 +175,14 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.
 }
 
 // writeSettingsFile writes the settings.json half of WriteSettings: it replaces
-// ctxloom-managed hooks and (re)configures the managed statusline under
-// projectDir, preserving user-authored entries. It is factored out of
-// WriteSettings — same bytes, same effects — so the delivery seam can
-// materialize the settings surface (hooks + statusline) independently of the
-// .mcp.json surface (writeMCPConfig); WriteSettings composes the two.
-func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, projectDir string) error {
+// ctxloom-managed hooks, (re)configures the managed statusline, and unions
+// denyTools into permissions.deny under projectDir, preserving user-authored
+// entries. It is factored out of WriteSettings — same bytes, same effects —
+// so the delivery seam can materialize the settings surface (hooks +
+// statusline + deny_tools) independently of the .mcp.json surface
+// (writeMCPConfig); WriteSettings composes the two (with denyTools nil — see
+// its doc).
+func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTools []string, projectDir string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
@@ -192,6 +215,9 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, projec
 
 	// Configure statusLine if not already set by the user
 	w.ensureStatusLine(settings)
+
+	// Union denyTools into permissions.deny
+	w.mergeDenyTools(settings, denyTools)
 
 	// Write hooks to settings.json
 	return w.saveSettings(settingsPath, settings)
@@ -278,6 +304,31 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		delete(raw, "statusLine")
 	}
 
+	// Extract permissions separately: Deny is the ctxloom-managed sub-field,
+	// unmarshaled into its typed slice; every sibling key (allow, ask,
+	// defaultMode, …) is kept verbatim in Other so a user's own rules
+	// round-trip untouched (see claudeCodePermissions's doc).
+	if permRaw, ok := raw["permissions"]; ok {
+		var permMap map[string]json.RawMessage
+		if err := json.Unmarshal(permRaw, &permMap); err != nil {
+			w.warn("failed to parse permissions in settings.json: %v", err)
+		} else {
+			perm := &claudeCodePermissions{}
+			if denyRaw, ok := permMap["deny"]; ok {
+				var deny []string
+				if err := json.Unmarshal(denyRaw, &deny); err != nil {
+					w.warn("failed to parse permissions.deny in settings.json: %v", err)
+				} else {
+					perm.Deny = deny
+				}
+				delete(permMap, "deny")
+			}
+			perm.Other = permMap
+			settings.Permissions = perm
+		}
+		delete(raw, "permissions")
+	}
+
 	// Remove mcpServers from settings.json if present (migrating to .mcp.json)
 	delete(raw, "mcpServers")
 
@@ -330,6 +381,27 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	// Add statusLine if configured
 	if settings.StatusLine != nil {
 		output["statusLine"] = settings.StatusLine
+	}
+
+	// Add permissions if configured: Other's preserved sibling keys first, then
+	// the typed Deny list layered on top — same shape as the top-level output
+	// map above (preserved fields, then ctxloom-managed ones).
+	if settings.Permissions != nil {
+		permOut := make(map[string]interface{})
+		for k, v := range settings.Permissions.Other {
+			var val interface{}
+			if err := json.Unmarshal(v, &val); err != nil {
+				w.warn("failed to preserve permissions.%s: %v", k, err)
+				continue
+			}
+			permOut[k] = val
+		}
+		if len(settings.Permissions.Deny) > 0 {
+			permOut["deny"] = settings.Permissions.Deny
+		}
+		if len(permOut) > 0 {
+			output["permissions"] = permOut
+		}
 	}
 
 	// Note: mcpServers are NOT written here - they go to .mcp.json
@@ -441,6 +513,43 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
 		Command: agent.CtxloomCommand() + " hook hud",
+	}
+}
+
+// mergeDenyTools unions denyTools into settings.Permissions.Deny —
+// MONOTONIC ADD ONLY: an entry is never removed by a later apply or by
+// RemoveSettings/uninstall (removeSettingsFile does not touch Permissions at
+// all).
+//
+// This is a deliberate asymmetry from the hooks/MCP-server reconcile pattern
+// (removeCtxloomHooks / writeMCPConfig's SCM-marker prune), which is safe to
+// remove-then-readd because each entry carries an ownership marker (SCM /
+// the command string itself). A plain string in a JSON deny array carries no
+// such marker — Claude Code's settings schema has no room to attach one (the
+// same strict-schema constraint documented on claudeCodeHook.SCM) — so
+// ctxloom cannot distinguish "a denial IT added" from "a denial the user
+// hand-wrote" well enough to safely retract just its own. Erring toward
+// "stays denied" is the SAFE direction for a denial (it can never silently
+// re-enable a tool a human or a prior ctxloom apply restricted); erring
+// toward "stays allowed" would not be. A user who wants a denial gone edits
+// settings.json by hand.
+func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, denyTools []string) {
+	if len(denyTools) == 0 {
+		return
+	}
+	if settings.Permissions == nil {
+		settings.Permissions = &claudeCodePermissions{}
+	}
+	existing := make(map[string]bool, len(settings.Permissions.Deny))
+	for _, d := range settings.Permissions.Deny {
+		existing[d] = true
+	}
+	for _, t := range denyTools {
+		if t == "" || existing[t] {
+			continue
+		}
+		existing[t] = true
+		settings.Permissions.Deny = append(settings.Permissions.Deny, t)
 	}
 }
 

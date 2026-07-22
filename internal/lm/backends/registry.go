@@ -289,6 +289,7 @@ func init() {
 				SelfContainedCommands: in.SelfContainedCommands,
 				Skills:                in.Skills,
 				SelfContainedSkills:   in.SelfContainedSkills,
+				DenyTools:             in.DenyTools,
 			}, wellKnownPlacement{}, fs)
 		},
 		exports:              claudeExports,

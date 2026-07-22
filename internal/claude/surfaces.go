@@ -153,22 +153,33 @@ func (s *mcpSurface) Kind() agent.SurfaceKind { return agent.SurfaceMCP }
 type settingsSurface struct {
 	hooks            *wire.HooksConfig
 	manageStatusline bool
-	fs               afero.Fs
-	isolated         agent.Placement // out-of-cwd location for the --settings file
-	path             string          // set by DeliverIsolated: the out-of-cwd settings.json
+	// denyTools is the resolved deny_tools union (SurfaceInputs.DenyTools) —
+	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
+	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
+	// (below), mirroring mcpSurface.commandOverride, so DeliverSettings's
+	// signature stays exactly agent.SettingsDelivery — no cross-module
+	// interface change for an engine-specific extra.
+	denyTools []string
+	fs        afero.Fs
+	isolated  agent.Placement // out-of-cwd location for the --settings file
+	path      string          // set by DeliverIsolated: the out-of-cwd settings.json
 }
 
 // Deliver writes .claude/settings.json into dir via the reused file-template
 // settings writer.
 func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) {
-	return newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverSettings(s.hooks, s.manageStatusline)
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.denyTools = s.denyTools
+	return d.DeliverSettings(s.hooks, s.manageStatusline)
 }
 
 // DeliverIsolated writes the settings JSON (incl. hooks) into the out-of-cwd
 // placement and records its path for --settings.
 func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
-	handle, err := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs).DeliverSettings(s.hooks, s.manageStatusline)
+	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.denyTools = s.denyTools
+	handle, err := d.DeliverSettings(s.hooks, s.manageStatusline)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +268,9 @@ type SurfaceInputs struct {
 	// entry's command instead of agent.CtxloomCommand() (dire-five's fix; set
 	// only for an isolated-container cell).
 	MCPCommandOverride string
+	// DenyTools mirrors agent.SurfaceInputs.DenyTools: per-tool identifiers
+	// this run's settings surface denies via permissions.deny.
+	DenyTools []string
 }
 
 // Surfaces is claude's set of delivery surfaces for one run, exposed so the
@@ -285,7 +299,7 @@ func NewSurfaces(in SurfaceInputs, isolated agent.Placement, fs afero.Fs) Surfac
 	fs = agent.GetFS(fs)
 	context := newContextSurface(in.Context, isolated, fs)
 	mcp := &mcpSurface{mcp: in.MCP, bundle: in.BundleMCP, fs: fs, isolated: isolated, commandOverride: in.MCPCommandOverride}
-	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, fs: fs, isolated: isolated}
+	settings := &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: fs, isolated: isolated}
 	commands := &commandsSurface{commands: in.Commands, fs: fs, selfContainedCommands: in.SelfContainedCommands}
 	skills := newSkillsSurface(in.Skills, fs)
 	return Surfaces{

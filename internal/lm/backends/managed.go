@@ -54,6 +54,7 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 		MCP:              assembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: managedStatuslineEnabled(cfg),
+		DenyTools:        assembleManagedDenyTools(cfg, profileNames),
 	}
 }
 
@@ -145,6 +146,60 @@ func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 		wire.MergeMCPConfig(mcp, &gated)
 	}
 	return mcp
+}
+
+// AssembleManagedDenyTools is the exported seam over assembleManagedDenyTools
+// for callers that already hold a resolved *config.Config (materialize,
+// apply-hooks) — the deny-tools mirror of AssembleManagedMCP.
+func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
+	return assembleManagedDenyTools(cfg, profileNames)
+}
+
+// assembleManagedDenyTools builds the union of deny_tools declared by the
+// config's default profile / the caller's selected profiles: config.yaml
+// inline profiles (config.ResolveProfile) or, when a name isn't inline, a
+// directory profile (cfg.GetProfileLoader().ResolveProfile) — the SAME
+// two-source resolution assembleManagedMCP/AssembleManagedHooks use. Order is
+// deterministic (first-seen wins position) and entries dedup case-sensitively
+// on the exact tool identifier string.
+//
+// Unlike MCP servers and hooks, a deny_tools entry is never passed through
+// the executable trust gate: it names a tool identifier to BLOCK, not an
+// executable to run, so even a remote-sourced directory profile's
+// directly-declared deny_tools is safe to apply unconditionally — it can
+// only narrow what a launch may do.
+func assembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(tools []string) {
+		for _, t := range tools {
+			if t == "" || seen[t] {
+				continue
+			}
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	profileDefs := cfg.GetProfileDefinitions()
+	for _, profileName := range scopedProfiles(cfg, profileNames) {
+		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
+		// same-shaped loop in assembleManagedMCP.
+		if resolved, err := config.ResolveProfile(profileDefs, profileName); err == nil {
+			add(resolved.DenyTools)
+			continue
+		}
+		// Directory profile fallback.
+		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
+		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its deny_tools omitted: %v", profileName, err)
+			continue
+		}
+		add(resolved.DenyTools)
+	}
+	return out
 }
 
 // scopedProfiles returns the caller's selected profiles, or the default agent's

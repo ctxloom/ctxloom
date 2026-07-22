@@ -112,6 +112,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
 	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
+	denyTools := backends.AssembleManagedDenyTools(cfg, req.Profiles)
 	settings := cfg.GetSettings()
 
 	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
@@ -130,6 +131,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		SelfContainedCommands: true,
 		Skills:                skills,
 		SelfContainedSkills:   true,
+		DenyTools:             denyTools,
 	}, fs)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail

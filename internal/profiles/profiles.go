@@ -217,6 +217,14 @@ type Profile struct {
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `yaml:"exclude_fragments,omitempty"`
 	ExcludeMCP       []string `yaml:"exclude_mcp,omitempty"`
+
+	// DenyTools is the directory-profile mirror of config.Profile.DenyTools:
+	// per-engine tool identifiers this profile denies at launch (e.g. "Task"
+	// for Claude Code's built-in sub-agent tool). Accumulates through parent
+	// inheritance like ExcludeMCP (a child cannot un-deny what a parent
+	// denied) and is never gated — it only narrows what a launch may do,
+	// never runs anything.
+	DenyTools []string `yaml:"deny_tools,omitempty"`
 }
 
 // Loader handles loading profiles from .ctxloom/profiles directories.
@@ -852,6 +860,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// config-map profiles (config_resolve.go).
 	resolved.ExcludeFragments = appendUnique(resolved.ExcludeFragments, profile.ExcludeFragments...)
 	resolved.ExcludeMCP = appendUnique(resolved.ExcludeMCP, profile.ExcludeMCP...)
+	resolved.DenyTools = appendUnique(resolved.DenyTools, profile.DenyTools...)
 
 	return resolved, nil
 }
@@ -907,6 +916,10 @@ type ResolvedProfile struct {
 	// profile semantics in config_resolve.go.
 	ExcludeFragments []string
 	ExcludeMCP       []string
+
+	// DenyTools accumulates through the parent chain like the exclusions
+	// above (a child cannot un-deny what a parent denied). See Profile.DenyTools.
+	DenyTools []string
 }
 
 // Merge adds items from another resolved profile.
@@ -932,6 +945,7 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	// Exclusions always accumulate (cannot un-exclude).
 	r.ExcludeFragments = appendUnique(r.ExcludeFragments, other.ExcludeFragments...)
 	r.ExcludeMCP = appendUnique(r.ExcludeMCP, other.ExcludeMCP...)
+	r.DenyTools = appendUnique(r.DenyTools, other.DenyTools...)
 }
 
 func appendUnique(slice []string, items ...string) []string {

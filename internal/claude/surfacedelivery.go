@@ -37,6 +37,14 @@ type fileTemplateDelivery struct {
 	// this (from SurfaceInputs.MCPCommandOverride) — irrelevant to
 	// DeliverCommands/DeliverSettings and left "" everywhere else.
 	mcpCommandOverride string
+	// denyTools, when non-empty, is unioned into the settings surface's
+	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
+	// settingsSurface.Deliver/DeliverIsolated set this (from
+	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
+	// left nil everywhere else. Kept as a receiver field (not a
+	// DeliverSettings parameter) so agent.SettingsDelivery's signature stays
+	// untouched — the same technique mcpCommandOverride uses for DeliverMCP.
+	denyTools []string
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
@@ -105,18 +113,22 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 	}), nil
 }
 
-// DeliverSettings materializes the settings surface (hooks + statusline) by
-// delegating to writeSettingsFile targeted at place.Dir(): it replaces
-// ctxloom-managed hooks and (re)configures the managed statusline in
-// .claude/settings.json, preserving user-authored entries. manageStatusline maps
-// to the writer's statusLineDisabled inverse — when false the managed statusline
-// is cleared rather than set. Cleanup reverts via removeSettingsFile, which
-// strips the ctxloom hooks and managed statusline while leaving user entries in
-// place. This surface never touches .mcp.json (that is DeliverMCP's surface).
+// DeliverSettings materializes the settings surface (hooks + statusline +
+// deny_tools) by delegating to writeSettingsFile targeted at place.Dir(): it
+// replaces ctxloom-managed hooks, (re)configures the managed statusline, and
+// unions d.denyTools into permissions.deny in .claude/settings.json,
+// preserving user-authored entries. manageStatusline maps to the writer's
+// statusLineDisabled inverse — when false the managed statusline is cleared
+// rather than set. Cleanup reverts via removeSettingsFile, which strips the
+// ctxloom hooks and managed statusline while leaving user entries in place —
+// including permissions.deny, which is deliberately NEVER retracted (see
+// mergeDenyTools's doc: a denial can only be safely added, never
+// auto-removed). This surface never touches .mcp.json (that is DeliverMCP's
+// surface).
 func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	w := &ClaudeCodeHookWriter{FS: d.fs, statusLineDisabled: !manageStatusline}
-	if err := w.writeSettingsFile(hooks, dir); err != nil {
+	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
 		return nil, err
 	}
 	return deliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil

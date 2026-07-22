@@ -176,6 +176,9 @@ type SurfaceInputs struct {
 	// operations.MCPCommandOverrideForPolicy); every other cell leaves it "",
 	// so the host self-exec-absolute invariant is untouched.
 	MCPCommandOverride string
+	// DenyTools carries ManagedConfig.DenyTools through to the backend's
+	// settings surface — see its doc for the deny-tools semantics.
+	DenyTools []string
 }
 
 // CellDelivery configures a launch backend's cell-based surface delivery. A

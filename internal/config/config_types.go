@@ -150,6 +150,19 @@ type Profile struct {
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`
 	ExcludeMCP       []string `mapstructure:"exclude_mcp" yaml:"exclude_mcp,omitempty"`
+
+	// DenyTools names per-engine tool identifiers this profile denies at
+	// launch (e.g. "Task" for Claude Code's built-in sub-agent tool, which
+	// ctxloom cannot mediate — it spawns children IN-PROCESS that inherit the
+	// coordinator's system prompt rather than going through ctxloom's own
+	// agent_run path). Currently reaches only the claude-code backend's
+	// settings.json permissions.deny (the one engine with a native per-tool
+	// deny surface); other backends silently ignore it. Accumulates through
+	// profile inheritance exactly like ExcludeMCP — a child cannot un-deny
+	// what a parent denied, and it is safety-only (never gated by the
+	// executable trust gate: a deny entry can only make a run MORE
+	// restrictive, never execute anything).
+	DenyTools []string `mapstructure:"deny_tools" yaml:"deny_tools,omitempty"`
 }
 
 // ProfilesConfig holds the named profile definitions. Definitions was the old

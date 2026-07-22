@@ -139,6 +139,59 @@ func TestUpdate_HoldsFileLockAcrossReadModifyWrite(t *testing.T) {
 	assert.Contains(t, got, "b")
 }
 
+// TestConfig_Save_AloneLosesConcurrentWrites is the empirical negative
+// control for TestUpdate_SerializesConcurrentWritersInProcess above: it
+// reproduces the EXACT shape every write call site used before migrating
+// onto Manager.Update — LoadFresh, mutate the in-memory copy, Save() — and
+// proves it silently loses writes, which is precisely what Save's own doc
+// comment says it does not protect against ("two callers that each Load(),
+// mutate their own in-memory copy, then Save() can still silently discard
+// one another's change"). n goroutines each capture a fresh snapshot BEFORE
+// any of them takes Save's advisory lock, so Save's read-merge-write only
+// ever merges each goroutine's own single added key onto whatever was on
+// disk at THAT goroutine's read time — not onto whatever the lock's prior
+// holder just committed. The advisory lock alone (fix 4df0cbd2) only ensures
+// the WRITE itself is atomic and serialized; it was never sufficient by
+// itself, which is exactly why Manager.Update re-reads fresh AFTER acquiring
+// the lock instead of merging a pre-lock snapshot.
+func TestConfig_Save_AloneLosesConcurrentWrites(t *testing.T) {
+	appDir := managerTestDir(t)
+
+	const n = 20
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cfg, err := LoadFresh(WithAppDir(appDir))
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			if cfg.agents == nil {
+				cfg.agents = map[string]agents.Agent{}
+			}
+			cfg.agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{Engine: fmt.Sprintf("engine-%02d", i)}
+			errs[i] = cfg.Save()
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoErrorf(t, err, "writer %d", i)
+	}
+
+	final, err := Load(WithAppDir(appDir))
+	require.NoError(t, err)
+	got := final.GetConfiguredAgents()
+
+	t.Logf("bare LoadFresh-mutate-Save: %d of %d concurrent writes survived (%d lost)", len(got), n, n-len(got))
+	assert.Less(t, len(got), n,
+		"expected the documented lost-update window to actually lose at least one write here — "+
+			"if this now passes, Save's own doc comment about the window it does not close is stale and should be revised")
+}
+
 // TestUpdate_AbandonedMutationDoesNotLeak proves an Update whose fn returns
 // an error leaves the shared state — both the on-disk file and any Snapshot
 // another holder already has — completely untouched.

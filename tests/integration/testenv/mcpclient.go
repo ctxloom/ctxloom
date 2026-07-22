@@ -69,6 +69,12 @@ func startMCPProcess(bin string, args []string, dir string, baseEnv []string, ex
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(baseEnv, extraEnv...)
+	// See pdeathsig_linux.go: this MCP server can itself delegate to an
+	// agent (agent_run) that spawns an "llm serve <label>" plugin
+	// subprocess (the same self-invoking path `ctxloom run` uses), so it
+	// gets the same "die with the test binary" guarantee `ctxloom run`
+	// invocations do.
+	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -138,16 +144,31 @@ func scrubSessionEnv(env []string) []string {
 	return out
 }
 
-// Close terminates the server subprocess.
+// Close terminates the server subprocess. cancel (exec.CommandContext's
+// default Cancel, a raw Process.Kill) can fire before the server's own
+// graceful stdin-EOF shutdown completes, hard-killing it — so any "llm serve
+// <label>" plugin subprocess it spawned via agent delegation (setsid'd into
+// its own session, unreachable by anything this harness could signal as a
+// group) is captured by pid BEFORE that kill and explicitly reaped
+// afterward, the same defense-in-depth as ptyrun.go's PTYSession.Close and
+// for the identical reason: a killed parent never runs its own cleanup.
 func (c *MCPClient) Close() error {
 	if c == nil {
 		return nil
 	}
+	var pid int
+	if c.cmd.Process != nil {
+		pid = c.cmd.Process.Pid
+	}
+	children := pluginChildrenOf(pid)
+
 	_ = c.stdin.Close()
 	if c.cancel != nil {
 		c.cancel()
 	}
 	_ = c.cmd.Wait()
+
+	killPids(children)
 	return nil
 }
 

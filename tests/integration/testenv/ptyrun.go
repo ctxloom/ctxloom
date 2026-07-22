@@ -6,10 +6,18 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	pty "github.com/aymanbagabas/go-pty"
 )
+
+// ptyGracefulShutdown bounds how long Close waits after SIGTERM before
+// escalating to SIGKILL. Generous relative to a mock backend's near-instant
+// shutdown, short relative to a test suite: this only pays the cost on the
+// (already off the happy path) case of closing a session that didn't exit on
+// its own.
+const ptyGracefulShutdown = 2 * time.Second
 
 // pollInterval is PTYSession.WaitForOutput's deadline-poll tick — short enough
 // that an assertion lands promptly once the condition is true, long enough not
@@ -83,6 +91,7 @@ func (e *TestEnvironment) RunPTY(cols, rows int, args ...string) (*PTYSession, e
 	cmd := p.CommandContext(context.Background(), e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = append(e.isolatedEnv(), "TERM=dumb")
+	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	s := &PTYSession{pty: p, cmd: cmd, out: &ptyCapture{}, exited: make(chan struct{})}
 	go func() { _, _ = io.Copy(s.out, p) }()
@@ -146,15 +155,64 @@ func (s *PTYSession) ExitCode() int {
 }
 
 // Close releases the pty and, if the process is still running (e.g. an
-// assertion failed before the session exited on its own), kills it so a
-// failed test never leaks a child process. Safe to call after a natural exit.
+// assertion failed before the session exited on its own), shuts it down so a
+// failed test never leaks a child process — including the "llm serve
+// <label>" plugin subprocess ctxloom self-execs for the run (internal/lm/
+// grpc's NewSelfInvokingClientForLabelEnv, setsid'd into its own session so
+// it survives outside this session's process group).
+//
+// Graceful first: SIGTERM is exactly what cmd/run.go's own
+// signal.NotifyContext(shutdownSignals) already listens for, unwinding
+// through its `defer client.Kill()` — the plugin subprocess's designed
+// shutdown path (killSession), which this harness gets for free by using
+// it. A bare SIGKILL (the previous, only, behavior here) bypasses that
+// entirely: the parent never gets a chance to run its own cleanup, and the
+// plugin child — in a different session by construction — is not reachable
+// by anything this harness could signal as a group. That gap is exactly how
+// this defect accumulated 208 orphaned "llm serve mock" processes over 8
+// days on this box (pgrep -fc, all ppid=1, 15/18 distinct binary paths
+// already deleted): every PTY-driven test whose assertion failed before the
+// session exited on its own was hard-killing its ctxloom process and
+// silently leaving the mock behind.
+//
+// SIGKILL remains the fallback for a process that doesn't honor SIGTERM
+// within ptyGracefulShutdown. Either way, Close finishes by explicitly
+// reaping any plugin child captured before the signal was sent — the pid,
+// not a re-derived one, since a dead parent's former child is reparented to
+// init (ppid 1) within the same instant and can no longer be found by
+// ppid — so a SIGKILL'd or simply slow parent never leaves the mock behind
+// even if its own graceful path didn't get there first. Safe to call after a
+// natural exit.
 func (s *PTYSession) Close() {
+	var pid int
+	if s.cmd.Process != nil {
+		pid = s.cmd.Process.Pid
+	}
+	// Snapshot BEFORE signaling — see the doc comment above.
+	children := pluginChildrenOf(pid)
+
 	select {
 	case <-s.exited:
 	default:
 		if s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
+			_ = s.cmd.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-s.exited:
+			case <-time.After(ptyGracefulShutdown):
+				_ = s.cmd.Process.Kill()
+				select {
+				case <-s.exited:
+				case <-time.After(ptyGracefulShutdown):
+					// Best-effort: proceed to the pid sweep below regardless
+					// of whether Wait ever observed the exit (e.g. an
+					// unreaped zombie) — killPids targets specific pids by
+					// number, not this session's process tree, so it does
+					// not depend on s.exited having fired.
+				}
+			}
 		}
 	}
 	_ = s.pty.Close()
+
+	killPids(children)
 }

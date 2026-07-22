@@ -106,38 +106,45 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # and names whichever is missing, and how, before spending a single live
   # turn.
   #
-  # @wip — A SECOND, MORE SERIOUS HARNESS/PRODUCT FINDING, live-verified
-  # 2026-07-22 (task woozy-hasty-karma): this scenario is CORRECTLY
-  # designed but does not go green today, and the reason is a real product
-  # gap, not a test bug — reported per this task's own instructions, not
-  # routed around. Live evidence (a real, authenticated claude-haiku-4-5
-  # child, twice): the child's own reasoning correctly finds its marker and
-  # decides to call agent_send (its "thinking" transcript entries show
-  # exactly that plan), then emits a tool_use for
-  # mcp__ctxloom__agent_send — and the runner immediately surfaces a
-  # PermissionRequest for that call (transcript kind:"permission",
-  # tool_name mcp__ctxloom__agent_send) that is NEVER resolved: the
-  # child's turn parks indefinitely (90s+ observed, both times) with no
-  # further transcript entry. This agent's own journaled run.enqueued fact
-  # (runs.jsonl) carries `"ladder":[{"action":"auto_accept"}]` for its
-  # "bypass" permission — an UNRESTRICTED rung (ladder.go's LadderRung.Kinds
-  # doc: "empty matches every [kind]"), which per coord/approval.go's
-  # serveApproval should auto-grant ANY ApprovalKind, including the
-  # TOOL_USE kind an MCP tool call carries, with NO relay and NO wait. It
-  # does not happen in practice for a live, ACP-driven, StartRun-migrated
-  # claude-code child. Whether the gap is in the runner's ACP
-  # session/request_permission -> agentcoord ApprovalRequest bridge, or
-  # elsewhere in that path, is NOT diagnosed here — that would be a
-  # production-code change, explicitly out of scope for this task. Filed
-  # as a real, evidenced, HIGH-SEVERITY finding: "bypass" is agent_run's
-  # own documented headless-safe permission enum, yet a live delegated
-  # child following its own reasoning to use an MCP tool hangs forever
-  # under it — the identical mechanism (ACP + StartRun) every real backend
-  # (claude/codex/kiro/acp) uses, so this is not expected to be
-  # claude-specific; not independently re-verified against codex to avoid
-  # spending a second live call proving the same already-evidenced gap.
-  # Untag @wip (and drop this note) once the ladder is confirmed to
-  # actually resolve a live child's MCP-tool-call permission request.
+  # @wip — the CLAUDE half of this scenario is now GREEN; a single
+  # CODEX-specific vendor gap keeps the whole thing @wip. History and
+  # current state, live-verified 2026-07-22 (task woozy-hasty-karma):
+  #
+  # ORIGINAL finding (icy-value), now FIXED: a live claude-haiku-4-5 child
+  # decided to call agent_send, emitted a tool_use for
+  # mcp__ctxloom__agent_send, and its PermissionRequest parked forever
+  # (90s+, twice) — never resolved despite a `[{"action":"auto_accept"}]`
+  # ladder. ROOT CAUSE was NOT the approval ladder (a full-stack
+  # reproduction — real internal/acp driver + real ACP subprocess + real
+  # gRPC RunChannel + coordinator — resolves it every time; see
+  # internal/agentcoord/coord/acp_approval_test.go). It was runner WIRING:
+  # internal/cli/llm_serve.go bound the engine host (which unblocks
+  # StartRun -> the engine spawn) BEFORE exporting CTXLOOM_MCP_SOCKET, so
+  # the child engine could spawn with no reach-back socket; its `ctxloom
+  # mcp` shim then ran its LOCAL surface — a second, rogue in-process
+  # coordinator — and claude-code-acp's own MCP-tool permission flow stalls
+  # on that mis-wired server. FIX: export the socket (and fail loud if it
+  # can't be stood up) BEFORE BindHome. With it, the claude child now
+  # reports its marker over the real bus — the two claude assertions here
+  # pass.
+  #
+  # REMAINING blocker (codex-child, NOT claude): codex-child now RUNS and
+  # its result reaches the parent (via the automatic child->parent bridge,
+  # coord/children.go bridgeTurnResult — blunt-whiff, also fixed), but its
+  # own agent_send(to:"parent") is REJECTED with "this session is the
+  # coordinator — it has no parent": codex's forwarder shim is STILL in
+  # local mode. The socket IS delivered on the ctxloom MCP entry's own env
+  # now (coord.injectMCPSocketEnv, over ACP session/new mcpServers), which
+  # is what fixed reach-back robustness for claude — but codex-acp DROPS the
+  # stdio server's `env` array on session/new (it honors name+command+args
+  # but not env), so the value never reaches the shim's process env. A
+  # chat child delivers MCP only via session/new (the ACP driver
+  # materializes no config.toml), so there is no runtime hook to route
+  # around a vendor that ignores the env we send. This is a codex-acp
+  # limitation, the isolation-must-not-negotiate pattern again: fixing it
+  # needs either a codex-acp env fix or a runtime config.toml write whose
+  # mcp_servers-vs-session/new precedence is unverified — out of scope here.
+  # Untag @wip once codex-child's own agent_send reaches the coordinator.
   @live @wip
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
     Given real "claude" and "codex" engines are both available for cross-engine delegation

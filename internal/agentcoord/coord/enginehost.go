@@ -235,6 +235,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		eh.mu.Unlock()
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 	}
+	injectMCPSocketEnv(dec.Chat.MCPServers, os.Getenv(EnvMCPSocket))
 	prompt := ""
 	if in := sr.GetInput(); in != nil {
 		if v, ok := in.GetFields()["prompt"]; ok {
@@ -634,6 +635,45 @@ func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *
 		Resolution: resolution,
 		Detail:     detail,
 	}}})
+}
+
+// injectMCPSocketEnv stamps the runner's own CTXLOOM_MCP_SOCKET onto the
+// ctxloom forwarder MCP server entry's OWN env, so the reach-back socket is
+// delivered EXPLICITLY over the ACP session/new mcpServers env (mapping.go's
+// mcpServersToACP renders each stdio server's Env verbatim) rather than
+// relying on the engine adapter to propagate its ambient process env down to
+// the MCP subprocess it spawns.
+//
+// The two shipping ACP adapters differ exactly here: claude-code-acp passes
+// its own env through to a spawned stdio MCP server (so the ambient
+// CTXLOOM_MCP_SOCKET reached the shim and its agent_send forwarded to the
+// coordinator), but codex-acp does NOT — the shim then found no socket, fell
+// back to its LOCAL surface, stood up a second rogue coordinator in-process,
+// and every `agent_send(to:"parent")` failed with "this session is the
+// coordinator — it has no parent" (j17 @live, codex-child). Injecting the
+// value into the entry's declared env removes the dependency on adapter
+// behavior entirely — the isolation-must-not-negotiate discipline applied to
+// reach-back delivery: make it a property of what we send, not a promise we
+// hope the vendor keeps.
+//
+// socket=="" (no runner MCP endpoint — a bare/degraded runner) injects
+// nothing. An entry that already declares the var (a user override) is left
+// untouched.
+func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string) {
+	if socket == "" {
+		return
+	}
+	for i := range servers {
+		if servers[i].Name != agent.MCPServerName {
+			continue
+		}
+		if servers[i].Env == nil {
+			servers[i].Env = map[string]string{}
+		}
+		if _, ok := servers[i].Env[EnvMCPSocket]; !ok {
+			servers[i].Env[EnvMCPSocket] = socket
+		}
+	}
 }
 
 // classifyApprovalKind buckets a backend-classified permission request's

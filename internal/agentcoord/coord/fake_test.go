@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +133,16 @@ type fakeSpawner struct {
 	nextChat func() *scriptedChat
 	chats    []*scriptedChat
 	kills    []func()
+	// nextBackend, when set, supplies a REAL agent.StructuredChat backend
+	// for the MIGRATED path instead of nextChat's scripted double — the
+	// seam the live-path reproduction (acp_approval_test.go) uses to put
+	// the genuine internal/acp driver, spawning a genuine ACP subprocess,
+	// under the genuine EngineHost/Home/Coordinator stack. engineWorkDir
+	// and engineEnv ride into the HarnessSpec the runner decodes, so that
+	// subprocess gets a real cwd and its own marker env.
+	nextBackend   func() agent.StructuredChat
+	engineWorkDir string
+	engineEnv     map[string]string
 	// workspaces records each Launch/StartEngine call's plan.Workspace, in
 	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
 	// -> here), without needing real isolation machinery.
@@ -244,19 +255,27 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 // loss synthesis is what must notice.
 func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
 	s.mu.Lock()
-	mk := s.nextChat
-	if mk == nil {
-		mk = func() *scriptedChat { return &scriptedChat{} }
+	var backend agent.StructuredChat
+	if s.nextBackend != nil {
+		backend = s.nextBackend()
+	} else {
+		mk := s.nextChat
+		if mk == nil {
+			mk = func() *scriptedChat { return &scriptedChat{} }
+		}
+		sc := mk()
+		s.chats = append(s.chats, sc)
+		backend = sc
 	}
-	sc := mk()
-	s.chats = append(s.chats, sc)
 	s.perms = append(s.perms, plan.Perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
+	workDir := s.engineWorkDir
+	engineEnv := s.engineEnv
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
-	host := NewEngineHost(sctx, sc, plan.Backend, runnerEnv[EnvRunID])
+	host := NewEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
 	home, err := NewHome(sctx, HomeConfig{
 		URL:     runnerEnv[EnvCoordURL],
 		Token:   runnerEnv[EnvCoordCred],
@@ -277,9 +296,18 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 	s.mu.Lock()
 	s.kills = append(s.kills, kill)
 	s.mu.Unlock()
+	if workDir == "" {
+		workDir = "/work"
+	}
+	spawnedEnv := env
+	if len(engineEnv) > 0 {
+		spawnedEnv = make(map[string]string, len(env)+len(engineEnv))
+		maps.Copy(spawnedEnv, env)
+		maps.Copy(spawnedEnv, engineEnv)
+	}
 	return &EngineSpawn{
-		WorkDir: "/work",
-		Env:     env,
+		WorkDir: workDir,
+		Env:     spawnedEnv,
 		Model:   "test-model",
 		Kill:    kill,
 	}, nil
@@ -384,6 +412,62 @@ func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coord
 	}
 	t.Cleanup(c.Close)
 	return c
+}
+
+// recvKind drains the OWNER's mailbox for up to wait and returns only the
+// messages of the given kind.
+//
+// Selecting by kind (rather than assuming the mailbox holds one thing) is
+// required since the automatic result bridge landed (blunt-whiff,
+// children.go's bridgeTurnResult): every child turn now also delivers the
+// child's own output to its parent as `kind: "result"`, so a test pinning a
+// SPECIFIC conversation — an approval relay, an injection mirror, one
+// agent_send — must say which conversation it means.
+func recvKind(t *testing.T, c *Coordinator, kind string, wait time.Duration) []Message {
+	t.Helper()
+	return recvWhere(t, c, func(m Message) bool { return m.Kind == kind }, wait)
+}
+
+// recvBody is recvKind's sibling for tests whose selector is the message TEXT
+// (the scripted engines bridge their own "ok" as kind "result", so a test
+// pinning a specific result body cannot select on kind alone).
+func recvBody(t *testing.T, c *Coordinator, body string, wait time.Duration) []Message {
+	t.Helper()
+	return recvWhere(t, c, func(m Message) bool { return m.Body == body }, wait)
+}
+
+// recvWhere drains the owner's mailbox until at least one message satisfies
+// keep, or wait elapses.
+func recvWhere(t *testing.T, c *Coordinator, keep func(Message) bool, wait time.Duration) []Message {
+	t.Helper()
+	deadline := time.Now().Add(wait)
+	var out []Message
+	for {
+		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+		if err == nil {
+			for _, m := range msgs {
+				if keep(m) {
+					out = append(out, m)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+		if time.Now().After(deadline) {
+			return out
+		}
+	}
+}
+
+// assertNoMailKind drains the owner's mailbox for window and fails if any
+// message of kind ever appears — the "it was never relayed" assertion, now
+// that the mailbox legitimately carries bridged results too.
+func assertNoMailKind(t *testing.T, c *Coordinator, kind string, window time.Duration) {
+	t.Helper()
+	if got := recvKind(t, c, kind, window); len(got) > 0 {
+		t.Fatalf("expected no %q mail, got %d (first body: %q)", kind, len(got), got[0].Body)
+	}
 }
 
 // mkTempDir returns a stable temp dir NOT auto-cleaned per sub-coordinator, so

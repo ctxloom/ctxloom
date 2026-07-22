@@ -294,6 +294,11 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {
+			// Result bridging (blunt-whiff): a MIGRATED child's answer for
+			// this turn is assembled from its own FINAL-channel message
+			// events as they stream, so the turn boundary below already
+			// holds the text to deliver to the parent.
+			c.accumulateFinalText(ch.role, ev)
 			c.bufferItem(ch, ev, kind)
 			if kind == "run_completed" {
 				// D4 (damp-pupil 1): bufferItem flushes run_completed

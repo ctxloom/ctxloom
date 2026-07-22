@@ -260,10 +260,8 @@ func TestChildSend_ParentOnly(t *testing.T) {
 	_, err = c.AgentSend(child, "some-sibling-harp", "", "psst", nil, "")
 	require.ErrorIs(t, err, ErrPeerRouting)
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
+	msgs := recvBody(t, c, "finding A", time.Second)
 	require.Len(t, msgs, 1)
-	assert.Equal(t, "finding A", msgs[0].Body)
 	assert.Equal(t, out.Harp, msgs[0].From)
 }
 
@@ -553,10 +551,8 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The O3 mirror fires for every delivery mode, this one included.
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
+	msgs := recvKind(t, c, KindUserInjected, time.Second)
 	require.Len(t, msgs, 1)
-	assert.Equal(t, KindUserInjected, msgs[0].Kind)
 }
 
 // TestInject_ResumesEndedChild pins the DeliveryResumed mode: injecting into

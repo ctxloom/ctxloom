@@ -124,11 +124,8 @@ func TestApproval_RelayRoundTrip(t *testing.T) {
 
 			// The relay lands in the parent's mailbox with a correlation id
 			// (the message id) and the request's proto projection.
-			var msgs []Message
-			require.Eventually(t, func() bool {
-				msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-				return err == nil && len(msgs) == 1
-			}, conformanceWait, 10*time.Millisecond, "the relay must land in the parent's mailbox")
+			msgs := recvKind(t, c, "approval_request", conformanceWait)
+			require.Len(t, msgs, 1, "the relay must land in the parent's mailbox")
 			msg := msgs[0]
 			assert.Equal(t, "approval_request", msg.Kind)
 			assert.NotEmpty(t, msg.ID, "the mailbox message id IS the correlation the reply answers")
@@ -196,11 +193,8 @@ func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
 			out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
 			require.NoError(t, err)
 
-			var msgs []Message
-			require.Eventually(t, func() bool {
-				msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-				return err == nil && len(msgs) == 1
-			}, conformanceWait, 10*time.Millisecond, "backend %q: the relay must land in the parent's mailbox", backend)
+			msgs := recvKind(t, c, "approval_request", conformanceWait)
+			require.Len(t, msgs, 1, "backend %q: the relay must land in the parent's mailbox", backend)
 			msg := msgs[0]
 			assert.Equal(t, "approval_request", msg.Kind)
 			assert.Contains(t, string(msg.Structured), "APPROVAL_KIND_COMMAND_EXECUTION")
@@ -240,10 +234,7 @@ func TestApproval_TimeoutFallsThroughToDecline(t *testing.T) {
 
 	// The relay still lands as mail (it happened), but the parent never
 	// answers — the rung's 50ms timeout must fire and fall through.
-	require.Eventually(t, func() bool {
-		msgs, rerr := c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-		return rerr == nil && len(msgs) == 1
-	}, conformanceWait, 10*time.Millisecond)
+	require.Len(t, recvKind(t, c, "approval_request", conformanceWait), 1)
 
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
@@ -273,11 +264,8 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
 	require.NoError(t, err)
 
-	var msgs []Message
-	require.Eventually(t, func() bool {
-		msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-		return err == nil && len(msgs) == 1
-	}, conformanceWait, 10*time.Millisecond)
+	msgs := recvKind(t, c, "approval_request", conformanceWait)
+	require.Len(t, msgs, 1)
 
 	decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT_FOR_SESSION"})
 	require.NoError(t, err)
@@ -303,8 +291,7 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 	assert.Equal(t, "allow-1", second.OptionID)
 
 	// It never went back to the mailbox: no new approval_request pending.
-	_, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-	assert.ErrorIs(t, err, ErrRecvTimeout, "the second ask must be answered from cache, not relayed again")
+	assertNoMailKind(t, c, "approval_request", 100*time.Millisecond)
 
 	// Audit proof: the second resolution came from "cache", not a rung walk.
 	entries := readApprovalAudit(t, c)
@@ -336,8 +323,7 @@ func TestApproval_BypassPresetAutoAcceptsAll(t *testing.T) {
 	assert.Equal(t, "allow-1", ans.OptionID)
 
 	// No mail was ever relayed to the parent.
-	_, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-	assert.ErrorIs(t, err, ErrRecvTimeout)
+	assertNoMailKind(t, c, "approval_request", 100*time.Millisecond)
 
 	entries := readApprovalAudit(t, c)
 	require.Len(t, entries, 1)
@@ -372,8 +358,7 @@ func TestApproval_PlanPresetAutoDeclinesFileChange(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, "reject-1", sp.chat(0).recordedAnswers()[0].OptionID)
 
-	_, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-	assert.ErrorIs(t, err, ErrRecvTimeout, "a mutating kind must decline outright, never relay")
+	assertNoMailKind(t, c, "approval_request", 100*time.Millisecond)
 
 	entries := readApprovalAudit(t, c)
 	require.Len(t, entries, 1)
@@ -415,11 +400,8 @@ func TestLegacyChild_UnaffectedByMigratedSiblingApprovalLadder(t *testing.T) {
 
 	workerOut, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
 	require.NoError(t, err)
-	var msgs []Message
-	require.Eventually(t, func() bool {
-		msgs, err = c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
-		return err == nil && len(msgs) == 1
-	}, conformanceWait, 10*time.Millisecond, "the migrated child's relay must land in the parent's mailbox")
+	msgs := recvKind(t, c, "approval_request", conformanceWait)
+	require.Len(t, msgs, 1, "the migrated child's relay must land in the parent's mailbox")
 	msg := msgs[0]
 	assert.Equal(t, "approval_request", msg.Kind)
 

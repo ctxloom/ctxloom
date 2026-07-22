@@ -22,12 +22,44 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// Mustache tag types from cbroglie/mustache.
+// Mustache tag types from cbroglie/mustache's TagType enum (mustache.go):
+// Invalid=0, Variable=1, Section=2, InvertedSection=3, Partial=4 — verified
+// against the v1.4.0 source and empirically (a Section tag reports
+// Type()==2, an InvertedSection reports 3). There is deliberately no
+// "RawVariable" constant: {{name}}, {{{name}}}, and {{&name}} all report
+// Type()==Variable — the library tracks raw-vs-escaped internally
+// (varElement.raw) but does not expose it through the public Tag interface,
+// so checkTags/undefinedPlainVariableLiterals cannot and do not distinguish
+// them.
+//
+// PRE-EXISTING BUG FOUND WHILE IMPLEMENTING task fatal-raven: this block
+// previously read {tagVariable:1, tagRawVariable:2, tagSection:3,
+// tagInvertedSection:4} — off by one for every section-shaped tag, because
+// "tagRawVariable" was never a real distinct TagType value in the first
+// place. Concretely, under the old numbering: a genuine Section tag
+// (real value 2) matched the old "tagRawVariable" constant, a genuine
+// InvertedSection (real value 3) matched the old "tagSection" constant, and
+// a genuine Partial (real value 4) matched the old "tagInvertedSection"
+// constant. hasChildTags(old tagSection=3, old tagInvertedSection=4) — real
+// InvertedSection and Partial — DID recurse; hasChildTags never matched a
+// real Section (2), so checkTags never walked into a `{{#name}}...{{/name}}`
+// block's children to find undefined variables nested inside it. This
+// under-warning was masked in existing tests (they only assert on the
+// OUTERMOST warning, e.g. TestSubstituteVariables_NestedSectionWithVariables
+// checks warnings[0] contains "outer", never that "inner_name" was also
+// flagged). Fixed here because undefinedPlainVariableLiterals below MUST
+// correctly identify Section/InvertedSection tags to protect the
+// presence-toggle idiom — it cannot do that safely against numbering that
+// misclassifies a real Section as a plain (raw) variable, which was
+// independently confirmed to flip a section's polarity in
+// TestSubstituteVariables_NameUsedAsBothSectionAndPlainVariableStaysFalsy
+// before this fix. Re-verified: TestShippedFragments_NoUnescapedForeignMustache
+// still reports zero undefined-variable hits across all shipped fragments
+// with the corrected numbering (see the fatal-raven task report).
 const (
 	tagVariable        = 1
-	tagRawVariable     = 2
-	tagSection         = 3
-	tagInvertedSection = 4
+	tagSection         = 2
+	tagInvertedSection = 3
 )
 
 // ProfileLoader interface for resolving profiles from directory (allows mocking in tests).
@@ -621,6 +653,14 @@ func convertProfileFragments(frags []profiles.FragmentRef, exclude []string) []c
 }
 
 // substituteVariables applies mustache variable substitution to content.
+//
+// DECISION (task fatal-raven): an unresolved PLAIN variable tag renders
+// VERBATIM — the literal source text the author wrote (`{{ARGS}}` stays
+// `{{ARGS}}`) — instead of vanishing. checkTags' warning is unchanged and
+// still fires; verbatim rendering makes the mistake visible in the output
+// itself, the warning tells the author which fragment to fix. See
+// undefinedPlainVariableLiterals for the mechanism and the section/inverted-
+// section idiom it deliberately leaves untouched.
 func substituteVariables(content string, vars map[string]string, warnFunc func(string)) string {
 	// Parse the template using the mustache library (handles delimiter changes correctly)
 	tmpl, err := mustache.ParseString(content)
@@ -637,6 +677,13 @@ func substituteVariables(content string, vars map[string]string, warnFunc func(s
 	for k, v := range vars {
 		data[k] = v
 	}
+	// Pre-seed the data map with the literal source text for any name found
+	// undefined AND used only as a plain variable tag — never for a name used
+	// as a section/inverted-section anywhere in the template, which must stay
+	// governed by key-absence so the presence-toggle idiom is untouched.
+	for name, literal := range undefinedPlainVariableLiterals(tmpl.Tags(), vars) {
+		data[name] = literal
+	}
 
 	rendered, err := tmpl.Render(data)
 	if err != nil {
@@ -647,10 +694,70 @@ func substituteVariables(content string, vars map[string]string, warnFunc func(s
 	return rendered
 }
 
+// undefinedPlainVariableLiterals walks the parsed tag tree and returns, for
+// every name that is undefined in vars and used as a plain VARIABLE tag
+// (never as a SECTION or INVERTED_SECTION anywhere in the tree), the literal
+// source text to substitute verbatim: "{{name}}". This covers {{name}},
+// {{{name}}}, and {{&name}} alike — cbroglie/mustache's Tag.Type() does not
+// distinguish raw output from escaped output, both report Variable, so a
+// literal reconstructed as "{{{name}}}" for an undefined raw tag is not
+// obtainable from this API; "{{name}}" is used uniformly. In the (expected
+// to be rare) case a fragment writes both {{name}} and {{{name}}} for one
+// undefined name, both occurrences render as "{{name}}" rather than
+// preserving each one's original brace count — a minor, documented
+// approximation, not data loss.
+//
+// The section exclusion is deliberately tree-wide and by name, not by
+// occurrence: a name that appears as a section/inverted-section tag
+// ANYWHERE — even if it ALSO appears as a plain variable elsewhere in the
+// same fragment — is dropped from the result entirely. Seeding a non-empty
+// literal string for that name would make mustache treat it as truthy,
+// silently flipping the polarity of every `{{#name}}...{{/name}}` /
+// `{{^name}}...{{/name}}` block using it — the one behavior this task must
+// never change, since it's a documented, sanctioned idiom (e.g.
+// `{{#DEBUG}}...{{/DEBUG}}`) used across existing profiles. The tradeoff in
+// that rare collision case: the plain-variable occurrence renders empty (the
+// historical default) rather than verbatim — see
+// TestSubstituteVariables_NameUsedAsBothSectionAndPlainVariableStaysFalsy.
+func undefinedPlainVariableLiterals(tags []mustache.Tag, vars map[string]string) map[string]string {
+	sectionNames := collections.NewSet[string]()
+	literals := make(map[string]string)
+
+	var walk func([]mustache.Tag)
+	walk = func(tags []mustache.Tag) {
+		for _, tag := range tags {
+			name := tag.Name()
+			switch tag.Type() {
+			case tagSection, tagInvertedSection:
+				sectionNames.Add(name)
+			case tagVariable:
+				if _, ok := vars[name]; !ok {
+					if _, already := literals[name]; !already {
+						literals[name] = "{{" + name + "}}"
+					}
+				}
+			}
+			if hasChildTags(tag.Type()) {
+				if children := tag.Tags(); len(children) > 0 {
+					walk(children)
+				}
+			}
+		}
+	}
+	walk(tags)
+
+	for name := range sectionNames {
+		delete(literals, name)
+	}
+	return literals
+}
+
 // referencesVariable reports whether a tag type references a variable name
-// (plain/raw variables and section tags, which key off a variable).
+// (plain variables — which cover both escaped {{name}} and raw {{{name}}}/
+// {{&name}}, indistinguishable via Tag.Type() — and section tags, which key
+// off a variable).
 func referencesVariable(t mustache.TagType) bool {
-	return t == tagVariable || t == tagRawVariable || t == tagSection || t == tagInvertedSection
+	return t == tagVariable || t == tagSection || t == tagInvertedSection
 }
 
 // hasChildTags reports whether a tag type can contain nested tags (sections).

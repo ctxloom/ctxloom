@@ -520,3 +520,70 @@ func TestGRPCClient_Chat_InfoFailureDegradesGracefully(t *testing.T) {
 	_, statErr := os.Stat(path)
 	assert.True(t, os.IsNotExist(statErr), "an Info RPC failure must not leave a transcript file behind")
 }
+
+// TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq pins
+// outer-petal's regression coverage: many user turns fired concurrently
+// (simulating a caller that doesn't wait for a reply before sending the
+// next message, e.g. piped/pasted stdin in run_structured.go's
+// readMessagesLoop) racing many backend events, must all land in the
+// canonical transcript — none dropped, none double-recorded, and Seq must
+// be a gapless, non-duplicated 0..N-1 run. Before outer-petal's fix this
+// held only because fileRecorder's own mutex happened to serialize writes;
+// after the fix it holds because GRPCClient.Chat funnels both producers
+// through a single transcript.CoordinatedRecorder owner — this test proves
+// the payload survives that refactor intact under real concurrent load, not
+// just the exit code.
+func TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "grpc-chat-concurrent-load-harp"
+
+	const numEngineEvents = 40
+	canned := make([]*ChatEvent, 0, numEngineEvents)
+	for i := 0; i < numEngineEvents; i++ {
+		canned = append(canned, &ChatEvent{Event: &ChatEvent_Entry{Entry: &SessionEntry{
+			Type: "assistant", Content: "engine-event",
+		}}})
+	}
+	cs := newFakeChatClientStream(canned)
+	c := &GRPCClient{client: &fakeLLMClient{
+		chatStream: cs,
+		infoResp:   &LLMInfo{Name: "codex"},
+	}}
+
+	req := agent.ChatRequest{Model: "m", Env: map[string]string{agent.SessionHarpEnv: harp}}
+	in, events, errs, err := c.Chat(context.Background(), req)
+	require.NoError(t, err)
+
+	const numUserTurns = 40
+	var sendWG sync.WaitGroup
+	sendWG.Add(1)
+	go func() {
+		defer sendWG.Done()
+		for i := 0; i < numUserTurns; i++ {
+			in <- agent.ChatMessage{Text: "user-turn"}
+		}
+		close(in)
+	}()
+
+	var forwarded int
+	for range events {
+		forwarded++
+	}
+	require.NoError(t, <-errs)
+	sendWG.Wait()
+
+	require.Equal(t, numEngineEvents, forwarded, "every backend event must still reach the live caller")
+
+	recs := readCanonicalTranscript(t, harp)
+	require.Len(t, recs, numEngineEvents+numUserTurns,
+		"canonical transcript must carry every engine event AND every user turn under concurrent load — no drops")
+
+	seen := make(map[int]bool, len(recs))
+	for _, r := range recs {
+		assert.False(t, seen[r.Seq], "duplicate Seq %d in canonical transcript", r.Seq)
+		seen[r.Seq] = true
+	}
+	for i := 0; i < len(recs); i++ {
+		assert.True(t, seen[i], "Seq must be a gapless 0..N-1 run; missing Seq %d", i)
+	}
+}

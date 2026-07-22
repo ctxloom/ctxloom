@@ -351,15 +351,45 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	// the outbound tee (records everything else). One Recorder, one seq
 	// counter, one file — a second NewRecorder here would race the first for
 	// the file and reset Seq to 0.
+	//
+	// outer-petal: those two producers used to call rec.Record (directly, or
+	// via transcript.RecordUserText/Tee) from their own independent
+	// goroutines — safe from data corruption (fileRecorder's own mutex) but
+	// with no coordination over record ORDER beyond raw mutex-acquisition
+	// scheduling (found via the H1b door-equivalence work, 2026-07-16: the
+	// same scripted conversation's transcript.jsonl could put the Session
+	// record before or after the first user turn across repeated runs of the
+	// identical script). A transcript.CoordinatedRecorder now owns rec
+	// exclusively: both producers Submit to it instead of calling Record
+	// themselves, so there is exactly one caller into the Recorder's seq
+	// counter, not two racing it. This does not (and safely cannot, without
+	// risking a deadlock against a hypothetical backend that withholds all
+	// output until it receives input) impose a strict cross-source
+	// precedence — genuinely concurrent, causally-unrelated events (e.g. the
+	// engine's own Session event vs. the very first user turn, sent before
+	// either side has seen anything from the other) can still interleave
+	// either way; see chat_test.go's TestGRPCClient_Chat_CapturesUserTurn for
+	// why that specific case has no observable effect on any transcript
+	// reader.
 	var rec transcript.Recorder
 	if harp := req.Env[agent.SessionHarpEnv]; harp != "" {
 		rec = c.openRecorder(ctx, harp, req.TranscriptRawPolicy)
 	}
+	var coord *transcript.CoordinatedRecorder
+	if rec != nil {
+		coord = transcript.NewCoordinatedRecorder(rec, 2) // inbound tap + outbound tee
+	}
 
 	go func() {
+		if coord != nil {
+			defer coord.ProducerDone()
+		}
 		for msg := range in {
-			if msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn {
-				transcript.RecordUserText(rec, msg.Text)
+			if coord != nil && msg.Permission == nil && msg.Terminal == nil && !msg.CancelTurn && msg.Text != "" {
+				coord.Submit(ctx, agent.ChatEvent{Entry: &agent.SessionEntry{
+					Type:    agent.EntryTypeUser,
+					Content: msg.Text,
+				}})
 			}
 			if serr := stream.Send(chatMessageToInput(msg)); serr != nil {
 				break
@@ -389,8 +419,17 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 	}()
 
 	outEvents := (<-chan agent.ChatEvent)(events)
-	if rec != nil {
-		outEvents = transcript.TeeAndClose(rec, events)
+	if coord != nil {
+		teed := make(chan agent.ChatEvent)
+		go func() {
+			defer close(teed)
+			defer coord.ProducerDone()
+			for ev := range events {
+				coord.Submit(ctx, ev)
+				teed <- ev
+			}
+		}()
+		outEvents = teed
 	}
 
 	return in, outEvents, errs, nil

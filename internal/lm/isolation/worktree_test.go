@@ -402,8 +402,10 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 
 // TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
 // per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
-// size must match the §1 cartography table — claude:1, codex:1, kiro:2,
-// antigravity:0 (no lever at all), and "" (no backend context):0 (the
+// size must match the cartography table — claude:1, codex:1, kiro:2,
+// antigravity:1 (its curated HOME, via the single "HOME" key — see
+// curatedhome.go and TestWorktree_Antigravity_HomeOverrideAndSymlinks for
+// what that one var actually carries), and "" (no backend context):0 (the
 // pre-fix, config-only-isolation default — see TestWorktree_NoBackendSkipsSeedingAndFailLoud).
 func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	resetStrictness(t)
@@ -419,7 +421,7 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 		{"claude-code", 1},
 		{"codex", 1},
 		{"kiro", 2},
-		{"antigravity", 0},
+		{"antigravity", 1},
 		{"", 0},
 	}
 	for _, c := range cases {

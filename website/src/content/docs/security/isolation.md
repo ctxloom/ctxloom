@@ -27,11 +27,13 @@ state somewhere private. **Not one of these engines documents where it draws the
 config and state.** So we pointed that variable at a per-agent directory and measured what
 four real engines actually did. One **leaked** state out past the boundary. One **flooded** its
 entire runtime state into the project tree — into a directory tracked in git. One isolated so
-perfectly that it **locked the agent out**, unable to authenticate at all. And the fourth has
-no such lever at all — for that one, host-mode isolation is not broken, it is **impossible**.
+perfectly that it **locked the agent out**, unable to authenticate at all. And the fourth's
+lever relocates its configuration and session state cleanly — but not its authentication, which
+turns out to live one layer beneath anything a process environment variable can reach.
 
-Four engines. Four different answers to "where does your state live?" — and the fourth cannot
-be answered at all. Nothing about `ctxloom agent list` looking healthy catches any of it.
+Four engines. Four different answers to "where does your state live?" — three about a variable
+honoured, ignored, or pulling in two directions, and one about a layer no per-process variable
+was ever going to touch. Nothing about `ctxloom agent list` looking healthy catches any of it.
 
 ## An isolation scheme with a counterparty
 
@@ -92,38 +94,53 @@ for, you can still lose — because "honour the variable for everything" and "br
 credentials the agent needs" pull against each other, and nobody told you which side of that
 tension they picked.
 
-**Four: there is no boundary to draw.** A fourth engine has *no config-home lever at all*. No
-environment variable redirects its configuration or its state; none exists. Host-mode isolation
-for this engine is not broken — it is impossible. There is nothing to negotiate with. (ctxloom
-sets a config-home variable for every engine that has one. This one does not have one.)
+**Four: the state that moves isn't the state that matters.** A fourth engine has no
+config-home environment variable of its own. `HOME` is the only lever it has, and it governs
+everything: point it at a fresh directory and the engine's entire configuration and
+session-state tree relocates there, cleanly — the same kind of result any other engine's
+honoured variable would give you. (ctxloom sets a config-home variable for every engine that
+has one dedicated to it. This one does not, so ctxloom points `HOME` itself at a per-agent
+directory instead.)
 
-It keeps its state — credentials, an account list, a project index and history, tens of
-megabytes of it — in a directory belonging to a *different, now-retired product*. Every agent
-on the machine shares all of it. That path is an accident of product history, not a contract,
-and nothing stops it moving in the next release.
+Isolation looks complete. It is not. With that fresh `HOME`, no API-key environment variable
+set, and the usual way of disabling the session keyring applied, **it still authenticated and
+answered a real prompt.** Last time this page went looking for that channel, we came up empty.
+This time we found it: an OS session keyring, reached through a D-Bus Secret Service socket at
+a fixed path derived from the process's UID — not from `$HOME`, and not from the environment
+variable that normally advertises the socket's location. Unsetting that variable removes the
+label a client uses to find the socket; the underlying client library falls back to the same
+well-known, UID-addressed path regardless. We reproduced it directly: a process with `HOME`
+pointed at an empty scratch directory, and *no other environment variable set at all*, still
+authenticated through the keyring.
 
-Redirecting the process's `HOME` does work: point it at a fresh home and the engine builds a
-complete new state tree there. So the container's one lever is effective. And then the part
-that matters. With a fresh `HOME`, no API-key environment variable set, and the system keyring
-made unreachable, **it still authenticated and answered a real prompt.** We probed four ways
-and could not determine where its credential came from. We are not going to guess: the honest
-statement is that we could not find it.
+That is the reductio of this whole page, and it lands differently than the last version of this
+section did. The other three failures were all failures of a variable — honoured, ignored, or
+pulling in two directions. This one is not a variable problem. **The identity that authenticates
+this engine is addressed by the operating system's own login session, by UID — and no
+per-process environment variable was ever going to reach that**, whether or not we could name
+the exact socket.
 
-That is the reductio of this whole page. For the other three there was a findable answer — a
-variable honoured or ignored, a store located, a credential path confirmed. For this one there
-is not. **We cannot state what an isolated instance of this engine can and cannot reach,
-because we cannot locate what it reads.**
+**You cannot redirect an address that was never yours to redirect.**
 
-**You cannot isolate what you cannot locate.**
+Given that, host-mode worktree isolation for this engine now proceeds instead of refusing: a
+curated `HOME` genuinely isolates its configuration and session state, which is real and worth
+having. But ctxloom raises a loud, non-fatal finding on every such run, naming exactly what did
+and did not happen — configuration and session state isolated, authentication not — because
+there is no lever this side of a container boundary that reaches the keyring, and pretending
+the curated `HOME` closes that gap would be the same kind of silent overclaim this page exists
+to rule out.
 
-Given that, ctxloom does not pretend to negotiate with this one. Asking it to run under
-host-mode worktree isolation is now a **loud, refuse-by-default failure** — the same posture as
-every other choke on this page, not a silent no-op — because there is, by design, nothing that
-request could actually do. The only isolation this engine gets is the boundary from the
-"Containers don't ask" section below: it does not need to locate anything the engine reads, so
-it is the one answer that still works here. That does not make the credential mystery above go
-away — a containerized run of this engine still has to authenticate somehow, and this page's
-"we could not find it" stands regardless of which boundary wraps the process.
+Containers close that channel, and not because the engine cooperates. A container gets its own
+mount, IPC, and PID namespaces, so the keyring's socket does not exist inside it — there is
+nothing at that path to fall back to. We measured this directly too: the same engine, run in a
+fresh container with no session bus reachable, logged its own fallback to a file-based
+credential store, and then failed outright — not logged in. That failure is the correct,
+advertisable property: a containerized run of this engine cannot silently authenticate as the
+host user. It can only refuse, loudly. One edge stays open and unverified rather than ruled
+out either way: this engine's binary also carries a separate, cloud-metadata-shaped credential
+path, reachable only from a genuine cloud host, or if a future container profile ever mounted
+additional cloud credentials into the box. Neither experiment run here was on such a host or
+with such a mount, so that path is a named unknown, not a confirmed second channel.
 
 ## The ecosystem converged — on the parts that don't matter
 
@@ -147,10 +164,11 @@ depends on**: where state lives, which variable governs it, what gets written wh
 whether your credentials come with you. Convergence where it's cheap; chaos where it matters.
 
 There is no principle you can reason from here. Only measurement — per engine, per version,
-re-done every time they ship. And measurement has a floor: on the fourth engine it ran out
-entirely. Knowing today's stores does not protect you from tomorrow's, either — a future
-release can add a cache, a log, a session index, and isolation degrades again, silently, the
-same way. **You cannot build an isolation guarantee on top of that by
+re-done every time they ship. And measurement has its own blind spots: on the fourth engine,
+rounds of env-var-shaped probing missed an OS-level channel entirely, and it only turned up once
+we went looking outside that shape. Knowing today's stores does not protect you from tomorrow's,
+either — a future release can add a cache, a log, a session index, and isolation degrades again,
+silently, the same way. **You cannot build an isolation guarantee on top of that by
 negotiation.**
 
 ## Why it fails silently
@@ -180,10 +198,13 @@ between config and state, or what the next release changes. You are no longer tr
 predict which of a vendor's stores respects which variable — **you have stopped asking the
 vendor for anything.**
 
-It is also the only answer that survives the fourth engine. Every other approach requires
-first *locating* the state you intend to isolate — and on that engine we could not. A boundary
-does not need to locate anything. Whatever the engine reads, if it is outside the boundary, it
-is not there. **You stop needing to know.**
+It is also the only answer that survives the fourth engine — for a sharper reason than "we
+could not find the channel." We now know exactly where its credential lives: an OS session
+keyring, addressed by UID. Locating it changed nothing about host-mode's reach, because `HOME`
+was never that address to begin with — no amount of finding turns a UID-scoped OS socket into
+something a per-process environment variable can redirect. A boundary does not need an address
+to redirect anything. Whatever the engine reads, if it is outside the boundary, it is not
+there. **You stop needing to know.**
 
 That is the entire argument for `runtime: container`. It moves isolation from a **property of
 the binary's behaviour**, which you can neither observe nor control, to a **property of the

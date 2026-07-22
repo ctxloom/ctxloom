@@ -1,3 +1,11 @@
+# Recipes below that take PKG/PATTERN/*ARGS and forward them to `go test`
+# rely on this: it hands recipe parameters to shebang scripts as real shell
+# positional args ($1, "$@") instead of splicing them into the recipe body as
+# text. Without it, a value like `-run 'TestA|TestB'` gets re-parsed by the
+# script's shell and the `|` acts as an actual pipe (`sh: 1: TestB: not
+# found`) instead of reaching go test as one -run argument.
+set positional-arguments := true
+
 # Default recipe
 default: build
 
@@ -377,9 +385,24 @@ vet-integration:
 test-integration: build
     go test -v -tags integration ./tests/integration/...
 
-# Run integration tests matching a -run PATTERN (requires ctxloom binary)
+# Run integration tests matching a -run PATTERN (requires ctxloom binary).
+# Same false-green hazard as test-pkg: a PATTERN that matches nothing still
+# exits 0 from `go test` (`[no tests to run]`). Detect and fail on that.
 test-integration-run PATTERN: build
-    go test -v -tags integration -run '{{PATTERN}}' ./tests/integration/...
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set +e
+    output=$(go test -v -tags integration -run "$1" ./tests/integration/... 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$output"
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+    if grep -q '\[no tests to run\]' <<<"$output"; then
+        echo "error: -run matched no tests (typo'd or renamed test name?)" >&2
+        exit 1
+    fi
 
 # Run the full-stack acceptance suite (godog): asserts each change across files,
 # CLI, and mock-agent MCP traffic. Hermetic by default (@live scenarios skipped).
@@ -510,9 +533,29 @@ isolation-probe ENGINE AXIS: build
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
-# Run a single package's tests under -race (fast local iteration)
+# Run a single package's tests under -race (fast local iteration).
+# A `-run` pattern that matches nothing still exits 0 from `go test` (`ok
+# ... [no tests to run]`) — silently passing a typo'd or renamed test name.
+# Detect that and fail. A package with genuinely no test files reports a
+# different message (`? ... [no test files]`) and stays green, as does a
+# `-run` miss the pipefail chain never triggers because a package that
+# doesn't build/vet fails before printing either message.
 test-pkg PKG *ARGS:
-    go test -race {{ARGS}} {{PKG}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pkg="$1"; shift
+    set +e
+    output=$(go test -race "$@" "$pkg" 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$output"
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+    if grep -q '\[no tests to run\]' <<<"$output"; then
+        echo "error: -run matched no tests in $pkg (typo'd or renamed test name?)" >&2
+        exit 1
+    fi
 
 # ===== Mutation testing =====
 
@@ -521,23 +564,28 @@ test-pkg PKG *ARGS:
 # here), so both recipes pin TMPDIR to disk and sweep the copies afterwards.
 mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
 
-# Run mutation tests with gremlins (requires gremlins installed)
+# Run mutation tests with gremlins (requires gremlins installed).
+# "$@" (not {{ARGS}}) so a value containing shell metacharacters (e.g. a
+# `|`-alternation regex) reaches gremlins intact instead of being re-parsed
+# by this script's shell — see test-pkg above for the failure mode.
 test-mutation *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    TMPDIR="{{mutation_tmp}}" gremlins unleash {{ARGS}}
+    TMPDIR="{{mutation_tmp}}" gremlins unleash "$@"
 
 # Run mutation tests on specific package
 # gremlins appends /... to the target itself; passing it here yields
 # ./pkg/.../... which matches nothing and fails with "no packages to test".
+# "$@" (not {{ARGS}}), same reasoning as test-mutation above.
 test-mutation-pkg PKG *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    TMPDIR="{{mutation_tmp}}" gremlins unleash ./{{PKG}} {{ARGS}}
+    pkg="$1"; shift
+    TMPDIR="{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
 
 # Run mutation tests against the ACCEPTANCE/journey suite
 # (.gremlins.acceptance.yaml), not the unit suite .gremlins.yaml normally
@@ -623,7 +671,20 @@ test-mutation-container:
 # comment for why (RE2 has no lookahead; ooze's own file discovery is as
 # scope-blind as gremlins').
 test-mutation-cucumber *ARGS:
-    go test -tags mutation -count=1 -timeout 120m ./tests/mutation/... {{ARGS}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set +e
+    output=$(go test -tags mutation -count=1 -timeout 120m ./tests/mutation/... "$@" 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$output"
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+    if grep -q '\[no tests to run\]' <<<"$output"; then
+        echo "error: -run matched no tests (typo'd or renamed test name?)" >&2
+        exit 1
+    fi
 
 # Clean build artifacts
 clean:

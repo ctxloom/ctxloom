@@ -27,6 +27,10 @@ agents:
         timeout: 5m
 ```
 
+Agents are also the unit ctxloom's coordinator/child [delegation](/concepts/agent-delegation/)
+resolves privileges from: a spawned child's MCP servers and permission mode come from its own
+agent definition, never a coordinator's or a sibling's.
+
 An agent names:
 
 - **`engine`** — the LLM config label or backend to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.

@@ -692,15 +692,14 @@ clean:
     rm -rf bin/ man/
     go clean
 
-# Reclaim the regenerable Go caches. The build cache (~/.cache/go-build) has NO
-# native size cap and grows large under heavy multi-agent build days (98G in one
-# day here); Go's own 5-day trim is healthy but does not bound total size. This
-# makes reclaiming one command. Does NOT touch the module cache (~/go/pkg/mod) —
-# that is expensive to refetch and is not the problem. The aux dirs hold Go
-# module-cache copies at mode 0444, so `chmod -R u+w` before `rm` or it fails
-# with "permission denied".
+# Reclaim regenerable Go caches (build cache + leftover temp/aux caches)
 clean-caches:
     #!/usr/bin/env bash
+    # The build cache (~/.cache/go-build) has NO native size cap and grows large
+    # under heavy multi-agent build days (98G in one day here); Go's own 5-day
+    # trim is healthy but does not bound total size. Does NOT touch the module
+    # cache (~/go/pkg/mod) — expensive to refetch and not the problem. The aux
+    # dirs hold Go module-cache copies at mode 0444, so chmod -R u+w before rm.
     set -uo pipefail
     echo "before: $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
     go clean -cache

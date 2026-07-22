@@ -252,3 +252,20 @@ func TestACPLivePath_ForwardedPermissionResolves(t *testing.T) {
 	assert.Equal(t, "auto_accept", entries[0].Detail["action"])
 	assert.Equal(t, "granted", entries[0].Detail["resolution"])
 }
+
+// TestACPLivePath_ChildResultBridgesToParentMailbox is the blunt-whiff
+// payload proof on the SAME full stack: the child's model never calls
+// agent_send (this fake agent has no MCP client at all — exactly the
+// property that made the old StructuredChat-gated bridge dead code), yet the
+// parent's mailbox carries the child's own words. Asserted on the CONTENT
+// the child emitted, not on a call returning nil.
+func TestACPLivePath_ChildResultBridgesToParentMailbox(t *testing.T) {
+	c, _ := newACPLivePathCoordinator(t, "bypass")
+
+	_, err := c.AgentRun(t.Context(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+
+	msgs := recvBody(t, c, fakeACPMarker, 30*time.Second)
+	require.Len(t, msgs, 1, "the parent must receive the child's result without the child choosing to report")
+	assert.Equal(t, "result", msgs[0].Kind)
+}

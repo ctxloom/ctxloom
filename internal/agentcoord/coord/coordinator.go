@@ -557,6 +557,12 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 			return "", false, "", ErrPeerRouting
 		}
 		c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
+		// NO DOUBLE DELIVERY (blunt-whiff): this child reported to its
+		// parent in its own words, so the automatic turn-boundary bridge
+		// (children.go's bridgeTurnResult) must not report the same turn
+		// again. Marked here — the one place a child→parent send is
+		// accepted — rather than at either call site.
+		c.noteChildReported(caller.Harp)
 		id, completed, qerr := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
 		if qerr != nil {
 			return "", false, "", qerr

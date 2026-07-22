@@ -95,18 +95,43 @@ var llmServeCmd = &cobra.Command{
 				clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 			} else {
 				home = h
-				if engineHost != nil {
-					engineHost.BindHome(home)
-				}
 				if cfg != nil {
-					if endpoint, merr := serveRunnerMCP(cfg, harp, home); merr != nil {
+					endpoint, merr := serveRunnerMCP(cfg, harp, home)
+					switch {
+					case merr != nil && engineHost != nil:
+						// FAIL LOUD (icy-value). A runner that HOSTS a
+						// delegated run must not launch its engine without
+						// this endpoint: the child's `ctxloom mcp` shim
+						// keys entirely off CTXLOOM_MCP_SOCKET, and without
+						// it that shim silently runs its LOCAL surface —
+						// which stands up a SECOND, rogue coordinator in
+						// the shim process and offers an `agent_send`
+						// (to/body) that can never reach the real parent.
+						// A child that reports into a coordinator nobody
+						// reads is worse than a child that never launched.
+						home.Close(1, "")
+						return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", homeCfg.RunID, merr)
+					case merr != nil:
 						clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
-					} else {
+					default:
 						defer endpoint.close()
 						// Exported into THIS process env: every engine spawn
 						// path builds the harness env over os.Environ.
 						_ = os.Setenv(coord.EnvMCPSocket, endpoint.socketPath)
 					}
+				}
+				// BIND LAST — strictly after the MCP socket exists and its
+				// env is exported (icy-value). BindHome is what unblocks
+				// EngineHost.Handle, and StartRun is what spawns the child's
+				// engine: binding before this point raced the coordinator's
+				// StartRun (a local gRPC round trip) against socket bind +
+				// mcpschema tool-schema generation on this goroutine, and a
+				// lost race spawned the engine with CTXLOOM_MCP_SOCKET
+				// unset. Handle already waits on the bind (homeBindTimeout),
+				// so ordering it this way costs a bounded wait instead of a
+				// silently mis-wired child.
+				if engineHost != nil {
+					engineHost.BindHome(home)
 				}
 			}
 		}

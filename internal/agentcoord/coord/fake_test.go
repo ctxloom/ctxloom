@@ -414,6 +414,62 @@ func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coord
 	return c
 }
 
+// recvKind drains the OWNER's mailbox for up to wait and returns only the
+// messages of the given kind.
+//
+// Selecting by kind (rather than assuming the mailbox holds one thing) is
+// required since the automatic result bridge landed (blunt-whiff,
+// children.go's bridgeTurnResult): every child turn now also delivers the
+// child's own output to its parent as `kind: "result"`, so a test pinning a
+// SPECIFIC conversation — an approval relay, an injection mirror, one
+// agent_send — must say which conversation it means.
+func recvKind(t *testing.T, c *Coordinator, kind string, wait time.Duration) []Message {
+	t.Helper()
+	return recvWhere(t, c, func(m Message) bool { return m.Kind == kind }, wait)
+}
+
+// recvBody is recvKind's sibling for tests whose selector is the message TEXT
+// (the scripted engines bridge their own "ok" as kind "result", so a test
+// pinning a specific result body cannot select on kind alone).
+func recvBody(t *testing.T, c *Coordinator, body string, wait time.Duration) []Message {
+	t.Helper()
+	return recvWhere(t, c, func(m Message) bool { return m.Body == body }, wait)
+}
+
+// recvWhere drains the owner's mailbox until at least one message satisfies
+// keep, or wait elapses.
+func recvWhere(t *testing.T, c *Coordinator, keep func(Message) bool, wait time.Duration) []Message {
+	t.Helper()
+	deadline := time.Now().Add(wait)
+	var out []Message
+	for {
+		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 10*time.Millisecond)
+		if err == nil {
+			for _, m := range msgs {
+				if keep(m) {
+					out = append(out, m)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+		if time.Now().After(deadline) {
+			return out
+		}
+	}
+}
+
+// assertNoMailKind drains the owner's mailbox for window and fails if any
+// message of kind ever appears — the "it was never relayed" assertion, now
+// that the mailbox legitimately carries bridged results too.
+func assertNoMailKind(t *testing.T, c *Coordinator, kind string, window time.Duration) {
+	t.Helper()
+	if got := recvKind(t, c, kind, window); len(got) > 0 {
+		t.Fatalf("expected no %q mail, got %d (first body: %q)", kind, len(got), got[0].Body)
+	}
+}
+
 // mkTempDir returns a stable temp dir NOT auto-cleaned per sub-coordinator, so
 // adoption tests can relaunch coordinators over the SAME state dir.
 func mkTempDir(t *testing.T) string { return t.TempDir() }

@@ -66,8 +66,21 @@ type childRt struct {
 	in          chan<- agent.ChatMessage
 	close       func()
 	wake        chan struct{}
-	turnOutput  []string // oneshot bridging: this turn's entries
-	turnErrored bool     // oneshot bridging: this turn's Entry.IsError was set (Result.status)
+	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
+	turnErrored bool     // result bridging: this turn's Entry.IsError was set (Result.status)
+	// selfReported records that the CHILD ITSELF sent mail to its parent
+	// during the current turn (peerSend, caller.IsChild()). It is the
+	// no-double-delivery discriminator for bridgeTurnResult: a child that
+	// reported in its own words is not re-reported in ours. Cleared at the
+	// TURN BOUNDARY (bridgeTurnResult), never at turn start: a child may
+	// call agent_send before it says anything at all, and a start-of-turn
+	// reset would race that report away.
+	selfReported bool
+	// finalMsgs is the MIGRATED path's turn accumulator index: the plane-1
+	// message ids whose MessageStarted declared MESSAGE_CHANNEL_FINAL, so
+	// their deltas (and only theirs — never REASONING or LOG) join
+	// turnOutput. Cleared at the turn boundary alongside it.
+	finalMsgs map[string]bool
 
 	// attached closes once THIS attempt's launch decision is final: the
 	// engine is up (legacy: attachLaunch ran, right before the driveChild
@@ -615,6 +628,106 @@ func (c *Coordinator) onTurnStarted(role string) {
 	c.setState(rt, StateExecuting)
 }
 
+// noteChildReported marks that a child sent mail to its parent itself —
+// peerSend's hook into the no-double-delivery rule (see bridgeTurnResult).
+func (c *Coordinator) noteChildReported(harp string) {
+	c.mu.Lock()
+	if rt := c.byHarp[harp]; rt != nil {
+		rt.selfReported = true
+	}
+	c.mu.Unlock()
+}
+
+// accumulateFinalText folds one MIGRATED child's plane-1 message events into
+// its turn accumulator: MessageStarted on MESSAGE_CHANNEL_FINAL opens an
+// accumulating message id; that id's deltas append. REASONING (thinking)
+// and LOG (system chatter) are deliberately excluded — a coordinator wants
+// the child's ANSWER, not its scratchpad.
+func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rt := c.byHarp[role]
+	if rt == nil {
+		return
+	}
+	switch p := ev.GetPayload().(type) {
+	case *agentcoordpb.AgentEvent_MessageStarted:
+		if p.MessageStarted.GetChannel() != agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
+			return
+		}
+		if rt.finalMsgs == nil {
+			rt.finalMsgs = make(map[string]bool)
+		}
+		rt.finalMsgs[p.MessageStarted.GetMessageId()] = true
+	case *agentcoordpb.AgentEvent_MessageDelta:
+		if !rt.finalMsgs[p.MessageDelta.GetMessageId()] {
+			return
+		}
+		if text := p.MessageDelta.GetText(); text != "" {
+			rt.turnOutput = append(rt.turnOutput, text)
+		}
+	}
+}
+
+// bridgeTurnResult is the AUTOMATIC child→parent report (blunt-whiff): at a
+// child's turn boundary, whatever the child said this turn lands in its
+// parent's mailbox as `kind: "result"` — WITHOUT the child's model having to
+// decide to call agent_send. Receiving a delegated child's result must not
+// depend on model cooperation; that is the property a coordinator needs, and
+// the reason this no longer keys off whether the backend implements
+// agent.StructuredChat (it fired only for backends that DON'T, and every
+// registered backend does — so in production it never fired at all).
+//
+// NO DOUBLE DELIVERY. The bridge is a FALLBACK, not a duplicate: a child that
+// called agent_send to its parent during this turn has already reported, in
+// its own words, and rt.selfReported (set by peerSend) suppresses the bridge
+// for that turn. So a parent sees a child's turn exactly once — the child's
+// own message when it wrote one, ours when it didn't.
+//
+// A turn that ends with NEITHER a self-report NOR any FINAL-channel output
+// produced nothing to deliver; that is warned rather than queued as an empty
+// message (an empty body is this project's signature silent no-op, not a
+// report).
+func (c *Coordinator) bridgeTurnResult(rt *childRt) {
+	c.mu.Lock()
+	out := rt.turnOutput
+	errored := rt.turnErrored
+	reported := rt.selfReported
+	rt.turnOutput = nil
+	rt.turnErrored = false
+	rt.selfReported = false
+	rt.finalMsgs = nil
+	oneshot := rt.oneshot
+	// The MIGRATED path accumulates plane-1 message DELTAS (fragments of one
+	// message, concatenated); the legacy path accumulates whole entries
+	// (newline-separated, as the pre-existing oneshot bridge joined them).
+	sep := "\n"
+	if rt.viaStartRun {
+		sep = ""
+	}
+	c.mu.Unlock()
+
+	if reported {
+		return // the child reported itself; never deliver the same turn twice
+	}
+	text := strings.TrimSpace(strings.Join(out, sep))
+	if text == "" {
+		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
+		return
+	}
+	if oneshot {
+		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
+		// mailbox bridge below — not a replacement for it; PublishEvents is
+		// event-plane only and carries no delivery semantics of its own. A
+		// MIGRATED child already emits its own RunCompleted on the
+		// RunChannel, so this synthetic sub-run is oneshot-only.
+		c.publishOneshotResult(rt, text, errored)
+	}
+	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
+		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
+	}
+}
+
 // onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
@@ -626,6 +739,10 @@ func (c *Coordinator) onTurnIdle(role string) {
 	if rt == nil {
 		return
 	}
+	// The MIGRATED path's turn boundary: bridge this turn's result to the
+	// parent BEFORE parking idle, so the parent's mailbox carries the
+	// child's answer whether or not the child's model chose to send one.
+	c.bridgeTurnResult(rt)
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
 	if c.pendingCount(role) > 0 {
@@ -682,11 +799,13 @@ func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch
 func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 	switch {
 	case ev.Entry != nil:
-		// Chat children report over the coordinator themselves; their
-		// entries are the engine transcript's job (§6b). Oneshot children
-		// have no reach-back, so their output is bridged to the parent at
-		// the boundary.
-		if rt.oneshot && ev.Entry.Content != "" {
+		// Turn accumulation for the legacy path's half of the result bridge
+		// (blunt-whiff): a ONESHOT child has no reach-back at all, so every
+		// entry it emits IS its output; a legacy CHAT child's answer is its
+		// assistant entries only (thinking/tool chatter is the engine
+		// transcript's job, §6b). Both feed bridgeTurnResult at the
+		// boundary — the bridge no longer fires for oneshot alone.
+		if ev.Entry.Content != "" && (rt.oneshot || ev.Entry.Type == agent.EntryTypeAssistant) {
 			c.mu.Lock()
 			rt.turnOutput = append(rt.turnOutput, ev.Entry.Content)
 			if ev.Entry.IsError {
@@ -703,24 +822,7 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 // the next boundary": pending mail starts the next turn (the slot is kept);
 // an empty mailbox parks the child idle and yields the slot.
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
-	c.mu.Lock()
-	out := rt.turnOutput
-	errored := rt.turnErrored
-	rt.turnOutput = nil
-	rt.turnErrored = false
-	oneshot := rt.oneshot
-	c.mu.Unlock()
-	if oneshot && len(out) > 0 {
-		text := strings.Join(out, "\n")
-		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
-		// existing parent-mailbox bridge below — not a replacement for it;
-		// PublishEvents is event-plane only and carries no delivery
-		// semantics of its own.
-		c.publishOneshotResult(rt, text, errored)
-		if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
-			clidiag.Warn("ctxloom", "agent %s: bridge oneshot result: %v", rt.harp, err)
-		}
-	}
+	c.bridgeTurnResult(rt)
 	if msg, ok := c.takeNextMail(rt.harp); ok {
 		c.sendTurn(rt, msg.Body)
 		return

@@ -83,25 +83,39 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, sendResp.GetStatus().GetCode())
 
-	msgs, err := childH.Recv(context.Background(), time.Second)
-	require.NoError(t, err)
-	require.Len(t, msgs, 1, "the marker must land in the CHILD's mailbox, not root's")
-	assert.Equal(t, "marker-from-grandchild", msgs[0].GetText())
-	assert.Equal(t, grandchildHarp, msgs[0].GetFromAgentId())
+	// Select the grandchild's OWN send out of the child's mailbox: the
+	// automatic result bridge (children.go's bridgeTurnResult) legitimately
+	// delivers the grandchild's scripted turn output there too.
+	var marker *agentcoordpb.PeerMessage
+	require.Eventually(t, func() bool {
+		msgs, rerr := childH.Recv(context.Background(), 50*time.Millisecond)
+		if rerr != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if m.GetText() == "marker-from-grandchild" {
+				marker = m
+			}
+		}
+		return marker != nil
+	}, conformanceWait, 10*time.Millisecond, "the marker must land in the CHILD's mailbox, not root's")
+	assert.Equal(t, grandchildHarp, marker.GetFromAgentId())
 
 	// Hop 2: the child relays up to ITS OWN parent (root) — an explicit,
 	// agent-driven relay (the peer model dissolves multi-level trees this
 	// way: no automatic pass-through).
 	relayResp, err := childH.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
-			ToRole: ParentAddress, Text: "relayed: " + msgs[0].GetText(),
+			ToRole: ParentAddress, Text: "relayed: " + marker.GetText(),
 		}},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, codes.OK, relayResp.GetStatus().GetCode())
 
-	rootMsgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
+	// Select the RELAY (the child's own agent_send, kind "") out of the
+	// parent's mailbox: bridged turn results (kind "result") legitimately
+	// share it now — see children.go's bridgeTurnResult.
+	rootMsgs := recvKind(t, c, "", time.Second)
 	require.Len(t, rootMsgs, 1)
 	assert.Equal(t, "relayed: marker-from-grandchild", rootMsgs[0].Body)
 	assert.Equal(t, child.Harp, rootMsgs[0].From, "root sees the RELAY's sender (the child), not the grandchild directly")

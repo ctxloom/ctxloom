@@ -88,10 +88,8 @@ func TestRunChannel_ChildSendReachesParent(t *testing.T) {
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	require.NotEmpty(t, resp.GetPeerSend().GetMessageId())
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
+	msgs := recvBody(t, c, "found it", time.Second)
 	require.Len(t, msgs, 1)
-	assert.Equal(t, "found it", msgs[0].Body)
 	assert.Equal(t, "result", msgs[0].Kind)
 	assert.Equal(t, out.Harp, msgs[0].From)
 }
@@ -120,9 +118,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 	assert.Equal(t, first.GetPeerSend().GetMessageId(), second.GetPeerSend().GetMessageId(),
 		"the reissued request_id returns the cached response, not a second delivery")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
-	assert.Len(t, msgs, 1, "exactly one message was queued")
+	assert.Len(t, recvKind(t, c, "", time.Second), 1, "exactly one message was queued")
 }
 
 // TestRunChannel_ParkedRecvPushAndConsume: a parked runner-side recv is

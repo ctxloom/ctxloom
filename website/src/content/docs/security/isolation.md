@@ -176,6 +176,20 @@ there is no lever this side of a container boundary that reaches the keyring, an
 the curated `HOME` closes that gap would be the same kind of silent overclaim this page exists
 to rule out.
 
+**A second, separate gap, found live by the executable probe (2026-07-22, agy 1.1.5), not by
+inspecting `HOME`:** `agy -p` (the headless oneshot mode ctxloom's `run --print` drives) does
+not honour the process's working directory for file writes AT ALL. Asked, from an empty scratch
+directory, to write a token into a file "in the current directory," it instead wrote the file
+into its own fixed global scratch path (`~/.gemini/antigravity-cli/scratch/`) and *said so*
+in its own reply — not a bug that hides itself. `--add-dir` only ever ADDS a directory to agy's
+own notion of the workspace; nothing in `agy --help` overrides its default. This means the
+**workspace axis** (`workspace: worktree`), not just the runtime/auth axis discussed above, does
+nothing for Antigravity's file-writing tool calls in headless mode: two "isolated" oneshot agents
+would still write into the SAME global scratch directory, sequentially clobbering each other,
+regardless of which worktree ctxloom launched each one from. Whether Antigravity's *interactive*
+`-i` mode respects the launch directory was not tested here — this finding is scoped to headless
+`-p`, the mode ctxloom's non-interactive `run` command actually uses.
+
 Containers close that channel, and not because Antigravity cooperates. A container gets its own
 mount, IPC, and PID namespaces, so the keyring's socket does not exist inside it — there is
 nothing at that path to fall back to. We measured this directly too: Antigravity, run in a
@@ -361,6 +375,85 @@ directory. It does not stop a compromised prompt from misusing a tool the agent 
 legitimately granted — that is a different problem, and it's the one the [trust
 gate](/security/trust-states/) and [review flow](/concepts/review-and-trust/) exist to
 address, upstream of the engine ever running.
+
+## The executable probe
+
+Everything measured on this page was found by running a real engine, once, by hand, and
+writing down what happened. That does not scale to "does it still hold on the version that
+shipped this morning" — so the same measurement is also a standing, runnable probe:
+`tests/acceptance/features/isolation_probe.feature`, driven by `just isolation-probe <engine>
+<axis>`. It is deliberately a *different layer* from the fast, hermetic isolation matrix
+(`j9_isolation.feature`) that runs on every commit: that matrix proves ctxloom's own
+bookkeeping is correct — the right variable, pointed at the right scratch directory, seeded
+with the right bytes — against a cooperative recording stand-in, never a real engine binary. It
+is fast and it is honest about what it covers, but it is structurally incapable of catching the
+one failure mode this whole page is about: a real engine reading the variable it was handed and
+writing somewhere else anyway. Only running the real thing catches that, which is why the probe
+exists as its own standalone layer rather than one more scenario bolted onto the hermetic suite.
+
+**What one probe run actually does.** For one `(engine, axis)` cell, it asks the real, credentialed
+engine to perform one trivial action — write a known token into a file, one turn — and then reads
+the *instrument*, not the engine's word for it: for the worktree axis, a host-side census
+(path + size + mtime + SHA-256, never content) of that engine's credential store before and after;
+for the container axis, `docker diff` on the actual running container, enumerating every path its
+writable layer touched. A passing cell means three things held at once: the credential reached the
+engine (it answered), the token landed only where the axis says it should, and nothing else moved.
+A failing cell tells you which of those three broke.
+
+**Reading a failure.** If the engine never answers, the credential or the engine is the suspect —
+check auth first, this is not an isolation bug. If it answers but the write set is wrong, isolation
+is the suspect: read the enumerated paths (the probe always prints them, never truncated) and ask
+whether they land under the isolated config-home/`docker diff`'s expected prefix or somewhere the
+boundary should have stopped. kiro's and Antigravity's rows assert their *known* leaks positively —
+those go red the day the leak is fixed, which is good news, not a bug report. Every other row's leak
+assertion firing red is a real regression, either in the vendor's next release or in ctxloom's own
+isolation code — the failing assertion's own message says which claim broke.
+
+**Measurement safety, the hard way.** Building this probe surfaced a genuine trap: `kiro-cli
+whoami`, used elsewhere in this codebase as a read-only auth check, was measured (2026-07-22,
+reproduced independently) to advance `~/.local/share/kiro-cli/data.sqlite3`'s mtime with its size
+unchanged — a write from a command with no business writing anything. A probe that calls an
+"available?" check like that *inside* its own before/after measurement window would make itself
+the source of the very host-state change a kiro cell reports, indistinguishable from a real leak.
+The probe's own availability checks (`probeDecideAuthPath` and friends, `tests/acceptance/
+isolation_probe.go`) deliberately never shell out to an engine's status subcommand for this
+reason — file presence and environment variables only. The finding itself sharpens kiro's own
+story on this page: the credential store is not merely *read* from outside an isolated
+environment, it is *written to* — two "isolated" kiro agents share a mutable file, not just an
+identity.
+
+**The credentialed-CI trap.** `internal/lm/isolation/auth.go`'s own precedence — an API key riding
+the environment bypasses credential seeding entirely, a host credential file is only ever copied
+when no key is present — means a CI runner armed with only secrets (the normal shape: no
+`~/.claude` on a fresh runner) will *always* take the bypass path, and a bypass-path cell proves
+only "the engine answered," never "the credential-copy boundary holds." The probe reports which
+path each cell actually took (`authPath=seeded-from-host-file` vs `authPath=env-api-key-bypass`)
+for exactly this reason — a cell must never be able to claim the stronger proof while having taken
+the weaker path. Per engine, today:
+
+| engine | seeded (host file) path | env-key bypass path | notes |
+|---|---|---|---|
+| claude-code | `~/.claude/.credentials.json` — real OAuth session, subscription-shaped | `ANTHROPIC_API_KEY` | both CI-usable: ctxloom drives the real `claude` binary, never a third-party client presenting the token itself |
+| codex | `~/.codex/auth.json` — real ChatGPT OAuth session | `OPENAI_API_KEY` (or `CODEX_API_KEY`) | same shape as claude |
+| kiro | `~/.local/share/kiro-cli/data.sqlite3` — opaque sqlite mixing the OAuth token with conversation state | `KIRO_API_KEY` | the sqlite is impractical to *synthesize* from a bare secret (it is a whole opaque database, not a token file) — a CI lane should use the API-key path only |
+| opencode | `~/.local/share/opencode/auth.json`, shape `{"<provider>":{"type":"api","key":"…"}}` | `OPENROUTER_API_KEY` | opencode has never supported a subscription login (Anthropic Pro/Max support was removed from opencode entirely at v1.3.0) — its "seeded" file is *just the same API key wrapped in JSON*, not an OAuth session, so both paths are equally CI-safe and neither proves anything the other doesn't |
+| antigravity | `~/.gemini/oauth_creds.json` — real OAuth session | none — OAuth-only, no API-key path exists | probed only by driving `agy`'s own CLI surfaces directly (`agy -p`/`--conversation`), never a third-party adapter presenting Antigravity credentials |
+
+**Materializing a seeded credential from a CI secret, if that lane is ever built.** This is a report
+of the file shape each engine expects, not an endorsement of building it: claude's and codex's
+seeded files are real subscription OAuth sessions, and reconstructing one from a bare secret would
+mean minting or storing that session outside its normal login flow — a materially different
+posture from "an API key in an environment variable." opencode is the one exception: its file is
+trivially reconstructable (`{"openrouter":{"type":"api","key":"$OPENROUTER_API_KEY"}}` at
+`~/.local/share/opencode/auth.json`) because the file never held anything but the key to begin
+with. kiro's sqlite is not practically reconstructable from a secret at all.
+
+**Cost.** Every scenario in the probe makes *at most one* real, paid engine call, and never retries
+a failure automatically — a flaky live call is evidence to report, not noise to retry away. Running
+the full ten-cell sweep (`ACCEPTANCE_TAGS="@live"` with no engine/axis filter) costs up to ten live
+calls in one run; `just isolation-probe <engine> <axis>` costs at most one. That is the whole reason
+the per-cell invocation exists — a per-engine-release regression check should cost one call per
+release, not ten.
 
 ## Mechanism
 

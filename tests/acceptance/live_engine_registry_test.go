@@ -269,6 +269,27 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 	assert.False(t, envSet([]string{"CTXLOOM_TEST_ENV_A"}))
 }
 
+// TestBackendTypeToLiveKey guards the one mapping the hermetic j9 matrix's
+// backend-type vocabulary (claude-code/codex/kiro/opencode/antigravity) and
+// the live isolation probe (tests/acceptance/isolation_probe.go, behind the
+// acceptance tag) both resolve through to reach this registry's own liveAgents
+// keys — kept here, untagged, so `just lint`'s default (no build-tag) pass
+// sees a real caller and this doesn't read as dead code.
+func TestBackendTypeToLiveKey(t *testing.T) {
+	cases := []struct{ backendType, want string }{
+		{"claude-code", "claude"},
+		{"codex", "codex"},
+		{"kiro", "kiro"},
+		{"opencode", "opencode"},
+		{"antigravity", "antigravity"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.backendType, func(t *testing.T) {
+			assert.Equal(t, tc.want, backendTypeToLiveKey(tc.backendType))
+		})
+	}
+}
+
 // TestLiveAgentOrderMatchesRegistry catches the two tables (the ordered
 // display list and the map) drifting apart — every registered engine appears
 // exactly once in the display order and vice versa.

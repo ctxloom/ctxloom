@@ -92,12 +92,14 @@ type liveAgent struct {
 
 // liveAgentOrder is the availability report's fixed display order, matching
 // the Examples tables' own convention (claude, antigravity, kiro) plus codex
-// last — codex now genuinely authenticates on a box with a real `codex` on
-// PATH (confirmed 2026-07-14), so it is no longer a permanently-unavailable
-// row, but it stays last as the newest/most-recently-wired entry. Kept
-// separate from the map because map iteration order is unspecified and this
-// report's whole point is to be predictable and diffable across runs.
-var liveAgentOrder = []string{"claude", "antigravity", "kiro", "codex"}
+// and opencode last — codex now genuinely authenticates on a box with a real
+// `codex` on PATH (confirmed 2026-07-14), so it is no longer a
+// permanently-unavailable row; opencode joined 2026-07-22 (isolation-probe
+// task) once its own local-credential-file authCheck existed. Both stay last
+// as the newest/most-recently-wired entries. Kept separate from the map
+// because map iteration order is unspecified and this report's whole point
+// is to be predictable and diffable across runs.
+var liveAgentOrder = []string{"claude", "antigravity", "kiro", "codex", "opencode"}
 
 // liveAgents maps the lowercased scenario token ("claude", "antigravity",
 // "kiro", "codex") to its backend wiring.
@@ -230,6 +232,54 @@ profiles:
 		copyCreds: copyCodexCredentials,
 		authCheck: authCheckCodex,
 	},
+	// opencode authenticates via `opencode auth login` (interactive, any
+	// configured provider) or an API key riding the environment
+	// (OPENROUTER_API_KEY — OpenRouter is ctxloom's documented default
+	// opencode provider, matching internal/lm/isolation/auth.go's
+	// credentialSeedSpecs["opencode"].envTrigger and
+	// opencodeAuthEnvVars). Its subscription-shaped credential is NOT an
+	// OAuth session at all — confirmed by reading this host's own
+	// ~/.local/share/opencode/auth.json (shape only, no values captured):
+	// {"openrouter":{"type":"api","key":"<the same OPENROUTER_API_KEY
+	// string>"}}. So unlike claude/codex's real OAuth tokens, opencode's
+	// "subscription" file is just the API key wrapped in JSON — see
+	// website/src/content/docs/security/isolation.md's probe section for
+	// why that distinction matters for CI eligibility.
+	"opencode": {
+		binary:     "opencode",
+		apiKeyEnvs: []string{"OPENROUTER_API_KEY"},
+		credDir:    filepath.Join(".local", "share", "opencode"),
+		config: `version: 4
+llm:
+  configs:
+    opencode:
+      type: opencode
+      model: openrouter/openai/gpt-oss-20b:free
+  defaults:
+    primary: opencode
+    fast: opencode
+profiles:
+  defaults: []
+`,
+		copyCreds: copyOpencodeCredentials,
+		authCheck: authCheckOpencode,
+	},
+}
+
+// backendTypeToLiveKey maps a REGISTERED backend type name (the config
+// `llm.configs.*.type` value, and the identifier
+// tests/acceptance/steps_j9_isolation_matrix.go's spy fixture and the
+// isolation-probe feature both use: "claude-code"/"codex"/"kiro"/"opencode"/
+// "antigravity") onto this registry's own liveAgents map key. Every name is
+// identical except claude-code -> claude, a historical mismatch (the @live
+// Examples tables predate the isolation matrix and used the short form).
+// Extracted here — not duplicated — so both the hermetic j9 matrix's engine
+// vocabulary and the live isolation probe's agree on one mapping.
+func backendTypeToLiveKey(backendType string) string {
+	if backendType == "claude-code" {
+		return "claude"
+	}
+	return backendType
 }
 
 // matchedEnv returns the first non-empty env var among names, or "".
@@ -543,6 +593,56 @@ func authCheckCodex(realHome string) (bool, string) {
 		return false, fmt.Sprintf("`codex login status` reports not logged in: %s", text)
 	}
 	return true, fmt.Sprintf("codex login status: %s", text)
+}
+
+// authCheckOpencode is a LOCAL CREDENTIAL FILE heuristic, the same shape as
+// authCheckAntigravity: opencode 1.18.1 exposes no auth-status/whoami
+// subcommand of its own (`opencode auth list` prints configured providers,
+// not a login/expiry verdict), so this parses
+// ~/.local/share/opencode/auth.json (matching auth.go's
+// credentialSeedSpecs["opencode"] destination) and treats a non-empty
+// top-level object as evidence of a configured provider credential. Unlike
+// claude/codex's real OAuth tokens, this file typically holds a plain API
+// key (see the liveAgents["opencode"] entry's own doc) — so this is
+// "some provider is configured", not "a subscription is logged in"; there is
+// no expiry to check. NEVER logs the file's contents.
+func authCheckOpencode(realHome string) (bool, string) {
+	p := filepath.Join(realHome, ".local", "share", "opencode", "auth.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return false, fmt.Sprintf("%s not found or unreadable: %v — NOTE: local credential-file heuristic only, opencode has no auth-status subcommand", p, err)
+	}
+	var providers map[string]json.RawMessage
+	if jerr := json.Unmarshal(data, &providers); jerr != nil {
+		return false, fmt.Sprintf("%s exists but is not a valid JSON object: %v", p, jerr)
+	}
+	if len(providers) == 0 {
+		return false, fmt.Sprintf("%s exists but configures no provider", p)
+	}
+	names := make([]string, 0, len(providers))
+	for k := range providers {
+		names = append(names, k)
+	}
+	return true, fmt.Sprintf("%s: provider(s) configured: %s (local credential-file heuristic only, not a verified login check)", p, strings.Join(names, ","))
+}
+
+// copyOpencodeCredentials copies opencode's auth material into the isolated
+// home: auth.json (the credential that matters) plus mcp-auth.json when
+// present (per-MCP-server OAuth tokens, optional — internal/lm/isolation/
+// auth.go's credentialSeedSpecs["opencode"] treats it the same way). Both
+// live under ~/.local/share/opencode, matching opencode's own XDG_DATA_HOME
+// resolution (live-verified against opencode 1.18.1, same auth.go doc).
+func copyOpencodeCredentials(realHome, fakeHome string) {
+	srcDir := filepath.Join(realHome, ".local", "share", "opencode")
+	dstDir := filepath.Join(fakeHome, ".local", "share", "opencode")
+	_ = os.MkdirAll(dstDir, 0o755)
+	for _, name := range []string{"auth.json", "mcp-auth.json"} {
+		data, err := os.ReadFile(filepath.Join(srcDir, name))
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
+	}
 }
 
 // copyClaudeCredentials copies just the auth-relevant files from the real

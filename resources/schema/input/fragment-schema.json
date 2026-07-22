@@ -168,6 +168,74 @@
             }
           },
           "additionalProperties": false
+        },
+        "antigravity": {
+          "type": "object",
+          "description": "Antigravity CLI (agy) skill-file export settings. Prompts are exported by default (opt-out model) as .agents/skills/<name>/SKILL.md files, invocable as /<name> slash commands.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Set to false to disable skill export. Default is true (exported).",
+              "default": true
+            },
+            "description": {
+              "type": "string",
+              "description": "Description shown in Antigravity's skill listings.",
+              "examples": [
+                "Review code for security issues",
+                "Generate unit tests"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "codex": {
+          "type": "object",
+          "description": "Codex CLI custom-prompt export settings. Prompts are exported by default (opt-out model) as $CODEX_HOME/prompts/<name>.md files, invocable as /<name> slash commands.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Set to false to disable custom-prompt export. Default is true (exported).",
+              "default": true
+            },
+            "description": {
+              "type": "string",
+              "description": "Description shown in Codex's /prompts listing.",
+              "examples": [
+                "Review code for security issues",
+                "Generate unit tests"
+              ]
+            },
+            "argument_hint": {
+              "type": "string",
+              "description": "Hint for expected arguments, shown in autocomplete.",
+              "examples": [
+                "[file] [focus]",
+                "[issue-number]"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "kiro": {
+          "type": "object",
+          "description": "Kiro CLI skill-file export settings (agentskills.io SKILL.md files). Prompts are exported by default (opt-out model) as .kiro/skills/<name>/SKILL.md files, invocable as /<name> slash commands.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Set to false to disable skill export. Default is true (exported).",
+              "default": true
+            },
+            "description": {
+              "type": "string",
+              "description": "Description shown in Kiro's skill discovery / /help.",
+              "examples": [
+                "Review code for security issues",
+                "Generate unit tests"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -97,14 +96,6 @@ type Spawner interface {
 	MarkSessionEnded(harp string)
 }
 
-// spawnGateMu serializes each spawn's strictness window (Checkpoint →
-// resolve/D3 → findings) AND each child's isolation-prepare window: strictness
-// Marks only isolate SEQUENTIAL windows in one process (see the run/acp gate
-// mutexes), so an unserialized window interleaving with a concurrent spawn's
-// would land its findings inside — and wrongly refuse — that spawn. The lock
-// never covers the engine spawn itself.
-var spawnGateMu sync.Mutex
-
 // prodSpawner is the production Spawner over the operations launch tail.
 type prodSpawner struct {
 	cfg        *config.Config
@@ -186,9 +177,8 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		degraded []string
 	)
 	if gerr := func() error {
-		spawnGateMu.Lock()
-		defer spawnGateMu.Unlock()
 		mark := strictness.Checkpoint()
+		defer strictness.Close(mark)
 		var err error
 		rs, err = operations.ResolveAgent(ctx, s.resolveCfg(), agentName, "")
 		if err != nil {
@@ -234,7 +224,6 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 }
 
 func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
-	spawnGateMu.Lock()
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
 		Resolved:    plan.resolved,
 		Context:     contextText,
@@ -248,7 +237,6 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Factory:     s.factory,
 		Workspace:   plan.Workspace,
 	})
-	spawnGateMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +264,6 @@ type EngineSpawn struct {
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	spawnGateMu.Lock()
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
 		Resolved:    plan.resolved,
 		WorkDir:     s.projectDir,
@@ -288,7 +275,6 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		Factory:     s.factory,
 		Workspace:   plan.Workspace,
 	})
-	spawnGateMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

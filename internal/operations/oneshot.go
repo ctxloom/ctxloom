@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -239,16 +238,6 @@ func MCPCommandOverrideForPolicy(p isolation.Policy) string {
 // runtimes. Mirrors isolation's selectRuntimeProbe/sharedFSCheck seam style.
 var prepareIsolation = isolation.Prepare
 
-// isolationGateMu serializes the checkpoint→Prepare→gate window across
-// parallel fan members. strictness Marks are indices into ONE process-global
-// findings list, so concurrent windows interleave: member A's Since(mark)
-// would pick up — and wrongly fail A on — member B's findings. Serializing
-// the window keeps each member's gate scoped to its own Prepare, at the cost
-// of prepare-phase parallelism across the fan (the engine runs themselves
-// stay parallel). The deeper fix is per-window finding ownership inside
-// strictness itself.
-var isolationGateMu sync.Mutex
-
 // isolationGateErr is the fail-loudly member gate over the strictness findings
 // collected during one member's isolation.Prepare: a ClassIsolation finding
 // means an explicitly-requested isolation guarantee could not be satisfied AS
@@ -335,14 +324,16 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// on it — and the headless floor below would then run this member on the
 		// bare host with FORCED BYPASS. Checkpoint before Prepare and gate on the
 		// findings it recorded, failing THIS MEMBER (an error Part upstream;
-		// other members continue) unless --degraded. The window is serialized
-		// (isolationGateMu) because parallel members share one process-global
-		// findings list — see the var's doc.
-		isolationGateMu.Lock()
+		// other members continue) unless --degraded. Parallel members no longer
+		// need external serialization here — strictness gives each goroutine's
+		// window its OWN findings log (bumpy-tree); Close releases this
+		// goroutine's registry entry once the window is read so a long fan
+		// (or a long-lived host process running many fans) doesn't accumulate
+		// one entry per member forever.
 		mark := strictness.Checkpoint()
 		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID, isolation.SessionStateFromEnv(req.ExtraEnv))
 		found := strictness.Since(mark)
-		isolationGateMu.Unlock()
+		strictness.Close(mark)
 		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine

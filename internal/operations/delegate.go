@@ -97,8 +97,9 @@ type PreparedAgentChat struct {
 // alive across turns), or the oneshot fallback for backends without it. On
 // the chat path this runs the same fail-loudly member gate as the fan —
 // checkpoint before isolation.Prepare, refuse when an explicitly-requested
-// container degraded (ClassIsolation finding) unless degraded mode — under
-// the same isolationGateMu window serialization.
+// container degraded (ClassIsolation finding) unless degraded mode. No
+// external serialization needed: strictness gives each goroutine's window its
+// own findings log (bumpy-tree).
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
 	// GAP 2: the caller's per-agent_run workspace choice overrides the
@@ -133,11 +134,10 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	p.factory = req.Factory
 	p.workDir = req.WorkDir
 	if p.factory == nil {
-		isolationGateMu.Lock()
 		mark := strictness.Checkpoint()
 		policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), req.WorkDir, rs.Name, isolation.SessionStateFromEnv(req.Env))
 		found := strictness.Since(mark)
-		isolationGateMu.Unlock()
+		strictness.Close(mark)
 		p.workDir = ws.Dir()
 		p.workspaceEnv = isolation.WorkspaceEnv(ws)
 		p.cleanup = func() { _ = ws.Cleanup() }

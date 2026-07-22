@@ -903,10 +903,11 @@ func (w *containerWorkspace) Cleanup() error {
 // residue is typically root-owned files a wrong-identity container wrote —
 // the CONSEQUENCE DETECTOR for every identity hole — which the launching user
 // cannot delete. Streamed only, deliberately never recorded as a strictness
-// finding: cleanup runs AFTER the run, outside any checkpoint→gate window,
-// and a recorded finding would land inside a CONCURRENT member's window
-// (isolationGateMu serializes gate windows, not end-of-run cleanups) and fail
-// that member spuriously.
+// finding: cleanup runs AFTER the run, outside any checkpoint→gate window
+// (the caller already released its Mark — see strictness.Close), so a
+// recorded finding here would land in an ORPHANED window nothing is watching,
+// silently swallowed rather than surfaced — never useful, only ever
+// misleading if something changes to make it visible again.
 func warnCleanupResidue(what, path string, err error) {
 	clidiag.Warn("ctxloom", "%s %s could not be removed (%v) — likely root-owned residue from a wrong-identity container; inspect and remove it manually (e.g. `sudo rm -rf %s`)", what, path, err, path)
 }

@@ -50,15 +50,6 @@ type EngineSessionCoordinator interface {
 	WatchChildren() func(ctx context.Context) (<-chan ChildUpdate, func())
 }
 
-// openEngineSessionGateMu serializes each session-open's strictness window
-// (Checkpoint → config load/assembly → findingsError). Sessions open on
-// concurrent goroutines, but strictness Marks only isolate SEQUENTIAL windows
-// (see strictness.Mark): unserialized opens interleave, and one session's
-// fatal finding would land inside — and refuse — every concurrently-opening
-// session. The lock covers assembly only, never the engine launch below it,
-// so a slow engine spawn does not block other opens.
-var openEngineSessionGateMu sync.Mutex
-
 // newACPEngineClient is OpenEngineSession's seam onto
 // pb.NewSelfInvokingClientForLabelEnv — a package var, mirroring oneshot.go's
 // prepareIsolation seam style, so a test can drive the WHOLE opener
@@ -115,13 +106,14 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// so this session's fatal findings don't bleed across sessions (the process
 	// keeps running). In strict mode the findingsError closing the window
 	// surfaces them to the editor as a session-open failure; in degraded mode
-	// it is a no-op and the session opens with whatever context survived. The
-	// whole window is serialized (openEngineSessionGateMu) because concurrent
-	// opens would interleave their Mark windows — see the var's doc.
+	// it is a no-op and the session opens with whatever context survived.
+	// Sessions open on concurrent goroutines, but no external serialization is
+	// needed: strictness gives each goroutine's window its own findings log
+	// (bumpy-tree), so a concurrently-opening session's finding can no longer
+	// land inside — and wrongly refuse — this one.
 	if gerr := func() error {
-		openEngineSessionGateMu.Lock()
-		defer openEngineSessionGateMu.Unlock()
 		startupMark := strictness.Checkpoint()
+		defer strictness.Close(startupMark)
 
 		var err error
 		cfg, err = loadConfigForDir(req.Cwd)
@@ -653,8 +645,8 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 // private cwd is a property of how you fan, not of who the agent is), and
 // `ctxloom run --agent`/agent_run (internal/cli/run.go, delegate.go) already
 // resolve+prepare it via isolation.Prepare/isolation.WorkspaceEnv over the
-// oneshot.go package-level seams (prepareIsolation, isolationGateMu,
-// isolationGateErr). Nothing isolation-specific is reinvented below — this is
+// oneshot.go package-level seams (prepareIsolation, isolationGateErr).
+// Nothing isolation-specific is reinvented below — this is
 // that same machinery wired onto the ACP opener, plus one ACP-only posture
 // rule layered on top (see acpWorkspaceAxis).
 
@@ -710,23 +702,24 @@ type acpWorkspace struct {
 //
 // Otherwise this is the SAME checkpoint→Prepare→gate window
 // oneshot.go's runResolvedAgent and delegate.go's PrepareAgentChat run over
-// the package's shared prepareIsolation/isolationGateMu/isolationGateErr
-// seams: a ClassIsolation finding (e.g. grave-prize's no-host-credentials-to-
-// seed case, or antigravity's no-config-home-lever case) refuses the session
-// open in strict mode exactly like a fan member would refuse itself — rather
+// the package's shared prepareIsolation/isolationGateErr seams: a
+// ClassIsolation finding (e.g. grave-prize's no-host-credentials-to-seed
+// case, or antigravity's no-config-home-lever case) refuses the session open
+// in strict mode exactly like a fan member would refuse itself — rather
 // than silently launching an unseeded/logged-out engine — and the
 // already-prepared (but refused) workspace is torn down before returning the
 // error. The RUNTIME axis is left at its zero value (isolation.Axes.Runtime
-// defaults to host) — ISO1 owns that axis on this same opener.
+// defaults to host) — ISO1 owns that axis on this same opener. No external
+// serialization needed: strictness gives each goroutine's window its own
+// findings log (bumpy-tree).
 func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation.Axes, backendName, agentID, projectDir string, env map[string]string) (*acpWorkspace, error) {
 	if !axes.WantsWorktree() {
 		return nil, nil
 	}
-	isolationGateMu.Lock()
 	mark := strictness.Checkpoint()
 	policy, ws := prepareIsolation(ctx, axes, backendName, IsolationImageConfig(cfg, backendName), projectDir, agentID, isolation.SessionStateFromEnv(env))
 	found := strictness.Since(mark)
-	isolationGateMu.Unlock()
+	strictness.Close(mark)
 
 	cleanup := func() { _ = ws.Cleanup() }
 	if gerr := isolationGateErr(found); gerr != nil {

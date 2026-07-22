@@ -284,6 +284,51 @@ func TestCompileAll_MoreThanOneDecayFnIsAnAmbiguityError(t *testing.T) {
 	assert.Contains(t, err.Error(), "decay_fn")
 }
 
+// TestCompileAll_UnknownBuiltinIsAnError (inane-scuba) proves a typo'd
+// builtin placeholder — one with no ":" (so it compiles to a Builtin(...)
+// call, not a Tag(...) one) that names something OTHER than the fixed known
+// set (age_days, age_factor) — fails loud at compile time, exactly like a
+// syntax error does (TestCompileAll_FormulaOnAnyTargetIsSyntaxChecked),
+// instead of silently resolving to 0 via lookup's bare map index and quietly
+// zeroing the whole formula term it appears in.
+func TestCompileAll_UnknownBuiltinIsAnError(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.priority_fn:"widget:foo"="{{widget:foo}} * {{typo}}"`,
+	)
+	_, _, err := Compute([]tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, CreatedAt: fixedNow}}, schema, fixedNow)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "typo")
+	assert.Contains(t, err.Error(), "widget:foo")
+}
+
+// TestCompileAll_UnknownBuiltin_DecayFnRejectsAgeFactor proves the known-set
+// check is FACET-SPECIFIC: age_factor is decay_fn's own OUTPUT, never an
+// input available to it (see Compute's decayFn.Eval call, which supplies
+// only age_days) — a decay_fn formula referencing {{age_factor}} is the same
+// class of error as a genuine typo, not a legitimate builtin this facet
+// merely doesn't happen to use.
+func TestCompileAll_UnknownBuiltin_DecayFnRejectsAgeFactor(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.decay_fn:"widget:foo"="{{age_factor}}"`,
+	)
+	_, _, err := Compute([]tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, CreatedAt: fixedNow}}, schema, fixedNow)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "age_factor")
+}
+
+// TestCompileAll_KnownBuiltinsStillCompile is the negative control: the
+// real, documented builtins (age_days for both facets, age_factor for
+// priority_fn) must NOT be rejected by the new check.
+func TestCompileAll_KnownBuiltinsStillCompile(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.decay_fn:"widget:foo"="1 + {{age_days}}/100"`,
+		`tagma.priority_fn:"widget:foo"="{{widget:foo}} * {{age_factor}} + {{age_days}}"`,
+	)
+	all := []tasks.Task{{HarpID: "a", Status: tasks.StatusToDo, CreatedAt: fixedNow}}
+	_, _, err := Compute(all, schema, fixedNow)
+	require.NoError(t, err)
+}
+
 // TestCompute_Diagnostics_NoPriorityFn proves NoPriorityFn is set precisely
 // when the schema declares no priority_fn at all (an arity-only schema, in
 // this case) — the classic "every Raw is 0" silent-no-op condition.

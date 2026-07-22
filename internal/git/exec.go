@@ -205,6 +205,90 @@ func (execGit) WorkingChanges(ctx context.Context, dir string, maxEntries int) (
 	return changes, nil
 }
 
+// CurrentBranch returns the checked-out branch name, or git's own "HEAD"
+// sentinel when detached.
+func (execGit) CurrentBranch(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// CommitAll stages every dirty change (git add -A) and commits with message,
+// returning the new SHA and the files changed versus the pre-commit HEAD —
+// see the Git interface doc for why the caller needs that second return
+// rather than trusting a bare "commit succeeded".
+func (execGit) CommitAll(ctx context.Context, dir, message string) (string, []string, error) {
+	preOut, err := output(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", nil, fmt.Errorf("resolving pre-commit HEAD: %w", err)
+	}
+	preSHA := strings.TrimSpace(preOut)
+
+	if err := run(ctx, dir, "add", "-A"); err != nil {
+		return "", nil, fmt.Errorf("staging changes: %w", err)
+	}
+	if _, err := outputStdin(ctx, dir, message, "commit", "--file", "-"); err != nil {
+		return "", nil, fmt.Errorf("committing: %w", err)
+	}
+
+	postOut, err := output(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", nil, fmt.Errorf("resolving post-commit HEAD: %w", err)
+	}
+	postSHA := strings.TrimSpace(postOut)
+
+	changed, err := (execGit{}).DiffNameOnly(ctx, dir, preSHA, postSHA)
+	if err != nil {
+		// The commit itself landed (postSHA is real) — surface it even
+		// though verification couldn't complete, rather than discarding a
+		// real commit's SHA because the follow-up diff call failed.
+		return postSHA, nil, fmt.Errorf("commit %s landed but verifying its content failed: %w", postSHA, err)
+	}
+	return postSHA, changed, nil
+}
+
+// DiffNameOnly returns the names of files that differ between two refs.
+func (execGit) DiffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
+	out, err := output(ctx, dir, "diff", "--name-only", a, b)
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmptyLines(out), nil
+}
+
+// DiffPatch returns a unified diff of dir's tracked changes against HEAD.
+func (execGit) DiffPatch(ctx context.Context, dir string) (string, error) {
+	return output(ctx, dir, "diff", "HEAD")
+}
+
+// ListUntracked returns dir's untracked-but-not-ignored files, NUL-parsed so
+// paths with spaces/newlines survive intact.
+func (execGit) ListUntracked(ctx context.Context, dir string) ([]string, error) {
+	out, err := output(ctx, dir, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
+// ApplyPatch applies patch to dir's working tree. An empty/whitespace-only
+// patch is a deliberate no-op (there was nothing tracked to reproduce).
+func (execGit) ApplyPatch(ctx context.Context, dir, patch string) error {
+	if strings.TrimSpace(patch) == "" {
+		return nil
+	}
+	_, err := outputStdin(ctx, dir, patch, "apply")
+	return err
+}
+
 // defaultLogSinceMax bounds LogSince when the caller passes maxEntries<=0, so
 // a caller that forgets to bound its own query still can't walk unbounded
 // history.
@@ -335,11 +419,25 @@ func run(ctx context.Context, dir string, args ...string) error {
 
 // output invokes git in dir and returns its stdout, folding stderr into any error.
 func output(ctx context.Context, dir string, args ...string) (string, error) {
+	return outputStdin(ctx, dir, "", args...)
+}
+
+// outputStdin invokes git in dir with stdin fed to its standard input (empty
+// stdin behaves exactly like output — most git subcommands never read it),
+// returning stdout and folding stderr into any error. The stdin plumbing
+// exists for subcommands that take their payload that way rather than as an
+// argument (`git commit --file -`, `git apply`, both of which would
+// otherwise hit argv length/quoting limits on a large diff or a multi-line
+// commit message).
+func outputStdin(ctx context.Context, dir, stdin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Env = os.Environ()
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

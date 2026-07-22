@@ -106,7 +106,16 @@ type RunOutcome struct {
 // operations.memberAxes' map/weave --workspace shape: it is set on the
 // resolved plan here, never inside Resolve (agent-definition resolution
 // stays pure — see spawner.go's Resolve/GAP 1).
-func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string) (*RunOutcome, error) {
+//
+// dirtyTreeHandler is the identical per-call override for what a worktree
+// spawn does when the parent tree is dirty (commit|copy|stale|fail; empty =
+// project default, cfg.GetDirtyTreeHandler()) — see
+// operations.handleDirtyParentTree. Deliberately does NOT carry any
+// acknowledgement for the "commit" handler's mutation: that is a
+// per-project, human-only config flag (dirty_tree_commit_ack) that this
+// per-call parameter can never set — see config.Config.dirtyTreeCommitAck's
+// doc for why.
+func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace, dirtyTreeHandler string) (*RunOutcome, error) {
 	if agentName == "" {
 		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
 	}
@@ -126,6 +135,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 	plan.Workspace = workspace
+	plan.DirtyTreeHandler = dirtyTreeHandler
 
 	harp, err := c.spawner.AssignSession(c.projectDir, plan.Backend)
 	if err != nil {

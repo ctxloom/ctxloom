@@ -98,6 +98,34 @@ type Config struct {
 	// it per session. Deliberately NOT an agent trait: needing a private cwd
 	// is a property of how a session is launched, not of who the agent is.
 	workspace string
+	// dirtyTreeHandler is the project-wide DEFAULT for what a delegated
+	// agent_run spawn does when it resolves to worktree isolation while the
+	// PARENT tree (this project's own live checkout) is dirty: "commit" |
+	// "copy" | "stale" | "fail". Empty means "commit" (the built-in
+	// default — see operations.defaultDirtyTreeHandler). A per-call
+	// agent_run "dirty_tree_handler" parameter overrides this default,
+	// mirroring workspace's own project-default/per-call split. See
+	// operations.handleDirtyParentTree for what each value does.
+	dirtyTreeHandler string
+	// dirtyTreeCommitAck is a per-PROJECT, HUMAN-set acknowledgement that
+	// dirty_tree_handler: "commit" may auto-commit uncommitted changes onto
+	// this project's current branch on the user's behalf, so a delegated
+	// child (which only ever sees committed state in its worktree) can see
+	// them. Deliberately a config-only flag: it is NEVER settable via the
+	// agent_run per-call parameter and NEVER inferable from anything an
+	// agent does at runtime — agent_run is normally invoked by a
+	// coordinator AGENT over MCP with no TTY, often while the human is
+	// away, so an interactive prompt would either hang forever or be
+	// answered by an agent, which is not the user's consent. A durable,
+	// human-edited config flag is the only form of prior consent that
+	// survives headless operation. If you are tempted to add a per-call
+	// override for this: don't — that would let a delegating agent grant
+	// itself permission to commit on the user's behalf, which is exactly
+	// what this flag exists to prevent. Absent/false means NOT
+	// acknowledged: the commit handler refuses (actionably) rather than
+	// silently committing. Gates ONLY the "commit" handler — copy/stale/fail
+	// never mutate the user's repo and need no acknowledgement.
+	dirtyTreeCommitAck bool
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
 	// means "host". An agent binding's own `runtime:` overrides it; the
@@ -277,6 +305,8 @@ type configDoc struct {
 	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
 	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
 	Workspace                    string                  `yaml:"workspace,omitempty"`
+	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
+	DirtyTreeCommitAck           bool                    `yaml:"dirty_tree_commit_ack,omitempty"`
 	Runtime                      string                  `yaml:"runtime,omitempty"`
 	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
 	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
@@ -300,6 +330,8 @@ func (c *Config) toDoc() configDoc {
 		Agents:                       c.agents,
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
+		DirtyTreeHandler:             c.dirtyTreeHandler,
+		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
 		IsolationImages:              c.isolationImages,
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
@@ -327,6 +359,8 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.agents = doc.Agents
 	c.defaultAgent = doc.DefaultAgent
 	c.workspace = doc.Workspace
+	c.dirtyTreeHandler = doc.DirtyTreeHandler
+	c.dirtyTreeCommitAck = doc.DirtyTreeCommitAck
 	c.runtime = doc.Runtime
 	c.isolationImages = doc.IsolationImages
 	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile

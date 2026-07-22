@@ -107,6 +107,46 @@ type Git interface {
 	// (e.g. "?? internal/foo/bar.go"): work that exists but is in no commit.
 	// maxEntries <=0 defaults to a bounded cap.
 	WorkingChanges(ctx context.Context, dir string, maxEntries int) ([]string, error)
+
+	// CurrentBranch returns dir's checked-out branch name (git rev-parse
+	// --abbrev-ref HEAD). Detached HEAD (the case inside a `git worktree add
+	// --detach` checkout — every ctxloom-created worktree) reports git's own
+	// sentinel string "HEAD", never a real branch name; callers that need to
+	// tell the two apart compare against that literal.
+	CurrentBranch(ctx context.Context, dir string) (string, error)
+
+	// CommitAll stages EVERY change git considers dirty at dir — including
+	// untracked-but-not-ignored files (git add -A), matching exactly what
+	// IsDirty/WorkingChanges measure — and commits with message. Returns the
+	// new commit's SHA and the names of files that differ between the
+	// pre-commit HEAD and the new commit (git diff --name-only), so a caller
+	// can verify the commit actually captured content: a post-commit stat is
+	// NOT proof a commit landed (this codebase has a documented history of a
+	// pre-commit-hook bug that let commits land empty while still reporting
+	// success). An empty changedFiles slice with a nil error means exactly
+	// that: git accepted the commit but it carries no diff versus its parent.
+	CommitAll(ctx context.Context, dir, message string) (sha string, changedFiles []string, err error)
+
+	// DiffNameOnly returns the names of files that differ between two refs
+	// (git diff --name-only a b).
+	DiffNameOnly(ctx context.Context, dir, a, b string) ([]string, error)
+
+	// DiffPatch returns a unified diff of dir's TRACKED modifications and
+	// deletions against HEAD (git diff HEAD), suitable for ApplyPatch.
+	// Untracked files never appear in it — ListUntracked covers those.
+	DiffPatch(ctx context.Context, dir string) (string, error)
+
+	// ListUntracked returns dir's untracked-but-not-ignored files (git
+	// ls-files -z --others --exclude-standard) — the exact same notion of
+	// "noise" IsDirty/WorkingChanges already honor (.gitignore AND
+	// .git/info/exclude).
+	ListUntracked(ctx context.Context, dir string) ([]string, error)
+
+	// ApplyPatch applies patch (as produced by DiffPatch) to dir's working
+	// tree (git apply). An empty patch is a no-op. Any failure (conflict,
+	// malformed patch) is returned verbatim — callers must fail loudly rather
+	// than half-apply and continue.
+	ApplyPatch(ctx context.Context, dir, patch string) error
 }
 
 // LogEntry is one commit returned by LogSince.

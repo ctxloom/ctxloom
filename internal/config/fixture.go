@@ -27,6 +27,8 @@ type Fixture struct {
 	Agents                       map[string]agents.Agent
 	DefaultAgent                 string
 	Workspace                    string
+	DirtyTreeHandler             string
+	DirtyTreeCommitAck           bool
 	Runtime                      string
 	IsolationImages              map[string]string
 	IsolationBaseContainerfile   string
@@ -67,6 +69,8 @@ func (c *Config) ToFixture() Fixture {
 		Agents:                       c.agents,
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
+		DirtyTreeHandler:             c.dirtyTreeHandler,
+		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
 		IsolationImages:              c.isolationImages,
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
@@ -114,6 +118,8 @@ func NewFixture(f Fixture) *Config {
 		agents:                       f.Agents,
 		defaultAgent:                 f.DefaultAgent,
 		workspace:                    f.Workspace,
+		dirtyTreeHandler:             f.DirtyTreeHandler,
+		dirtyTreeCommitAck:           f.DirtyTreeCommitAck,
 		runtime:                      f.Runtime,
 		isolationImages:              f.IsolationImages,
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,

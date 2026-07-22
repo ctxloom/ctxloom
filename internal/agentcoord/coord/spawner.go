@@ -34,6 +34,14 @@ type SpawnPlan struct {
 	// onto the plan from the caller's agent_run invocation, after Resolve
 	// returns.
 	Workspace string
+	// DirtyTreeHandler is the identical per-call override for what a
+	// worktree spawn does when the parent tree is dirty (commit|copy|
+	// stale|fail; empty = fall back to the project's
+	// cfg.GetDirtyTreeHandler() default). Stamped onto the plan the same
+	// way and at the same point as Workspace, for the same reason: this is
+	// an ORCHESTRATION trait the caller supplies per invocation, not
+	// something Resolve's pure agent-definition resolution should carry.
+	DirtyTreeHandler string
 	// Ladder is the resolved (preset-or-declared, validated) escalation
 	// ladder (Wave C2) this child's ApprovalRequests walk. Resolved once at
 	// spawn time from the agent's declared escalation: (or the Perm preset)
@@ -225,17 +233,18 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 
 func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
-		Resolved:    plan.resolved,
-		Context:     contextText,
-		WorkDir:     s.projectDir,
-		Env:         env,
-		RunnerEnv:   runnerEnv,
-		Permissions: plan.Perm,
-		MCPServers:  plan.MCPServers,
-		Gate:        s.gate.Gate(),
-		Verbosity:   childVerbosity(),
-		Factory:     s.factory,
-		Workspace:   plan.Workspace,
+		Resolved:         plan.resolved,
+		Context:          contextText,
+		WorkDir:          s.projectDir,
+		Env:              env,
+		RunnerEnv:        runnerEnv,
+		Permissions:      plan.Perm,
+		MCPServers:       plan.MCPServers,
+		Gate:             s.gate.Gate(),
+		Verbosity:        childVerbosity(),
+		Factory:          s.factory,
+		Workspace:        plan.Workspace,
+		DirtyTreeHandler: plan.DirtyTreeHandler,
 	})
 	if err != nil {
 		return nil, err
@@ -265,15 +274,16 @@ type EngineSpawn struct {
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
-		Resolved:    plan.resolved,
-		WorkDir:     s.projectDir,
-		Env:         env,
-		RunnerEnv:   runnerEnv,
-		Permissions: plan.Perm,
-		Gate:        s.gate.Gate(),
-		Verbosity:   childVerbosity(),
-		Factory:     s.factory,
-		Workspace:   plan.Workspace,
+		Resolved:         plan.resolved,
+		WorkDir:          s.projectDir,
+		Env:              env,
+		RunnerEnv:        runnerEnv,
+		Permissions:      plan.Perm,
+		Gate:             s.gate.Gate(),
+		Verbosity:        childVerbosity(),
+		Factory:          s.factory,
+		Workspace:        plan.Workspace,
+		DirtyTreeHandler: plan.DirtyTreeHandler,
 	})
 	if err != nil {
 		return nil, err

@@ -31,7 +31,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
 	// Reach a live, journaled run: at least the run_started item must have

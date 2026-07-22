@@ -23,7 +23,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	env := waitForChildEnv(t, c, out.RunID)
 
@@ -100,7 +100,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "")
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	env := waitForChildEnv(t, c, out.RunID)
 	credHash := hashToken(env[EnvCoordCred])

@@ -536,10 +536,16 @@ func TestValidateTagRejectsReservedWordsCaseInsensitively(t *testing.T) {
 // TestValidateTagRejectsTagmaUnparseableTags pins the new-under-tagma half
 // of the write guard: tagma's bare-token grammar is narrower than the old
 // pkg/tagquery check (which only rejected "/" and reserved words) — it also
-// rejects "*", "+", and embedded whitespace, none of which tagma.ParseTag
+// rejects "*", "/", and embedded whitespace, none of which tagma.ParseTag
 // can turn into a matchable atom.
+//
+// "+" is deliberately NOT rejected here any more. Both signs became
+// ordinary bare-token characters in tagma 10300d4, so SemVer build
+// metadata (triage:blocks-release=1.0.0+build.5) is writable unquoted.
+// "+" stays reserved only as a WHOLE token, where it is the quantifier —
+// hence the bare "+" case below, while "release+" is now an ordinary tag.
 func TestValidateTagRejectsTagmaUnparseableTags(t *testing.T) {
-	for _, tag := range []string{"urgent*", "release+", "foo/bar", "has space"} {
+	for _, tag := range []string{"urgent*", "+", "*", "foo/bar", "has space"} {
 		if err := validateTag(tag, nil); err == nil {
 			t.Errorf("validateTag(%q): expected an error (not a valid tagma tag)", tag)
 		}
@@ -550,7 +556,7 @@ func TestValidateTagRejectsTagmaUnparseableTags(t *testing.T) {
 // bare-token tags, including ones that merely start with or contain a
 // reserved word as a substring, must stay valid.
 func TestValidateTagAcceptsOrdinaryTags(t *testing.T) {
-	for _, tag := range []string{"urgent", "release", "android", "cannot", "note", "north", "v1.2", "a-b_c"} {
+	for _, tag := range []string{"urgent", "release", "android", "cannot", "note", "north", "v1.2", "a-b_c", "release+", "1.0.0+build.5", "+1", "-1"} {
 		if err := validateTag(tag, nil); err != nil {
 			t.Errorf("validateTag(%q): unexpected error: %v", tag, err)
 		}

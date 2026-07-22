@@ -31,9 +31,25 @@ import (
 // unfair lock contention layered on top of that arrival order.
 type CoordinatedRecorder struct {
 	rec  Recorder
-	ch   chan agent.ChatEvent
+	ch   chan recordRequest
 	wg   sync.WaitGroup
 	done chan struct{}
+}
+
+// recordRequest pairs one submitted event with an ack channel Submit blocks
+// on: the owning goroutine closes ack only AFTER its Record(ev) call has
+// actually returned, so Submit's caller can trust the event is durably
+// recorded (not merely handed off) once Submit itself returns. Without this,
+// a caller that Submits its LAST event and then treats the transcript as
+// complete — exactly what every producer in this package's callers does:
+// drain, then read — could observe the file before the owning goroutine had
+// gotten around to calling Record for that final event, silently losing it.
+// A bare channel handoff (send completes as soon as the receiver's `case`
+// fires, not after the receiver's LOOP BODY finishes) is not strong enough
+// on its own to prevent that.
+type recordRequest struct {
+	ev  agent.ChatEvent
+	ack chan struct{}
 }
 
 // NewCoordinatedRecorder starts the owning goroutine and returns immediately.
@@ -51,7 +67,7 @@ type CoordinatedRecorder struct {
 func NewCoordinatedRecorder(rec Recorder, producers int) *CoordinatedRecorder {
 	cr := &CoordinatedRecorder{
 		rec:  rec,
-		ch:   make(chan agent.ChatEvent),
+		ch:   make(chan recordRequest),
 		done: make(chan struct{}),
 	}
 	cr.wg.Add(producers)
@@ -62,8 +78,9 @@ func NewCoordinatedRecorder(rec Recorder, producers int) *CoordinatedRecorder {
 	go func() {
 		defer close(cr.done)
 		defer func() { _ = cr.rec.Close() }()
-		for ev := range cr.ch {
-			_ = cr.rec.Record(ev) // best-effort; matches Tee's own contract
+		for req := range cr.ch {
+			_ = cr.rec.Record(req.ev) // best-effort; matches Tee's own contract
+			close(req.ack)
 		}
 	}()
 	return cr
@@ -76,12 +93,19 @@ func (cr *CoordinatedRecorder) ProducerDone() {
 	cr.wg.Done()
 }
 
-// Submit hands ev to the single owning goroutine for recording, blocking
-// until accepted or ctx is done — mirroring the "never blocks the live chat
-// on a full stall" discipline the rest of this package follows.
+// Submit hands ev to the single owning goroutine for recording and blocks
+// until that goroutine's Record(ev) call has actually returned (or ctx is
+// done) — not merely until the channel handoff completes. See recordRequest's
+// doc for why the stronger guarantee is necessary.
 func (cr *CoordinatedRecorder) Submit(ctx context.Context, ev agent.ChatEvent) {
+	req := recordRequest{ev: ev, ack: make(chan struct{})}
 	select {
-	case cr.ch <- ev:
+	case cr.ch <- req:
+	case <-ctx.Done():
+		return
+	}
+	select {
+	case <-req.ack:
 	case <-ctx.Done():
 	}
 }

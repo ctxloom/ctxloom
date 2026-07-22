@@ -88,6 +88,49 @@ func TestCoordinatedRecorder_SingleOwnerAcrossProducers(t *testing.T) {
 		"not every submitted ChatEvent reached the wrapped Recorder")
 }
 
+// slowRecorder records events with an artificial delay in Record, to widen
+// the window a Submit-returns-too-early race would need to be caught in.
+type slowRecorder struct {
+	delay time.Duration
+	mu    sync.Mutex
+	done  []agent.ChatEvent
+}
+
+func (r *slowRecorder) Record(ev agent.ChatEvent) error {
+	time.Sleep(r.delay)
+	r.mu.Lock()
+	r.done = append(r.done, ev)
+	r.mu.Unlock()
+	return nil
+}
+func (r *slowRecorder) Close() error { return nil }
+func (r *slowRecorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.done)
+}
+
+// TestCoordinatedRecorder_SubmitDoesNotReturnUntilRecordCompletes pins a real
+// bug found in the full `just test` run under load (not caught by the
+// lighter-weight package-only run): Submit's original implementation only
+// waited for the CHANNEL HANDOFF to the owning goroutine, not for that
+// goroutine to actually finish calling Record — so a caller that Submits its
+// LAST event and then immediately treats the transcript as complete (exactly
+// what GRPCClient.Chat's callers do: drain events, THEN read the file) could
+// read the file before the last Record call had landed, silently losing the
+// final record. TeeAndClose/Tee never had this gap because their Record call
+// was synchronous and same-goroutine as the forward; CoordinatedRecorder's
+// cross-goroutine handoff must restore the same "recorded before the caller
+// can observe completion" guarantee.
+func TestCoordinatedRecorder_SubmitDoesNotReturnUntilRecordCompletes(t *testing.T) {
+	rec := &slowRecorder{delay: 20 * time.Millisecond}
+	cr := NewCoordinatedRecorder(rec, 1)
+
+	cr.Submit(context.Background(), agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeUser, Content: "x"}})
+
+	assert.Equal(t, 1, rec.count(), "Submit returned before the owning goroutine's Record call actually completed")
+}
+
 // TestCoordinatedRecorder_ClosesWrappedRecorderOnceAllProducersDone proves the
 // wrapped Recorder is closed exactly once, after every registered producer
 // has finished — mirroring TeeAndClose's contract (S2's host seams have no

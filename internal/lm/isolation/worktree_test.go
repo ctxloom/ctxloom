@@ -410,9 +410,10 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test") // skip claude's seed attempt — only var COUNT matters here
-	t.Setenv("OPENAI_API_KEY", "sk-test")    // skip codex's seed attempt
-	t.Setenv("KIRO_API_KEY", "sk-test")      // grant kiro's gated XDG_DATA_HOME
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")  // skip claude's seed attempt — only var COUNT matters here
+	t.Setenv("OPENAI_API_KEY", "sk-test")     // skip codex's seed attempt
+	t.Setenv("KIRO_API_KEY", "sk-test")       // grant kiro's gated XDG_DATA_HOME
+	t.Setenv("OPENROUTER_API_KEY", "sk-test") // skip opencode's seed attempt
 
 	cases := []struct {
 		backend string
@@ -421,6 +422,7 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 		{"claude-code", 1},
 		{"codex", 1},
 		{"kiro", 2},
+		{"opencode", 2},
 		{"antigravity", 1},
 		{"", 0},
 	}
@@ -520,4 +522,94 @@ func TestWorktree_KiroIsolatesXDGWithApiKey(t *testing.T) {
 	env := WorkspaceEnv(ws)
 	assert.NotEmpty(t, env["XDG_DATA_HOME"], "KIRO_API_KEY present — XDG_DATA_HOME isolates")
 	assert.Empty(t, strictness.All(), "no finding when the gate is satisfied")
+}
+
+// --- opencode host+worktree credential seeding (sunny-saga) ----------------
+
+// TestWorktree_PrepareSeedsOpencodeCredentials is the end-to-end
+// PAYLOAD-asserting regression test: a "opencode" worktree, no
+// OPENROUTER_API_KEY, real host auth.json available (via the hostHomeDir
+// seam) → Env()'s XDG_DATA_HOME points at a directory that ACTUALLY
+// CONTAINS the seeded auth.json at the opencode/ subpath opencode itself
+// resolves — not an empty dir `opencode auth list` would report "0
+// credentials" against, exactly as the task's live experiment showed.
+func TestWorktree_PrepareSeedsOpencodeCredentials(t *testing.T) {
+	resetStrictness(t)
+	home := withFakeHome(t)
+	t.Setenv("OPENROUTER_API_KEY", "")
+	writeOpencodeAuth(t, home, false)
+
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-seed")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+
+	env := WorkspaceEnv(ws)
+	require.NotNil(t, env)
+	require.NotEmpty(t, env["XDG_CONFIG_HOME"], "opencode's config lever isolates too")
+	xdgData := env["XDG_DATA_HOME"]
+	require.NotEmpty(t, xdgData)
+
+	wantAuth, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	require.NoError(t, err)
+	gotAuth, err := os.ReadFile(filepath.Join(xdgData, "opencode", "auth.json"))
+	require.NoError(t, err, "XDG_DATA_HOME must actually contain the seeded auth.json under opencode/, not be empty")
+	assert.Equal(t, wantAuth, gotAuth, "seeded bytes must be byte-identical to the host source")
+
+	assert.Empty(t, strictness.All(), "a successfully-seeded opencode worktree records no ClassIsolation finding")
+	require.NoError(t, ws.Cleanup())
+}
+
+// TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey pins the
+// closed silent no-op: before sunny-saga, an "opencode" worktree with no
+// OPENROUTER_API_KEY and no host auth.json made NO finding at all
+// (credentialSeedSpecs had no "opencode" entry, so seedCredentials
+// short-circuited silently) — strictly worse than kiro's loud
+// "nothing seedable" handling. Now it records the same fatal ClassIsolation
+// finding claude/codex/kiro already get.
+func TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey(t *testing.T) {
+	resetStrictness(t)
+	withFakeHome(t) // empty fake home — nothing to seed
+	t.Setenv("OPENROUTER_API_KEY", "")
+
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-nokey")
+	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
+	requireCleanWorkspace(t, ws)
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "no creds + no key must record exactly one fatal finding (previously: silently NONE)")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "member-oc-nokey")
+	assert.Contains(t, findings[0].Message, "logged out")
+	assert.NotEmpty(t, findings[0].FixIt)
+
+	env := WorkspaceEnv(ws)
+	assert.NoDirExists(t, filepath.Join(env["XDG_DATA_HOME"], "opencode"), "nothing is seeded when there is nothing to seed")
+
+	require.NoError(t, ws.Cleanup())
+}
+
+// TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud:
+// OPENROUTER_API_KEY set (even with no host auth.json at all) rides the env
+// exactly as the container path prefers env passthrough — no seed attempt,
+// and critically NO fail-loud finding.
+func TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud(t *testing.T) {
+	resetStrictness(t)
+	withFakeHome(t) // no host auth.json
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "opencode").PrepareWorkspace(context.Background(), "/proj", "member-oc-key")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+
+	assert.Empty(t, strictness.All(), "OPENROUTER_API_KEY covers auth — no finding, seeding skipped")
+	env := WorkspaceEnv(ws)
+	assert.NoDirExists(t, filepath.Join(env["XDG_DATA_HOME"], "opencode"), "no seed dir is created when the key rides the env")
+
+	require.NoError(t, ws.Cleanup())
 }

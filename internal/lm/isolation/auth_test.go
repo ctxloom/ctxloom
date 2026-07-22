@@ -440,3 +440,176 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 		assert.NotContains(t, string(data), "SECRET-GMAIL-TOKEN")
 	}
 }
+
+// =============================================================================
+// opencode host+worktree credential seeding (sunny-saga) -------------------
+//
+// Before this registry entry, "opencode" had NO credentialSeedSpec: worktree.go's
+// seedCredentials short-circuited at `if !ok { return nil }` with no
+// strictness.Fail at all — a SILENT no-op, strictly worse than the loud
+// handling every OTHER registered backend gets (an unregistered engine simply
+// isn't offered isolation; a registered-but-unseedable one fails loud). This
+// closes that gap: XDG_DATA_HOME/XDG_CONFIG_HOME are UNDOCUMENTED opencode
+// behaviour (only OPENCODE_CONFIG/OPENCODE_CONFIG_DIR are documented) — pinned
+// against opencode 1.18.1 by direct interrogation of its compiled binary
+// (`process.env.XDG_DATA_HOME` read directly, joined with "opencode" then
+// "auth.json"/"mcp-auth.json") and confirmed live: an isolated `opencode auth
+// list` under a fresh scratch HOME + XDG_DATA_HOME pointed at a seeded
+// auth.json printed the RELOCATED path and "1 credentials" (OpenRouter),
+// where the same command against an unseeded scratch XDG_DATA_HOME printed
+// "0 credentials" — the exact experiment the task brief ran. Must be
+// re-verified on any opencode upgrade; this is not a vendor-documented
+// contract.
+// =============================================================================
+
+// writeOpencodeAuth writes a host ~/.local/share/opencode/auth.json (and,
+// when withMcpAuth, a sibling mcp-auth.json — confirmed to live in the SAME
+// directory by the same join(Path.data, ...) call in opencode's own binary)
+// under home.
+func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
+	t.Helper()
+	dir := filepath.Join(home, ".local", "share", "opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"openrouter":{"type":"api","key":"sk-or-test"}}`), 0o600))
+	if withMcpAuth {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "mcp-auth.json"), []byte(`{}`), 0o600))
+	}
+}
+
+// TestCredentialSeedSpecs_OpencodeRegistered pins the registry entry itself:
+// keyed by the registered backend name "opencode" (profile.go's
+// containerProfileFor uses the same key), OPENROUTER_API_KEY as envTrigger
+// (mirroring resolveOpencodeContainerAuth's container-side trigger — the
+// same var covers both axes), HonoursVarForCreds TRUE — UNLIKE kiro:
+// opencode's XDG_DATA_HOME genuinely relocates its credential file, not a
+// global unrelocatable store — and two HomeVars, neither gated (gating only
+// applies to a HonoursVarForCreds==false spec).
+func TestCredentialSeedSpecs_OpencodeRegistered(t *testing.T) {
+	spec, ok := credentialSeedSpecs["opencode"]
+	require.True(t, ok, "opencode must have a credentialSeedSpec (sunny-saga)")
+	assert.Equal(t, "opencode", spec.engine)
+	assert.Equal(t, "OPENROUTER_API_KEY", spec.envTrigger)
+	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json — unlike kiro's partial lever")
+	require.NotNil(t, spec.sourceFiles, "opencode has a copyable auth.json to seed")
+
+	require.Len(t, spec.HomeVars, 2)
+	byVar := map[string]homeVar{}
+	for _, hv := range spec.HomeVars {
+		byVar[hv.EnvVar] = hv
+	}
+	_, hasConfig := byVar["XDG_CONFIG_HOME"]
+	_, hasData := byVar["XDG_DATA_HOME"]
+	assert.True(t, hasConfig, "XDG_CONFIG_HOME must be one of opencode's HomeVars")
+	assert.True(t, hasData, "XDG_DATA_HOME must be one of opencode's HomeVars")
+	assert.False(t, byVar["XDG_CONFIG_HOME"].GatedOnCreds, "HonoursVarForCreds==true specs are never gated")
+	assert.False(t, byVar["XDG_DATA_HOME"].GatedOnCreds, "HonoursVarForCreds==true specs are never gated")
+}
+
+// TestCredentialSeedSpecs_OpencodeSourceFilesIncludeAuthAndOptionalMcpAuth
+// pins WHICH files opencode's spec copies: auth.json REQUIRED (the file
+// `opencode auth login` writes, and the one this task's live `opencode auth
+// list` proof read back), and mcp-auth.json OPTIONAL — confirmed present in
+// opencode 1.18.1's own binary at the SAME Path.data-joined location as
+// auth.json (MCP server OAuth tokens), but not every user configures an
+// OAuth MCP server, so its absence must never block seeding.
+func TestCredentialSeedSpecs_OpencodeSourceFilesIncludeAuthAndOptionalMcpAuth(t *testing.T) {
+	spec := credentialSeedSpecs["opencode"]
+	files := spec.sourceFiles("/home/u")
+	require.Len(t, files, 2)
+	byName := map[string]seedFile{}
+	for _, f := range files {
+		byName[f.destName] = f
+	}
+	auth, ok := byName["auth.json"]
+	require.True(t, ok)
+	assert.True(t, auth.required, "auth.json is the credential itself — required")
+	assert.Equal(t, filepath.Join("/home/u", ".local", "share", "opencode", "auth.json"), auth.host)
+
+	mcpAuth, ok := byName["mcp-auth.json"]
+	require.True(t, ok)
+	assert.False(t, mcpAuth.required, "mcp-auth.json is optional — not every user has OAuth MCP servers configured")
+	assert.Equal(t, filepath.Join("/home/u", ".local", "share", "opencode", "mcp-auth.json"), mcpAuth.host)
+}
+
+// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode is the
+// PAYLOAD-asserting regression test for sunny-saga: the seeded auth.json
+// must land NOT at <configHome>/xdg-data/auth.json but at
+// <configHome>/xdg-data/opencode/auth.json — the exact path opencode itself
+// resolves ($XDG_DATA_HOME + "/opencode/auth.json"). If the destSubdir
+// nesting were wrong, Env()'s XDG_DATA_HOME and opencode's own resolution
+// would disagree, and an isolated agent would silently see no credentials —
+// exactly the failure mode a bare exit-code check would miss.
+func TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("OPENROUTER_API_KEY", "")
+	writeOpencodeAuth(t, home, true)
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+
+	xdgDataHome := filepath.Join(dest, "xdg-data") // the HomeVar's own Subdir
+	wantAuth, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	require.NoError(t, err)
+	gotAuth, err := os.ReadFile(filepath.Join(xdgDataHome, "opencode", "auth.json"))
+	require.NoError(t, err, "auth.json must exist at $XDG_DATA_HOME/opencode/auth.json — opencode's OWN resolution path")
+	assert.Equal(t, wantAuth, gotAuth, "seeded bytes must be byte-identical to the host source")
+
+	info, err := os.Stat(filepath.Join(xdgDataHome, "opencode", "auth.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
+
+	wantMcp, err := os.ReadFile(filepath.Join(home, ".local", "share", "opencode", "mcp-auth.json"))
+	require.NoError(t, err)
+	gotMcp, err := os.ReadFile(filepath.Join(xdgDataHome, "opencode", "mcp-auth.json"))
+	require.NoError(t, err, "mcp-auth.json rides along at the same directory as auth.json")
+	assert.Equal(t, wantMcp, gotMcp)
+}
+
+// TestHostCredentialSeed_OpencodeMcpAuthOptionalAbsence: no mcp-auth.json on
+// the host (the common case — most users have not configured an OAuth MCP
+// server) still seeds OK off auth.json alone.
+func TestHostCredentialSeed_OpencodeMcpAuthOptionalAbsence(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("OPENROUTER_API_KEY", "")
+	writeOpencodeAuth(t, home, false) // no mcp-auth.json
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedOK, result)
+	assert.FileExists(t, filepath.Join(dest, "xdg-data", "opencode", "auth.json"))
+	assert.NoFileExists(t, filepath.Join(dest, "xdg-data", "opencode", "mcp-auth.json"))
+}
+
+// TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet: OPENROUTER_API_KEY
+// present → seeding is skipped entirely, mirroring
+// resolveOpencodeContainerAuth's authEnv precedence — even with no host
+// auth.json at all, this is NOT the fail-loud case, and no seed dir is created.
+func TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet(t *testing.T) {
+	withFakeHome(t) // no opencode auth on disk
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedSkippedEnv, result)
+	assert.NoDirExists(t, filepath.Join(dest, "xdg-data"))
+}
+
+// TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError: no
+// OPENROUTER_API_KEY and no host auth.json → seedNoSource — the fail-loud case
+// the CALLER (worktree.go's seedCredentials) turns into a strictness.Fail. This
+// is the exact silent no-op sunny-saga exists to close: before this spec was
+// registered, an unregistered "opencode" backend made seedCredentials
+// short-circuit with no finding recorded at all.
+func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T) {
+	withFakeHome(t) // empty fake home — no opencode auth at all
+	t.Setenv("OPENROUTER_API_KEY", "")
+	dest := t.TempDir()
+
+	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
+	require.NoError(t, err)
+	assert.Equal(t, seedNoSource, result)
+}

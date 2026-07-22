@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
@@ -396,6 +397,133 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 	require.NotNil(t, env)
 	assert.True(t, strings.HasPrefix(env["CLAUDE_CONFIG_DIR"], eph+string(os.PathSeparator)),
 		"config-home %q lives under the session ephemeral dir", env["CLAUDE_CONFIG_DIR"])
+
+	// spawner-env: the toolchain scratch dir (TMPDIR/GOTMPDIR) is the THIRD
+	// per-agent scratch resource homed under the session ephemeral dir — NOT
+	// the OS temp dir, which is the whole point (the shared /tmp is what
+	// corrupted concurrent agents in the first place).
+	require.NotEmpty(t, env["TMPDIR"])
+	assert.True(t, strings.HasPrefix(env["TMPDIR"], eph+string(os.PathSeparator)),
+		"scratch dir %q lives under the session ephemeral dir, not the OS temp dir", env["TMPDIR"])
+}
+
+// --- Toolchain/VCS scoping (spawner-env) ------------------------------------
+//
+// A ~10-agent parallel run corrupted concurrent agents through toolchain/VCS
+// state shared across linked worktrees (a shared process TMPDIR racing `go
+// build`'s per-invocation $WORK scratch; a leaked `git config user.email`
+// from a worktree into the shared main checkout's .git/config). These tests
+// pin the structural fix at the Env()/Cleanup seam: every worktree member
+// gets a DISJOINT TMPDIR/GOTMPDIR and a per-agent git identity that outranks
+// the shared repo-local config, by construction — not by an agent
+// remembering to set an env var it was never given.
+
+// TestWorktree_ScratchDir_TMPDIRAndGOTMPDIRMatchAndExist is the payload floor:
+// Env() doesn't just carry SOME value for TMPDIR/GOTMPDIR — the path it names
+// actually exists on disk (a real, writable scratch dir a spawned `go build`
+// or `git` could use), and GOTMPDIR mirrors TMPDIR (Go honours GOTMPDIR for
+// its own $WORK scratch, TMPDIR for everything else that shells out).
+func TestWorktree_ScratchDir_TMPDIRAndGOTMPDIRMatchAndExist(t *testing.T) {
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-scratch")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+
+	env := WorkspaceEnv(ws)
+	require.NotNil(t, env)
+	require.NotEmpty(t, env["TMPDIR"], "Env() must carry TMPDIR — the fix this seam exists for")
+	assert.Equal(t, env["TMPDIR"], env["GOTMPDIR"], "GOTMPDIR mirrors TMPDIR — one scratch root for both")
+
+	info, statErr := os.Stat(env["TMPDIR"])
+	require.NoError(t, statErr, "the scratch dir Env() points at must actually exist on disk")
+	assert.True(t, info.IsDir())
+
+	require.NoError(t, ws.Cleanup())
+}
+
+// TestWorktree_ConcurrentAgents_DisjointScratchDirs is the concurrency
+// payload test: two members PREPARED CONCURRENTLY (mirroring the fan-out)
+// get DIFFERENT TMPDIR roots — the assertion that catches the exact failure
+// mode (every worktree member inheriting the SAME process TMPDIR) rather
+// than merely proving a struct field was set on each in isolation.
+func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+
+	type result struct {
+		ws  Workspace
+		env map[string]string
+		err error
+	}
+	results := make([]result, 2)
+	var wg sync.WaitGroup
+	for i, agentID := range []string{"agent-alpha", "agent-beta"} {
+		wg.Add(1)
+		go func(i int, agentID string) {
+			defer wg.Done()
+			ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", agentID)
+			results[i] = result{ws: ws, env: WorkspaceEnv(ws), err: err}
+		}(i, agentID)
+	}
+	wg.Wait()
+	for _, r := range results {
+		require.NoError(t, r.err)
+		requireCleanWorkspace(t, r.ws)
+		t.Cleanup(func(ws Workspace) func() { return func() { _ = ws.Cleanup() } }(r.ws))
+	}
+
+	require.NotEmpty(t, results[0].env["TMPDIR"])
+	require.NotEmpty(t, results[1].env["TMPDIR"])
+	assert.NotEqual(t, results[0].env["TMPDIR"], results[1].env["TMPDIR"],
+		"two concurrently-prepared children must get DISJOINT scratch roots")
+	assert.NotEqual(t, results[0].env["GIT_AUTHOR_EMAIL"], results[1].env["GIT_AUTHOR_EMAIL"],
+		"two differently-named agents must get DISJOINT git identities")
+}
+
+// TestWorktree_ScratchDir_CleanedUpOnTeardown: Cleanup() removes the
+// toolchain scratch dir from disk — an agent's TMPDIR must not outlive its
+// workspace and accumulate as residue across a long-running host (mirroring
+// the configHome/curatedHome cleanup guarantee).
+func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "member-teardown")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+
+	scratch := WorkspaceEnv(ws)["TMPDIR"]
+	require.NotEmpty(t, scratch)
+	require.DirExists(t, scratch, "sanity: the scratch dir exists before Cleanup")
+
+	require.NoError(t, ws.Cleanup())
+	assert.NoDirExists(t, scratch, "the scratch dir is removed by Cleanup — TMPDIR must not outlive the workspace")
+}
+
+// TestWorktree_GitIdentity_AttributesToAgentNotHuman pins the git-identity
+// half of the fix: GIT_AUTHOR_*/GIT_COMMITTER_* self-identify as the AGENT
+// (never a bare human-looking name), are traceable to the specific agentID
+// PrepareWorkspace was given, and use a synthetic domain that can never
+// collide with a real person's address — so an agent's commits are
+// attributable to it even when the shared linked-worktree .git/config
+// already carries a (possibly wrong) human identity from another agent.
+func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	ws, err := NewWorktree(f, "").PrepareWorkspace(context.Background(), "/proj", "reviewer-3")
+	require.NoError(t, err)
+	requireCleanWorkspace(t, ws)
+
+	env := WorkspaceEnv(ws)
+	require.NotNil(t, env)
+	assert.Contains(t, env["GIT_AUTHOR_NAME"], "reviewer-3", "the author name traces back to the agent")
+	assert.Contains(t, env["GIT_AUTHOR_NAME"], "agent", "the name self-identifies as an agent, not a human")
+	assert.Contains(t, env["GIT_AUTHOR_EMAIL"], "reviewer-3")
+	assert.Contains(t, env["GIT_AUTHOR_EMAIL"], "agents.ctxloom.local", "a synthetic domain that can never collide with a real person")
+	assert.Equal(t, env["GIT_AUTHOR_NAME"], env["GIT_COMMITTER_NAME"], "author and committer identity match")
+	assert.Equal(t, env["GIT_AUTHOR_EMAIL"], env["GIT_COMMITTER_EMAIL"], "author and committer identity match")
+
+	require.NoError(t, ws.Cleanup())
 }
 
 // --- Per-engine isolation-home (legal-hula / white-dawn / balmy-comic) -----
@@ -405,8 +533,14 @@ func TestWorktree_ScratchRelocatesIntoHarpEphemeral(t *testing.T) {
 // size must match the cartography table — claude:1, codex:1, kiro:2,
 // antigravity:1 (its curated HOME, via the single "HOME" key — see
 // curatedhome.go and TestWorktree_Antigravity_HomeOverrideAndSymlinks for
-// what that one var actually carries), and "" (no backend context):0 (the
-// pre-fix, config-only-isolation default — see TestWorktree_NoBackendSkipsSeedingAndFailLoud).
+// what that one var actually carries), and "" (no backend context):0 config-
+// home vars (the pre-fix, config-only-isolation default — see
+// TestWorktree_NoBackendSkipsSeedingAndFailLoud) — PLUS the 6 toolchain vars
+// (spawner-env: TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL},
+// GIT_COMMITTER_{NAME,EMAIL}) every backend gets UNCONDITIONALLY, including
+// "" (no backend context still gets a scratch dir; the git identity is
+// omitted for "" only because the test cases below pass a real agentID —
+// see gitIdentity's empty-agentID no-op for when it wouldn't).
 func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t)
@@ -415,16 +549,17 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	t.Setenv("KIRO_API_KEY", "sk-test")       // grant kiro's gated XDG_DATA_HOME
 	t.Setenv("OPENROUTER_API_KEY", "sk-test") // skip opencode's seed attempt
 
+	const toolchainVars = 6 // TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL}, GIT_COMMITTER_{NAME,EMAIL}
 	cases := []struct {
 		backend string
 		want    int
 	}{
-		{"claude-code", 1},
-		{"codex", 1},
-		{"kiro", 2},
-		{"opencode", 2},
-		{"antigravity", 1},
-		{"", 0},
+		{"claude-code", 1 + toolchainVars},
+		{"codex", 1 + toolchainVars},
+		{"kiro", 2 + toolchainVars},
+		{"opencode", 2 + toolchainVars},
+		{"antigravity", 1 + toolchainVars},
+		{"", 0 + toolchainVars},
 	}
 	for _, c := range cases {
 		t.Run(c.backend, func(t *testing.T) {

@@ -139,6 +139,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		repoDir: projectDir,
 		dir:     wtPath,
 		backend: w.backend,
+		agentID: agentID,
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -149,6 +150,9 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 			if ws.curatedHome != "" {
 				_ = os.RemoveAll(ws.curatedHome)
 			}
+			if ws.scratchDir != "" {
+				_ = os.RemoveAll(ws.scratchDir)
+			}
 			panic(r)
 		}
 	}()
@@ -157,9 +161,31 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	} else {
 		ws.configHome, ws.deniedHomeVars = w.provisionConfigHome(agentID)
 	}
+	ws.scratchDir = w.provisionScratchDir(agentID)
 	w.excludeConfigFromMerge(ctx, projectDir)
 	w.skipTrackedConfig(ctx, wtPath)
 	return ws, nil
+}
+
+// provisionScratchDir creates the per-agent TOOLCHAIN scratch root
+// (worktreeWorkspace.Env()'s TMPDIR/GOTMPDIR) under the same scratchBase as
+// the checkout and config-home — the session's ephemeral/ dir when a harp is
+// known, else the OS temp dir. This is the fix for the shared-/tmp toolchain
+// contention that corrupted concurrent agents (spawner-env audit): every
+// worktree member previously inherited the SAME process TMPDIR, so `go
+// build`'s per-invocation $WORK scratch, `git`'s temp blobs, and any other
+// tool honouring TMPDIR collided across members. Returns "" on the MkdirAll
+// failure — best-effort like provisionConfigHome, never blocking the run;
+// Env() then simply omits TMPDIR/GOTMPDIR and the child falls back to the
+// shared process default.
+func (w Worktree) provisionScratchDir(agentID string) string {
+	dir := worktreeScratchPath(w.scratchBase(), "ctxloom-tmp", agentID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		clidiag.Warn("ctxloom", "worktree: per-agent scratch dir unavailable (toolchain temp state will share the process default): %v", err)
+		_ = os.RemoveAll(dir)
+		return ""
+	}
+	return dir
 }
 
 // provisionCuratedHomeFor creates the per-agent curated HOME (curatedhome.go)
@@ -362,6 +388,17 @@ type worktreeWorkspace struct {
 	// to isolate (gateHomeVars — kiro's XDG_DATA_HOME with no KIRO_API_KEY);
 	// Env() omits them.
 	deniedHomeVars map[string]bool
+	// agentID is the member label PrepareWorkspace was given (Worktree.
+	// PrepareWorkspace's agentID param, copied at construction) — Env() uses
+	// it to build the per-agent git identity (gitIdentity) and
+	// provisionScratchDir uses it to name the scratch dir.
+	agentID string
+	// scratchDir is the per-agent TOOLCHAIN scratch root (provisionScratchDir)
+	// that Env() points TMPDIR/GOTMPDIR at — scoping build/VCS temp-file
+	// traffic per agent the same way configHome/curatedHome scope engine
+	// config. "" when provisioning failed (best-effort; Env() then omits
+	// both vars).
+	scratchDir string
 }
 
 // Ensure the workspace exposes its per-agent host-lever envs.
@@ -386,26 +423,48 @@ func (w *worktreeWorkspace) Dir() string { return w.dir }
 //     the worktree still needs for git itself, which a scoped var avoids by
 //     construction.
 //
-// Empty when neither scratch home could be provisioned, the backend has no
-// registered spec in either registry ("" — no backend context; a truly
-// lever-less backend), or every configHome var was denied.
+// Empty when NEITHER a scratch dir, a git identity, a curated home, nor any
+// configHome var could be provisioned/resolved.
+//
+// TWO additions ride here UNCONDITIONALLY, ahead of and independent from the
+// curatedHome/configHome engine-config levers above — every worktree member
+// gets them regardless of backend registry membership, because they scope
+// TOOLCHAIN/VCS state shared across linked worktrees, not engine config:
+//
+//   - TMPDIR / GOTMPDIR: provisionScratchDir's per-agent root, when
+//     provisioning succeeded. Deliberately NOT GOCACHE — Go's build cache is
+//     content-addressed and safe for concurrent multi-process use; the
+//     failure this fixes is in the per-invocation $WORK scratch dir under
+//     TMPDIR, which is not.
+//   - GIT_AUTHOR_{NAME,EMAIL} / GIT_COMMITTER_{NAME,EMAIL}: these env vars
+//     outrank every file-based git config INCLUDING repo-local — the only
+//     lever that reaches a linked worktree's shared .git/config, which a
+//     scoped HOME/XDG var cannot touch (gitIdentity's doc).
 func (w *worktreeWorkspace) Env() map[string]string {
-	if w.curatedHome != "" {
-		return map[string]string{"HOME": w.curatedHome}
+	env := map[string]string{}
+	if w.scratchDir != "" {
+		env["TMPDIR"] = w.scratchDir
+		env["GOTMPDIR"] = w.scratchDir
 	}
-	if w.configHome == "" {
-		return nil
+	name, email := w.gitIdentity()
+	if name != "" {
+		env["GIT_AUTHOR_NAME"] = name
+		env["GIT_AUTHOR_EMAIL"] = email
+		env["GIT_COMMITTER_NAME"] = name
+		env["GIT_COMMITTER_EMAIL"] = email
 	}
-	spec, ok := credentialSeedSpecs[w.backend]
-	if !ok {
-		return nil
-	}
-	env := make(map[string]string, len(spec.HomeVars))
-	for _, hv := range spec.HomeVars {
-		if w.deniedHomeVars[hv.EnvVar] {
-			continue
+	switch {
+	case w.curatedHome != "":
+		env["HOME"] = w.curatedHome
+	case w.configHome != "":
+		if spec, ok := credentialSeedSpecs[w.backend]; ok {
+			for _, hv := range spec.HomeVars {
+				if w.deniedHomeVars[hv.EnvVar] {
+					continue
+				}
+				env[hv.EnvVar] = filepath.Join(w.configHome, hv.Subdir)
+			}
 		}
-		env[hv.EnvVar] = filepath.Join(w.configHome, hv.Subdir)
 	}
 	if len(env) == 0 {
 		return nil
@@ -413,9 +472,32 @@ func (w *worktreeWorkspace) Env() map[string]string {
 	return env
 }
 
+// gitIdentity returns the GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL this worktree's
+// commits are attributed to (GIT_COMMITTER_* mirrors them — Env() sets all
+// four to the same pair). It never impersonates the human: the name always
+// self-identifies as an agent, and the email rides a synthetic
+// "agents.ctxloom.local" domain that deliberately resolves nowhere, so it
+// can never collide with — or be mistaken for — a real person's address.
+// agentID (the resolved agent's name, or the run's own session harp for the
+// top-level session — see PrepareWorkspace's caller doc) is the traceable
+// part: it is what makes an agent's commits attributable to THAT agent
+// rather than a generic "ctxloom" identity, and what stopped `git config
+// user.email` leaking from a worktree into the shared main checkout from
+// mattering — the scoped env wins over repo-local config regardless of what
+// the shared .git/config says. Empty agentID (no backend/agent context) is a
+// no-op: name is "" and Env() omits all four vars, falling back to whatever
+// the process/host git config already resolves.
+func (w *worktreeWorkspace) gitIdentity() (name, email string) {
+	if w.agentID == "" {
+		return "", ""
+	}
+	return "ctxloom agent " + w.agentID, sanitizeAgentID(w.agentID) + "@agents.ctxloom.local"
+}
+
 // Cleanup runs the WIP-safe, repo-worktree-aware teardown, then removes
 // whichever scratch home was provisioned (configHome or curatedHome — at
-// most one is ever set). Idempotent (guarded by clearing dir). It NEVER
+// most one is ever set) and, independently, the toolchain scratchDir (both
+// may be set together). Idempotent (guarded by clearing dir). It NEVER
 // returns an error — every git inability warns and continues (fault
 // tolerance), and WIP is sacred: an inner worktree with uncommitted work, or
 // an unknowable state, leaves the whole tree in place rather than risk
@@ -449,6 +531,13 @@ func (w *worktreeWorkspace) Cleanup() error {
 		w.curatedHome = ""
 		if err := os.RemoveAll(home); err != nil {
 			warnCleanupResidue("per-agent curated HOME", home, err)
+		}
+	}
+	if w.scratchDir != "" {
+		dir := w.scratchDir
+		w.scratchDir = ""
+		if err := os.RemoveAll(dir); err != nil {
+			warnCleanupResidue("per-agent toolchain scratch dir", dir, err)
 		}
 	}
 	return nil
@@ -537,10 +626,18 @@ func (w Worktree) scratchBase() string {
 // keyed by prefix + a sanitized agent id + a random suffix, so concurrent
 // members never collide.
 func worktreeScratchPath(base, prefix, agentID string) string {
+	return filepath.Join(base, fmt.Sprintf("%s-%s-%s", prefix, sanitizeAgentID(agentID), randToken()))
+}
+
+// sanitizeAgentID renders agentID safe for use as a single path segment or a
+// git-email local-part: containerNameSafe's allowlist, trimmed of leading/
+// trailing separators, falling back to "agent" when that leaves nothing
+// (empty agentID, or one that is entirely disallowed characters).
+func sanitizeAgentID(agentID string) string {
 	id := containerNameSafe.ReplaceAllString(agentID, "-")
 	id = strings.Trim(id, "-._")
 	if id == "" {
 		id = "agent"
 	}
-	return filepath.Join(base, fmt.Sprintf("%s-%s-%s", prefix, id, randToken()))
+	return id
 }

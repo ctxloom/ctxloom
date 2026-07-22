@@ -122,18 +122,19 @@ func TestConvertModelInfoToProto(t *testing.T) {
 // GRPCServer.Run / GRPCServer.Info in tests. No real LLM, no real
 // session storage.
 type fakeBackend struct {
-	name          string
-	version       string
-	modes         []agent.ExecutionMode
-	setupCalled   bool
-	executeResult *agent.ExecuteResult
-	executeErr    error
-	cleanupCalled bool
-	cleanupErr    error
-	captureStdout string
-	captureStderr string
-	history       agent.SessionHistory
-	capturedPerm  agent.PermissionMode // posture the server decoded into the request
+	name           string
+	version        string
+	modes          []agent.ExecutionMode
+	setupCalled    bool
+	executeResult  *agent.ExecuteResult
+	executeErr     error
+	cleanupCalled  bool
+	cleanupErr     error
+	captureStdout  string
+	captureStderr  string
+	history        agent.SessionHistory
+	capturedPerm   agent.PermissionMode // posture the server decoded into the request
+	capturedPrompt string               // req.Prompt.Content the server actually handed to Execute
 	// Cells the server decoded into the Setup / Execute requests, so a test can
 	// prove cell_kind flows onto BOTH.
 	capturedSetupCell   agent.CellKind
@@ -154,6 +155,7 @@ func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error 
 func (f *fakeBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	f.capturedPerm = req.Permissions
 	f.capturedExecuteCell = req.CellKind
+	f.capturedPrompt = agent.GetPromptContent(req.Prompt)
 	if f.captureStdout != "" {
 		_, _ = stdout.Write([]byte(f.captureStdout))
 	}
@@ -280,6 +282,36 @@ func TestGRPCServer_Run_SkipSetup(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, backend.setupCalled, "SkipSetup must skip Setup")
 	assert.True(t, backend.cleanupCalled, "Cleanup runs regardless")
+}
+
+// TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt is the regression for
+// dire-petal (SILENT NO-OP): the fan-out/weave "none"-isolation member path
+// (operations/oneshot.go's runResolvedAgent) sets BOTH SkipSetup:true and
+// Fragments:[{Content: composedContext}] — SkipSetup skips Setup, and Setup was
+// the ONLY path that ever converted+delivered req.Fragments to the backend, so
+// the composed context used to be silently discarded: the member ran
+// context-free, reported exit 0, and produced plausible-looking output with
+// zero context delivered. A sentinel string planted in Fragments (something the
+// backend could not otherwise produce) must reach Execute's Prompt — the one
+// channel a SkipSetup run still has — proving delivery, not just non-crash.
+func TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt(t *testing.T) {
+	const sentinel = "CTXLOOM-DIRE-PETAL-SENTINEL-7f3ac1"
+	backend := &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}
+	srv := &GRPCServer{Impl: backend}
+	stream := newFakeRunServer()
+
+	stream.recv = []*RunInput{runStartInput(&RunStart{
+		Prompt:    &Fragment{Content: "do the task"},
+		Fragments: []*Fragment{{Content: sentinel}},
+		Options:   &RunOptions{SkipSetup: true},
+	})}
+	err := srv.Run(stream)
+	require.NoError(t, err)
+	assert.False(t, backend.setupCalled, "SkipSetup must still skip Setup — this is not a route back to the full setup path")
+	assert.Contains(t, backend.capturedPrompt, sentinel,
+		"a SkipSetup run's Fragments must reach the backend somehow (smuggled into the prompt) instead of being silently dropped")
+	assert.Contains(t, backend.capturedPrompt, "do the task",
+		"smuggling the fragment content must not clobber the original task prompt")
 }
 
 func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {

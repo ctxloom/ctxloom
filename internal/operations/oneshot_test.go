@@ -109,6 +109,15 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	require.NotEmpty(t, stub.gotReq.Fragments)
 	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
+	// dire-petal: this is exactly the SkipSetup:true + non-empty Fragments
+	// combination the "none"-isolation fan-out/weave member path sends —
+	// asserted here so a future change that flips this default silently
+	// can't slip past without also exercising the grpc-server delivery fix
+	// (internal/lm/grpc.server_test.go's
+	// TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt) that combination
+	// depends on.
+	assert.True(t, stub.gotReq.Options.SkipSetup,
+		"a none-isolation member's RunStart must be SkipSetup — this is the exact request shape dire-petal's fragments-under-SkipSetup fix targets")
 }
 
 // TestRunOneshot_ResolvesHeadlessPosture pins fix C: a headless oneshot/fan member

@@ -51,7 +51,7 @@ func TestAssembleRejectsInvalidRuleSet(t *testing.T) {
 // The shipped, embedded sample must be exactly what the doc assembles to — the
 // same invariant the lefthook -check enforces, guarded here in the unit suite.
 func TestEmbeddedSampleMatchesDoc(t *testing.T) {
-	md, err := readUp("docs/DEFAULTS.md")
+	md, err := readUp(source)
 	if err != nil {
 		t.Skipf("doc not found from test cwd: %v", err)
 	}
@@ -59,11 +59,11 @@ func TestEmbeddedSampleMatchesDoc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	have, err := readUp("cmd/ltk/sample.ltk.yaml")
+	have, err := readUp(generated)
 	if err != nil {
 		t.Fatalf("read generated: %v", err)
 	}
 	if !bytes.Equal(have, want) {
-		t.Error("cmd/ltk/sample.ltk.yaml is out of sync with docs/DEFAULTS.md — run `just defaults`")
+		t.Errorf("%s is out of sync with %s — run `just defaults`", generated, source)
 	}
 }

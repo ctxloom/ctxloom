@@ -97,11 +97,18 @@ quietly defeated.
 ```
 
 A plain `--force` push can overwrite a teammate's commits; `--force-with-lease`
-refuses if the remote moved.
+refuses if the remote moved. Both `--force` and its short alias `-f` are
+listed: short options are **not** automatically expanded from long ones (that's
+a different mechanism — see "Bundled short options" in
+[RULES.md](RULES.md#portability-across-shells) — which only expands a cluster
+like `-rf` into its own letters, never maps a short flag to an unrelated long
+spelling). A command-pattern rule naming only `--force` would let `git push -f`
+straight through; this is the general lesson to apply to every rule you write
+against a program with short aliases, not something specific to `git`.
 
 ```yaml
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_any: ["--force", "-f"] }
     message: "A plain force-push can overwrite a teammate's commits."
     suggest: "git push --force-with-lease"
 ```

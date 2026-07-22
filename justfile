@@ -167,6 +167,13 @@ build-verbose:
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
 
+# Regenerate cmd/ltk/sample.ltk.yaml (the shipped default rule set, embedded in
+# the ltk binary) from the ```yaml blocks in docs/ltk/DEFAULTS.md, the source
+# of truth. A lefthook pre-commit hook runs the -check form and fails the
+# commit on drift; this is the "run it by hand" side documented there.
+defaults:
+    go run ./internal/ltk/tools/extract-defaults
+
 # Ensure the covdata tool is present for multi-package coverage merges.
 # Go 1.25 dropped covdata (and other secondary tools) from the prebuilt
 # distribution — they're built on demand from src/cmd. But `go test

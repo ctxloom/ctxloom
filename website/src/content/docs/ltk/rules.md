@@ -145,6 +145,18 @@ Bundled short options are expanded before the argument conditions are checked, s
 (`/switch`) and PowerShell (`-LongName`) tokens are never split. The command
 itself is never rewritten — this is a matcher-level convenience.
 
+**`unless` is matched position-blind:** it checks whether a token appears
+*anywhere* in the arguments, with no idea whether that token is a standalone
+flag or another option's value. `git clean -fdx -e --dry-run` satisfies
+`unless: ["--dry-run"]` and is wrongly exempted — real git's `-e` consumes
+`--dry-run` as its exclude-pattern argument, so this is not a dry run, it
+deletes for real. There's no clean fix without per-program knowledge of which
+flags take a following value, which ltk deliberately doesn't carry. For
+anything destructive, prefer [`mode:
+confirm`](#rule-mode) over `unless`: it requires the agent to deliberately
+repeat the exact command, so a token elsewhere in the arguments can't silently
+wave a dangerous command through.
+
 ### Shells
 
 Flag syntax differs by dialect, so token classification is shell-aware.

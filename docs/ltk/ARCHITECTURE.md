@@ -187,6 +187,47 @@ module); ltk's adapter consumes them rather than redefining the protocol.
 
 ---
 
+# Design rationale: is there a standard we should be using instead?
+
+Verdict, recorded here so it isn't re-litigated: **no.** ltk's matcher — argv
+prefix + tree-sitter/mvdan-sh unwrap of trivial wrappers + env-prefix/variable
+resolution — is the right shape for its job, and no existing standard covers
+"match a parsed shell command line with allow/deny." [OpenAI Codex
+independently converged on the identical
+architecture](https://github.com/openai/codex) (argv-prefix matching, shell
+unwrap, env-prefix handling) for the same problem, which is corroborating
+evidence, not a coincidence to explain away — two independent implementations
+converging on the same shape for the same problem is what "the right shape"
+looks like in practice.
+
+Two categories of existing technology were considered and rejected, for
+different reasons:
+
+- **Policy languages — OPA/Rego, Cedar, CEL.** These are general-purpose
+  authorization engines: given a set of structured facts (a request, a
+  principal, a resource), they evaluate a policy over those facts and return
+  allow/deny. They do not *produce* the facts. None of them parse a shell
+  command line, resolve `$VAR`, unwrap `bash -c`, or classify a token as a
+  POSIX operand vs. an option — that parsing and classification (the actual
+  hard part of this problem, see "Matching commands" in
+  [RULES.md](RULES.md#matching-commands)) is exactly what ltk's frontend +
+  matcher do, and no policy engine does it for you. Adopting one would mean
+  building the same shell-parsing pipeline ltk already has, then handing its
+  output to a second engine to re-express the same allow/deny logic in a
+  different syntax — pure overhead, no capability gained.
+- **LSMs — AppArmor, SELinux, seccomp, Landlock.** These are kernel-level
+  mandatory access controls. They match **binaries** (by path or hash),
+  **filesystem paths**, and **syscalls** — never `argv`. A seccomp filter can
+  say "this process may call `unlink()`" but has no notion of "this process may
+  run `git clean` but not `git clean -fdx`" — argv is userspace-interpreted
+  text the kernel enforcement layer never inspects as a value; from the
+  kernel's perspective `/usr/bin/git clean` and `/usr/bin/git status` are the
+  same binary making the same syscalls with different opaque bytes on the
+  stack. LSMs are also the *correct* tool for what they do (hard, kernel-
+  enforced isolation — the "run it in a sandbox/container" ltk itself points
+  to for that need), so this isn't "LSMs are worse," it's "LSMs solve a
+  different problem one layer down, and ltk's problem is a layer up."
+
 # Not yet built
 
 - **Codex** ([#2](https://github.com/ctxloom/llm-tool-killer/issues/2))

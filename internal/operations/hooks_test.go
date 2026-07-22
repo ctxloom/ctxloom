@@ -668,6 +668,67 @@ func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write codex's config.toml")
 }
 
+// TestApplyHooks_RefusesKiroHomeCollision is checkKiroHookTargetScope's
+// (flaky-spool) canonical red case, the kiro sibling of
+// TestApplyHooks_RefusesHomeCollision / TestApplyHooks_RefusesCodexHomeCollision:
+// WorkDir set to HOME makes kiro's project-scoped .kiro dir
+// (filepath.Join(WorkDir, ".kiro")) resolve onto kiro's global home
+// (kiroHome(): $KIRO_HOME, else ~/.kiro) too — kiro's whole
+// agents/settings/steering home, not just one file. This is the SAME
+// collision class prim-guy found for claude and comfy-lion found for codex;
+// kiro was unaudited until now (see kiro.go's own doc: "kiro-cli resolves
+// the materialized WORKSPACE .kiro/agents/<name>.json over any global
+// ~/.kiro/agents copy" — that precedence is moot when workDir==HOME, because
+// there IS no separate workspace copy at that point, only the global one).
+func TestApplyHooks_RefusesKiroHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:      "kiro",
+		FS:           fs,
+		ExecPath:     "/usr/bin/ctxloom",
+		ConfigLoader: mockConfigLoader,
+		WorkDir:      home,
+	})
+	require.Error(t, err, "installing hooks with WorkDir==HOME must be refused for kiro too")
+	assert.Contains(t, err.Error(), "kiro's global home")
+
+	exists, existsErr := afero.Exists(fs, filepath.Join(home, ".kiro", "agents", "ctxloom.json"))
+	require.NoError(t, existsErr)
+	assert.False(t, exists, "a refused apply must not write kiro's agent config under HOME")
+}
+
+// TestApplyHooks_ForceOverridesKiroHomeCollision proves --force also covers
+// the kiro collision, writing anyway with a loud warning.
+func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
+
+	var result *ApplyHooksResult
+	stderr := captureStderr(t, func() {
+		var err error
+		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+			Backend:      "kiro",
+			FS:           fs,
+			ExecPath:     "/usr/bin/ctxloom",
+			ConfigLoader: mockConfigLoader,
+			WorkDir:      home,
+			Force:        true,
+		})
+		require.NoError(t, err, "Force:true must let the kiro collision proceed")
+	})
+	require.NotNil(t, result)
+	assert.Equal(t, "applied", result.Status)
+	assert.Contains(t, stderr, "kiro's global home", "Force must still warn loudly, not silently proceed")
+
+	exists, err := afero.Exists(fs, filepath.Join(home, ".kiro", "agents", "ctxloom.json"))
+	require.NoError(t, err)
+	assert.True(t, exists, "--force must actually write kiro's agent config")
+}
+
 // TestApplyHooks_SubdirOfHomeIsNotACollision is the negative control: a real
 // project living under HOME (e.g. ~/code/myproject) is not the global-scope
 // collision — only WorkDir==HOME itself is.

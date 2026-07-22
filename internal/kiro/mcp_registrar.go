@@ -87,3 +87,16 @@ func pathExistsKiro(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// GlobalHome returns kiro's global config home with NO workDir context —
+// kiroHome()'s own precedence ($KIRO_HOME, else ~/.kiro) — exported for
+// operations/hooks.go's checkKiroHookTargetScope (flaky-spool: the kiro
+// analog of prim-guy's claude $HOME-collision guard and comfy-lion's codex
+// one — kiro was audited and found vulnerable to the same collision class).
+func GlobalHome() (string, error) { return kiroHome() }
+
+// ProjectHome returns the project-scoped .kiro dir the static
+// apply/materialize path targets for workDir (KiroWriter.agentPath /
+// mcpPath / steeringPath all join off this same directory), exported for the
+// same external collision check as GlobalHome.
+func ProjectHome(workDir string) string { return filepath.Join(workDir, kiroDir) }

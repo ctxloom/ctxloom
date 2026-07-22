@@ -65,7 +65,21 @@ not a style preference:
   arguments — they do not need to be adjacent, but they must appear in
   that relative order. Never write `"go test*"` or `"go .*test.*"` —
   those are not valid `match.command` syntax and will not do what you
-  expect (or will not parse at all).
+  expect (or will not parse at all). This is not a missing feature to
+  work around: a whitespace wildcard over a raw command line is the
+  `sudoers` footgun (`/usr/bin/vim *` also matches `vim -- /bin/sh`) —
+  ltk's token classification deliberately avoids it.
+- **`unless` (a rule's read-only exception list) is matched POSITION-BLIND.**
+  It only checks "is this token present anywhere in argv" — it cannot tell
+  a standalone exception flag from the same text sitting there as ANOTHER
+  option's argument value. `git clean -fdx -e --dry-run` satisfies
+  `unless: ["--dry-run"]` and is wrongly exempted, because real git's `-e`
+  consumes `--dry-run` as its exclude-PATTERN value — this is not a dry
+  run, it deletes for real. For any DESTRUCTIVE rule, prefer `mode:
+  confirm` over leaning on `unless` to carve out a "safe" form: `confirm`
+  requires the agent to repeat the exact same command deliberately, so a
+  stray token elsewhere in argv can't silently exempt it. Keep `unless`
+  narrow and reserved for genuinely low-stakes read-only flags.
 - Prefer `mode: confirm` over the firm default (`mode: enable`) for a
   redirect rule unless the project's maintainers want it to be a hard
   block — a redirect is guidance, and `confirm` lets a determined agent
@@ -130,3 +144,10 @@ rule can (edit the config, use a different shell trick, etc.). Its job
 is to make the easy, unthinking path the *correct* one, not to enforce
 a boundary nothing can cross. Frame it that way to the user — do not
 oversell it as a sandbox or an enforcement mechanism.
+
+It is also **fail-open by default and by design**, not just in the
+`unless`/`confirm` escape hatches above: `defaults.on_parse_error: allow`
+means a command ltk cannot even parse is let through, not blocked. Never
+set `on_parse_error: deny` while telling the user this makes the project
+"secure" — the honest framing is "reduces reflexive mistakes," not
+"enforces a boundary."

@@ -13,6 +13,18 @@ groups, command substitution `$( … )` / backticks, process substitution
 bodies. Quoted text is *not* a command, so `echo "go test"` does not match a
 `go test` rule. (See the nesting tests in `internal/app`.)
 
+> **Read this once before writing rules.** ltk is a guardrail against
+> *reflexive* mistakes — an agent reaching for the raw command out of habit —
+> not a security boundary. Every escape hatch documented on this page
+> (`unless`, `mode: confirm`, `defaults.on_parse_error: allow`) is **fail-open
+> by design**: when ltk can't fully resolve a command, or an exception token is
+> present, or a rule is deliberately soft, it lets the command through rather
+> than blocking on uncertainty. That is a considered trade-off (see the
+> project [README's "Scope" section](README.md#scope--read-this-first)), but it
+> means every rule you write inherits the same posture: it redirects a
+> cooperative agent, it does not stop a determined one. For hard guarantees,
+> run the agent in a sandbox/container.
+
 ```yaml
 version: 1
 
@@ -106,6 +118,28 @@ match: { command: "sh -c" }                         # `sh -c …`, `sh -e -c …
 match: { command: [git, push, --force, --no-verify] } # those flags in ANY order after `push`
 ```
 
+### No glob or wildcard in `match.command` — intentional, not a missing feature
+
+`match.command` tokens are matched as **literal argv elements**, classified by
+role (program/positional/option) — never as a glob, a regex, or a
+whitespace-delimited pattern over the raw command text. This is deliberate, not
+an oversight, and it should **not** be added: a wildcard over an unparsed
+command line is exactly the footgun `sudoers` has carried for decades — a rule
+like `alice ALL=(ALL) /usr/bin/vim *` reads as "vim only," but `*` matches any
+sequence of words the shell hands it, so `sudo vim -- /bin/sh` (and a long list
+of documented `vim`/`less`/`awk` escape tricks) matches it too, because the
+wildcard has no idea it's supposed to be matching "arguments" rather than
+"bytes." ltk's program/positional/option classification (see "Matching
+commands" above) exists specifically to keep every token typed by its **role**,
+never pattern-matched against untyped text — so there is no whitespace
+wildcard for a smuggled subcommand to hide behind. If a rule needs "this
+option's value can be anything," that's what `args_any`/`args_all` already are
+— program-agnostic **set membership** over already-classified tokens, not a
+pattern over raw text. `match.path`, by contrast, *is* full-glob (`*`, `**`,
+`{a,b}`) — file paths are a different address space (no argument-smuggling
+risk: a glob there can't reclassify what a token *is*), so the two are not
+inconsistent.
+
 ### Refinements
 
 Optional, program-agnostic conditions refine a `command` match (or stand on
@@ -151,6 +185,41 @@ supports.)
 All argument conditions see bundled short options expanded (so `-n` in `unless`
 matches `rm -rn` too), and they are checked after `command` — an `unless` hit on
 a non-matching command is moot.
+
+### `unless` is matched POSITION-BLIND — prefer `mode: confirm` for destructive rules
+
+`unless` (like `args_any`/`args_all`) only asks "does this token appear
+**anywhere** in the argument list" — it has no notion of which option a token
+belongs to. It cannot tell an exception token that stands alone as its own flag
+from the same text sitting there as **another option's VALUE**. Demonstrated:
+
+```
+git clean -fdx -e --dry-run
+```
+
+Against `match: { command: [git, clean], unless: ["-n", "--dry-run"] }`, ltk
+allows this — `--dry-run` is present in argv, so the exception fires. But in
+real `git clean`, `-e` takes an exclude-PATTERN argument, and `-e --dry-run`
+means "exclude files named `--dry-run`" — the token is `-e`'s VALUE, not a
+standalone `--dry-run` flag. This is **not** a dry run; it deletes for real. The
+matcher has no per-program argument-arity table (which flags consume a
+following word, and how many), so it cannot see this the way `git` itself does
+— the same blind spot [sudoers has around argument
+position](https://www.sudo.ws/security/advisories/bash_env/) in its command
+matching. There is no clean general fix without carrying that per-program
+knowledge, which ltk deliberately does not (see "Matching commands" above for
+why `ltk` stays program-agnostic).
+
+**Consequence for rule authors:** `unless` is fine for *convenience* — carving
+out a genuinely low-stakes read-only form so the rule doesn't nag on it — but
+for anything **destructive**, prefer `mode: confirm` (see [Rule
+mode](#rule-mode)) over leaning on `unless` to "allow the safe form." `mode:
+confirm` denies by default and only lets the *exact same command* back through
+on a **deliberate, repeated** invocation — a spurious exception token elsewhere
+in the argument list can't silently exempt a dangerous one. `unless` conditions
+should still be narrow (a small, well-known set of read-only flags) and never
+the *only* thing standing between an agent and a destructive command it's about
+to run for real.
 
 ## Portability across shells
 
@@ -269,6 +338,19 @@ and PowerShell (`-LongName`) don't bundle, so their tokens are never split.
 (Why this lives in ltk and not the shell parser: bundling is a per-program
 getopt convention — Go's `flag`, `find`, and `dd` don't follow it — so a shell
 parser can't know to split it.)
+
+**Short ALIASES are a different thing from bundled clusters, and are not
+expanded.** `-rf` expanding to carry `-r`/`-f` works because those are the same
+flags spelled together; it does **not** mean ltk knows `-f` is short for
+`--force`, or `-n` for `--dry-run` — that mapping is entirely per-program and
+ltk has no table of it. A rule written with only the long form misses the short
+one: `match: { command: [git, push, --force] }` does **not** catch `git push
+-f`, because `-f` never appears anywhere in that pattern. List every alias the
+target program accepts explicitly — `args_any: ["--force", "-f"]` — the same
+way the shipped `no-force-push` default does (see
+[DEFAULTS.md](DEFAULTS.md#dont-bypass-the-gate)). This is a rule-authoring gap
+to watch for, not an engine bug: nothing about the matcher is wrong, the rule
+just didn't list what it meant to catch.
 
 ## Understanding (catching trivial workarounds)
 

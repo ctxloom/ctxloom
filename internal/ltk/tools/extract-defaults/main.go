@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	source    = "docs/DEFAULTS.md"
+	source    = "docs/ltk/DEFAULTS.md"
 	generated = "cmd/ltk/sample.ltk.yaml"
 	// header is prepended to the generated file. It is written verbatim into a
 	// user's project on `ltk manage install`, so it must be user-facing and free

@@ -29,7 +29,7 @@ rules:
     match: { command: [git, push, --no-verify] }
     message: "Don't bypass push hooks with --no-verify — fix the failure, then push."
   - id: no-force-push
-    match: { command: [git, push, --force] }
+    match: { command: [git, push], args_any: ["--force", "-f"] }
     message: "A plain force-push can overwrite a teammate's commits."
     suggest: "git push --force-with-lease"
   - id: stage-explicitly

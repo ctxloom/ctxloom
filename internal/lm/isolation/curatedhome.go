@@ -49,10 +49,17 @@ import (
 var curatedHomeAllowlist = []string{".gitconfig", ".ssh"}
 
 // curatedHomeSpec registers one engine whose ONLY host isolation lever is
-// HOME itself. antigravity is the first, and — as of this change — the
-// ONLY entry: opencode is a candidate under separate investigation and must
-// NOT be wired here speculatively; a second engine opts in by adding one
-// map entry, not by copying this file's mechanics.
+// HOME itself. antigravity is the first, and — resolved by sunny-saga's
+// investigation — the ONLY entry: opencode was the other candidate this
+// registry's doc used to flag as "under separate investigation," but it
+// turned out to have a FULL scoped-var lever instead (XDG_CONFIG_HOME /
+// XDG_DATA_HOME, live-verified against opencode 1.18.1 — see
+// credentialSeedSpecs["opencode"] in auth.go), so it is registered THERE,
+// not here; wiring it into this registry too would be a mutual-exclusivity
+// bug (PrepareWorkspace checks curatedHomeSpecs first and would silently
+// shadow the scoped-var path with an unneeded blanket HOME override). A
+// genuinely new HOME-only engine opts in by adding one map entry here, not
+// by copying this file's mechanics.
 type curatedHomeSpec struct {
 	// engine names the backend for messages (e.g. "agy") — mirrors
 	// credentialSeedSpec.engine.

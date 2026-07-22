@@ -107,6 +107,20 @@ func TestProvisionCuratedHome_AllowlistIsExactlyGitconfigAndSSH(t *testing.T) {
 	assert.ElementsMatch(t, []string{".gitconfig", ".ssh"}, curatedHomeAllowlist)
 }
 
+// TestCuratedHomeSpecs_OpencodeNotRegistered pins the dispatch decision
+// directly at the registry level (sunny-saga): opencode has a REAL scoped-var
+// lever (credentialSeedSpecs["opencode"], auth.go) — its whole HOME does not
+// need to move, only XDG_CONFIG_HOME/XDG_DATA_HOME do. Registering it here
+// too would be a mutual-exclusivity bug: PrepareWorkspace consults
+// curatedHomeSpecs FIRST (`if spec, ok := curatedHomeSpecs[w.backend]; ok`),
+// so a stray opencode entry here would silently shadow the scoped-var path
+// this task wires up and route opencode through a blanket HOME override it
+// does not need instead.
+func TestCuratedHomeSpecs_OpencodeNotRegistered(t *testing.T) {
+	_, ok := curatedHomeSpecs["opencode"]
+	assert.False(t, ok, "opencode has a full scoped-var lever — it must never take the curated-HOME path")
+}
+
 // --- Worktree wiring: antigravity opts in, scoped-lever engines don't -----
 
 // TestWorktree_Antigravity_HomeOverrideAndSymlinks is the end-to-end payload
@@ -213,12 +227,16 @@ func TestWorktree_Antigravity_AuthNotIsolatedFindingFiresEvenDegraded(t *testing
 }
 
 // TestWorktree_ScopedLeverEngines_NoHomeOverride is the negative space this
-// change must not touch: claude-code/codex/kiro each have a scoped
-// CONFIG_DIR-style lever, so worktree.go deliberately prefers that over a
-// blanket $HOME override (it would strip ~/.gitconfig/ssh identity the
-// worktree still needs for git itself — see provisionConfigHome's doc). None
-// of them may get a "HOME" key in Env(), and none of them fire the curated-
-// home auth-not-isolated finding.
+// change must not touch: claude-code/codex/kiro/opencode each have a scoped
+// CONFIG_DIR-style (or XDG) lever, so worktree.go deliberately prefers that
+// over a blanket $HOME override (it would strip ~/.gitconfig/ssh identity
+// the worktree still needs for git itself — see provisionConfigHome's doc).
+// opencode is included here as the direct proof for sunny-saga: it must take
+// the SCOPED-VAR path (credentialSeedSpecs), never the curated-HOME path —
+// curatedhome.go's registry doc explicitly calls out that opencode must NOT
+// be wired there speculatively, since it has a real scoped lever. None of
+// these backends may get a "HOME" key in Env(), and none of them fire the
+// curated-home auth-not-isolated finding.
 func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 	for _, tc := range []struct {
 		backend string
@@ -227,6 +245,7 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 		{"claude-code", "CLAUDE_CONFIG_DIR"},
 		{"codex", "CODEX_HOME"},
 		{"kiro", "KIRO_HOME"},
+		{"opencode", "XDG_DATA_HOME"},
 	} {
 		t.Run(tc.backend, func(t *testing.T) {
 			resetStrictness(t)
@@ -234,6 +253,7 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 			t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 			t.Setenv("OPENAI_API_KEY", "sk-test")
 			t.Setenv("KIRO_API_KEY", "sk-test")
+			t.Setenv("OPENROUTER_API_KEY", "sk-test")
 			buf := captureWarnings(t)
 
 			common := t.TempDir()

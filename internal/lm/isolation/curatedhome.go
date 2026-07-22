@@ -64,10 +64,11 @@ type curatedHomeSpec struct {
 	// true spec would not need to.
 	authIsolated bool
 	// containerAuthCaveat, when non-empty, is appended to the auth-not-
-	// isolated finding's runtime:container nudge for an engine whose
-	// CONTAINER path ALSO has no working auth resolver yet — so the nudge
-	// does not overclaim that switching runtime achieves real isolation
-	// TODAY. "" once a container credential source is wired.
+	// isolated finding's runtime:container nudge to say what actually
+	// happens to auth inside the container for this engine — e.g. that the
+	// keyring channel is severed at the namespace level and the engine fails
+	// closed rather than authenticating. Not a hedge about missing plumbing:
+	// say plainly when a container run simply cannot authenticate at all.
 	containerAuthCaveat string
 }
 
@@ -80,7 +81,7 @@ var curatedHomeSpecs = map[string]curatedHomeSpec{
 	"antigravity": {
 		engine:       "agy",
 		authIsolated: false,
-		containerAuthCaveat: "ctxloom's own agy container profile has no credential resolver wired yet, so a container run cannot authenticate either — see auth.go's resolveAntigravityContainerAuth",
+		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run cannot authenticate at all instead of silently authenticating as the host user — see auth.go's resolveAntigravityContainerAuth",
 	},
 }
 
@@ -143,7 +144,7 @@ func provisionCuratedHome(home string) error {
 // again.
 func curatedHomeAuthFinding(agentID string, spec curatedHomeSpec) {
 	msg := fmt.Sprintf(
-		"worktree isolation for agent %q: %s's CONFIGURATION and SESSION STATE are isolated in a curated HOME, but AUTHENTICATION IS NOT — %s authenticates through an OS-session keyring that HOME does not relocate, so this agent runs as the SAME account as every other %s agent on this host; switch this agent to runtime:container for real auth isolation",
+		"worktree isolation for agent %q: %s's CONFIGURATION and SESSION STATE are isolated in a curated HOME, but AUTHENTICATION IS NOT — %s authenticates through the OS session keyring (D-Bus Secret Service, addressed by UID via /run/user/<uid>/bus, not by $HOME), so this agent runs as the SAME account as every other %s agent on this host; switch this agent to runtime:container, which severs that socket at the namespace level for real auth isolation",
 		agentID, spec.engine, spec.engine, spec.engine)
 	if spec.containerAuthCaveat != "" {
 		msg += " (" + spec.containerAuthCaveat + ")"

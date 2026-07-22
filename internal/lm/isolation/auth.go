@@ -341,23 +341,35 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 // this from "mechanism confirmed, full success unverified" without a fresh
 // measurement.
 //
-// UNRECONCILED WITH AN EARLIER FINDING: the website's security/isolation.md
-// ("Four: there is no boundary to draw") documents an EARLIER container
-// experiment against this same engine that reports the OPPOSITE outcome —
-// with a fresh HOME, no API-key env var, and "the system keyring made
-// unreachable" by some means that page does not specify, the engine "still
-// authenticated and answered a real prompt" via a credential source that
-// investigation could not identify after probing four ways. That is a
-// stronger and more troubling result than this task's own (it implies a
-// containerized run might authenticate through a channel neither
-// oauth_creds.json nor the D-Bus keyring is), and it directly undermines
-// this package's fixIt advice of "switch to runtime:container for real auth
-// isolation" — if that mystery channel is real, a container may not be a
-// real auth boundary for this engine either. The two results are NOT
-// reconciled here (this task did not have that page's exact method to
-// reproduce it); treat "runtime:container gives real auth isolation" as
-// UNCONFIRMED, not established, until someone repeats that earlier
-// experiment with a documented method.
+// RECONCILED (2026-07-22, same day, later measurement): the earlier
+// unreconciled note here pointed at website/security/isolation.md's "we
+// probed four ways and could not determine where its credential came from"
+// container/HOME experiment, which read as a stronger, opposite result to
+// this function's own container measurement above. It is not opposite. The
+// keyring channel is a D-Bus Secret Service socket at a fixed,
+// UID-derived path — /run/user/<uid>/bus — not something the usual
+// advertising env var (DBUS_SESSION_BUS_ADDRESS) controls: the client
+// library falls back to that path even when the var is unset. Reproduced
+// directly: `env -i HOME=<fresh empty dir> PATH=... agy models`, with NO
+// DBUS_SESSION_BUS_ADDRESS, NO XDG_RUNTIME_DIR, NO DISPLAY, and no other env
+// at all, still authenticated "via keyring". So the earlier experiment's
+// "keyring made unreachable" almost certainly cleared the env var — which
+// removes the label, not the socket — and caught the same keyring documented
+// above, not a fourth, unidentified channel. That resolves the mystery; it
+// does not change this function's answer. The container measurement above
+// (fresh docker container, no D-Bus session bus reachable, fallback to
+// file-based token storage) still holds and is now the confirmed reason
+// containers close this specific channel: fresh mount/PID namespaces mean
+// /run/user/<uid>/bus does not exist inside the box, which is a kernel
+// property, not vendor cooperation. Treat "runtime:container severs the
+// keyring channel" as CONFIRMED. What stays open is the separate,
+// lower-confidence question this comment already carried: whether a
+// deliberately-seeded file-based credential would let a container
+// authenticate end-to-end (see above — unverified). A distinct, also-
+// unverified edge exists in the binary's own ADC-style cloud-metadata
+// machinery, reachable only on a genuine cloud host or if a future
+// container profile ever mounts additional cloud credentials — not
+// exercised by either experiment run here.
 func resolveAntigravityContainerAuth(string, string) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }

@@ -41,7 +41,18 @@ default: build
 # Build ctxloom with all features (treesitter). Codegen prerequisites run here
 # (the ctxloom module can't depend on these container-level recipes), then the
 # actual go build is delegated to the ctxloom module (cmd/ctxloom/justfile).
-build: validate proto gen-schemas gen-docs
+#
+# Deliberately does NOT depend on gen-docs (keen-name): proto/gen-schemas
+# regenerate gitignored derived artifacts the compile itself needs (pb.go,
+# resources/schema/gen/), but gen-docs overwrites COMMITTED website pages —
+# nothing this binary needs to compile — so bundling it here meant every
+# plain `just build` (and therefore `just test`, which depends on build)
+# silently dirtied the tree with doc drift, training everyone to ignore
+# dirty state. release-snapshot already omits it for the same reason.
+# Freshness is now a gate, not a side effect: `just gen-docs-check` /
+# `.github/workflows/ci.yml`'s "Check generated reference docs are current"
+# step regenerates and fails the build on any diff instead.
+build: validate proto gen-schemas
     just ctxloom::build
 
 # Build without CGO - static

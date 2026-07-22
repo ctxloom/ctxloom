@@ -18,8 +18,13 @@ ltk version [flags]
 ### Options
 
 ```
-      --format string   output format: text or json ({name, version}) (default "text")
-  -h, --help            help for version
+  -h, --help   help for version
+```
+
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
 ```
 
 ### SEE ALSO

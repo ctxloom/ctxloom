@@ -23,6 +23,12 @@ See each sub-command's help for details on how to use the generated script.
   -h, --help   help for completion
 ```
 
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+```
+
 ### SEE ALSO
 
 * [ltk](/ltk/reference/cli/ltk/)	 - Gate an LLM agent's shell commands and file edits via a pre-tool hook

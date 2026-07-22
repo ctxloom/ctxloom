@@ -37,6 +37,12 @@ ltk completion fish [flags]
       --no-descriptions   disable completion descriptions
 ```
 
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+```
+
 ### SEE ALSO
 
 * [ltk completion](/ltk/reference/cli/ltk_completion/)	 - Generate the autocompletion script for the specified shell

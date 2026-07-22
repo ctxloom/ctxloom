@@ -41,6 +41,12 @@ ltk evaluate [flags]
       --shell string    force a shell dialect, overriding the engine's tool-derived shell
 ```
 
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
+```
+
 ### SEE ALSO
 
 * [ltk](/ltk/reference/cli/ltk/)	 - Gate an LLM agent's shell commands and file edits via a pre-tool hook

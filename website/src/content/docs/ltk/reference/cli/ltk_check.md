@@ -23,6 +23,9 @@ the engine's wire format), check takes the command as a flag and emits a plain
 be blocked?". It applies no confirm-by-repeat override: it reports what the rules
 say, nothing stateful.
 
+Structured formats (json/yaml/toml/markdown) serialize {decision, message,
+suggestion} via the shared clifmt filter; text prints the human verdict.
+
 Unlike the hook, this is an explicit command, so it fails loud (exit 1) on a
 broken/unreadable config rather than failing closed.
 
@@ -35,9 +38,14 @@ ltk check [flags]
 ```
       --command string   the shell command to check (required)
       --config string    path to rules YAML (default: search cwd)
-      --format string    output format: text or json ({decision, message, suggestion}) (default "text")
   -h, --help             help for check
       --shell string     force a shell dialect for parsing
+```
+
+### Options inherited from parent commands
+
+```
+      --format string   Output format: json, yaml, toml, text, or markdown (default "text")
 ```
 
 ### SEE ALSO

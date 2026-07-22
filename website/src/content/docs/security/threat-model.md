@@ -53,7 +53,11 @@ path that already verified a signature against Alice's trust root.
 
 **Smuggling an executable past review.** A pending or rejected hook or MCP server is **never
 written into the generated backend settings**. It is not registered-but-disabled; it is
-absent. The harness cannot run what was never written.
+absent. The harness cannot run what was never written. A pending or rejected skill gates at
+the same choke — before it is resolved into the list a harness's own skill directory gets
+written from, and before `ctxloom skill show`/`ctxloom://skills/{name}` will return it — so a
+withheld skill's `scripts/` files, executable bit and all, are never delivered to your machine
+until it is reviewed.
 
 **A trusted publisher shipping something bad.** Rejection is evaluated *first*, ahead of
 every allow — including the trusted-publisher exemption and including bundles that shipped

@@ -24,6 +24,7 @@ A bundle is one YAML document. These are all the keys it may carry:
 | `commands` | Prose invoked on demand; exportable as slash commands | **Tier 3** |
 | `mcp` | MCP server declarations | **Tier 2** — a binary is launched |
 | `hooks` | Lifecycle hooks | **Tier 1** — a shell command line the harness runs |
+| `skills` | Agent Skill packages (a directory of files, not inline text) | **Tier 3, with real files on disk** — see below |
 | `profiles` | Composition units (which items load together) | Not gated as a definition — see below |
 
 There is one more field, and it is the one that matters most: a bundle's **verified
@@ -113,6 +114,30 @@ Bundles carry a `content_hash`. It is author-supplied, it drives re-distillation
 checks, and **the trust gate never reads it**. The gate hashes the bytes it is actually about
 to expose. An author-written hash is a claim; a signature over bytes is a proof. Do not
 mistake the former for the latter.
+
+## `skills` — the package on disk
+
+| Field | Meaning |
+|---|---|
+| `path` | Directory relative to the bundle, default `skills/<name>` |
+| `files` | **Generated manifest**: every sibling file's path, sha256, and POSIX mode |
+| `llm` | Per-engine enablement only |
+| `tags`, `notes` | Metadata; `notes` is human-only |
+
+A skill is not inline text like a fragment or command — it is a directory: a required
+`SKILL.md` (frontmatter + instructions, the part a model reads first) plus arbitrary sibling
+files, commonly a `scripts/` folder. Those sibling files are not decorative attachments: the
+`files` manifest records each one's POSIX permission mode, and an executable bit that was set
+in the authored tree is preserved through signing, transfer, and materialization onto your
+disk. A skill that ships `scripts/setup.sh` with the executable bit set puts a real,
+runnable shell script on your machine, at a path the agent can invoke by name — not a
+metaphor, an actual file with `0755` permissions.
+
+Like every other bundle surface, a skill is trust-gated before it ever reaches disk: a
+pending or rejected skill is not materialized. `SKILL.md`'s description has no `content:`
+field to distill — the frontmatter description *is* the progressive-disclosure mechanism a
+model reads before deciding to pull in the rest of the package — but the package as a whole
+still gates the same way everything else does, addressed as `<bundle>#skills/<name>`.
 
 ## `profiles` — composition, not content
 

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
@@ -60,6 +62,10 @@ type AgentChatRequest struct {
 	// Factory overrides plugin construction (test seam). Exactly like the
 	// fan: a non-nil Factory skips isolation entirely.
 	Factory pb.ClientFactory
+	// Git overrides the git DI seam the dirty-parent-tree spawn gate uses
+	// (test seam, mirrors task_triggers.go's Git field); nil selects the
+	// real binary (git.NewExec()).
+	Git git.Git
 }
 
 // AgentChatLaunch is a launched child: turns go in on In (plain text — the
@@ -148,6 +154,23 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 		p.contextText = rs.Context
 	}
 
+	// DIRTY-PARENT-TREE SPAWN GATE (see checkParentTreeForWorktreeSpawn's
+	// doc): a worktree checkout only ever sees COMMITTED state, so a
+	// delegated child spawned into one while the parent tree carries
+	// uncommitted changes would silently run against stale or missing
+	// content. Gated here, once, for BOTH the structured-chat path and the
+	// oneshot fallback below (both derive from this same axes resolution) —
+	// this is a SPAWN-time refusal, not a per-turn one.
+	if p.axes.Workspace == isolation.WorkspaceWorktree {
+		gitClient := req.Git
+		if gitClient == nil {
+			gitClient = git.NewExec()
+		}
+		if err := checkParentTreeForWorktreeSpawn(ctx, gitClient, req.WorkDir, rs.Name); err != nil {
+			return nil, err
+		}
+	}
+
 	if _, ok := backends.Get(rs.Backend).(agent.StructuredChat); !ok {
 		p.oneshot = true
 		return p, nil
@@ -222,6 +245,104 @@ func resolveChatModel(rs *ResolvedAgent) error {
 		return nil // degraded: launch anyway with whatever was configured (rs.Model unchanged)
 	}
 	return fmt.Errorf("agent %q: no ACP-resolvable model for its delegated claude chat (llm label %q, got %q); %s", rs.Name, rs.Label, rs.Model, fixIt)
+}
+
+// maxDirtyFilesListed bounds how many uncommitted paths
+// checkParentTreeForWorktreeSpawn's refusal names before collapsing the rest
+// into "+N more". An agent worktree routinely carries dozens of modified
+// delivered-surface files (regenerated docs, generated schemas) across a long
+// coordinator session; a wall of paths would bury the two sentences that
+// actually matter — what broke and how to fix it.
+const maxDirtyFilesListed = 10
+
+// dirtyWorktreeSpawnFixIt is this gate's strictness Finding.FixIt (the
+// abort-listing's per-finding remedy line) — kept as the SAME sentence as the
+// tail of the returned error's own text, so a --degraded run's finding
+// listing and a strict run's refusal never describe two different ways out.
+const dirtyWorktreeSpawnFixIt = `commit the changes, or pass workspace: "none" for this agent_run call to run it against the live checkout instead`
+
+// checkParentTreeForWorktreeSpawn refuses a delegated spawn that would land
+// in worktree isolation while the PARENT project tree (workDir — the
+// coordinator's own checkout, req.WorkDir; never the child's future
+// workspace) carries uncommitted changes.
+//
+// WHY THIS GATE EXISTS: worktree isolation runs `git worktree add --detach
+// <ref>` (isolation.NewWorktree, internal/lm/isolation/worktree.go) — a
+// checkout of COMMITTED state only, HEAD and everything reachable from it.
+// A coordinator that drafts a file and then hands the work to a delegated
+// child would otherwise get a child that silently runs against stale or
+// missing content: exit 0, a plausible transcript, wrong bytes. That is this
+// project's signature failure mode (see silent-no-op-failure-mode), and
+// worktree-by-default would introduce it deliberately if nothing caught it
+// here. A loud refusal beats a silently stale child.
+//
+// WHAT COUNTS AS DIRTY: git's own notion of it — `git status --porcelain`
+// (git.Git.IsDirty / WorkingChanges), which already honors BOTH the tracked
+// .gitignore and the repo's .git/info/exclude. This is deliberately NOT a
+// bespoke ignore-pattern allowlist reimplementing "what counts as noise":
+// this codebase's own per-agent worktree preparation already writes the
+// delivered-surface noise that would otherwise make this gate unusable
+// (.mcp.json, .claude/, .agents/, .codex/config.toml, .kiro/,
+// .ctxloom/cache/) into the shared common-dir .git/info/exclude
+// (gitignore.WorktreeArtifactPatterns, written by
+// internal/lm/isolation/worktree.go's Worktree.excludeConfigFromMerge), and the tracked
+// .gitignore separately covers .codex/* (config.toml excepted), .opencode/,
+// and the generated living-docs journeys. Once a repo has prepared even ONE
+// agent worktree, that noise is invisible to `git status --porcelain` for
+// every tree sharing the repo's common dir — including the parent's, which
+// is exactly the tree this gate inspects. Reusing git's own porcelain check
+// (the SAME mechanism the worktree teardown already trusts to decide
+// WIP-safety, git.Git.IsDirty's doc) means this gate's notion of "noise"
+// can never drift from the isolation layer's own, and the fix for a new kind
+// of noise is the existing, already-used lever (extend the ignore/exclude
+// patterns) rather than a second allowlist to keep in sync.
+//
+// Tracked modifications always count — there is no noise case for those.
+// Untracked files count too, but ONLY when git itself would not already
+// call them ignored/excluded: an untracked file `git status --porcelain`
+// still reports is exactly the case a worktree checkout would silently
+// drop — the same content a bare `git add` would pick up.
+//
+// Best-effort on a git failure (no binary, workDir not a repo — some test
+// doubles pass a bare temp dir): never blocks the spawn, matching how the
+// isolation chain's OWN git checks degrade (chainFor's worktree branch
+// degrades silently to None on a non-repo dir rather than failing the run).
+//
+// Respects --degraded like every other startup gate (isolationGateErr,
+// chainFor's ClassIsolation findings, resolveChatModel above): the finding
+// still records and streams as a warning, but the spawn proceeds.
+func checkParentTreeForWorktreeSpawn(ctx context.Context, gitClient git.Git, workDir, agentName string) error {
+	dirty, err := gitClient.IsDirty(ctx, workDir)
+	if err != nil || !dirty {
+		return nil
+	}
+	changes, cerr := gitClient.WorkingChanges(ctx, workDir, 0)
+	var listed []string
+	var more int
+	if cerr == nil {
+		listed = changes
+		if len(listed) > maxDirtyFilesListed {
+			more = len(listed) - maxDirtyFilesListed
+			listed = listed[:maxDirtyFilesListed]
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "agent_run: refusing to spawn agent %q into a worktree — %s has uncommitted changes a worktree checkout cannot see (git worktree add checks out committed state only: HEAD and everything reachable from it, nothing you haven't committed yet). These changes would be invisible to the child:\n", agentName, workDir)
+	for _, c := range listed {
+		fmt.Fprintf(&b, "  %s\n", c)
+	}
+	if more > 0 {
+		fmt.Fprintf(&b, "  (+%d more)\n", more)
+	}
+	b.WriteString(dirtyWorktreeSpawnFixIt)
+	msg := b.String()
+
+	strictness.Fail(strictness.ClassIsolation, dirtyWorktreeSpawnFixIt, "%s", msg)
+	if strictness.Degraded() {
+		return nil // degraded: proceed on the worktree anyway, warning only
+	}
+	return errors.New(msg)
 }
 
 // Abort tears down a prepared-but-never-started launch's workspace.

@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -367,4 +369,173 @@ func TestPrepareAgentChat_NonClaudeModelUntouched(t *testing.T) {
 	defer p.Abort()
 	assert.Empty(t, rs.Model)
 	assert.Empty(t, strictness.All())
+}
+
+// ===== Dirty-parent-tree worktree spawn gate =====
+//
+// Worktree isolation runs `git worktree add --detach <ref>` — a checkout of
+// COMMITTED state only. A delegated child spawned into a worktree while the
+// parent's own project tree carries uncommitted changes would silently run
+// against stale or missing content (this project's signature failure mode).
+// These pin the hard-fail: refused in strict mode, downgraded to a warning
+// under --degraded, and never triggered when the resolved axis isn't
+// worktree at all (the "workspace: none" escape hatch the error promises).
+
+// TestPrepareAgentChat_DirtyParentTree_RefusesWorktreeSpawn is the crux case:
+// a delegated child that resolves to worktree isolation (here: the project's
+// OWN silent default, cfg.Fixture{} with no explicit workspace anywhere) is
+// refused when the parent tree is dirty. The error names the agent, lists
+// the uncommitted paths, and states both ways forward (commit, or pass
+// workspace: "none").
+func TestPrepareAgentChat_DirtyParentTree_RefusesWorktreeSpawn(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{" M internal/foo.go", "?? internal/bar.go"},
+	}
+	cfg := config.NewFixture(config.Fixture{}) // no explicit workspace anywhere -> silently defaults to worktree
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  "/proj",
+		Git:      fake,
+	})
+	require.Error(t, err)
+	assert.Nil(t, p)
+	assert.Contains(t, err.Error(), "coder", "names the agent")
+	assert.Contains(t, err.Error(), "/proj", "names the dirty tree")
+	assert.Contains(t, err.Error(), "internal/foo.go", "lists the uncommitted path")
+	assert.Contains(t, err.Error(), "internal/bar.go", "lists the uncommitted path")
+	assert.Contains(t, err.Error(), "committed state only", "states WHY the child can't see it")
+	assert.Contains(t, err.Error(), "commit", "states the first way forward")
+	assert.Contains(t, err.Error(), `workspace: "none"`, "states the escape-hatch way forward")
+
+	findings := strictness.All()
+	require.Len(t, findings, 1, "records exactly one ClassIsolation finding")
+	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+	assert.Contains(t, findings[0].FixIt, "commit")
+	assert.Contains(t, findings[0].FixIt, `workspace: "none"`)
+}
+
+// TestPrepareAgentChat_DirtyParentTree_UntrackedOnlyStillRefuses pins the
+// untracked-files rule: a NEW file git itself does not consider
+// ignored/excluded ("?? " in porcelain) counts as dirty on its own, with no
+// tracked modification present at all — it is exactly the content a
+// worktree checkout would silently drop and a bare `git add` would pick up.
+func TestPrepareAgentChat_DirtyParentTree_UntrackedOnlyStillRefuses(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{"?? internal/newthing.go"},
+	}
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	_, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  "/proj",
+		Git:      fake,
+	})
+	require.Error(t, err, "an untracked-but-not-ignored file alone must still refuse the spawn")
+	assert.Contains(t, err.Error(), "internal/newthing.go")
+}
+
+// TestPrepareAgentChat_DirtyParentTree_BoundsFileList pins the listing
+// bound: an agent worktree routinely carries dozens of modified
+// delivered-surface files, and the refusal must print at most
+// maxDirtyFilesListed of them plus a "+N more" tail rather than a wall of
+// text.
+func TestPrepareAgentChat_DirtyParentTree_BoundsFileList(t *testing.T) {
+	resetStrictness(t)
+	var changes []string
+	for i := 0; i < 15; i++ {
+		changes = append(changes, fmt.Sprintf(" M internal/file%02d.go", i))
+	}
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: changes,
+	}
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	_, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  "/proj",
+		Git:      fake,
+	})
+	require.Error(t, err)
+	for i := 0; i < maxDirtyFilesListed; i++ {
+		assert.Contains(t, err.Error(), fmt.Sprintf("file%02d.go", i))
+	}
+	assert.NotContains(t, err.Error(), "file14.go", "the tail collapses past the bound")
+	assert.Contains(t, err.Error(), "+5 more")
+}
+
+// TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed is the
+// escape hatch the error message promises: a dirty parent tree never blocks
+// a spawn that explicitly opts OUT of worktree isolation (workspace: none),
+// because a shared-checkout child sees the live tree exactly as-is —
+// dirtiness is irrelevant to it. Uses a git.Fake with no factory stub
+// override (WorkDir won't be probed for isolation at all on the none axis;
+// Dirty is still set true to prove the gate never even asks).
+func TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:   "/proj",
+		Workspace: "none", // the agent_run caller's explicit opt-out
+		Git:       fake,
+		Factory:   func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.Empty(t, strictness.All(), "the none axis never even runs the dirty check")
+}
+
+// TestPrepareAgentChat_CleanParentTree_WorktreeAllowed is the negative
+// control: a clean parent tree never trips the gate, even when the resolved
+// axis IS worktree.
+func TestPrepareAgentChat_CleanParentTree_WorktreeAllowed(t *testing.T) {
+	resetStrictness(t)
+	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  "/proj",
+		Git:      fake,
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+	assert.Empty(t, strictness.All())
+}
+
+// TestPrepareAgentChat_DirtyParentTree_DegradedAllowsWithWarning pins
+// --degraded parity with the sibling ClassIsolation gates (chainFor,
+// isolationGateErr, resolveChatModel): the finding still records (and
+// streams as a warning), but the spawn proceeds on the worktree anyway.
+func TestPrepareAgentChat_DirtyParentTree_DegradedAllowsWithWarning(t *testing.T) {
+	resetStrictness(t)
+	strictness.SetDegraded(true)
+	fake := &git.Fake{
+		Dirty:   map[string]bool{"/proj": true},
+		Changes: []string{" M internal/foo.go"},
+	}
+	prev := prepareIsolation
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+	}
+	t.Cleanup(func() { prepareIsolation = prev })
+
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  "/proj",
+		Git:      fake,
+	})
+	require.NoError(t, err, "degraded mode downgrades the refusal to a warning")
+	defer p.Abort()
+	assert.Empty(t, strictness.All(), "degraded mode records nothing (Fail is a no-op in degraded mode)")
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // --- Curated scratch HOME: the mechanism for a "HOME-is-the-only-lever" engine ---
@@ -38,6 +39,20 @@ import (
 // (curatedHomeSpecs) rather than a credentialSeedSpec with an empty
 // sourceFiles: conflating the two would let a partial lever read as full
 // isolation.
+//
+// SECOND measurement, same day (2026-07-22), against agy 1.1.5: the
+// workspace axis's OWN core promise — that an isolated cwd relocates an
+// engine's file writes — also fails for antigravity. `agy -p` ignores the
+// launch working directory ENTIRELY and always writes to a FIXED global
+// scratch (~/.gemini/antigravity-cli/scratch/) regardless of which worktree
+// it runs in, so two "isolated" agents share one global scratch tree no
+// matter how many per-agent worktrees/HOMEs are set up. Combined with
+// authIsolated==false, BOTH of a host worktree's two possible payoffs for
+// this engine are absent — a curated HOME here only isolates config/session
+// state (real, but not what a worktree request is FOR) — so PrepareWorkspace
+// REFUSES a host worktree request for this engine outright
+// (curatedHomeRefusal) instead of warning through a boundary that is not
+// one. See curatedHomeSpec.workspaceViable and curatedHomeRefusal below.
 
 // curatedHomeAllowlist is the FIXED, MINIMAL set of host dotfiles ctxloom
 // makes reachable inside a curated scratch HOME. This is an allowlist, not
@@ -66,16 +81,43 @@ type curatedHomeSpec struct {
 	engine string
 	// authIsolated reports whether pointing HOME at the curated scratch dir
 	// ALSO relocates this engine's authentication. False for antigravity —
-	// see the package-doc measurement above. A false spec fires
-	// curatedHomeAuthFinding on every PrepareWorkspace; a (hypothetical)
-	// true spec would not need to.
+	// see the package-doc measurement above. A false spec fires a finding on
+	// every host-worktree PrepareWorkspace — curatedHomeRefusal (fatal) when
+	// workspaceViable is also false, else curatedHomeAuthFinding (warn); a
+	// (hypothetical) true spec would not need either.
 	authIsolated bool
-	// containerAuthCaveat, when non-empty, is appended to the auth-not-
-	// isolated finding's runtime:container nudge to say what actually
-	// happens to auth inside the container for this engine — e.g. that the
-	// keyring channel is severed at the namespace level and the engine fails
-	// closed rather than authenticating. Not a hedge about missing plumbing:
-	// say plainly when a container run simply cannot authenticate at all.
+	// workspaceViable reports whether a HOST {workspace: worktree} run is an
+	// acceptable posture for this engine DESPITE authIsolated being false —
+	// i.e. whether the worktree's OTHER possible payoff (relocating the
+	// engine's file writes into the per-agent checkout) actually holds.
+	// False for antigravity: MEASURED 2026-07-22 against agy 1.1.5 (see the
+	// package doc above) — `agy -p` ignores the launch cwd entirely and
+	// always writes to its own fixed global scratch, so the workspace axis
+	// achieves NOTHING for antigravity's file writes on the host either.
+	// With BOTH escapes unfixable on host (auth via the keyring, file writes
+	// via the global scratch), PrepareWorkspace REFUSES a host worktree
+	// request for this spec outright (curatedHomeRefusal) rather than warn
+	// through a boundary that isolates neither of the two things a worktree
+	// request is asking for. A spec with workspaceViable true (none exist
+	// yet) would keep the pre-existing warn-only posture (curatedHomeAuthFinding)
+	// even with authIsolated false — e.g. a hypothetical engine whose file
+	// writes DO honour the launch cwd, so the worktree still isolates
+	// something real even though auth doesn't.
+	//
+	// NEVER consulted for a Worktree wrapped inside a container base
+	// (container_worktree.go's worktreeBase) — Worktree.containerWrapped
+	// short-circuits the fatal branch there unconditionally, because a
+	// container's own mount/PID namespace contains BOTH escapes regardless
+	// of what this field says; the container path stays the pre-existing
+	// warn-only posture (curatedHomeAuthFinding) it always had.
+	workspaceViable bool
+	// containerAuthCaveat, when non-empty, is appended to both the
+	// auth-not-isolated warning AND the host workspace refusal's
+	// runtime:container nudge to say what actually happens to auth inside
+	// the container for this engine — e.g. that the keyring channel is
+	// severed at the namespace level and the engine fails closed rather
+	// than authenticating. Not a hedge about missing plumbing: say plainly
+	// when a container run simply cannot authenticate at all.
 	containerAuthCaveat string
 }
 
@@ -86,8 +128,9 @@ type curatedHomeSpec struct {
 // config-only no-op (Worktree.provisionConfigHome).
 var curatedHomeSpecs = map[string]curatedHomeSpec{
 	"antigravity": {
-		engine:       "agy",
-		authIsolated: false,
+		engine:          "agy",
+		authIsolated:    false,
+		workspaceViable: false,
 		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run cannot authenticate at all instead of silently authenticating as the host user — see auth.go's resolveAntigravityContainerAuth",
 	},
 }
@@ -134,7 +177,14 @@ func provisionCuratedHome(home string) error {
 
 // curatedHomeAuthFinding emits the LOUD, non-fatal warning that config and
 // session-state isolation succeeded but authentication did not, for a spec
-// whose authIsolated is false.
+// whose authIsolated is false. Two callers reach it: a workspaceViable==true
+// spec's host worktree (none exist yet — see the field's doc), and EVERY
+// container-wrapped worktree (Worktree.containerWrapped), REGARDLESS of
+// workspaceViable — a container's own mount/PID namespace already contains
+// both of antigravity's escapes, so the container path keeps this exact
+// pre-existing warn-only posture unconditionally; only the STANDALONE host
+// path for a workspaceViable==false spec escalates, via curatedHomeRefusal
+// below.
 //
 // Deliberately routed through clidiag.Warn, NEVER strictness.Fail/Record:
 // this finding must not enter the same pass/fail signal a genuinely dropped
@@ -157,4 +207,45 @@ func curatedHomeAuthFinding(agentID string, spec curatedHomeSpec) {
 		msg += " (" + spec.containerAuthCaveat + ")"
 	}
 	clidiag.Warn("ctxloom", "%s", msg)
+}
+
+// curatedHomeWorkspaceFixIt is the fix-it hint attached to curatedHomeRefusal's
+// fatal finding: unlike credentialSeedFixIt (worktree.go), there is no
+// host-side authenticate/env-var escape hatch here, because the problem is
+// not creds alone — it is two independent, unfixable-on-host escapes
+// (auth AND file writes). The only working alternative is runtime:container;
+// --degraded is the same universal downgrade every other ClassIsolation
+// finding in this package offers.
+const curatedHomeWorkspaceFixIt = "switch this agent to runtime:container (its mount/PID namespace actually contains both escapes), or pass --degraded (env CTXLOOM_DEGRADED=1) to run this member with config/session isolation only, accepting shared auth AND shared global file writes"
+
+// curatedHomeRefusal records the FATAL ClassIsolation finding that replaces
+// curatedHomeAuthFinding's plain warning for a workspaceViable==false spec on
+// the STANDALONE host worktree path — mirroring kiro's own fatal-unless-
+// degraded posture (worktree.go's gateHomeVars/seedCredentials, the SAME
+// strictness.Fail(ClassIsolation, ...) call the choke owner already aborts a
+// strict run on, downgradable via --degraded exactly the same way).
+//
+// A curated scratch HOME for a spec like this isolates NEITHER of a host
+// worktree's two possible payoffs: not AUTH (the OS session keyring reaches
+// past $HOME) and not FILE WRITES (the engine ignores the launch cwd
+// entirely and always writes to its own fixed global scratch, regardless of
+// which worktree/HOME it was launched under — measured 2026-07-22, see the
+// package doc). So the workspace axis achieves nothing worth the name for
+// this engine on host, and PrepareWorkspace says so instead of warning
+// through it. NEVER called for a container-wrapped Worktree
+// (Worktree.containerWrapped short-circuits this branch in
+// provisionCuratedHomeFor) — the container's own mount/PID namespace
+// contains both escapes there, proven separately for antigravity; that path
+// keeps curatedHomeAuthFinding's pre-existing warn-only posture unchanged.
+func curatedHomeRefusal(agentID string, spec curatedHomeSpec) {
+	msg := fmt.Sprintf(
+		"worktree isolation for agent %q: %s cannot be isolated by a host worktree — "+
+			"AUTHENTICATION escapes it (%s authenticates through the OS session keyring, D-Bus Secret Service, addressed by UID via /run/user/<uid>/bus, not by $HOME) "+
+			"AND FILE WRITES escape it (%s ignores the launch working directory entirely and always writes to its own fixed global scratch, ~/.gemini/antigravity-cli/scratch/, regardless of which worktree/HOME it runs under) — "+
+			"every %s agent on this host would share the SAME account AND the SAME scratch tree no matter how many isolated worktrees/HOMEs are set up; use runtime:container instead, which contains both escapes inside the container's own mount/PID namespace",
+		agentID, spec.engine, spec.engine, spec.engine, spec.engine)
+	if spec.containerAuthCaveat != "" {
+		msg += " (" + spec.containerAuthCaveat + ")"
+	}
+	strictness.Fail(strictness.ClassIsolation, curatedHomeWorkspaceFixIt, "%s", msg)
 }

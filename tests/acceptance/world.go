@@ -35,17 +35,18 @@ type World struct {
 	j1bRecordFile     string               // J1b: path the mock backend records its received input to
 	j1bRecorded       string               // J1b: the mock's recorded input from the discovery-session launch
 
-	j2s *j2State // J2: team-authoring journey state (see steps_j2_team.go)
-	j3  *j3State // J3: the corporate-signed/trust journey's fixture state (steps_j3.go)
-	j4s *j4State // J4: the onboarding journey's fixture state (steps_j4_onboarding.go)
-	j5  *j5State // J5: the multi-engine journey's fixture state (steps_j5.go)
-	j6  *j6State // J6: the delegation/privilege journey's fixture state (steps_j6_delegation.go)
-	j7s *j7State // J7: the incident journey's fixture state (steps_j7.go)
-	j9  *j9State  // J9: the isolation-axes journey's fixture state (steps_j9_isolation.go)
-	j10 *j10State // J10: the Agent Skill materialization journey's fixture state (steps_j10_doctor.go)
-	j11 *j11State // J11: the taskloom tag-surface journey's fixture state (steps_j11_taskloom.go)
-	j16 *j16State // J16: the worktree-task-store redirect journey's fixture state (steps_j16_worktree_task_store.go)
-	ts  *tsState  // trust-surface matrix: fixture state (steps_trust_surface.go)
+	j2s       *j2State        // J2: team-authoring journey state (see steps_j2_team.go)
+	j3        *j3State        // J3: the corporate-signed/trust journey's fixture state (steps_j3.go)
+	j4s       *j4State        // J4: the onboarding journey's fixture state (steps_j4_onboarding.go)
+	j5        *j5State        // J5: the multi-engine journey's fixture state (steps_j5.go)
+	j6        *j6State        // J6: the delegation/privilege journey's fixture state (steps_j6_delegation.go)
+	j7s       *j7State        // J7: the incident journey's fixture state (steps_j7.go)
+	j9        *j9State        // J9: the isolation-axes journey's fixture state (steps_j9_isolation.go)
+	isoMatrix *isoMatrixState // J9 matrix: the per-engine config-home isolation fixture state (steps_j9_isolation_matrix.go)
+	j10       *j10State       // J10: the Agent Skill materialization journey's fixture state (steps_j10_doctor.go)
+	j11       *j11State       // J11: the taskloom tag-surface journey's fixture state (steps_j11_taskloom.go)
+	j16       *j16State       // J16: the worktree-task-store redirect journey's fixture state (steps_j16_worktree_task_store.go)
+	ts        *tsState        // trust-surface matrix: fixture state (steps_trust_surface.go)
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
@@ -126,6 +127,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ7Steps(ctx)
 	registerJ8Steps(ctx)
 	registerJ9Steps(ctx)
+	registerJ9MatrixSteps(ctx)
 	registerJ10Steps(ctx)
 	registerJ11Steps(ctx)
 	registerJ16Steps(ctx)

@@ -896,3 +896,96 @@ func TestClaudeCodeHookWriter_MCPConfigResilience(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &mcpConfig))
 	assert.Contains(t, mcpConfig, "mcpServers", "should have mcpServers after writing")
 }
+
+// permissionsPayload reads settings.json and returns its permissions block —
+// the test helper every deny-tools payload assertion below reads through, so
+// they check the actual JSON bytes on disk rather than in-memory state.
+func permissionsPayload(t *testing.T, fs afero.Fs, settingsPath string) struct {
+	Deny []string `json:"deny"`
+	Ask  []string `json:"ask,omitempty"`
+} {
+	t.Helper()
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	var parsed struct {
+		Permissions struct {
+			Deny []string `json:"deny"`
+			Ask  []string `json:"ask,omitempty"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(data, &parsed))
+	return parsed.Permissions
+}
+
+// TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions is the
+// unit-level payload proof for the deny-tools fix: writeSettingsFile's
+// denyTools parameter must appear verbatim in settings.json's
+// permissions.deny — asserting the actual bytes on disk, not merely that the
+// call returned nil (ctxloom's characteristic silent-no-op failure mode is
+// exit 0 with zero bytes delivered).
+func TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	perm := permissionsPayload(t, fs, settingsPath)
+	assert.Equal(t, []string{"Task"}, perm.Deny, "the deny_tools payload must land verbatim in permissions.deny")
+}
+
+// TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk proves the deny
+// merge does not clobber a user's own permissions.allow/ask entries — the
+// same "reconcile without destroying user-authored config" invariant hooks
+// and MCP servers already honor, extended to the new permissions surface.
+func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+
+	existing := map[string]interface{}{
+		"permissions": map[string]interface{}{
+			"allow": []string{"Bash(npm run lint)"},
+			"ask":   []string{"WebFetch"},
+		},
+	}
+	data, err := json.Marshal(existing)
+	require.NoError(t, err)
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	require.NoError(t, afero.WriteFile(fs, settingsPath, data, 0644))
+
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+
+	got, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal(got, &parsed))
+	perm := parsed["permissions"].(map[string]interface{})
+	assert.ElementsMatch(t, []interface{}{"Bash(npm run lint)"}, perm["allow"], "user's allow rules must survive a deny_tools apply")
+	assert.ElementsMatch(t, []interface{}{"WebFetch"}, perm["ask"], "user's ask rules must survive a deny_tools apply")
+	assert.ElementsMatch(t, []interface{}{"Task"}, perm["deny"], "the ctxloom-managed deny entry must be added")
+}
+
+// TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies proves two facts
+// about the deny merge in one pass: (1) a re-apply with the SAME deny_tools
+// does not duplicate the entry, and (2) a re-apply with an EMPTY deny_tools
+// list does NOT retract a previously-written deny — the deliberate
+// monotonic-add-only design (mergeDenyTools's doc): a denial is safe to keep,
+// never safe to silently drop.
+func TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny, "re-applying the same deny_tools must not duplicate")
+
+	// A later run whose resolved deny_tools is empty (e.g. the profile was
+	// edited) must not erase the prior denial.
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project"))
+	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny, "an empty deny_tools apply must NOT retract a previously-written deny")
+
+	// A later run adding a second tool unions rather than replaces.
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"WebFetch"}, "/project"))
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny, "a later deny_tools entry unions with the existing deny list")
+}

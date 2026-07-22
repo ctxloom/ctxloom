@@ -352,6 +352,14 @@ type ManagedConfig struct {
 	MCP              *wire.MCPConfig           // merged config + default-profile MCP servers
 	BundleMCP        map[string]wire.MCPServer // MCP servers shipped by profile + builtin bundles (parallel to Hooks' bundle set)
 	ManageStatusline bool                      // whether ctxloom manages the backend statusline
+	// DenyTools is the config+default-profile deny_tools union (deny-tools.md
+	// root-cause fix): per-engine tool identifiers the resolved profile set
+	// denies at launch (e.g. "Task" — Claude Code's built-in sub-agent tool,
+	// which ctxloom cannot mediate). Reaches only backends whose settings
+	// surface has a native per-tool deny list (claude-code today); others
+	// ignore it. Never trust-gated: a deny entry only narrows a launch, it
+	// never executes anything.
+	DenyTools []string
 }
 
 // ExecuteRequest contains the runtime parameters for execution.

@@ -320,7 +320,7 @@ func TestFileTemplateDelivery_DeliverSettings(t *testing.T) {
 	// Control: the existing settings writer (manageStatusline true == default
 	// statusLineDisabled false).
 	controlDir := t.TempDir()
-	require.NoError(t, (&ClaudeCodeHookWriter{}).writeSettingsFile(hooks, controlDir))
+	require.NoError(t, (&ClaudeCodeHookWriter{}).writeSettingsFile(hooks, nil, controlDir))
 
 	got, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "settings.json"))
 	require.NoError(t, err)

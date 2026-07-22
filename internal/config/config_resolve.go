@@ -40,6 +40,10 @@ type profileBuilder struct {
 	// Exclusion sets - accumulate through inheritance
 	ExcludeFragments collections.Set[string]
 	ExcludeMCP       collections.Set[string]
+	// DenyTools accumulates through inheritance like the exclusion sets above
+	// (a child cannot un-deny what a parent denied) — see config_types.go's
+	// Profile.DenyTools doc for the tool-deny semantics.
+	DenyTools collections.Set[string]
 }
 
 func newProfileBuilder() *profileBuilder {
@@ -63,6 +67,7 @@ func newProfileBuilder() *profileBuilder {
 		seenHooks:        collections.NewSet[string](),
 		ExcludeFragments: collections.NewSet[string](),
 		ExcludeMCP:       collections.NewSet[string](),
+		DenyTools:        collections.NewSet[string](),
 	}
 }
 
@@ -264,6 +269,7 @@ func (b *profileBuilder) toProfile() *Profile {
 		MCP:              filteredMCP,
 		ExcludeFragments: b.ExcludeFragments.Items(),
 		ExcludeMCP:       b.ExcludeMCP.Items(),
+		DenyTools:        b.DenyTools.Items(),
 	}
 }
 
@@ -381,6 +387,9 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	}
 	for _, mcp := range profile.ExcludeMCP {
 		builder.ExcludeMCP.Add(mcp)
+	}
+	for _, tool := range profile.DenyTools {
+		builder.DenyTools.Add(tool)
 	}
 
 	builder.Description = profile.Description

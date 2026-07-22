@@ -805,6 +805,35 @@ exclude_fragments:
 	assert.Equal(t, []string{"slow-server"}, resolved.ExcludeMCP)
 }
 
+// TestLoader_ResolveProfile_DenyTools is the deny_tools schema round-trip:
+// real YAML on disk, parsed through the directory Loader, accumulating
+// through the parent chain and deduping a tool named by both parent and
+// child — same shape as TestLoader_ResolveProfile_Exclusions, proving
+// deny_tools survives the SAME resolution path exclude_mcp does.
+func TestLoader_ResolveProfile_DenyTools(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `deny_tools:
+  - Task
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `parents:
+  - parent
+deny_tools:
+  - Task
+  - WebFetch
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, resolved.DenyTools,
+		"deny_tools accumulates from parent and child, deduped")
+}
+
 // fragNames extracts the ordered fragment-ref names from a ResolvedProfile.
 func fragNames(frags []FragmentRef) []string {
 	out := make([]string, 0, len(frags))

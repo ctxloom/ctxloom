@@ -225,7 +225,7 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 			missingRequired = append(missingRequired, fmt.Sprintf("%s (%s)", bin, engine))
 		}
 	}
-	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
+	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		missingRequired = append(missingRequired, "docker/podman (container runtime)")
 	}
 	if len(missingRequired) == 0 && len(missingRecommended) == 0 {

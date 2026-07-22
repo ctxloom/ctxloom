@@ -325,7 +325,7 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 
 func tarEntryKind(hdr *tar.Header) entryKind {
 	switch hdr.Typeflag {
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		return kindFile
 	case tar.TypeDir:
 		return kindDir

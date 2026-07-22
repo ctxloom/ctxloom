@@ -87,6 +87,47 @@ matching:
 > the tool — see the README. Deeper intent-based detection is aspirational. For
 > hard isolation, run the agent in a sandbox/container.
 
+### Gated tools: an unrecognized tool is denied, not allowed
+
+Each engine adapter carries one hand-maintained list (`claudeGatedTools`,
+`antigravityGatedTools`) that is the single source of truth for **both**
+directions: it derives the installed `PreToolUse` matcher (a regex, engine
+protocol permitting) *and* the runtime check `engine.Request.ToolUngated` that
+`Decode` uses to recognise a payload's fields. Two hand-maintained lists over a
+vendor-owned, mutating tool set would drift out of sync silently; one list
+can't.
+
+But one list over a vendor-owned tool set can still go *stale* — the vendor
+ships or renames a tool the list doesn't know, and the installed matcher fires
+on it anyway while `Decode` doesn't recognise the exact name. **Confirmed live
+on Antigravity today:** agy's matcher is an unconditional, unanchored regex
+(verified below), so a tool whose name merely *contains* a gated one — a
+hypothetical `safe_run_command` alongside `run_command` — fires the hook.
+**Claude Code is narrower today, but not immune:** its matcher takes the
+unanchored-regex path only when it contains an actual regex metacharacter;
+one built purely from plain identifiers and `|` (what `claudeMatcher` always
+is right now) is instead matched as an *exact* name list (verified,
+[code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks),
+"Matcher patterns" — the `SmartEdit`-shaped bypass below is demonstrated by
+invoking `ltk evaluate` directly, not by a substring collision Claude Code's
+current matcher would actually produce). It stops being narrow the moment
+someone hand-edits `settings.json` to widen the matcher (`.*`, a stray `+`,
+…), or a future gated tool name isn't a plain identifier — both put Claude
+Code on the same unanchored-regex path agy is already on. Either way, once
+the installed matcher fires on a name `Decode` doesn't recognise, that's
+`ToolUngated`.
+
+Everywhere else in ltk, an unresolvable command *allows* (RULES.md's fail-open
+default). `ToolUngated` is the one deliberate exception: `cmd/ltk/evaluate.go`
+denies it instead, because the alternative isn't "a slightly weaker guard" —
+it's a tool the operator explicitly told ltk to watch (it's in the installed
+matcher) silently evaluating as though no rule existed at all. The deny names
+the tool and points at the fix: add it to the engine's gated tools and re-run
+`ltk manage install`. A tool that never matches the installed matcher (`Read`,
+`Grep`, `WebSearch`, …) never invokes `evaluate` in the first place, so it
+never reaches this check and stays fail-open as always — the exception's blast
+radius is exactly the tools ltk was already told to gate.
+
 ---
 
 # Engine compatibility

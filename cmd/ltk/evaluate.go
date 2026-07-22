@@ -139,6 +139,13 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 		return failClosed(adapter, fmt.Sprintf(
 			"%s could not parse the hook payload and is denying this action: %v", progName, err))
 	}
+	// The installed PreToolUse matcher fired (this call is running at all) but
+	// the tool name it fired on is not one Decode recognises — an unrecognized
+	// tool with an unrecognized payload schema, the narrow exception to ltk's
+	// fail-open posture. See ungatedToolDenyReason.
+	if req.ToolUngated {
+		return failClosed(adapter, ungatedToolDenyReason(adapter, req))
+	}
 
 	a := app.New(cfg)
 	a.ForceShell = forceShell
@@ -164,28 +171,46 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 	if err != nil {
 		return engine.Output{}, fmt.Errorf("encode decision: %w", err)
 	}
-	out.Stderr = append(out.Stderr, ungatedToolWarning(adapter, req)...)
 	return out, nil
 }
 
-// ungatedToolWarning surfaces a payload whose tool name the adapter cannot
-// read. ltk's tool matcher is a hand-maintained list over a VENDOR-OWNED tool
-// set: when the vendor ships or renames a shell/file tool, ltk keeps exiting 0
-// with no decision and every rule silently stops applying to it (stark-boxer).
+// ungatedToolDenyReason explains a deny for a payload whose tool name the
+// adapter does not recognise. ltk's tool matcher is a hand-maintained list
+// over a VENDOR-OWNED, mutating tool set (claudeGatedTools /
+// antigravityGatedTools): when the vendor ships or renames a shell/file tool,
+// the installed PreToolUse matcher can end up firing on it while Decode's
+// exact-name list does not recognise it — confirmed as agy's actual behavior
+// (its matcher is a real, unanchored regex: a tool like "safe_run_command"
+// matches the "run_command" alternative). Claude Code evaluates a matcher
+// built purely of plain identifiers and "|" (exactly what claudeMatcher is
+// today) as an EXACT list instead — see claudecode.go's claudeMatcher comment
+// — so this specific collision needs the matcher to contain a genuine regex
+// metacharacter to reach Claude Code's regex path at all (a hand-edited
+// settings.json, or a future gated name that isn't a plain identifier).
+// Either way, once the installed matcher DOES fire on an unrecognised name,
+// Decode reads only the payload field names it knows
+// (tool_input.command/file_path/notebook_path); an unrecognized tool using
+// different field names yields an empty Request that every rule silently
+// misses (stark-boxer).
 //
-// It WARNS rather than denying, deliberately. Denying would turn a vendor
-// rename into a hard stop on tools ltk was never asked to guard; the failure
-// being diagnosed here is silence, so a visible signal is the fix. The exit
-// code is untouched for the same reason the rest of this file fails closed
-// rather than erroring: both hosts treat a non-zero exit as a silent allow.
-func ungatedToolWarning(adapter engine.Adapter, req engine.Request) []byte {
-	if !req.ToolUngated {
-		return nil
-	}
-	return []byte(fmt.Sprintf(
-		"%s: %s tool %q is not in ltk's gated tool set — NO rules were applied to this call. "+
-			"If it can run commands or write files, add it to the engine's gated tools and re-run '%s manage install'.\n",
-		progName, adapter.Name(), req.ToolName, progName))
+// This is a deliberate, NARROW exception to ltk's fail-open posture (see
+// docs/ltk/RULES.md and README.md's "Scope" section): everywhere else,
+// uncertainty about a command or config chooses to let the agent through
+// rather than block on it. Here it can't, because the alternative is not "the
+// agent proceeds under a slightly weaker guard" — it is "a tool the operator
+// explicitly told ltk to gate (it's in the installed matcher) silently
+// evaluates as though no rule existed at all". A tool that never matches the
+// installed matcher (Read, Grep, WebSearch, ...) never invokes evaluate in the
+// first place, so this exception has no effect on those — see
+// TestEvaluateDeniesUnrecognizedToolName's "recognised tool stays silent" case
+// and the claude-code/antigravity Decode tests for the matcher-miss path.
+func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
+	return fmt.Sprintf(
+		"%s could not read %s tool %q's payload — it matched the installed hook but is not in "+
+			"ltk's gated tool set, so no rule could be evaluated against it — and is denying this "+
+			"call rather than letting it through unchecked. To fix: add %q to the engine's gated "+
+			"tools and re-run '%s manage install'.",
+		progName, adapter.Name(), req.ToolName, req.ToolName, progName)
 }
 
 // failClosed renders reason as a well-formed deny decision in the engine's wire

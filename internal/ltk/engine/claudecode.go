@@ -100,11 +100,25 @@ func (ClaudeCode) Encode(resp Response) (Output, error) {
 var claudeGatedTools = []string{"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 // claudeMatcher is the PreToolUse matcher, derived from claudeGatedTools.
+//
+// Verified (code.claude.com/docs/en/hooks, "Matcher patterns", 2026-07): Claude
+// Code evaluates a matcher containing only letters/digits/_/-/spaces/,/| as an
+// EXACT string or list of exact strings, not a regex — which is what this
+// value always is, since claudeGatedTools are plain PascalCase identifiers.
+// So today, an entirely unknown tool name simply never fires this hook at all
+// (the hook isn't invoked, and ToolUngated never comes up). Only a matcher
+// containing an actual regex metacharacter — e.g. a hand-edited settings.json,
+// or a future gated name that isn't a plain identifier — puts Claude Code on
+// its unanchored-regex path, where an unrelated tool whose name contains a
+// gated one as a substring (`Edit.*` also matches `NotebookEdit`) can fire it.
+// Antigravity's matcher IS a genuine unanchored regex unconditionally (see
+// antigravityMatcher), so that collision is live there today.
 var claudeMatcher = strings.Join(claudeGatedTools, "|")
 
-// claudeGatesTool reports whether ltk can extract a command or a file path
-// from this tool's payload. A false here means ltk would evaluate an EMPTY
-// request and allow — the silent fail-open the caller must surface.
+// claudeGatesTool reports whether ltk recognises this tool's exact name. A
+// false here sets Request.ToolUngated, which cmd/ltk/evaluate.go denies on —
+// the installed matcher fired (this tool reached the hook) but the payload
+// schema is not one Decode is known to read correctly.
 func claudeGatesTool(tool string) bool {
 	return slices.Contains(claudeGatedTools, tool)
 }

@@ -11,7 +11,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -233,7 +232,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// Strict mode: refuse to open the session when config load or assembly
 		// recorded a fatal finding, surfacing the full list to the editor. Degraded
 		// mode returns nil here and the session opens (ACP's usual fault tolerance).
-		return engineSessionFindingsError(startupMark)
+		return strictness.FindingsError(startupMark)
 	}(); gerr != nil {
 		return nil, gerr
 	}
@@ -505,28 +504,6 @@ func buildSessionCommands(ctx context.Context, cfg *config.Config) *SessionComma
 		return text, true, nil
 	}
 	return out
-}
-
-// engineSessionFindingsError renders the strictness findings since mark as an
-// error refusing the session open. This mirrors internal/cli's findingsError
-// (startup_helpers.go) and agentcoord/coord/spawner.go's own copy — each
-// layer keeps its own because none of the three may import another here
-// (operations cannot import coord, coord cannot import cli, and this is the
-// per-call/keeps-running variant, not the process-exit variant cli uses at
-// its own top-level startup).
-func engineSessionFindingsError(mark strictness.Mark) error {
-	found := strictness.Since(mark)
-	if len(found) == 0 || strictness.Degraded() {
-		return nil
-	}
-	msg := "fatal startup findings:"
-	for _, f := range found {
-		msg += "\n  - " + f.Message
-		if f.FixIt != "" {
-			msg += " (fix: " + f.FixIt + ")"
-		}
-	}
-	return errors.New(msg)
 }
 
 // acpSessionMCPServers composes the ctxloom-managed MCP injection for one ACP

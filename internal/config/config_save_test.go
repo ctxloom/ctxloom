@@ -4,12 +4,14 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -173,6 +175,47 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "mine")
+}
+
+// TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected is the regression guard
+// for operations/helpers.go's loadFreshConfig fix (see its doc comment): a
+// Config built the way every real Load()/LoadFresh() call produces one — fs
+// left nil, injectedFS left at its zero value false — must actually contend
+// for config.yaml's advisory lock, not silently skip it. Before the fix,
+// every production caller reaching a Config via
+// operations.loadFreshConfig(nil, ...) — every MCP-server config-mutation
+// handler — pre-resolved the nil fs to a concrete OS fs before ever calling
+// WithFS, which set injectedFS=true and permanently skipped this exact lock:
+// exactly the CLI-vs-MCP-server concurrent-Save scenario the lock exists to
+// protect (see injectedFS's doc and Save's own doc, both above).
+func TestConfig_Save_TakesAdvisoryLockWhenFSNotInjected(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{appPaths: []string{tmpDir}}
+	require.False(t, cfg.injectedFS, "precondition: a bare Config (as every real Load produces) is not FS-injected")
+
+	configPath, err := cfg.GetConfigFilePath()
+	require.NoError(t, err)
+
+	unlock, err := filelock.Lock(configPath + ".lock")
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- cfg.Save() }()
+
+	select {
+	case <-done:
+		t.Fatal("Save() returned while the advisory lock was held externally — it never actually took the lock")
+	case <-time.After(200 * time.Millisecond):
+		// Still blocked on the external lock, as expected.
+	}
+
+	unlock()
+	select {
+	case saveErr := <-done:
+		assert.NoError(t, saveErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Save() never completed after the external lock was released")
+	}
 }
 
 // TestConfig_Save_LeavesNoTempFiles pins the atomic-write contract: Save goes

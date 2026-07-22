@@ -195,7 +195,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 			return err
 		}
 		perm, degraded = headlessSafePermission(agentName, rs.Permissions)
-		return findingsError(mark)
+		return strictness.FindingsError(mark)
 	}(); gerr != nil {
 		return nil, gerr
 	}
@@ -393,27 +393,9 @@ func headlessSafePermission(name, declared string) (agent.PermissionMode, []stri
 		return agent.PermissionPlan, []string{fmt.Sprintf(
 			"agent %q %s; degraded mode launches it at %q — the most restrictive headless-safe posture", name, reason, agent.PermissionPlan)}
 	}
-	return agent.PermissionPlan, nil // unreachable in strict mode: findingsError refuses
+	return agent.PermissionPlan, nil // unreachable in strict mode: strictness.FindingsError refuses
 }
 
 // strictnessCheckpoint is a thin alias so tests in this package can open the
 // same window the production resolve does without importing strictness.
 func strictnessCheckpoint() strictness.Mark { return strictness.Checkpoint() }
-
-// findingsError renders the strictness findings since mark as an error (the
-// per-call variant for servers that must keep running — same contract as the
-// cli's findingsError).
-func findingsError(mark strictness.Mark) error {
-	found := strictness.Since(mark)
-	if len(found) == 0 || strictness.Degraded() {
-		return nil
-	}
-	msg := "fatal startup findings:"
-	for _, f := range found {
-		msg += "\n  - " + f.Message
-		if f.FixIt != "" {
-			msg += " (fix: " + f.FixIt + ")"
-		}
-	}
-	return fmt.Errorf("%s", msg)
-}

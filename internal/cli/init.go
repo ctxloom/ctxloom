@@ -639,7 +639,7 @@ func checkSystemDeps(engine string) error {
 	warnIfNoSignKey()
 	warnIfGitIdentityMissing()
 	warnIfACPAdapterMissing(engine)
-	if !(isolation.Docker{}.Available() || isolation.Podman{}.Available()) {
+	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
 		clidiag.Warn("ctxloom", "no container runtime detected (docker/podman) — you'll need one later to run containerized agents")
 	}
 	return nil

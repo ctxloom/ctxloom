@@ -99,18 +99,13 @@ type agyConversationMap struct {
 // agyConversationMapOption configures agyConversationMap.
 type agyConversationMapOption func(*agyConversationMap)
 
-// withAgyConversationMapFS sets a custom filesystem for testing.
-func withAgyConversationMapFS(fs afero.Fs) agyConversationMapOption {
-	return func(m *agyConversationMap) { m.FS = fs }
-}
-
 // withAgyConversationMapHomeDir sets a custom home directory for testing.
 func withAgyConversationMapHomeDir(dir string) agyConversationMapOption {
 	return func(m *agyConversationMap) { m.HomeDir = dir }
 }
 
 // newAgyConversationMap builds the conversation-map reader over the OS
-// filesystem (tests override via withAgyConversationMapFS/HomeDir).
+// filesystem (tests override via withAgyConversationMapHomeDir).
 func newAgyConversationMap(opts ...agyConversationMapOption) agyConversationMap {
 	m := agyConversationMap{SessionStore: agent.NewSessionStore()}
 	for _, opt := range opts {

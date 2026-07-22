@@ -145,7 +145,8 @@ func cleanupConfigHome(t *testing.T, ws Workspace) {
 // fail/panic and skip a later manual/mid-test cleanup.
 //
 //   - *worktreeWorkspace: the checkout (ws.Dir()) plus its config-home — see
-//     cleanupConfigHome. The checkout is WIP-gated in ws.Cleanup() by design
+//     cleanupConfigHome, plus the toolchain scratchDir (TMPDIR/GOTMPDIR —
+//     spawner-env). The checkout is WIP-gated in ws.Cleanup() by design
 //     (production code, correctly conservative for a real developer); tests
 //     that deliberately dirty their own throwaway checkout must not rely on
 //     that guard clearing it.
@@ -168,6 +169,9 @@ func requireCleanWorkspace(t *testing.T, ws Workspace) {
 			t.Cleanup(func() { _ = os.RemoveAll(dir) })
 		}
 		cleanupConfigHome(t, ws)
+		if scratch := concrete.scratchDir; scratch != "" {
+			t.Cleanup(func() { _ = os.RemoveAll(scratch) })
+		}
 	case *containerWorkspace:
 		if root := concrete.scratchRoot; root != "" {
 			t.Cleanup(func() { _ = os.RemoveAll(root) })

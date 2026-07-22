@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,8 +15,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
+
+// writeConfigForTest writes body as dir's project .taskloom/config.yaml
+// (taskloomconfig.DirName/FileName), creating the directory as needed —
+// shared by any test that needs a real on-disk homing/tag-schema config
+// rather than TaskContext's own fields set directly.
+func writeConfigForTest(t *testing.T, dir, body string) {
+	t.Helper()
+	full := filepath.Join(dir, taskloomconfig.DirName, taskloomconfig.FileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+	require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
+}
 
 // mustTaskContext is taskContext(), failing the test immediately on error —
 // the taskloom-wide worktree redirect (workdir.ResolveBoundary) can now fail
@@ -113,8 +127,10 @@ func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 
 // TestRunListCmd_GlobalAggregatesAcrossProjects is the CLI-side mirror of
 // TestHandleTaskList_GlobalAggregatesAcrossProjects: `taskloom list --global`
-// shows every project's tasks, grouped by project, with no notice (an
-// explicit opt-in needs no explaining).
+// shows every project's tasks, grouped by project, but ALWAYS carries the
+// scope-limitation notice on stderr (see smart-veal/globalScopeLimitationNote)
+// — an aggregation that silently under-reports repo-homed stores is worse
+// than one that declares its scope, even for an explicit opt-in.
 func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
 	taskstest.ProjectDir(t)
 
@@ -131,7 +147,24 @@ func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
 	assert.Contains(t, stdout.String(), "here's task")
 	assert.Contains(t, stdout.String(), "elsewhere's task")
 	assert.Contains(t, stdout.String(), "Project: elsewhere")
-	assert.Empty(t, stderr.String(), "an explicit --global needs no notice")
+	assert.Contains(t, stderr.String(), "repo-homed", "even an explicit --global must declare the stores it cannot see")
+}
+
+// TestRunListCmd_GlobalNamesCurrentProjectWhenRepoHomed sharpens the scope
+// notice: when the CURRENT project (the one taskContext() resolved from cwd)
+// is itself repo-homed, --global's notice must name it specifically — this
+// is the case most likely to bite: the user is standing inside the very
+// project that will be silently excluded from an "everything" listing.
+func TestRunListCmd_GlobalNamesCurrentProjectWhenRepoHomed(t *testing.T) {
+	proj := taskstest.ProjectDir(t)
+	writeConfigForTest(t, proj, "homing: repo\n")
+
+	var stdout, stderr strings.Builder
+	err := runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Global: true, Format: clifmt.FormatText})
+	require.NoError(t, err)
+
+	assert.Contains(t, stderr.String(), proj, "the notice must name the excluded project's own path")
+	assert.Contains(t, stderr.String(), "repo-homed")
 }
 
 // TestRunListCmd_NoProjectContextDefaultsGlobalWithNotice is the CLI-side

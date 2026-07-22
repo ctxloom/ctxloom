@@ -8,11 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/priority"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 	"github.com/ctxloom/ctxloom/internal/taskloom/workdir"
 )
 
@@ -105,6 +108,40 @@ func isEstablishedProject(workDir string) (bool, error) {
 		return false, err
 	}
 	return marker != "", nil
+}
+
+// globalScopeGeneralLimitation is the caveat every --global / global=true
+// listing carries: listAllProjects can only discover PRIVATELY-homed stores
+// under ~/.ctxloom/tasks (paths.HomeTasksDir) by walking that directory.
+// Nothing registers a repo-homed store's location anywhere global — a
+// project configured `homing: repo` mints no project-id and consults no
+// registry at all (see paths.ModeRepo's doc) — so listAllProjects has no way
+// to find one even in principle. An aggregation that silently under-reports
+// is worse than one that declares its scope (see smart-veal): every --global
+// read carries this note rather than presenting an incomplete answer as if
+// it were complete.
+const globalScopeGeneralLimitation = "--global lists privately-homed projects only (under ~/.ctxloom/tasks); a repo-homed project (homing: repo, its log checked into <repo>/.taskloom/tasks.jsonl) is not registered anywhere global and cannot be included"
+
+// globalScopeLimitationNote is globalScopeGeneralLimitation, sharpened when
+// workDir itself resolves to a repo-homed project — the case most likely to
+// bite: a user standing INSIDE a repo-homed project who asks --global for
+// "everything" would otherwise get a confident answer that silently excludes
+// their own current project's tasks. workDir's mode resolution uses the same
+// taskloomconfig.ResolveMode chain resolveHoming would (fs/flagValue let the
+// caller pass rootCmd's --homing plumbing); any error resolving it is
+// swallowed and falls back to the general note — this is a best-effort
+// disclosure, never something that should block or fail a listing.
+func globalScopeLimitationNote(workDir string, fs *pflag.FlagSet, homingFlagValue string) string {
+	if workDir == "" {
+		return globalScopeGeneralLimitation
+	}
+	mode, err := taskloomconfig.ResolveMode(workDir, fs, homingFlagValue)
+	if err != nil || mode != paths.ModeRepo {
+		return globalScopeGeneralLimitation
+	}
+	return fmt.Sprintf(
+		"this project (%s) is repo-homed (its tasks are checked into %s) -- --global cannot see it: only privately-homed projects under ~/.ctxloom/tasks are aggregated",
+		workDir, filepath.Join(workDir, paths.RepoDirName, paths.RepoTasksFileName))
 }
 
 // globalListResult is the render-agnostic result of listing across every

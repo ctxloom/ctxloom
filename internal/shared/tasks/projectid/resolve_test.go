@@ -247,3 +247,50 @@ func TestResolveSymlinkedPathKeepsIdentity(t *testing.T) {
 		t.Fatalf("marker was rewritten to %q, want original %q", got, first.ProjectID)
 	}
 }
+
+// TestEntriesAtPath_ReturnsEveryEntryAtThatPath is the regression test for
+// the registry primitive the silent-empty-backlog fix depends on (see
+// tasks/operations.missingLogSiblingNote): unlike ResolveByPath's
+// first-match fast path, EntriesAtPath must surface EVERY entry bound to a
+// path, including a collision left behind by two ids both getting
+// registered at the same tree (e.g. two Adopt calls for different unknown
+// marker ids over time).
+func TestEntriesAtPath_ReturnsEveryEntryAtThatPath(t *testing.T) {
+	m := newManager(t)
+	dir := t.TempDir()
+
+	if _, err := m.Adopt("old-id", dir); err != nil {
+		t.Fatalf("adopt old-id: %v", err)
+	}
+	if _, err := m.Adopt("new-id", dir); err != nil {
+		t.Fatalf("adopt new-id: %v", err)
+	}
+
+	entries, err := m.EntriesAtPath(dir)
+	if err != nil {
+		t.Fatalf("entries at path: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %+v, want 2 (both old-id and new-id bound to %s)", entries, dir)
+	}
+	ids := map[string]bool{}
+	for _, e := range entries {
+		ids[e.ProjectID] = true
+	}
+	if !ids["old-id"] || !ids["new-id"] {
+		t.Fatalf("entries = %+v, want both old-id and new-id", entries)
+	}
+}
+
+// TestEntriesAtPath_EmptyForAnUnregisteredPath is the common case: a path
+// nothing has ever registered returns zero entries, not an error.
+func TestEntriesAtPath_EmptyForAnUnregisteredPath(t *testing.T) {
+	m := newManager(t)
+	entries, err := m.EntriesAtPath(t.TempDir())
+	if err != nil {
+		t.Fatalf("entries at path: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none", entries)
+	}
+}

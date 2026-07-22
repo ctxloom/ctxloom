@@ -52,6 +52,12 @@ listing falls back to --global on its own, with a notice on stderr saying
 why, rather than minting a throwaway project identity for an arbitrary
 directory.
 
+--global (explicit or fallback) only ever aggregates PRIVATELY-homed projects
+under ~/.ctxloom/tasks; a repo-homed project (homing: repo, its log checked
+into <repo>/.taskloom/tasks.jsonl) is registered nowhere global and is never
+included, even if it's the very project you're standing in. Every --global
+listing says so on stderr.
+
 By default only active tasks are shown: completed (Done/Archived) and
 Deferred tasks are hidden. Pass --all to include them, or name a status
 explicitly with --status (an explicit status filter is honored verbatim;
@@ -145,9 +151,14 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	filtered := opts.Term != "" || opts.TagQuery != ""
 
 	if scope.Global {
-		if scope.Notice != "" {
-			clidiag.Fwarn(errw, "taskloom", "%s", scope.Notice)
+		notice := scope.Notice
+		limitation := globalScopeLimitationNote(tc.WorkDir, rootCmd.PersistentFlags(), tasksHoming)
+		if notice != "" {
+			notice += "; " + limitation
+		} else {
+			notice = limitation
 		}
+		clidiag.Fwarn(errw, "taskloom", "%s", notice)
 		gres, err := listAllProjects(opts.Statuses, opts.Term, opts.TagQuery, opts.All, opts.Sort == sortPriority, tc.TagSchema, time.Now(), tc.SessionHarp)
 		if err != nil {
 			return wrapTagQueryError(err)
@@ -595,7 +606,7 @@ func init() {
 	listCmd.Flags().StringVar(&tasksListTagQuery, "tag-query", "", `filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")`)
 	listCmd.Flags().Bool("json", false, "shorthand for --format json (for jq)")
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
-	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every project instead of just the current one")
+	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)")
 	listCmd.Flags().StringVar(&tasksListSort, "sort", "", `sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged`)
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")

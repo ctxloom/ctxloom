@@ -189,7 +189,7 @@ func (s *PTYSession) Close() {
 		pid = s.cmd.Process.Pid
 	}
 	// Snapshot BEFORE signaling — see the doc comment above.
-	children := pluginChildrenOf(pid)
+	children := PluginChildrenOf(pid)
 
 	select {
 	case <-s.exited:
@@ -205,7 +205,7 @@ func (s *PTYSession) Close() {
 				case <-time.After(ptyGracefulShutdown):
 					// Best-effort: proceed to the pid sweep below regardless
 					// of whether Wait ever observed the exit (e.g. an
-					// unreaped zombie) — killPids targets specific pids by
+					// unreaped zombie) — KillPids targets specific pids by
 					// number, not this session's process tree, so it does
 					// not depend on s.exited having fired.
 				}
@@ -214,5 +214,5 @@ func (s *PTYSession) Close() {
 	}
 	_ = s.pty.Close()
 
-	killPids(children)
+	KillPids(children)
 }

@@ -160,7 +160,7 @@ func (c *MCPClient) Close() error {
 	if c.cmd.Process != nil {
 		pid = c.cmd.Process.Pid
 	}
-	children := pluginChildrenOf(pid)
+	children := PluginChildrenOf(pid)
 
 	_ = c.stdin.Close()
 	if c.cancel != nil {
@@ -168,7 +168,7 @@ func (c *MCPClient) Close() error {
 	}
 	_ = c.cmd.Wait()
 
-	killPids(children)
+	KillPids(children)
 	return nil
 }
 

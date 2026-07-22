@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-// pluginChildrenOf snapshots the live direct children of ppid that look like
+// PluginChildrenOf snapshots the live direct children of ppid that look like
 // a ctxloom LLM plugin subprocess (argv contains "llm" "serve" — the exact
 // shape internal/lm/grpc's NewSelfInvokingClientForLabelEnv self-execs,
 // e.g. "ctxloom llm serve mock"). Deliberately scoped to descendants of ONE
@@ -22,9 +22,9 @@ import (
 //
 // Must be called BEFORE the parent is signaled: once it dies the child is
 // reparented to init within the same instant, and a ppid-based lookup can
-// no longer identify it as "this session's child" — see killPids, which
+// no longer identify it as "this session's child" — see KillPids, which
 // kills the pids captured here directly rather than re-querying ppid.
-func pluginChildrenOf(ppid int) []int {
+func PluginChildrenOf(ppid int) []int {
 	if ppid <= 0 {
 		return nil
 	}
@@ -64,13 +64,15 @@ func procPPID(pid int) int {
 	if i < 0 || i+2 >= len(data) {
 		return -1
 	}
-	// After the comm field: state(1) ppid(2) pgrp(3) session(4) — index 0
-	// (this 0-based slice) is ppid.
+	// After the comm field, this 0-based slice is: state[0] ppid[1] pgrp[2]
+	// session[3] — index 0 is the state CHAR ("S", "R", ...), not ppid; ppid
+	// is index 1. (Matches internal/lm/grpc/procsession_unix.go's
+	// procSessionID, which reads session at its correct index, [3].)
 	fields := strings.Fields(string(data[i+2:]))
-	if len(fields) < 1 {
+	if len(fields) < 2 {
 		return -1
 	}
-	ppid, err := strconv.Atoi(fields[0])
+	ppid, err := strconv.Atoi(fields[1])
 	if err != nil {
 		return -1
 	}
@@ -99,11 +101,11 @@ func looksLikeLLMServe(pid int) bool {
 	return hasLLM && hasServe
 }
 
-// killPids SIGKILLs exactly the pids given — captured by pluginChildrenOf
+// KillPids SIGKILLs exactly the pids given — captured by PluginChildrenOf
 // before the parent that owned them was signaled. Best-effort: an
 // already-dead target (e.g. the parent's own graceful SIGTERM shutdown beat
 // this to it) is the outcome every caller wants either way, not an error.
-func killPids(pids []int) {
+func KillPids(pids []int) {
 	for _, pid := range pids {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}

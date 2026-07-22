@@ -422,9 +422,24 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 
 	// Create plugin client. The label rides along so serve configures the exact
 	// entry the distill resolved (--llm or the fast role), not a type-scan pick.
+	//
+	// DEGRADE, DON'T DUMP: a failure here means the "ctxloom llm serve
+	// <backend>" subprocess never completed the go-plugin handshake (backend
+	// unregistered/misconfigured, binary missing, or it crashed on startup) —
+	// i.e. no reachable engine for this label. go-plugin's err in that case is
+	// a multi-line internal diagnostic ("Unrecognized remote plugin
+	// message... Additional notes about plugin: Path/Mode/Owner/Group/ELF
+	// architecture...") never meant for an end user; one dumped line reads
+	// exactly like an unrelated package's `go test` failure. The caller
+	// (distillFragments/distillPrompts) already warns-and-continues on any
+	// Distill error — the SAME skip-but-keep-raw-content path SetItemContent
+	// takes for a nil Distiller — so replacing go-plugin's err with one clean
+	// sentence here is enough to keep that existing degrade path from ever
+	// leaking raw handshake output; it does not change the Distiller
+	// contract or add a second skip mechanism.
 	client, err := pb.NewSelfInvokingClientForLabel(llmName, llmLabel, 0)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to start plugin: %w", err)
+		return "", "", fmt.Errorf("no reachable engine for distillation (backend %q, label %q) — content saved raw, undistilled", llmName, llmLabel)
 	}
 	defer client.Kill()
 

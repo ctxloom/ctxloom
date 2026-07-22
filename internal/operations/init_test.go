@@ -131,7 +131,7 @@ func TestBuildInitialConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := BuildInitialConfig(tt.engine)
+			data, err := BuildInitialConfig(tt.engine, "", false)
 			require.NoError(t, err)
 
 			// `role` is registry-only — it must be stripped from the written config.

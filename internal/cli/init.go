@@ -413,6 +413,87 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 	return repos, nil
 }
 
+// dirtyTreeHandlerOption is one menu entry promptDirtyTreeHandler presents:
+// value is the literal config value written to dirty_tree_handler, label is
+// the full line shown for it (already including its trailing consequence
+// text, so the loop below only needs to number and print each one).
+type dirtyTreeHandlerOption struct {
+	value, label string
+}
+
+// dirtyTreeHandlerOptions is promptDirtyTreeHandler's menu, in display order.
+// Index 0 ("commit") is both the built-in default (operations package's
+// defaultDirtyTreeHandler) and what a bare Enter picks, mirroring
+// promptEngineSelection's "Enter for recommended" convention. Wording must
+// stay in lockstep with the real refusal/warning text a mismatched choice
+// would later hit — see internal/operations/delegate.go's
+// dirtyTreeFailError/commitDirtyTree/handleDirtyParentTree "stale" branch.
+var dirtyTreeHandlerOptions = []dirtyTreeHandlerOption{
+	{
+		value: "commit",
+		label: "commit — ctxloom may commit your uncommitted changes onto your current branch on your behalf, so the child can see them (each such commit is announced when it happens) (Recommended)",
+	},
+	{
+		value: "copy",
+		label: "copy — reproduce your uncommitted changes inside the child's own worktree as uncommitted WIP; nothing on your branch is ever touched",
+	},
+	{
+		value: "stale",
+		label: "stale — the child sees only your last commit; your uncommitted work stays invisible to it",
+	},
+	{
+		value: "fail",
+		label: "fail — refuse the delegation instead of guessing",
+	},
+}
+
+// promptDirtyTreeHandler asks the interview's ONE dirty-tree question and
+// returns both the dirty_tree_handler value and the dirty_tree_commit_ack it
+// implies. This is deliberately a single decision, not two: "may ctxloom
+// commit your uncommitted work on your behalf" and "what should happen when
+// your tree is dirty" are the SAME choice among commit/copy/stale/fail, and
+// asking both would just rubber-stamp the first with the second (see this
+// task's brief). ack is true if and only if the chosen handler is "commit" —
+// every other handler never mutates the user's repo and needs no
+// acknowledgement (config.Config.dirtyTreeCommitAck's doc).
+//
+// This runs entirely in THIS process, reading raw keystrokes off the user's
+// own terminal via readCleanLine — never through an engine session or any
+// agent-mediated surface — which is what keeps the resulting ack
+// unambiguously human-set, the same property promptPersonalRepos' trust
+// consequence relies on.
+func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err error) {
+	fmt.Println("\nDelegated agents you launch with agent_run run in an isolated worktree,")
+	fmt.Println("which by default can only see your COMMITTED work — nothing you haven't")
+	fmt.Println("committed yet. What should happen when your tree has uncommitted changes")
+	fmt.Println("at delegation time?")
+	fmt.Println()
+	for i, opt := range dirtyTreeHandlerOptions {
+		fmt.Printf("  %d) %s\n", i+1, opt.label)
+	}
+
+	for {
+		fmt.Print("\n> (1-4, Enter for recommended): ")
+		input, err := p.readCleanLine()
+		if err != nil {
+			return "", false, err
+		}
+
+		var opt dirtyTreeHandlerOption
+		if input == "" {
+			opt = dirtyTreeHandlerOptions[0]
+		} else {
+			num, convErr := strconv.Atoi(input)
+			if convErr != nil || num < 1 || num > len(dirtyTreeHandlerOptions) {
+				fmt.Printf("Please enter a number between 1 and %d, or press Enter for recommended\n", len(dirtyTreeHandlerOptions))
+				continue
+			}
+			opt = dirtyTreeHandlerOptions[num-1]
+		}
+		return opt.value, opt.value == "commit", nil
+	}
+}
+
 // generateConfig creates a config.yaml with the selected engine and options.
 
 // discoverySessionPrompt returns the ONE prompt the init discovery session
@@ -714,12 +795,12 @@ func warnIfACPAdapterMissing(engine string) {
 // resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn and
 // continue; only directory/config creation failures are fatal.
 func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
-	engine, personalRepos, err := resolveSetupEngine(selectedEngine, interactive)
+	engine, personalRepos, dirtyTreeHandler, dirtyTreeCommitAck, err := resolveSetupEngine(selectedEngine, interactive)
 	if err != nil {
 		return "", err
 	}
 
-	if err := writeInitialConfig(appDir, engine); err != nil {
+	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, dirtyTreeCommitAck); err != nil {
 		return "", err
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
@@ -754,25 +835,28 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 }
 
 // resolveSetupEngine decides which engine to install with. It warns (but does
-// not fail) when no engines are detected, runs the interactive engine/repo
-// prompts when applicable, and finally falls back to the first available
-// primary engine. Returns errNoEngines only when the interactive selection
-// reports none installed.
-func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, err error) {
+// not fail) when no engines are detected, runs the interactive engine/repo/
+// dirty-tree-handler prompts when applicable, and finally falls back to the
+// first available primary engine. Returns errNoEngines only when the
+// interactive selection reports none installed. dirtyTreeHandler/
+// dirtyTreeCommitAck stay at their zero values ("", false) whenever the
+// prompts don't run (an --engine flag given, or a non-interactive init) — the
+// same as if the question had never been asked.
+func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
 		selected = "claude-code"
 	}
 
 	if interactive && selected == "" {
-		selected, repos, err = promptForEngineAndRepos()
+		selected, repos, dirtyTreeHandler, dirtyTreeCommitAck, err = promptForEngineAndRepos()
 		if err != nil {
-			return "", nil, err
+			return "", nil, "", false, err
 		}
 	}
 
 	primary, _ := getAvailableEngines()
-	return pickDefaultEngine(selected, primary), repos, nil
+	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, dirtyTreeCommitAck, nil
 }
 
 // noEnginesInstalled reports whether neither a primary nor a secondary engine
@@ -793,16 +877,19 @@ func warnNoEnginesDetected() {
 	fmt.Fprintln(os.Stderr, "")
 }
 
-// promptForEngineAndRepos runs the interactive engine selection and optional
-// personal-repo prompts. errNoEngines propagates (the prompt already explained
-// it); other prompt failures warn and fall back rather than aborting init.
-func promptForEngineAndRepos() (engine string, repos []string, err error) {
+// promptForEngineAndRepos runs the interactive engine selection, optional
+// personal-repo, and dirty-tree-handler prompts. errNoEngines propagates (the
+// prompt already explained it); other prompt failures warn and fall back
+// rather than aborting init. A failed dirty-tree prompt falls back to
+// ""/false — the same silent-default shape init had before this question
+// existed (built-in "commit" default, unacknowledged).
+func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
 	prompts := newInitPrompts()
 
 	engine, err = prompts.promptEngineSelection()
 	if err != nil {
 		if err == errNoEngines {
-			return "", nil, err
+			return "", nil, "", false, err
 		}
 		clidiag.Warn("ctxloom", "failed to read engine selection: %v", err)
 		engine = "claude-code"
@@ -813,7 +900,14 @@ func promptForEngineAndRepos() (engine string, repos []string, err error) {
 		clidiag.Warn("ctxloom", "failed to read repo selection: %v", repoErr)
 		repos = nil
 	}
-	return engine, repos, nil
+
+	dirtyTreeHandler, dirtyTreeCommitAck, dtErr := prompts.promptDirtyTreeHandler()
+	if dtErr != nil {
+		clidiag.Warn("ctxloom", "failed to read dirty-tree handler selection: %v", dtErr)
+		dirtyTreeHandler, dirtyTreeCommitAck = "", false
+	}
+
+	return engine, repos, dirtyTreeHandler, dirtyTreeCommitAck, nil
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
@@ -831,10 +925,12 @@ func promptForEngineAndRepos() (engine string, repos []string, err error) {
 // "missing" stamp whose invalidation this write's own stat SHOULD, but need
 // not provably, trigger. Invalidate() removes that dependency: the very next
 // Load anywhere in the process re-reads from disk unconditionally.
-func writeInitialConfig(appDir, engine string) error {
+func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
-		AppDir: appDir,
-		Engine: engine,
+		AppDir:             appDir,
+		Engine:             engine,
+		DirtyTreeHandler:   dirtyTreeHandler,
+		DirtyTreeCommitAck: dirtyTreeCommitAck,
 	})
 	if err == nil {
 		config.Invalidate()

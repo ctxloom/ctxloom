@@ -16,7 +16,7 @@ import (
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "antigravity", "codex"} {
 		t.Run(engine, func(t *testing.T) {
-			data, err := operations.BuildInitialConfig(engine)
+			data, err := operations.BuildInitialConfig(engine, "", false)
 			require.NoError(t, err)
 			body := string(data)
 			assert.Contains(t, body, "type: "+engine,
@@ -30,7 +30,7 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data, err := operations.BuildInitialConfig("claude-code")
+	data, err := operations.BuildInitialConfig("claude-code", "", false)
 	require.NoError(t, err)
 	body := string(data)
 	// The scaffold settings survive into the written config.

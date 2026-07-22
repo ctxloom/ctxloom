@@ -73,7 +73,7 @@ func claimOwner(dir string) (release func(), err error) {
 			return nil, errStateOwned
 		}
 		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
-		if perr == nil && pid > 0 && pidAlive(pid) && pid != os.Getpid() {
+		if perr == nil && pid > 0 && PidAlive(pid) && pid != os.Getpid() {
 			return nil, errStateOwned
 		}
 		// Stale lock from a dead owner: remove and retry once. The remove→

@@ -91,6 +91,11 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		cwd = "."
+	}
+
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the
@@ -101,14 +106,24 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 		return runMCPForward(ctx, sock)
 	}
 
+	// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): the env
+	// var above rides a VENDOR-CONTROLLED channel (ACP mcpServers.env) that
+	// at least one real adapter drops (codex-acp: honors name/command/args,
+	// discards env). Probe the well-known marker a runner publishes
+	// UNCONDITIONALLY before ever considering local mode — additive to the
+	// env fast path above, never a replacement of it. See mcp_discovery.go
+	// for exactly how this tells "should have a runner, fail loud" apart
+	// from "legitimately standalone, local is correct".
+	if sock, derr := probeWellKnownRunner(cwd); derr != nil {
+		return derr
+	} else if sock != "" {
+		return runMCPForward(ctx, sock)
+	}
+
 	// Fail-loudly gate: checkpoint before the boot sequence so every
 	// fatal-class finding it records is caught here.
 	startupMark := strictness.Checkpoint()
 
-	cwd, cwdErr := os.Getwd()
-	if cwdErr != nil {
-		cwd = "."
-	}
 	s := &ctxServer{self: selfIdentityFromEnv(cwd)}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else

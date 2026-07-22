@@ -63,24 +63,51 @@ type runnerMCP struct {
 // starts serving. It returns only with the socket LISTENING — the ordering
 // invariant: the runner controls the harness spawn, and the socket exists
 // before it (assert, don't race).
+//
+// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): env-var
+// delivery of the socket path rides a VENDOR-CONTROLLED channel (the ACP
+// mcpServers.env array) that at least one real adapter drops on the floor
+// (codex-acp: honors name/command/args, discards env). Alongside the socket,
+// this ALSO publishes a discovery marker at a well-known location keyed the
+// same way a shim with no env can rediscover it — see writeDiscoveryMarker
+// and probeWellKnownRunner (mcp_discovery.go). Best-effort: a marker failure
+// degrades to env-only discovery, same fault tolerance as the socket bind
+// itself never blocking the runner.
 func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home) (*runnerMCP, error) {
 	server, err := newRunnerMCPServer(cfg, harp, home)
 	if err != nil {
 		return nil, err
 	}
-	path, cleanup, err := runnerSocketPath()
+	path, dir, kind, cleanupSocket, err := runnerSocketPath()
 	if err != nil {
 		return nil, err
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		cleanup()
+		cleanupSocket()
 		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
+	}
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		cwd = "."
+	}
+	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
+		Socket: path,
+		Pid:    os.Getpid(),
+		Harp:   harp,
+	})
+	if merr != nil {
+		clidiag.Warn("ctxloom", "runner MCP discovery marker: %v (the shim will still find this runner via %s)", merr, coord.EnvMCPSocket)
+		cleanupMarker = func() {}
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
+	cleanup := func() {
+		cleanupMarker()
+		cleanupSocket()
+	}
 	return &runnerMCP{socketPath: path, httpSrv: srv, cleanup: cleanup}, nil
 }
 
@@ -92,13 +119,43 @@ func (r *runnerMCP) close() {
 	r.cleanup()
 }
 
+// socketKind classifies WHICH tier runnerSocketPath landed on, so
+// serveRunnerMCP knows whether (and how) to publish a discovery marker
+// alongside the socket — see mcp_discovery.go.
+type socketKind int
+
+const (
+	// socketKindContainer is the /run/ctxloom/local convention: exactly ONE
+	// runner per container, so its discovery marker can use a FIXED name —
+	// no key negotiation needed between writer and reader.
+	socketKindContainer socketKind = iota
+	// socketKindHostRuntime is $XDG_RUNTIME_DIR/ctxloom: a host user-private
+	// dir that MULTIPLE runners (multiple ctxloom sessions on one host, no
+	// container isolation) can share, so its discovery marker is keyed by
+	// the cell's workspace path to avoid collisions.
+	socketKindHostRuntime
+	// socketKindPrivateTemp is the last-resort per-process MkdirTemp dir:
+	// unique to this runner by construction, so nothing else could ever
+	// know where to look — no discovery marker is published there; the
+	// env var remains the only path to this tier.
+	socketKindPrivateTemp
+)
+
+// inContainerSocketDir is the agent-image convention: writable only
+// in-container, never on a bare host (a normal user can't mkdir under
+// /run), so trying it first costs nothing on a host run.
+const inContainerSocketDir = "/run/ctxloom/local"
+
 // runnerSocketPath picks the runner MCP socket location on CONTAINER-LOCAL
 // (or host user-private) filesystem — NEVER inside the host-mounted plugin
 // dir: a bind-mounted unix socket is exactly the VirtioFS trap the design
 // avoids. Preference order: /run/ctxloom/local (the agent-image convention;
 // writable only in-container), $XDG_RUNTIME_DIR, then a private temp dir.
-// Paths are kept short for the sun_path limit.
-func runnerSocketPath() (string, func(), error) {
+// Paths are kept short for the sun_path limit. Returns the socket path, the
+// directory it lives in, and which tier was chosen (socketKind) — the
+// directory+kind pair is what writeDiscoveryMarker needs to publish this
+// socket at its well-known location.
+func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(), err error) {
 	const sunPathHeadroom = 100
 	candidate := func(dir string) (string, bool) {
 		if dir == "" {
@@ -114,22 +171,23 @@ func runnerSocketPath() (string, func(), error) {
 		_ = os.Remove(p) // a stale same-pid socket from a recycled pid
 		return p, true
 	}
-	if p, ok := candidate("/run/ctxloom/local"); ok {
-		return p, func() { _ = os.Remove(p) }, nil
+	if p, ok := candidate(inContainerSocketDir); ok {
+		return p, inContainerSocketDir, socketKindContainer, func() { _ = os.Remove(p) }, nil
 	}
-	if p, ok := candidate(filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "ctxloom")); ok {
-		return p, func() { _ = os.Remove(p) }, nil
+	hostDir := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "ctxloom")
+	if p, ok := candidate(hostDir); ok {
+		return p, hostDir, socketKindHostRuntime, func() { _ = os.Remove(p) }, nil
 	}
-	dir, err := os.MkdirTemp("", "ctxloom-mcp-")
-	if err != nil {
-		return "", nil, fmt.Errorf("runner MCP socket dir: %w", err)
+	tmpDir, mkErr := os.MkdirTemp("", "ctxloom-mcp-")
+	if mkErr != nil {
+		return "", "", socketKindPrivateTemp, nil, fmt.Errorf("runner MCP socket dir: %w", mkErr)
 	}
-	p := filepath.Join(dir, "mcp.sock")
+	p := filepath.Join(tmpDir, "mcp.sock")
 	if len(p) > sunPathHeadroom {
-		_ = os.RemoveAll(dir)
-		return "", nil, fmt.Errorf("runner MCP socket path %q exceeds the portable sun_path limit", p)
+		_ = os.RemoveAll(tmpDir)
+		return "", "", socketKindPrivateTemp, nil, fmt.Errorf("runner MCP socket path %q exceeds the portable sun_path limit", p)
 	}
-	return p, func() { _ = os.RemoveAll(dir) }, nil
+	return p, tmpDir, socketKindPrivateTemp, func() { _ = os.RemoveAll(tmpDir) }, nil
 }
 
 // newRunnerMCPServer assembles the runner's tool surface per the routing

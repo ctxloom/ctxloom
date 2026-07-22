@@ -1,0 +1,171 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+)
+
+// These three tests are the behaviour proof for
+// fix/host-controlled-mcp-discovery: they assert on what actually happens
+// (a real socket connection, a real error message, a real "no marker"
+// verdict) — never on a function merely returning nil.
+//
+// None of these tests run in parallel with the rest of the package: they
+// chdir the whole test process to simulate the shim's real precondition
+// (it always runs IN the cell's own cwd), which would race any concurrently
+// running test that also depends on process cwd.
+
+// deadProcessPID returns a pid that is guaranteed NOT to name a live
+// process: a child this test starts, waits for, and fully reaps.
+func deadProcessPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	require.NoError(t, cmd.Start())
+	pid := cmd.Process.Pid
+	require.NoError(t, cmd.Wait())
+	return pid
+}
+
+// dialForwardClient connects to socket exactly as runMCPForward does, and
+// returns the connected session so the caller can assert on what the OTHER
+// end actually says — the payload, not just that Connect returned nil.
+func dialForwardClient(t *testing.T, socket string) *mcp.ClientSession {
+	t.Helper()
+	client := mcp.NewClient(&mcp.Implementation{Name: "probe", Version: "test"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: "http://ctxloom-runner/mcp",
+		HTTPClient: &http.Client{Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+			},
+		}},
+	}
+	cs, err := client.Connect(context.Background(), transport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+	return cs
+}
+
+// TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar simulates the exact
+// codex-acp scenario: CTXLOOM_MCP_SOCKET is absent (the adapter dropped
+// mcpServers.env) but a real runner is up. The shim's discovery (not a
+// mock) must find it and the connection must be to THAT runner — proven by
+// reading back its own session instructions over the wire, not merely by a
+// non-error return.
+func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	cellDir := t.TempDir()
+	testsupport.ChangeDir(t, cellDir)
+
+	const harp = "codex-drop-scenario-harp"
+	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t))
+	require.NoError(t, err)
+	t.Cleanup(endpoint.close)
+
+	// This is the shim's own discovery call (mcp_server.go's second tier),
+	// invoked exactly as runMCPServerSDK invokes it, with no env var in
+	// play at all.
+	sock, derr := probeWellKnownRunner(cellDir)
+	require.NoError(t, derr)
+	require.NotEmpty(t, sock, "well-known discovery must find the runner with NO env var set")
+	assert.Equal(t, endpoint.socketPath, sock, "discovered socket must be the REAL runner's own socket")
+
+	// Payload assertion: actually connect over the discovered socket and
+	// read back THIS runner's own instructions (they embed its harp) —
+	// proof this is the real coordinator, not a stand-in that happens to
+	// return a path.
+	cs := dialForwardClient(t, sock)
+	init := cs.InitializeResult()
+	require.NotNil(t, init)
+	assert.Contains(t, init.Instructions, harp, "connected session must be the real runner's, identified by its own harp")
+}
+
+// TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable covers the
+// "should have a runner, can't find it" branch: a discovery marker exists
+// and names a PID that is still alive, but its socket refuses the
+// connection. This must never fall back to a silent local coordinator —
+// exactly the failure mode (a rogue second coordinator whose agent_send
+// can never reach the real parent) this whole fix exists to close.
+func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	cellDir := t.TempDir()
+	testsupport.ChangeDir(t, cellDir)
+
+	markerDir := filepath.Join(runtimeDir, "ctxloom")
+	require.NoError(t, os.MkdirAll(markerDir, 0o700))
+	name, ok := discoveryMarkerName(socketKindHostRuntime, cellDir)
+	require.True(t, ok)
+	deadSocket := filepath.Join(t.TempDir(), "nobody-home.sock") // never bound by anyone
+	marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: os.Getpid(), Harp: "unreachable-runner"}
+	raw, err := json.Marshal(marker)
+	require.NoError(t, err)
+	markerPath := filepath.Join(markerDir, name)
+	require.NoError(t, os.WriteFile(markerPath, raw, 0o600))
+
+	// Drive the ACTUAL shim entry point — runMCPServerSDK returns this
+	// error before ever touching stdio (no risk of the test hanging on
+	// stdin), so this is the real wiring, not a stand-in for it.
+	runErr := runMCPServerSDK(nil, nil)
+	require.Error(t, runErr, "the shim must fail loud, not silently fall back to a local coordinator")
+	assert.Contains(t, runErr.Error(), "refusing to silently start a local coordinator")
+	assert.Contains(t, runErr.Error(), deadSocket, "the error must name the unreachable socket")
+	assert.Contains(t, runErr.Error(), fmt.Sprintf("pid %d", os.Getpid()), "the error must name the live pid that makes this NOT a stale marker")
+
+	// The marker names a runner that IS alive by construction: a self-heal
+	// here would be wrong, so it must survive untouched.
+	_, statErr := os.Stat(markerPath)
+	assert.NoError(t, statErr, "a live runner's marker must not be removed")
+}
+
+// TestMCPDiscovery_StandaloneSessionGetsLocalMode is the no-regression
+// check: a session with no env var and no discovery marker anywhere for
+// its cwd (nothing ever claimed this workspace as runner-backed) must
+// still get local mode — the pre-existing, legitimate `ctxloom mcp serve`
+// behaviour for a bare stdio session.
+func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	cellDir := t.TempDir()
+
+	sock, derr := probeWellKnownRunner(cellDir)
+	assert.NoError(t, derr, "a genuinely standalone session must not fail loud")
+	assert.Empty(t, sock, "no marker anywhere means local mode is correct, not forward mode")
+
+	t.Run("stale marker from a dead runner self-heals to local, not fail-loud", func(t *testing.T) {
+		markerDir := filepath.Join(runtimeDir, "ctxloom")
+		require.NoError(t, os.MkdirAll(markerDir, 0o700))
+		name, ok := discoveryMarkerName(socketKindHostRuntime, cellDir)
+		require.True(t, ok)
+		markerPath := filepath.Join(markerDir, name)
+		deadSocket := filepath.Join(t.TempDir(), "long-gone.sock")
+		marker := runnerDiscoveryMarker{Socket: deadSocket, Pid: deadProcessPID(t), Harp: "crashed-runner"}
+		raw, err := json.Marshal(marker)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(markerPath, raw, 0o600))
+
+		sock, derr := probeWellKnownRunner(cellDir)
+		assert.NoError(t, derr, "a dead runner's leftover marker must not fail loud")
+		assert.Empty(t, sock, "no LIVE runner claims this workspace: standalone/local is correct")
+
+		_, statErr := os.Stat(markerPath)
+		assert.True(t, os.IsNotExist(statErr), "the stale marker should be cleaned up (self-heal)")
+	})
+}

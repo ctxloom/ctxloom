@@ -64,7 +64,7 @@ Outline, j9_isolation.feature).
 | **codex** | config, session state, credentials (`CODEX_HOME`, whole tree) | — | **ISOLATED** |
 | **opencode** | config (`XDG_CONFIG_HOME`), credentials (`XDG_DATA_HOME`) — pinned at the Go level | — (contract-level: proven; exact payload: not independently re-proven by cucumber) | **ISOLATED** (partially NOT EXECUTED at the cucumber level — see note) |
 | **kiro** | session state (`KIRO_HOME`) always; credential store (`XDG_DATA_HOME`) ONLY when `KIRO_API_KEY` authenticates a fresh one | credential store (global sqlite) when no `KIRO_API_KEY` | **LEAKS** without an API key, **ISOLATED** with one |
-| **antigravity** | config, session state (curated `HOME`) | authentication (OS-session D-Bus keyring, ignores `$HOME`) | **LEAKS** (always, on host runtime — by design, loudly) |
+| **antigravity** | config, session state (curated `HOME`) | authentication (OS-session D-Bus keyring, ignores `$HOME`) AND file writes (`agy` ignores the launch cwd, always writes to a fixed global scratch) | **REFUSED** — ctxloom aborts the run (fatal `ClassIsolation` finding) rather than launch into either escape; `--degraded` downgrades to a working host run with neither isolated |
 
 ### workspace "worktree" x runtime "container" — NOT EXECUTED by this cucumber suite
 
@@ -168,46 +168,67 @@ reconciliation), both recorded in the same code comment.
   `TestWorktree_KiroIsolatesXDGWithApiKey` pin the same contract at the unit
   level.
 
-### LEAK 2 — antigravity: authentication never isolates, on host runtime, by design
+### LEAK 2 — antigravity: neither authentication nor file writes isolate on host runtime, so ctxloom refuses instead of warning through it
 
-- **What leaks, concretely**: the agy OAuth session — effectively, being
-  logged in as the host user's own antigravity/Gemini account — reachable by
-  every agy process on the host through the same channel, regardless of
-  which curated `$HOME` ctxloom points a given agent at.
-- **Why it leaks (the mechanism)**: agy authenticates through the OS-session
-  D-Bus Secret Service keyring, addressed by a fixed, UID-derived socket path
-  (`/run/user/<uid>/bus`) — not by any environment variable a caller
-  controls. Measured directly: `env -i HOME=<fresh empty dir> PATH=...
+- **UPDATED 2026-07-22**: this used to be documented as a permanent, LOUD-but-
+  non-fatal leak the run proceeded through by design. A second measurement
+  the same day found antigravity's file writes ALSO escape a host worktree
+  (below), which means neither of a worktree request's two possible payoffs
+  holds for this engine on host — so ctxloom now REFUSES the run outright
+  (a fatal `ClassIsolation` finding, downgradable via `--degraded`), the same
+  severity as kiro's credential leak (LEAK 1 above), rather than warn and
+  continue.
+- **What escapes, concretely**: (1) the agy OAuth session — effectively,
+  being logged in as the host user's own antigravity/Gemini account —
+  reachable by every agy process on the host through the same channel,
+  regardless of which curated `$HOME` ctxloom points a given agent at; AND
+  (2) every file `agy` writes during a run, which land in ONE fixed global
+  scratch directory (`~/.gemini/antigravity-cli/scratch/`) no matter which
+  worktree/HOME the process was launched under — so two "isolated" agents
+  share that one scratch tree exactly as they'd share credentials.
+- **Why it escapes (the mechanism)**: agy authenticates through the
+  OS-session D-Bus Secret Service keyring, addressed by a fixed, UID-derived
+  socket path (`/run/user/<uid>/bus`) — not by any environment variable a
+  caller controls. Measured directly: `env -i HOME=<fresh empty dir> PATH=...
   agy models`, with NO `DBUS_SESSION_BUS_ADDRESS`, NO `XDG_RUNTIME_DIR`, NO
   `DISPLAY`, and no other env at all, still authenticated via keyring — HOME
   relocation genuinely moves config and session state (a fresh `.gemini/`
   tree materializes wherever `$HOME` points; `chmod 000` on a fake HOME
   crashes agy, proving it reads the var) but has zero effect on which
-  keyring socket agy reaches.
-- **Who can fix it**: **STRUCTURAL** on host runtime — there is no
-  environment-variable lever to redirect, so this is not "ctxloom forgot to
-  wire something available" (opencode's shape) nor cleanly "vendor should
-  add an env var" (though that WOULD also fix it — see the vendor-side note
-  below). The fix that exists TODAY is changing the boundary itself:
-  `runtime: container` severs the keyring socket at the kernel/namespace
-  level (a fresh container has no `/run/user/<uid>/bus` at all), which is
-  exactly the "only a container closes it" shape the coordinator's structural
-  category describes. A genuine VENDOR-SIDE fix also exists in principle —
-  agy could ship an env var pointing at an alternate keyring collection, or a
-  documented file-based-credential-only mode independent of container
-  namespacing — but it ships neither today, so on host runtime this is
-  correctly marked structural, not vendor-fixable by any lever ctxloom could
-  reach for.
-- **What would go red if the leak closed**: `TestAcceptance/A_worktree_run_for_antigravity_relocates_config_and_session_state...`
-  asserts the non-fatal warning fires by exact content ("AUTHENTICATION IS
-  NOT" isolated) on every worktree+host run for this backend. If agy ever
-  shipped a real credential-scoping lever, `curatedHomeSpecs["antigravity"].authIsolated`
-  (curatedhome.go) would need to flip to `true` — the SAME finding text
-  would then no longer fire, and this scenario would need updating (it would
-  currently still assert the old warning and fail, which is the correct
-  "matrix went red, go look" behavior). The Go-level
-  `TestWorktree_Antigravity_AuthNotIsolatedFindingFires` /
-  `...FiresEvenDegraded` pin the identical contract at the unit level.
+  keyring socket agy reaches. Separately, MEASURED 2026-07-22 against agy
+  1.1.5: `agy -p` ignores the launch working directory entirely — it never
+  consults `$HOME`, the cwd, or any worktree path when deciding where to
+  write, always landing in the same fixed global scratch path regardless of
+  which "isolated" worktree launched it.
+- **Who can fix it**: **STRUCTURAL** on host runtime, for both escapes —
+  there is no environment-variable lever to redirect either one, so this is
+  not "ctxloom forgot to wire something available" (opencode's shape) nor
+  cleanly "vendor should add an env var" (though that WOULD also fix it —
+  see the vendor-side note below). The fix that exists TODAY is changing the
+  boundary itself: `runtime: container` severs the keyring socket at the
+  kernel/namespace level (a fresh container has no `/run/user/<uid>/bus` at
+  all) AND contains the global-scratch writes inside the container's own
+  mount namespace — proven separately, and the reason ctxloom's refusal
+  message points there instead of at any host-side workaround. A genuine
+  VENDOR-SIDE fix also exists in principle — agy could ship an env var
+  pointing at an alternate keyring collection and honor the launch cwd for
+  its scratch writes — but it ships neither today, so on host runtime this
+  is correctly marked structural, not vendor-fixable by any lever ctxloom
+  could reach for.
+- **What would go red if either escape closed**: `TestAcceptance/A_worktree_run_for_antigravity_refuses_to_start`
+  (steps_j9_isolation_matrix.go, via j9_isolation.feature) asserts the fatal
+  finding fires and names BOTH escapes. If agy ever shipped a real
+  credential-scoping lever, `curatedHomeSpecs["antigravity"].authIsolated`
+  (curatedhome.go) would need to flip to `true`; if agy ever started honoring
+  the launch cwd for its scratch writes, `.workspaceViable` would need to
+  flip to `true` too (either alone reverts the refusal to the old warn-only
+  posture; both together would let it drop the finding entirely) — until
+  then this scenario keeps failing loud (correctly conservative) if either
+  measurement changes underneath it. The Go-level
+  `TestWorktree_Antigravity_HostWorktreeRefused` /
+  `...HostWorktreeRefusalDowngradesWithDegraded` /
+  `...ContainerWrappedKeepsWarnOnlyNoRefusal` pin the identical contract,
+  including the container exemption, at the unit level.
 
 ## What executed vs. what is defined-but-skipped, and why
 

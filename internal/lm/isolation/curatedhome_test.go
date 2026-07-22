@@ -178,44 +178,50 @@ func TestWorktree_Antigravity_CuratedHomeCleanedUpOnTeardown(t *testing.T) {
 	assert.FileExists(t, filepath.Join(hostHome, ".gitconfig"), "the REAL host file must survive teardown — RemoveAll unlinks, never follows")
 }
 
-// TestWorktree_Antigravity_AuthNotIsolatedFindingFires pins the LOUD,
-// non-fatal finding: host+worktree antigravity proceeds (no refusal), but
-// emits a warning naming config/session isolated vs. auth NOT isolated. This
-// must NOT be a strictness.Finding (see curatedHomeAuthFinding's doc) — a
-// partial lever must never read as isolation in the same pass/fail signal a
-// dropped container boundary uses.
-func TestWorktree_Antigravity_AuthNotIsolatedFindingFires(t *testing.T) {
+// TestWorktree_Antigravity_HostWorktreeRefused pins the CURRENT (fatal)
+// contract, replacing the old non-fatal "AuthNotIsolatedFindingFires" test:
+// a STANDALONE host+worktree antigravity run still succeeds mechanically
+// (PrepareWorkspace itself never errors — the fail-loud gate is the CALLER's
+// job, exactly like every other ClassIsolation finding in this package), but
+// records a FATAL ClassIsolation finding naming BOTH escapes — auth (the
+// keyring) and file writes (the cwd-ignoring global scratch) — and pointing
+// at runtime:container. This finding is exactly what the choke owner
+// (isolationGateErr) aborts a strict run on; --degraded is the only way
+// through it (TestWorktree_Antigravity_HostWorktreeRefusalDowngradesWithDegraded
+// below).
+func TestWorktree_Antigravity_HostWorktreeRefused(t *testing.T) {
 	resetStrictness(t)
 	withFakeHome(t)
-	buf := captureWarnings(t)
 
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
 	ws, err := NewWorktree(f, "antigravity").PrepareWorkspace(context.Background(), "/proj", "agent-a")
-	require.NoError(t, err)
+	require.NoError(t, err, "PrepareWorkspace itself still succeeds — the fail-loud gate is the CALLER's job")
 	t.Cleanup(func() { _ = ws.Cleanup() })
 
-	out := buf.String()
-	assert.Contains(t, out, "agent-a")
-	assert.Contains(t, out, "CONFIGURATION and SESSION STATE are isolated")
-	assert.Contains(t, out, "AUTHENTICATION IS NOT")
-	assert.Contains(t, out, "runtime:container")
-
-	// The finding is informational only: strict mode must NOT collect it as
-	// a fatal ClassIsolation finding, and the run must NOT be refused (this
-	// PrepareWorkspace call already returned err == nil above).
-	assert.Empty(t, strictness.All(), "the auth-not-isolated finding must never be folded into the strictness pass/fail signal")
+	findings := strictness.All()
+	require.Len(t, findings, 1, "a workspaceViable==false spec on the standalone host path must record exactly one fatal finding")
+	f0 := findings[0]
+	assert.Equal(t, strictness.ClassIsolation, f0.Class, "mirrors kiro's own fatal-unless-degraded posture")
+	assert.Contains(t, f0.Message, "agent-a")
+	assert.Contains(t, f0.Message, "AUTHENTICATION escapes it", "must name the auth escape (the OS session keyring)")
+	assert.Contains(t, f0.Message, "FILE WRITES escape", "must name the file-write escape (cwd-ignoring global scratch)")
+	assert.Contains(t, f0.Message, "antigravity-cli/scratch", "must name the actual escape path, not just gesture at it")
+	assert.Contains(t, f0.Message, "runtime:container", "must point at the working alternative")
+	assert.NotEmpty(t, f0.FixIt)
+	assert.Contains(t, f0.FixIt, "runtime:container")
+	assert.Contains(t, f0.FixIt, "--degraded")
 }
 
-// TestWorktree_Antigravity_AuthNotIsolatedFindingFiresEvenDegraded: the
-// finding is plain informational output, not gated by --degraded (which only
-// suppresses STRICTNESS findings). A user who explicitly degraded still
-// needs to know auth isn't isolated.
-func TestWorktree_Antigravity_AuthNotIsolatedFindingFiresEvenDegraded(t *testing.T) {
+// TestWorktree_Antigravity_HostWorktreeRefusalDowngradesWithDegraded: exactly
+// like kiro's gateHomeVars gate, --degraded (CTXLOOM_DEGRADED=1) suppresses
+// the FATAL finding entirely (strictness.record's degraded short-circuit) —
+// the run proceeds with only config/session isolation, the user having
+// explicitly accepted shared auth and shared global file writes.
+func TestWorktree_Antigravity_HostWorktreeRefusalDowngradesWithDegraded(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	withFakeHome(t)
-	buf := captureWarnings(t)
 
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
@@ -223,7 +229,36 @@ func TestWorktree_Antigravity_AuthNotIsolatedFindingFiresEvenDegraded(t *testing
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 
-	assert.Contains(t, buf.String(), "AUTHENTICATION IS NOT")
+	assert.Empty(t, strictness.All(), "--degraded downgrades the refusal to a plain warn-and-continue, exactly like kiro's gate")
+}
+
+// TestWorktree_Antigravity_ContainerWrappedKeepsWarnOnlyNoRefusal is the
+// LOAD-BEARING container-exemption proof at the unit level: the IDENTICAL
+// Worktree.PrepareWorkspace call, but through the worktree-in-container
+// composition's exact construction (NewWorktree(...).forContainer(), what
+// container_worktree.go's NewContainerWorktreeFor actually builds), must NOT
+// record any ClassIsolation finding — it keeps the pre-existing loud-but-
+// non-fatal curatedHomeAuthFinding warning, because a container's own
+// mount/PID namespace contains both of antigravity's escapes. This pins the
+// containerWrapped short-circuit directly, independent of the full
+// Container/prepareBase plumbing (proven separately via
+// TestNewContainerWorktreeFor_AntigravityWorktreeIsContainerWrapped in
+// container_worktree_test.go).
+func TestWorktree_Antigravity_ContainerWrappedKeepsWarnOnlyNoRefusal(t *testing.T) {
+	resetStrictness(t)
+	withFakeHome(t)
+	buf := captureWarnings(t)
+
+	common := t.TempDir()
+	f := &git.Fake{CommonDirValue: common}
+	// The exact construction container_worktree.go uses to wrap a Worktree
+	// for the {workspace: worktree, runtime: container} composition.
+	ws, err := NewWorktree(f, "antigravity").forContainer().PrepareWorkspace(context.Background(), "/proj", "agent-a")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Cleanup() })
+
+	assert.Empty(t, strictness.All(), "a container-wrapped Worktree must NEVER record the host-only fatal refusal")
+	assert.Contains(t, buf.String(), "AUTHENTICATION IS NOT", "the pre-existing non-fatal warning still fires, unchanged")
 }
 
 // TestWorktree_ScopedLeverEngines_NoHomeOverride is the negative space this

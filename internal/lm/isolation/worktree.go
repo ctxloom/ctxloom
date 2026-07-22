@@ -64,6 +64,34 @@ type Worktree struct {
 	// generic test constructor): no spec matches, so no seeding is
 	// attempted — the pre-fix behavior.
 	backend string
+	// containerWrapped marks this Worktree as the worktree HALF of a
+	// worktree-in-container base (worktreeBase, container_worktree.go's
+	// NewContainerWorktree/NewContainerWorktreeFor) rather than the
+	// STANDALONE {workspace: worktree} policy chainFor hands out on its own
+	// (the plain NewWorktree(nil, backend) construction, both the bare
+	// {worktree, host} request and the {worktree, container}-degraded-to-
+	// host fallback). PrepareWorkspace threads it into curatedHomeSpecs'
+	// fatal-vs-warn decision (curatedhome.go's provisionCuratedHomeFor): a
+	// workspaceViable==false spec (antigravity) is a FATAL host-worktree
+	// refusal only when this is false — when true, the container's own
+	// mount/PID namespace already contains the escapes a curated HOME can't,
+	// so the pre-existing warn-only posture (curatedHomeAuthFinding) stays
+	// exactly as it was. Set via forContainer(), never by field literal
+	// outside this package, so every construction site's intent is explicit
+	// at the call site rather than defaulting silently.
+	containerWrapped bool
+}
+
+// forContainer returns a copy of w marked as the worktree half of a
+// worktree-in-container base (see the containerWrapped field doc). The ONLY
+// caller is container_worktree.go's NewContainerWorktree/
+// NewContainerWorktreeFor — every other Worktree construction (chainFor's
+// standalone host paths, every test) leaves containerWrapped at its zero
+// value (false), which is the correct default: "standalone host" unless a
+// caller explicitly says otherwise.
+func (w Worktree) forContainer() Worktree {
+	w.containerWrapped = true
+	return w
 }
 
 // Ensure Worktree satisfies the Policy interface.
@@ -190,10 +218,20 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 
 // provisionCuratedHomeFor creates the per-agent curated HOME (curatedhome.go)
 // for a curatedHomeSpecs-registered backend and, when the spec's lever does
-// NOT also isolate authentication, emits the loud non-fatal
-// curatedHomeAuthFinding. Returns "" on the MkdirAll/symlink-setup failure —
-// the run still proceeds against the shared host HOME (warn), mirroring
+// NOT also isolate authentication, emits either the loud non-fatal
+// curatedHomeAuthFinding or — for a workspaceViable==false spec on the
+// STANDALONE host path (w.containerWrapped false) — the FATAL
+// curatedHomeRefusal. Returns "" on the MkdirAll/symlink-setup failure — the
+// run still proceeds against the shared host HOME (warn), mirroring
 // provisionConfigHome's own best-effort contract; never blocking.
+//
+// The fatal branch is deliberately gated on !w.containerWrapped: this same
+// method runs, unchanged, when called through container_worktree.go's
+// worktreeBase (the {workspace: worktree, runtime: container} composition) —
+// a container's own mount/PID namespace already contains both of
+// antigravity's escapes there (proven separately), so that path must keep
+// getting the pre-existing warn-only curatedHomeAuthFinding exactly as
+// before. See Worktree.containerWrapped's doc for how that invariant is set.
 func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) string {
 	home := worktreeScratchPath(w.scratchBase(), "ctxloom-home", agentID)
 	if err := provisionCuratedHome(home); err != nil {
@@ -205,7 +243,12 @@ func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) 
 		_ = os.RemoveAll(home)
 		return ""
 	}
-	if !spec.authIsolated {
+	switch {
+	case spec.authIsolated:
+		// Fully isolated — no finding at all.
+	case !spec.workspaceViable && !w.containerWrapped:
+		curatedHomeRefusal(agentID, spec)
+	default:
 		curatedHomeAuthFinding(agentID, spec)
 	}
 	return home

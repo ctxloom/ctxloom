@@ -375,7 +375,17 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		case ev.Session != nil:
 			if ev.Session.SessionID != "" {
 				sessionID = ev.Session.SessionID
-				home.emitCustomEvent(CustomHarnessSession, map[string]any{"session_id": sessionID})
+				// resumable carries the engine's LIVE loadSession capability
+				// (ChatSessionInfo.Resumable) up to the coordinator's run
+				// record — the one-shot resume gate's live half (one-shot-
+				// resume plan, Slice 4). It rides the SAME generic custom
+				// event as the session id (no proto change) because both are
+				// known at the same instant (session start) and both are the
+				// coordinator's to journal per run.
+				home.emitCustomEvent(CustomHarnessSession, map[string]any{
+					"session_id": sessionID,
+					"resumable":  ev.Session.Resumable,
+				})
 			}
 		case ev.Entry != nil:
 			if !inTurn {

@@ -36,7 +36,12 @@ type RunRecord struct {
 	Ended            bool
 	Cause            string
 	HarnessSessionID string
-	EnqueuedAt       time.Time
+	// Resumable is the run engine's LIVE resume capability (factRunResumable,
+	// from ChatSessionInfo.Resumable) — the one-shot gate's live half. A run
+	// tears its engine down at a turn boundary only when this is true AND its
+	// plan resolved ResumeModeOneShot AND HarnessSessionID is captured.
+	Resumable  bool
+	EnqueuedAt time.Time
 	LastActivity     time.Time
 	// Ladder is the run's resolved escalation ladder (Wave C2), fixed at
 	// enqueue.
@@ -132,6 +137,25 @@ func (f *runsFold) apply(fact Fact) {
 		if r := f.runs[p.RunID]; r != nil {
 			r.HarnessSessionID = p.HarnessSessionID
 		}
+	case factRunResumable:
+		var p runResumable
+		if fact.decode(&p) != nil {
+			return
+		}
+		if r := f.runs[p.RunID]; r != nil {
+			r.Resumable = p.Resumable
+		}
+	case factRunReaped:
+		var p runReaped
+		if fact.decode(&p) != nil {
+			return
+		}
+		// Retention (one-shot): drop the evicted run records. byHarp is never
+		// touched — the reap set excludes every harp's current run, so the
+		// harp→current-run index (and the resume key it points at) survives.
+		for _, id := range p.RunIDs {
+			delete(f.runs, id)
+		}
 	case factSessionCred:
 		var p sessionCred
 		if fact.decode(&p) != nil {
@@ -219,6 +243,20 @@ func (f *queueFold) apply(fact Fact) {
 			return
 		}
 		f.transition(p.RunID, StateEnded)
+	case factRunReaped:
+		var p runReaped
+		if fact.decode(&p) != nil {
+			return
+		}
+		// Retention: forget the reaped runs' last-state (the reap set is all
+		// ended runs, so none remain queued/executing — executing is
+		// unaffected). Keeps queueFold.state from growing one entry per
+		// one-shot turn forever.
+		for _, id := range p.RunIDs {
+			delete(f.state, id)
+			delete(f.inQueue, id)
+		}
+		f.compact()
 	}
 }
 
@@ -323,6 +361,22 @@ func (f *rosterFold) apply(fact Fact) {
 			return
 		}
 		f.touch(p.RunID, StateEnded, fact.At)
+	case factRunReaped:
+		var p runReaped
+		if fact.decode(&p) != nil {
+			return
+		}
+		// Retention: forget the reaped runs' run_id→harp back-index. entries
+		// and current are HARP-keyed (one per harp) and untouched — the
+		// roster still shows every harp's latest state; only the per-run
+		// index (which grows one entry per one-shot turn) is pruned. Never
+		// prunes a current run's index (the reap set excludes it), so touch()
+		// for the live run still resolves.
+		for _, id := range p.RunIDs {
+			if h, ok := f.byRun[id]; ok && f.current[h] != id {
+				delete(f.byRun, id)
+			}
+		}
 	}
 }
 

@@ -359,6 +359,11 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 			if v, ok := s.GetFields()["session_id"]; ok {
 				c.recordHarnessSession(ch.id.RunID, v.GetStringValue())
 			}
+			// The engine's live loadSession capability (the one-shot gate's
+			// live half) rides the SAME custom event as the session id.
+			if v, ok := s.GetFields()["resumable"]; ok {
+				c.recordResumable(ch.id.RunID, v.GetBoolValue())
+			}
 		}
 	case CustomTurnStarted:
 		c.onTurnStarted(ch.role)

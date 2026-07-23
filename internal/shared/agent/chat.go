@@ -463,7 +463,18 @@ type ChatSessionInfo struct {
 	// resume handle a coordinator journals so a later respawn can continue
 	// the same native session (ChatRequest.ResumeSessionID). Empty when the
 	// backend exposes none.
-	SessionID      string
+	SessionID string
+	// Resumable reports that the backend advertised it can RESUME this native
+	// session by its SessionID key on a later spawn (ACP: the engine's
+	// initialize-time loadSession capability; internal/acp/session.go). It is
+	// the LIVE half of the one-shot resume gate (one-shot-resume plan, Slice 4
+	// / Fork 3): the static per-backend table says a backend COULD resume, but
+	// only the connected adapter's own handshake proves THIS engine actually
+	// advertises it — a mismatch (statically capable, live-unadvertised) must
+	// fall back to the persistent warm-engine model rather than tear down at a
+	// turn boundary and then fail loud at session/load. False when the backend
+	// exposes no such capability (or has not reported one yet).
+	Resumable      bool
 	Model          string
 	PermissionMode string
 	ContextWindow  int

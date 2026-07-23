@@ -631,6 +631,26 @@ func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
 	}
 }
 
+// recordResumable journals the run engine's LIVE resume capability
+// (ChatSessionInfo.Resumable — ACP's initialize-time loadSession bit) — the
+// one-shot resume gate's live half (one-shot-resume plan, Slice 4 / Fork 3).
+// Idempotent on an unchanged value; only ever recorded true (a false is the
+// zero value already, and a later true must not be silently ignored).
+func (c *Coordinator) recordResumable(runID string, resumable bool) {
+	if !resumable {
+		return
+	}
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.Resumable == resumable {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunResumable, c.now(), runResumable{RunID: runID, Resumable: resumable})}, nil
+	}); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: record run resumable: %v", err)
+	}
+}
+
 // resumeKeyFor is the resume key formalized as a single accessor (one-shot-
 // resume plan Slice 1): (harp, HarnessSessionID) on the harp's CURRENT run —
 // the handle a resume threads back into the backend (StartRun's
@@ -876,6 +896,7 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		// first resolves (chat.go's post-first-turn Session event) is safe.
 		if ev.Session.SessionID != "" {
 			c.recordHarnessSession(rt.runID, ev.Session.SessionID)
+			c.recordResumable(rt.runID, ev.Session.Resumable)
 		}
 	case ev.Complete != nil:
 		c.onTurnBoundary(rt)

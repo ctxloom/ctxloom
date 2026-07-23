@@ -349,6 +349,15 @@
               "required": ["action"],
               "additionalProperties": false
             }
+          },
+          "coordinator": {
+            "type": "boolean",
+            "description": "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf."
+          },
+          "driving": {
+            "type": "string",
+            "description": "Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine).",
+            "enum": ["conversational", "oneshot"]
           }
         },
         "additionalProperties": false

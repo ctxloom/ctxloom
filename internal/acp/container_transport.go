@@ -3,8 +3,11 @@ package acp
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
@@ -95,7 +98,11 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 	}
 
 	command := append([]string{b.BinaryPath}, argv...)
-	extraEnv, extraMounts := containerReachBackEnv(rt)
+	extraEnv, extraMounts, reachBackClose, err := containerReachBackEnv(rt, runtime.GOOS)
+	if err != nil {
+		_ = ws.Cleanup()
+		return nil, fmt.Errorf("acp: reach-back for %q: %w", engine, err)
+	}
 	// The chat's own model/session env (spawnEnv's overlay, already curated —
 	// never the full host os.Environ(): the container gets a fresh, minimal
 	// env by design, unlike spawnHostTransport's os.Environ() passthrough).
@@ -105,12 +112,18 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 
 	spec, err := pol.ExecSpec(ws, command, extraEnv, extraMounts)
 	if err != nil {
+		if reachBackClose != nil {
+			_ = reachBackClose()
+		}
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: container isolation for %q: %w", engine, err)
 	}
 
 	ac, err := isolation.RunAttached(ctx, rt, spec)
 	if err != nil {
+		if reachBackClose != nil {
+			_ = reachBackClose()
+		}
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("acp: starting %q in container: %w", engine, err)
 	}
@@ -120,6 +133,11 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 		stdout: ac.Stdout,
 		close: func() error {
 			cerr := ac.Close()
+			if reachBackClose != nil {
+				if berr := reachBackClose(); berr != nil && cerr == nil {
+					cerr = berr
+				}
+			}
 			if werr := ws.Cleanup(); werr != nil && cerr == nil {
 				cerr = werr
 			}
@@ -152,11 +170,126 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 // simply cannot reach the runner's MCP surface — no worse than a bare host
 // self-invoke with no runner dial-home behind it, which already degrades the
 // same way (mcp_server.go's forward mode is a no-op without the var set).
-func containerReachBackEnv(rt isolation.Runtime) ([]string, []isolation.Mount) {
+//
+// OFF-LINUX FALLBACK (this reach-back was broken there until now — verified
+// 2026-07-22): the mount above is the identical-path-bind-mount crossing
+// isolation.NewContainerFor's every OTHER mount already relies on, which
+// only works because Linux shares ONE kernel between host and container. On
+// macOS/Windows Docker Desktop the container runs inside a Linux VM, so a
+// unix socket FILE bind-mounted in from the host is not a live endpoint
+// there — the identical rationale loopbackPluginPort documents for the
+// go-plugin transport (internal/lm/isolation/container.go). That fallback
+// solves the OPPOSITE direction, though: there the plugin SERVER runs
+// in-container and the HOST dials OUT to a docker-published loopback port
+// (`-p 127.0.0.1:P:P`). Here the runner's MCP endpoint (the unix listener
+// behind sock) is the SERVER and runs on the HOST, and the in-container
+// `ctxloom mcp` shim is the one that must dial OUT — no `-p` publish helps
+// that direction (publish forwards host->container, never the reverse).
+// Instead this bridges the unix socket onto a HOST-loopback TCP port (no
+// container boundary crossed making that bridge: it dials sock from THIS
+// same process, which the runner's own `ctxloom llm serve` invocation
+// created), and the container reaches it via Docker Desktop's automatic
+// host.docker.internal DNS name (Podman's equivalent is
+// host.containers.internal — reachBackDialHost picks per rt.Name()), which
+// both Docker Desktop and Podman Desktop route to the host's own network
+// stack, loopback included, with no `-p`/`--add-host` needed on macOS/
+// Windows. goos is threaded explicitly (never read via runtime.GOOS inline)
+// so this selection is unit-testable for every host OS from any CI machine.
+func containerReachBackEnv(rt isolation.Runtime, goos string) ([]string, []isolation.Mount, func() error, error) {
 	sock := os.Getenv(mcpSocketEnvVar)
 	if sock == "" {
-		return nil, nil
+		return nil, nil, nil, nil
 	}
-	dir := filepath.Dir(sock)
-	return []string{mcpSocketEnvVar + "=" + sock}, []isolation.Mount{rt.ExposeIdentical(dir, false)}
+	if goos == "linux" {
+		dir := filepath.Dir(sock)
+		return []string{mcpSocketEnvVar + "=" + sock}, []isolation.Mount{rt.ExposeIdentical(dir, false)}, nil, nil
+	}
+	bridge, err := startReachBackBridge(sock)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("acp: reach-back TCP bridge for %s: %w", mcpSocketEnvVar, err)
+	}
+	addr := fmt.Sprintf("%s%s:%d", reachBackTCPPrefix, reachBackDialHost(rt), bridge.port)
+	return []string{mcpSocketEnvVar + "=" + addr}, nil, bridge.Close, nil
 }
+
+// reachBackTCPPrefix marks a CTXLOOM_MCP_SOCKET value as the off-Linux TCP
+// form (host:port to dial) rather than the default unix socket path (which
+// is always an absolute filesystem path and so never collides with this
+// prefix). Duplicated as a literal in internal/cli/mcp_forward.go — the far
+// side that dials this value — for the SAME import-cycle reason
+// mcpSocketEnvVar above is duplicated rather than imported from
+// agentcoord/coord: keep both literals in sync by hand.
+const reachBackTCPPrefix = "tcp://"
+
+// reachBackDialHost is the DNS name Docker/Podman Desktop resolve, from
+// INSIDE a container, to the host's own network stack (loopback included) —
+// the reverse-direction equivalent of a `-p` publish, and the reason the
+// bridge below only needs to bind 127.0.0.1, never 0.0.0.0. Docker and
+// Podman ship different names for it; rt.Name() is already threaded through
+// every call site here, so branching on it costs nothing new.
+func reachBackDialHost(rt isolation.Runtime) string {
+	if rt.Name() == "podman" {
+		return "host.containers.internal"
+	}
+	return "host.docker.internal"
+}
+
+// reachBackBridge is the host-loopback TCP<->unix proxy that stands in for
+// the bind-mounted socket file off Linux. It never crosses a container
+// boundary itself: both its listener and its dial of sock run in THIS
+// process, on the same host filesystem the runner's own unix listener (sock)
+// is already bound to — only the TCP side is ever reachable from inside the
+// container.
+type reachBackBridge struct {
+	port int
+	ln   net.Listener
+}
+
+// startReachBackBridge reserves a free 127.0.0.1 port and starts proxying
+// every accepted connection to a fresh dial of sock, one goroutine pair per
+// connection, until Close stops the listener (in-flight proxied connections
+// drain on their own; nothing here waits for them, matching ac.Close's own
+// fire-and-forget teardown of the attached container).
+func startReachBackBridge(sock string) (*reachBackBridge, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("reserve reach-back bridge port: %w", err)
+	}
+	b := &reachBackBridge{port: ln.Addr().(*net.TCPAddr).Port, ln: ln}
+	go b.acceptLoop(sock)
+	return b, nil
+}
+
+// acceptLoop runs until the listener closes (Close, or an unexpected accept
+// error) — the normal go-plugin-style "serve until closed" shape, matching
+// serveRunnerMCP's own `go func() { _ = srv.Serve(ln) }()`.
+func (b *reachBackBridge) acceptLoop(sock string) {
+	for {
+		conn, err := b.ln.Accept()
+		if err != nil {
+			return
+		}
+		go b.pipe(conn, sock)
+	}
+}
+
+// pipe dials sock fresh for this one connection and splices the two
+// directions until either side closes — a plain byte-for-byte proxy; the
+// HTTP-over-unix traffic riding it (mcp_forward.go's StreamableClientTransport)
+// never needs to know it crossed a bridge.
+func (b *reachBackBridge) pipe(conn net.Conn, sock string) {
+	defer func() { _ = conn.Close() }()
+	uc, err := net.Dial("unix", sock)
+	if err != nil {
+		return
+	}
+	defer func() { _ = uc.Close() }()
+	done := make(chan struct{})
+	go func() { _, _ = io.Copy(uc, conn); close(done) }()
+	_, _ = io.Copy(conn, uc)
+	<-done
+}
+
+// Close stops accepting new bridge connections (idempotent: net.Listener's
+// own Close is).
+func (b *reachBackBridge) Close() error { return b.ln.Close() }

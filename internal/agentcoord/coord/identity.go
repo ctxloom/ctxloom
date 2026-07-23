@@ -24,6 +24,16 @@ const (
 	// there (HTTP-over-unix — the tool path never crosses the container
 	// boundary; the runner is the one credential holder and the one
 	// egress).
+	//
+	// One reach-back seam encodes a SECOND value shape here: the ACP
+	// editor driver's container transport (internal/acp/container_transport.go)
+	// cannot bind-mount a live unix socket across the Docker Desktop VM
+	// boundary off Linux (macOS/Windows), so there this instead carries
+	// "tcp://host:port" — a host-loopback TCP bridge onto the same unix
+	// socket, dialed by the shim's forward mode (internal/cli/mcp_forward.go).
+	// Every OTHER setter of this var (this package's runner, in particular)
+	// always emits a plain unix path; only that one ACP seam ever emits the
+	// tcp:// form.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
 )
 

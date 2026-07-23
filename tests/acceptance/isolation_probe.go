@@ -689,19 +689,27 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 //     credential-mount fallback at all) — the host's subscription sqlite
 //     that authenticates the WORKTREE axis cannot authenticate a
 //     containerized kiro today.
-//   - antigravity: NEVER available (resolveAntigravityContainerAuth always
-//     degrades) — a known product gap, independent of credentials.
+//   - antigravity: a mounted host credential file ONLY, no env-key path at
+//     all (fatal-amino, 2026-07-22: resolveAntigravityContainerAuth has no
+//     known ANTIGRAVITY_*/AGY_* trigger of its own, and deliberately never
+//     accepts ANTHROPIC_API_KEY — the wrong-provider security edge). The
+//     file it mounts is ~/.gemini/antigravity-cli/antigravity-oauth-token —
+//     the SAME path copyAntigravityCredentials now seeds and
+//     authCheckAntigravity now reads (both corrected off an earlier wrong
+//     oauth_creds.json guess) — so probeDecideAuthPath answers correctly
+//     here too, exactly like claude/codex/opencode above. Before this
+//     resolver existed, this case unconditionally reported probeAuthNone
+//     regardless of credentials, a hardcoded "no resolver" skip rather than
+//     a real check.
 func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 	switch backendType {
-	case "claude-code", "codex", "opencode":
+	case "claude-code", "codex", "opencode", "antigravity":
 		return probeDecideAuthPath(backendType)
 	case "kiro":
 		if os.Getenv("KIRO_API_KEY") != "" {
 			return probeAuthEnvKey, "KIRO_API_KEY set in the environment"
 		}
 		return probeAuthNone, "kiro's container axis has NO credential-mount fallback in production (internal/lm/isolation/auth.go's resolveKiroContainerAuth) — only KIRO_API_KEY authenticates a containerized kiro run, and it is not set; the host's subscription credential (which DOES authenticate the worktree axis) cannot reach a container today"
-	case "antigravity":
-		return probeAuthNone, "antigravity has NO container auth resolver in production at all (resolveAntigravityContainerAuth always degrades, regardless of credentials) — a known product gap, not a missing credential; see website/src/content/docs/security/isolation.md"
 	default:
 		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)
 	}

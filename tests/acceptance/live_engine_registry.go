@@ -484,9 +484,20 @@ func authCheckKiro(realHome string) (bool, string) {
 	return true, strings.TrimSpace(string(out))
 }
 
-// authCheckAntigravity inspects agy's OAuth credential file CONTENT
-// (access_token / refresh_token / expiry_date), not merely the file's
-// presence.
+// authCheckAntigravity inspects agy's file-based OAuth token file CONTENT
+// (token.access_token / token.refresh_token / token.expiry), not merely the
+// file's presence.
+//
+// WRONG FILE, CORRECTED (fatal-amino, 2026-07-22): this used to read
+// ~/.gemini/oauth_creds.json — a guess that turned out to be leftover state
+// from the retired standalone Gemini CLI (same shared ~/.gemini directory
+// layout), not an antigravity credential at all. The live-investigated,
+// CONFIRMED file is ~/.gemini/antigravity-cli/antigravity-oauth-token — the
+// same path internal/lm/isolation/auth.go's resolveAntigravityContainerAuth
+// now seeds — with the shape {"auth_method": "...", "token": {"access_token",
+// "refresh_token", "token_type", "expiry"}} (expiry an RFC3339 STRING, unlike
+// oauth_creds.json's unix-millis expiry_date INT — a second reason the two
+// were never interchangeable).
 //
 // ESCALATE, STILL (installed vs. authenticated, the exact distinction whose
 // absence hid kiro's own breakage for weeks): confirmed 2026-07-15, agy 1.1.2
@@ -503,75 +514,76 @@ func authCheckKiro(realHome string) (bool, string) {
 // So this remains a LOCAL CREDENTIAL FILE heuristic, not a verified login
 // check — but it now parses the file (matching authCheckClaude's JSON-field
 // style) instead of just calling os.Stat: a refresh_token present, or an
-// access_token whose expiry_date has not passed, is treated as evidence of a
-// live credential; an expired access_token with no refresh_token, or a file
-// that fails to parse, is treated as evidence against one. This is strictly
-// more accurate than plain presence for the "stale/revoked token still on
-// disk" case a pure file-presence check cannot distinguish.
+// access_token whose expiry has not passed, is treated as evidence of a live
+// credential; an expired access_token with no refresh_token, or a file that
+// fails to parse, is treated as evidence against one. This is strictly more
+// accurate than plain presence for the "stale/revoked token still on disk"
+// case a pure file-presence check cannot distinguish.
 //
 // KNOWN, MEASURED LIMITATION THIS CANNOT FIX (2026-07-14 investigation, task
-// vast-rut): this file's existence is neither necessary nor sufficient
-// evidence of the TRUE authentication condition on this box. A FRESH HOME
-// containing no oauth_creds.json anywhere still let a real `agy -p` call
-// authenticate and correctly answer a prompt — with no API-key env var set
-// and the D-Bus/keyring session severed. Four separate probes (fresh HOME,
-// no API-key env, no D-Bus, no machine-wide config dir under /etc, /opt, or
-// ~/.local/share) could not locate where agy's actual runtime credential
-// lives. So a "false" from this function does NOT reliably mean agy is
-// unauthenticated, and a "true" is not proof the runtime path even reads
-// this file — this is the best available local, free, non-interactive
-// signal, not ground truth. Deliberately NOT "fixed" by shelling out to a
-// real `agy -p <prompt>` call instead: that would make this probe a paid,
+// vast-rut, predating the file-name correction above but unaffected by it):
+// this file's existence is neither necessary nor sufficient evidence of the
+// TRUE authentication condition on a HOST run. A FRESH HOME containing no
+// file-based token anywhere still let a real `agy -p` call authenticate and
+// correctly answer a prompt on a real host — with no API-key env var set and
+// the D-Bus/keyring session severed by env alone (the socket itself is
+// UID-addressed and does not need the env var — see
+// internal/lm/isolation/curatedhome.go's package doc). That is expected and
+// does not contradict this file's role: this token file is agy's fallback
+// for when NO keyring is reachable AT ALL (a real container, not merely an
+// env var cleared on a host), which is exactly the case the container axis's
+// probeContainerAuthAvailable / resolveAntigravityContainerAuth exercise. A
+// "false" from this function does NOT reliably mean agy is unauthenticated
+// on a HOST run (the keyring may still cover it there); a "true" is the
+// best available local, free, non-interactive signal for the FILE-BASED
+// fallback specifically. Deliberately NOT "fixed" by shelling out to a real
+// `agy -p <prompt>` call instead: that would make this probe a paid,
 // possibly network-stalling model call on every opted-in acceptance run,
 // breaking the same "never a paid model call" contract authProbeTimeout's
-// doc comment states for every authCheck* in this file, and per the
-// investigation above it would not even discriminate reliably on this box.
-// If agy ever grows a real status subcommand, replace this outright.
+// doc comment states for every authCheck* in this file. If agy ever grows a
+// real status subcommand, replace this outright.
 func authCheckAntigravity(realHome string) (bool, string) {
-	type oauthCreds struct {
+	type fileToken struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
-		ExpiryDate   int64  `json:"expiry_date"` // unix millis; 0 if absent
+		Expiry       string `json:"expiry"` // RFC3339; empty if absent
+	}
+	type tokenFile struct {
+		AuthMethod string    `json:"auth_method"`
+		Token      fileToken `json:"token"`
 	}
 	const limitation = "local credential-file heuristic only, not a verified login check (agy has no auth-status subcommand) — see authCheckAntigravity doc comment for its known limits"
-	var lastReason string
-	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
-		p := filepath.Join(realHome, sub, "oauth_creds.json")
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		var creds oauthCreds
-		if jerr := json.Unmarshal(data, &creds); jerr != nil {
-			lastReason = fmt.Sprintf("%s exists but is not valid JSON: %v", p, jerr)
-			continue
-		}
-		if creds.RefreshToken != "" {
-			// A refresh token lets the client mint a fresh access token past
-			// expiry_date, so its presence is the stronger liveness signal —
-			// avoids flip-flopping this probe false purely because a
-			// short-lived access token aged out between two runs.
-			return true, fmt.Sprintf("%s: refresh_token present (%s)", p, limitation)
-		}
-		if creds.AccessToken == "" {
-			lastReason = fmt.Sprintf("%s exists but has no access_token or refresh_token", p)
-			continue
-		}
-		if creds.ExpiryDate > 0 {
-			expiry := time.UnixMilli(creds.ExpiryDate)
-			if time.Now().After(expiry) {
-				lastReason = fmt.Sprintf("%s: access_token expired %s ago, no refresh_token", p, time.Since(expiry).Round(time.Second))
-				continue
-			}
-			return true, fmt.Sprintf("%s: access_token valid until %s (%s)", p, expiry.Format(time.RFC3339), limitation)
-		}
-		// access_token present with no expiry_date field to check against.
-		return true, fmt.Sprintf("%s: access_token present, no expiry_date field to verify (%s)", p, limitation)
+	p := filepath.Join(realHome, ".gemini", "antigravity-cli", "antigravity-oauth-token")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return false, fmt.Sprintf("no %s found — NOTE: this is not reliable evidence of unauthenticated on a HOST run (the OS keyring may still cover it there); see authCheckAntigravity doc comment", p)
 	}
-	if lastReason != "" {
-		return false, lastReason + " — NOTE: absence/expiry here is not reliable evidence of unauthenticated, see authCheckAntigravity doc comment"
+	var tf tokenFile
+	if jerr := json.Unmarshal(data, &tf); jerr != nil {
+		return false, fmt.Sprintf("%s exists but is not valid JSON: %v", p, jerr)
 	}
-	return false, "no oauth_creds.json found under ~/.gemini or ~/.gemini/antigravity-cli — NOTE: this is not reliable evidence of unauthenticated, see authCheckAntigravity doc comment"
+	if tf.Token.RefreshToken != "" {
+		// A refresh token lets the client mint a fresh access token past
+		// expiry, so its presence is the stronger liveness signal — avoids
+		// flip-flopping this probe false purely because a short-lived access
+		// token aged out between two runs.
+		return true, fmt.Sprintf("%s: refresh_token present (%s)", p, limitation)
+	}
+	if tf.Token.AccessToken == "" {
+		return false, fmt.Sprintf("%s exists but has no access_token or refresh_token", p)
+	}
+	if tf.Token.Expiry != "" {
+		expiry, perr := time.Parse(time.RFC3339, tf.Token.Expiry)
+		if perr != nil {
+			return true, fmt.Sprintf("%s: access_token present, expiry %q unparseable as RFC3339 (%s)", p, tf.Token.Expiry, limitation)
+		}
+		if time.Now().After(expiry) {
+			return false, fmt.Sprintf("%s: access_token expired %s ago, no refresh_token", p, time.Since(expiry).Round(time.Second))
+		}
+		return true, fmt.Sprintf("%s: access_token valid until %s (%s)", p, expiry.Format(time.RFC3339), limitation)
+	}
+	// access_token present with no expiry field to check against.
+	return true, fmt.Sprintf("%s: access_token present, no expiry field to verify (%s)", p, limitation)
 }
 
 // authCheckCodex runs `codex login status`, a local, non-interactive status
@@ -669,15 +681,24 @@ func copyClaudeCredentials(realHome, fakeHome string) {
 // copyAntigravityCredentials copies just the auth-relevant files for
 // Antigravity CLI (agy) into the isolated home, best effort — never the whole
 // tree (which holds the brain conversation store and caches). agy keeps its
-// OAuth state under ~/.gemini and ~/.gemini/antigravity-cli: oauth_creds.json
-// and google_accounts.json carry the subscription login; installation_id and
-// settings.json keep the CLI out of its interactive first-run flow.
+// file-based OAuth fallback token at
+// ~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED 2026-07-22
+// (fatal-amino) as the real credential agy's own file-based fallback reads/
+// writes when no OS keyring is reachable; google_accounts.json and
+// installation_id/settings.json keep the CLI out of its interactive
+// first-run flow. oauth_creds.json is DELIBERATELY not copied here: it was an
+// earlier wrong-file guess (corrected auth.go's resolveAntigravityContainerAuth
+// doc) — on this project's own dev host it turned out to be leftover state
+// from the retired standalone Gemini CLI (same shared ~/.gemini directory
+// layout), not an antigravity credential at all, and copying it would make
+// this probe's auth-path decision (probeDecideAuthPath) report a false
+// "seeded" path off a file production's resolver never reads.
 func copyAntigravityCredentials(realHome, fakeHome string) {
 	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
 		srcDir := filepath.Join(realHome, sub)
 		dstDir := filepath.Join(fakeHome, sub)
 		_ = os.MkdirAll(dstDir, 0o755)
-		for _, name := range []string{"oauth_creds.json", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
+		for _, name := range []string{"antigravity-oauth-token", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
 			data, err := os.ReadFile(filepath.Join(srcDir, name))
 			if err != nil {
 				continue

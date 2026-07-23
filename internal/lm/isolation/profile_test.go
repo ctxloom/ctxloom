@@ -147,10 +147,12 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 // TestContainerProfileFor_Antigravity pins the paced-even fix for
 // antigravity plus task sweet-fruit's image-half landing: antigravity is now
 // COMPOSABLE (its own official-installer fragment, live-verified against
-// https://antigravity.google/cli/install.sh), but its AUTH half of
-// bare-goes is still open — it must NOT silently reuse claude's
-// auth/overlay; its resolver always degrades honestly instead.
+// https://antigravity.google/cli/install.sh), and (fatal-amino, 2026-07-22)
+// its AUTH half is now a REAL resolver — it must NOT silently reuse claude's
+// auth/overlay, and must degrade (not authenticate) when the host has no
+// seedable antigravity OAuth token, even with ANTHROPIC_API_KEY set.
 func TestContainerProfileFor_Antigravity(t *testing.T) {
+	withFakeHome(t) // hermetic: no real ~/.gemini/antigravity-cli/antigravity-oauth-token to accidentally pick up
 	p := containerProfileFor("antigravity")
 	assert.Equal(t, defaultContainerImage, p.image, "fallback tag only — the real tag is the composed multi-engine one")
 	assert.NotNil(t, p.engineInstall, "antigravity is composable as of task sweet-fruit")
@@ -159,8 +161,8 @@ func TestContainerProfileFor_Antigravity(t *testing.T) {
 	require.NotNil(t, p.resolveAuth)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	_, ok := p.resolveAuth("/root", t.TempDir())
-	assert.False(t, ok, "antigravity has no container auth resolver yet — it must degrade, never silently borrow claude's ANTHROPIC_API_KEY")
-	assert.Contains(t, p.authHint, "antigravity")
+	assert.False(t, ok, "no host antigravity OAuth token seeded → must degrade, never silently borrow claude's ANTHROPIC_API_KEY")
+	assert.Contains(t, p.authHint, "antigravity-oauth-token")
 }
 
 // TestNewContainerFor_UsesProfileImage / TestNewContainer_ExplicitImageWins pin

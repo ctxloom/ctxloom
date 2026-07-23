@@ -155,6 +155,30 @@ Feature: Isolation probe — live proof against real vendor engines
     When the probe runs it live under --degraded, writing a unique token in one turn
     Then the probe confirms kiro's global credential store was touched, as expected
 
+  # antigravity's host-worktree FILE-WRITE leak (fatal-amino/huge-panda,
+  # 2026-07-22): `agy -p` ignores the launch working directory entirely and
+  # always writes to its own fixed global scratch,
+  # ~/.gemini/antigravity-cli/scratch/, regardless of which curated/isolated
+  # HOME it runs under (internal/lm/isolation/curatedhome.go's package doc) —
+  # so two "isolated" agy agents share ONE global scratch tree no matter how
+  # many per-agent worktrees/HOMEs are set up. ctxloom now REFUSES to start a
+  # standalone host {workspace: worktree} antigravity run at all (a3c7b205's
+  # curatedHomeRefusal) BECAUSE of this (plus the separate, non-file-write
+  # auth escape), which is the right behavior but also closes off the window
+  # this probe would otherwise use to prove the leak live — --degraded is the
+  # documented escape hatch for exactly this refusal, so this scenario
+  # deliberately passes it, mirroring the kiro-leak scenario immediately
+  # above. If this ever goes RED because the run reports NO leak, that is
+  # GOOD NEWS (agy's scratch write genuinely started honouring HOME) and the
+  # fix is to revisit curatedHomeSpecs["antigravity"].workspaceViable in
+  # auth.go/curatedhome.go and retire this scenario, not to "fix" the
+  # assertion.
+  @antigravity @antigravity-leak
+  Scenario: The isolation probe proves antigravity's global scratch-directory leak under --degraded
+    Given the isolation probe targets antigravity's known file-write leak
+    When the probe runs it live under --degraded, writing a unique token in one turn
+    Then the probe confirms antigravity's global scratch directory was touched, as expected
+
   # Back to: tests/acceptance/features/j9_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md
   # (the narrative account of what these engines actually do).

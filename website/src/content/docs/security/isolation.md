@@ -174,13 +174,16 @@ name the exact socket.
 
 **You cannot redirect an address that was never yours to redirect.**
 
-Given that, host-mode worktree isolation for Antigravity now proceeds instead of refusing: a
-curated `HOME` genuinely isolates its configuration and session state, which is real and worth
-having. But ctxloom raises a loud, non-fatal finding on every such run, naming exactly what did
-and did not happen — configuration and session state isolated, authentication not — because
-there is no lever this side of a container boundary that reaches the keyring, and pretending
-the curated `HOME` closes that gap would be the same kind of silent overclaim this page exists
-to rule out.
+A curated `HOME` genuinely isolates Antigravity's configuration and session state, which is real
+and worth having. But it is not the whole of what a `workspace: worktree` request is asking
+for, and — combined with the separate file-write gap described next — ctxloom now **refuses to
+start** a standalone host `workspace: worktree` Antigravity run at all, a fatal
+`ClassIsolation` finding naming exactly which two things escape (authentication, via the
+keyring; file writes, via the fixed global scratch directory below), downgradable to a warning
+only with `--degraded`. Pretending the curated `HOME` closes the auth gap on its own — proceeding
+quietly through it — was the earlier posture this page described; it read as the same kind of
+silent overclaim this page exists to rule out, so it was replaced with an outright refusal that
+names both escapes and points at `runtime: container` instead.
 
 **A second, separate gap, found live by the executable probe (2026-07-22, agy 1.1.5), not by
 inspecting `HOME`:** `agy -p` (the headless oneshot mode ctxloom's `run --print` drives) does
@@ -196,45 +199,54 @@ regardless of which worktree ctxloom launched each one from. Whether Antigravity
 `-i` mode respects the launch directory was not tested here — this finding is scoped to headless
 `-p`, the mode ctxloom's non-interactive `run` command actually uses.
 
-**Unlike the auth/keyring gap above, ctxloom raises no finding for this one today.** The
-loud, non-fatal warning described earlier in this section (config and session state isolated,
-authentication not) covers only the `HOME`-relocation axis. Nothing currently tells an operator
-that `workspace: worktree` bought Antigravity's headless writes nothing — the run reports
-success, the worktree exists, and the token still lands in the shared global scratch
-directory. That silence is the specific thing this page exists to rule out elsewhere (see [Why
-it fails silently](#why-it-fails-silently) below); it has not yet been closed for this axis.
-Whether ctxloom should refuse `workspace: worktree` for Antigravity outright — the same posture
-it already takes for Kiro when `KIRO_API_KEY` is absent — rather than continuing to run
-unwarned is an open decision, not yet made.
+**This is the SAME refusal named above, not a separate silent gap.** A standalone host
+`workspace: worktree` Antigravity run isolates NEITHER of the two things such a request is for
+— not authentication (the keyring gap) and not file writes (this one) — so ctxloom refuses to
+start it at all rather than reporting success while the token quietly lands in the shared
+global scratch directory anyway. That silence was the specific failure mode this page exists to
+rule out (see [Why it fails silently](#why-it-fails-silently) below), and for Antigravity it no
+longer happens: the refusal names both escapes together, the same posture ctxloom already takes
+for Kiro when `KIRO_API_KEY` is absent, downgradable to `--degraded` the identical way. The
+isolation probe's executable matrix (below) now asserts this exact leak positively under
+`--degraded`, the same way it already did for Kiro's credential-store leak.
 
 Containers close that channel, and not because Antigravity cooperates. A container gets its own
 mount, IPC, and PID namespaces, so the keyring's socket does not exist inside it — there is
 nothing at that path to fall back to. We measured this directly too, by hand, outside ctxloom's
 own launch path: Antigravity, run in a fresh container with no session bus reachable, logged its
 own fallback ("Using file-based token storage because no D-Bus session bus detected") to a
-file-based credential store (`oauth_creds.json` under `HOME`), and then failed outright — not
-logged in, because nothing had been seeded into that fallback path for this manual experiment.
+file-based credential store — **not** `oauth_creds.json` under `HOME`, an earlier wrong guess
+this page has since corrected: the real path agy's fallback reads and writes is
+`~/.gemini/antigravity-cli/antigravity-oauth-token`. The first attempt at seeding
+`oauth_creds.json` into a container failed outright ("You are not logged into Antigravity"), and
+was read at the time as inconclusive (a stale token, not necessarily a broken mechanism) — it was
+in fact neither: `oauth_creds.json` turned out to be leftover state from the retired standalone
+Gemini CLI, which happens to share Antigravity's `~/.gemini` directory, not an Antigravity
+credential at all.
 
-That experiment is about whether the D-Bus channel *could* be closed; it is a separate question
-from what `ctxloom run --runtime container` itself does today, and the honest answer there is
-narrower than "it authenticates or refuses cleanly": **there is no antigravity container auth
-resolver in production at all.** `resolveAntigravityContainerAuth`
-(`internal/lm/isolation/auth.go`) is a permanent stub — it always returns "no credentials
-available," unconditionally, and is wired as antigravity's actual `resolveAuth` in
-`internal/lm/isolation/profile.go`. That is not a missed test case; it is the whole
-implementation. In practice this means ctxloom's own container launch aborts before the
-container ever starts — a fatal `ClassIsolation` finding in the default strict mode, exactly the
-same fail-loud posture Kiro gets when `KIRO_API_KEY` is absent, downgradeable to a warning only
-with `--degraded`. That refusal is correct and worth keeping: it is a lever nobody has built yet,
-not a lever that silently does the wrong thing. Two edges stay open and unverified rather than
-ruled out either way:
-whether a deliberately *seeded* file-based credential would let a container authenticate
-end-to-end (not attempted here — it needs a real interactive OAuth login with no keyring
-reachable, which needs a browser and a human, not a script), and whether Antigravity's binary
-also carries a separate, cloud-metadata-shaped credential path, reachable only from a genuine
-cloud host, or if a future container profile ever mounted additional cloud credentials into the
-box. Neither experiment run here was on such a host or with such a mount, so both stay named
-unknowns, not confirmed second channels.
+That correction closes what used to be an open question here. **`resolveAntigravityContainerAuth`
+(`internal/lm/isolation/auth.go`) is no longer a stub.** It seeds the host's
+`antigravity-oauth-token` file — the correct one — into scratch and mounts the copy read-write
+into the container's fresh `HOME`, at the identical relative path agy itself reads, mirroring
+how Claude Code's OAuth token is copy-mounted for the same reason: the token carries a
+`refresh_token`, so it self-renews, and a read-only mount would collide with that write-back.
+When no such host token exists, the resolver still degrades honestly (`ok=false`) rather than
+guessing or silently borrowing another engine's credentials — ctxloom's own container launch
+then aborts before the container ever starts, a fatal `ClassIsolation` finding in the default
+strict mode, downgradeable to a warning only with `--degraded`, the same fail-loud posture Kiro
+gets when `KIRO_API_KEY` is absent.
+
+What remains unverified is narrower now, and purely operational: this resolver has not itself
+been driven through a live `ctxloom run --runtime container` call against a real, authenticated
+`agy` (that needs docker, the real binary, and a captured token, in combination — out of band
+for a documentation pass; tracked as a follow-up probe/CI run). Two edges also stay open and
+unverified rather than ruled out either way: whether Antigravity's binary also carries a
+separate, cloud-metadata-shaped credential path, reachable only from a genuine cloud host, or if
+a future container profile ever mounted additional cloud credentials into the box; and whether
+Antigravity's *interactive* `-i` mode has any auth-relevant differences from the headless `-p`
+mode this page otherwise discusses (not tested here). Neither experiment run here was on such a
+host or with such a mount or in that mode, so both stay named unknowns, not confirmed second
+channels.
 
 ## A fifth case: ours to fix, and already fixed
 
@@ -287,25 +299,28 @@ to the vendors who happen to have picked the harder design:
   (`XDG_CONFIG_HOME` + `XDG_DATA_HOME`) was always complete. ctxloom just hadn't wired the
   credential half of it. Fixed 2026-07-22.
 
-- **Antigravity — structural.** The credential channel is an OS session keyring addressed by
-  UID, not by any environment variable a caller controls — there is no lever a config-home
-  variable could offer here, because the address was never the process environment's to
-  redirect. This one closes only by changing the boundary: `runtime: container` severs the
-  keyring socket at the namespace level, and Antigravity fails closed rather than silently
-  authenticating as the host user, which is the correct outcome. A vendor-side addition would
-  still help outside a container — an explicit, caller-selectable file-based credential mode
-  that Antigravity would consult before ever touching the keyring — but that closes a
-  convenience gap, not the structural one; the boundary is still what does the real work here.
+- **Antigravity — structural, host-mode gap; container-mode now has a real resolver.** The
+  credential channel is an OS session keyring addressed by UID, not by any environment variable
+  a caller controls — there is no lever a config-home variable could offer here on the host,
+  because the address was never the process environment's to redirect. `runtime: container`
+  severs the keyring socket at the namespace level, which forces Antigravity onto its own
+  file-based fallback credential (`~/.gemini/antigravity-cli/antigravity-oauth-token`) — and
+  ctxloom's container-auth resolver now seeds that real file into the container rather than
+  leaving containerized Antigravity unauthenticated. Outside a container, the structural gap
+  stands: Antigravity fails closed rather than silently authenticating as the host user when
+  the token isn't there, which is the correct outcome, but there is still no vendor-side
+  file-based credential mode a caller could opt into on the host itself.
 
-- **Antigravity, second gap — vendor-side, and currently unwarned by ctxloom.** Headless
-  `agy -p` ignores the launch working directory entirely and writes to a fixed global scratch
-  path regardless of `--add-dir` or anything else on its command line — the concrete ask is a
-  flag or environment variable that actually relocates that scratch directory, mirroring what
-  every other engine's config-home variable does for its own state. Until that exists, only a
-  container boundary closes this one too (a fresh filesystem has no shared global scratch dir to
-  collide in). Unlike the credential gap above, ctxloom does not yet raise any finding — loud or
-  otherwise — when it hands Antigravity a worktree it cannot use; whether it should refuse
-  instead of proceeding unwarned is open (see the note earlier in this section).
+- **Antigravity, second gap — vendor-side; ctxloom now refuses rather than proceeding unwarned.**
+  Headless `agy -p` ignores the launch working directory entirely and writes to a fixed global
+  scratch path regardless of `--add-dir` or anything else on its command line — the concrete ask
+  is a flag or environment variable that actually relocates that scratch directory, mirroring
+  what every other engine's config-home variable does for its own state. Until that exists, only
+  a container boundary closes this one too (a fresh filesystem has no shared global scratch dir
+  to collide in). ctxloom no longer hands Antigravity a host worktree it cannot use without
+  saying so: a standalone `workspace: worktree` request now refuses outright, naming this escape
+  alongside the credential one, downgradable only via `--degraded` — see the note earlier in this
+  section.
 
 None of this is a report of negligence. Four different teams made four different, defensible
 design calls for a single-user tool, and none of those calls anticipated a caller running many
@@ -476,7 +491,7 @@ the weaker path. Per engine, today:
 | codex | `~/.codex/auth.json` — real ChatGPT OAuth session | `OPENAI_API_KEY` (or `CODEX_API_KEY`) | same shape as claude |
 | kiro | `~/.local/share/kiro-cli/data.sqlite3` — opaque sqlite mixing the OAuth token with conversation state | `KIRO_API_KEY` | the sqlite is impractical to *synthesize* from a bare secret (it is a whole opaque database, not a token file) — a CI lane should use the API-key path only |
 | opencode | `~/.local/share/opencode/auth.json`, shape `{"<provider>":{"type":"api","key":"…"}}` | `OPENROUTER_API_KEY` | opencode has never supported a subscription login (Anthropic Pro/Max support was removed from opencode entirely at v1.3.0) — its "seeded" file is *just the same API key wrapped in JSON*, not an OAuth session, so both paths are equally CI-safe and neither proves anything the other doesn't |
-| antigravity | `~/.gemini/oauth_creds.json` — real OAuth session | none — OAuth-only, no API-key path exists | probed only by driving `agy`'s own CLI surfaces directly (`agy -p`/`--conversation`), never a third-party adapter presenting Antigravity credentials |
+| antigravity | `~/.gemini/antigravity-cli/antigravity-oauth-token` — real OAuth session, the file-based fallback used when no OS keyring is reachable | none — OAuth-only, no API-key path exists | probed only by driving `agy`'s own CLI surfaces directly (`agy -p`/`--conversation`), never a third-party adapter presenting Antigravity credentials |
 
 **Materializing a seeded credential from a CI secret, if that lane is ever built.** This is a report
 of the file shape each engine expects, not an endorsement of building it: claude's and codex's

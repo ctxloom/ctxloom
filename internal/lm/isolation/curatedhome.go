@@ -132,7 +132,7 @@ var curatedHomeSpecs = map[string]curatedHomeSpec{
 		engine:          "agy",
 		authIsolated:    false,
 		workspaceViable: false,
-		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run cannot authenticate at all instead of silently authenticating as the host user — see auth.go's resolveAntigravityContainerAuth",
+		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run authenticates ONLY via a seeded host file-based OAuth token (~/.gemini/antigravity-cli/antigravity-oauth-token) rather than silently authenticating as the host user through the keyring — with no such host token to seed, it fails closed instead — see auth.go's resolveAntigravityContainerAuth",
 	},
 }
 

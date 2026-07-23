@@ -67,9 +67,11 @@ since a multi-service compose project does not map to one agent container.
 The engine set (antigravity, claude-code, codex, kiro, opencode — each via
 its OWN official installer, one independently-cacheable Containerfile layer)
 composes into ONE shared image by default; --engines (or config
-isolation_engines) trims it. antigravity's own auth resolver still always
-degrades (no known container credential source), so a containerized
-antigravity agent needs to authenticate itself once the container starts.
+isolation_engines) trims it. antigravity's auth resolver seeds a host
+~/.gemini/antigravity-cli/antigravity-oauth-token file-based OAuth token into
+the container when one exists on the host; absent that captured token, it
+still degrades, so a containerized antigravity agent needs one authenticated
+first.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of

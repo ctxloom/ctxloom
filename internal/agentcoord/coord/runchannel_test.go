@@ -214,36 +214,60 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 	// (at-least-once, end to end).
 	h.crash()
 	sp := c.spawner.(*fakeSpawner)
-	// damp-pupil (2026-07-21, session woozy-hasty-karma): this assertion was
-	// caught failing at conformanceWait (5s) during a full `just test` run
-	// under real host contention ("Condition never satisfied"), then
-	// verified 3/3 on a quiet machine — a load-dependent flake, investigated
-	// rather than dismissed. Reproduced deliberately under artificial
-	// contention (CPU fork-storm via dozens of concurrent `yes` processes,
-	// compounded by a near-full tmpfs at the time) and confirmed the failure
-	// is TIMING, not data loss: the redelivered payload is always correct
-	// when the assertion is given enough time, including 10/10 clean passes
-	// at a longer bound while sustaining a synthetic load average >50 on a
-	// 20-core box. Unlike the package's other conformanceWait assertions,
-	// this one spans the FULL crash→loss-detect→terminateRun→goTracked
-	// resumeChild→spawner.Resolve→enqueueRun→new engine spawn→new Home
-	// dial-home→HelloAck→redeliver pipeline — strictly more goroutine/RPC
-	// hops than a single round-trip, so it is the one assertion in this
-	// file most exposed to scheduler-latency stacking under contention.
-	// crashRedeliverWait gives it headroom the shared 5s bound doesn't,
-	// without touching conformanceWait for the rest of the suite (which
-	// would blunt everyone else's sensitivity to a genuine hang).
+
+	// naval-snarl #1 (2026-07-22/23): this assertion used to be ONE
+	// require.Eventually spanning the FULL crash→loss-detect→terminateRun→
+	// goTracked resumeChild→spawner.Resolve→enqueueRun→new engine spawn→new
+	// Home dial-home→HelloAck→redeliver pipeline against a wall-clock guess
+	// (crashRedeliverWait, widened to 20s by damp-pupil (2026-07-21) after it
+	// flaked at 5s under real host contention). That band-aid is now
+	// REMOVED: the real fix is the SAME S3 pattern already proven in
+	// TestStartRun_ResumeUsesJournaledHarnessSessionID — replace the
+	// wall-clock guess over the goroutine-scheduling-dependent PART of the
+	// chain with awaitChildUp, which blocks on the tracked resumeChild
+	// goroutine's OWN progress signal (armLaunch/markAttached) instead of
+	// guessing how long scheduling takes under contention.
+	//
+	// Two stages, because awaitChildUp itself needs the resume to already
+	// be ARMED (c.launchArmed[harp] populated, or a fresh rt.attached) to
+	// have something to wait on — and arming happens asynchronously off
+	// h.crash() (the coordinator's OWN disconnect-detection goroutine, not
+	// this test's call stack), unlike AgentRun/AgentSend which arm
+	// synchronously before returning. So stage 1 waits out just that short
+	// window (disconnect-detect + terminateRun's one journal fsync +
+	// severChan/pendingCount + armLaunch — no engine respawn yet, hence
+	// still bounded by the shared conformanceWait); stage 2 (awaitChildUp)
+	// then deterministically covers the actual respawn (spawner.Resolve,
+	// enqueueRun's fsync, the fresh engine launch, and — legacy path —
+	// sendTurn's in-channel handoff, all sequenced strictly before
+	// markAttached closes the signal awaitChildUp is watching).
 	require.Eventually(t, func() bool {
-		if sp.spawnCount() < 2 {
-			return false
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if rt := c.byHarp[out.Harp]; rt != nil && rt.attached != nil {
+			return true
 		}
+		return len(c.launchArmed[out.Harp]) > 0
+	}, conformanceWait, 5*time.Millisecond, "the crash must be detected and the resume armed")
+
+	awaitCtx, awaitCancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer awaitCancel()
+	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp), "the resumed run must attach")
+	require.Equal(t, 2, sp.spawnCount(), "the crash must have respawned the harp")
+
+	// The only thing left unresolved once awaitChildUp returns is the
+	// fakeEngine's own in-process channel handoff (sendTurn's rendezvous
+	// send completing before the receiving goroutine appends to texts) —
+	// µs-scale, not the multi-hop respawn above, so the shared
+	// conformanceWait bound (not the removed 20s one) is ample.
+	require.Eventually(t, func() bool {
 		for _, text := range sp.engine(1).recordedTexts() {
 			if strings.Contains(text, "fragile") {
 				return true
 			}
 		}
 		return false
-	}, crashRedeliverWait, 10*time.Millisecond, "the unconsumed push re-delivers into the resumed run's first turn")
+	}, conformanceWait, 10*time.Millisecond, "the unconsumed push re-delivers into the resumed run's first turn")
 }
 
 // TestRunChannel_RecvPreemptionAndTimeout: the newest recv preempts a parked

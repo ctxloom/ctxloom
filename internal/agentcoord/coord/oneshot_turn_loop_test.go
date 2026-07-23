@@ -112,6 +112,76 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
 }
 
+// countRuns returns how many run records the live fold currently holds.
+func countRuns(c *Coordinator) int {
+	n := 0
+	c.runs.View(func() { n = len(c.runsF.runs) })
+	return n
+}
+
+// TestOneShot_RetentionReapsEndedRunsKeepsResumeKey drives a one-shot child
+// through many turns (each turn mints one ended run for the same harp) under a
+// tiny retention tail, and proves the live fold does NOT grow one record per
+// turn forever: old ended runs are reaped, while the harp's CURRENT run (its
+// resume key) is always kept and resume keeps working.
+func TestOneShot_RetentionReapsEndedRunsKeepsResumeKey(t *testing.T) {
+	resetStrictness(t)
+	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true} })
+	c, err := New(Options{
+		ProjectDir:   t.TempDir(),
+		StateDir:     t.TempDir(),
+		Spawner:      sp,
+		EndedRunTail: 2, // keep only the newest 2 ended runs across all harps
+	})
+	require.NoError(t, err)
+	require.NoError(t, c.Serve())
+	t.Cleanup(c.Close)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "turn 0", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+
+	const turns = 8
+	for i := 1; i <= turns; i++ {
+		_, err := c.AgentSend(ownerIdentity(), out.Harp, "", "turn", nil, "")
+		require.NoError(t, err)
+		awaitCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+		require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp))
+		cancel()
+		// Each resumed turn one-shot-ends again.
+		require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+	}
+
+	// The fold is BOUNDED — not turns+1 records. With tail=2 it holds the
+	// current run + at most ~2 retained ended runs (a small reap-timing slack),
+	// far below the 9 a no-retention build would accumulate.
+	require.Eventually(t, func() bool { return countRuns(c) <= 4 }, conformanceWait, 10*time.Millisecond,
+		"one-shot ended runs must be reaped, not accumulate one per turn")
+
+	// The resume key still resolves off the harp's current run, and a further
+	// resume still rides it — reaping never touched the live key.
+	sid, ok := c.resumeKeyFor(out.Harp)
+	require.True(t, ok, "the harp's resume key must survive reaping")
+	assert.Equal(t, "native-sess-42", sid)
+
+	before := sp.chatCount()
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "final", nil, "")
+	require.NoError(t, err)
+	awaitCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp))
+	cancel()
+	require.Equal(t, before+1, sp.chatCount(), "resume must still spawn a fresh engine after reaping")
+	sc := sp.chat(before)
+	require.Eventually(t, func() bool {
+		sc.mu.Lock()
+		defer sc.mu.Unlock()
+		return len(sc.requests) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	sc.mu.Lock()
+	assert.Equal(t, "native-sess-42", sc.requests[0].ResumeSessionID, "resume must still ride the captured key after reaping")
+	sc.mu.Unlock()
+}
+
 // TestOneShot_PersistentModeUnchanged proves the change is inert for a
 // conversational (ResumeModePersistent) migrated child: its engine stays WARM
 // across turns — the same process handles turn 2, no teardown, no resume — so

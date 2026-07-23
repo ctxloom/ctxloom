@@ -63,6 +63,18 @@ type Options struct {
 	// Production sources this from coordinator config (config.Config); tests
 	// raise it directly to exercise real overlap.
 	TurnCap int
+	// EndedRunTail bounds how many ENDED, non-current run records the live
+	// folds retain across all harps — the one-shot retention reap (Slice 4 /
+	// Fork 2.3). One-shot mints one ended run per turn per harp, so without a
+	// bound the in-memory run/state maps grow unbounded over a long session.
+	// Every harp's CURRENT run (the resume key) is ALWAYS kept, outside this
+	// count. <= 0 keeps the package default (defaultEndedRunTail). Tests set a
+	// tiny value to exercise reaping; production keeps the default.
+	EndedRunTail int
+	// EndedRunMaxAge reaps an ended, non-current run once it is older than
+	// this, independent of EndedRunTail. <= 0 keeps the package default
+	// (defaultEndedRunMaxAge).
+	EndedRunMaxAge time.Duration
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -97,6 +109,10 @@ type Coordinator struct {
 
 	spawner Spawner
 	slots   *turnSlots
+	// endedRunTail / endedRunMaxAge are the one-shot retention reap bounds
+	// (Slice 4 / Fork 2.3) — see Options.EndedRunTail/EndedRunMaxAge.
+	endedRunTail   int
+	endedRunMaxAge time.Duration
 	// watch is the D1 consumer broadcast hub: every AgentEvent processed on
 	// any RunChannel is teed here, live, for ConsumerService.WatchRuns
 	// subscribers (consumer.go). D2 retired the legacy per-harp agentbus
@@ -206,6 +222,14 @@ func New(opts Options) (*Coordinator, error) {
 	if turnCap <= 0 {
 		turnCap = agentTurnCap
 	}
+	endedRunTail := opts.EndedRunTail
+	if endedRunTail <= 0 {
+		endedRunTail = defaultEndedRunTail
+	}
+	endedRunMaxAge := opts.EndedRunMaxAge
+	if endedRunMaxAge <= 0 {
+		endedRunMaxAge = defaultEndedRunMaxAge
+	}
 	stateDir := opts.StateDir
 	var release func()
 	ephemeral := false
@@ -244,8 +268,10 @@ func New(opts Options) (*Coordinator, error) {
 		ephemeral:     ephemeral,
 		now:           now,
 		releaseOwner:  release,
-		spawner:       opts.Spawner,
-		slots:         newTurnSlots(turnCap),
+		spawner:        opts.Spawner,
+		slots:          newTurnSlots(turnCap),
+		endedRunTail:   endedRunTail,
+		endedRunMaxAge: endedRunMaxAge,
 		watch:         newWatchHub(),
 		consumerCreds: &consumerCreds{},
 		attach:        make(map[string]*childRt),

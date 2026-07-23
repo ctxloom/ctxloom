@@ -164,7 +164,7 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 	return entry.HarpName, nil
 }
 
-func (s *liveTapSpawner) Launch(context.Context, *coord.SpawnPlan, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *liveTapSpawner) Launch(context.Context, *coord.SpawnPlan, string, string, map[string]string, map[string]string) (*operations.AgentChatLaunch, error) {
 	return nil, fmt.Errorf("liveTapSpawner: Launch is unused (this agent always routes ViaStartRun)")
 }
 

@@ -490,7 +490,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 		return
 	}
 
-	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context,
+	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context, "",
 		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
@@ -820,6 +820,20 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 				rt.turnErrored = true
 			}
 			c.mu.Unlock()
+		}
+	case ev.Session != nil:
+		// LEGACY path's half of PREREQ A (wooly-stove): the migrated path
+		// already records this via StartRunResult/runchannel's
+		// ctxloom/harness_session custom event (runChildViaStartRun above);
+		// this is the only place a legacy go-plugin Chat dial's native
+		// session id (antigravity's agy conversation id, any future
+		// StructuredChat backend outside viaStartRunBackends) reaches the
+		// journal at all — previously silently dropped by this switch
+		// having no case for it. recordHarnessSession is idempotent, so the
+		// repeat emission antigravity's Chat sends when its conversation id
+		// first resolves (chat.go's post-first-turn Session event) is safe.
+		if ev.Session.SessionID != "" {
+			c.recordHarnessSession(rt.runID, ev.Session.SessionID)
 		}
 	case ev.Complete != nil:
 		c.onTurnBoundary(rt)
@@ -1194,8 +1208,17 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		return
 	}
 
-	contextText := c.spawner.ResumeContext(c.baseCtx, plan, harp)
-	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText,
+	// LEGACY resume (Slice 0, wooly-stove): mirror the ViaStartRun branch
+	// above — a captured native session id (antigravity's agy conversation
+	// id, journaled via handleChildEvent's ev.Session case) resumes the
+	// backend's OWN session (agy --conversation <id> --continue) with no
+	// rendered-transcript re-priming needed; only a prior run that never
+	// reported a session id falls back to the lossy ResumeContext replay.
+	contextText := ""
+	if rec.HarnessSessionID == "" {
+		contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
+	}
+	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText, rec.HarnessSessionID,
 		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)

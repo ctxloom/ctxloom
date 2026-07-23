@@ -208,10 +208,12 @@ var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (a
 // the binary landing at all. This closes the "no known official installer"
 // gap task bare-goes left open (profile.go's prior antigravity case, auth.go's
 // credentialSeedSpecs doc): antigravity is now COMPOSABLE like its siblings.
-// Its auth axis is UNCHANGED and stays honest — resolveAntigravityContainerAuth
-// still always degrades (no known container credential source), so a
-// containerized antigravity run gets the CLI but must supply its own auth
-// (e.g. --degraded is not a bypass for auth; see the antigravity case below).
+// Its auth axis now has a real resolver too (resolveAntigravityContainerAuth,
+// auth.go) that seeds the host's file-based OAuth token
+// (~/.gemini/antigravity-cli/antigravity-oauth-token) into the container —
+// so a containerized antigravity run gets the CLI AND, when that host token
+// exists, working auth (--degraded is still not a bypass for auth when it
+// doesn't; see the antigravity case below).
 var antigravityInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*) || true) \
     && curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && { command -v agy >/dev/null 2>&1 \
@@ -226,9 +228,9 @@ var antigravityInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 ||
 // antigravity joined this set 2026-07-15 (task sweet-fruit) once its OWN
 // official installer script (https://antigravity.google/cli/install.sh) was
 // found and live-verified — see antigravityInstallFragment's doc. Composing
-// it in only lands the agy CLI in the image; its AUTH resolver
-// (resolveAntigravityContainerAuth) still always degrades, so a containerized
-// antigravity run has the binary but needs its own credential source.
+// it in lands the agy CLI in the image; its AUTH resolver
+// (resolveAntigravityContainerAuth) now seeds a real host credential (the
+// file-based OAuth token) when present, degrading honestly when it is not.
 func composableEngines() []string {
 	return []string{"antigravity", "claude-code", "codex", "kiro", "opencode"}
 }
@@ -353,16 +355,19 @@ func containerProfileFor(backend string) containerProfile {
 	// fix as codex/opencode above — it does NOT inherit the default (claude)
 	// profile's auth/overlay: silently mounting the user's ANTHROPIC_*
 	// credentials into an antigravity container is exactly the wrong-provider
-	// security edge this fix closes. The AUTH half of bare-goes stays open —
-	// no known container credential source for antigravity exists yet, so
-	// resolveAntigravityContainerAuth always degrades even once the CLI
-	// itself is in the image.
+	// security edge this fix closes. The AUTH half of bare-goes is now CLOSED
+	// too (fatal-amino, 2026-07-22): resolveAntigravityContainerAuth seeds the
+	// host's file-based OAuth token
+	// (~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED the
+	// real fallback path agy uses when no OS keyring is reachable, e.g. inside
+	// a container) into the container HOME when that host file exists, and
+	// degrades honestly (ok=false) when it does not.
 	case "antigravity":
 		p := containerProfileFor("")
 		p.engineInstall = antigravityInstallFragment
 		p.validate = "agy --version"
 		p.resolveAuth = resolveAntigravityContainerAuth
-		p.authHint = "antigravity has no container auth resolver yet (no known credential source to mount/pass through); the in-container engine cannot authenticate even though the agy CLI itself is now installed"
+		p.authHint = "no host ~/.gemini/antigravity-cli/antigravity-oauth-token to authenticate the in-container engine (no captured file-based OAuth token to seed — the OS keyring channel agy normally uses on a host does not reach into a container)"
 		// No known project-relative managed-config surface to shadow yet:
 		// antigravity's writers (internal/antigravity) all target GLOBAL
 		// ~/.gemini/* paths, not anything under the project dir (vast-rut).

@@ -89,8 +89,10 @@ scenario:
    `curatedhome_test.go`: `TestResolveClaudeContainerAuth_*`,
    `TestSeedCodexHome_*` (codex's container-auth mount reuses the same
    spec), the kiro `KIRO_API_KEY`-only container-auth tests, and
-   antigravity's `resolveAntigravityContainerAuth` always-`false` case. Run
-   via `just test`.
+   antigravity's `resolveAntigravityContainerAuth`/
+   `antigravityCredentialCopyMounts` credential-mount-or-degrade tests
+   (fatal-amino, 2026-07-22 — no longer an always-`false` stub). Run via
+   `just test`.
 
 | backend | container auth mechanism | who can fix a gap | cucumber coverage |
 |---|---|---|---|
@@ -98,28 +100,34 @@ scenario:
 | codex | `OPENAI_API_KEY` env passthrough, else a read-only mount of `~/.codex/auth.json` | n/a — full lever | NOT EXECUTED (Go-pinned) |
 | opencode | `OPENROUTER_API_KEY` env passthrough, else a read-only mount of the seeded `auth.json` | n/a — full lever | NOT EXECUTED (Go-pinned) |
 | kiro | `KIRO_API_KEY` env passthrough ONLY, no mount fallback | vendor-side (see kiro's leak entry below) | NOT EXECUTED (Go-pinned) |
-| antigravity | none — `resolveAntigravityContainerAuth` always returns no-auth | **structural** (see antigravity's leak entry below) — container is nonetheless the CORRECT fix for the host-runtime leak | NOT EXECUTED — see the hand-measurement note below |
+| antigravity | seeds the host's file-based OAuth token (`~/.gemini/antigravity-cli/antigravity-oauth-token`) into the container, read-write, when present; else no-auth | **structural on host** (see antigravity's leak entry below); container now has a real, non-stub resolver (fatal-amino, 2026-07-22) | NOT EXECUTED — see the hand-measurement note below |
 
 **Antigravity's container-axis fact is not a cucumber result at all** — it is
-a hand measurement recorded directly in `internal/lm/isolation/curatedhome.go`'s
-own code comment (task `curated-scratch-home`, 2026-07-22, the same two-day
-window this whole matrix was measured in): running `agy` inside a plain
-docker container (no D-Bus session bus reachable) DID trip its own file-based
-fallback ("Using file-based token storage because no D-Bus session bus
-detected") — the detection+fallback TRIGGER is confirmed real. What remains
-UNVERIFIED: whether that fallback path authenticates end-to-end. The one
-attempt made (mounting the host's existing, already-stale
-`~/.gemini/oauth_creds.json`) failed ("You are not logged into Antigravity"),
-inconclusively — consistent with a stale credential, not necessarily a broken
-fallback. Confirming the mechanism fully needs a genuinely fresh file-based
-credential, which requires completing an interactive OAuth login with no
-keyring reachable — out of scope for a non-destructive measurement, and out
-of scope here too. **UNKNOWN, explicitly**: "does a containerized antigravity
-run, given a fresh file-based credential, actually complete authentication."
-What is CONFIRMED: "runtime:container severs the host-runtime leak's exact
-mechanism" (no `/run/user/<uid>/bus` inside a fresh container namespace) —
-treated as settled, reproduced twice (the container probe and the `env -i`
-reconciliation), both recorded in the same code comment.
+a hand measurement recorded directly in `internal/lm/isolation/auth.go`'s
+`resolveAntigravityContainerAuth` doc comment (task `curated-scratch-home`,
+2026-07-22, then corrected and implemented by task `fatal-amino` the same
+week): running `agy` inside a plain docker container (no D-Bus session bus
+reachable) DID trip its own file-based fallback ("Using file-based token
+storage because no D-Bus session bus detected") — the detection+fallback
+TRIGGER is confirmed real. The first attempt to prove the fallback
+authenticates end-to-end mounted the WRONG file
+(`~/.gemini/oauth_creds.json`) and failed ("You are not logged into
+Antigravity"); that file turned out to be leftover state from the retired
+standalone Gemini CLI (same shared `~/.gemini` directory), not an antigravity
+credential at all. The CORRECT file, confirmed live, is
+`~/.gemini/antigravity-cli/antigravity-oauth-token`, and
+`resolveAntigravityContainerAuth` now seeds it (copy-then-mount-rw, mirroring
+Claude Code's OAuth token treatment, since this token also carries a
+refresh_token that self-renews) instead of always degrading. What remains
+UNVERIFIED is narrower now: this resolver has not itself been driven through
+a live containerized `agy` call with a real captured token (needs docker +
+the real binary + a captured token together — out of band for this task; see
+the "Antigravity container-axis full authentication success" entry under
+UNKNOWN below). What is CONFIRMED: "runtime:container severs the
+host-runtime leak's exact mechanism" (no `/run/user/<uid>/bus` inside a fresh
+container namespace) — treated as settled, reproduced twice (the container
+probe and the `env -i` reconciliation), both recorded in the same code
+comment.
 
 ## Per-leak documentation
 
@@ -268,18 +276,22 @@ reconciliation), both recorded in the same code comment.
 - **`authCheckAntigravity` caveat**: none of this matrix's new scenarios rely
   on `live_engine_registry.go`'s `authCheckAntigravity` probe (they are
   hermetic). Flagging per the brief anyway: that probe is a LOCAL
-  CREDENTIAL-FILE heuristic (`~/.gemini/oauth_creds.json` presence/expiry),
-  not a real login check — agy exposes no auth-status subcommand at all, and
-  the probe's own doc comment records a measured case where a FRESH host
-  with no such file still authenticated live via the keyring. Anyone relying
-  on that probe elsewhere in the suite should treat "unavailable" as
-  unreliable evidence of "not authenticated," not proof of it.
+  CREDENTIAL-FILE heuristic (`~/.gemini/antigravity-cli/antigravity-oauth-token`
+  presence/expiry — corrected fatal-amino, 2026-07-22, off an earlier wrong
+  `oauth_creds.json` guess), not a real login check — agy exposes no
+  auth-status subcommand at all, and the probe's own doc comment records a
+  measured case where a FRESH host with no such file still authenticated live
+  via the keyring. Anyone relying on that probe elsewhere in the suite should
+  treat "unavailable" as unreliable evidence of "not authenticated" on a HOST
+  run, not proof of it — the keyring may still cover it there.
 
 ## UNKNOWN, explicitly
 
 - **Antigravity container-axis full authentication success** (not just the
-  fallback-trigger mechanism) — see the table's hand-measurement note above.
-  Resolved by: a fresh, deliberately file-based (no reachable keyring)
-  interactive `agy` OAuth login, then a containerized run against that
-  credential. Not attempted here (needs real browser + user consent).
+  fallback-trigger mechanism, and not just that the resolver now seeds the
+  correct file — see the table's hand-measurement note above). Resolved by: a
+  fresh, deliberately file-based (no reachable keyring) interactive `agy`
+  OAuth login, then a containerized `ctxloom run --runtime container` against
+  that credential. Not attempted here (needs real browser + user consent);
+  tracked as a follow-up probe/CI run.
 <!-- /doc:outro -->

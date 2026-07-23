@@ -306,72 +306,100 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 	}}, true
 }
 
-// resolveAntigravityContainerAuth always reports no available auth:
-// antigravity has no known container credential source yet — this stays a
-// separate open workstream (stark-wheat/bare-goes) even after task
-// sweet-fruit landed antigravity's IMAGE half (antigravityInstallFragment,
-// profile.go's antigravity case): the agy CLI is now baked into a composed
-// image, but nothing here yet knows how to authenticate it (no verified env
-// var or credential-file location). It deliberately does NOT fall back to
-// resolveClaudeContainerAuth: doing so was the paced-even security edge (a
+// antigravityOAuthTokenRel is the path, relative to a HOME, of agy's
+// file-based OAuth token — ~/.gemini/antigravity-cli/antigravity-oauth-token
+// — the WRONG file. A prior measurement here (see the RESOLVED note below)
+// guessed ~/.gemini/oauth_creds.json instead; that guess is dead. VALIDATED
+// (2026-07-22 live investigation): when agy has no reachable OS-session
+// keyring — true inside a container's fresh mount/PID namespace, since the
+// D-Bus Secret Service socket is addressed at the fixed, UID-derived
+// /run/user/<uid>/bus which does not exist inside the box — it falls back to
+// THIS file. Its contents are auth_method plus a token object (access_token,
+// refresh_token, token_type, expiry); the refresh_token is what lets a seeded
+// copy self-renew instead of expiring mid-run, exactly like claude's OAuth
+// token (claudeCredentialCopyMounts' doc below).
+const antigravityOAuthTokenRel = "antigravity-cli/antigravity-oauth-token"
+
+// resolveAntigravityContainerAuth builds the auth plan for a containerized
+// antigravity run whose fresh HOME is containerHome: it seeds the host's
+// file-based OAuth token (antigravityOAuthTokenRel, under ~/.gemini) into
+// scratchDir and mounts the COPY read-write into the container HOME at the
+// identical ~/.gemini/antigravity-cli/antigravity-oauth-token path agy itself
+// reads — mirroring claudeCredentialCopyMounts' copy-then-mount-rw shape
+// exactly (antigravityCredentialCopyMounts below), because this token also
+// carries a refresh_token: a plain read-only bind would collide with a
+// refresh writing back to that same file, same as claude's case. It
+// deliberately does NOT fall back to resolveClaudeContainerAuth or accept any
+// ANTHROPIC_* trigger: that would be the paced-even security edge (a
 // containerized antigravity run silently authenticating with the user's
-// ANTHROPIC_* credentials — the wrong provider entirely). Always degrades;
-// the profile's authHint explains why.
+// ANTHROPIC_* credentials — the wrong provider entirely). There is no known
+// env-var trigger of agy's own (no ANTIGRAVITY_*/AGY_* var is documented or
+// observed), so the credential mount is the ONLY path here — ok=false when
+// the host has no such token file, so the caller degrades rather than
+// launching an unauthenticated engine.
 //
-// PARTIALLY MEASURED (curated-scratch-home task, 2026-07-22): the premise a
-// container-based fix would rely on — "a container is keyring-less, so agy
-// falls back to a file-based credential path and IS isolable there" — is
-// HALF confirmed and half still open. Running agy inside a plain docker
-// container (no D-Bus session bus reachable) DID trip its own fallback:
-// its log recorded "Using file-based token storage because no D-Bus session
-// bus detected", proving the detection+fallback TRIGGER is real, not
-// inferred. What remains UNVERIFIED: whether that fallback path actually
-// authenticates end-to-end. The one attempt made here — mounting the host's
-// existing ~/.gemini/oauth_creds.json into the container — failed ("You are
-// not logged into Antigravity"), but inconclusively so: that file's
-// access_token was already stale (this host's day-to-day auth has run
-// through the keyring since initial login, so the file is never rewritten
-// after the fact) — the failure is consistent with a stale credential, not
-// necessarily with a broken fallback mechanism. Confirming the mechanism
-// fully needs either a genuinely fresh file-based credential (which requires
-// completing an interactive OAuth login with no keyring reachable — not
-// attempted here: it needs a real browser + user consent, and was out of
-// scope for a non-destructive check) or reverse-engineering the token
-// refresh call, which this task deliberately did not attempt. Do not upgrade
-// this from "mechanism confirmed, full success unverified" without a fresh
-// measurement.
-//
-// RECONCILED (2026-07-22, same day, later measurement): the earlier
-// unreconciled note here pointed at website/security/isolation.md's "we
-// probed four ways and could not determine where its credential came from"
-// container/HOME experiment, which read as a stronger, opposite result to
-// this function's own container measurement above. It is not opposite. The
-// keyring channel is a D-Bus Secret Service socket at a fixed,
-// UID-derived path — /run/user/<uid>/bus — not something the usual
-// advertising env var (DBUS_SESSION_BUS_ADDRESS) controls: the client
-// library falls back to that path even when the var is unset. Reproduced
-// directly: `env -i HOME=<fresh empty dir> PATH=... agy models`, with NO
-// DBUS_SESSION_BUS_ADDRESS, NO XDG_RUNTIME_DIR, NO DISPLAY, and no other env
-// at all, still authenticated "via keyring". So the earlier experiment's
-// "keyring made unreachable" almost certainly cleared the env var — which
-// removes the label, not the socket — and caught the same keyring documented
-// above, not a fourth, unidentified channel. That resolves the mystery; it
-// does not change this function's answer. The container measurement above
-// (fresh docker container, no D-Bus session bus reachable, fallback to
-// file-based token storage) still holds and is now the confirmed reason
-// containers close this specific channel: fresh mount/PID namespaces mean
-// /run/user/<uid>/bus does not exist inside the box, which is a kernel
-// property, not vendor cooperation. Treat "runtime:container severs the
-// keyring channel" as CONFIRMED. What stays open is the separate,
-// lower-confidence question this comment already carried: whether a
-// deliberately-seeded file-based credential would let a container
-// authenticate end-to-end (see above — unverified). A distinct, also-
-// unverified edge exists in the binary's own ADC-style cloud-metadata
-// machinery, reachable only on a genuine cloud host or if a future
-// container profile ever mounts additional cloud credentials — not
-// exercised by either experiment run here.
-func resolveAntigravityContainerAuth(string, string) (containerAuth, bool) {
-	return containerAuth{mode: authNone}, false
+// RESOLVED (2026-07-22, superseding this function's own prior "PARTIALLY
+// MEASURED"/"RECONCILED" notes): those notes recorded the keyring-severed
+// trigger as confirmed but the fallback's end-to-end success as unverified,
+// and separately recorded one failed attempt mounting
+// ~/.gemini/oauth_creds.json ("You are not logged into Antigravity") as
+// INCONCLUSIVE — chalked up to a stale token in that file. Both threads
+// converge on the same resolution: oauth_creds.json was simply the WRONG
+// file. agy's real file-based fallback reads/writes
+// ~/.gemini/antigravity-cli/antigravity-oauth-token, not oauth_creds.json —
+// so the prior "failure" was never a test of the real fallback mechanism at
+// all. A real captured token at that correct path is what this resolver now
+// seeds. What stays open is purely operational, not mechanical: this
+// resolver has not itself been driven through a live container `agy -p` call
+// (agy is TUI-only, needs docker + a real binary + the token to actually
+// authenticate — out of band for this change, see the probe/CI follow-up).
+func resolveAntigravityContainerAuth(containerHome, scratchDir string) (containerAuth, bool) {
+	mounts, ok := antigravityCredentialCopyMounts(containerHome, scratchDir)
+	if !ok {
+		return containerAuth{mode: authNone}, false
+	}
+	return containerAuth{mode: authCredentialMount, mounts: mounts}, true
+}
+
+// antigravityCredentialCopyMounts builds the READ-WRITE credential mount that
+// authenticates a containerized antigravity: the host's
+// ~/.gemini/antigravity-cli/antigravity-oauth-token is COPIED into scratchDir
+// (mode 0600, via copyCredentialFile) and the copy is mapped into
+// containerHome at the IDENTICAL relative path, read-write — the same
+// copy-then-mount-rw shape claudeCredentialCopyMounts uses and for the same
+// reason: the token carries a refresh_token, so a plain read-only bind of the
+// host original would collide with a refresh writing back to that exact
+// file. The copy is ephemeral scratch, discarded at teardown along with the
+// rest of the scratch root; the host's own token file is never touched.
+// antigravity has no credentialSeedSpecs entry (see that registry's own doc)
+// — HOME is not a scoped isolation var here, so this hardcodes the host path
+// directly rather than consulting that registry, matching
+// opencodeCredentialMounts' shape (which does the same for the same reason)
+// more closely than codexCredentialMounts' registry-reuse. Returns ok=false
+// when the host token file is absent (nothing to copy) or the scratch copy
+// cannot be written.
+func antigravityCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool) {
+	home, err := hostHomeDir()
+	if err != nil || home == "" {
+		return nil, false
+	}
+	token := filepath.Join(home, ".gemini", antigravityOAuthTokenRel)
+	if !fileExists(token) {
+		return nil, false
+	}
+	dir := filepath.Join(scratchDir, "antigravity-auth")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, false
+	}
+	tokenCopy := filepath.Join(dir, "antigravity-oauth-token")
+	if err := copyCredentialFile(token, tokenCopy); err != nil {
+		return nil, false
+	}
+	return []Mount{{
+		Host:      tokenCopy,
+		Container: filepath.Join(containerHome, ".gemini", antigravityOAuthTokenRel),
+		ReadOnly:  false,
+	}}, true
 }
 
 // presentEnvKeys returns the subset of keys that getenv reports as set

@@ -28,10 +28,11 @@ import (
 // OS-session-scoped D-Bus Secret Service keyring that is reachable
 // regardless of HOME (verified with `env -i` and an empty fake HOME — agy's
 // own log recorded "ChainedAuth: authenticated via keyring"). The
-// file-based oauth_creds.json under HOME is only a fallback for when no
-// keyring is reachable at all (e.g. inside a container — see
-// resolveAntigravityContainerAuth's doc for what is and is not confirmed
-// about that fallback path).
+// file-based ~/.gemini/antigravity-cli/antigravity-oauth-token under HOME
+// (NOT oauth_creds.json — an earlier, wrong guess corrected 2026-07-22) is
+// only a fallback for when no keyring is reachable at all (e.g. inside a
+// container — this is now the confirmed, seeded container-auth mechanism,
+// see resolveAntigravityContainerAuth's doc).
 //
 // So a curated scratch HOME isolates CONFIG and SESSION STATE for an
 // engine like this, but never AUTH — a fundamentally weaker boundary than
@@ -131,7 +132,7 @@ var curatedHomeSpecs = map[string]curatedHomeSpec{
 		engine:          "agy",
 		authIsolated:    false,
 		workspaceViable: false,
-		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run cannot authenticate at all instead of silently authenticating as the host user — see auth.go's resolveAntigravityContainerAuth",
+		containerAuthCaveat: "this is deliberate fail-closed behaviour, not a gap: a container's fresh mount/PID namespaces mean the keyring's UID-addressed socket (/run/user/<uid>/bus) does not exist inside the box, so a containerized agy run authenticates ONLY via a seeded host file-based OAuth token (~/.gemini/antigravity-cli/antigravity-oauth-token) rather than silently authenticating as the host user through the keyring — with no such host token to seed, it fails closed instead — see auth.go's resolveAntigravityContainerAuth",
 	},
 }
 

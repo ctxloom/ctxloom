@@ -28,6 +28,24 @@ const (
 	ToolAgentFetchArtifact = "agent_fetch_artifact"
 )
 
+// CoordinatorOnlyTools returns the set of tools a LEAF delegated agent must
+// NOT receive (the trust-boundary gate, internal/cli/mcp_runner.go's
+// registration loop): agent_run, roster, agent_stop, and
+// agent_fetch_artifact all either spawn/observe/control OTHER children or
+// retrieve another agent's artifacts — capabilities that make sense only for
+// a coordinator. A leaf keeps agent_send/agent_recv/agent_report (parent
+// reporting only). The top-level human session is never gated by this (see
+// llm_serve.go's leaf computation); only a delegated child's runner consults
+// it.
+func CoordinatorOnlyTools() map[string]bool {
+	return map[string]bool{
+		ToolAgentRun:           true,
+		ToolRoster:             true,
+		ToolAgentStop:          true,
+		ToolAgentFetchArtifact: true,
+	}
+}
+
 // Binding maps one coordination tool onto its proto messages. Input/Output
 // name agentcoord.v1 messages; an empty name means the shape is SYNTHETIC —
 // declared by the corresponding builder below because no wire frame exists
@@ -76,7 +94,7 @@ func CoordinationBindings() []Binding {
 			Output: "agentcoord.v1.PeerSendResult",
 		},
 		{
-			Tool: ToolAgentRecv,
+			Tool:        ToolAgentRecv,
 			Description: "Receive pending mailbox messages for this session, waiting (parked at this session's runner) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: unconsumed deliveries are re-delivered after a crash, deduped on message_id. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
 			SyntheticInput: func(*Projector) (map[string]any, error) {
 				return map[string]any{

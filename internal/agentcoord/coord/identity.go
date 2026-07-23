@@ -35,6 +35,14 @@ const (
 	// always emits a plain unix path; only that one ACP seam ever emits the
 	// tcp:// form.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
+	// EnvAgentCoordinator carries the spawned child's resolved
+	// Coordinator flag (agents.Agent.Coordinator / SpawnPlan.Coordinator) to
+	// its runner process, "1" when true, otherwise absent. It rides the SAME
+	// per-spawn runnerEnv seam as the trio above — never the wire (RunnerEnv
+	// is an untyped map[string]string; no proto change) — so the runner
+	// (internal/cli/llm_serve.go) can compute whether this session is a LEAF
+	// and gate the coordinator-only MCP tools accordingly (mcp_runner.go).
+	EnvAgentCoordinator = "CTXLOOM_AGENT_COORDINATOR"
 )
 
 // Identity is what a credential authenticates AND identifies: the caller's

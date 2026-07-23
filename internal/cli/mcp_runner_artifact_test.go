@@ -46,7 +46,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
 
-	server, err := newRunnerMCPServer(testConfig(), harp, home)
+	server, err := newRunnerMCPServer(testConfig(), harp, home, false)
 	require.NoError(t, err)
 
 	ctx := context.Background()

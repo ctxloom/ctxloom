@@ -69,6 +69,13 @@ type SpawnPlan struct {
 	// only real per-backend deltas lived in each backend's own chatACPConfig
 	// (model delivery), not in the coordinator/runner machinery.
 	ViaStartRun bool
+	// Coordinator mirrors the resolved agent's Coordinator flag: whether this
+	// child is trusted with the coordinator-only MCP tools (agent_run/
+	// roster/agent_stop/agent_fetch_artifact). False (the default, leaf) is
+	// threaded to the runner via runnerEnv's coordinatorCapable param, never
+	// the wire — see EnvAgentCoordinator (identity.go) and the gate in
+	// internal/cli/mcp_runner.go.
+	Coordinator bool
 
 	resolved *operations.ResolvedAgent
 }
@@ -214,6 +221,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		// C3: every backend whose delegated Chat rides the shared ACP
 		// driver moves onto StartRun (see viaStartRunBackends).
 		ViaStartRun: viaStartRunBackends[rs.Backend],
+		Coordinator: rs.Coordinator,
 		resolved:    rs,
 	}
 	// F1: resolved once here (not per-Launch/StartEngine call) so the

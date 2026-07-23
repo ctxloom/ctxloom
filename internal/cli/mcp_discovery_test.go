@@ -73,7 +73,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	testsupport.ChangeDir(t, cellDir)
 
 	const harp = "codex-drop-scenario-harp"
-	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t))
+	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false)
 	require.NoError(t, err)
 	t.Cleanup(endpoint.close)
 

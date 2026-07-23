@@ -90,6 +90,17 @@ type Agent struct {
 	// mutating kinds and relays the rest to the parent). An explicit
 	// Escalation overrides the preset entirely (no merge).
 	Escalation []EscalationRung `yaml:"escalation,omitempty"`
+	// Coordinator marks this agent as trusted to hold the coordinator-only
+	// MCP tools (agent_run, roster, agent_stop, agent_fetch_artifact) when it
+	// runs as a DELEGATED child (a top-level `ctxloom run` is never gated by
+	// this — see the runner's leaf computation in internal/cli/llm_serve.go).
+	// Default false = LEAF: a leaf must not receive those four tools, only
+	// agent_send/agent_recv/agent_report (parent reporting) — handing a leaf
+	// an agent_recv inbox plus a roster lets it infer it has children and
+	// stall waiting for notifications that never arrive. Set true only for an
+	// agent that itself spawns/manages children (e.g. a coordinator-ensemble
+	// or weave role).
+	Coordinator bool `yaml:"coordinator,omitempty"`
 }
 
 // EscalationRung is one ordered entry of an agent's escalation ladder: which

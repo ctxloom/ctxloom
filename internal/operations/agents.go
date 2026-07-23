@@ -28,6 +28,11 @@ type AgentEntry struct {
 	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
 	// label's default and finally the built-in default.
 	Permissions string `json:"permissions,omitempty"`
+	// Coordinator is the agent's declared Coordinator flag (trust-boundary
+	// gate): whether this agent, when run as a delegated child, is trusted
+	// with the coordinator-only MCP tools (agent_run/roster/agent_stop/
+	// agent_fetch_artifact). Default false = leaf.
+	Coordinator bool `json:"coordinator,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -46,6 +51,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Profiles:    s.Profiles,
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
+			Coordinator: s.Coordinator,
 			Source:      s.Source,
 		})
 	}
@@ -68,6 +74,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Profiles:    sub.Profiles,
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
+		Coordinator: sub.Coordinator,
 		Source:      sub.Source,
 	}, nil
 }
@@ -86,6 +93,11 @@ type SetAgentRequest struct {
 	Profiles    []string `json:"profiles,omitempty"`
 	Runtime     string   `json:"runtime,omitempty"`
 	Permissions string   `json:"permissions,omitempty"`
+	// Coordinator sets the trust-boundary gate flag: whether this agent, when
+	// run as a delegated child, is trusted with the coordinator-only MCP
+	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
+	// = leaf; set true only for an agent that itself spawns/manages children.
+	Coordinator bool `json:"coordinator,omitempty"`
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
@@ -153,7 +165,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
 	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
-	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
+	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions, Coordinator: req.Coordinator}
 
 	err := mgr.Update(func(d *config.Draft) error {
 		if d.Agents == nil {
@@ -171,6 +183,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Profiles:    profiles,
 		Runtime:     req.Runtime,
 		Permissions: req.Permissions,
+		Coordinator: req.Coordinator,
 		Source:      agents.SourceConfig,
 	}, nil
 }
@@ -287,6 +300,11 @@ type ResolvedAgent struct {
 	// Permissions when so). Raw, unvalidated config; the coordinator's
 	// spawn-time ladder builder validates and converts it.
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
+	// Coordinator mirrors agents.Agent.Coordinator: whether this agent, when
+	// run as a delegated child, is trusted with the coordinator-only MCP
+	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
+	// = leaf.
+	Coordinator bool `json:"coordinator,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -383,7 +401,8 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		EffectivePermissions: agent.ResolveDefault(
 			[]string{sub.Permissions, labelEntry.Permissions},
 			backend == config.BackendClaudeCode).String(),
-		Escalation: sub.Escalation,
+		Escalation:  sub.Escalation,
+		Coordinator: sub.Coordinator,
 	}, nil
 }
 

@@ -73,8 +73,8 @@ type runnerMCP struct {
 // and probeWellKnownRunner (mcp_discovery.go). Best-effort: a marker failure
 // degrades to env-only discovery, same fault tolerance as the socket bind
 // itself never blocking the runner.
-func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home) (*runnerMCP, error) {
-	server, err := newRunnerMCPServer(cfg, harp, home)
+func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool) (*runnerMCP, error) {
+	server, err := newRunnerMCPServer(cfg, harp, home, leaf)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,13 @@ func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(
 // must be classified, and every classified tool must be served by exactly
 // the route the table names — a mismatch errors the runner up front, never
 // a silent fallthrough.
-func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home) (*mcp.Server, error) {
+//
+// leaf is the trust-boundary gate's session-conditional axis (computed in
+// internal/cli/llm_serve.go: RunID != "" && !coordinatorCapable, and the
+// top-level human session — RunID == "" — is NEVER leaf): when true, the
+// coordinator-only tools (mcpschema.CoordinatorOnlyTools) are deliberately
+// withheld from THIS session's surface — see the registration loop below.
+func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Version: Version,
@@ -251,6 +257,18 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home) (*mcp
 		return nil, err
 	}
 	for _, spec := range tools {
+		// Trust-boundary gate: a LEAF session must not receive the
+		// coordinator-only tools (agent_run/roster/agent_stop/
+		// agent_fetch_artifact) — a leaf holding an agent_recv inbox plus a
+		// roster infers it has children and stalls waiting for
+		// notifications that never arrive. Still marked registered
+		// (deliberately withheld), or the exhaustiveness check below fails
+		// runner startup; agent_send/agent_recv/agent_report (parent
+		// reporting) are untouched by this gate.
+		if leaf && mcpschema.CoordinatorOnlyTools()[spec.Name] {
+			registered[spec.Name] = true
+			continue
+		}
 		var h mcp.ToolHandler
 		switch routes[spec.Name] {
 		case mcpschema.RouteCoordination:

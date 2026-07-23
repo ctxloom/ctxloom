@@ -43,9 +43,22 @@ var llmServeCmd = &cobra.Command{
 			Version: Version,
 		}
 		harp := os.Getenv("CTXLOOM_SESSION_HARP")
-		for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID} {
+		coordinatorCapable := os.Getenv(coord.EnvAgentCoordinator) == "1"
+		for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID, coord.EnvAgentCoordinator} {
 			_ = os.Unsetenv(k)
 		}
+
+		// Trust-boundary gate: a LEAF delegated child (RunID set: this
+		// runner was spawned for a specific agent_run/resume, not the
+		// top-level human session) that was NOT resolved as
+		// Coordinator-capable must not receive the coordinator-only MCP
+		// tools (agent_run/roster/agent_stop/agent_fetch_artifact) - a leaf
+		// holding an agent_recv inbox plus a roster infers it has children
+		// and stalls waiting for notifications that never arrive. CRITICAL:
+		// the top-level human `ctxloom run` session never sets RunID
+		// (sessionOwnerEnv, coord_host.go), so RunID == "" here means the
+		// human is NEVER gated - preserved exactly.
+		leaf := homeCfg.RunID != "" && !coordinatorCapable
 
 		// Load config and apply the first labeled entry whose type matches this
 		// backend. serve receives only the backend type (the self-invoked
@@ -96,7 +109,7 @@ var llmServeCmd = &cobra.Command{
 			} else {
 				home = h
 				if cfg != nil {
-					endpoint, merr := serveRunnerMCP(cfg, harp, home)
+					endpoint, merr := serveRunnerMCP(cfg, harp, home, leaf)
 					switch {
 					case merr != nil && engineHost != nil:
 						// FAIL LOUD (icy-value). A runner that HOSTS a

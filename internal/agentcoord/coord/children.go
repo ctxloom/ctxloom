@@ -31,10 +31,27 @@ const (
 	// bottoms out somewhere; raising it further is a future, undecided
 	// change, not implied by this one.
 	maxAgentDepth = 2
-	// agentTurnCap is D4: children execute serially until the isolation
-	// concurrency defects land. The cap counts EXECUTING turns — a child
-	// parked in agent_recv or idle at a turn boundary yields its slot.
-	agentTurnCap = 1
+	// agentTurnCap is the BUILT-IN DEFAULT for turnSlots' cap — a
+	// configurable RESOURCE ceiling on concurrently EXECUTING child turns
+	// (live engine processes), NOT a correctness gate: the coordinator's own
+	// state is partitioned by child identity (maps keyed by harp/runID/
+	// role/credHash/msgID, decisive steps atomic inside one journal Exec or
+	// one c.mu window) and is safe under real concurrency by construction —
+	// proven by TestCoordinator_ConcurrentTurnsInvariants
+	// (turncap_concurrent_test.go), which runs children genuinely
+	// overlapping (a shared barrier forces it) under -race -count=20 and
+	// asserts run/mail/credential/slot invariants hold. Was D4's serial-1:
+	// "children execute serially until the isolation concurrency defects
+	// land" — that landed (fix/turncap-to-resource-ceiling); the cap now
+	// exists purely to bound concurrent process/resource load (this
+	// project's own history hit load 10.12 at ~200 concurrent procs), not
+	// to protect coordinator correctness. Production sources the live value
+	// from config.Config.GetAgentTurnCap (Options.TurnCap); <= 0 (unset)
+	// falls back to this constant. The cap counts EXECUTING turns only — a
+	// child parked in agent_recv or idle at a turn boundary yields its slot
+	// (turnSlots is a resource limiter: the slot is acquired before
+	// spawner.Launch/StartEngine, never a serialization primitive).
+	agentTurnCap = 4
 )
 
 // childRt is the RUNTIME attachment of one live run: the engine channels and
@@ -642,20 +659,21 @@ func (c *Coordinator) resumeKeyFor(harp string) (sessionID string, ok bool) {
 // §6a roster state and the D4 slot accounting. The acquire is BEST-EFFORT
 // (tryAcquire): this runs on the RunChannel's receive path, which must not
 // block behind another child's turn — the strict queue discipline lives at
-// spawn time (runChild's blocking acquire); a mid-life race can transiently
-// exceed the cap by one, which the C1 window accepts and documents.
+// spawn time (runChild's blocking acquire). claimSlotIntent (R1, one-shot-
+// resume plan Slice 3) makes the check-then-acquire atomic: a racing
+// onRoleUnpark/onTurnStarted pair for the SAME rt can no longer both
+// tryAcquire and both set slotHeld — exactly one wins the claim, and a
+// failed tryAcquire rolls the claim back rather than leaking a
+// permanently-stuck-true slotHeld bit against no actually-held slot.
 func (c *Coordinator) onTurnStarted(role string) {
 	c.mu.Lock()
 	rt := c.byHarp[role]
-	need := rt != nil && !rt.slotHeld
 	c.mu.Unlock()
 	if rt == nil {
 		return
 	}
-	if need && c.slots.tryAcquire() {
-		c.mu.Lock()
-		rt.slotHeld = true
-		c.mu.Unlock()
+	if c.claimSlotIntent(rt) && !c.slots.tryAcquire() {
+		c.releaseSlotIntent(rt)
 	}
 	c.setState(rt, StateExecuting)
 }
@@ -1004,7 +1022,6 @@ func (c *Coordinator) sampleExecGauge() {
 	c.execGaugeHook(n)
 }
 
-
 // runState reads the run's fold state ("" when unknown).
 func (c *Coordinator) runState(runID string) string {
 	state := ""
@@ -1024,6 +1041,41 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 	if held {
 		c.slots.release()
 	}
+}
+
+// claimSlotIntent atomically claims rt's "this attempt owns acquiring a
+// slot" bit — the R1 fix (one-shot-resume plan Slice 3): the check
+// (!rt.slotHeld) and the mutation (rt.slotHeld = true) happen inside the
+// SAME c.mu window, so two racing callers for the SAME rt (a concurrent
+// onTurnStarted/onRoleUnpark pair, or either fired twice) can never both
+// decide "I need to acquire" — exactly one wins, matching releaseSlot's own
+// pattern above. Returns false when rt already holds (or already owns
+// claiming) a slot: the caller then does nothing further — the occupancy
+// is already correctly accounted for. Deliberately NOT combined with the
+// actual turnSlots acquisition (which can block for onRoleUnpark's caller,
+// runtimeSlots.acquire) — holding c.mu across a blocking acquire would
+// stall every OTHER coordinator operation needing c.mu for as long as the
+// slot wait takes. A winner whose subsequent acquisition fails/is
+// cancelled MUST call releaseSlotIntent to undo the claim.
+func (c *Coordinator) claimSlotIntent(rt *childRt) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if rt.slotHeld {
+		return false
+	}
+	rt.slotHeld = true
+	return true
+}
+
+// releaseSlotIntent undoes a claimSlotIntent win whose actual turnSlots
+// acquisition did not pan out (tryAcquire found no free slot, or a
+// blocking acquire's ctx was cancelled) — never leave slotHeld reading true
+// when no turnSlots slot is actually held (assertion (f), slot
+// conservation, exists specifically to catch a regression here).
+func (c *Coordinator) releaseSlotIntent(rt *childRt) {
+	c.mu.Lock()
+	rt.slotHeld = false
+	c.mu.Unlock()
 }
 
 func (c *Coordinator) attachLaunch(rt *childRt, launch *operations.AgentChatLaunch) {
@@ -1343,6 +1395,12 @@ func (c *Coordinator) onRolePark(role string) {
 
 // onRoleUnpark re-acquires the slot before a parked recv completes — the
 // child resumes an EXECUTING turn, and the cap counts executing turns.
+// claimSlotIntent (R1, one-shot-resume plan Slice 3) makes "do I still need
+// to acquire" atomic with claiming ownership of doing so: a duplicate/
+// racing unpark signal for the SAME rt (or a race against onTurnStarted)
+// finds slotHeld already true, skips the blocking acquire entirely, and
+// just reasserts StateExecuting (idempotent) — never a second acquisition
+// against one slotHeld bit.
 func (c *Coordinator) onRoleUnpark(role string) {
 	c.mu.Lock()
 	rt := c.byHarp[role]
@@ -1350,12 +1408,12 @@ func (c *Coordinator) onRoleUnpark(role string) {
 	if rt == nil || c.runState(rt.runID) != StateParked {
 		return
 	}
-	if err := c.slots.acquire(c.baseCtx); err != nil {
-		return
+	if c.claimSlotIntent(rt) {
+		if err := c.slots.acquire(c.baseCtx); err != nil {
+			c.releaseSlotIntent(rt)
+			return
+		}
 	}
-	c.mu.Lock()
-	rt.slotHeld = true
-	c.mu.Unlock()
 	c.setState(rt, StateExecuting)
 }
 

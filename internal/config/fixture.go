@@ -30,6 +30,7 @@ type Fixture struct {
 	DirtyTreeHandler             string
 	DirtyTreeCommitAck           bool
 	Runtime                      string
+	AgentTurnCap                 int
 	IsolationImages              map[string]string
 	IsolationBaseContainerfile   string
 	IsolationDevcontainerBase    *bool
@@ -72,6 +73,7 @@ func (c *Config) ToFixture() Fixture {
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
+		AgentTurnCap:                 c.agentTurnCap,
 		IsolationImages:              c.isolationImages,
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    c.isolationDevcontainerBase,
@@ -121,6 +123,7 @@ func NewFixture(f Fixture) *Config {
 		dirtyTreeHandler:             f.DirtyTreeHandler,
 		dirtyTreeCommitAck:           f.DirtyTreeCommitAck,
 		runtime:                      f.Runtime,
+		agentTurnCap:                 f.AgentTurnCap,
 		isolationImages:              f.IsolationImages,
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,
 		isolationDevcontainerBase:    f.IsolationDevcontainerBase,

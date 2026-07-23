@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -173,20 +174,35 @@ func (c *Coordinator) reachURL(runtimeAxis string) (string, error) {
 	return c.srv.ensureWide()
 }
 
-// ensureWide opens the container-reachable listeners once and returns the
-// advertised URL. Candidate interfaces, most specific first: the container
-// runtime's bridge gateway (rootful daemons — e.g. docker0's 172.17.0.1),
-// then the host's primary outbound interface (rootless slirp/pasta setups
-// reach the host's non-loopback addresses). All candidates bind ONE shared
-// port so a single URL works wherever the packet lands. LABEL (plan): the
-// per-runtime reachability matrix is verified live by the smoke run, not
-// assumed here; an unbindable candidate set fails loudly at the spawn verb.
+// ensureWide resolves the container-reachable URL once and returns it. On
+// Docker Desktop / Podman Machine GOOS targets (darwin, windows) the
+// container runs inside a VM whose networking installs a magic hostname
+// that already routes to the host's loopback interface — the coordinator
+// advertises that hostname against the EXISTING loopback listener and never
+// opens anything LAN-visible (R10 stays satisfied for the platforms that
+// were the whole point of this seam). On Linux — no VM hop, no magic
+// hostname — it falls back to the proven bridge-gateway/primary-outbound-IP
+// listeners, unchanged.
 func (s *coordServing) ensureWide() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.wideURL != "" {
 		return s.wideURL, nil
 	}
+	if host := advertiseHostFor(runtime.GOOS, preferredContainerRuntime()); host != "" {
+		port := s.loopback.Addr().(*net.TCPAddr).Port
+		s.wideURL = fmt.Sprintf("http://%s%s", net.JoinHostPort(host, fmt.Sprint(port)), MCPPath)
+		return s.wideURL, nil
+	}
+	// Linux (or any GOOS advertiseHostFor didn't special-case): bind
+	// container-reachable listeners, most specific first — the container
+	// runtime's bridge gateway (rootful daemons — e.g. docker0's
+	// 172.17.0.1), then the host's primary outbound interface (rootless
+	// slirp/pasta setups reach the host's non-loopback addresses). All
+	// candidates bind ONE shared port so a single URL works wherever the
+	// packet lands. LABEL (plan): the per-runtime reachability matrix is
+	// verified live by the smoke run, not assumed here; an unbindable
+	// candidate set fails loudly at the spawn verb.
 	candidates := containerReachIPs()
 	if len(candidates) == 0 {
 		return "", errors.New("no container-reachable host interface found (no bridge gateway, no primary outbound IP)")
@@ -265,6 +281,49 @@ func (s *coordServing) close() {
 	for _, ln := range s.wide {
 		_ = ln.Close()
 	}
+}
+
+// advertiseHostFor returns the magic hostname a containerized child on GOOS
+// goos resolves to reach the coordinator's host-loopback listener, for the
+// given container-runtime name ("docker" | "podman" | anything else,
+// treated as docker) — or "" when goos needs the Linux bridge-
+// gateway/primary-outbound-IP path instead (ensureWide's unchanged
+// fallback).
+//
+// Docker Desktop (macOS/Windows) and Podman Machine both run containers
+// inside a lightweight VM (gvisor-tap-vsock) whose networking installs a
+// magic DNS name resolving to the VM's host-forwarding endpoint — traffic
+// reaches the host's 127.0.0.1 without the coordinator ever widening past
+// loopback. Linux containers share the host kernel directly (no VM hop), so
+// neither name resolves there; "" tells ensureWide to keep doing what
+// already works on Linux.
+func advertiseHostFor(goos, runtimeName string) string {
+	switch goos {
+	case "darwin", "windows":
+		if runtimeName == "podman" {
+			return "host.containers.internal"
+		}
+		return "host.docker.internal"
+	default:
+		return ""
+	}
+}
+
+// preferredContainerRuntime reports which container CLI this host has
+// available — "docker" preferred when both are on PATH (containerReachIPs
+// probes in the same docker-then-podman order), "docker" also the default
+// when neither is found (host.docker.internal is the far more common Docker-
+// Desktop mapping, and a wrong guess here only affects the advertised
+// hostname string, not whether the coordinator binds anything wider than
+// loopback).
+func preferredContainerRuntime() string {
+	if _, err := exec.LookPath("docker"); err == nil {
+		return "docker"
+	}
+	if _, err := exec.LookPath("podman"); err == nil {
+		return "podman"
+	}
+	return "docker"
 }
 
 // containerReachIPs collects candidate host IPs a container can dial,

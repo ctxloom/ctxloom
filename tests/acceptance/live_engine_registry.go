@@ -472,6 +472,18 @@ func authCheckClaude(realHome string) (bool, string) {
 // nonzero when not logged in — a genuine authentication probe, unlike the
 // local-credential-file heuristic authCheckAntigravity is stuck with below
 // (agy exposes no equivalent status subcommand at all).
+//
+// CAVEAT — this probe is NOT side-effect-free: measured 2026-07-22
+// (reproduced independently), a bare `kiro-cli whoami` with no login/logout
+// involved advances ~/.local/share/kiro-cli/data.sqlite3's mtime while its
+// size stays unchanged. That means calling this authCheck INSIDE a
+// before/after credential-store census (the isolation probe's technique,
+// tests/acceptance/isolation_probe.go) would make the check itself the
+// source of the host-state change a "kiro leaks" cell reports — indistinguishable
+// from a real leak. The isolation probe's own availability checks
+// deliberately never shell out to this function for that reason (file
+// presence and environment variables only); if a genuinely read-only kiro
+// auth check is ever needed inside a measurement window, this one is not it.
 func authCheckKiro(realHome string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authProbeTimeout)
 	defer cancel()

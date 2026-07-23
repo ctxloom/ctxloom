@@ -140,6 +140,14 @@ comment.
   `~/.local/share/kiro-cli/data.sqlite3`). Every kiro-cli invocation on the
   host — the isolated agent and every other agent/session — reads and writes
   the SAME file.
+- **The store is written, not just read — even by a "status" probe**:
+  measured 2026-07-22 (reproduced independently), a bare `kiro-cli whoami` —
+  used elsewhere in this codebase as a read-only auth check, no login/logout
+  involved — advances `data.sqlite3`'s mtime with its size unchanged. Two
+  "isolated" kiro agents calling `whoami` against the shared host store are
+  not just reading a common identity, they are mutating a common file. See
+  `tests/acceptance/live_engine_registry.go`'s `authCheckKiro` for the
+  caveat this puts on treating that probe as side-effect-free.
 - **Why it leaks (the mechanism)**: kiro-cli resolves its credential store
   from `$XDG_DATA_HOME`, a variable ctxloom's `KIRO_HOME` isolation lever
   does NOT touch (`KIRO_HOME` relocates session state only). ctxloom COULD

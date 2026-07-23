@@ -28,6 +28,25 @@ import (
 // (it always runs IN the cell's own cwd), which would race any concurrently
 // running test that also depends on process cwd.
 
+// shortRuntimeDir returns a fresh directory suitable for XDG_RUNTIME_DIR in
+// these tests. NOT t.TempDir(): that embeds the FULL test name (which these
+// discovery tests deliberately make long and descriptive) into the path, and
+// runnerSocketPath's candidate() rejects any socket dir whose resulting
+// mcp-<pid>.sock path exceeds the unix sun_path headroom (100 chars,
+// mcp_runner.go). Under a short-but-nonempty TMPDIR this test name alone can
+// push the path over that limit, silently landing runnerSocketPath on the
+// private-temp tier instead of socketKindHostRuntime — no marker gets
+// published at all, and the test fails for a reason that has nothing to do
+// with discovery correctness. A short, test-name-independent prefix keeps
+// these tests' pass/fail tied to the behaviour under test.
+func shortRuntimeDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "hd")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // deadProcessPID returns a pid that is guaranteed NOT to name a live
 // process: a child this test starts, waits for, and fully reaps.
 func deadProcessPID(t *testing.T) int {
@@ -67,7 +86,7 @@ func dialForwardClient(t *testing.T, socket string) *mcp.ClientSession {
 // non-error return.
 func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
-	runtimeDir := t.TempDir()
+	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
 	testsupport.ChangeDir(t, cellDir)
@@ -112,7 +131,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 // probes the worktree dir, exactly as it would with cwd=RunOptions.WorkDir.
 func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET/CTXLOOM_CELL_WORKDIR (t.Setenv-based, auto-restores)
-	runtimeDir := t.TempDir()
+	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 
 	// runnerProcCwd stands in for the coordinator's cwd the runner process
@@ -172,7 +191,7 @@ func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
 // can never reach the real parent) this whole fix exists to close.
 func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
-	runtimeDir := t.TempDir()
+	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
 	testsupport.ChangeDir(t, cellDir)
@@ -210,7 +229,7 @@ func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 // behaviour for a bare stdio session.
 func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET (t.Setenv-based, auto-restores)
-	runtimeDir := t.TempDir()
+	runtimeDir := shortRuntimeDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	cellDir := t.TempDir()
 

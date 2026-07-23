@@ -22,6 +22,7 @@ type fakeEngine struct {
 	texts         []string
 	gotEnv        map[string]string
 	gotRunnerEnv  map[string]string
+	gotResumeID   string // the resumeSessionID this engine's Launch call carried
 	turnGate      chan struct{}
 	endAfterTurns int
 	// oneshot marks the returned AgentChatLaunch as the no-structured-chat
@@ -29,6 +30,14 @@ type fakeEngine struct {
 	// child through children.go's oneshot bridging (PublishEvents + the
 	// parent-mailbox "result" bridge) without a real backend.
 	oneshot bool
+	// sessionID, when set, scripts this fake as a LEGACY (non-viaStartRun)
+	// backend that emits a native ChatEvent.Session on its first turn —
+	// mirroring antigravity's Chat (internal/antigravity/chat.go), the
+	// production shape Slice 0 (wooly-stove) fixes handleChildEvent to stop
+	// dropping. Lets a test prove the coordinator CAPTURES a legacy
+	// backend's native session id (previously silently discarded — no
+	// ev.Session case existed).
+	sessionID string
 }
 
 func (f *fakeEngine) recordedTexts() []string {
@@ -59,19 +68,40 @@ func (f *fakeEngine) env() map[string]string {
 
 // launch adapts the fake engine onto the operations.AgentChatLaunch shape the
 // Spawner returns.
-func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runnerEnv map[string]string) *operations.AgentChatLaunch {
+func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID string, env, runnerEnv map[string]string) *operations.AgentChatLaunch {
 	f.mu.Lock()
 	f.gotEnv = env
 	f.gotRunnerEnv = runnerEnv
+	f.gotResumeID = resumeSessionID
 	f.mu.Unlock()
 	in := make(chan agent.ChatMessage)
-	events := make(chan agent.ChatEvent)
+	// events is small-buffered (not unbuffered like `in`): the REAL client
+	// wrapper (internal/lm/grpc/chat.go's GRPCClient.Chat) decouples a
+	// backend's event emission from the caller's sendTurn/driveChild
+	// ordering via its own independent in-pump/events-pump goroutines plus
+	// gRPC's own stream buffering — a backend that emits a pre-loop Session
+	// event before ever reading `in` (antigravity.Chat does exactly this)
+	// does not deadlock in production because of that slack. This fake
+	// wires straight to bare channels with none of that slack, so it needs
+	// its own small buffer to avoid an artificial deadlock that has nothing
+	// to do with the behavior under test.
+	events := make(chan agent.ChatEvent, 4)
 	errs := make(chan error, 1)
 	turnCtx, cancel := context.WithCancel(ctx)
 	first := true
 	go func() {
 		defer close(errs)
 		defer close(events)
+		if f.sessionID != "" {
+			// Mirror antigravity's Chat: a Session event rides BEFORE the
+			// first turn's entries — this fakeEngine's stand-in for a
+			// legacy (non-viaStartRun) backend's native session id.
+			select {
+			case events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: f.sessionID}}:
+			case <-turnCtx.Done():
+				return
+			}
+		}
 		turns := 0
 		for msg := range in {
 			text := msg.Text
@@ -114,6 +144,15 @@ func (f *fakeEngine) launch(ctx context.Context, contextText string, env, runner
 		}
 	}()
 	return &operations.AgentChatLaunch{In: in, Events: events, Errs: errs, Close: cancel, Oneshot: f.oneshot}
+}
+
+// resumeSessionID returns the resumeSessionID this engine's Launch call
+// carried (empty for a fresh, non-resumed launch) — Slice 0's threading
+// proof on the fake side.
+func (f *fakeEngine) resumeSessionID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gotResumeID
 }
 
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
@@ -236,7 +275,7 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 	return harp, nil
 }
 
-func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
 	s.mu.Lock()
 	e := s.next()
 	s.engines = append(s.engines, e)
@@ -244,7 +283,7 @@ func (s *fakeSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	s.mu.Unlock()
-	return e.launch(ctx, contextText, env, runnerEnv), nil
+	return e.launch(ctx, contextText, resumeSessionID, env, runnerEnv), nil
 }
 
 // StartEngine spawns the MIGRATED path's runner half for real: an in-process

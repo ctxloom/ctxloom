@@ -44,6 +44,19 @@ type AgentChatRequest struct {
 	// Permissions is the already-gated headless-safe posture (D3: children
 	// never prompt; the caller refused or downgraded anything else).
 	Permissions agent.PermissionMode
+	// ResumeSessionID, when set, asks the backend to resume its own NATIVE
+	// session (agent.ChatRequest.ResumeSessionID — claude --resume, codex
+	// thread/resume, ACP session/load, agy --conversation --continue)
+	// instead of starting fresh. Only meaningful on the legacy go-plugin
+	// Chat dial (Start, below) — the migrated StartRun path resumes via its
+	// own HarnessSpec/StartRun{ResumeSessionId} route (children.go's
+	// runChildViaStartRun) and never reads this field. Empty means "no
+	// captured native id" (fresh session, or the backend doesn't emit one
+	// yet — see internal/opencode) — Start leaves ChatRequest.
+	// ResumeSessionID empty exactly as before this field existed, so a
+	// caller that never sets it observes no behavior change (Slice 0,
+	// wooly-stove).
+	ResumeSessionID string
 	// Workspace is the caller's per-invocation workspace-axis override
 	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
 	// cfg.Workspace when set; empty falls back to cfg.Workspace — the same
@@ -736,11 +749,12 @@ func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error)
 		env = merged
 	}
 	in, events, errs, err := client.Chat(ctx, agent.ChatRequest{
-		WorkDir:     p.workDir,
-		Model:       rs.Model,
-		Env:         env,
-		Permissions: p.req.Permissions,
-		MCPServers:  p.req.MCPServers,
+		WorkDir:         p.workDir,
+		Model:           rs.Model,
+		Env:             env,
+		Permissions:     p.req.Permissions,
+		MCPServers:      p.req.MCPServers,
+		ResumeSessionID: p.req.ResumeSessionID,
 	})
 	if err != nil {
 		client.Kill()

@@ -95,8 +95,12 @@ type Spawner interface {
 	// first turn, env as the ENGINE's extra environment (ambient identity),
 	// and runnerEnv stamped per-spawn onto the RUNNER process (the
 	// coordinator reach-back trio — the runner is the one credential
-	// holder; the harness env never carries it).
-	Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
+	// holder; the harness env never carries it). resumeSessionID, when
+	// non-empty, asks the backend to resume its own native session (Slice 0,
+	// wooly-stove) instead of starting fresh — the LEGACY go-plugin dial's
+	// counterpart to the migrated StartRun path's
+	// StartRun{ResumeSessionId}. A fresh (non-resumed) launch passes "".
+	Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
 	// StartEngine spawns the child's engine RUNNER process (isolation-
 	// prepared, coordinator trio stamped via runnerEnv, env threaded into
 	// the isolation session state) WITHOUT opening the go-plugin Chat
@@ -239,7 +243,7 @@ func (s *prodSpawner) AssignSession(projectDir, backend string) (string, error) 
 	return entry.HarpName, nil
 }
 
-func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
+func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error) {
 	prep, err := operations.PrepareAgentChat(ctx, s.cfg, operations.AgentChatRequest{
 		Resolved:         plan.resolved,
 		Context:          contextText,
@@ -253,6 +257,7 @@ func (s *prodSpawner) Launch(ctx context.Context, plan *SpawnPlan, contextText s
 		Factory:          s.factory,
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,
+		ResumeSessionID:  resumeSessionID,
 	})
 	if err != nil {
 		return nil, err

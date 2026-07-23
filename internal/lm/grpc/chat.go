@@ -316,6 +316,14 @@ func (s *GRPCServer) Chat(stream LLM_ChatServer) error {
 // channel and CLOSE it to end input; read normalized events from `events`
 // (closed on stream end / ctx cancel); a fatal receive error arrives on `errs`.
 // Mirrors the agent.StructuredChat channel shape at the host boundary.
+//
+// When a transcript is being captured (req.Env[agent.SessionHarpEnv] set),
+// `events` closing is also a completion barrier for that capture: the
+// outbound tee delays closing `events` until transcript.CoordinatedRecorder's
+// Done() fires, which requires every producer — inbound tap AND outbound tee
+// — to have finished submitting and every submitted record to have actually
+// been written. A caller may treat `events` closing as "the transcript, if
+// any, is now durably complete," not merely "the backend stream ended."
 func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
 	stream, err := c.client.Chat(ctx)
 	if err != nil {
@@ -423,10 +431,34 @@ func (c *GRPCClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 		teed := make(chan agent.ChatEvent)
 		go func() {
 			defer close(teed)
-			defer coord.ProducerDone()
 			for ev := range events {
 				coord.Submit(ctx, ev)
 				teed <- ev
+			}
+			coord.ProducerDone()
+			// naval-snarl #3 / TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq:
+			// this outbound tee is only ONE of coord's two registered
+			// producers — the inbound tap goroutine above (records user
+			// turns) is the other, and it has its own independent
+			// ProducerDone call keyed to when the CALLER closes `in`, not to
+			// anything observable here. Closing `teed` right after this
+			// producer's own loop ends (the old behavior, before this fix)
+			// let a caller treat the visible `events` channel closing as
+			// "capture complete" and go read the transcript file — even
+			// though the inbound tap could still be mid-Submit on its final
+			// user turn. That's exactly the race
+			// TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq
+			// catches under load (79/80 records: the last user turn
+			// dropped). Blocking here on coord.Done() — which only fires
+			// once BOTH producers have called ProducerDone AND every
+			// submitted record has actually been Record()'d — makes
+			// `events` closing a true completion barrier: a caller can now
+			// trust that once it sees `events` close, the transcript is
+			// durably complete. ctx.Done() is still an escape hatch so an
+			// abandoned/canceled call can't hang here forever.
+			select {
+			case <-coord.Done():
+			case <-ctx.Done():
 			}
 		}()
 		outEvents = teed

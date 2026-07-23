@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -21,6 +22,29 @@ import (
 // and the one egress to the coordinator. (This REPLACED the B1
 // forward-to-coordinator HTTP mode: CTXLOOM_COORD_URL/CRED are now consumed
 // ONLY by the runner.)
+//
+// OFF-LINUX TCP FALLBACK: internal/acp/container_transport.go's ACP
+// reach-back cannot always hand this a unix socket path — off Linux (macOS/
+// Windows Docker Desktop) it bridges the runner's unix socket onto a host-
+// loopback TCP port instead (a bind-mounted unix socket file is not a live
+// endpoint across the Docker Desktop VM boundary) and encodes that as
+// "tcp://host:port". reachBackTCPPrefix is duplicated from that file's
+// identical constant — same import-cycle reason mcpSocketEnvVar/EnvMCPSocket
+// is duplicated between internal/acp and agentcoord/coord (see its doc):
+// keep both literals in sync by hand.
+const reachBackTCPPrefix = "tcp://"
+
+// dialReachBackSocket dials socketPath as either a unix socket (the default —
+// any absolute filesystem path) or, when it carries the reachBackTCPPrefix
+// marker, a TCP host:port — the off-Linux ACP reach-back fallback. Factored
+// out of runMCPForward's transport so the dial decision is independently
+// unit-testable without driving a full stdio server.
+func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, error) {
+	if addr, ok := strings.CutPrefix(socketPath, reachBackTCPPrefix); ok {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	}
+	return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+}
 
 // runMCPForward serves the stdio proxy until the client disconnects or ctx
 // is cancelled. An unreachable runner socket is a hard startup error: a
@@ -28,11 +52,13 @@ import (
 func runMCPForward(ctx context.Context, socketPath string) error {
 	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: Version}, nil)
 	transport := &mcp.StreamableClientTransport{
-		// The endpoint host is nominal — the transport dials the unix socket.
+		// The endpoint host is nominal — the transport dials socketPath via
+		// dialReachBackSocket, either a unix socket (the default) or a TCP
+		// host:port (the off-Linux reach-back fallback).
 		Endpoint: "http://ctxloom-runner/mcp",
 		HTTPClient: &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+				return dialReachBackSocket(ctx, socketPath)
 			},
 		}},
 	}

@@ -225,13 +225,27 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		assert.Contains(t, err.Error(), "resume-capable")
 	})
 
-	t.Run("driving: oneshot on a RESUME-CAPABLE engine still fails loud in this release (v0.8 gate), not the capability reason", func(t *testing.T) {
+	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n    driving: oneshot\n")
+		plan, err := s.Resolve(context.Background(), "dev")
+		require.NoError(t, err, "the one-shot turn loop is wired end to end for claude-code (Slice 4)")
+		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
+	})
+
+	t.Run("driving: oneshot on codex also resolves to ResumeModeOneShot", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: codex\n    permissions: bypass\n    driving: oneshot\n")
+		plan, err := s.Resolve(context.Background(), "dev")
+		require.NoError(t, err)
+		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
+	})
+
+	t.Run("driving: oneshot on antigravity (resume-capable but LEGACY, unwired) still fails loud (v0.8 residual), not the capability reason", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: antigravity\n    permissions: bypass\n    driving: oneshot\n")
 		_, err := s.Resolve(context.Background(), "dev")
-		require.Error(t, err, "the turn loop that would execute one-shot doesn't exist yet (Slice 4/v0.8)")
+		require.Error(t, err, "antigravity's legacy one-shot teardown is not wired this slice (v0.8)")
 		assert.Contains(t, err.Error(), "not yet available")
 		assert.Contains(t, err.Error(), "v0.8")
-		assert.NotContains(t, err.Error(), "has no resume-by-key primitive", "a capable engine must fail for the v0.8 reason, not the capability reason")
+		assert.NotContains(t, err.Error(), "has no resume-by-key primitive", "a resume-capable engine must fail for the v0.8 reason, not the capability reason")
 	})
 }
 

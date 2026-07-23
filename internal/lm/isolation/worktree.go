@@ -34,6 +34,13 @@ const worktreeBaseRef = "HEAD"
 // git can't hang a member's Cleanup forever.
 const worktreeTeardownTimeout = 30 * time.Second
 
+// worktreeScratchPrefix names every per-agent worktree checkout this policy
+// creates (worktreeScratchPath's prefix arg in PrepareWorkspace) — shared with
+// worktree_reap.go's startup sweep so it can find exactly these directories
+// under a session's ephemeral/ dir without drifting from what PrepareWorkspace
+// actually names them.
+const worktreeScratchPrefix = "ctxloom-wt"
+
 // Worktree is the fan-out CONFIG-isolation policy: each member runs in its own
 // per-agent git worktree, so the existing native writers (.mcp.json/.claude/
 // AGENTS.md/.kiro/) populate an isolated cwd instead of clobbering the one shared
@@ -157,10 +164,18 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		return nil, fmt.Errorf("worktree isolation: %q is not a git repository", projectDir)
 	}
 
-	wtPath := worktreeScratchPath(w.scratchBase(), "ctxloom-wt", agentID)
+	wtPath := worktreeScratchPath(w.scratchBase(), worktreeScratchPrefix, agentID)
 	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, w.baseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
+	// Stamp the owner pid IMMEDIATELY after the checkout exists — bony-carry
+	// bug #2's fix (ReapOrphanedWorktrees, worktree_reap.go): a crashed/killed
+	// run's worktree is never reaped by anything else (teardown only ever runs
+	// on a graceful Cleanup), so a later startup sweep needs a way to prove
+	// THIS worktree's owner is gone before it dares remove it. Best-effort: a
+	// failed write only means a future sweep must conservatively skip this one
+	// (never force), not that PrepareWorkspace itself fails.
+	recordWorktreeOwner(wtPath)
 
 	ws := &worktreeWorkspace{
 		git:     w.git,
@@ -172,6 +187,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	defer func() {
 		if r := recover(); r != nil {
 			_ = os.RemoveAll(ws.dir)
+			removeWorktreeOwnerMarker(ws.dir)
 			if ws.configHome != "" {
 				_ = os.RemoveAll(ws.configHome)
 			}
@@ -561,6 +577,11 @@ func (w *worktreeWorkspace) Cleanup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTeardownTimeout)
 	defer cancel()
 	w.teardown(ctx, target)
+	// Unconditional: whether teardown actually removed target or (WIP-safely)
+	// left it in place, this process's ownership of it is ending either way —
+	// see removeWorktreeOwnerMarker's doc for why a left-in-place tree stays
+	// correctly protected regardless.
+	removeWorktreeOwnerMarker(target)
 
 	if w.configHome != "" {
 		home := w.configHome

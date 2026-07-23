@@ -183,6 +183,12 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// happens in applyStartupHooks below via the built-in bundles.
 	reportCompanions(os.Stderr)
 
+	// Startup reaper (bony-carry bug #2): sweep any per-agent worktree
+	// checkout left behind by a crashed/killed prior run — see
+	// sweepOrphanedWorktrees's doc. Best-effort, silent unless it found
+	// something.
+	sweepOrphanedWorktrees(ctx, os.Stderr)
+
 	purgeLegacyBundles(cfg)
 
 	if ctx.Err() != nil {

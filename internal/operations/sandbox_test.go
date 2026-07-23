@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 )
 
 // sandboxRootName is the directory (under os.TempDir()) that groups every
@@ -64,7 +66,7 @@ func reapSandboxes(root string) {
 		}
 		info, statErr := e.Info()
 		orphanedByAge := statErr == nil && time.Since(info.ModTime()) > maxOrphanAge
-		if !pidAlive(pid) || orphanedByAge {
+		if !pidalive.Alive(pid) || orphanedByAge {
 			_ = os.RemoveAll(path)
 		}
 	}

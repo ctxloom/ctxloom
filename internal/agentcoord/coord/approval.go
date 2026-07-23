@@ -100,7 +100,21 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 				Note:     fmt.Sprintf("rung %s: auto_decline", rungLabel),
 			})
 		case ActionRelayToRole, ActionSurfaceToHuman:
+			// Yield the child's ceiling slot while the relay parks on a
+			// human/parent decision (one-shot-resume plan, Slice 4 / Fork 1's
+			// companion — now load-bearing since the turn cap is a finite
+			// resource ceiling, not 1). A child blocked on an approval consumes
+			// no compute, so it must not hold an executing slot and starve
+			// peers up to the ceiling. Mechanically identical to the recv-park
+			// yield (onRolePark) — release the slot + mark the run parked —
+			// paired with the reacquire below. Approvals are STRICTLY intra-turn
+			// (the tool cannot complete until the decision arrives), so this can
+			// never race the turn boundary: the child returns to StateExecuting
+			// and finishes the SAME turn once the decision lands. A no-op when
+			// the child holds no slot (nothing to yield).
+			c.onRolePark(rec.Harp)
 			decision, timedOut := c.relayApproval(rec, req, rung)
+			c.onRoleUnpark(rec.Harp)
 			if !timedOut {
 				resolution := "granted"
 				switch decision.GetDecision() {

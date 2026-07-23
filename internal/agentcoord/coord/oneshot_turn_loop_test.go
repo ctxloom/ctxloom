@@ -112,6 +112,52 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
 }
 
+// TestApproval_MidTurnWaitYieldsSlotToPeer proves the mid-turn approval
+// slot-yield (Slice 4 / Fork 1's companion): a child blocked on a human
+// approval releases its ceiling slot so a queued peer can execute, instead of
+// starving it up to the (now finite) cap. Cap 1: child A parks on an approval
+// mid-turn; child B, queued behind the cap, must run to completion WHILE A is
+// still blocked — only possible if A yielded its slot.
+func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
+	resetStrictness(t)
+	var spawns int
+	sp := planPresetSpawner(func() *scriptedChat {
+		spawns++
+		if spawns == 1 {
+			return &scriptedChat{permission: commandExecRequest("perm-A")} // A parks on approval
+		}
+		return &scriptedChat{} // B just runs
+	})
+	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
+
+	a, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task A", "", "")
+	require.NoError(t, err)
+
+	// A relays its approval to the parent and — crucially — yields its slot
+	// while parked.
+	appr := recvKind(t, c, "approval_request", conformanceWait)
+	require.Len(t, appr, 1, "A must relay its approval to the parent")
+	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,
+		"A must be parked (slot yielded) while it waits on the approval")
+
+	// B, queued behind the cap-1 ceiling, now executes to completion — proof
+	// the slot was freed by A's approval wait.
+	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "", "")
+	require.NoError(t, err)
+	bRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task B") }, conformanceWait)
+	require.NotEmpty(t, bRes, "B must run to completion while A is approval-blocked (A yielded its slot)")
+
+	// A is still parked on its unanswered approval.
+	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked on its approval")
+
+	// Answer A: it reclaims a slot and finishes its turn.
+	_, err = c.AgentSend(ownerIdentity(), a.Harp, "", "ok", decisionJSON(t, "DECISION_ACCEPT"), appr[0].ID)
+	require.NoError(t, err)
+	aRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task A") }, conformanceWait)
+	require.NotEmpty(t, aRes, "A resumes and completes its turn once the approval is answered")
+	_ = b
+}
+
 // countRuns returns how many run records the live fold currently holds.
 func countRuns(c *Coordinator) int {
 	n := 0

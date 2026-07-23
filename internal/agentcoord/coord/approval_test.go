@@ -22,6 +22,20 @@ import (
 // path falls back to DECLINE; ACCEPT_FOR_SESSION suppresses the second
 // like-kind ask.
 
+// currentRunID reads the harp's CURRENT run_id off the fold (mirrors
+// resume_session_capture_test.go's harnessSessionID) — used to prove a
+// resume actually minted a fresh run_id for the same harp, the shape
+// one-shot's per-turn resume produces on every delivery.
+func currentRunID(c *Coordinator, harp string) string {
+	var id string
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			id = r.RunID
+		}
+	})
+	return id
+}
+
 // auditEntry is c.audit's durable, no-projection payload (facts.go).
 type auditEntry struct {
 	Kind   string            `json:"kind"`
@@ -298,6 +312,108 @@ func TestApproval_AcceptForSessionSuppressesSecondAsk(t *testing.T) {
 	require.Len(t, entries, 2)
 	assert.Equal(t, "cache", entries[1].Detail["rung"])
 	assert.Equal(t, "granted", entries[1].Detail["resolution"])
+}
+
+// TestApproval_AcceptForSessionSurvivesRunIDChange is the Slice 1
+// (fix/accept-session-scope) regression proof: ACCEPT_FOR_SESSION must be
+// scoped to the harp — the child's whole delegated session — not to the
+// runID of the turn that happened to be live when the grant was made. Under
+// the coming one-shot model (one-shot-resume.plan.md Fork 2.1) EVERY turn is
+// a fresh runID for the same harp, so a runID-scoped cache is wiped at every
+// turn boundary and the human is silently re-prompted for something they
+// already said "don't ask again" to.
+//
+// This drives the REAL resume path (not a synthetic key swap): kill the
+// engine out from under the run (runner-loss, exactly like
+// TestStartRun_ResumeUsesJournaledHarnessSessionID), which ends the run with
+// no pending mail — the general "later agent_send resumes an idle Ended
+// harp" case (driveQueued's StateEnded branch), not merely the narrow
+// immediate-resume-inside-terminateRun race window. The resumed run's FIRST
+// turn is scripted plain (no permission) so the test can wait for the fresh
+// run to be genuinely up (round-tripped to Idle) before arming the SECOND
+// like-kind ask on its SECOND turn — avoiding an unrelated race where a
+// permission fired the instant a just-resumed engine's plane-2 channel has
+// not yet attached (same reason TestApproval_AcceptForSessionSuppressesSecondAsk
+// arms its second ask only after the first has resolved, not on the very
+// first token). The second ask's run_id (sp.chatCount() 1->2, currentRunID
+// changed) is what proves the runID actually changed under the same harp.
+func TestApproval_AcceptForSessionSurvivesRunIDChange(t *testing.T) {
+	resetStrictness(t)
+	permReq := commandExecRequest("perm-first")
+	sp := planPresetSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} })
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
+	require.NoError(t, err)
+	firstRunID := out.RunID
+
+	msgs := recvKind(t, c, "approval_request", conformanceWait)
+	require.Len(t, msgs, 1)
+
+	decision, err := json.Marshal(map[string]any{"decision": "DECISION_ACCEPT_FOR_SESSION"})
+	require.NoError(t, err)
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "", "go ahead, and for the rest of the session too", decision, msgs[0].ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		sc := sp.chat(0)
+		return sc != nil && len(sc.recordedAnswers()) == 1 && sc.recordedAnswers()[0].OptionID == "allow-1"
+	}, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+
+	// End the run out from under the child (runner loss — no clean
+	// chat-close, no pending mail at terminal): the harp lands StateEnded
+	// with its FIRST run_id, exactly the shape driveQueued's later-resume
+	// branch (not terminateRun's own immediate mail-race resume) will see on
+	// the next delivery.
+	sp.killEngine(0)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+
+	// Resume with a PLAIN first turn (no permission scripted yet) — this
+	// mints a genuinely fresh run_id for the same harp (one-shot's per-turn
+	// shape).
+	sp.nextChat = func() *scriptedChat { return &scriptedChat{} }
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "run another command", nil, "")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 10*time.Millisecond,
+		"the resume must spawn a genuinely new run (fresh run_id) for the same harp")
+	require.Eventually(t, func() bool {
+		sc := sp.chat(1)
+		return sc != nil && len(sc.recordedTexts()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the resumed run's first (plain) turn must round-trip")
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
+		"the resumed run must settle to idle before its plane-2 channel is exercised again")
+	secondRunID := currentRunID(c, out.Harp)
+	assert.NotEqual(t, firstRunID, secondRunID, "the resume must be a fresh run_id, not a reused one")
+
+	// NOW arm the second like-kind ask, on the resumed run's SECOND turn —
+	// its channel is long since attached (it already round-tripped one turn
+	// to idle above).
+	sp.chat(1).arm(commandExecRequest("perm-second"))
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, "task", "run another command still", nil, "")
+	require.NoError(t, err)
+
+	// The cache check is a coordinator-local, synchronous map lookup — a
+	// cache HIT resolves in microseconds. A cache MISS (today's runID-keyed
+	// bug: the grant lives under firstRunID, which is long gone) instead
+	// walks the plan-preset ladder and relays to the parent's mailbox — a
+	// SEPARATE approval_request that would sit there for up to 24h waiting
+	// for a human this test never provides. So the mailbox is the fast,
+	// unambiguous RED signal: check it BEFORE waiting on an answer that a
+	// broken cache will never produce.
+	assertNoMailKind(t, c, "approval_request", 300*time.Millisecond)
+
+	// The cached grant must answer the second ask WITHOUT a second relay to
+	// the parent's mailbox — this is exactly what a runID-scoped cache gets
+	// wrong: the grant was cached under firstRunID and firstRunID is gone.
+	require.Eventually(t, func() bool {
+		return len(sp.chat(1).recordedAnswers()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the cached grant must answer the second ask on the NEW run_id without a human re-prompt")
+	second := sp.chat(1).recordedAnswers()[0]
+	assert.Equal(t, "perm-second", second.ID)
+	assert.Equal(t, "allow-1", second.OptionID, "harp-scoped ACCEPT_FOR_SESSION must survive the runID change")
+	assert.Equal(t, secondRunID, currentRunID(c, out.Harp), "still the same (resumed) run — no further respawn happened")
 }
 
 // TestApproval_BypassPresetAutoAcceptsAll pins the bypass preset (kind-lilac

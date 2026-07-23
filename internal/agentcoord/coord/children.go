@@ -614,6 +614,30 @@ func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
 	}
 }
 
+// resumeKeyFor is the resume key formalized as a single accessor (one-shot-
+// resume plan Slice 1): (harp, HarnessSessionID) on the harp's CURRENT run —
+// the handle a resume threads back into the backend (StartRun's
+// ResumeSessionID / Spawner.Launch's resumeSessionID) so the engine
+// continues its OWN session instead of a rendered-transcript replay. ok is
+// false when harp has no run yet, or its current run never reported a
+// native session id.
+//
+// NOT used by resumeChild itself: by the time a resume wants this key, it
+// means the JUST-ENDED run's handle (captured in its own local rec before
+// enqueueRun mints the fresh one), and "harp's CURRENT run" would instead
+// resolve to that brand-new run — necessarily keyless, since it has not
+// reported a session id yet. This accessor is for callers who want the
+// latest committed resume handle for a harp from outside that narrow
+// window (tests, and Slice 2's per-engine gating).
+func (c *Coordinator) resumeKeyFor(harp string) (sessionID string, ok bool) {
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			sessionID = r.HarnessSessionID
+		}
+	})
+	return sessionID, sessionID != ""
+}
+
 // onTurnStarted folds a migrated child's engine-reported turn start into the
 // §6a roster state and the D4 slot accounting. The acquire is BEST-EFFORT
 // (tryAcquire): this runs on the RunChannel's receive path, which must not
@@ -1025,10 +1049,18 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		return
 	}
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
-	// The ACCEPT_FOR_SESSION cache (C2) is run-scoped: it must not outlive
-	// the run it was granted for (a resumed harp gets a fresh run_id and
-	// starts its ladder clean).
-	c.clearSessionAccepts(runID)
+	// The ACCEPT_FOR_SESSION cache (C2) is HARP-scoped (fix/accept-session-
+	// scope, one-shot-resume plan Slice 1): it must outlive an ordinary run
+	// terminal — a resumed harp keeps its grants, because "for-session"
+	// means the harp's whole delegated session, not the turn that happened
+	// to be live when it was granted. Only an explicit, deliberate
+	// agent_stop (CauseStopped) clears it here; every other cause leaves the
+	// harp resumable (factRunEnded's own doc) and must not wipe grants —
+	// see clearSessionAccepts's doc for why this distinction matters under
+	// one-shot.
+	if cause == CauseStopped {
+		c.clearSessionAccepts(rec.Harp)
+	}
 	// Plane-2 request idempotency records are role-scoped and reconnect-
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.
@@ -1190,6 +1222,14 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		return
 	}
 
+	// resumeKeyFor is NOT used here: it reads the harp's CURRENT run, but
+	// enqueueRun (above) already minted the fresh one for this very resume,
+	// whose HarnessSessionID is necessarily still empty (not yet reported).
+	// The key this resume must thread is the JUST-ENDED run's — exactly what
+	// `rec` (captured before enqueueRun) already holds.
+	resumeSessionID := rec.HarnessSessionID
+	haveResumeKey := resumeSessionID != ""
+
 	// MIGRATED resume (C1): respawn via StartRun with the JOURNALED
 	// harness-native session id — the engine continues its own recorded
 	// session (ACP session/load); no transcript re-priming needed. A prior
@@ -1201,10 +1241,10 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		rt.viaStartRun = true
 		c.mu.Unlock()
 		contextText := ""
-		if rec.HarnessSessionID == "" {
+		if !haveResumeKey {
 			contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
 		}
-		c.runChildViaStartRun(rt, "", token, url, rec.HarnessSessionID, contextText)
+		c.runChildViaStartRun(rt, "", token, url, resumeSessionID, contextText)
 		return
 	}
 
@@ -1215,10 +1255,10 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 	// rendered-transcript re-priming needed; only a prior run that never
 	// reported a session id falls back to the lossy ResumeContext replay.
 	contextText := ""
-	if rec.HarnessSessionID == "" {
+	if !haveResumeKey {
 		contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
 	}
-	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText, rec.HarnessSessionID,
+	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText, resumeSessionID,
 		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)

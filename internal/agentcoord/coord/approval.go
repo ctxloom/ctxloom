@@ -35,10 +35,19 @@ type pendingApproval struct {
 	ch         chan *agentcoordpb.ApprovalDecision // buffered(1)
 }
 
-// sessionAcceptKey is the ACCEPT_FOR_SESSION cache key: (run, kind).
+// sessionAcceptKey is the ACCEPT_FOR_SESSION cache key: (harp, kind).
+//
+// Was (runID, kind) — re-scoped in fix/accept-session-scope (one-shot-resume
+// plan Slice 1 / Fork 2.1). "For-session" means the child's WHOLE delegated
+// session (the harp), not the turn's runID: a run only lasts one turn
+// on the persistent model's warm-engine lifetime today, but under the coming
+// one-shot model (deferred, Slice 4) every turn mints a fresh runID for the
+// same harp, so a runID-keyed grant is wiped at every turn boundary and the
+// human is silently re-prompted for something they already said "don't ask
+// again" to. The harp is the correct, model-independent scope.
 type sessionAcceptKey struct {
-	runID string
-	kind  agentcoordpb.ApprovalRequest_ApprovalKind
+	harp string
+	kind agentcoordpb.ApprovalRequest_ApprovalKind
 }
 
 // serveApproval is the AgentRequest_Approval plane-2 handler
@@ -61,8 +70,9 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 	kind := req.GetKind()
 
 	// ACCEPT_FOR_SESSION cache: suppresses the whole ladder walk for a
-	// later like-kind ask on the SAME run.
-	if d, ok := c.sessionAccepted(rec.RunID, kind); ok {
+	// later like-kind ask on the SAME harp (session) — survives a runID
+	// change (resume), not just a later turn on the SAME run.
+	if d, ok := c.sessionAccepted(rec.Harp, kind); ok {
 		c.audit("approval", caller.Harp, map[string]string{
 			"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": "cache", "resolution": "granted",
 		})
@@ -105,7 +115,7 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 					"resolution": resolution, "decision": decision.GetDecision().String(),
 				})
 				if decision.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION {
-					c.cacheSessionAccept(rec.RunID, kind)
+					c.cacheSessionAccept(rec.Harp, kind)
 				}
 				return approvalResponse(decision)
 			}
@@ -230,38 +240,51 @@ func (c *Coordinator) resolveApprovalReply(caller Identity, inReplyTo string, st
 	return fmt.Sprintf("approval decision recorded (%s)", decision.GetDecision()), nil, true
 }
 
-// sessionAccepted reads the ACCEPT_FOR_SESSION cache.
-func (c *Coordinator) sessionAccepted(runID string, kind agentcoordpb.ApprovalRequest_ApprovalKind) (*agentcoordpb.ApprovalDecision, bool) {
+// sessionAccepted reads the ACCEPT_FOR_SESSION cache, keyed by harp — the
+// child's whole delegated session, not the turn's runID (see
+// sessionAcceptKey's doc).
+func (c *Coordinator) sessionAccepted(harp string, kind agentcoordpb.ApprovalRequest_ApprovalKind) (*agentcoordpb.ApprovalDecision, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	d, ok := c.sessionAccepts[sessionAcceptKey{runID, kind}]
+	d, ok := c.sessionAccepts[sessionAcceptKey{harp, kind}]
 	return d, ok
 }
 
 // cacheSessionAccept records a DECISION_ACCEPT_FOR_SESSION grant. Later
-// like-kind requests on the SAME run get a plain ACCEPT from cache (the
-// "_FOR_SESSION" qualifier is spent at the moment it is granted, not
-// re-asserted on every cache hit).
-func (c *Coordinator) cacheSessionAccept(runID string, kind agentcoordpb.ApprovalRequest_ApprovalKind) {
+// like-kind requests on the SAME harp — including a LATER run under the
+// same harp (a resume, one-shot's per-turn shape) — get a plain ACCEPT from
+// cache (the "_FOR_SESSION" qualifier is spent at the moment it is granted,
+// not re-asserted on every cache hit).
+func (c *Coordinator) cacheSessionAccept(harp string, kind agentcoordpb.ApprovalRequest_ApprovalKind) {
 	c.mu.Lock()
 	if c.sessionAccepts == nil {
 		c.sessionAccepts = make(map[sessionAcceptKey]*agentcoordpb.ApprovalDecision)
 	}
-	c.sessionAccepts[sessionAcceptKey{runID, kind}] = &agentcoordpb.ApprovalDecision{
+	c.sessionAccepts[sessionAcceptKey{harp, kind}] = &agentcoordpb.ApprovalDecision{
 		Decision: agentcoordpb.ApprovalDecision_DECISION_ACCEPT,
 		Note:     "accept-for-session cache",
 	}
 	c.mu.Unlock()
 }
 
-// clearSessionAccepts drops a run's ACCEPT_FOR_SESSION cache entries at
-// terminal (children.go's terminateRun) — the cache is run-scoped and must
-// not outlive the run it was granted for.
-func (c *Coordinator) clearSessionAccepts(runID string) {
+// clearSessionAccepts drops a harp's ACCEPT_FOR_SESSION cache entries.
+//
+// This is now scoped to the HARP's session lifetime, not the run's: it must
+// NOT be called on every ordinary terminateRun (chat-close / runner-loss /
+// runner-exit / orphaned-by-restart) — factRunEnded's own doc is explicit
+// that "the harp stays resumable" after any of those, and under one-shot
+// (deferred, one-shot-resume.plan.md Slice 4) EVERY turn boundary funnels
+// through terminateRun, so clearing there would reintroduce exactly the
+// regression this re-scoping fixes (TestApproval_AcceptForSessionSurvivesRunIDChange).
+// terminateRun calls this only for CauseStopped (an explicit agent_stop) —
+// the one terminal cause that reflects a deliberate, final end of the harp's
+// session rather than an ordinary/lossy turn boundary the harp is expected
+// to resume from.
+func (c *Coordinator) clearSessionAccepts(harp string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for k := range c.sessionAccepts {
-		if k.runID == runID {
+		if k.harp == harp {
 			delete(c.sessionAccepts, k)
 		}
 	}

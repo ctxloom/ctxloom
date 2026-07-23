@@ -1007,6 +1007,10 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// the run it was granted for (a resumed harp gets a fresh run_id and
 	// starts its ladder clean).
 	c.clearSessionAccepts(runID)
+	// Plane-2 request idempotency records are role-scoped and reconnect-
+	// surviving (runchannel.go); drop this harp's at terminal so they don't
+	// accumulate across the process's lifetime.
+	c.clearReqTrack(rec.Harp)
 
 	// D4 (damp-pupil 1): drain BEFORE anything below that can tear the
 	// RunChannel's underlying connection down — closeFn (engine.Kill) closes

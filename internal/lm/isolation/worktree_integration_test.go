@@ -117,6 +117,56 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	gitRun(t, repo, "worktree", "remove", "--force", outer)
 }
 
+// TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan is the
+// red-first proof for bony-carry bug #1: a per-agent worktree's CLAUDE.md is a
+// TRACKED context surface the claude engine's WriteContext genuinely mutates —
+// and, per its own doc, DELETES outright when the merged content is empty and
+// the file was wholly ctxloom's (internal/claude/claude.go). Before
+// WorktreeArtifactPatterns covered "CLAUDE.md", skipTrackedConfig never set the
+// skip-worktree bit on it, so that deletion left `git status` showing
+// " D CLAUDE.md" — a real, correctly-detected dirty tree — and the WIP-safe
+// teardown (correctly) refused `git worktree remove`, permanently orphaning
+// the checkout. This test simulates exactly that deletion (standing in for the
+// engine's Setup/materialize step, which this policy test doesn't otherwise
+// drive) and asserts the worktree is STILL reaped: skipTrackedConfig hiding
+// the tracked mutation is what makes the tree read as clean again.
+func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the managed-context-deletion integration test")
+	}
+	ctx := context.Background()
+	repo := initRealRepo(t)
+	// CLAUDE.md is tracked in the SOURCE repo, exactly like a real project's
+	// committed context file — the worktree checkout below inherits it.
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("# managed\nctxloom content\n"), 0o644))
+	gitRun(t, repo, "add", "CLAUDE.md")
+	gitRun(t, repo, "commit", "-m", "seed CLAUDE.md")
+
+	pol := NewWorktree(git.NewExec(), "")
+	ws, err := pol.PrepareWorkspace(ctx, repo, "member-ctx")
+	require.NoError(t, err)
+	wtDir := ws.Dir()
+	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
+	cleanupConfigHome(t, ws)
+
+	require.FileExists(t, filepath.Join(wtDir, "CLAUDE.md"), "the worktree checkout carries the tracked CLAUDE.md")
+
+	// Simulate the claude engine's WriteContext deleting CLAUDE.md (empty
+	// assembled content, and the file was wholly ctxloom's — claude.go's
+	// WriteContext/agent.WriteManagedContext contract).
+	require.NoError(t, os.Remove(filepath.Join(wtDir, "CLAUDE.md")))
+
+	// Without skipTrackedConfig covering CLAUDE.md, this would show " D CLAUDE.md".
+	status := gitOut(t, wtDir, "status", "--porcelain")
+	assert.Empty(t, strings.TrimSpace(status), "skip-worktree must hide the managed-context deletion, or the WIP guard reads it as real work")
+
+	require.NoError(t, ws.Cleanup(), "cleanup never errors")
+	assert.NoDirExists(t, wtDir, "the worktree is reaped: the managed-context deletion is ctxloom's own artifact, not user WIP")
+
+	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	assert.NotContains(t, out, wtDir, "no leftover worktree registration after teardown")
+}
+
 // cleanupConfigHome registers a raw, unmutated os.RemoveAll safety net for the
 // workspace's per-agent config-home dir (provisionConfigHome's ctxloom-cfg-*
 // scratch), reaching the unexported field directly since this file shares

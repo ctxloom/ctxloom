@@ -54,6 +54,21 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // .git/info/exclude (untracked, common-dir) — NOT the tracked .gitignore, which
 // would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
 // that genuinely tracks .mcp.json is unaffected.
+//
+// CLAUDE.md and the root AGENTS.md belong here too (bony-carry, worktree
+// orphan-accumulation fix): they are TRACKED per-agent context surfaces
+// (claude.ClaudeCodeHookWriter.WriteContext, codex.CodexHookWriter.WriteContext
+// — internal/shared/agent/managedcontext.go's doc names all three: CLAUDE.md,
+// .agents/AGENTS.md, codex's AGENTS.md), and WriteManagedContext DELETES the
+// file outright when the merged content is empty and the file was wholly
+// ctxloom's. Omitting them here left isolation/worktree.go's
+// skipTrackedConfig unable to hide that mutation: a per-agent run's
+// materialize step turned a repo's committed CLAUDE.md into a tracked
+// deletion (`git status` showed ` D CLAUDE.md`) that no skip-worktree bit
+// covered, so teardown's WIP-safety check (correctly) read the worktree as
+// dirty and refused `git worktree remove`, permanently orphaning it. agy's
+// .agents/AGENTS.md is unaffected — already covered wholesale by the ".agents/"
+// entry below.
 var WorktreeArtifactPatterns = []string{
 	".mcp.json",
 	".claude/",
@@ -61,6 +76,8 @@ var WorktreeArtifactPatterns = []string{
 	".codex/config.toml",
 	".kiro/",
 	".ctxloom/cache/",
+	"CLAUDE.md",
+	"AGENTS.md",
 }
 
 // SupersededPatterns are ignore rules written by older ctxloom versions that a

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // resetStrictness restores pristine strict-mode state for a test and registers
@@ -487,4 +489,20 @@ func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion taskloom")
 	assert.Contains(t, buf.String(), "ctxloom: warning: companion ltk")
+}
+
+// TestSweepOrphanedWorktrees_SilentWhenNothingToReap covers the plumbing
+// (this file's call into isolation.ReapOrphanedWorktrees, and the
+// nothing-found reporting contract) at the CLI layer — the reap/spare/skip
+// SEMANTICS themselves (a confirmed-dead owner's clean worktree reaped, a
+// dirty one spared, a live or indeterminate owner never touched) are proven
+// directly against real git in internal/lm/isolation's own
+// TestReapOrphanedWorktrees_* suite, not duplicated here.
+func TestSweepOrphanedWorktrees_SilentWhenNothingToReap(t *testing.T) {
+	testsupport.Isolate(t) // fresh, empty ~/.ctxloom/sessions — nothing to sweep
+	var buf bytes.Buffer
+
+	sweepOrphanedWorktrees(context.Background(), &buf)
+
+	assert.Empty(t, buf.String(), "an all-clear sweep reports nothing")
 }

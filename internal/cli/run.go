@@ -472,6 +472,16 @@ Examples:
 			reportCompanions(os.Stderr)
 		}
 
+		// Startup reaper (bony-carry bug #2): sweep any per-agent worktree
+		// checkout left behind by a crashed/killed prior run — teardown()'s
+		// WIP-safe removal only ever fires on a graceful Cleanup(), so nothing
+		// else ever reaps these. Best-effort, silent unless it found something.
+		// Skipped under --dry-run for the same reason as reportCompanions: a dry
+		// run previews assembly without any side effect.
+		if !runDryRun {
+			sweepOrphanedWorktrees(ctx, os.Stderr)
+		}
+
 		// Two launch sources: --agent runs a named LOCAL binding — its composed
 		// profiles become the context and its engine + runtime the transport;
 		// the interactive picker and the -p/-f/-t assembly do not apply (cobra

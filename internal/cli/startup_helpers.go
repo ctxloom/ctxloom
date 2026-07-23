@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -116,6 +118,34 @@ func formatFindings(findings []strictness.Finding) string {
 		}
 	}
 	return b.String()
+}
+
+// sweepOrphanedWorktrees runs the startup per-agent-worktree reaper
+// (bony-carry bug #2): a crashed/killed run's worktree checkout is never
+// reaped by anything else — teardown()'s WIP-safe removal only ever runs on a
+// GRACEFUL Cleanup(), so without this sweep every crashed member left an
+// orphaned checkout (and a stale `git worktree list` registration in its
+// project repo) behind forever, one per crash. Best-effort and silent on the
+// all-clear path; only reports when it actually removed something, mirroring
+// mcp_server.go's purgeLegacyBundles reporting shape. Never blocks or fails
+// startup: isolation.ReapOrphanedWorktrees is itself conservative on every
+// candidate it cannot prove is both ownerless AND clean (see its doc) — a
+// live agent's worktree, or a dead one still carrying real uncommitted work,
+// is left untouched, exactly as the graceful path would leave it.
+//
+// Both `ctxloom run` and `ctxloom mcp` call this at startup so the sweep runs
+// regardless of how the session was started — the same symmetry
+// reportCompanions/writeSyncSummary already keep between the two entry
+// points.
+func sweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
+	result := isolation.ReapOrphanedWorktrees(ctx, nil)
+	if result.Reaped > 0 {
+		// Best-effort reporting on a fault-tolerant startup path; a failed
+		// write is intentionally dropped (captured-but-unchecked via
+		// iox.ErrWriter), matching every other startup reporter in this file.
+		ew := iox.NewErrWriter(w)
+		ew.Printf("ctxloom: reaped %d orphaned per-agent worktree(s) left by crashed run(s)\n", result.Reaped)
+	}
 }
 
 // reportCompanions probes the built-in companion binaries (taskloom, ltk) on

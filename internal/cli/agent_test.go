@@ -32,6 +32,22 @@ func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out, "runtime:"), "unset runtime prints nothing (inherits the project default)")
 }
 
+// TestRenderAgentList_Driving proves a declared `driving:` value renders in
+// the list, and an unset one prints nothing (mirroring Runtime/Coordinator's
+// existing omit-when-empty convention).
+func TestRenderAgentList_Driving(t *testing.T) {
+	list := []operations.AgentEntry{
+		{Name: "shooter", Engine: "claude-code", Driving: "oneshot"},
+		{Name: "chatter", Engine: "claude-code"}, // driving unset
+	}
+	var buf bytes.Buffer
+	assert.NoError(t, renderAgentList(&buf, list))
+	out := buf.String()
+
+	assert.Contains(t, out, "driving: oneshot")
+	assert.Equal(t, 1, strings.Count(out, "driving:"), "unset driving prints nothing")
+}
+
 func TestRenderAgentList_Empty(t *testing.T) {
 	var buf bytes.Buffer
 	assert.NoError(t, renderAgentList(&buf, nil))
@@ -54,6 +70,16 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 	assert.Contains(t, out, "Runtime: container")
 	assert.Contains(t, out, "Resolved engine: slow (backend: mock, model: m-slow)")
 	assert.Contains(t, out, "Composed fragments: 2")
+}
+
+// TestRenderAgentShow_Driving proves a declared `driving:` value renders in
+// `agent show`.
+func TestRenderAgentShow_Driving(t *testing.T) {
+	def := &operations.AgentEntry{Name: "shooter", Engine: "slow", Driving: "oneshot", Source: "config"}
+	resolved := &operations.ResolvedAgent{Name: "shooter", Label: "slow", Backend: "mock"}
+	var buf bytes.Buffer
+	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil))
+	assert.Contains(t, buf.String(), "Driving: oneshot")
 }
 
 func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {

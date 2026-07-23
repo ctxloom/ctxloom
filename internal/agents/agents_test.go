@@ -65,6 +65,70 @@ func TestLoader_MissingDirectory(t *testing.T) {
 	assert.Empty(t, list)
 }
 
+// TestParseAgent_DrivingRoundTrips proves the driving enum round-trips
+// through agent YAML: an empty/absent value, and each named enum value.
+func TestParseAgent_DrivingRoundTrips(t *testing.T) {
+	sub, err := ParseAgent([]byte("engine: fast\nprofiles: [p1]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, DrivingMode(""), sub.Driving, "absent driving: leaves the zero value (conversational)")
+
+	sub, err = ParseAgent([]byte("engine: fast\ndriving: conversational\n"))
+	require.NoError(t, err)
+	assert.Equal(t, DrivingConversational, sub.Driving)
+
+	sub, err = ParseAgent([]byte("engine: fast\ndriving: oneshot\n"))
+	require.NoError(t, err)
+	assert.Equal(t, DrivingOneshot, sub.Driving)
+}
+
+// TestParseAgent_UnknownDrivingRejected proves an unrecognized driving value
+// is REJECTED at parse time (unlike Runtime/Permissions' advisory-only
+// unknown-value handling) — a typo here changes execution semantics, so it
+// must never silently resolve to the conversational default.
+func TestParseAgent_UnknownDrivingRejected(t *testing.T) {
+	_, err := ParseAgent([]byte("engine: fast\ndriving: bogus\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bogus")
+	assert.Contains(t, err.Error(), "conversational")
+	assert.Contains(t, err.Error(), "oneshot")
+}
+
+// TestLoader_FaultTolerantBadDriving proves the Loader's existing
+// fault-tolerant degrade (warn + skip, per TestLoader_FaultTolerantBadFile)
+// extends to a bad `driving:` value: one agent file with an unknown driving
+// string is skipped, the rest of the directory still loads.
+func TestLoader_FaultTolerantBadDriving(t *testing.T) {
+	dir := t.TempDir()
+	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "bad.yaml", "engine: fast\ndriving: bogus\n")
+
+	list, err := NewLoader([]string{dir}).List()
+	require.NoError(t, err, "a bad driving value must not fail the whole list")
+	require.Len(t, list, 1)
+	assert.Equal(t, "good", list[0].Name)
+}
+
+func TestParseDrivingMode(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   DrivingMode
+		wantOk bool
+	}{
+		{"", DrivingConversational, true},
+		{"conversational", DrivingConversational, true},
+		{"oneshot", DrivingOneshot, true},
+		{"bogus", "", false},
+		{"Conversational", "", false}, // NOT lenient on case, unlike ParsePermissionMode
+	}
+	for _, tc := range cases {
+		got, ok := ParseDrivingMode(tc.in)
+		assert.Equal(t, tc.wantOk, ok, "in=%q", tc.in)
+		if tc.wantOk {
+			assert.Equal(t, tc.want, got, "in=%q", tc.in)
+		}
+	}
+}
+
 // TestGetAgentDirs returns only directories that exist on disk.
 func TestGetAgentDirs(t *testing.T) {
 	root := t.TempDir()

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -46,6 +47,45 @@ func TestViaStartRunBackends(t *testing.T) {
 	for backend, want := range cases {
 		assert.Equal(t, want, viaStartRunBackends[backend], "backend %q", backend)
 	}
+}
+
+// TestResolveResumeMode pins the Slice 2 static per-engine resume-capability
+// table (Fork 3's static half): conversational (and the empty/default) always
+// resolves to ResumeModePersistent regardless of backend; oneshot resolves to
+// ResumeModeOneShot ONLY on a resume-capable backend and otherwise fails
+// loud, never silently downgrading to persistent.
+func TestResolveResumeMode(t *testing.T) {
+	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
+		for _, backend := range []string{"claude-code", "codex", "antigravity", "opencode", "kiro", "mock", "unknown", ""} {
+			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
+			require.NoError(t, err, "backend %q", backend)
+			assert.Equal(t, ResumeModePersistent, mode, "backend %q", backend)
+		}
+	})
+
+	t.Run("empty driving (the zero value) is persistent", func(t *testing.T) {
+		mode, err := resolveResumeMode("", "opencode")
+		require.NoError(t, err)
+		assert.Equal(t, ResumeModePersistent, mode)
+	})
+
+	t.Run("oneshot on a resume-capable backend resolves to ResumeModeOneShot", func(t *testing.T) {
+		for _, backend := range []string{"claude-code", "codex", "antigravity"} {
+			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
+			require.NoError(t, err, "backend %q", backend)
+			assert.Equal(t, ResumeModeOneShot, mode, "backend %q", backend)
+		}
+	})
+
+	t.Run("oneshot on a NON-resumable backend FAILS LOUD, never silently downgrades", func(t *testing.T) {
+		for _, backend := range []string{"opencode", "kiro", "mock", "unknown-backend", ""} {
+			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
+			require.Error(t, err, "backend %q", backend)
+			assert.Equal(t, ResumeModePersistent, mode, "the returned mode on error must never be ResumeModeOneShot (backend %q)", backend)
+			assert.Contains(t, err.Error(), backend)
+			assert.Contains(t, err.Error(), "resume-capable")
+		}
+	})
 }
 
 // writeSpawnerConfig (re)writes appDir/config.yaml, exactly like a live
@@ -127,6 +167,72 @@ func TestProdSpawner_ResolveFallsBackToStartupSnapshotOnReadFailure(t *testing.T
 	plan, err := s.Resolve(context.Background(), "dev")
 	require.NoError(t, err, "resolve must not fail outright on a reload read problem")
 	assert.Equal(t, "claude-code", plan.Backend, "the startup snapshot still resolves the known agent")
+}
+
+// TestProdSpawner_Resolve_Driving is the end-to-end proof at the real
+// Spawner.Resolve entry point (config-key-sourced agents, which bypass
+// agents.ParseAgent entirely — see resolveAgentBinding's ValidateDriving
+// call): the driving axis round-trips for conversational/absent, an unknown
+// value fails loud, and driving: oneshot fails loud both for a non-resumable
+// engine (the permanent capability gate) and for a resume-capable one (the
+// separate, deliberately temporary v0.8 "not yet available" gate) — proving
+// item 4's requirement is satisfied "regardless" of which one applies.
+func TestProdSpawner_Resolve_Driving(t *testing.T) {
+	newSpawner := func(t *testing.T, body string) *prodSpawner {
+		t.Helper()
+		resetStrictness(t)
+		t.Setenv("HOME", t.TempDir())
+		appDir := filepath.Join(t.TempDir(), ".ctxloom")
+		writeSpawnerConfig(t, appDir, body)
+		cfg, err := config.Load(config.WithAppDir(appDir))
+		require.NoError(t, err)
+		return newProdSpawner(cfg, filepath.Dir(appDir), nil)
+	}
+
+	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n")
+		plan, err := s.Resolve(context.Background(), "dev")
+		require.NoError(t, err)
+		assert.Equal(t, ResumeModePersistent, plan.ResumeMode)
+	})
+
+	t.Run("driving: conversational resolves persistent", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n    driving: conversational\n")
+		plan, err := s.Resolve(context.Background(), "dev")
+		require.NoError(t, err)
+		assert.Equal(t, ResumeModePersistent, plan.ResumeMode)
+	})
+
+	t.Run("unknown driving value FAILS LOUD at resolve, even for a config-key agent that bypasses ParseAgent", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n    driving: bogus\n")
+		_, err := s.Resolve(context.Background(), "dev")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+	})
+
+	t.Run("driving: oneshot on a non-resumable engine fails loud with the capability reason", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: opencode\n    permissions: bypass\n    driving: oneshot\n")
+		_, err := s.Resolve(context.Background(), "dev")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "resume-capable")
+		assert.Contains(t, err.Error(), "opencode")
+	})
+
+	t.Run("driving: oneshot on kiro (isolation-blocked) also fails loud with the capability reason", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: kiro\n    permissions: bypass\n    driving: oneshot\n")
+		_, err := s.Resolve(context.Background(), "dev")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "resume-capable")
+	})
+
+	t.Run("driving: oneshot on a RESUME-CAPABLE engine still fails loud in this release (v0.8 gate), not the capability reason", func(t *testing.T) {
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n    driving: oneshot\n")
+		_, err := s.Resolve(context.Background(), "dev")
+		require.Error(t, err, "the turn loop that would execute one-shot doesn't exist yet (Slice 4/v0.8)")
+		assert.Contains(t, err.Error(), "not yet available")
+		assert.Contains(t, err.Error(), "v0.8")
+		assert.NotContains(t, err.Error(), "has no resume-by-key primitive", "a capable engine must fail for the v0.8 reason, not the capability reason")
+	})
 }
 
 // TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan is GAP 2's threading

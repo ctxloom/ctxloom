@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -93,6 +94,9 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Coordinator {
 			w.Printf("    coordinator: true\n")
 		}
+		if s.Driving != "" {
+			w.Printf("    driving: %s\n", s.Driving)
+		}
 	}
 	return w.Err()
 }
@@ -152,6 +156,9 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	}
 	if def.Coordinator {
 		w.Println("Coordinator: true")
+	}
+	if def.Driving != "" {
+		w.Printf("Driving: %s\n", def.Driving)
 	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {
@@ -222,6 +229,7 @@ var (
 	agentSetRuntime     string
 	agentSetPermissions string
 	agentSetCoordinator bool
+	agentSetDriving     string
 )
 
 // agentSetCmd is the write half: add or update a LOCAL agent under the
@@ -239,7 +247,10 @@ default. Profiles compose into one assembled context. Runtime (optional:
 host|container) sets WHERE this agent's engine process executes; omit it to
 inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/map/weave --workspace).
+(run/map/weave --workspace). Driving (optional: conversational|oneshot) sets
+the per-turn execution axis; omit it to keep the default conversational
+(warm-engine) model — oneshot requires a resume-capable engine and is not yet
+executable in this release.
 
 Examples:
   ctxloom agent set finder --engine claude-fast --profiles finder
@@ -262,6 +273,7 @@ Examples:
 			Runtime:     agentSetRuntime,
 			Permissions: agentSetPermissions,
 			Coordinator: agentSetCoordinator,
+			Driving:     agentSetDriving,
 		})
 		if err != nil {
 			return err
@@ -284,6 +296,9 @@ Examples:
 			}
 			if entry.Coordinator {
 				w.Printf(", coordinator: true")
+			}
+			if entry.Driving != "" {
+				w.Printf(", driving: %s", entry.Driving)
 			}
 			w.Println(")")
 			return w.Err()
@@ -387,6 +402,7 @@ func init() {
 	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
 	agentSetCmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	agentSetCmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
+	agentSetCmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's only behavior; oneshot requires a resume-capable engine and is not yet executable in this release — v0.8)")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames
@@ -397,6 +413,9 @@ func init() {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = agentSetCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
+	_ = agentSetCmd.RegisterFlagCompletionFunc("driving", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return agents.DrivingModeNames(), cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 // completeWorkspaceNames completes the session-level --workspace flag values

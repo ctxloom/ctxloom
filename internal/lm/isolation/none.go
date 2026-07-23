@@ -6,6 +6,16 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
+// envCellWorkDir duplicates agentcoord/coord.EnvCellWorkDir's value
+// ("CTXLOOM_CELL_WORKDIR") as a literal rather than importing it: that
+// package pulls in internal/lm/backends -> internal/acp -> this package
+// (acp's container transport imports isolation), so importing it here would
+// cycle — the same reason internal/acp/container_transport.go duplicates
+// coord.EnvMCPSocket instead of importing it. See
+// internal/agentcoord/coord/identity.go's EnvCellWorkDir doc for the
+// canonical source of truth on this variable's meaning and lifecycle.
+const envCellWorkDir = "CTXLOOM_CELL_WORKDIR"
+
 // None is the default, host isolation policy — behaviour-identical to today.
 // The workspace IS the live project directory (no worktree, no container), its
 // cleanup is a noop, the plugin is a bare self-invoked `ctxloom llm serve`
@@ -33,9 +43,24 @@ func (None) PrepareWorkspace(_ context.Context, projectDir, _ string) (Workspace
 // SpawnClient launches the bare self-invoked plugin subprocess via the Host
 // runtime (the exact body of pb.DefaultClientFactory). The workspace is
 // expressed purely via the caller's RunOptions.WorkDir, so no per-workspace
-// launch machinery is needed here.
-func (None) SpawnClient(backendName, label string, verbosity int, _ Workspace, spawnEnv map[string]string) (pb.Client, error) {
-	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: spawnEnv})
+// launch machinery is needed here — EXCEPT the runner's host+worktree MCP
+// discovery marker (fix/host-discovery-anchor), which needs to know this
+// workspace dir even though the runner process's own cwd never changes to
+// it. Stamp ws.Dir() into the per-spawn env under EnvCellWorkDir so the
+// runner (internal/cli/llm_serve.go) can key its discovery marker by the
+// SAME directory the shim's cwd (=RunOptions.WorkDir) derives its own key
+// from — see coord.EnvCellWorkDir's doc for the full mismatch this closes.
+func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
+	env := make(map[string]string, len(spawnEnv)+1)
+	for k, v := range spawnEnv {
+		env[k] = v
+	}
+	if ws != nil {
+		if dir := ws.Dir(); dir != "" {
+			env[envCellWorkDir] = dir
+		}
+	}
+	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: env})
 }
 
 // hostWorkspace is the None policy's workspace: the live project directory with

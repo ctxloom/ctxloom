@@ -73,7 +73,18 @@ type runnerMCP struct {
 // and probeWellKnownRunner (mcp_discovery.go). Best-effort: a marker failure
 // degrades to env-only discovery, same fault tolerance as the socket bind
 // itself never blocking the runner.
-func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool) (*runnerMCP, error) {
+//
+// cellWorkDir is the runner's coord.EnvCellWorkDir reading (empty when
+// unset): the prepared workspace dir the harness's engine process actually
+// runs in, which can differ from THIS process's own os.Getwd() for a
+// workspace:worktree run (fix/host-discovery-anchor — the runner is spawned
+// with no cmd.Dir and inherits the coordinator's cwd, while the harness is
+// launched with cmd.Dir=the per-agent worktree). The marker key must agree
+// with the shim's cwd-derived key, so cellWorkDir wins over os.Getwd() when
+// present; falls back to os.Getwd() when empty (workspace:none/container, or
+// any caller that never threads it) — behaviour-identical to before this
+// var existed.
+func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*runnerMCP, error) {
 	server, err := newRunnerMCPServer(cfg, harp, home, leaf)
 	if err != nil {
 		return nil, err
@@ -87,9 +98,13 @@ func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool
 		cleanupSocket()
 		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
 	}
-	cwd, cwdErr := os.Getwd()
-	if cwdErr != nil {
-		cwd = "."
+	cwd := cellWorkDir
+	if cwd == "" {
+		var cwdErr error
+		cwd, cwdErr = os.Getwd()
+		if cwdErr != nil {
+			cwd = "."
+		}
 	}
 	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
 		Socket: path,

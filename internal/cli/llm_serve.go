@@ -44,7 +44,15 @@ var llmServeCmd = &cobra.Command{
 		}
 		harp := os.Getenv("CTXLOOM_SESSION_HARP")
 		coordinatorCapable := os.Getenv(coord.EnvAgentCoordinator) == "1"
-		for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID, coord.EnvAgentCoordinator} {
+		// cellWorkDir is the prepared workspace dir (isolation.Workspace.Dir())
+		// stamped by None.SpawnClient (fix/host-discovery-anchor) — this
+		// runner's own os.Getwd() never changes to it (see EnvCellWorkDir's
+		// doc), but the discovery marker must be keyed by it so it agrees
+		// with the shim's cwd (=the child's WorkDir). Read + scrub alongside
+		// the trio; empty on workspace:none or container spawns, where
+		// serveRunnerMCP falls back to the runner's own os.Getwd().
+		cellWorkDir := os.Getenv(coord.EnvCellWorkDir)
+		for _, k := range []string{coord.EnvCoordURL, coord.EnvCoordCred, coord.EnvRunID, coord.EnvAgentCoordinator, coord.EnvCellWorkDir} {
 			_ = os.Unsetenv(k)
 		}
 
@@ -109,7 +117,7 @@ var llmServeCmd = &cobra.Command{
 			} else {
 				home = h
 				if cfg != nil {
-					endpoint, merr := serveRunnerMCP(cfg, harp, home, leaf)
+					endpoint, merr := serveRunnerMCP(cfg, harp, home, leaf, cellWorkDir)
 					switch {
 					case merr != nil && engineHost != nil:
 						// FAIL LOUD (icy-value). A runner that HOSTS a

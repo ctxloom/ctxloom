@@ -73,7 +73,7 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	testsupport.ChangeDir(t, cellDir)
 
 	const harp = "codex-drop-scenario-harp"
-	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false)
+	endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, "")
 	require.NoError(t, err)
 	t.Cleanup(endpoint.close)
 
@@ -93,6 +93,75 @@ func TestMCPDiscovery_ShimReachesRealRunnerWithoutEnvVar(t *testing.T) {
 	init := cs.InitializeResult()
 	require.NotNil(t, init)
 	assert.Contains(t, init.Instructions, harp, "connected session must be the real runner's, identified by its own harp")
+}
+
+// TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap is the behaviour
+// proof for fix/host-discovery-anchor: the RUNNER (`ctxloom llm serve`) is
+// spawned with no cmd.Dir and inherits the coordinator's cwd
+// (internal/lm/grpc/client.go), while the harness it hosts is launched with
+// cmd.Dir=the per-agent worktree (internal/lm/backends/launcher.go) — the
+// SAME dir the shim's `ctxloom mcp` process later runs in. Before this fix,
+// serveRunnerMCP always keyed its marker off its own os.Getwd() (the
+// coordinator's cwd), so a workspace:worktree run's marker and the shim's
+// probe derived DIFFERENT keys and discovery silently missed.
+//
+// This simulates that exact gap: the test process's real cwd (what
+// os.Getwd() would return without the fix) is one temp dir, but the runner
+// is handed a DIFFERENT dir as cellWorkDir (standing in for the
+// coordinator's CTXLOOM_CELL_WORKDIR injection carrying ws.Dir()). The shim
+// probes the worktree dir, exactly as it would with cwd=RunOptions.WorkDir.
+func TestMCPDiscovery_RunnerAnchorClosesHostWorktreeCwdGap(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_MCP_SOCKET/CTXLOOM_CELL_WORKDIR (t.Setenv-based, auto-restores)
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	// runnerProcCwd stands in for the coordinator's cwd the runner process
+	// actually inherits (its os.Getwd()). workDir stands in for the
+	// per-agent worktree the child engine — and thus the shim — actually
+	// runs in. They are deliberately DIFFERENT directories.
+	runnerProcCwd := t.TempDir()
+	workDir := t.TempDir()
+	require.NotEqual(t, runnerProcCwd, workDir, "the gap this test proves requires distinct dirs")
+	testsupport.ChangeDir(t, runnerProcCwd)
+
+	const harp = "worktree-anchor-harp"
+
+	t.Run("without the anchor, mismatched cwds miss (the pre-fix bug)", func(t *testing.T) {
+		endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, "")
+		require.NoError(t, err)
+		defer endpoint.close()
+
+		sock, derr := probeWellKnownRunner(workDir)
+		require.NoError(t, derr)
+		assert.Empty(t, sock, "keyed off the runner's own cwd, the marker must NOT be found from the worktree's cwd")
+	})
+
+	t.Run("with the anchor, runner and shim agree across the cwd gap", func(t *testing.T) {
+		endpoint, err := serveRunnerMCP(testConfig(), harp, testHome(t), false, workDir)
+		require.NoError(t, err)
+		defer endpoint.close()
+
+		// The marker must have been written under workDir's key, not
+		// runnerProcCwd's — assert the derivation directly.
+		name, ok := discoveryMarkerName(socketKindHostRuntime, workDir)
+		require.True(t, ok)
+		markerPath := filepath.Join(runtimeDir, "ctxloom", name)
+		_, statErr := os.Stat(markerPath)
+		assert.NoError(t, statErr, "marker must be published under the worktree's key, not the runner process's own cwd")
+
+		// The shim always probes from ITS OWN cwd (=the child's WorkDir);
+		// simulate that exactly, without ever touching the runner process's
+		// real cwd.
+		sock, derr := probeWellKnownRunner(workDir)
+		require.NoError(t, derr)
+		require.NotEmpty(t, sock, "the shim probing from the worktree's cwd must find the runner via the anchored key")
+		assert.Equal(t, endpoint.socketPath, sock, "discovered socket must be the real runner's own socket")
+
+		cs := dialForwardClient(t, sock)
+		init := cs.InitializeResult()
+		require.NotNil(t, init)
+		assert.Contains(t, init.Instructions, harp, "connected session must be the real runner's, identified by its own harp")
+	})
 }
 
 // TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable covers the

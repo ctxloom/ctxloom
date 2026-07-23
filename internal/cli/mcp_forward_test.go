@@ -20,7 +20,7 @@ import (
 // modes of `ctxloom mcp` (forward-to-runner, bare local) both covered by
 // tests (playbook deliverable 1).
 func TestForward_UnixSocketRoundTrip(t *testing.T) {
-	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false)
+	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	t.Cleanup(endpoint.close)
 
@@ -96,7 +96,7 @@ func TestDialReachBackSocket_TCPFallback(t *testing.T) {
 // as runMCPForward would. Proves the far-side dial change is not just wiring
 // — the whole forwarded toolset survives the TCP hop.
 func TestForward_TCPFallbackRoundTrip(t *testing.T) {
-	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false)
+	endpoint, err := serveRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	t.Cleanup(endpoint.close)
 

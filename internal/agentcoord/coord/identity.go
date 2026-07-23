@@ -43,6 +43,29 @@ const (
 	// (internal/cli/llm_serve.go) can compute whether this session is a LEAF
 	// and gate the coordinator-only MCP tools accordingly (mcp_runner.go).
 	EnvAgentCoordinator = "CTXLOOM_AGENT_COORDINATOR"
+	// EnvCellWorkDir carries the prepared workspace directory
+	// (isolation.Workspace.Dir(), e.g. Worktree's per-agent checkout) to the
+	// runner process at spawn time. It rides the SAME per-spawn spawnEnv
+	// seam as the trio above (internal/lm/isolation/none.go's SpawnClient
+	// choke point) — never the wire.
+	//
+	// It exists to close a host+worktree discovery-key mismatch
+	// (fix/host-discovery-anchor): the runner (`ctxloom llm serve`) is
+	// spawned with NO cmd.Dir (internal/lm/grpc/client.go), so it inherits
+	// the COORDINATOR's cwd — but the engine harness it hosts is launched
+	// with cmd.Dir=spec.WorkDir (internal/lm/backends/launcher.go), the
+	// per-agent WORKTREE. The runner's `ctxloom mcp` discovery marker used
+	// to key itself off its OWN os.Getwd() (the coordinator's cwd), while
+	// the shim keys off ITS cwd (the worktree) — for workspace:worktree
+	// these differ, so discovery misses and a delegated child can't reach
+	// its parent. The runner (internal/cli/llm_serve.go) reads this var and
+	// passes it into serveRunnerMCP so the marker is keyed by the SAME
+	// workspace directory the shim's cwd derives from
+	// (internal/cli/mcp_runner.go), falling back to the runner's own
+	// os.Getwd() when this is unset (workspace:none / container, where
+	// runner cwd and child WorkDir already agree, or a container, which
+	// uses a fixed marker name and never consults this at all).
+	EnvCellWorkDir = "CTXLOOM_CELL_WORKDIR"
 )
 
 // Identity is what a credential authenticates AND identifies: the caller's

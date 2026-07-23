@@ -266,6 +266,44 @@ func TestResolveAgent_BundleProfileMember(t *testing.T) {
 	assert.Equal(t, "fast", res.Label, "bundle profile's llm flows through when engine is unset")
 }
 
+// TestResolveAgent_Driving proves the driving axis carries through
+// resolveAgentBinding onto ResolvedAgent.Driving, and that an unknown value
+// FAILS LOUD at resolve — this is the ONLY validation a config-key-sourced
+// agent walks (it never routes through agents.ParseAgent, unlike a
+// directory-sourced .ctxloom/agents/*.yaml file), so this is where a
+// hand-edited config.yaml typo must be caught.
+func TestResolveAgent_Driving(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+
+	t.Run("absent driving resolves to the empty (conversational) zero value", func(t *testing.T) {
+		cfg := agentTestConfig(root, map[string]agents.Agent{
+			"dev": {Engine: "slow", Profiles: []string{"p1"}},
+		})
+		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		require.NoError(t, err)
+		assert.Equal(t, agents.DrivingMode(""), res.Driving)
+	})
+
+	t.Run("declared oneshot carries through to ResolvedAgent.Driving", func(t *testing.T) {
+		cfg := agentTestConfig(root, map[string]agents.Agent{
+			"dev": {Engine: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingOneshot},
+		})
+		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		require.NoError(t, err)
+		assert.Equal(t, agents.DrivingOneshot, res.Driving)
+	})
+
+	t.Run("unknown driving value fails loud at resolve, not just at ParseAgent", func(t *testing.T) {
+		cfg := agentTestConfig(root, map[string]agents.Agent{
+			"dev": {Engine: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingMode("bogus")},
+		})
+		_, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+	})
+}
+
 // TestResolveAgent_NotFound is the unknown-name error path.
 func TestResolveAgent_NotFound(t *testing.T) {
 	root := t.TempDir()

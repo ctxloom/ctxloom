@@ -127,6 +127,39 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	assert.Equal(t, "wildwest", sub.Permissions, "stored as written")
 }
 
+// TestSetAgent_PersistsDriving proves the driving axis written by
+// `agent set --driving` survives the config round-trip. UNLIKE
+// Runtime/Permissions above, an unknown value is REJECTED outright — SetAgent
+// errors and nothing is persisted (agents.ValidateDriving's doc: a typo here
+// changes execution semantics, so it never gets the advisory-warn treatment).
+func TestSetAgent_PersistsDriving(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+	mgr := managerFor(appDir)
+
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+		Name:     "shooter",
+		Engine:   "claude-code",
+		Profiles: []string{"default"},
+		Driving:  "oneshot",
+	})
+	require.NoError(t, err)
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("shooter")
+	require.True(t, ok)
+	assert.Equal(t, agents.DrivingOneshot, sub.Driving)
+
+	// Unknown value: REJECTED — nothing written, unlike Runtime/Permissions.
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Driving: "wildwest"})
+	require.Error(t, err, "unknown driving must be rejected, not stored")
+	assert.Contains(t, err.Error(), "wildwest")
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, ok = final.Agent("odd")
+	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
+}
+
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES
 // the binding (whole-binding rewrite, not a merge).
 func TestSetAgent_UpdatesExisting(t *testing.T) {

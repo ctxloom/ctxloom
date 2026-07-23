@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -76,9 +78,45 @@ type SpawnPlan struct {
 	// the wire — see EnvAgentCoordinator (identity.go) and the gate in
 	// internal/cli/mcp_runner.go.
 	Coordinator bool
+	// ResumeMode is the per-engine resume-capability gate's outcome (one-shot
+	// + resume-key plan, Slice 2 / Fork 3's STATIC half): ResumeModeOneShot
+	// only when the resolved agent declared `driving: oneshot` AND the
+	// backend has a cheap resume-by-key primitive (resumeCapableBackends);
+	// ResumeModePersistent (the zero value) otherwise — including every
+	// conversational agent, which is every agent today. Resolved once in
+	// Resolve() via resolveResumeMode, mirroring Coordinator/Ladder/
+	// MCPServers above: a later config edit must not retroactively change a
+	// live run. NOTE: in THIS release Resolve() additionally fails loud on
+	// ANY driving: oneshot resolution (see the ResumeModeOneShot gate in
+	// Resolve's doc) — the one-shot TURN LOOP that would actually consume
+	// this value doesn't exist until v0.8 (Slice 4), so a plan is never
+	// actually returned with ResumeMode == ResumeModeOneShot yet. The field
+	// and resolveResumeMode are still landed now (and independently unit
+	// tested) so Slice 4 only has to delete the blanket gate, not invent the
+	// capability table.
+	ResumeMode ResumeMode
 
 	resolved *operations.ResolvedAgent
 }
+
+// ResumeMode is a resolved agent's per-turn engine-lifecycle mode: whether
+// its engine process persists across turns (today's only behavior) or tears
+// down at each turn boundary to be resumed by native session key on the next
+// mailbox delivery (the one-shot-resume plan; not yet executed — see
+// SpawnPlan.ResumeMode's doc).
+type ResumeMode int
+
+const (
+	// ResumeModePersistent is the zero value / today's only behavior: the
+	// engine process stays warm across turns.
+	ResumeModePersistent ResumeMode = iota
+	// ResumeModeOneShot is the turn-boundary teardown+resume-by-key model
+	// (v0.8, Slice 4). Reaching this value requires BOTH a `driving: oneshot`
+	// agent declaration and a resume-capable backend (resolveResumeMode); see
+	// SpawnPlan.ResumeMode's doc for why Resolve() does not actually return a
+	// plan carrying it in this release.
+	ResumeModeOneShot
+)
 
 // Spawner is the coordinator's launch seam: production resolves and spawns
 // real engines through the operations launch tail; tests fake children
@@ -154,6 +192,83 @@ var viaStartRunBackends = map[string]bool{
 	"acp":                    true,
 }
 
+// resumeCapableBackends is the one-shot-resume plan's Slice 2 / Fork 3
+// STATIC gating table: which backends have a cheap resume-by-key primitive
+// at all, independent of viaStartRunBackends (that table is about WHICH
+// wire path a child's Chat rides; this one is about whether ASKING an
+// already-ended engine to continue its own native session is even possible).
+//
+//   - claude-code / codex: resume via the shared ACP driver's
+//     `session/load` (internal/acp/session.go) — LIVE-gated a second time on
+//     the adapter's advertised loadSession capability once Slice 4 records it
+//     from the first StartRunResult/init (see SpawnPlan.ResumeMode's doc);
+//     this table is the STATIC half alone.
+//   - antigravity: resume via its own `--conversation <id> --continue`
+//     (internal/antigravity/chat.go), now that Slice 0 / wooly-stove
+//     (fix/resume-session-capture, merged 961102f5) captures the native
+//     conversation id the legacy go-plugin dial needs to pass it.
+//   - opencode: FALSE, deliberately absent — it neither consumes
+//     ChatRequest.ResumeSessionID nor emits a native session-id Session
+//     event (internal/opencode/chat.go); its only resume surface is
+//     read-only `opencode export`. No cheap resume-by-key primitive exists;
+//     new backend work (v0.8+), not a config toggle.
+//   - kiro: FALSE, deliberately absent even though it rides the migrated
+//     StartRun path (viaStartRunBackends["kiro"] == true) — per
+//     isolation-must-not-negotiate its GLOBAL sqlite makes resume IDENTITY
+//     itself suspect (an isolation/container precondition, not a
+//     coordinator-resolvable one). Deferred until that is proven, not a
+//     permanent no.
+//   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
+//     exactly like viaStartRunBackends, so a new backend is reviewed onto
+//     resume explicitly rather than swept in by implementing StructuredChat.
+var resumeCapableBackends = map[string]bool{
+	config.BackendClaudeCode: true,
+	"codex":                  true,
+	"antigravity":            true,
+}
+
+// resolveResumeMode is the per-engine resume-capability gate (Fork 3's
+// STATIC half): `driving: oneshot` requires a backend with a cheap
+// resume-by-key primitive. A conversational (or empty/default) driving
+// value always resolves to ResumeModePersistent — the identical behavior
+// every agent gets today, byte-for-byte.
+//
+// An oneshot agent on an INCAPABLE backend FAILS LOUD here rather than
+// silently downgrading to persistent — per isolation-must-not-negotiate,
+// silently running a "oneshot" agent conversationally because the engine
+// can't actually resume would be exactly the class of silent, behavior-
+// changing divergence this project bans; the caller asked for one thing and
+// would silently get another with no error raised.
+//
+// This function does NOT itself decide whether ResumeModeOneShot may be
+// acted on in THIS release — that additional (and, right now, universal)
+// gate lives in Resolve(), clearly separated so it can be deleted alone the
+// day Slice 4 (the turn loop) lands, without touching this capability table.
+func resolveResumeMode(driving agents.DrivingMode, backend string) (ResumeMode, error) {
+	if driving != agents.DrivingOneshot {
+		return ResumeModePersistent, nil
+	}
+	if !resumeCapableBackends[backend] {
+		return ResumeModePersistent, fmt.Errorf(
+			"driving: oneshot requires a resume-capable engine; backend %q has no resume-by-key primitive (known resume-capable: %s)",
+			backend, resumeCapableBackendNames())
+	}
+	return ResumeModeOneShot, nil
+}
+
+// resumeCapableBackendNames lists resumeCapableBackends' keys, sorted, for
+// the resolveResumeMode error message.
+func resumeCapableBackendNames() []string {
+	names := make([]string, 0, len(resumeCapableBackends))
+	for name, ok := range resumeCapableBackends {
+		if ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // loadConfig is config.Load's production entry point, indirected so tests
 // can inject a failing loader (config.Load itself is fault-tolerant per
 // CLAUDE.md — a malformed/unreadable config.yaml degrades to Warnings, not
@@ -212,6 +327,34 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	if err != nil {
 		return nil, fmt.Errorf("agent_run: %w", err)
 	}
+
+	// Slice 2 — per-engine resume-capability gate (static half). FAILS LOUD
+	// (never silently downgrades to persistent) when `driving: oneshot` names
+	// a backend with no resume-by-key primitive.
+	resumeMode, rmErr := resolveResumeMode(rs.Driving, rs.Backend)
+	if rmErr != nil {
+		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, rmErr)
+	}
+	// ADDITIONAL, DELIBERATELY SEPARATE gate: even a resume-CAPABLE engine's
+	// `driving: oneshot` fails loud in THIS release, because Slice 4 (the
+	// one-shot turn loop that actually tears down/resumes the engine at a
+	// turn boundary) is v0.8, not built yet. Accepting the value here but
+	// running the child conversationally anyway — the alternative this
+	// project's own memory bans — would be a config value that changes
+	// nothing with no error raised: ctxloom's characteristic silent-no-op
+	// bug. A mere log-notice alternative was considered and rejected: a
+	// delegated child's diagnostics are DISCARDED by default (childVerbosity
+	// below returns 0 unless CTXLOOM_VERBOSE=1), which is precisely the
+	// deployment shape (headless delegated children) this axis targets — a
+	// notice nobody sees is silence with extra steps. Delete this block (and
+	// TestResolveResumeMode_OneShotFailsLoudEvenWhenCapable) the day Slice 4
+	// lands; resolveResumeMode above needs no change.
+	if resumeMode == ResumeModeOneShot {
+		return nil, fmt.Errorf(
+			"agent_run: agent %q: driving: oneshot is not yet available in this release (the one-shot turn loop lands in v0.8); backend %q is resume-capable but ctxloom does not yet tear down/resume engines at turn boundaries",
+			agentName, rs.Backend)
+	}
+
 	plan := &SpawnPlan{
 		AgentName: agentName,
 		Backend:   rs.Backend,
@@ -226,6 +369,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		// driver moves onto StartRun (see viaStartRunBackends).
 		ViaStartRun: viaStartRunBackends[rs.Backend],
 		Coordinator: rs.Coordinator,
+		ResumeMode:  resumeMode,
 		resolved:    rs,
 	}
 	// F1: resolved once here (not per-Launch/StartEngine call) so the

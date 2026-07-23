@@ -33,6 +33,10 @@ type AgentEntry struct {
 	// with the coordinator-only MCP tools (agent_run/roster/agent_stop/
 	// agent_fetch_artifact). Default false = leaf.
 	Coordinator bool `json:"coordinator,omitempty"`
+	// Driving is the agent's declared per-turn execution axis
+	// (conversational|oneshot), as written; empty means conversational (the
+	// default — see agents.Agent.Driving).
+	Driving agents.DrivingMode `json:"driving,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -52,6 +56,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
 			Coordinator: s.Coordinator,
+			Driving:     s.Driving,
 			Source:      s.Source,
 		})
 	}
@@ -75,6 +80,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
 		Coordinator: sub.Coordinator,
+		Driving:     sub.Driving,
 		Source:      sub.Source,
 	}, nil
 }
@@ -98,6 +104,12 @@ type SetAgentRequest struct {
 	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
 	// = leaf; set true only for an agent that itself spawns/manages children.
 	Coordinator bool `json:"coordinator,omitempty"`
+	// Driving sets the per-turn execution axis (conversational|oneshot);
+	// empty = conversational (the default, see agents.Agent.Driving). Unlike
+	// Runtime/Permissions below, an unknown value here is REJECTED (SetAgent
+	// returns an error, nothing is persisted) rather than warned-and-stored —
+	// see agents.ValidateDriving's doc for why.
+	Driving string `json:"driving,omitempty"`
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
@@ -159,13 +171,24 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		}
 	}
 
+	// Driving is REJECTED outright on an unknown value (not advisory like
+	// Runtime/Permissions above): it changes execution semantics (whether
+	// the child's engine process survives a turn boundary), so a typo must
+	// never silently persist and later silently resolve to the default — see
+	// agents.ValidateDriving's doc. Nothing is written to config.yaml when
+	// this fails.
+	driving := agents.DrivingMode(req.Driving)
+	if err := agents.ValidateDriving(driving); err != nil {
+		return nil, fmt.Errorf("agent %q: %w", name, err)
+	}
+
 	// Canonicalize-on-store (decision B): a per-remote short profile ref
 	// ("<remote>/<bundle>#profiles/<name>") is expanded to its canonical URL so the
 	// binding persists a stable identity, not a machine-local alias that a later
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
 	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
-	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions, Coordinator: req.Coordinator}
+	entry := agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions, Coordinator: req.Coordinator, Driving: driving}
 
 	err := mgr.Update(func(d *config.Draft) error {
 		if d.Agents == nil {
@@ -184,6 +207,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Runtime:     req.Runtime,
 		Permissions: req.Permissions,
 		Coordinator: req.Coordinator,
+		Driving:     driving,
 		Source:      agents.SourceConfig,
 	}, nil
 }
@@ -305,6 +329,11 @@ type ResolvedAgent struct {
 	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
 	// = leaf.
 	Coordinator bool `json:"coordinator,omitempty"`
+	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
+	// execution axis (conversational|oneshot; empty = conversational). The
+	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
+	// consumes this to decide SpawnPlan.ResumeMode.
+	Driving agents.DrivingMode `json:"driving,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -352,6 +381,15 @@ func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride 
 // the binding's engine) wins; an empty effective engine falls back to the
 // composed profiles' llm, then the project default backend.
 func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, loader *bundles.Loader) (*ResolvedAgent, error) {
+	// Reject an unknown Driving value here too, not just at ParseAgent/
+	// SetAgent: this is the ONLY load path a config-key `agents:` entry
+	// walks (it is parsed by the whole-config.yaml yaml.Unmarshal, which
+	// never routes through agents.ParseAgent), so a hand-edited config.yaml
+	// with a typo'd `driving:` must still fail loud here rather than
+	// silently resolving to the conversational default.
+	if err := agents.ValidateDriving(sub.Driving); err != nil {
+		return nil, fmt.Errorf("agent %q: %w", name, err)
+	}
 	if len(sub.Profiles) == 0 && name != "" {
 		// A NAMED agent with no profiles composes empty context — surface it
 		// (the binding is almost certainly a mistake) but don't fail: fault
@@ -403,6 +441,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 			backend == config.BackendClaudeCode).String(),
 		Escalation:  sub.Escalation,
 		Coordinator: sub.Coordinator,
+		Driving:     sub.Driving,
 	}, nil
 }
 

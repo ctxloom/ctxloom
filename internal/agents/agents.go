@@ -101,6 +101,76 @@ type Agent struct {
 	// agent that itself spawns/manages children (e.g. a coordinator-ensemble
 	// or weave role).
 	Coordinator bool `yaml:"coordinator,omitempty"`
+	// Driving is the agent's per-turn execution axis: conversational (the
+	// zero value/default — the engine process stays warm across turns, the
+	// model today) or oneshot (a turn ends its engine process at the turn
+	// boundary; the coordinator resumes by native session key on the next
+	// mailbox delivery — the one-shot+resume-key model, see the
+	// one-shot-resume plan). Slice 2 lands the axis + validation + per-engine
+	// resume-capability gating (coord.resolveResumeMode) ONLY: the one-shot
+	// turn loop itself is Slice 4 (v0.8) — see the coordinator's gate for the
+	// current-release-behavior decision on a resume-capable engine. An empty
+	// string parses as DrivingConversational; any other value must be one of
+	// DrivingModeNames() or ParseAgent/ValidateDriving REJECTS the file (a
+	// typo here changes execution semantics, unlike Runtime/Permissions'
+	// advisory-only unknown-value handling, so it does not get their lenient
+	// treatment).
+	Driving DrivingMode `yaml:"driving,omitempty"`
+}
+
+// DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding
+// declares. See Agent.Driving's doc for the model; ParseDrivingMode/
+// ValidateDriving are the single accessor pair every load path (ParseAgent,
+// operations.resolveAgentBinding, operations.SetAgent) validates through, so
+// the accepted vocabulary lives in exactly one place.
+type DrivingMode string
+
+const (
+	// DrivingConversational is the default (also the empty-string value): the
+	// engine process stays warm across turns — today's only model.
+	DrivingConversational DrivingMode = "conversational"
+	// DrivingOneshot asks for the turn-boundary teardown+resume-by-key model.
+	// Resolving it requires a resume-capable backend (coord.resolveResumeMode)
+	// and, in 0.7, additionally fails loud everywhere (Slice 4, the turn loop
+	// that would actually honor it, is v0.8) — see that gate's doc for why an
+	// accepted-but-inert value was rejected in favor of a hard error.
+	DrivingOneshot DrivingMode = "oneshot"
+)
+
+// DrivingModeNames lists the accepted CLI/config values, for flag help,
+// shell completion, and error messages.
+func DrivingModeNames() []string {
+	return []string{string(DrivingConversational), string(DrivingOneshot)}
+}
+
+// ParseDrivingMode maps a config/CLI string to a DrivingMode. Unlike
+// ParsePermissionMode it is NOT lenient: driving controls whether a child's
+// engine process survives past a turn boundary, so a typo silently resolving
+// to the default would be a silent, behavior-changing no-op (the class of bug
+// this project treats as its worst). Empty parses as DrivingConversational
+// (the documented default); anything else must match exactly one of
+// DrivingModeNames() or ok is false.
+func ParseDrivingMode(s string) (DrivingMode, bool) {
+	switch DrivingMode(s) {
+	case "":
+		return DrivingConversational, true
+	case DrivingConversational, DrivingOneshot:
+		return DrivingMode(s), true
+	default:
+		return "", false
+	}
+}
+
+// ValidateDriving rejects an unknown Driving string with a user-facing error
+// naming the accepted vocabulary. The single validation body ParseAgent (file
+// load), operations.resolveAgentBinding (resolve, covers config-key-sourced
+// agents that bypass ParseAgent entirely), and operations.SetAgent (the CLI
+// write path, so a typo is caught before it is ever persisted) all call.
+func ValidateDriving(d DrivingMode) error {
+	if _, ok := ParseDrivingMode(string(d)); !ok {
+		return fmt.Errorf("invalid driving %q (known: %s)", string(d), strings.Join(DrivingModeNames(), "|"))
+	}
+	return nil
 }
 
 // EscalationRung is one ordered entry of an agent's escalation ladder: which
@@ -134,6 +204,9 @@ func ParseAgent(data []byte) (*Agent, error) {
 	var s Agent
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+	if err := ValidateDriving(s.Driving); err != nil {
+		return nil, err
 	}
 	return &s, nil
 }

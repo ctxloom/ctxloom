@@ -85,11 +85,10 @@ type runChan struct {
 	parked bool     // runner-side agent_recv park is open
 	pushed []string // message ids pushed tentatively (also in c.delivered)
 
-	// reqCache caches responses by request_id — the responder-side
-	// idempotency contract: a reissued request (same id, after reconnect)
-	// gets the SAME response. inflight marks ids being served.
-	reqCache map[string]*agentcoordpb.CoordinatorResponse
-	inflight map[string]bool
+	// Plane-2 request idempotency does NOT live here: it must survive this
+	// channel's death so a request reissued on the NEXT dial (same request_id)
+	// reuses the in-flight dispatch instead of starting a second one. It lives
+	// on Coordinator.reqTrack, keyed (role, request_id) — see handleAgentRequest.
 
 	// ackSeq is the highest event seq processed on this channel; the
 	// cumulative plane-3 Ack advances only through flushedSeq — the highest
@@ -161,8 +160,6 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		id:        id,
 		send:      make(chan *agentcoordpb.CoordinatorFrame, 64),
 		cancel:    cancel,
-		reqCache:  make(map[string]*agentcoordpb.CoordinatorResponse),
-		inflight:  make(map[string]bool),
 		completed: make(chan struct{}),
 	}
 	c.mu.Lock()
@@ -523,38 +520,76 @@ func (c *Coordinator) severChan(role string) {
 	}
 }
 
+// reqKey identifies a plane-2 request for idempotency that must SURVIVE a
+// RunChannel reconnect. Keyed by (role, request_id): the runner reissues an
+// outstanding request with its ORIGINAL request_id on the fresh channel
+// (home.go), and the role (child harp) is stable across the reconnect.
+type reqKey struct {
+	role  string
+	reqID string
+}
+
+// inflightReq tracks one plane-2 request's SINGLE in-progress dispatch and its
+// eventual response, off the per-connection runChan so it outlives a reconnect.
+// resp==nil means the dispatch is still running: a reissue that finds it must
+// NOT start a second dispatch — the running one answers on whichever channel is
+// current when it completes (respondRole). This is the trust-critical case: an
+// approval relay parks for minutes waiting on a human, and a reconnect in that
+// window must not mint a second relay + ladder walk that races the first (a
+// human ACCEPT then answered on the dead channel while the live channel bottoms
+// out at DECLINE — fix/approval-reconnect-race).
+type inflightReq struct {
+	resp *agentcoordpb.CoordinatorResponse
+}
+
 // handleAgentRequest serves one plane-2 request. request_id is the
-// responder-side idempotency key: a duplicate (reissued after reconnect)
-// returns the cached response; an in-flight duplicate is dropped (the
-// original will answer). Handlers run on their own goroutine — a spawn can
-// take seconds and must not block the stream's recv loop.
+// responder-side idempotency key, scoped (role, request_id) on Coordinator so
+// it survives a reconnect: a completed request re-delivers its SAME response on
+// the current channel; an in-flight one is NOT re-dispatched — the original
+// dispatch answers on whichever channel is live when it finishes. Handlers run
+// on their own goroutine — a spawn (or a human-facing approval relay) can take
+// seconds to minutes and must not block the stream's recv loop.
 func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentRequest) {
 	reqID := req.GetRequestId()
 	if reqID == "" {
 		c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "request_id is required")})
 		return
 	}
+	key := reqKey{role: ch.role, reqID: reqID}
 	c.mu.Lock()
-	if cached, ok := ch.reqCache[reqID]; ok {
+	if c.reqTrack == nil {
+		c.reqTrack = make(map[reqKey]*inflightReq)
+	}
+	if tr := c.reqTrack[key]; tr != nil {
+		resp := tr.resp
 		c.mu.Unlock()
-		c.respond(ch, cached)
+		if resp != nil {
+			// Already answered: re-deliver the SAME response on the CURRENT
+			// channel (a reconnect dropped the original, or a duplicate frame
+			// arrived on one live stream). Idempotent by construction.
+			c.respondRole(ch.role, resp)
+		}
+		// resp==nil: the original dispatch is still in flight (e.g. an approval
+		// relay awaiting a human). It owns the answer and delivers it on the
+		// then-current channel — do NOT start a second dispatch.
 		return
 	}
-	if ch.inflight[reqID] {
-		c.mu.Unlock()
-		return
-	}
-	ch.inflight[reqID] = true
+	tr := &inflightReq{}
+	c.reqTrack[key] = tr
 	c.mu.Unlock()
 
+	// ch.id is the role's stable identity (same credential across reconnect);
+	// the response is routed to whatever channel is CURRENT at completion, not
+	// this ch, which may have died mid-dispatch.
+	id := ch.id
+	role := ch.role
 	c.goTracked(func() {
-		resp := c.serveAgentRequest(ch.id, req)
+		resp := c.serveAgentRequest(id, req)
 		resp.RequestId = reqID
 		c.mu.Lock()
-		delete(ch.inflight, reqID)
-		ch.reqCache[reqID] = resp
+		tr.resp = resp
 		c.mu.Unlock()
-		c.respond(ch, resp)
+		c.respondRole(role, resp)
 	})
 }
 
@@ -566,6 +601,36 @@ func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorRespons
 	case <-time.After(5 * time.Second):
 		clidiag.Warn("ctxloom", "coordinator: response to %s stalled; dropping (the runner reissues on reconnect)", ch.role)
 	}
+}
+
+// respondRole queues a response on the role's CURRENT live channel — the
+// reconnect-safe sibling of respond. A dispatch that outlived the channel it
+// arrived on (an approval relay that waited minutes for a human, across a
+// reconnect) must answer on whatever channel is live NOW, never the dead one it
+// started on. No live channel: drop it — the runner reissues on its next
+// reconnect and reqTrack re-delivers the cached response then.
+func (c *Coordinator) respondRole(role string, resp *agentcoordpb.CoordinatorResponse) {
+	c.mu.Lock()
+	ch := c.chans[role]
+	c.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	c.respond(ch, resp)
+}
+
+// clearReqTrack drops a role's plane-2 idempotency records at the terminal
+// seam (terminateRun) — alongside the ACCEPT_FOR_SESSION cache. A resumed harp
+// gets a fresh run and re-dispatches cleanly; the records must not accumulate
+// across the process's lifetime.
+func (c *Coordinator) clearReqTrack(role string) {
+	c.mu.Lock()
+	for k := range c.reqTrack {
+		if k.role == role {
+			delete(c.reqTrack, k)
+		}
+	}
+	c.mu.Unlock()
 }
 
 // serveAgentRequest maps plane-2 request kinds onto the EXISTING B1 stores —

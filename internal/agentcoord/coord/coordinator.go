@@ -111,6 +111,16 @@ type Coordinator struct {
 	// approval per mailbox message id — the correlation a parent's
 	// agent_send in_reply_to resolves (approval.go).
 	approvals map[string]*pendingApproval
+	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
+	// reconnect, keyed by (role, request_id). It replaces the per-connection
+	// runChan.reqCache/inflight (reset to empty on every dial): a request the
+	// runner reissues with the same request_id on a fresh channel (home.go)
+	// must reuse the in-flight dispatch, never start a second one. Load-bearing
+	// for approvals — a duplicate dispatch mints a second relay/ladder walk and
+	// a human ACCEPT answered on the dead channel while the live channel bottoms
+	// out at DECLINE (fix/approval-reconnect-race). Cleaned per-role at terminal
+	// (clearReqTrack); lazily initialized.
+	reqTrack map[reqKey]*inflightReq
 	// onApprovalMailQueued, when set, is called by relayApproval immediately
 	// after the relay mail becomes OBSERVABLE to the parent. It is the test
 	// seam for the register-before-publish ordering (pulpy-whiff): the whole

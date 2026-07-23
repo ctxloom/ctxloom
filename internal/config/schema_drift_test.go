@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -176,6 +177,10 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"agent escalation rungs",
 			"agents:\n  reviewer:\n    engine: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
 		},
+		{
+			"agent coordinator + driving bindings",
+			"agents:\n  coord:\n    engine: fast\n    profiles: [review]\n    coordinator: true\n    driving: oneshot\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...
@@ -186,6 +191,52 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			assert.NoError(t, v.ValidateBytes([]byte(c.yaml)),
 				"the parser accepts this form, so validating it must not warn")
 		})
+	}
+}
+
+// TestConfigSchema_AgentBindingPermitsEveryAgentField is the one-level-deeper
+// drift gate for agent bindings: agents.Agent is the concrete struct backing
+// each entry under the top-level `agents` map (and .ctxloom/agents/*.yaml),
+// so every serializable Agent field must be permitted by the agent-binding
+// object schema (properties.agents.additionalProperties) — with that object's
+// own additionalProperties:false, a field the schema omits makes an otherwise-
+// valid binding rejected with a spurious "unknown key" warning (exactly how
+// `coordinator`/`driving` drifted: added to the struct + CLI but never to this
+// schema). Mirrors bundles.TestFragmentSchema_LLMBlockPermitsEveryEngine's
+// nested-reflection approach.
+func TestConfigSchema_AgentBindingPermitsEveryAgentField(t *testing.T) {
+	raw, err := resources.GetConfigSchema()
+	require.NoError(t, err)
+
+	var doc struct {
+		Properties struct {
+			Agents struct {
+				AdditionalProperties struct {
+					AdditionalProperties bool                       `json:"additionalProperties"`
+					Properties           map[string]json.RawMessage `json:"properties"`
+				} `json:"additionalProperties"`
+			} `json:"agents"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	assert.False(t, doc.Properties.Agents.AdditionalProperties.AdditionalProperties,
+		"the agent-binding object's additionalProperties must be false so an unknown key is rejected")
+
+	rt := reflect.TypeFor[agents.Agent]()
+	for i := 0; i < rt.NumField(); i++ {
+		tag := rt.Field(i).Tag.Get("yaml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "" {
+			continue
+		}
+		_, ok := doc.Properties.Agents.AdditionalProperties.Properties[name]
+		assert.Truef(t, ok,
+			"agents.Agent has a serializable %q field that the agent-binding schema does not permit; "+
+				"add it to the agents.additionalProperties.properties object in "+
+				"resources/schema/input/config-schema.json.", name)
 	}
 }
 

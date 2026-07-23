@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -214,4 +215,24 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
 	assert.Contains(t, warns[0].Text, "profilez")
+}
+
+// TestLoad_AgentCoordinatorAndDriving_NoUnknownKeyWarning pins the fix for the
+// coordinator/driving schema-drift bug: both fields exist on agents.Agent and
+// the `ctxloom agent set --coordinator/--driving` CLI flags, and round-trip
+// through YAML, but config-schema.json's agent-binding object never gained
+// matching properties — so additionalProperties:false rejected them and every
+// load of a config setting either one emitted a spurious "unknown key ...
+// IGNORED" warning even though the value was fully honored. Proves the
+// warning is gone AND the fields are actually parsed onto the Agent.
+func TestLoad_AgentCoordinatorAndDriving_NoUnknownKeyWarning(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nagents:\n  coord:\n    engine: main\n    profiles: [work]\n    coordinator: true\n    driving: oneshot\n")
+
+	assert.Empty(t, unknownKeyWarnings(cfg), "coordinator/driving must validate as known agent-binding keys: %+v", unknownKeyWarnings(cfg))
+	assert.Empty(t, cfg.warnings, "a config using only documented agent-binding keys must load with no warnings at all: %+v", cfg.warnings)
+
+	a, ok := cfg.Agent("coord")
+	require.True(t, ok, "the agent binding must still parse despite the two new fields")
+	assert.True(t, a.Coordinator, "coordinator: true must be honored, not just accepted")
+	assert.Equal(t, agents.DrivingOneshot, a.Driving, "driving: oneshot must be honored, not just accepted")
 }

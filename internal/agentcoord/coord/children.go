@@ -415,8 +415,13 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // The runner consumes the trio, unsets it, and exports only the MCP socket
 // path to the harness. url may be empty (degraded launch without
 // reach-back); the trio is then omitted whole and the harness's shim falls
-// back to its local mode.
-func runnerEnv(harp, runID, token, url string) map[string]string {
+// back to its local mode. coordinatorCapable threads the spawned child's
+// resolved Coordinator flag (SpawnPlan.Coordinator) via EnvAgentCoordinator —
+// the trust-boundary gate's plumbing seam, deliberately NOT the wire (untyped
+// env map, no proto change) — so the runner can compute leaf-vs-coordinator
+// and gate the coordinator-only MCP tools (internal/cli/llm_serve.go,
+// mcp_runner.go).
+func runnerEnv(harp, runID, token, url string, coordinatorCapable bool) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 	}
@@ -424,6 +429,9 @@ func runnerEnv(harp, runID, token, url string) map[string]string {
 		env[EnvCoordURL] = url
 		env[EnvCoordCred] = token
 		env[EnvRunID] = runID
+	}
+	if coordinatorCapable {
+		env[EnvAgentCoordinator] = "1"
 	}
 	return env
 }
@@ -483,7 +491,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -509,7 +517,7 @@ const runnerAwaitTimeout = 60 * time.Second
 // prompt=="" (resume) sends no initial turn: queued mail arrives as turns.
 func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(c.baseCtx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -1188,7 +1196,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 
 	contextText := c.spawner.ResumeContext(c.baseCtx, plan, harp)
 	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
 		return

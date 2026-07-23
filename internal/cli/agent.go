@@ -90,6 +90,9 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Permissions != "" {
 			w.Printf("    permissions: %s\n", s.Permissions)
 		}
+		if s.Coordinator {
+			w.Printf("    coordinator: true\n")
+		}
 	}
 	return w.Err()
 }
@@ -146,6 +149,9 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	}
 	if def.Permissions != "" {
 		w.Printf("Permissions: %s\n", def.Permissions)
+	}
+	if def.Coordinator {
+		w.Println("Coordinator: true")
 	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {
@@ -215,6 +221,7 @@ var (
 	agentSetProfiles    []string
 	agentSetRuntime     string
 	agentSetPermissions string
+	agentSetCoordinator bool
 )
 
 // agentSetCmd is the write half: add or update a LOCAL agent under the
@@ -254,6 +261,7 @@ Examples:
 			Profiles:    agentSetProfiles,
 			Runtime:     agentSetRuntime,
 			Permissions: agentSetPermissions,
+			Coordinator: agentSetCoordinator,
 		})
 		if err != nil {
 			return err
@@ -273,6 +281,9 @@ Examples:
 			}
 			if entry.Permissions != "" {
 				w.Printf(", permissions: %s", entry.Permissions)
+			}
+			if entry.Coordinator {
+				w.Printf(", coordinator: true")
 			}
 			w.Println(")")
 			return w.Err()
@@ -375,6 +386,7 @@ func init() {
 	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
 	agentSetCmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
+	agentSetCmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames

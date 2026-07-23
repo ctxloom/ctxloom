@@ -49,3 +49,84 @@ rules:
     match: { command: [buf] }
     message: "buf must run in the devcontainer, never on the host: the host's protoc-gen-go/protoc-gen-go-grpc are unpinned and differ from the devcontainer's pinned versions, so a host `buf generate` succeeds but silently produces generated code that doesn't match CI (the .pb.go files are gitignored, so `git diff` won't surface it)."
     suggest: "just proto   # or `just gen-mcp-schemas` for the MCP tool-schema regen"
+
+  # This box runs a PARALLEL multi-agent campaign: many agents' `go test`,
+  # `go build`, and `just` invocations are live at once, sharing one process
+  # table. A pattern-matched kill (by name/cmdline rather than exact PID) has
+  # already killed every agent's run on this box, not just the one that typed
+  # it. pkill/killall are inherently pattern kills; `kill` joins them once
+  # it's paired with `-f`/a name-pattern lookup instead of a bare PID.
+  - id: no-pattern-kill-pkill
+    match:
+      command: [pkill]
+      args_any: [go, just, test, build, "go test", "go build", "just test", "just build"]
+    message: "pkill matches processes by pattern across the WHOLE box — a parallel multi-agent campaign is running right now, so `pkill -f 'go test'`/`pkill just` kills every other agent's run, not just yours."
+    suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill <PID>` — never a name/pattern match."
+  - id: no-pattern-kill-killall
+    match:
+      command: [killall]
+      args_any: [go, just, test, build, "go test", "go build", "just test", "just build"]
+    message: "killall matches processes by NAME across the WHOLE box — a parallel multi-agent campaign is running right now, so `killall go`/`killall just` kills every other agent's run, not just yours."
+    suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill <PID>` — never a name/pattern match."
+  - id: no-pattern-kill-signal
+    match:
+      command: [kill]
+      args_any: ["-9", "-SIGKILL"]
+      args_all: ["-f"]
+    message: "`kill` paired with `-f`/a name-pattern lookup is a pattern-matched kill in disguise — on this box it can hit another agent's `go test`/`go build`/`just` process, not just yours."
+    suggest: "Find the exact PID first (e.g. `ps aux | grep <your-marker>`), then `kill -9 <PID>` — never a name/pattern match."
+
+  # git's LOCAL config (.git/config) outranks HOME/XDG isolation entirely —
+  # it's resolved from the discovered .git dir, not from $HOME — and for a
+  # linked worktree that file is the repo's SHARED common config, so setting
+  # it here changes every other agent's worktree too and misattributes their
+  # commits. Cooperative agents on this box must scope identity per-command.
+  - id: no-git-config-local-identity
+    match:
+      command: [git, config]
+      args_any: ["user.name", "user.email"]
+      unless: ["--global", "--system", "--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin"]
+    message: "Local `git config user.*` (bare or --local) outranks HOME/XDG isolation and leaks across linked worktrees sharing this repo's common .git/config — it can misattribute another agent's commits."
+    suggest: "git -c user.name='...' -c user.email='...' <command>   # scoped to this one command, never persisted"
+
+  # `go env -w` persists into the shared Go env config file, not just this
+  # shell — it rewires GOTMPDIR/GOFLAGS/GOTOOLCHAIN/etc. for every process on
+  # the box, including every other agent's `go` invocations.
+  - id: no-go-env-write
+    match: { command: [go, env], args_all: ["-w"] }
+    message: "`go env -w` persistently rewires GOTMPDIR/GOFLAGS/GOTOOLCHAIN (and anything else you set) for every process on this box, not just this shell — every other agent's `go` inherits it too."
+    suggest: "Set the var for this command/shell only (e.g. `GOFLAGS=... go build`, `export GOFLAGS=...` in your own shell) instead of persisting it with `go env -w`."
+
+  # The Go build cache is shared across every agent on this box. A bare
+  # `go clean -cache` has already exhausted it out from under everyone else's
+  # in-flight build.
+  - id: no-go-clean-cache
+    match: { command: [go, clean], args_any: ["-cache"] }
+    message: "`go clean -cache` nukes the shared Go build cache every other agent on this box depends on for their own builds."
+    suggest: "just clean-caches   # reclaims regenerable caches deliberately, without nuking a build another agent is mid-flight on"
+
+  # Same shared-state hazard as the Go build cache, one layer down: a broad
+  # docker/buildkit prune reclaims space by deleting images/cache layers with
+  # no notion that another agent's container run or image build is using them.
+  - id: no-docker-system-prune
+    match:
+      command: [docker, system, prune]
+      unless: ["--filter"]
+    message: "`docker system prune` destroys images/containers/cache every agent's containerized run on this box may depend on, not just yours."
+    suggest: "Scope it: `docker system prune --filter until=1h` / `--filter label=...` — never a blanket prune on a shared box."
+  - id: no-docker-builder-prune
+    match:
+      command: [docker, builder, prune]
+      unless: ["--filter"]
+    message: "`docker builder prune` destroys the shared buildkit cache every agent's containerized build on this box depends on, not just yours."
+    suggest: "Scope it: `docker builder prune --filter until=1h` — never a blanket prune on a shared box."
+
+  # The stash stack lives in the repo's common dir, so it is SHARED across
+  # every linked worktree of this checkout — `git stash`/`pop`/`drop` run from
+  # one agent's worktree can capture or destroy another agent's uncommitted WIP.
+  - id: no-git-stash
+    match:
+      command: [git, stash]
+      unless: [list, show]
+    message: "The stash stack is shared across all linked worktrees (it lives in the repo's common .git dir) — `git stash`/`pop`/`drop` here can capture or destroy another agent's WIP."
+    suggest: "Commit your WIP instead (even a throwaway commit you amend/reword later) rather than reaching for the shared stash."

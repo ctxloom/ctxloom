@@ -40,12 +40,28 @@ func fakeBinDir(t *testing.T, names ...string) string {
 // warn output depend on that machine's config. The empty HOME also means
 // this is, incidentally, the "git identity missing" state — see
 // TestCheckSystemDeps_GitIdentitySet_NoWarn for the opposite.
+//
+// HOME/XDG_CONFIG_HOME/GIT_CONFIG_NOSYSTEM only neutralize git's GLOBAL and
+// SYSTEM config tiers. `git config --get` (gitIdentityDetail,
+// doctor_cmd.go) always calls with dir="", so the child process inherits
+// this TEST BINARY's cwd — which, absent this Chdir, is somewhere inside the
+// ctxloom repo checkout. Git resolves LOCAL config by walking up from cwd to
+// the nearest .git (for a linked worktree, that's the repo's shared common
+// dir, .git/config — outranks global regardless of HOME), so a checkout
+// that has ever had `user.name`/`user.email` set locally (directly, or via
+// any linked worktree sharing that common dir) leaks straight through this
+// "isolation" and the test's outcome depends on ambient host state again.
+// Chdir-ing into a bare temp dir with no .git anywhere above it removes the
+// local tier entirely, so only the global config this function controls
+// (or, for TestCheckSystemDeps_GitIdentitySet_NoWarn, writes deliberately)
+// is ever visible.
 func isolateSignKeyEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("SSH_AUTH_SOCK", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Chdir(t.TempDir()) // outside any .git — kills the LOCAL config tier
 }
 
 // TestCheckSystemDeps_GitMissing_FailsLoud pins the new hard-block gate: a

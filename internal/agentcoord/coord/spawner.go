@@ -86,14 +86,14 @@ type SpawnPlan struct {
 	// conversational agent, which is every agent today. Resolved once in
 	// Resolve() via resolveResumeMode, mirroring Coordinator/Ladder/
 	// MCPServers above: a later config edit must not retroactively change a
-	// live run. NOTE: in THIS release Resolve() additionally fails loud on
-	// ANY driving: oneshot resolution (see the ResumeModeOneShot gate in
-	// Resolve's doc) — the one-shot TURN LOOP that would actually consume
-	// this value doesn't exist until v0.8 (Slice 4), so a plan is never
-	// actually returned with ResumeMode == ResumeModeOneShot yet. The field
-	// and resolveResumeMode are still landed now (and independently unit
-	// tested) so Slice 4 only has to delete the blanket gate, not invent the
-	// capability table.
+	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
+	// WIRED backends (oneShotSupportedBackends: claude-code, codex) and the
+	// coordinator's turn loop (children.go's oneShotReady/onTurnIdle) actually
+	// tears the engine down and resumes it by key at each turn boundary. A
+	// backend that is resume-capable but NOT yet wired end to end
+	// (antigravity's legacy path) still fails loud in Resolve() rather than
+	// resolving a value the turn loop would silently run conversationally — see
+	// oneShotSupportedBackends' doc for that residual v0.8 gate.
 	ResumeMode ResumeMode
 
 	resolved *operations.ResolvedAgent
@@ -227,6 +227,29 @@ var resumeCapableBackends = map[string]bool{
 	"antigravity":            true,
 }
 
+// oneShotSupportedBackends is the set of backends whose driving:oneshot turn
+// loop is wired END TO END in this release (one-shot-resume plan, Slice 4): the
+// MIGRATED (viaStartRunBackends), resume-capable engines whose LIVE loadSession
+// capability the coordinator confirms before tearing an engine down at a turn
+// boundary (children.go's oneShotReady) and then resumes by native session key
+// via StartRun{ResumeSessionId} → ACP session/load. That is the intersection of
+// viaStartRunBackends and resumeCapableBackends: claude-code and codex.
+//
+// antigravity is a deliberate exclusion: it is statically resume-capable
+// (resumeCapableBackends) but LEGACY (go-plugin Chat dial, not viaStartRun), so
+// its one-shot teardown would ride onTurnBoundary — a path this slice did NOT
+// wire — and it has no loadSession-style live-confirm handshake. Un-gating it
+// here would let a driving:oneshot antigravity agent resolve ResumeModeOneShot
+// and then run PERSISTENTLY (the warm-engine loop never tears down at
+// onTurnBoundary): a config value that silently changes nothing — exactly
+// ctxloom's banned silent no-op. So it stays gated (v0.8 residual) alongside
+// opencode/kiro. kiro/opencode never reach the gate at all: resolveResumeMode
+// already fails them loud on the capability reason.
+var oneShotSupportedBackends = map[string]bool{
+	config.BackendClaudeCode: true,
+	"codex":                  true,
+}
+
 // resolveResumeMode is the per-engine resume-capability gate (Fork 3's
 // STATIC half): `driving: oneshot` requires a backend with a cheap
 // resume-by-key primitive. A conversational (or empty/default) driving
@@ -335,23 +358,19 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	if rmErr != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, rmErr)
 	}
-	// ADDITIONAL, DELIBERATELY SEPARATE gate: even a resume-CAPABLE engine's
-	// `driving: oneshot` fails loud in THIS release, because Slice 4 (the
-	// one-shot turn loop that actually tears down/resumes the engine at a
-	// turn boundary) is v0.8, not built yet. Accepting the value here but
-	// running the child conversationally anyway — the alternative this
-	// project's own memory bans — would be a config value that changes
-	// nothing with no error raised: ctxloom's characteristic silent-no-op
-	// bug. A mere log-notice alternative was considered and rejected: a
-	// delegated child's diagnostics are DISCARDED by default (childVerbosity
-	// below returns 0 unless CTXLOOM_VERBOSE=1), which is precisely the
-	// deployment shape (headless delegated children) this axis targets — a
-	// notice nobody sees is silence with extra steps. Delete this block (and
-	// TestResolveResumeMode_OneShotFailsLoudEvenWhenCapable) the day Slice 4
-	// lands; resolveResumeMode above needs no change.
-	if resumeMode == ResumeModeOneShot {
+	// Slice 4 landed the one-shot turn loop for oneShotSupportedBackends (the
+	// migrated, live-loadSession-confirmed engines: claude-code, codex). A
+	// backend that is statically resume-capable but NOT yet wired end to end —
+	// antigravity's legacy path — still fails loud here rather than resolving a
+	// ResumeModeOneShot value the turn loop would silently run conversationally
+	// (ctxloom's banned silent-no-op; see oneShotSupportedBackends' doc).
+	// opencode/kiro never reach this gate: resolveResumeMode already fails them
+	// loud on the capability reason above. Delete this residual gate (and its
+	// TestProdSpawner_Resolve_Driving case) when antigravity's legacy one-shot
+	// lands (v0.8); resolveResumeMode needs no change.
+	if resumeMode == ResumeModeOneShot && !oneShotSupportedBackends[rs.Backend] {
 		return nil, fmt.Errorf(
-			"agent_run: agent %q: driving: oneshot is not yet available in this release (the one-shot turn loop lands in v0.8); backend %q is resume-capable but ctxloom does not yet tear down/resume engines at turn boundaries",
+			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release (its one-shot turn loop lands in v0.8); it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
 			agentName, rs.Backend)
 	}
 

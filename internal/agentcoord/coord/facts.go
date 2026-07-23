@@ -24,6 +24,21 @@ const (
 	// factRunHarness binds the run to its harness-native session id (the
 	// resume handle RunExited may carry).
 	factRunHarness = "run.harness"
+	// factRunResumable records the run engine's LIVE resume capability (ACP's
+	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
+	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
+	// Fork 3). Recorded once per run, from the first session event; only a
+	// run that is BOTH statically resume-capable (SpawnPlan.ResumeMode) AND
+	// live-resumable may tear its engine down at a turn boundary.
+	factRunResumable = "run.resumable"
+	// factRunReaped drops the listed (ended, non-current) run records from the
+	// live folds — the one-shot retention reap (one-shot-resume plan, Slice 4 /
+	// Fork 2.3). One-shot mints one ended run per turn per harp; without a
+	// reap the in-memory run/state maps grow unbounded over a long session.
+	// A durable fact (not a bare in-memory eviction) so a replay/reconciliation
+	// reaches the SAME bounded projection the live coordinator held. NEVER
+	// lists a harp's current run (the resume key lives there).
+	factRunReaped = "run.reaped"
 	// factSessionCred registers a session-owner (depth-0) credential: the
 	// parent harness's identity. Only the SHA-256 of the token is recorded.
 	factSessionCred = "session.cred"
@@ -58,6 +73,15 @@ const (
 	// relaunch: their engine died with the previous process. Queued mail is
 	// preserved; a later send/inject resumes the harp as a fresh run.
 	CauseOrphaned = "orphaned-by-restart"
+	// CauseOneShotBoundary is a driving:oneshot child's turn-boundary teardown
+	// (one-shot-resume plan, Slice 4): the turn completed cleanly, so the
+	// engine process is torn down and the harp left RESUMABLE — the next
+	// mailbox delivery resumes it by native session key (session/load), a
+	// fresh turn. It is a NON-error, EXPECTED terminal that repeats every turn,
+	// so unlike every other cause it queues NO "exited" notice to the parent
+	// (the turn's result was already bridged) and — like every cause except
+	// CauseStopped — it must NOT clear the harp's ACCEPT_FOR_SESSION grants.
+	CauseOneShotBoundary = "oneshot-boundary"
 )
 
 // runEnqueued is factRunEnqueued's payload.
@@ -125,6 +149,18 @@ type runEnded struct {
 type runHarness struct {
 	RunID            string `json:"run_id"`
 	HarnessSessionID string `json:"harness_session_id"`
+}
+
+// runResumable is factRunResumable's payload.
+type runResumable struct {
+	RunID     string `json:"run_id"`
+	Resumable bool   `json:"resumable"`
+}
+
+// runReaped is factRunReaped's payload: the run_ids evicted from the live
+// folds by the one-shot retention reap.
+type runReaped struct {
+	RunIDs []string `json:"run_ids"`
 }
 
 // sessionCred is factSessionCred's payload; sessionCredRevoked reuses it

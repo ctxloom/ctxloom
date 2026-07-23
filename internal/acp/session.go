@@ -127,7 +127,13 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// sees "configured but not delivered" rather than nothing at all. nil
 	// when every entry was either stdio or a capability this engine
 	// accepted.
-	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID), MCPServers: mcpDropped}}) {
+	// Resumable carries the engine's initialize-time loadSession capability
+	// (caps.LoadSession) so a coordinator can decide — LIVE, before the first
+	// turn boundary — whether tearing this engine down and resuming it by
+	// SessionID (session/load) is actually safe, or whether it must keep the
+	// process warm (one-shot-resume plan, Slice 4 / Fork 3). The same bit that
+	// gates the session/load call itself above.
+	if !sess.send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: string(sessionID), Resumable: caps.LoadSession, MCPServers: mcpDropped}}) {
 		abort()
 		return ctx.Err()
 	}

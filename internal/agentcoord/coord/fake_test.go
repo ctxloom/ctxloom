@@ -213,6 +213,12 @@ type fakeAgent struct {
 	// prodSpawner.Resolve composing plan.MCPServers via childMCPServers) —
 	// nil for tests that don't care what a child's privilege journal shows.
 	mcpServers []agent.ChatMCPServer
+	// oneshot resolves this agent to SpawnPlan.ResumeMode == ResumeModeOneShot
+	// (the one-shot turn loop, Slice 4). The fake sets it directly rather than
+	// running resolveResumeMode + the production "not yet available" gate —
+	// tests drive the mechanism the real Resolve() only starts returning once
+	// piece 5 deletes that blanket gate for resume-capable backends.
+	oneshot bool
 }
 
 func newFakeSpawner(agents map[string]fakeAgent, next func() *fakeEngine) *fakeSpawner {
@@ -251,6 +257,10 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 	if backend == "" {
 		backend = "mock"
 	}
+	resumeMode := ResumeModePersistent
+	if a.oneshot {
+		resumeMode = ResumeModeOneShot
+	}
 	return &SpawnPlan{
 		AgentName:   agentName,
 		Backend:     backend,
@@ -263,6 +273,7 @@ func (s *fakeSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, 
 		Degraded:    degraded,
 		ViaStartRun: a.viaStartRun,
 		MCPServers:  a.mcpServers,
+		ResumeMode:  resumeMode,
 	}, nil
 }
 

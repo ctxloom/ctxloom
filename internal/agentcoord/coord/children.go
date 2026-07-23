@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,18 @@ const (
 	// (turnSlots is a resource limiter: the slot is acquired before
 	// spawner.Launch/StartEngine, never a serialization primitive).
 	agentTurnCap = 4
+
+	// defaultEndedRunTail / defaultEndedRunMaxAge are the one-shot retention
+	// reap bounds (one-shot-resume plan, Slice 4 / Fork 2.3), overridable via
+	// Options. The reap keeps every harp's CURRENT run (the resume key lives
+	// there) plus the newest defaultEndedRunTail ended runs across all harps,
+	// and drops any ended, non-current run beyond the tail OR older than
+	// defaultEndedRunMaxAge. Chosen so a normal session keeps a generous audit
+	// tail while a long-running one-shot session's per-turn ended records stop
+	// accumulating without bound. On-disk journal truncation stays deferred
+	// (Wave E); this bounds the LIVE fold maps. Values ESCALATED for a nod.
+	defaultEndedRunTail   = 64
+	defaultEndedRunMaxAge = 30 * time.Minute
 )
 
 // childRt is the RUNTIME attachment of one live run: the engine channels and
@@ -631,6 +644,26 @@ func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
 	}
 }
 
+// recordResumable journals the run engine's LIVE resume capability
+// (ChatSessionInfo.Resumable — ACP's initialize-time loadSession bit) — the
+// one-shot resume gate's live half (one-shot-resume plan, Slice 4 / Fork 3).
+// Idempotent on an unchanged value; only ever recorded true (a false is the
+// zero value already, and a later true must not be silently ignored).
+func (c *Coordinator) recordResumable(runID string, resumable bool) {
+	if !resumable {
+		return
+	}
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.Resumable == resumable {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunResumable, c.now(), runResumable{RunID: runID, Resumable: resumable})}, nil
+	}); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: record run resumable: %v", err)
+	}
+}
+
 // resumeKeyFor is the resume key formalized as a single accessor (one-shot-
 // resume plan Slice 1): (harp, HarnessSessionID) on the harp's CURRENT run —
 // the handle a resume threads back into the backend (StartRun's
@@ -778,6 +811,33 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	}
 }
 
+// oneShotReady reports whether rt's NEXT turn boundary must end the engine
+// process and resume-by-key rather than park it warm (one-shot-resume plan,
+// Slice 4). All three conditions are required — any missing one falls back to
+// the persistent warm-engine model (no regression, no stranding):
+//   - the resolved agent asked for it (SpawnPlan.ResumeMode == ResumeModeOneShot,
+//     the STATIC per-engine gate from Slice 2);
+//   - the LIVE engine advertised a resume-by-key capability this run
+//     (RunRecord.Resumable — the loadSession live-confirm from piece 1); a
+//     statically-capable engine whose adapter did not actually advertise it
+//     would fail loud at session/load AFTER we tore it down — the exact
+//     stranding this gate prevents;
+//   - a native session key was actually captured (HarnessSessionID) — without
+//     one the resume would silently degrade to a lossy transcript replay,
+//     which is not one-shot at all.
+func (c *Coordinator) oneShotReady(rt *childRt) bool {
+	if rt == nil || rt.plan == nil || rt.plan.ResumeMode != ResumeModeOneShot {
+		return false
+	}
+	ready := false
+	c.runs.View(func() {
+		if r := c.runsF.run(rt.runID); r != nil {
+			ready = r.Resumable && r.HarnessSessionID != ""
+		}
+	})
+	return ready
+}
+
 // onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
@@ -790,9 +850,20 @@ func (c *Coordinator) onTurnIdle(role string) {
 		return
 	}
 	// The MIGRATED path's turn boundary: bridge this turn's result to the
-	// parent BEFORE parking idle, so the parent's mailbox carries the
+	// parent BEFORE anything below, so the parent's mailbox carries the
 	// child's answer whether or not the child's model chose to send one.
 	c.bridgeTurnResult(rt)
+	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
+	// resumable tears its engine down at the clean turn boundary instead of
+	// parking it warm. terminateRun (exactly-once) releases the slot, kills
+	// the engine, and — because CauseOneShotBoundary != CauseStopped — leaves
+	// the harp resumable: pending mail resumes it immediately (terminateRun's
+	// own tail), an empty mailbox waits for the next agent_send (driveQueued's
+	// StateEnded → resumeChild), either way by native session key.
+	if c.oneShotReady(rt) {
+		c.terminateRun(rt.runID, CauseOneShotBoundary, "")
+		return
+	}
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
 	if c.pendingCount(role) > 0 {
@@ -876,6 +947,7 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		// first resolves (chat.go's post-first-turn Session event) is safe.
 		if ev.Session.SessionID != "" {
 			c.recordHarnessSession(rt.runID, ev.Session.SessionID)
+			c.recordResumable(rt.runID, ev.Session.Resumable)
 		}
 	case ev.Complete != nil:
 		c.onTurnBoundary(rt)
@@ -1175,8 +1247,12 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child
 	// death (blue-paper). Kind distinguishes a launch failure (error) from
-	// a lifecycle end (exited).
-	if rec.ParentHarp != "" {
+	// a lifecycle end (exited). A one-shot turn boundary is the exception —
+	// it is a NON-death, EXPECTED terminal that fires every single turn, so
+	// notifying the parent would spam its mailbox with an "exited" per turn;
+	// the turn's actual result was already bridged (bridgeTurnResult, before
+	// this terminate), and the harp is about to resume, so no notice is due.
+	if rec.ParentHarp != "" && cause != CauseOneShotBoundary {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
 			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
@@ -1194,6 +1270,75 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if cause != CauseStopped && c.pendingCount(rec.Harp) > 0 {
 		attached := c.armLaunch(rec.Harp)
 		c.goTracked(func() { c.resumeChild(rec.Harp, attached) })
+	}
+
+	// Retention (Slice 4 / Fork 2.3): bound the ended-run records the live
+	// folds keep. Runs after MarkSessionEnded (every terminal, one-shot or
+	// not) — the pending-mail resume above is async, so the just-ended run is
+	// still this harp's CURRENT run here and is never in the reap set.
+	c.reapEndedRuns()
+}
+
+// reapEndedRuns bounds the live folds' ended-run records (one-shot-resume
+// plan, Slice 4 / Fork 2.3). One-shot mints one ended run per turn per harp;
+// without a bound runsFold.runs / queueFold.state / rosterFold.byRun grow
+// unbounded over a long session. It keeps every harp's CURRENT run (the
+// resume key lives there, so it is NEVER reaped) plus the newest
+// endedRunTail ended runs across all harps, dropping any ended, non-current
+// run beyond the tail OR older than endedRunMaxAge. The reap is a durable
+// fact (factRunReaped) so a replay/reconciliation reaches the SAME bounded
+// projection; on-disk journal truncation stays deferred (Wave E).
+//
+// The candidate set is chosen in a View but the final decision is RE-CHECKED
+// inside the journal's single-writer window: a run that became current
+// between the View and the write (a concurrent resume) is dropped from the
+// reap set there, so a live resume key can never be reaped out from under a
+// harp.
+func (c *Coordinator) reapEndedRuns() {
+	type cand struct {
+		id string
+		at time.Time
+	}
+	var ended []cand
+	cutoff := c.now().Add(-c.endedRunMaxAge)
+	c.runs.View(func() {
+		for id, r := range c.runsF.runs {
+			if !r.Ended || c.runsF.byHarp[r.Harp] == id {
+				continue // live, or the harp's current (resume-key) run
+			}
+			ended = append(ended, cand{id: id, at: r.LastActivity})
+		}
+	})
+	if len(ended) == 0 {
+		return
+	}
+	// Newest first: keep the tail's worth of most-recent ended runs.
+	sort.Slice(ended, func(i, j int) bool { return ended[i].at.After(ended[j].at) })
+	var reap []string
+	for i, e := range ended {
+		if i >= c.endedRunTail || e.at.Before(cutoff) {
+			reap = append(reap, e.id)
+		}
+	}
+	if len(reap) == 0 {
+		return
+	}
+	sort.Strings(reap) // deterministic fact payload
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		safe := reap[:0:0]
+		for _, id := range reap {
+			// Re-assert ended + non-current under the write lock — a resume
+			// may have made this id current since the View.
+			if r := c.runsF.run(id); r != nil && r.Ended && c.runsF.byHarp[r.Harp] != id {
+				safe = append(safe, id)
+			}
+		}
+		if len(safe) == 0 {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunReaped, c.now(), runReaped{RunIDs: safe})}, nil
+	}); err != nil {
+		clidiag.Warn("ctxloom", "coordinator: reap ended runs: %v", err)
 	}
 }
 

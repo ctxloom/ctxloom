@@ -113,7 +113,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 			return "", err
 		})
 		d := &Diagnosis{}
-		diagnoseProbe(context.Background(), rt, "img", d)
+		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
 		assert.True(t, strings.HasPrefix(d.SharedFS, "unprobed:"), "a run failure is not a sharing verdict: %q", d.SharedFS)
 		assert.Contains(t, d.SharedFS, "daemon is down")
 		assert.NotContains(t, d.SharedFS, "mismatch")
@@ -122,7 +122,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 	t.Run("content mismatch → mismatch", func(t *testing.T) {
 		stubProbeExec(t, func(string) (string, error) { return "", nil }) // empty read = DooD signature
 		d := &Diagnosis{}
-		diagnoseProbe(context.Background(), rt, "img", d)
+		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
 		assert.True(t, strings.HasPrefix(d.SharedFS, "mismatch:"), "%q", d.SharedFS)
 	})
 
@@ -132,7 +132,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 			return string(b), err
 		})
 		d := &Diagnosis{}
-		diagnoseProbe(context.Background(), rt, "img", d)
+		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
 		assert.Equal(t, "ok", d.SharedFS)
 	})
 }

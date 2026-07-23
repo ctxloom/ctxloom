@@ -3,9 +3,11 @@ package isolation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -23,7 +25,8 @@ func (p probeRuntime) RunArgs(spec RunSpec) []string {
 
 // stubProbeExec swaps the probe's exec seam for the test and restores it.
 // The stub receives the marker file's host path (parsed from the rendered
-// --mount bind spec) so behaviors can read or ignore the real marker.
+// --mount bind spec) so behaviors can read or ignore the real marker. It fires
+// once PER ROOT probeOneRoot execs against (calls counts every invocation).
 func stubProbeExec(t *testing.T, fn func(markerPath string) (string, error)) *int {
 	t.Helper()
 	calls := 0
@@ -59,7 +62,7 @@ func TestSharedFSProbe_SharedFS(t *testing.T) {
 		b, err := os.ReadFile(markerPath)
 		return string(b) + "\n", err
 	})
-	assert.NoError(t, sharedFSProbe(context.Background(), probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}, "img"))
+	assert.NoError(t, sharedFSProbe(context.Background(), probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}, "img", []string{t.TempDir()}))
 }
 
 // TestSharedFSProbe_Mismatches: an empty read (the host daemon auto-created
@@ -78,27 +81,32 @@ func TestSharedFSProbe_Mismatches(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stubProbeExec(t, tt.fn)
-			err := sharedFSProbe(context.Background(), probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}, "img")
+			err := sharedFSProbe(context.Background(), probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}, "img", []string{t.TempDir()})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
 }
 
-// TestSharedFSProbe_Memoizes: one probe per (runtime, image) per process — a
-// fan of many members pays for a single scratch container.
+// TestSharedFSProbe_Memoizes: one probe per (runtime, image, root set) per
+// process — a fan of many members against the SAME roots pays for a single
+// scratch container.
 func TestSharedFSProbe_Memoizes(t *testing.T) {
 	calls := stubProbeExec(t, func(markerPath string) (string, error) {
 		b, err := os.ReadFile(markerPath)
 		return string(b), err
 	})
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
-	require.NoError(t, sharedFSProbe(context.Background(), rt, "img"))
-	require.NoError(t, sharedFSProbe(context.Background(), rt, "img"))
-	assert.Equal(t, 1, *calls, "second probe for the same runtime+image is memoized")
+	roots := []string{t.TempDir()}
+	require.NoError(t, sharedFSProbe(context.Background(), rt, "img", roots))
+	require.NoError(t, sharedFSProbe(context.Background(), rt, "img", roots))
+	assert.Equal(t, 1, *calls, "second probe for the same runtime+image+roots is memoized")
 
-	require.NoError(t, sharedFSProbe(context.Background(), rt, "other-img"))
+	require.NoError(t, sharedFSProbe(context.Background(), rt, "other-img", roots))
 	assert.Equal(t, 2, *calls, "a different image probes fresh")
+
+	require.NoError(t, sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()}))
+	assert.Equal(t, 3, *calls, "a different root set probes fresh even against the same runtime+image — a Docker Desktop file-sharing list grants sharing per host path, not per image")
 }
 
 // TestSharedFSProbe_TransientNotMemoized (finding 1): a transient run failure
@@ -115,13 +123,14 @@ func TestSharedFSProbe_TransientNotMemoized(t *testing.T) {
 		return string(b), err
 	})
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
+	roots := []string{t.TempDir()}
 
-	require.Error(t, sharedFSProbe(context.Background(), rt, "img"))
+	require.Error(t, sharedFSProbe(context.Background(), rt, "img", roots))
 	require.Equal(t, 1, *calls)
 
 	// Daemon warms up — the next call must RE-PROBE (not return the cached error).
 	fail = false
-	require.NoError(t, sharedFSProbe(context.Background(), rt, "img"))
+	require.NoError(t, sharedFSProbe(context.Background(), rt, "img", roots))
 	assert.Equal(t, 2, *calls, "a transient failure is re-probed, never latched")
 }
 
@@ -131,9 +140,10 @@ func TestSharedFSProbe_TransientNotMemoized(t *testing.T) {
 func TestSharedFSProbe_DefinitiveOutcomesMemoized(t *testing.T) {
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
 	t.Run("content mismatch latches", func(t *testing.T) {
+		roots := []string{t.TempDir()}
 		calls := stubProbeExec(t, func(string) (string, error) { return "", nil }) // empty read = mismatch
-		require.Error(t, sharedFSProbe(context.Background(), rt, "img"))
-		require.Error(t, sharedFSProbe(context.Background(), rt, "img"))
+		require.Error(t, sharedFSProbe(context.Background(), rt, "img", roots))
+		require.Error(t, sharedFSProbe(context.Background(), rt, "img", roots))
 		assert.Equal(t, 1, *calls, "a definitive content mismatch is cached like a success")
 	})
 }
@@ -148,7 +158,7 @@ func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
 		return "", err
 	})
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
-	err := sharedFSProbe(context.Background(), rt, "img")
+	err := sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not run")
 	assert.Contains(t, err.Error(), "Cannot connect to the daemon socket", "the daemon's stderr is the real cause")
@@ -157,21 +167,142 @@ func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
 	assert.False(t, errors.As(err, &mism), "a run failure is not a definitive sharing verdict")
 }
 
-// TestPrepareContainerScratch_DegradesOnFSMismatch: a probe mismatch fails
-// the shared gate with actionable guidance — the caller's per-axis degrade
-// then turns what used to be a plugin-handshake hang into a clean fallback.
-func TestPrepareContainerScratch_DegradesOnFSMismatch(t *testing.T) {
+// TestPrepareWorkspace_DegradesOnFSMismatch: a probe mismatch fails the
+// PrepareWorkspace gate with actionable guidance — the caller's per-axis
+// degrade then turns what used to be a plugin-handshake hang into a clean
+// fallback. The probe now runs AFTER auth resolves and the base (project dir)
+// is prepared (the reorder this fix makes), so both are stubbed/real here
+// precisely to reach it deterministically regardless of host state.
+func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 	origCheck := sharedFSCheck
-	sharedFSCheck = func(context.Context, Runtime, string) error {
-		return errors.New("marker content mismatch")
+	sharedFSCheck = func(context.Context, Runtime, string, []string) error {
+		return &sharedFSMismatch{msg: "marker content mismatch"}
 	}
 	t.Cleanup(func() { sharedFSCheck = origCheck })
 
 	// A runtime whose binary is a real command (`true`) so ensureImage's
 	// image-inspect exec succeeds and the gate reaches the probe.
 	c := NewContainer(fakeRuntime{name: "docker", binary: "true", available: true}, "img")
-	_, err := c.PrepareWorkspace(context.Background(), "/proj", "m")
+	// Auth must resolve for the gate to reach prepareBase/the probe at all
+	// (host state — real ANTHROPIC_* creds — must never gate a hermetic test).
+	c.profile.resolveAuth = func(string, string) (containerAuth, bool) {
+		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
+	}
+	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not share this process's filesystem")
 	assert.Contains(t, err.Error(), "bind mounts")
+}
+
+// TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch: the MINOR
+// headline fix — a TRANSIENT probe-run failure (the probe never produced a
+// sharing verdict at all) must not be reported with the definitive "does not
+// share this process's filesystem" wording, mirroring diagnoseProbe's own
+// errors.As distinction (diagnose.go).
+func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing.T) {
+	origCheck := sharedFSCheck
+	sharedFSCheck = func(context.Context, Runtime, string, []string) error {
+		return fmt.Errorf("shared-fs probe container did not run: %w", errors.New("daemon not ready"))
+	}
+	t.Cleanup(func() { sharedFSCheck = origCheck })
+
+	c := NewContainer(fakeRuntime{name: "docker", binary: "true", available: true}, "img")
+	c.profile.resolveAuth = func(string, string) (containerAuth, bool) {
+		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
+	}
+	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "does not share this process's filesystem", "a transient run failure is not a sharing verdict")
+	assert.Contains(t, err.Error(), "could not run")
+	assert.Contains(t, err.Error(), "daemon not ready")
+}
+
+// TestSharedFSProbe_MultiRoot is the fix's core correctness proof: probing the
+// REAL mount roots (not a single synthetic tempdir) must pass when EVERY real
+// root is shared, and must FAIL — no false positive — when even ONE real
+// mount root among several is not shared, exactly the partially-shared Docker
+// Desktop custom file-sharing list scenario this fix exists for.
+func TestSharedFSProbe_MultiRoot(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	rootC := t.TempDir()
+	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
+
+	t.Run("every real root shared: passes", func(t *testing.T) {
+		stubProbeExec(t, func(markerPath string) (string, error) {
+			b, err := os.ReadFile(markerPath)
+			return string(b), err
+		})
+		err := sharedFSProbe(context.Background(), rt, "multiroot-ok", []string{rootA, rootB, rootC})
+		assert.NoError(t, err)
+	})
+
+	t.Run("one root among several NOT shared: fails", func(t *testing.T) {
+		var calls int
+		orig := probeExec
+		probeExec = func(_ context.Context, _ string, args []string) (string, error) {
+			calls++
+			host := ""
+			for i, a := range args {
+				if a == "--mount" && i+1 < len(args) {
+					for _, field := range strings.Split(args[i+1], ",") {
+						if src, ok := strings.CutPrefix(field, "source="); ok {
+							host = src
+						}
+					}
+				}
+			}
+			if strings.HasPrefix(host, rootB) {
+				// rootB's daemon does not share this path: the docker-outside-of-
+				// docker auto-create signature (an empty read).
+				return "", nil
+			}
+			b, err := os.ReadFile(filepath.Join(host, "marker"))
+			return string(b), err
+		}
+		t.Cleanup(func() {
+			probeExec = orig
+			sharedFSMu.Lock()
+			sharedFSResults = map[string]error{}
+			sharedFSMu.Unlock()
+		})
+
+		err := sharedFSProbe(context.Background(), rt, "multiroot-mismatch", []string{rootA, rootB, rootC})
+		require.Error(t, err, "one unshared root among several real mounts must fail the whole gate")
+		assert.Contains(t, err.Error(), rootB, "the error names the actual unshared root")
+		var mism *sharedFSMismatch
+		assert.True(t, errors.As(err, &mism), "a content mismatch on any root is a definitive verdict")
+		assert.Equal(t, 2, calls, "fails fast: rootA passes, rootB fails, rootC (still untested) is never probed")
+	})
+}
+
+// TestMountProbeRoots: the real mount-root derivation the fix threads into
+// the probe — the run's cwd and the scratch root always appear; a mount whose
+// Host is a directory (a config overlay, a gitdir mirror) probes ITSELF, a
+// mount whose Host is a FILE (a direct read-only credential mount, e.g.
+// codex's ~/.codex/auth.json) probes its PARENT dir instead — never the file
+// itself, so the probe's own marker write never touches a real credential.
+// Deduplicated and sorted.
+func TestMountProbeRoots(t *testing.T) {
+	dir := t.TempDir()
+	scratch := t.TempDir()
+	overlayDir := t.TempDir() // a directory mount (e.g. gitdir mirror)
+
+	authParent := t.TempDir()
+	authFile := filepath.Join(authParent, "auth.json")
+	require.NoError(t, os.WriteFile(authFile, []byte("secret"), 0o600))
+
+	got := mountProbeRoots(dir, scratch, []Mount{
+		{Host: overlayDir, Container: "/x/overlay"},
+		{Host: authFile, Container: "/x/auth.json"},
+		{Host: scratch, Container: "/x/dup"}, // duplicate of scratch itself
+	})
+
+	want := []string{authParent, dir, overlayDir, scratch}
+	sort.Strings(want)
+	assert.Equal(t, want, got)
+
+	before, err := os.ReadFile(authFile)
+	require.NoError(t, err)
+	assert.Equal(t, "secret", string(before), "deriving the probe root never touches the real credential file's content")
 }

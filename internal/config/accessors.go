@@ -311,6 +311,11 @@ func (c *Config) GetDirtyTreeCommitAck() bool { return c.dirtyTreeCommitAck }
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }
 
+// GetAgentTurnCap returns the project-wide RESOURCE ceiling on concurrently
+// EXECUTING delegated child turns (0/unset means "use the built-in
+// default" — see coord.agentTurnCap and Config.agentTurnCap's doc).
+func (c *Config) GetAgentTurnCap() int { return c.agentTurnCap }
+
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).
 func (c *Config) GetDefaultAgent() string { return c.defaultAgent }

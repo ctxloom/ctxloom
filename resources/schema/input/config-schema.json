@@ -264,6 +264,11 @@
       "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together.",
       "enum": ["host", "container"]
     },
+    "agent_turn_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once — bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded."
+    },
     "isolation_images": {
       "type": "object",
       "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity.",

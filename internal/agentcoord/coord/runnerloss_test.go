@@ -63,7 +63,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: "container", profiles: []string{"p1"}}},
 		func() *fakeEngine { return &fakeEngine{turnGate: gate} })
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)

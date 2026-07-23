@@ -30,6 +30,11 @@ func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 		Cfg:        cfg,
 		ProjectDir: projectDir,
 		ProjectKey: key,
+		// A configurable RESOURCE ceiling (concurrent live engine
+		// processes), not a correctness gate — see coord.agentTurnCap's
+		// doc. <= 0 (unset project config) falls back to the built-in
+		// default inside coord.New.
+		TurnCap: cfg.GetAgentTurnCap(),
 	})
 	if err != nil {
 		return nil, err

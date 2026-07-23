@@ -434,14 +434,27 @@ func (s *fakeSpawner) engine(i int) *fakeEngine {
 
 // newTestCoordinator builds a coordinator over a fake spawner in a temp state
 // dir, serving loopback listeners (so host children resolve a reach-back URL).
-// The Clock defaults to real time unless overridden.
+// The Clock defaults to real time unless overridden. Runs at the package
+// default turn cap (agentTurnCap, children.go) — tests pinning D4 QUEUEING
+// behavior at a SPECIFIC cap (most commonly 1, to exercise "past the cap
+// enqueues") must use newTestCoordinatorCap instead: the default stopped
+// being 1 once agentTurnCap became a configurable resource ceiling
+// (fix/turncap-to-resource-ceiling) rather than a correctness serializer.
 func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coordinator {
+	t.Helper()
+	return newTestCoordinatorCap(t, sp, clock, 0)
+}
+
+// newTestCoordinatorCap is newTestCoordinator with an explicit turn cap
+// (Options.TurnCap; <= 0 keeps the package default).
+func newTestCoordinatorCap(t *testing.T, sp Spawner, clock func() time.Time, cap int) *Coordinator {
 	t.Helper()
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
 		StateDir:   t.TempDir(),
 		Spawner:    sp,
 		Clock:      clock,
+		TurnCap:    cap,
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)

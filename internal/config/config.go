@@ -133,6 +133,18 @@ type Config struct {
 	// operations.resolveAgentBinding. The two axes are independent and meet
 	// only at launch (isolation.Axes).
 	runtime string
+	// agentTurnCap is the project-wide RESOURCE ceiling on concurrently
+	// EXECUTING delegated child turns (agentcoord/coord's turnSlots — the
+	// count of live engine processes the coordinator admits at once, not a
+	// correctness gate: the coordinator's own state is safe under
+	// concurrency by construction, proven by
+	// coord.TestCoordinator_ConcurrentTurnsInvariants). <= 0 means "use the
+	// built-in default" (coord.agentTurnCap) — a deliberately finite number
+	// well below the process-count load this project has measured pain at
+	// (~200 concurrent procs, load 10.12); this is a ceiling users tune UP
+	// for more delegation parallelism or DOWN to bound resource use, never
+	// unbounded.
+	agentTurnCap int
 	// isolationImages maps a backend name (claude-code | kiro | ...) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or
@@ -308,6 +320,7 @@ type configDoc struct {
 	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
 	DirtyTreeCommitAck           bool                    `yaml:"dirty_tree_commit_ack,omitempty"`
 	Runtime                      string                  `yaml:"runtime,omitempty"`
+	AgentTurnCap                 int                     `yaml:"agent_turn_cap,omitempty"`
 	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
 	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
 	IsolationDevcontainerBase    *bool                   `yaml:"isolation_devcontainer_base,omitempty"`
@@ -333,6 +346,7 @@ func (c *Config) toDoc() configDoc {
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
+		AgentTurnCap:                 c.agentTurnCap,
 		IsolationImages:              c.isolationImages,
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    c.isolationDevcontainerBase,
@@ -362,6 +376,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.dirtyTreeHandler = doc.DirtyTreeHandler
 	c.dirtyTreeCommitAck = doc.DirtyTreeCommitAck
 	c.runtime = doc.Runtime
+	c.agentTurnCap = doc.AgentTurnCap
 	c.isolationImages = doc.IsolationImages
 	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile
 	c.isolationDevcontainerBase = doc.IsolationDevcontainerBase

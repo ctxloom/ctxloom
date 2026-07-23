@@ -184,7 +184,7 @@ func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)

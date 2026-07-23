@@ -142,6 +142,11 @@ type scriptedChat struct {
 	permission *agent.PermissionRequest
 	answersMu  sync.Mutex
 	answers    []agent.PermissionAnswer
+	// resumable scripts the session event's ChatSessionInfo.Resumable — the
+	// live loadSession capability a real ACP engine advertises (Slice 4 piece
+	// 1). A one-shot child tears down at the turn boundary only when this is
+	// true (live-confirmed), so a one-shot test must set it.
+	resumable bool
 }
 
 func (s *scriptedChat) recordedAnswers() []agent.PermissionAnswer {
@@ -179,7 +184,7 @@ func (s *scriptedChat) Chat(ctx context.Context, req agent.ChatRequest, in <-cha
 			return false
 		}
 	}
-	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "native-sess-42"}}) {
+	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "native-sess-42", Resumable: s.resumable}}) {
 		return ctx.Err()
 	}
 	for {

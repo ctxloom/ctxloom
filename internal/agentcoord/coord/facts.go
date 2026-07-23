@@ -73,6 +73,15 @@ const (
 	// relaunch: their engine died with the previous process. Queued mail is
 	// preserved; a later send/inject resumes the harp as a fresh run.
 	CauseOrphaned = "orphaned-by-restart"
+	// CauseOneShotBoundary is a driving:oneshot child's turn-boundary teardown
+	// (one-shot-resume plan, Slice 4): the turn completed cleanly, so the
+	// engine process is torn down and the harp left RESUMABLE — the next
+	// mailbox delivery resumes it by native session key (session/load), a
+	// fresh turn. It is a NON-error, EXPECTED terminal that repeats every turn,
+	// so unlike every other cause it queues NO "exited" notice to the parent
+	// (the turn's result was already bridged) and — like every cause except
+	// CauseStopped — it must NOT clear the harp's ACCEPT_FOR_SESSION grants.
+	CauseOneShotBoundary = "oneshot-boundary"
 )
 
 // runEnqueued is factRunEnqueued's payload.

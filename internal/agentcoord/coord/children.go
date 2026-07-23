@@ -798,6 +798,33 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	}
 }
 
+// oneShotReady reports whether rt's NEXT turn boundary must end the engine
+// process and resume-by-key rather than park it warm (one-shot-resume plan,
+// Slice 4). All three conditions are required — any missing one falls back to
+// the persistent warm-engine model (no regression, no stranding):
+//   - the resolved agent asked for it (SpawnPlan.ResumeMode == ResumeModeOneShot,
+//     the STATIC per-engine gate from Slice 2);
+//   - the LIVE engine advertised a resume-by-key capability this run
+//     (RunRecord.Resumable — the loadSession live-confirm from piece 1); a
+//     statically-capable engine whose adapter did not actually advertise it
+//     would fail loud at session/load AFTER we tore it down — the exact
+//     stranding this gate prevents;
+//   - a native session key was actually captured (HarnessSessionID) — without
+//     one the resume would silently degrade to a lossy transcript replay,
+//     which is not one-shot at all.
+func (c *Coordinator) oneShotReady(rt *childRt) bool {
+	if rt == nil || rt.plan == nil || rt.plan.ResumeMode != ResumeModeOneShot {
+		return false
+	}
+	ready := false
+	c.runs.View(func() {
+		if r := c.runsF.run(rt.runID); r != nil {
+			ready = r.Resumable && r.HarnessSessionID != ""
+		}
+	})
+	return ready
+}
+
 // onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
@@ -810,9 +837,20 @@ func (c *Coordinator) onTurnIdle(role string) {
 		return
 	}
 	// The MIGRATED path's turn boundary: bridge this turn's result to the
-	// parent BEFORE parking idle, so the parent's mailbox carries the
+	// parent BEFORE anything below, so the parent's mailbox carries the
 	// child's answer whether or not the child's model chose to send one.
 	c.bridgeTurnResult(rt)
+	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
+	// resumable tears its engine down at the clean turn boundary instead of
+	// parking it warm. terminateRun (exactly-once) releases the slot, kills
+	// the engine, and — because CauseOneShotBoundary != CauseStopped — leaves
+	// the harp resumable: pending mail resumes it immediately (terminateRun's
+	// own tail), an empty mailbox waits for the next agent_send (driveQueued's
+	// StateEnded → resumeChild), either way by native session key.
+	if c.oneShotReady(rt) {
+		c.terminateRun(rt.runID, CauseOneShotBoundary, "")
+		return
+	}
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
 	if c.pendingCount(role) > 0 {
@@ -1196,8 +1234,12 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child
 	// death (blue-paper). Kind distinguishes a launch failure (error) from
-	// a lifecycle end (exited).
-	if rec.ParentHarp != "" {
+	// a lifecycle end (exited). A one-shot turn boundary is the exception —
+	// it is a NON-death, EXPECTED terminal that fires every single turn, so
+	// notifying the parent would spam its mailbox with an "exited" per turn;
+	// the turn's actual result was already bridged (bridgeTurnResult, before
+	// this terminate), and the harp is about to resume, so no notice is due.
+	if rec.ParentHarp != "" && cause != CauseOneShotBoundary {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
 			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)

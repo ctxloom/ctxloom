@@ -76,7 +76,7 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 			d.Guidance = append(d.Guidance,
 				fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries (or base Containerfile/devcontainer/engine-set config) than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
 		}
-		diagnoseProbe(ctx, rt, c.image, &d)
+		diagnoseProbe(ctx, rt, c.image, diagnoseProbeRoots(), &d)
 	} else {
 		diagnoseAdvisory(ctx, rt, &d)
 		d.Guidance = append(d.Guidance,
@@ -85,10 +85,28 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	return d
 }
 
+// diagnoseProbeRoots is `ctxloom container check`'s best-effort mount-root
+// set: unlike PrepareWorkspace's real gate, Diagnose is read-only and has no
+// prepared workspace to draw a mount set from (it never resolves auth,
+// creates scratch, or mirrors a gitdir — that would make a read-only
+// diagnostic have side effects). The current working directory is the best
+// available stand-in for "the project this check is being run against" (the
+// command's own doc says to run it inside the project), so probing it is
+// still a real improvement over the old single throwaway tempdir: it answers
+// "would the actual project directory share", not "does os.TempDir() share".
+// It does NOT cover a future run's auth-mount or gitdir-mirror roots — those
+// require the side-effecting resolution only the real gate performs.
+func diagnoseProbeRoots() []string {
+	if wd, err := os.Getwd(); err == nil {
+		return []string{wd}
+	}
+	return nil
+}
+
 // diagnoseProbe runs the definitive marker probe against the present image
 // and folds the outcome into the diagnosis.
-func diagnoseProbe(ctx context.Context, rt Runtime, image string, d *Diagnosis) {
-	perr := sharedFSProbe(ctx, rt, image)
+func diagnoseProbe(ctx context.Context, rt Runtime, image string, roots []string, d *Diagnosis) {
+	perr := sharedFSProbe(ctx, rt, image, roots)
 	if perr == nil {
 		d.SharedFS = "ok"
 		d.Guidance = append(d.Guidance, "containerized agents can launch here (`runtime: container`)")

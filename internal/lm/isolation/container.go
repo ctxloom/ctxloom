@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -264,6 +265,26 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	// renders as an independent --mount. auth + scoped state ride every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
 	extraMounts := append(append(append([]Mount(nil), sc.auth.mounts...), sc.stateMounts...), baseMounts...)
+	// The shared-filesystem probe runs HERE — now that every real mount root is
+	// known: dir (the project dir, or the worktree checkout prepareBase just
+	// created), sc.root (covers the socket dir, config overlays, session-state
+	// mounts, and any copy-based credential mount), and every OTHER mount's host
+	// path (a direct credential-file mount, or a linked worktree's gitdir
+	// mirror). Probing a synthetic tempdir elsewhere (the prior behavior) only
+	// ever proved THAT directory's sharing status — a standing false positive on
+	// a partially-shared Docker Desktop file-sharing list, exactly the platform
+	// this probe exists to protect. A mismatch on ANY root means that
+	// identical-path mount would resolve against a DIFFERENT filesystem and the
+	// plugin handshake would hang — erroring here turns that hang into the
+	// caller's clean per-axis degrade. The base already succeeded (a worktree
+	// may already exist), so a probe failure unwinds it exactly like Cleanup()
+	// would: scratch first, then the base teardown.
+	roots := mountProbeRoots(dir, sc.root, extraMounts)
+	if perr := sharedFSCheck(ctx, c.runtime, c.image, roots); perr != nil {
+		_ = os.RemoveAll(sc.root)
+		_ = baseCleanup()
+		return nil, sharedFSGateError(c.runtime, perr)
+	}
 	return &containerWorkspace{
 		dir:         dir,
 		scratchRoot: sc.root,
@@ -274,6 +295,30 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 		agentID:     agentID,
 		baseCleanup: baseCleanup,
 	}, nil
+}
+
+// sharedFSGateError renders the shared-filesystem probe's outcome as the
+// PrepareWorkspace gate's error, distinguishing a DEFINITIVE negative verdict
+// (errors.As a *sharedFSMismatch — the probe ran and proved a mount root is
+// not shared) from a TRANSIENT run failure (daemon down/cold, image
+// unreadable, our own timeout, a cancelled ctx) exactly the way diagnoseProbe
+// (diagnose.go) already does — before this fix the headline unconditionally
+// read "does not share this process's filesystem" even for a run that never
+// produced a sharing verdict at all, which pointed a transient daemon hiccup
+// at the wrong fix-it (a real sharing gap) instead of "the daemon didn't
+// answer, try again". Behavior was already correct (either way the gate
+// fails and the caller degrades); this only aligns the MESSAGE with the
+// actual cause.
+func sharedFSGateError(rt Runtime, perr error) error {
+	var mism *sharedFSMismatch
+	if errors.As(perr, &mism) {
+		hint := "bind mounts of this process's paths cannot resolve through the daemon"
+		if InContainer() {
+			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
+		}
+		return fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(rt), hint, perr)
+	}
+	return fmt.Errorf("shared-filesystem probe for container runtime %s could not run: %w", runtimeName(rt), perr)
 }
 
 // WithSessionState stamps the run's session identity (harp + project id) onto
@@ -526,18 +571,16 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// LAUNCHES fine (invisible to the fatal launch gate) and then root-owns
 	// every file it writes into the bind-mounted project.
 	c.checkRunAsIsIdentity(ctx)
-	// The image is now locally present, so the shared-filesystem probe is one
-	// cheap scratch container. A mismatch means every identical-path mount
-	// below (project dir, socket scratch, auth, gitdir mirror) would resolve
-	// against a DIFFERENT filesystem and the plugin handshake would hang —
-	// erroring HERE turns that hang into the caller's clean per-axis degrade.
-	if perr := sharedFSCheck(ctx, c.runtime, c.image); perr != nil {
-		hint := "bind mounts of this process's paths cannot resolve through the daemon"
-		if InContainer() {
-			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
-		}
-		return containerScratch{}, fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(c.runtime), hint, perr)
-	}
+	// The shared-filesystem probe used to run HERE, against a single throwaway
+	// tempdir under os.TempDir() — which only ever proved THAT directory's own
+	// sharing status, never the REAL roots this run bind-mounts (a partially
+	// shared Docker Desktop file-sharing list shares /tmp by default but not,
+	// say, the project's own path, so the old probe was a standing false
+	// positive on exactly the platform it exists to protect). It now runs in
+	// PrepareWorkspace, AFTER the base (project dir / worktree checkout,
+	// config overlays, gitdir mirror) is prepared, so it can probe the ACTUAL
+	// mount set (see mountProbeRoots) instead.
+	//
 	// The host-side scratch root is created BEFORE auth resolution (not after,
 	// as before this comment) because a resolver may need to WRITE into it — a
 	// credential COPY a resolver mounts read-write (claude's token-refresh

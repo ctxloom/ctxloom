@@ -161,9 +161,10 @@ func TestCheckRunAsIsIdentity_LocallyBuiltSkips(t *testing.T) {
 // checkpoint window.
 func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	resetStrictness(t)
-	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, Runtime, string) error { return nil }
-	t.Cleanup(func() { sharedFSCheck = prevFS })
+	// prepareContainerScratch no longer runs the shared-fs probe itself (it
+	// moved to PrepareWorkspace, AFTER prepareBase, so it can see the REAL
+	// mount roots) — this test drives prepareContainerScratch directly, so
+	// there is no probe gate left in this call path to stub around.
 
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img")
 	c.profile.resolveAuth = func(string, string) (containerAuth, bool) { return containerAuth{}, true }

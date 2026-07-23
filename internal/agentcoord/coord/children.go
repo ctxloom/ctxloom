@@ -987,8 +987,23 @@ func (c *Coordinator) setState(rt *childRt, state string) {
 		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state})}, nil
 	}); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: journal state %s: %v", rt.harp, state, err)
+		return
 	}
+	c.sampleExecGauge()
 }
+
+// sampleExecGauge reports the current fold-authoritative count of runs in
+// StateExecuting to the test-only execGaugeHook (coordinator.go) — a no-op
+// when unset (production path, zero cost beyond the nil check).
+func (c *Coordinator) sampleExecGauge() {
+	if c.execGaugeHook == nil {
+		return
+	}
+	var n int
+	c.runs.View(func() { n = c.queueF.executing })
+	c.execGaugeHook(n)
+}
+
 
 // runState reads the run's fold state ("" when unknown).
 func (c *Coordinator) runState(runID string) string {
@@ -1048,6 +1063,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if !won {
 		return
 	}
+	c.sampleExecGauge() // the terminal is also a (possible) StateExecuting exit — see setState's sibling call
 	c.audit("run_terminal", rec.Harp, map[string]string{"run_id": runID, "cause": cause})
 	// The ACCEPT_FOR_SESSION cache (C2) is HARP-scoped (fix/accept-session-
 	// scope, one-shot-resume plan Slice 1): it must outlive an ordinary run

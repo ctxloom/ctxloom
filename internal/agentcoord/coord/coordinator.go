@@ -53,6 +53,16 @@ type Options struct {
 	Factory pb.ClientFactory
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
+	// TurnCap overrides the number of concurrently EXECUTING child turns the
+	// coordinator admits (turnSlots' cap). <= 0 keeps the package default
+	// (agentTurnCap, children.go). This is a RESOURCE ceiling — it bounds how
+	// many live engine processes run at once — NOT a correctness gate (see
+	// agentTurnCap's doc): the coordinator's own state is safe under
+	// concurrency by construction (partitioned by child identity), proven by
+	// the invariant-asserting concurrent test (turncap_concurrent_test.go).
+	// Production sources this from coordinator config (config.Config); tests
+	// raise it directly to exercise real overlap.
+	TurnCap int
 }
 
 // Coordinator is the runtime coordinator: durable CQRS stores + credential
@@ -162,6 +172,17 @@ type Coordinator struct {
 
 	srv *coordServing // listeners (httpserver.go); nil until Serve
 
+	// execGaugeHook, if set (tests only), is sampled synchronously every time
+	// a run's §6a state durably transitions (setState, terminateRun): it
+	// receives the CURRENT count of runs in StateExecuting, read off
+	// queueFold.executing — the same idempotent counter (folds.go's
+	// transition: entering StateExecuting increments exactly once per real
+	// transition, leaving it decrements exactly once) the coordinator's own
+	// admission logic trusts, not a duplicate a test could disagree with.
+	// This is the concurrency-gauge seam for the invariant test
+	// (turncap_concurrent_test.go) to observe true peak overlap. Nil in
+	// production (zero cost).
+	execGaugeHook func(executing int)
 	// drainHook, if set (tests only, same package), runs synchronously at
 	// the start of drainTerminalTail's wait (D4, runchannel.go) — the
 	// deterministic seam for reproducing the terminal-tail drop race
@@ -180,6 +201,10 @@ func New(opts Options) (*Coordinator, error) {
 	now := opts.Clock
 	if now == nil {
 		now = time.Now
+	}
+	turnCap := opts.TurnCap
+	if turnCap <= 0 {
+		turnCap = agentTurnCap
 	}
 	stateDir := opts.StateDir
 	var release func()
@@ -220,7 +245,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:           now,
 		releaseOwner:  release,
 		spawner:       opts.Spawner,
-		slots:         newTurnSlots(agentTurnCap),
+		slots:         newTurnSlots(turnCap),
 		watch:         newWatchHub(),
 		consumerCreds: &consumerCreds{},
 		attach:        make(map[string]*childRt),

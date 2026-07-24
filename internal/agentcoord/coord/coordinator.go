@@ -12,6 +12,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -184,6 +185,11 @@ type Coordinator struct {
 	// already-armed relaunch from carrying on behind the stop. Lazily
 	// initialized (launchGateLocked).
 	launches map[string]*launchState
+	// liveness is the PROGRESS monitor (liveness.go) — lazily built, one per
+	// coordinator because it retains per-harp CPU samples between polls (a
+	// single absolute CPU reading says nothing; only the difference does). It
+	// REPORTS ONLY: nothing it produces terminates, cancels, or reaps a run.
+	liveness *livenesspkg.Monitor
 
 	// wg tracks every goroutine this coordinator dispatches beyond its
 	// spawning call's own return (delegation launches/resumes, the runner
@@ -360,6 +366,12 @@ func New(opts Options) (*Coordinator, error) {
 
 	c.adopt()
 	c.goTracked(c.runnerWatchdog)
+	// The PROGRESS watchdog (liveness.go), alongside the runner-liveness one
+	// above. They answer different questions and neither subsumes the other:
+	// runnerWatchdog catches a runtime that DIED (heartbeat silence) and acts
+	// on it; this one catches a runtime that is very much alive and making no
+	// progress, and only ever warns.
+	c.goTracked(c.livenessWatchdog)
 	return c, nil
 }
 

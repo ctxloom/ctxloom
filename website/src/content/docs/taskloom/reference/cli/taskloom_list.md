@@ -79,9 +79,11 @@ taskloom list [flags]
 
 ```
       --all                include the tasks hidden by default: completed (Done/Archived) and Deferred
+      --compact            emit compact rows (harp id, status, checked, tags, first-line headline) instead of full task bodies, for --format json/yaml/toml/markdown; ignored for the default text view, which is already one line per task
       --global             aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)
   -h, --help               help for list
       --json               shorthand for --format json (for jq)
+      --limit int          cap the number of rows returned (0 = no cap); omitted rows are reported on stderr, and status/summary counts are never affected
       --sort string        sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged
       --status strings     filter by status (repeatable)
       --tag-query string   filter by postfix tag query, e.g. "urgent/release/and", "urgent/not" (see examples in --help; list tags with "taskloom tags")

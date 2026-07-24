@@ -37,6 +37,27 @@ type taskRow struct {
 	ProjectDir string `json:"project_dir,omitempty"`
 }
 
+// compactTaskRow is taskRow's `compact` counterpart: a task's CompactTask
+// presentation projection (see internal/shared/tasks.Task.Compact) plus the
+// project it came from, so a --global/global=true compact listing keeps the
+// same "every row is tagged with its project" shape the full-record taskRow
+// gives a consumer — it never has to branch on whether a listing is global.
+type compactTaskRow struct {
+	tasks.CompactTask
+	ProjectID  string `json:"project_id"`
+	ProjectDir string `json:"project_dir,omitempty"`
+}
+
+// compactRows projects a --global/global=true listing's taskRows to their
+// compactTaskRow form, preserving each row's project attribution.
+func compactRows(rows []taskRow) []compactTaskRow {
+	out := make([]compactTaskRow, len(rows))
+	for i, r := range rows {
+		out[i] = compactTaskRow{CompactTask: r.Task.Compact(), ProjectID: r.ProjectID, ProjectDir: r.ProjectDir}
+	}
+	return out
+}
+
 // listScope is the resolved scope for a task-listing read: either the one
 // project taskContext() would resolve (the default) or every project
 // (--global/all_projects, or the no-project fallback). Notice is non-empty

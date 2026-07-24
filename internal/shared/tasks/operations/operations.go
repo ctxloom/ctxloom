@@ -82,6 +82,16 @@ type TaskListResult struct {
 	// these so a listing always names its source.
 	ProjectID  string
 	ProjectDir string // registered project root; empty when not registered
+
+	// OmittedByLimit counts the rows a positive `limit` cut off Tasks after
+	// every other filter (status/term/tag-query) and the default active-only
+	// pass had already been applied. Zero when limit was 0 (no cap) or the
+	// filtered result already fit within it. Unlike HiddenCompleted/
+	// HiddenDeferred, this is never folded into Summary's counts — Summary is
+	// computed independently, straight from the store, so include_summary
+	// counts stay the FULL uncapped counts even when Tasks itself was
+	// truncated (see listTasks).
+	OmittedByLimit int
 }
 
 // TaskResult is the result of a single-task mutation.
@@ -151,9 +161,10 @@ func ResolveLogPath(tc TaskContext) (projectID, logPath string, err error) {
 
 // ListTasks resolves the project's task log and returns its tasks, optionally
 // with a summary. Completed (Done/Archived) tasks are excluded by default;
-// includeDone opts them back in, as does naming a status explicitly.
-func ListTasks(tc TaskContext, statuses []string, term string, includeDone, includeSummary bool) (*TaskListResult, error) {
-	return listTasks(tc, statuses, term, "", includeDone, includeSummary)
+// includeDone opts them back in, as does naming a status explicitly. limit
+// caps the number of rows returned (0 = no cap) — see listTasks.
+func ListTasks(tc TaskContext, statuses []string, term string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
+	return listTasks(tc, statuses, term, "", includeDone, includeSummary, limit)
 }
 
 // ListTasksWithTagQuery is ListTasks with an additional postfix tag-query
@@ -161,11 +172,19 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 // "urgent/release/and"). An empty tagQuery behaves exactly like ListTasks.
 // A malformed tagQuery
 // surfaces as an error — never a silently empty or unfiltered result.
-func ListTasksWithTagQuery(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool) (*TaskListResult, error) {
-	return listTasks(tc, statuses, term, tagQuery, includeDone, includeSummary)
+func ListTasksWithTagQuery(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
+	return listTasks(tc, statuses, term, tagQuery, includeDone, includeSummary, limit)
 }
 
-func listTasks(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool) (*TaskListResult, error) {
+// listTasks is the shared body of ListTasks/ListTasksWithTagQuery. limit caps
+// the row COUNT of the result's Tasks — applied last, after status/term/
+// tag-query filtering and the default active-only pass, so it truncates
+// exactly what a caller would otherwise have seen in full. A limit <= 0 means
+// no cap (today's behavior, unchanged for every caller that doesn't pass one).
+// include_summary's counts are computed by store.Summarize() straight from
+// the store, independent of `list`/the limit — they always cover every task,
+// never just the (possibly truncated) page returned here.
+func listTasks(tc TaskContext, statuses []string, term, tagQuery string, includeDone, includeSummary bool, limit int) (*TaskListResult, error) {
 	store, proj, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
@@ -196,8 +215,13 @@ func listTasks(tc TaskContext, statuses []string, term, tagQuery string, include
 		}
 		list = active
 	}
+	var omittedByLimit int
+	if limit > 0 && len(list) > limit {
+		omittedByLimit = len(list) - limit
+		list = list[:limit]
+	}
 	out := &TaskListResult{Path: store.Path(), Tasks: list, Warning: warning, ProjectID: proj.ID, ProjectDir: proj.Dir,
-		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred}
+		HiddenCompleted: hiddenCompleted, HiddenDeferred: hiddenDeferred, OmittedByLimit: omittedByLimit}
 	if includeSummary {
 		sum, err := store.Summarize()
 		if err != nil {

@@ -31,7 +31,7 @@ task for scripting.`,
 		if err != nil {
 			return err
 		}
-		res, err := operations.ListTasks(tc, nil, "", true, false)
+		res, err := operations.ListTasks(tc, nil, "", true, false, 0)
 		if err != nil {
 			return err
 		}

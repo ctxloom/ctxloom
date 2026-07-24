@@ -36,6 +36,8 @@ var (
 	tasksListAll      bool
 	tasksListGlobal   bool
 	tasksListSort     string
+	tasksListCompact  bool
+	tasksListLimit    int
 )
 
 var listCmd = &cobra.Command{
@@ -116,6 +118,8 @@ tags in use (with counts) via "taskloom tags".`,
 			All:      tasksListAll,
 			Global:   tasksListGlobal,
 			Sort:     tasksListSort,
+			Compact:  tasksListCompact,
+			Limit:    tasksListLimit,
 			Format:   format,
 		})
 	},
@@ -137,7 +141,23 @@ type listOptions struct {
 	All      bool   // include the default-hidden tasks: Done/Archived and Deferred
 	Global   bool   // aggregate across every project, not just the resolved one
 	Sort     string // "" (default: unsorted) or sortPriority
-	Format   clifmt.Format
+
+	// Compact, when true, renders each row as its CompactTask projection
+	// (harp id, status, checked, tags, headline — see internal/shared/tasks.
+	// Task.Compact) instead of the full task body, for a machine format
+	// (json/yaml/toml/markdown). Ignored for the default text view, which is
+	// already a one-line-per-task summary (renderTaskTable's own Headline
+	// call).
+	Compact bool
+
+	// Limit caps the number of rows returned (0 = no cap, today's unchanged
+	// default). Applied at the query layer AFTER every filter and the
+	// default active-only pass; rows it cuts are reported on stderr
+	// (noteOmittedByLimit) — status/summary counts are never affected, since
+	// they're computed independently, straight from the store.
+	Limit int
+
+	Format clifmt.Format
 }
 
 func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions) error {
@@ -168,6 +188,9 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		}
 		noteHidden(errw, gres.HiddenCompleted, gres.HiddenDeferred, filtered)
 		if opts.Format != clifmt.FormatText {
+			if opts.Compact {
+				return clifmt.Render(out, compactRows(gres.Rows), opts.Format)
+			}
 			return clifmt.Render(out, gres.Rows, opts.Format)
 		}
 		w := iox.NewErrWriter(out)
@@ -182,12 +205,13 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	if err != nil {
 		return err
 	}
-	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.All, false)
+	res, err := operations.ListTasksWithTagQuery(tc, opts.Statuses, opts.Term, opts.TagQuery, opts.All, false, opts.Limit)
 	if err != nil {
 		return wrapTagQueryError(err)
 	}
 	warnTask(res.Warning)
 	noteHidden(errw, res.HiddenCompleted, res.HiddenDeferred, filtered)
+	noteOmittedByLimit(errw, res.OmittedByLimit)
 	if opts.Sort == sortPriority {
 		results, diag, perr := operations.ComputeTaskPriorities(tc, time.Now())
 		if perr != nil {
@@ -200,6 +224,9 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		}
 	}
 	if opts.Format != clifmt.FormatText {
+		if opts.Compact {
+			return clifmt.Render(out, compactTasksOf(res.Tasks), opts.Format)
+		}
 		return clifmt.Render(out, res.Tasks, opts.Format)
 	}
 	// Name the resolved store: in multi-root workspaces (several .ctxloom
@@ -211,6 +238,18 @@ func runListCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 		return err
 	}
 	return renderTaskTable(out, res.Tasks, hideConfigFor(tc))
+}
+
+// compactTasksOf projects a single-project listing's tasks to their
+// CompactTask presentation form (see internal/shared/tasks.Task.Compact),
+// for `taskloom list --compact --format json` (etc.) — mirrors compactRows
+// for the --global path, which additionally carries each row's project id.
+func compactTasksOf(list []tasks.Task) []tasks.CompactTask {
+	out := make([]tasks.CompactTask, len(list))
+	for i, t := range list {
+		out[i] = t.Compact()
+	}
+	return out
 }
 
 // attachPriority sets each task's DerivedPriority (in place) from results,
@@ -341,6 +380,19 @@ func noteHidden(w io.Writer, hiddenCompleted, hiddenDeferred int, filtered bool)
 	}
 	fmt.Fprintf(w, "taskloom: %d more matching task(s) hidden by the default active-only view (%s) — add --all to include them\n",
 		hidden, strings.Join(parts, ", "))
+}
+
+// noteOmittedByLimit tells the user (on stderr, so stdout/the machine format
+// stays parseable) how many rows a positive --limit cut off the end of an
+// otherwise-larger result, so a capped listing never reads as a complete one.
+// A no-op when limit wasn't set or the result already fit within it.
+// Status/summary counts are never affected by the cap — see
+// internal/shared/tasks/operations.TaskListResult.OmittedByLimit's doc.
+func noteOmittedByLimit(w io.Writer, omitted int) {
+	if omitted <= 0 {
+		return
+	}
+	fmt.Fprintf(w, "taskloom: %d more task(s) omitted by --limit — raise or drop --limit to see them (status/summary counts are unaffected)\n", omitted)
 }
 
 var (
@@ -547,7 +599,7 @@ var summaryCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		res, err := operations.ListTasks(tc, nil, "", false, true)
+		res, err := operations.ListTasks(tc, nil, "", false, true, 0)
 		if err != nil {
 			return err
 		}
@@ -608,6 +660,8 @@ func init() {
 	listCmd.Flags().BoolVar(&tasksListAll, "all", false, "include the tasks hidden by default: completed (Done/Archived) and Deferred")
 	listCmd.Flags().BoolVar(&tasksListGlobal, "global", false, "aggregate tasks across every privately-homed project instead of just the current one (repo-homed projects are never included -- see this command's long help)")
 	listCmd.Flags().StringVar(&tasksListSort, "sort", "", `sort order: "priority" for derived, rank-normalized priority (descending); default (unset) leaves today's order unchanged`)
+	listCmd.Flags().BoolVar(&tasksListCompact, "compact", false, "emit compact rows (harp id, status, checked, tags, first-line headline) instead of full task bodies, for --format json/yaml/toml/markdown; ignored for the default text view, which is already one line per task")
+	listCmd.Flags().IntVar(&tasksListLimit, "limit", 0, "cap the number of rows returned (0 = no cap); omitted rows are reported on stderr, and status/summary counts are never affected")
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 	addCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")

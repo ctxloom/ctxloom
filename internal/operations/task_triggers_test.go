@@ -243,7 +243,7 @@ func TestEvaluateTriggers_NeverMutatesTaskStatus(t *testing.T) {
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
 	require.NoError(t, err)
 
-	list, err := tasksops.ListTasks(tc, []string{tasks.StatusDeferred}, "", true, false)
+	list, err := tasksops.ListTasks(tc, []string{tasks.StatusDeferred}, "", true, false, 0)
 	require.NoError(t, err)
 	require.Len(t, list.Tasks, 1, "a fired verdict must not move the task off Deferred")
 	assert.Equal(t, tasks.StatusDeferred, list.Tasks[0].Status)

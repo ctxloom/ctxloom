@@ -10,12 +10,12 @@ import (
 	"syscall"
 )
 
-// setsid makes cmd the leader of a FRESH session (session id == its own pid)
+// isolateRunner makes cmd the leader of a FRESH session (session id == its own pid)
 // so killSession can later reap the runner's entire host subtree — including
 // a grandchild the runner itself puts in a SEPARATE process group (e.g. via
 // internal/acp's own setpgid, moral-scorn) — as one unit, without touching
 // anything outside this runner's dedicated session. See killSession.
-func setsid(cmd *exec.Cmd) {
+func isolateRunner(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -23,11 +23,11 @@ func setsid(cmd *exec.Cmd) {
 }
 
 // killSession SIGKILLs every process whose /proc session id equals sid. A
-// go-plugin runner spawned via setsid (above) has sid == its own pid, so
+// go-plugin runner spawned via isolateRunner (above) has sid == its own pid, so
 // this reaps the runner's ENTIRE host subtree in one sweep: the runner
 // itself plus any descendant that moved into its own process group
 // (internal/acp's setpgid'd claude-code-acp, and any worker IT
-// double-forks) without ALSO calling setsid — none of them do, so all stay
+// double-forks) without ALSO calling setsid(2) — none of them do, so all stay
 // tagged with the runner's session id regardless of how many nested
 // process groups they create.
 //

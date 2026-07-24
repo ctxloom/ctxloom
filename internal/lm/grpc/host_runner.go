@@ -34,7 +34,7 @@ type HostRunner struct {
 	killOnce sync.Once
 }
 
-// StartHostRunner self-execs `ctxloom <args…>` under a fresh session (setsid),
+// StartHostRunner self-execs `ctxloom <args…>` under a fresh session (isolateRunner),
 // stamping spawnEnv (the coordinator reach-back trio) onto the SUBPROCESS env
 // only — never the process-global launcher env, racy across concurrent spawns.
 // It returns after Start: the process is up but not yet dialed home (the
@@ -54,7 +54,7 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 	}
 	// Fresh session leader so killSession has a safe, scoped teardown boundary
 	// (the same reason dialLLMConnection sets it — see realLLMConnection.Kill).
-	setsid(cmd)
+	isolateRunner(cmd)
 	ring := newRingWriter(hostRunnerStderrTailBytes)
 	cmd.Stderr = ring
 	if err := cmd.Start(); err != nil {

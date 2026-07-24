@@ -77,7 +77,7 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 }
 
 // TestKillSession_ReapsOrphanedGrandchild is damp-pupil 3's regression test:
-// a go-plugin runner spawned via setsid, then HARD-killed directly (exactly
+// a go-plugin runner spawned via isolateRunner, then HARD-killed directly (exactly
 // go-plugin's raw cmd.Process.Kill() fallback in github.com/hashicorp/go-plugin, or
 // an operator's/OOM-killer's kill -9 on the runner pid — the graceful RPC
 // path never runs either way) orphans a grandchild it isolated into its own
@@ -85,14 +85,14 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) string {
 // (moral-scorn). A plain single-pid kill of the runner never reaches that
 // grandchild — proven below BEFORE killSession is invoked, so the failure
 // mode is on the record, not assumed. killSession, given the runner's pid
-// (== its session id, since it was spawned via setsid), reaps it.
+// (== its session id, since it was spawned via isolateRunner), reaps it.
 func TestKillSession_ReapsOrphanedGrandchild(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := dir + "/child.pid"
 
 	runner := exec.Command(os.Args[0], "-test.run=TestHelperKillSessionRunner", "--", pidFile)
 	runner.Env = append(os.Environ(), "CTXLOOM_GRPC_HELPER_PROCESS=1")
-	setsid(runner)
+	isolateRunner(runner)
 	require.NoError(t, runner.Start())
 	runnerPID := runner.Process.Pid
 	t.Cleanup(func() {
@@ -118,4 +118,87 @@ func TestKillSession_ReapsOrphanedGrandchild(t *testing.T) {
 	killSession(runnerPID)
 	require.Eventually(t, func() bool { return !processAlive(childPID) }, 2*time.Second, 10*time.Millisecond,
 		"killSession must reap the runner's whole session, including a grandchild the runner isolated into its own process group")
+}
+
+// TestHelperRunnerHost is not a real test — it is the re-exec target
+// TestIsolateRunner_RunnerDiesWithItsHost spawns via os.Args[0] (the same
+// TestHelperProcess idiom as TestHelperKillSessionRunner above). It plays
+// the part of the ctxloom HOST process — the `ctxloom run` / `ctxloom mcp`
+// that self-execs `ctxloom llm serve <backend>` — spawning ONE child with
+// exactly the production runner attributes (isolateRunner, what
+// dialLLMConnection and StartHostRunner apply), recording its pid, then
+// blocking as a live host would.
+func TestHelperRunnerHost(t *testing.T) {
+	if os.Getenv("CTXLOOM_GRPC_HOST_HELPER") != "1" {
+		return
+	}
+	pidFile := os.Args[len(os.Args)-1]
+	runner := exec.Command("sleep", "100")
+	isolateRunner(runner)
+	if err := runner.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "helper: start runner:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(runner.Process.Pid)), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, "helper: write pidfile:", err)
+		os.Exit(1)
+	}
+	time.Sleep(100 * time.Second)
+}
+
+// TestIsolateRunner_RunnerDiesWithItsHost is the regression test for the
+// leaked-runner defect: 36 `ctxloom llm serve mock --label mock` processes
+// found reparented to init on 2026-07-24, some running unattended for over
+// 36 hours, from three different checkouts (one of them a git worktree that
+// had since been deleted, one still live, one the main checkout) — a
+// recurrence of the 208-process incident before it.
+//
+// The host dies WITHOUT running its own teardown — a SIGKILL here, which is
+// equally `go test -timeout`'s escalation, an OOM kill, a killed shell that
+// took its whole process group with it, a panic that skipped every defer, or
+// a cobra path that called os.Exit. realLLMConnection.Kill/killSession live
+// INSIDE that host process and cannot run once it is gone, and the runner
+// has no independent way to notice: go-plugin gives it the HOST's stdin
+// rather than a pipe (github.com/hashicorp/go-plugin client.go's
+// `cmd.Stdin = os.Stdin`), so no EOF ever arrives, and isolateRunner has
+// deliberately put it in its own session, out of reach of any group signal.
+// Nothing else is watching. The kernel is the only party that still knows
+// the relationship after the host is gone, which is why the fix is
+// PR_SET_PDEATHSIG rather than more userspace bookkeeping.
+//
+// Asserts ABSENCE from the process table, not that some cleanup func
+// returned: a teardown that reports success while the process keeps running
+// is precisely this defect.
+func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := dir + "/runner.pid"
+
+	host := exec.Command(os.Args[0], "-test.run=TestHelperRunnerHost", "--", pidFile)
+	host.Env = append(os.Environ(), "CTXLOOM_GRPC_HOST_HELPER=1")
+	require.NoError(t, host.Start())
+	hostPID := host.Process.Pid
+	t.Cleanup(func() {
+		_ = host.Process.Kill()
+		_ = host.Wait()
+	})
+
+	runnerPID, err := strconv.Atoi(waitForFile(t, pidFile, 5*time.Second))
+	require.NoError(t, err)
+	// This test's OWN leak guard: if the assertion below fails, the runner is
+	// by definition still running and reparented to init, and nothing else
+	// would ever collect it. Kill it by the exact pid we spawned — never a
+	// name-matched sweep, which on a box running several suites at once would
+	// reach other people's fixtures (and, with pkill -f, the killing shell).
+	t.Cleanup(func() { _ = syscall.Kill(runnerPID, syscall.SIGKILL) })
+
+	require.Eventually(t, func() bool { return processAlive(runnerPID) }, time.Second, 10*time.Millisecond,
+		"the runner must actually be running before we can prove anything about reaping it")
+
+	require.NoError(t, syscall.Kill(hostPID, syscall.SIGKILL))
+	_ = host.Wait()
+	require.Eventually(t, func() bool { return !processAlive(hostPID) }, 2*time.Second, 10*time.Millisecond,
+		"sanity: the host itself must actually be dead before checking the runner")
+
+	require.Eventually(t, func() bool { return !processAlive(runnerPID) }, 5*time.Second, 20*time.Millisecond,
+		"the runner must be GONE from the process table once its host dies — a host killed without running its teardown is exactly how the 36 orphaned `llm serve mock` processes accumulated")
 }

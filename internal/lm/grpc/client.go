@@ -204,8 +204,8 @@ func (r *realLLMConnection) Client() (plugin.ClientProtocol, error) { return r.c
 // setpgid'd claude-code-acp, moral-scorn) — a hard kill never gives the
 // runner a chance to run ITS OWN cleanup for that. killSession is the
 // defensive sweep for that gap (damp-pupil 3): the runner was spawned via
-// setsid (dialLLMConnection), so its pid doubles as its session id, and
-// every descendant that never called setsid itself — including one in a
+// isolateRunner (dialLLMConnection), so its pid doubles as its session id, and
+// every descendant that never called setsid(2) itself — including one in a
 // separate process group — stays tagged with it. A no-op for a container
 // runner (its ID() is a container name, not numeric — containers get their
 // own whole-subtree teardown via `docker rm -f`, isolation/runner.go, so
@@ -239,7 +239,7 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 	}
 	// Fresh session leader (damp-pupil 3): gives killSession a safe,
 	// scoped boundary — see realLLMConnection.Kill's doc comment.
-	setsid(c)
+	isolateRunner(c)
 	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: HandshakeConfig,
 		Plugins:         PluginMap,

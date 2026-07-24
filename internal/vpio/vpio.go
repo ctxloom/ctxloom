@@ -17,8 +17,8 @@
 // the existing hashicorp/go-plugin-backed bidirectional Run RPC
 // (internal/lm/grpc, llm.proto's `Run`) — a MOVE of the pump/relay logic
 // that used to live inline at the call site, not a rewrite of the wire
-// protocol. This package does not rename third_party/go-plugin (the
-// vendored dependency) or the llm.proto Run RPC; it wraps them.
+// protocol. This package does not rename github.com/hashicorp/go-plugin (the
+// upstream dependency) or the llm.proto Run RPC; it wraps them.
 //
 // Two more implementations are REGISTERED FUTURE WORK, not implemented
 // here — the interface is shaped so they can plug in without any

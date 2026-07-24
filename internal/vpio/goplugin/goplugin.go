@@ -14,7 +14,7 @@
 // implementation (GRPCClient/LLMRunner), or the wire protocol (llm.proto) —
 // it drives the unchanged pb.Client.Run exactly as the pre-extraction call
 // site did, just from behind Start/Session instead of one blocking call. Nor
-// does it rename the vendored third_party/go-plugin dependency; it wraps it.
+// does it rename the upstream github.com/hashicorp/go-plugin dependency; it wraps it.
 package goplugin
 
 import (

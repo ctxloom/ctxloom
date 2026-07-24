@@ -49,7 +49,7 @@ func TestBuildRunSpec_IdentityMapper_Unchanged(t *testing.T) {
 	spec := buildRunSpec("img", "name", "/proj", "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, 0, nil)
+		nil, nil, nil, nil)
 
 	assert.Equal(t, "/proj", spec.WorkDir, "nil mapper: WorkDir is the unmapped project dir")
 	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"},
@@ -70,7 +70,7 @@ func TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount(t *tes
 	spec := buildRunSpec("img", "name", hostProj, "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, 0, mapper)
+		nil, nil, nil, mapper)
 
 	assert.Equal(t, "/workspace", spec.WorkDir,
 		"WorkDir must be the mapped POSIX target, not the raw Windows host path")

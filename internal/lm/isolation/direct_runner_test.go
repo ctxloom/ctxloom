@@ -64,8 +64,8 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 		assert.NotEqual(t, cw.socketDir, m.Host, "the host plugin socket scratch is never mounted")
 	}
 
-	// NO published port — the mauve-state listener never exists on this path.
-	assert.Equal(t, 0, spec.PublishPort, "the docker-direct runner publishes no port")
+	// NO published port — the mauve-state listener never exists on this path
+	// (asserted on the rendered argv below; RunSpec has no port field since 0.7).
 
 	// NO go-plugin handshake env: no magic cookie, no PLUGIN_* of any kind.
 	for _, e := range spec.Env {

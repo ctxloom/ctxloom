@@ -177,11 +177,12 @@ func (b *ACP) containerTransport(ctx context.Context, argv []string, env map[str
 // only works because Linux shares ONE kernel between host and container. On
 // macOS/Windows Docker Desktop the container runs inside a Linux VM, so a
 // unix socket FILE bind-mounted in from the host is not a live endpoint
-// there — the identical rationale loopbackPluginPort documents for the
-// go-plugin transport (internal/lm/isolation/container.go). That fallback
-// solves the OPPOSITE direction, though: there the plugin SERVER runs
-// in-container and the HOST dials OUT to a docker-published loopback port
-// (`-p 127.0.0.1:P:P`). Here the runner's MCP endpoint (the unix listener
+// there — the identical rationale the go-plugin container transport once
+// carried before its off-Linux TCP path was deleted in 0.7 (that transport
+// is now Linux-only unix-socket-over-bind-mount; internal/lm/isolation).
+// That deleted fallback solved the OPPOSITE direction, though: there the
+// plugin SERVER ran in-container and the HOST dialled OUT to a docker-
+// published loopback port. Here the runner's MCP endpoint (the unix listener
 // behind sock) is the SERVER and runs on the HOST, and the in-container
 // `ctxloom mcp` shim is the one that must dial OUT — no `-p` publish helps
 // that direction (publish forwards host->container, never the reverse).

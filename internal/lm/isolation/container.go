@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/git"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -426,6 +427,26 @@ func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, e
 // cell. A leak of this override onto a non-container cell would reintroduce
 // that exact divergence bug — see the host-unchanged unit test pinning it.
 func (c Container) MCPCommandOverride() string { return c.binaryPath }
+
+// Runtime returns the container's launch runtime (docker/podman) — the seam the
+// docker-exec vpio.Launcher needs to render `exec -it` for an interactive
+// top-level container turn (Phase 2a-A). Exposed as a narrow accessor probed
+// via operations.RuntimeForPolicy, like MCPCommandOverride, so None/Worktree
+// (which carry no runtime) need no method.
+func (c Container) Runtime() Runtime { return c.runtime }
+
+// ContainerPersistDir returns the IN-CONTAINER path the host's session persist
+// dir (~/.ctxloom/sessions/<harp>/persist) is bind-mounted to: the container's
+// fresh HOME rebases it (sessionStateMounts binds the host persist under
+// c.home/.ctxloom/sessions/<harp>/persist). It is where the docker-exec turn
+// reads the RunStart handoff (§5.A4) — the SAME file the host wrote to the host
+// persist dir, at its container path. "" for a blank harp (no session state).
+func (c Container) ContainerPersistDir(harp string) string {
+	if harp == "" {
+		return ""
+	}
+	return filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName)
+}
 
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a

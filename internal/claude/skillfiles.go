@@ -20,7 +20,7 @@ import (
 // path is joined under its own skill's name).
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
-	skillsDir := filepath.Join(workDir, ".claude", "skills")
+	skillsDir := filepath.Join(workDir, ConfigDirName, SkillsDirName)
 
 	return agent.WriteManagedPackageFiles(fs, skillsDir, ".ctxloom-skills-manifest", skills,
 		func(s agent.SkillExport) bool { return s.Enabled },

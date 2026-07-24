@@ -222,7 +222,7 @@ const sessionHarpEnv = agent.SessionHarpEnv
 // set the session's display name (prompt box, /resume picker, terminal title).
 func sessionNameArgs(env map[string]string) []string {
 	if harp := env[sessionHarpEnv]; harp != "" {
-		return []string{"--name", harp}
+		return []string{flagName, harp}
 	}
 	return nil
 }
@@ -251,18 +251,18 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// built-in mutating tool this codebase's own tool vocabulary names).
 	switch req.Permissions {
 	case agent.PermissionBypass:
-		args = append(args, "--dangerously-skip-permissions")
+		args = append(args, flagSkipPermissions)
 	case agent.PermissionAcceptEdits:
-		args = append(args, "--permission-mode", "acceptEdits")
+		args = append(args, flagPermissionMode, "acceptEdits")
 	case agent.PermissionPlan:
-		args = append(args, "--permission-mode", "plan", "--disallowedTools", "Bash,Edit,Write,NotebookEdit")
+		args = append(args, flagPermissionMode, "plan", flagDisallowedTools, "Bash,Edit,Write,NotebookEdit")
 	}
 
 	// The model is resolved by the caller (the fast role's labeled config for
 	// compression, the primary role's for coding); the backend no longer
 	// substitutes a fast-model default. An empty model lets the CLI pick.
 	if req.Model != "" {
-		args = append(args, "--model", req.Model)
+		args = append(args, flagModel, req.Model)
 	}
 
 	// Name the interactive session after ctxloom's harp so claude's prompt box,
@@ -274,7 +274,7 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	}
 
 	if req.Mode == agent.ModeOneshot {
-		args = append(args, "--print")
+		args = append(args, flagPrint)
 	}
 
 	// Cell-aware native delivery. In a SharedCell (the user's live cwd) Setup
@@ -294,17 +294,17 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	if !req.SkipSetup && req.CellKind == agent.CellKindShared {
 		if s := b.surfaces.Context; s != nil {
 			if p := s.Path(); p != "" {
-				args = append(args, "--append-system-prompt-file", p)
+				args = append(args, flagAppendSystemFile, p)
 			}
 		}
 		if s := b.surfaces.MCP; s != nil {
 			if p := s.Path(); p != "" {
-				args = append(args, "--mcp-config", p)
+				args = append(args, flagMCPConfig, p)
 			}
 		}
 		if s := b.surfaces.Settings; s != nil {
 			if p := s.Path(); p != "" {
-				args = append(args, "--settings", p)
+				args = append(args, flagSettings, p)
 			}
 		}
 	}
@@ -315,18 +315,18 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 			// JSON envelope carries the resolved model id (modelUsage), letting
 			// Execute record the real model instead of guessing. The result is
 			// machine-consumed here, so we lose nothing by buffering it.
-			"--output-format", "json",
-			"--tools", "", // Disable all tools
-			"--disable-slash-commands", // No slash commands
-			"--no-session-persistence", // Don't save session
-			"--strict-mcp-config",      // ignore .mcp.json / external MCP servers
-			"--system-prompt", "",      // drop CLAUDE.md/memory/identity so they don't pollute the result
+			flagOutputFormat, "json",
+			flagTools, "", // Disable all tools
+			flagNoSlashCommands,  // No slash commands
+			flagNoSessionPersist, // Don't save session
+			flagStrictMCPConfig,  // ignore .mcp.json / external MCP servers
+			flagSystemPrompt, "", // drop CLAUDE.md/memory/identity so they don't pollute the result
 			// Isolate via in-line overrides rather than `--setting-sources ""`:
 			// an empty source list also drops the model config, so the CLI routes
 			// generation to its built-in fast model regardless of --model. These
 			// overrides disable hooks/MCP/attribution while leaving the requested
 			// model in force.
-			"--settings", minimalSettings(req.Model),
+			flagSettings, minimalSettings(req.Model),
 		)
 	}
 

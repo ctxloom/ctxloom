@@ -46,7 +46,7 @@ func (w *ClaudeCodeHookWriter) getFS() afero.Fs {
 // (ltk) that manage hooks in the same file, so the path convention has a
 // single source of truth.
 func ProjectSettingsPath(projectDir string) string {
-	return filepath.Join(projectDir, ".claude", "settings.json")
+	return filepath.Join(projectDir, ConfigDirName, SettingsFileName)
 }
 
 // GlobalSettingsPath returns the user-global Claude Code settings.json path
@@ -56,7 +56,7 @@ func GlobalSettingsPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "settings.json"), nil
+	return filepath.Join(home, ConfigDirName, SettingsFileName), nil
 }
 
 // GlobalCommandsDir returns the user-global Claude Code slash-command directory
@@ -69,7 +69,7 @@ func GlobalCommandsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "commands"), nil
+	return filepath.Join(home, ConfigDirName, CommandsDirName), nil
 }
 
 // SettingsPath returns the path to Claude Code's settings.json file.
@@ -81,7 +81,7 @@ func (w *ClaudeCodeHookWriter) SettingsPath(projectDir string) string {
 // Note: MCP servers must be in .mcp.json (not settings.json) for ${CLAUDE_PROJECT_DIR}
 // variable expansion to work. See: https://github.com/anthropics/claude-code/issues/4276
 func (w *ClaudeCodeHookWriter) MCPConfigPath(projectDir string) string {
-	return filepath.Join(projectDir, ".mcp.json")
+	return filepath.Join(projectDir, MCPFileName)
 }
 
 // claudeCodeStatusLine represents the statusLine configuration in settings.json.
@@ -241,8 +241,8 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 // ported from antigravity's original .agents/AGENTS.md implementation so every
 // backend that owns a human-editable context file shares one merge.
 func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
-	path := filepath.Join(req.ProjectDir, "CLAUDE.md")
-	return agent.WriteManagedContext(w.getFS(), path, "CLAUDE.md", req.Context, "CLAUDE.md")
+	path := filepath.Join(req.ProjectDir, ContextFileName)
+	return agent.WriteManagedContext(w.getFS(), path, ContextFileName, req.Context, ContextFileName)
 }
 
 // loadSettings loads existing settings.json or returns empty settings for a

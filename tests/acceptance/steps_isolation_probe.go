@@ -169,6 +169,19 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 					fmt.Printf("    %s\n", line)
 				}
 			}
+			// The strace-observed READ SET — which context surfaces the real CLI
+			// actually OPENED/stat'd/probed, INCLUDING the ENOENT rows for paths
+			// it looked for and did not find. This is the half docker diff can
+			// never show; printed unconditionally so a real run leaves the
+			// concrete read evidence behind (paths only, never file content).
+			fmt.Printf("  strace read-set (%d unique reads%s):\n", len(res.Reads),
+				map[bool]string{true: ", incl. ENOENT/EACCES probes", false: ""}[probeReadsHasFailedResult(res.Reads)])
+			for _, r := range res.Reads {
+				fmt.Printf("    %-11s %-6s %s\n", r.Syscall, r.Result, r.Path)
+			}
+			if res.ReadsErr != "" {
+				fmt.Printf("    (read-observation note: %s)\n", res.ReadsErr)
+			}
 			// (b) the token file, for the container axis, is a plain bind
 			// mount at the project dir's own identical path — checked
 			// directly against the TestEnvironment, no race involved.

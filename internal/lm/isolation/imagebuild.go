@@ -381,7 +381,7 @@ func overlayContainerfile(baseImage, validate string) []byte {
 // step, or a missing `git`/`rg` at RUN time), not a mysterious one here.
 const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
     && apt-get update \
-    && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates unzip jq \
+    && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates unzip jq strace \
     && rm -rf /var/lib/apt/lists/* || true)`
 
 // composeAgentContainerfile generates the MULTI-ENGINE agent Containerfile

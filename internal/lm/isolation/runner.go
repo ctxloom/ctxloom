@@ -299,6 +299,10 @@ func buildRunSpec(image, name, projectDir, home string, command []string, contai
 		Command: command,
 		Env:     env,
 		Mounts:  mounts,
+		// nil on every production run; set only under the isolation probe's
+		// dedicated env var (traceProbeFromEnv) — the sole gate for the
+		// renderRunSpec SYS_PTRACE grant. See TraceProbe.
+		Trace: traceProbeFromEnv(),
 	}
 }
 

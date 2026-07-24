@@ -70,6 +70,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
 // probeAxis names the isolation axis under test.
@@ -532,6 +534,14 @@ func probeContainerUnexpected(diff []string, containerHome string) []string {
 		if strings.HasPrefix(path, containerHome) {
 			continue
 		}
+		// The read-observation instrument bind-mounts its trace dir here; it
+		// surfaces in `docker diff` as a fresh writable-layer path but is the
+		// PROBE's own scaffolding, not an engine write — never a leak. Excluding
+		// it keeps the instrument from corrupting the very write-census (d)
+		// asserts on (the measurement-debris failure mode).
+		if path == isolation.ProbeTraceContainerDir || strings.HasPrefix(path, isolation.ProbeTraceContainerDir+"/") {
+			continue
+		}
 		// containerHome's own ancestor directories (e.g. "/home", the
 		// parent of "/home/ctxloom") always show as Changed ("C") the
 		// instant anything is created under them — a parent-directory
@@ -737,6 +747,14 @@ type probeResult struct {
 	Container     probeContainerSnapshot
 	ContainerHome string
 	Unexpected    []string
+
+	// Reads is the strace-observed read-set (container axis): which context
+	// surfaces the real vendor CLI actually OPENED/stat'd/probed, INCLUDING the
+	// ENOENT rows for paths it looked for and did not find — the half `docker
+	// diff` (write-only) can never see. Empty on the worktree axis and on a
+	// container run whose trace could not be retrieved (surfaced as a finding).
+	Reads    []isolation.TraceRead
+	ReadsErr string // why the trace could not be read/parsed, if it couldn't
 }
 
 // runProbeWorktree drives one live worktree-axis cell end to end: decide the
@@ -871,7 +889,24 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 		return nil, err
 	}
 
-	cmd := w.env.Command(nil, "run", "--agent", "probe", "--workspace", "none", "--print", probePrompt(token))
+	// READ OBSERVATION: hand the production run path a host directory via the
+	// dedicated probe-only env var. buildRunnerSpec's traceProbeFromEnv picks it
+	// up (nil for any run that lacks this var — i.e. every production run) and
+	// marks the RunSpec's Trace, which makes renderRunSpec grant
+	// --cap-add=SYS_PTRACE, bind-mount this dir to /ctxloom-probe-trace, and wrap
+	// the in-container engine exec in strace. The strace output lands in this
+	// host dir, so it survives the container's --rm teardown with no race.
+	traceDir, err := os.MkdirTemp("", "ctxloom-probe-trace-*")
+	if err != nil {
+		return nil, fmt.Errorf("probe trace dir: %w", err)
+	}
+	defer os.RemoveAll(traceDir)
+	// World-writable so the in-container run user (remapped to the launching uid,
+	// or container-root→host-user under rootless) can create the trace file.
+	_ = os.Chmod(traceDir, 0o777)
+	probeEnv := []string{isolation.ProbeTraceEnvVar + "=" + traceDir}
+
+	cmd := w.env.Command(probeEnv, "run", "--agent", "probe", "--workspace", "none", "--print", probePrompt(token))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 
@@ -892,6 +927,19 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 
 	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/lm/isolation/container.go
 	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome)
+
+	// Parse the strace output the wrapped engine exec wrote INTO the bind-mounted
+	// host dir. Unlike the docker-diff race, this file is written from inside and
+	// mounted out, so it is simply on disk once the run returns — no polling.
+	tracePath := filepath.Join(traceDir, isolation.ProbeTraceOutFile)
+	if raw, rerr := os.ReadFile(tracePath); rerr != nil {
+		res.ReadsErr = fmt.Sprintf("strace trace file %s absent/unreadable after the run (%v) — strace may not be in the image, the probe seccomp profile may not have been applied, or the run never reached the engine exec", tracePath, rerr)
+	} else {
+		res.Reads = isolation.ParseStraceReads(raw)
+		if len(res.Reads) == 0 {
+			res.ReadsErr = fmt.Sprintf("strace trace file %s was present but held no parseable file reads (%d bytes)", tracePath, len(raw))
+		}
+	}
 
 	return res, nil
 }
@@ -940,7 +988,31 @@ func assertProbeContainer(res *probeResult) error {
 	if len(res.Unexpected) != 0 {
 		return fmt.Errorf("(d) enumerated write set: %d write(s) landed OUTSIDE the isolated config-home (%s) and outside the known docker-bootstrap allowlist — this IS the leak this axis exists to catch: %v", len(res.Unexpected), res.ContainerHome, res.Unexpected)
 	}
+	// (e) READ observation — the half docker diff (write-only) cannot see. A real
+	// vendor CLI oneshot MUST open files (its own config surfaces at minimum), so
+	// an empty read-set means the strace instrument did not engage (strace absent
+	// from the image, SYS_PTRACE not granted, or the trace never made it out) —
+	// the probe would be silently back to write-only. The ENOENT rows within are
+	// the point (a surface probed and not found = the silent-no-op shape), but
+	// even a single successful read proves the instrument works.
+	if len(res.Reads) == 0 {
+		return fmt.Errorf("(e) read observation: strace captured ZERO file reads — %s", res.ReadsErr)
+	}
 	return nil
+}
+
+// probeReadsHasFailedResult reports whether the read-set contains at least one
+// ENOENT/EACCES — a path the CLI PROBED and did not find. Surfaced as evidence,
+// not required to pass (a given engine on a given box may find everything it
+// probes), but its presence is the clearest proof the probe now sees what a
+// write-only instrument never could.
+func probeReadsHasFailedResult(reads []isolation.TraceRead) bool {
+	for _, r := range reads {
+		if r.Failed() {
+			return true
+		}
+	}
+	return false
 }
 
 // printProbeReport is THE loud, per-cell, always-printed line every scenario

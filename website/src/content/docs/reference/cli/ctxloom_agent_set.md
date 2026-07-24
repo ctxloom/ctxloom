@@ -21,7 +21,10 @@ default. Profiles compose into one assembled context. Runtime (optional:
 host|container) sets WHERE this agent's engine process executes; omit it to
 inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/map/weave --workspace).
+(run/map/weave --workspace). Driving (optional: conversational|oneshot) sets
+the per-turn execution axis; omit it to keep the default conversational
+(warm-engine) model — oneshot requires a resume-capable engine and is not yet
+executable in this release.
 
 Examples:
   ctxloom agent set finder --engine claude-fast --profiles finder
@@ -35,6 +38,8 @@ ctxloom agent set <name> [flags]
 ### Options
 
 ```
+      --coordinator          Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf
+      --driving string       Per-turn execution axis: conversational|oneshot (empty = conversational, today's only behavior; oneshot requires a resume-capable engine and is not yet executable in this release — v0.8)
       --engine string        LLM engine/label to bind (overrides the profiles' llm; empty = project default)
   -h, --help                 help for set
       --permissions string   Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)

@@ -5,6 +5,8 @@ package app
 
 import (
 	"context"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
@@ -29,6 +31,11 @@ type App struct {
 	HostShell ir.Shell
 	// DefaultShell is the final fallback when nothing else resolves a shell.
 	DefaultShell ir.Shell
+	// Warn receives one-line diagnostics about ltk's own failures — today, a
+	// recovered panic on the analysis path. New sets it to os.Stderr, which is
+	// where evaluate already writes its other operator-facing notes; a nil Warn
+	// discards them without changing any decision.
+	Warn io.Writer
 }
 
 // New builds an App with all frontends registered.
@@ -37,7 +44,7 @@ func New(cfg *rules.Config) *App {
 	reg.Register(shell.New()) // sh, bash, zsh, mksh
 	reg.Register(pwsh.New())  // pwsh (defers to PowerShell's own parser)
 	reg.Register(cmd.New())   // cmd.exe
-	return &App{Config: cfg, Registry: reg, DefaultShell: ir.ShellBash}
+	return &App{Config: cfg, Registry: reg, DefaultShell: ir.ShellBash, Warn: os.Stderr}
 }
 
 // resolveShell picks the shell to parse with, in precedence order:

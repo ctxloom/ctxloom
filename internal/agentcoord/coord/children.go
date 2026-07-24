@@ -569,7 +569,20 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 // this clock starts). Overridable per-coordinator via Options.
 // RunnerAwaitTimeout (coordinator.go), which is what issueStartRun actually
 // reads (c.runnerAwaitTimeout).
-const defaultRunnerAwaitTimeout = 60 * time.Second
+//
+// Widened from an original 60s (2026-07-24 retune, fix/launch-retry-budget):
+// 60s was tight enough that a genuinely slow-but-successful container start
+// under host contention (loaded Docker daemon, DinD nesting, a busy bridge
+// network) could be declared a launch FAILURE while the runner was still on
+// its way up — indistinguishable, from here, between "broken" and "slow".
+// awaitRunner is a plain blocking receive on a channel the runner's Hello
+// closes (grpcserver.go), not a poll loop, so widening this costs a HEALTHY
+// launch nothing: it still returns the instant the runner dials home.
+// Backoff spacing between separate launch ATTEMPTS (launchgate.go) is a
+// different budget, answering a different question ("how long between
+// attempts" vs "how long do we tolerate one attempt"), and is deliberately
+// left untouched — conflating the two was the original miscalibration.
+const defaultRunnerAwaitTimeout = 5 * time.Minute
 
 // runChildViaStartRun is the MIGRATED spawn tail (C1): spawn the runner
 // process (go-plugin handshake = process control only), await its

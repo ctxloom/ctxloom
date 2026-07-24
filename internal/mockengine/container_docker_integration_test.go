@@ -211,3 +211,157 @@ func recordFor(t *testing.T, rep mockengine.Report, kind, scope string) mockengi
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
 	return mockengine.ProbeRecord{}
 }
+
+// recordForRel returns the (kind, scope, rel) record or fails. codex's context
+// kind carries TWO cwd rows (AGENTS.md and the hook-mediated cache dir), so the
+// scope alone is ambiguous and the rel disambiguates.
+func recordForRel(t *testing.T, rep mockengine.Report, kind, scope, rel string) mockengine.ProbeRecord {
+	t.Helper()
+	for _, r := range rep.Records {
+		if r.Kind == kind && r.Scope == scope && r.Rel == rel {
+			return r
+		}
+	}
+	t.Fatalf("no probe record for kind=%s scope=%s rel=%s", kind, scope, rel)
+	return mockengine.ProbeRecord{}
+}
+
+// materializeCodexContext runs ctxloom's REAL codex surface materialization for
+// the context surface into workspace, and returns the sha256 of the bytes
+// ctxloom actually wrote to AGENTS.md. codex's context is delivered NATIVELY as
+// a managed-marker merge into AGENTS.md (agentsMDSurface) — NOT claude's
+// CLAUDE.md — so the mock must match codex's own file. Only the context surface
+// is delivered here, and the context-STRING route writes AGENTS.md; the
+// hook-mediated per-run cache file (.ctxloom/cache/context/<hash>.md) is keyed on
+// resolved Fragments, which the static string path never populates, so that
+// directory stays absent — its present:false row is part of the point.
+func materializeCodexContext(t *testing.T, workspace, context string) string {
+	t.Helper()
+	set := backends.BuildSurfaces("codex", agent.SurfaceInputs{Context: context}, nil)
+	var delivered bool
+	for _, d := range set.Deliveries() {
+		kd, ok := d.(agent.KindedDelivery)
+		if !ok || kd.Kind() != agent.SurfaceContext {
+			continue
+		}
+		if _, err := d.Deliver(workspace); err != nil {
+			t.Fatalf("materialize codex context: %v", err)
+		}
+		delivered = true
+	}
+	if !delivered {
+		t.Fatal("codex declared no context delivery — cannot set up the test")
+	}
+	b, err := os.ReadFile(filepath.Join(workspace, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("ctxloom's codex context delivery wrote no AGENTS.md at the well-known path: %v", err)
+	}
+	sum := hashHex(b)
+	t.Logf("ctxloom wrote AGENTS.md (%d bytes, sha256 %s)", len(b), sum)
+	return sum
+}
+
+// TestMockEngineContainer_CodexDiscoversDeliveredSurfaces is the codex peer of
+// the claude deliverable: the mock, running AS codex INSIDE a container over a
+// workspace ctxloom itself materialized, reports discovering exactly codex's
+// delivered surface (AGENTS.md, present:true with a matching hash) and correctly
+// reports the ones NOT delivered (present:false).
+//
+// ============================ SCOPE BOUNDARY (fiery-pasta) ============================
+// Like its claude peer, this proves CONTEXT DELIVERY — that ctxloom put codex's
+// bytes at the paths codex probes, reachable across the container boundary,
+// through codex's OWN argv contract (the `exec` subcommand, the POSITIONAL
+// prompt, no stdin). It proves NOTHING about whether the REAL codex engine can
+// RUN in any image: the mock is a Go binary and runs regardless of the image's
+// codex install or auth — the exact blind spot fiery-pasta records. Image
+// runtime health is a SEPARATE, non-skippable check (adapterRunGate /
+// TestACPAdapterRuns_* in internal/lm/isolation, which validates the real engine
+// by EXECUTION). Do not cite a green run here as evidence codex's image works.
+// =====================================================================================
+func TestMockEngineContainer_CodexDiscoversDeliveredSurfaces(t *testing.T) {
+	dockergateRequire(t, "the mock-engine codex container context-delivery test")
+
+	workspace := t.TempDir()
+	wantContextHash := materializeCodexContext(t, workspace, "# Project rules\nAlways run the tests.\nDeliver evidence, not existence.\n")
+
+	img := buildMockEngineImage(t)
+
+	// Run the mock AS codex oneshot, inside the container, over the materialized
+	// workspace. The argv mirrors what codex's buildArgs emits: the `exec`
+	// subcommand, then the sandbox tier, then the prompt as the TRAILING
+	// POSITIONAL (codex's PromptPositional delivery — NOT stdin). The report is
+	// written to a file in the mounted workspace so we read it back host-side.
+	prompt := "summarize the project rules"
+	cmd := exec.Command("docker", "run", "--rm",
+		"-v", workspace+":/work", "-w", "/work",
+		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
+		img, "/usr/local/bin/mockengine",
+		"--codex", "exec", "--sandbox", "read-only", prompt,
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("mock engine codex container run failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	// codex's oneshot wire is PLAIN TEXT — codex's driver streams stdout straight
+	// through with no envelope decode. A JSON envelope here (claude's shape) would
+	// be surfaced verbatim as the assistant reply by codex's real driver.
+	if strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
+		t.Fatalf("codex oneshot emitted a JSON envelope; codex's driver has no decoder: %s", stdout.String())
+	}
+	if strings.TrimSpace(stdout.String()) == "" {
+		t.Fatalf("codex oneshot produced no response text; stderr:\n%s", stderr.String())
+	}
+
+	// Read the discovery report the mock wrote into the mounted workspace.
+	rb, err := os.ReadFile(filepath.Join(workspace, "report.json"))
+	if err != nil {
+		t.Fatalf("no report.json in the workspace; stderr:\n%s", stderr.String())
+	}
+	var rep mockengine.Report
+	if err := json.Unmarshal(rb, &rep); err != nil {
+		t.Fatalf("report did not parse: %v\n%s", err, rb)
+	}
+
+	if rep.Engine != "codex" || rep.Surface != "oneshot" {
+		t.Fatalf("report identity = %s/%s, want codex/oneshot", rep.Engine, rep.Surface)
+	}
+
+	// DELIVERED: the AGENTS.md the mock discovered inside the container must match
+	// the bytes ctxloom wrote on the host — codex's native context file, seen
+	// across the container boundary.
+	ctx := recordForRel(t, rep, "context", "cwd", "AGENTS.md")
+	if !ctx.Present {
+		t.Fatalf("AGENTS.md was materialized but the mock reported it absent inside the container: %+v", ctx)
+	}
+	if ctx.SHA256 != wantContextHash {
+		t.Fatalf("AGENTS.md hash mismatch across the container boundary: got %s want %s", ctx.SHA256, wantContextHash)
+	}
+
+	// ABSENT: codex's hook-mediated run-path context cache directory was NOT
+	// delivered on this static-string run (it is fragments-keyed), and codex's
+	// CODEX_HOME-scoped settings/commands/skills were not delivered either. Every
+	// one must report present:false — the silent-no-op signal.
+	if dir := recordForRel(t, rep, "context", "cwd", agent.SCMContextSubdir); dir.Present {
+		t.Fatalf("hook-mediated context dir reported present but was never delivered: %+v", dir)
+	}
+	if settings := recordFor(t, rep, "settings", "env-dir"); settings.Present {
+		t.Fatalf("codex settings (config.toml) reported present but was never delivered: %+v", settings)
+	}
+	if cmds := recordFor(t, rep, "commands", "env-dir"); cmds.Present {
+		t.Fatalf("codex commands (prompts) reported present but were never delivered: %+v", cmds)
+	}
+	if skills := recordFor(t, rep, "skills", "env-dir"); skills.Present {
+		t.Fatalf("codex skills reported present but were never delivered: %+v", skills)
+	}
+	if rep.DiscoveryDigest == "" {
+		t.Fatal("no discovery digest")
+	}
+
+	t.Logf("discovery digest: %s", rep.DiscoveryDigest)
+	for _, r := range rep.Records {
+		t.Logf("  probe order=%d kind=%s scope=%s present=%t size=%d sha256=%s rel=%s",
+			r.Order, r.Kind, r.Scope, r.Present, r.Size, r.SHA256, r.Rel)
+	}
+}

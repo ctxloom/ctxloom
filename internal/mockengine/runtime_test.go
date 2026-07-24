@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -99,6 +100,120 @@ func TestRuntime_OneshotPlainWithoutJSONFlag(t *testing.T) {
 	}
 	if stdout == "" {
 		t.Fatal("plain oneshot produced no result")
+	}
+}
+
+// codexOneshot resolves codex's oneshot EngineCLI from the REAL declaration, so
+// these tests exercise codex's actual grammar (the `exec` subcommand, the
+// POSITIONAL prompt, no --output-format flag) rather than a restated one.
+func codexOneshot(t *testing.T) agent.EngineCLI {
+	t.Helper()
+	cli, ok := agent.EngineCLIFor(codex.CodexEngineCLIs(), agent.CLISurfaceOneshot)
+	if !ok {
+		t.Fatal("codex declares no oneshot surface")
+	}
+	return cli
+}
+
+// runCodexOneshot drives a Runtime over codex's oneshot surface. The prompt is
+// passed as the trailing argv POSITIONAL (codex's real delivery, PromptPositional
+// in L1); the stdin here is deliberately DISTINCT garbage, so a runtime that
+// wrongly read the prompt from stdin would produce a different promptSha256 and
+// be caught. argvExtra is spliced after the `exec` subcommand so a test can add
+// or omit posture flags.
+func runCodexOneshot(t *testing.T, cwd string, argvExtra []string, prompt string) (string, mockengine.Report, int) {
+	t.Helper()
+	cli := codexOneshot(t)
+	argv := append([]string{"exec"}, argvExtra...)
+	argv = append(argv, prompt)
+	parsed, err := cli.ParseArgv(argv)
+	if err != nil {
+		t.Fatalf("parse codex argv %v: %v", argv, err)
+	}
+	var stdout, stderr bytes.Buffer
+	rt := &mockengine.Runtime{
+		CLI:    cli,
+		Argv:   parsed,
+		Res:    mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }},
+		Getenv: func(string) string { return "" },
+		Stdin:  strings.NewReader("STDIN-MUST-BE-IGNORED-FOR-CODEX"),
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+	code := rt.Run()
+	rep, err := mockengine.ExtractReport(stderr.String())
+	if err != nil {
+		t.Fatalf("extract report from stderr: %v\nstderr:\n%s", err, stderr.String())
+	}
+	return stdout.String(), rep, code
+}
+
+// TestRuntime_CodexOneshotIsPlainTextNotEnvelope proves codex's oneshot WIRE
+// contract: codex's driver (internal/codex/backend.go:404 Execute →
+// ExecuteCLI → RunNonInteractive at internal/shared/agent/launch_backend.go:141)
+// streams the child's stdout straight through with NO envelope parsing — unlike
+// claude, which buffers and decodes {result,modelUsage} under --output-format
+// json (parseClaudeJSONResult). So the mock as codex must emit PLAIN assistant
+// text; a JSON envelope here is bytes codex's driver would hand back verbatim as
+// the "assistant reply". It also proves the prompt was read from the POSITIONAL
+// (the promptSha256 matches the argv prompt, not the distinct stdin garbage).
+func TestRuntime_CodexOneshotIsPlainTextNotEnvelope(t *testing.T) {
+	prompt := "summarize the project rules"
+	stdout, rep, code := runCodexOneshot(t, t.TempDir(), []string{"--sandbox", "read-only"}, prompt)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if strings.HasPrefix(strings.TrimSpace(stdout), "{") {
+		t.Fatalf("codex oneshot emitted a JSON envelope; codex's driver has no decoder and would surface this verbatim: %s", stdout)
+	}
+	if stdout == "" {
+		t.Fatal("codex oneshot produced no response text")
+	}
+	if rep.Engine != "codex" {
+		t.Fatalf("report engine = %q, want codex", rep.Engine)
+	}
+	if want := sha256hex([]byte(prompt)); rep.PromptSHA256 != want {
+		t.Fatalf("promptSha256 = %s, want %s (the POSITIONAL prompt, not stdin)", rep.PromptSHA256, want)
+	}
+}
+
+// TestRuntime_CodexWireIndependentOfClaudeOutputFormat is the ROUTING guard and
+// the red gate. The oneshot surface is shared, but the stdout contract is
+// per-engine and MUST be selected by engine identity, never by claude's flag
+// vocabulary. This constructs a codex ParsedArgv that (synthetically — codex's
+// grammar would reject it, which is exactly why it is built directly) carries
+// claude's --output-format json signal, and asserts the codex wire STILL emits
+// plain text. Before the codex wire adapter existed, render routed every oneshot
+// engine through claude's adapter, which keys the JSON envelope on that flag
+// value — so codex would have emitted an envelope here. This pins that codex's
+// wire cannot be recaptured by claude's --output-format convention.
+func TestRuntime_CodexWireIndependentOfClaudeOutputFormat(t *testing.T) {
+	cli := codexOneshot(t)
+	// Built directly, not via ParseArgv: codex declares no --output-format, so
+	// ParseArgv would (correctly) reject it. The point is to feed the claude
+	// envelope trigger to codex's wire and prove the wire ignores it.
+	argv := agent.ParsedArgv{
+		Subcommand:  "exec",
+		Positionals: []string{"do the thing"},
+		Flags: []agent.ParsedFlag{
+			{Flag: agent.CLIFlag{Name: "--output-format", Value: agent.ValueString}, Value: "json"},
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	rt := &mockengine.Runtime{
+		CLI:    cli,
+		Argv:   argv,
+		Res:    mockengine.Resolver{Cwd: t.TempDir(), Home: t.TempDir(), Getenv: func(string) string { return "" }},
+		Getenv: func(string) string { return "" },
+		Stdin:  strings.NewReader(""),
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+	if code := rt.Run(); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if strings.HasPrefix(strings.TrimSpace(stdout.String()), "{") {
+		t.Fatalf("codex wire honored claude's --output-format json (emitted an envelope) — the wire is coupled to the wrong engine: %s", stdout.String())
 	}
 }
 

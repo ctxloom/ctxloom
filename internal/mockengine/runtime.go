@@ -98,15 +98,17 @@ func (r *Runtime) emitReport(report Report) {
 	}
 }
 
-// render puts the outcome on the wire in the surface's format. Oneshot uses the
-// claude wire adapter (plain text, or the JSON envelope under SkipSetup);
-// interactive — deferred in this slice to a plain echo — writes the response
-// text without the pty/keystroke/SIGWINCH behaviour a real interactive engine
-// has (see the package doc's deferred-surfaces note).
+// render puts the outcome on the wire in the surface's format. Oneshot dispatches
+// to the engine's per-personality wire adapter (renderOneshotWire — claude's
+// {result,modelUsage} envelope under SkipSetup, codex's plain text), because the
+// oneshot stdout contract is per-engine and not derivable from L1. Interactive —
+// deferred in this slice to a plain echo — writes the response text without the
+// pty/keystroke/SIGWINCH behaviour a real interactive engine has (see the package
+// doc's deferred-surfaces note).
 func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	switch r.CLI.Surface {
 	case agent.CLISurfaceOneshot:
-		return renderOneshot(r.Stdout, r.Argv, promptLen, outcome)
+		return renderOneshotWire(r.CLI.Engine, r.Stdout, r.Argv, promptLen, outcome)
 	default:
 		_, err := io.WriteString(r.Stdout, outcome.Response)
 		return err

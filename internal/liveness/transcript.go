@@ -96,9 +96,9 @@ type Redelivery struct {
 // not acquire a dependency edge that would make internal/transcript unable to
 // ever depend on liveness.
 type envelope struct {
-	Seq  int       `json:"seq"`
-	TS   time.Time `json:"ts"`
-	Kind string    `json:"kind"`
+	Seq   int       `json:"seq"`
+	TS    time.Time `json:"ts"`
+	Kind  string    `json:"kind"`
 	Entry *struct {
 		Type    string `json:"type"`
 		Content string `json:"content"`
@@ -154,78 +154,109 @@ func ReadTranscriptWith(path string, thr Thresholds) (TranscriptStat, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	st := TranscriptStat{Exists: true}
-	types := map[string]bool{}
-	// groups keys (entry type, content) to the receipt times it arrived at —
-	// the re-delivery cadence measurement.
-	groups := map[[2]string][]time.Time{}
-	lastUserIdx, lastCompleteIdx := -1, -1
-	lastKind := ""
-
+	sn := newTxScan()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 	for sc.Scan() {
-		if st.Records+st.Malformed >= maxTranscriptScan {
+		if sn.st.Records+sn.st.Malformed >= maxTranscriptScan {
 			break
 		}
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var e envelope
-		if err := json.Unmarshal(line, &e); err != nil {
-			st.Malformed++
-			continue
-		}
-		idx := st.Records
-		st.Records++
-		if e.Seq > st.MaxSeq {
-			st.MaxSeq = e.Seq
-		}
-		if st.Records == 1 {
-			st.FirstTS = e.TS
-		}
-		if !e.TS.IsZero() {
-			st.LastTS = e.TS
-		}
-		lastKind = e.Kind
-		switch e.Kind {
-		case "complete":
-			st.Completes++
-			lastCompleteIdx = idx
-		case "entry":
-			if e.Entry == nil {
-				break
-			}
-			st.EntryRecords++
-			types[e.Entry.Type] = true
-			switch e.Entry.Type {
-			case "assistant":
-				st.AssistantEntries++
-			case "tool_use":
-				st.LastToolUse = e.TS
-			case "user":
-				lastUserIdx = idx
-			}
-			key := [2]string{e.Entry.Type, e.Entry.Content}
-			if e.Entry.Content != "" {
-				groups[key] = append(groups[key], e.TS)
-			}
-		}
+		sn.line(sc.Bytes())
 	}
 	if err := sc.Err(); err != nil {
-		return st, fmt.Errorf("liveness: read transcript %s: %w", path, err)
+		return sn.finish(thr), fmt.Errorf("liveness: read transcript %s: %w", path, err)
 	}
+	return sn.finish(thr), nil
+}
 
-	st.EntryTypes = sortedKeys(types)
+// txScan folds a transcript's lines into a TranscriptStat. Split out of
+// ReadTranscriptWith so each step of the fold is separately readable (and so
+// the reader stays under the project's cyclomatic-complexity gate).
+type txScan struct {
+	st    TranscriptStat
+	types map[string]bool
+	// groups keys (entry type, content) to the receipt times it arrived at —
+	// the re-delivery cadence measurement.
+	groups          map[[2]string][]time.Time
+	lastUserIdx     int
+	lastCompleteIdx int
+	lastKind        string
+}
+
+func newTxScan() *txScan {
+	return &txScan{
+		st:              TranscriptStat{Exists: true},
+		types:           map[string]bool{},
+		groups:          map[[2]string][]time.Time{},
+		lastUserIdx:     -1,
+		lastCompleteIdx: -1,
+	}
+}
+
+// line folds one raw JSONL line. An unparseable line is COUNTED, never fatal:
+// a torn tail is normal for a file being appended to concurrently, and
+// abandoning the whole read over one bad line would discard the evidence.
+func (s *txScan) line(raw []byte) {
+	if len(raw) == 0 {
+		return
+	}
+	var e envelope
+	if err := json.Unmarshal(raw, &e); err != nil {
+		s.st.Malformed++
+		return
+	}
+	idx := s.st.Records
+	s.st.Records++
+	if e.Seq > s.st.MaxSeq {
+		s.st.MaxSeq = e.Seq
+	}
+	if s.st.Records == 1 {
+		s.st.FirstTS = e.TS
+	}
+	if !e.TS.IsZero() {
+		s.st.LastTS = e.TS
+	}
+	s.lastKind = e.Kind
+	switch e.Kind {
+	case "complete":
+		s.st.Completes++
+		s.lastCompleteIdx = idx
+	case "entry":
+		s.entry(idx, e)
+	}
+}
+
+func (s *txScan) entry(idx int, e envelope) {
+	if e.Entry == nil {
+		return
+	}
+	s.st.EntryRecords++
+	s.types[e.Entry.Type] = true
+	switch e.Entry.Type {
+	case "assistant":
+		s.st.AssistantEntries++
+	case "tool_use":
+		s.st.LastToolUse = e.TS
+	case "user":
+		s.lastUserIdx = idx
+	}
+	if e.Entry.Content != "" {
+		key := [2]string{e.Entry.Type, e.Entry.Content}
+		s.groups[key] = append(s.groups[key], e.TS)
+	}
+}
+
+func (s *txScan) finish(thr Thresholds) TranscriptStat {
+	st := s.st
+	st.EntryTypes = sortedKeys(s.types)
 	// Seq restarts at 0 per Recorder instance against an O_APPEND file, so
 	// many records that never advance past 0 means many recorders — a
 	// relaunch loop, not one conversation.
 	st.SeqPinned = st.Records > 1 && st.MaxSeq == 0
-	st.TurnClosed = lastCompleteIdx > lastUserIdx
-	st.PendingPermission = lastKind == "permission"
-	st.Redelivery = detectRedelivery(groups, thr)
-	return st, nil
+	st.TurnClosed = s.lastCompleteIdx > s.lastUserIdx
+	st.PendingPermission = s.lastKind == "permission"
+	st.Redelivery = detectRedelivery(s.groups, thr)
+	return st
 }
 
 func sortedKeys(m map[string]bool) []string {

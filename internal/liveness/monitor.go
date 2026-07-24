@@ -137,11 +137,11 @@ type Options struct {
 //
 // A Monitor is safe for concurrent use.
 type Monitor struct {
-	now       func() time.Time
-	thr       Thresholds
-	probes    []Probe
-	readTx    func(string) (TranscriptStat, error)
-	newestFS  func(string) (time.Time, bool, error)
+	now      func() time.Time
+	thr      Thresholds
+	probes   []Probe
+	readTx   func(string) (TranscriptStat, error)
+	newestFS func(string) (time.Time, bool, error)
 
 	mu   sync.Mutex
 	last map[string]cpuSample
@@ -189,137 +189,183 @@ func (m *Monitor) Thresholds() Thresholds { return m.thr }
 //
 // The ladder below is ordered first-match-wins, and the order is the design:
 //
-//	 0. Approval park — outranks everything. A child on an approval rung must
-//	    never be called stalled, from either the coordinator's word or the
-//	    transcript's own trailing permission record.
-//	 1. Death — the process is observably gone. Split by whether the in-flight
-//	    turn ever closed, so a clean end is not reported as a death.
-//	 2/3. POSITIVE evidence of a loop — a re-delivery cadence, or seq pinned at
-//	    0 across many records. These are observations of a loop HAPPENING, not
-//	    inferences from silence, so they carry no grace period and fire in
-//	    seconds rather than in the hour the incident actually took.
-//	 4. Launch grace — below it, absence proves nothing.
-//	 5..8. ABSENCE-based rules, every one of them age- and quiet-gated.
+//  0. Approval park — outranks everything. A child on an approval rung must
+//     never be called stalled, from either the coordinator's word or the
+//     transcript's own trailing permission record.
+//  1. Death — the process is observably gone. Split by whether the in-flight
+//     turn ever closed, so a clean end is not reported as a death.
+//     2/3. POSITIVE evidence of a loop — a re-delivery cadence, or seq pinned at
+//     0 across many records. These are observations of a loop HAPPENING, not
+//     inferences from silence, so they carry no grace period and fire in
+//     seconds rather than in the hour the incident actually took.
+//  4. Launch grace — below it, absence proves nothing.
+//     5..8. ABSENCE-based rules, every one of them age- and quiet-gated.
 //
 // Everything that can rescue a target to a non-firing verdict is checked
 // before everything that can condemn it, at each rung.
 func (m *Monitor) Assess(ctx context.Context, t Target) Report {
 	now := m.now()
 	ev := m.gather(ctx, t, now)
-	rep := func(s State, format string, args ...any) Report {
-		return Report{
-			Harp: t.Harp, Agent: t.Agent, Runtime: t.Runtime,
-			State: s, Reason: fmt.Sprintf(format, args...), Evidence: ev, At: now,
+	state, reason := m.verdict(t, ev, now)
+	return Report{
+		Harp: t.Harp, Agent: t.Agent, Runtime: t.Runtime,
+		State: state, Reason: reason, Evidence: ev, At: now,
+	}
+}
+
+// rung is one step of the ladder. It returns a state and its reason, or an
+// empty state to defer to the next rung. Each rung is its own named function
+// so the ORDER is visible in one place (verdict, below) and no single rung can
+// grow into an unreviewable pile of conditions.
+type rung func(t Target, ev Evidence, now time.Time) (State, string)
+
+func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) {
+	for _, r := range []rung{
+		m.approvalRung,
+		m.deathRung,
+		m.loopRung,
+		m.graceRung,
+		m.quietRung,
+	} {
+		if s, reason := r(t, ev, now); s != "" {
+			return s, reason
 		}
 	}
 	tx := ev.Transcript
+	if !ev.QuietObserved {
+		return StateUnknown, "no activity clock available (no record timestamps, no worktree mtime, no coordinator activity)"
+	}
+	return StateHealthy, fmt.Sprintf("seq %d, %d assistant turn(s), entry types: %s", tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
+}
 
-	// 0. AWAITING APPROVAL — never a stall, never reaped. Two independent
-	// sources, either sufficient: getting this wrong turns a working system
-	// into one that kills its own children, so whichever half is wired up
-	// wrongly must not be able to cause that on its own.
+// approvalRung: AWAITING APPROVAL outranks everything. Two independent
+// sources, either sufficient — getting this wrong turns a working system into
+// one that kills its own children, so whichever half is wired up wrongly must
+// not be able to cause that on its own.
+func (m *Monitor) approvalRung(t Target, ev Evidence, _ time.Time) (State, string) {
 	if t.AwaitingApproval {
-		return rep(StateAwaitingApproval, "parked on an approval rung (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
+		return StateAwaitingApproval, fmt.Sprintf("parked on an approval rung (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
 	}
-	if tx.PendingPermission {
-		return rep(StateAwaitingApproval, "the transcript's last record is a permission request with nothing after it — waiting on a decision")
+	if ev.Transcript.PendingPermission {
+		return StateAwaitingApproval, "the transcript's last record is a permission request with nothing after it — waiting on a decision"
 	}
+	return "", ""
+}
 
-	// 1. DIED — observably gone. Requires POSITIVE observation of absence:
-	// a probe that could not see the target says nothing, and "nothing" is
-	// never promoted to "dead".
-	if ev.Proc.Observed && !ev.Proc.Alive {
-		if tx.TurnClosed {
-			return rep(StateHealthy, "the run ended after a completed turn (%d complete record(s)) — a clean end, not a death", tx.Completes)
-		}
-		return rep(StateDied, "the runtime is gone with no `complete` for the in-flight turn (%d record(s), %d complete) [%s]", tx.Records, tx.Completes, orUnknown(ev.Proc.Detail))
+// deathRung: observably gone. Requires POSITIVE observation of absence — a
+// probe that could not see the target says nothing, and "nothing" is never
+// promoted to "dead". Split by whether the in-flight turn closed, so a clean
+// end is never reported as a death.
+func (m *Monitor) deathRung(_ Target, ev Evidence, _ time.Time) (State, string) {
+	if !ev.Proc.Observed || ev.Proc.Alive {
+		return "", ""
 	}
+	tx := ev.Transcript
+	if tx.TurnClosed {
+		return StateHealthy, fmt.Sprintf("the run ended after a completed turn (%d complete record(s)) — a clean end, not a death", tx.Completes)
+	}
+	return StateDied, fmt.Sprintf("the runtime is gone with no `complete` for the in-flight turn (%d record(s), %d complete) [%s]",
+		tx.Records, tx.Completes, orUnknown(ev.Proc.Detail))
+}
 
-	// 2. POSITIVE evidence of a loop: identical content on a metronome.
+// loopRung: POSITIVE evidence of a loop. Both rules here are observations of a
+// loop HAPPENING rather than inferences from silence, so neither carries a
+// grace period — which is what turns "an hour of nothing" into "seconds".
+func (m *Monitor) loopRung(_ Target, ev Evidence, _ time.Time) (State, string) {
+	tx := ev.Transcript
 	if r := tx.Redelivery; r != nil && r.Repeats >= m.thr.RedeliveryMinRepeats {
-		return rep(StateStalled, "the same %s content was re-delivered %d times on a %s cadence (max deviation %s) — a re-delivery loop, not work: %q",
+		return StateStalled, fmt.Sprintf("the same %s content was re-delivered %d times on a %s cadence (max deviation %s) — a re-delivery loop, not work: %q",
 			r.EntryType, r.Repeats, r.Cadence.Round(time.Millisecond), r.MaxDeviation.Round(time.Millisecond), r.Sample)
 	}
-
-	// 3. POSITIVE evidence of a loop: seq never advanced past 0 across many
-	// records. Seq restarts per Recorder against an O_APPEND file, so this is
-	// many recorders — i.e. many relaunches — not one conversation.
+	// Seq restarts per Recorder against an O_APPEND file, so many records that
+	// never advanced past 0 means many recorders — many relaunches — not one
+	// conversation.
 	if tx.SeqPinned {
-		return rep(StateStalled, "seq is pinned at 0 across %d records — every line came from a fresh recorder, i.e. a relaunch loop (entry types: %s, assistant turns: %d)",
+		return StateStalled, fmt.Sprintf("seq is pinned at 0 across %d records — every line came from a fresh recorder, i.e. a relaunch loop (entry types: %s, assistant turns: %d)",
 			tx.Records, joinOrNone(tx.EntryTypes), tx.AssistantEntries)
 	}
+	return "", ""
+}
 
-	// 4. LAUNCH GRACE. Below it, absence proves nothing: the coordinator
-	// itself waits StartGrace for a runner to dial home, and firing before
-	// the launch path would give up is a guaranteed false positive.
-	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
-	if young && !tx.Exists {
-		return rep(StateStarting, "launched %s ago, no transcript yet — still inside the %s launch grace", ev.Age.Round(time.Second), m.thr.StartGrace)
+// graceRung: below the launch grace, absence proves nothing — the coordinator
+// itself waits StartGrace for a runner to dial home, so firing before the
+// launch path would give up is a guaranteed false positive. Past it, no
+// transcript at all means the engine emitted zero events (the recorder creates
+// the file on its first record), which is a stall.
+func (m *Monitor) graceRung(t Target, ev Evidence, _ time.Time) (State, string) {
+	if ev.Transcript.Exists {
+		return "", ""
 	}
-	if t.StartedAt.IsZero() && !tx.Exists {
-		return rep(StateUnknown, "no transcript and no start time — nothing to measure progress against")
+	if t.StartedAt.IsZero() {
+		return StateUnknown, "no transcript and no start time — nothing to measure progress against"
 	}
-
-	// 5. NO TRANSCRIPT AT ALL past the grace. The recorder opens lazily on
-	// the first successful Record, so absence means zero events were ever
-	// produced by an engine that has had %s to produce one.
-	if !tx.Exists {
-		return rep(StateStalled, "no canonical transcript exists %s after launch — the engine has emitted zero events (the recorder creates the file on its first record)", ev.Age.Round(time.Second))
+	if ev.Age < m.thr.StartGrace {
+		return StateStarting, fmt.Sprintf("launched %s ago, no transcript yet — still inside the %s launch grace", ev.Age.Round(time.Second), m.thr.StartGrace)
 	}
+	return StateStalled, fmt.Sprintf("no canonical transcript exists %s after launch — the engine has emitted zero events (the recorder creates the file on its first record)", ev.Age.Round(time.Second))
+}
 
-	quiet := ev.Quiet
-	stillQuiet := ev.QuietObserved && quiet >= m.thr.QuietGrace
-
-	// 6. Recent activity on ANY clock is evidence of life. Checked before
-	// every remaining rule so a working agent cannot be condemned by a
-	// definition clause it happens not to satisfy yet.
-	if ev.QuietObserved && quiet < m.thr.QuietGrace {
-		return rep(StateHealthy, "active %s ago (seq %d, %d assistant turn(s), entry types: %s)", quiet.Round(time.Second), tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
-	}
-
-	// 7. The definition's content clauses, each gated on the target ALSO
-	// being quiet — an agent that is visibly doing things is not stalled just
-	// because it has not spoken yet.
-	if stillQuiet && !young {
-		if tx.AssistantEntries == 0 {
-			return rep(StateStalled, "quiet for %s with zero assistant turns in %d records (entry types: %s) — the engine has never produced a turn",
-				quiet.Round(time.Second), tx.Records, joinOrNone(tx.EntryTypes))
-		}
-		if tx.EntryRecords >= 3 && len(tx.EntryTypes) <= 1 {
-			return rep(StateStalled, "quiet for %s with %d entries of a single type (%s) — no entry-type variety",
-				quiet.Round(time.Second), tx.EntryRecords, joinOrNone(tx.EntryTypes))
-		}
-	}
-
-	// 8. Quiet, with content that otherwise looks fine: CPU is the tiebreak
-	// between a long think and a hang.
-	if stillQuiet {
-		burn, known := m.cpuBurn(t.Harp, ev.Proc, now)
-		switch {
-		case known && burn:
-			return rep(StateSlow, "quiet for %s but burning CPU — a long think, not a hang [%s]", quiet.Round(time.Second), orUnknown(ev.Proc.Detail))
-		case known:
-			return rep(StateStalled, "quiet for %s (last tool_use %s) and consuming no CPU [%s]", quiet.Round(time.Second), agoOrNever(ev.Proc, tx.LastToolUse, now), orUnknown(ev.Proc.Detail))
-		case ev.Proc.CPUObserved:
-			// CPU is measurable for this runtime but there is no earlier
-			// sample to difference against. A single absolute reading proves
-			// nothing, so this must not condemn — the next poll will decide.
-			return rep(StateSlow, "quiet for %s; CPU baseline captured, deferring the verdict to the next sample", quiet.Round(time.Second))
-		default:
-			// CPU is NOT measurable for this runtime at all (a container the
-			// coordinator can only see through its runner's heartbeat), so no
-			// future sample will help. Total silence past the quiet grace is
-			// then the best available answer, and refusing to answer would
-			// leave the runtime the incident happened in the one the monitor
-			// cannot speak about.
-			return rep(StateStalled, "quiet for %s with no CPU evidence obtainable for runtime %q [%s]", quiet.Round(time.Second), orUnknown(t.Runtime), orUnknown(ev.Proc.Detail))
-		}
-	}
-
+// quietRung: everything gated on the target being silent on EVERY clock past
+// the quiet grace. Recent activity anywhere rescues first, so a working agent
+// can never be condemned by a definition clause it merely has not satisfied
+// yet.
+func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string) {
 	if !ev.QuietObserved {
-		return rep(StateUnknown, "no activity clock available (no record timestamps, no worktree mtime, no coordinator activity)")
+		return "", ""
 	}
-	return rep(StateHealthy, "seq %d, %d assistant turn(s), entry types: %s", tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
+	quiet := ev.Quiet
+	if quiet < m.thr.QuietGrace {
+		tx := ev.Transcript
+		return StateHealthy, fmt.Sprintf("active %s ago (seq %d, %d assistant turn(s), entry types: %s)",
+			quiet.Round(time.Second), tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
+	}
+	young := !t.StartedAt.IsZero() && ev.Age < m.thr.StartGrace
+	if !young {
+		if s, reason := m.contentRung(ev, quiet); s != "" {
+			return s, reason
+		}
+	}
+	return m.cpuRung(t, ev, quiet, now)
+}
+
+// contentRung applies the shared definition's two CONTENT clauses — at least
+// one assistant entry, and entry-type variety — but only to a target that is
+// ALSO silent. An agent visibly doing things is not stalled just because it
+// has not spoken yet.
+func (m *Monitor) contentRung(ev Evidence, quiet time.Duration) (State, string) {
+	tx := ev.Transcript
+	if tx.AssistantEntries == 0 {
+		return StateStalled, fmt.Sprintf("quiet for %s with zero assistant turns in %d records (entry types: %s) — the engine has never produced a turn",
+			quiet.Round(time.Second), tx.Records, joinOrNone(tx.EntryTypes))
+	}
+	if tx.EntryRecords >= 3 && len(tx.EntryTypes) <= 1 {
+		return StateStalled, fmt.Sprintf("quiet for %s with %d entries of a single type (%s) — no entry-type variety",
+			quiet.Round(time.Second), tx.EntryRecords, joinOrNone(tx.EntryTypes))
+	}
+	return "", ""
+}
+
+// cpuRung is the tiebreak between a long think and a hang, for a target whose
+// content otherwise looks fine. The three "we cannot tell" branches are
+// deliberately distinct: a runtime whose CPU is measurable but not yet sampled
+// twice must NOT be condemned (the next poll decides), whereas a runtime whose
+// CPU can never be measured gets the best answer available rather than
+// permanent silence — otherwise the container case, which is where the
+// incident happened, is the one case the monitor cannot speak about.
+func (m *Monitor) cpuRung(t Target, ev Evidence, quiet time.Duration, now time.Time) (State, string) {
+	burning, known := m.cpuBurn(t.Harp, ev.Proc, now)
+	switch {
+	case known && burning:
+		return StateSlow, fmt.Sprintf("quiet for %s but burning CPU — a long think, not a hang [%s]", quiet.Round(time.Second), orUnknown(ev.Proc.Detail))
+	case known:
+		return StateStalled, fmt.Sprintf("quiet for %s (last tool_use %s) and consuming no CPU [%s]",
+			quiet.Round(time.Second), agoOrNever(ev.Transcript.LastToolUse, now), orUnknown(ev.Proc.Detail))
+	case ev.Proc.CPUObserved:
+		return StateSlow, fmt.Sprintf("quiet for %s; CPU baseline captured, deferring the verdict to the next sample", quiet.Round(time.Second))
+	default:
+		return StateStalled, fmt.Sprintf("quiet for %s with no CPU evidence obtainable for runtime %q [%s]",
+			quiet.Round(time.Second), orUnknown(t.Runtime), orUnknown(ev.Proc.Detail))
+	}
 }
 
 // gather collects every piece of evidence, in cheapest-first order. A failed
@@ -416,7 +462,7 @@ func joinOrNone(s []string) string {
 	return strings.Join(s, ",")
 }
 
-func agoOrNever(_ ProcState, at time.Time, now time.Time) string {
+func agoOrNever(at time.Time, now time.Time) string {
 	if at.IsZero() {
 		return "never"
 	}

@@ -121,19 +121,68 @@ var opencodeOverlayDirs = []string{
 	filepath.FromSlash(".ctxloom/cache"),
 }
 
+// nodeFloorFragment is the shared prereq every ACP-adapter install depends on:
+// a node the adapter can actually PARSE.
+//
+// The 2026-07-24 container-delegation defect lived here. The old prereq was
+// `command -v npm || apt-get install -y nodejs npm || true` — "best-effort",
+// version-blind. On an Ubuntu 24.04 base that resolves to Node 18.19.1, which
+// predates import attributes (`import x from "./p.json" with {type:"json"}`,
+// Node 18.20/20.10), the exact syntax @zed-industries/claude-code-acp's entry
+// module opens with. So the image built GREEN, the adapter sat on PATH, and
+// EVERY containerized claude-code agent's structured chat died at startup with
+// `SyntaxError: Unexpected token 'with'` — producing zero ChatEvents, a
+// transcript holding only the briefing `user` record at seq 0, and an endless
+// coordinator relaunch loop.
+//
+// So the floor is now asserted, not hoped for: an existing node >= 20 is left
+// alone (no network call, no repo added), and only a too-old/absent node
+// triggers the vendor's own documented Debian/Ubuntu channel. If the result is
+// STILL below the floor, the BUILD fails loudly here rather than shipping an
+// image whose agent cannot speak.
+//
+// SUPPLY CHAIN: deb.nodesource.com is a new download source for these images
+// (previously only the distro's own apt repo and the npm registry). It is
+// nodejs.org's own documented Debian/Ubuntu install channel, but it is a
+// dependency decision — flagged for human review, not slipped in.
+const nodeFloorFragment = `RUN set -e \
+    && NODE_MAJOR=$( (command -v node >/dev/null 2>&1 && node -p 'process.versions.node.split(".")[0]') || echo 0 ) \
+    && if [ "$NODE_MAJOR" -lt 20 ]; then \
+         (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg && rm -rf /var/lib/apt/lists/*)) \
+         && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+         && apt-get install -y --no-install-recommends nodejs \
+         && rm -rf /var/lib/apt/lists/*; \
+       fi \
+    && NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]') \
+    && { [ "$NODE_MAJOR" -ge 20 ] || { echo "ctxloom: this base resolves node $(node --version), below the ACP adapters' floor (>= 20); provide a newer node in the base image" >&2; exit 1; }; }
+`
+
+// adapterRunGate returns the image-time validation for an ACP adapter binary.
+//
+// PATH presence — the old gate, `command -v <adapter>` — is exactly the
+// silent-no-op this project bans: it proved a FILE existed and nothing about
+// whether it could run (see nodeFloorFragment for the defect it let through).
+// The adapter has no --version (running it bare serves ACP on stdio), so this
+// starts it with stdin closed under a timeout and fails the build on any
+// module-loader error in its output. A healthy adapter reaches its stdio loop
+// and says nothing of the sort; a broken one dies before it ever reads a byte.
+func adapterRunGate(adapter string) string {
+	return `    && command -v ` + adapter + ` \
+    && { timeout 20 ` + adapter + ` </dev/null >/tmp/ctxloom-acp-probe.log 2>&1 || true; } \
+    && { ! grep -qE 'SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_BUILTIN_MODULE' /tmp/ctxloom-acp-probe.log \
+         || { echo "ctxloom: ` + adapter + ` is installed but cannot start in this image:" >&2; cat /tmp/ctxloom-acp-probe.log >&2; exit 1; }; } \
+    && rm -f /tmp/ctxloom-acp-probe.log
+`
+}
+
 // claudeCodeInstallFragment installs claude via its OFFICIAL npm package plus
-// the claude-code-acp adapter ctxloom's structured chat needs, on an
-// ARBITRARY base: node/npm ensured best-effort (the embedded default base and
-// most devcontainers already ship node; a bare distro falls back to Debian's
-// nodejs via apt), then the real install + a hard validate gate — the
-// adapter has no --version (running it bare would serve ACP on stdio and
-// hang), so its gate is PATH presence, mirroring the retired
-// Containerfile-claude-code's install block exactly.
-var claudeCodeInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*) || true) \
-    && npm install -g @anthropic-ai/claude-code @zed-industries/claude-code-acp \
+// the claude-code-acp adapter ctxloom's structured chat needs, on an ARBITRARY
+// base: the asserted node floor (nodeFloorFragment) first, then the real
+// install, then a validate gate that RUNS both the client (`claude --version`)
+// and the adapter (adapterRunGate) rather than merely locating them.
+var claudeCodeInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @anthropic-ai/claude-code @zed-industries/claude-code-acp \
     && claude --version \
-    && command -v claude-code-acp
-`)
+` + adapterRunGate("claude-code-acp"))
 
 // codexInstallFragment installs the codex CLI via its npm package (the
 // official installer table also lists the chatgpt.com/codex/install.sh shell
@@ -163,11 +212,9 @@ var claudeCodeInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (
 // caller instead of a package-level []byte var). Until then, keep this
 // binary name in sync BY HAND with codex.CodexACPAdapter/CodexACPTransport's
 // InstallCmd if either ever changes.
-var codexInstallFragment = []byte(`RUN (command -v npm >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*) || true) \
-    && npm install -g @openai/codex @zed-industries/codex-acp \
+var codexInstallFragment = []byte(nodeFloorFragment + `RUN npm install -g @openai/codex @zed-industries/codex-acp \
     && codex --version \
-    && command -v codex-acp
-`)
+` + adapterRunGate("codex-acp"))
 
 // kiroInstallFragment installs kiro-cli via its official installer script,
 // mirroring the retired Containerfile-kiro's install block exactly: curl/

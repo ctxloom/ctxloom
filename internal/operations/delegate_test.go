@@ -1013,28 +1013,33 @@ func (h *hangingChatClient) Kill() {
 
 // TestPrepareAgentChat_Start_ChatDialDoesNotHangForever is the red/green pin
 // for the legacy go-plugin Chat dial's missing bound (spawner.Launch /
-// prep.Start's client.Chat call, internal/operations/delegate.go). Before any
-// fix, Start blocks on client.Chat until its ctx is externally cancelled —
-// there is no internal budget at all, so a wedged backend hangs the launch
-// indefinitely. This test never waits out that hang: it races Start's return
-// against its OWN short watchdog window, so a still-unbounded Start fails
-// this test fast (by hitting the watchdog) rather than blocking the suite.
+// prep.Start's client.Chat call, internal/operations/delegate.go). Before the
+// fix, Start blocked on client.Chat until its ctx was externally cancelled —
+// there was no internal budget at all, so a wedged backend hung the launch
+// indefinitely (confirmed red: Start did not return within a 2s watchdog
+// window with no ChatDialTimeout seam to inject). Now Start races the dial
+// against AgentChatRequest.ChatDialTimeout (defaultChatDialTimeout in
+// production; injected short here so the test asserts the real behavior
+// without waiting out the real 5-minute budget) and fails loud within it.
 func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
 	resetStrictness(t)
 	client := &hangingChatClient{killed: make(chan struct{})}
+	const dialTimeout = 50 * time.Millisecond
 	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-		Factory:  func(string, string, int) (pb.Client, error) { return client, nil },
+		Resolved:        &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:         t.TempDir(),
+		Factory:         func(string, string, int) (pb.Client, error) { return client, nil },
+		ChatDialTimeout: dialTimeout,
 	})
 	require.NoError(t, err)
 	defer p.Abort()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel) // reaps Start's goroutine below if it is still blocked when the test ends
+	t.Cleanup(cancel) // reaps client.Chat's own goroutine once dialChat gives up on it
 
 	done := make(chan struct{})
 	var startErr error
+	start := time.Now()
 	go func() {
 		_, startErr = p.Start(ctx)
 		close(done)
@@ -1042,14 +1047,17 @@ func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
 
 	select {
 	case <-done:
+		elapsed := time.Since(start)
 		require.Error(t, startErr, "a chat dial that never completes must fail loud, not hang forever")
+		assert.Contains(t, startErr.Error(), "mock", "the failure names the backend that never dialed")
+		assert.Less(t, elapsed, 2*time.Second, "must fail within its injected budget, nowhere near the real 5m default")
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start did not return within 2s of a wedged client.Chat call — the legacy dial has no internal bound at all (only ctx cancellation stops it)")
+		t.Fatal("Start did not return within 2s despite a 50ms injected ChatDialTimeout — the bound is not being honored")
 	}
 
 	select {
 	case <-client.killed:
-	default:
-		t.Error("expected the wedged client to be Kill()ed once its dial was declared failed")
+	case <-time.After(2 * time.Second):
+		t.Error("expected the wedged client to be Kill()ed (via reapLateChatDial) once its dial was declared failed")
 	}
 }

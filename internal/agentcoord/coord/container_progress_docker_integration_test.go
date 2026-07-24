@@ -13,40 +13,47 @@
 // none of them asked the only question that would have caught it: did the agent
 // produce a TURN?
 //
-// So these tests assert the SHARED LIVENESS DEFINITION (implemented in
-// transcript_progress_test.go, and deliberately identical to the one the
-// production liveness monitor is built against) against a real container child
-// spawned via AgentRun → runChild → runChildViaStartRun → issueStartRun →
-// awaitRunner → the in-container EngineHost.
+// So these tests assert the SHARED LIVENESS DEFINITION — which lives in exactly
+// one place, internal/liveness, and is reached here through the thin adapter in
+// transcript_progress_test.go — against a real container child spawned via
+// AgentRun → runChild → runChildViaStartRun → issueStartRun → awaitRunner → the
+// in-container EngineHost.
 //
 // BOTH DIRECTIONS are proven here, because a test that only ever passes is the
 // defect it exists to catch:
 //
 //   - GREEN: TestCoordContainerProgress_DelegatedChildAdvances — a healthy
-//     container child's transcript satisfies every signal.
+//     container child's transcript satisfies every signal, under the PRODUCTION
+//     thresholds (liveness.DefaultThresholds), not a test-friendly loosening.
 //   - RED: TestCoordContainerProgress_CatchesStalledEngine (the engine takes the
 //     turn and never emits: the user-only / seq-pinned-at-0 signature) and
 //     TestCoordContainerProgress_CatchesContainerThatNeverDialsHome (a real
 //     container that is UP but never becomes a runner: no transcript at all).
-//     Both drive the SAME assertion entry point as the green test —
-//     awaitTranscriptProgress — and require it to return an error.
+//     Both require liveness to FIRE, and then additionally require the green
+//     test's own entry point — awaitTranscriptProgress — to refuse them.
+//
+// WHY THE RED TESTS COMPRESS TWO THRESHOLDS. The rules are unchanged; the two
+// TIME graces are not. liveness will not infer a stall from silence until the
+// launch grace (5m) and the quiet grace (10m) have passed, and it is right not
+// to — that gate is precisely the fix for the old, unconditional "no assistant
+// entry ⇒ dead" rule, which called a healthy tool-only turn dead. A test cannot
+// wait 10 minutes to watch a 10-minute rule, so progressTightThresholds
+// compresses those two durations and leaves every other tuning at its
+// production default. The green test needs no such help and takes none.
 //
 // ASSERTION SURFACE: the canonical transcript file, not operations.SessionFeed.
-// See awaitTranscriptProgress's comment for why.
+// See pollProgress's comment for why.
 //
 // The red direction was verified by literally inverting both fault tests'
-// require.Error to require.NoError and running them (exit 1):
+// require.NoError on the stall await to require.Error and running them (exit 1);
+// the verdicts they produce read:
 //
-//	agent wispy-quick-equal is not making progress after 20s:
-//	transcript .../sessions/wispy-quick-equal/persist/transcript.jsonl: present=true records=1 max_seq=0 parked=false
-//	  entry.type user         x1
-//	  FAIL: seq never advanced past 0 (max_seq=0): the agent recorded at most its own prompt and produced nothing
-//	  FAIL: no entry.type=="assistant" record: the agent never produced a turn
-//	  FAIL: no entry-type variety: every entry record is the same type ("user" x1); ...
+//	transcript .../sessions/<harp>/persist/transcript.jsonl: state=stalled present=true records=1 max_seq=0 seq_pinned=false
+//	  entry types: user (assistant x0, entries x1)
+//	  reason: quiet for 6s with zero assistant turns in 1 records (entry types: user) — the engine has never produced a turn
 //
-//	agent nutty-loyal-acorn is not making progress after 45s:
-//	transcript .../sessions/nutty-loyal-acorn/persist/transcript.jsonl: present=false records=0 max_seq=-1 parked=false
-//	  FAIL: no transcript file: the recorder opens it lazily on the first event, ...
+//	transcript .../sessions/<harp>/persist/transcript.jsonl: state=stalled present=false records=0 max_seq=0 seq_pinned=false
+//	  reason: no canonical transcript exists 3s after launch — the engine has emitted zero events ...
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/agentcoord/coord/... -tags docker_integration -run CoordContainerProgress
@@ -65,6 +72,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/liveness"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -214,11 +222,30 @@ func (s *progressSpawner) cleanup() {
 	}
 }
 
-// awaitTranscriptProgress is the ONE assertion entry point all three tests
-// here share: poll harp's canonical transcript until it satisfies the shared
-// liveness definition, or the budget expires. It returns the final verdict
-// either way, and an error naming every failing signal when the agent is not
-// progressing.
+// progressTightThresholds is the PRODUCTION liveness ruleset with its two TIME
+// graces compressed, for the red directions only. Every field left zero
+// normalizes to liveness's own default inside liveness.New, so this loosens the
+// clock and nothing else — the repeat threshold, the jitter model and the CPU
+// floor are all still the shipped ones.
+var progressTightThresholds = liveness.Thresholds{
+	// The coordinator's real dial-home budget is minutes; the dark container's
+	// fault is permanent, so 2s is all the benefit of the doubt it needs.
+	StartGrace: 2 * time.Second,
+	// The real quiet grace (10m) is sized for a legitimately silent long tool
+	// call. A hung mock engine has no such excuse, and a test cannot wait ten
+	// minutes to watch a ten-minute rule fire.
+	QuietGrace: 5 * time.Second,
+}
+
+// pollProgress is the ONE assertion entry point all three tests here share:
+// poll harp's canonical transcript through internal/liveness until `until`
+// accepts the verdict, or the budget expires. It returns the final verdict
+// either way plus whether `until` was ever satisfied.
+//
+// It reaches its verdict entirely through liveness.Monitor.Assess — there is no
+// signal logic in this file or in transcript_progress_test.go, so a container
+// test and the production monitor can no longer disagree about what "alive"
+// means.
 //
 // WHY THE TRANSCRIPT FILE AND NOT operations.SessionFeed. The live feed is the
 // surface this package's existing container tests use (feedTail /
@@ -236,48 +263,64 @@ func (s *progressSpawner) cleanup() {
 //  3. the transcript is the DURABLE artifact that survives the container. A
 //     feed assertion cannot distinguish an agent that ran from one whose output
 //     never reached the host-side session state.
-//  4. the production liveness monitor is being built against this same
-//     definition, on this same file. A test that measured a different surface
-//     could drift away from the monitor silently.
+//  4. the production liveness monitor reads this same file. A test that
+//     measured a different surface could drift away from the monitor silently.
 //
 // The feed keeps its job (payload round-trip) in the tests that already use it;
 // this one asks a different question and reads a different surface.
-func awaitTranscriptProgress(harp string, timeout time.Duration) (progressVerdict, error) {
+func pollProgress(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time,
+	until func(progressVerdict) bool) (progressVerdict, bool, error) {
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	if err != nil {
-		return progressVerdict{}, fmt.Errorf("resolve canonical transcript path for %s: %w", harp, err)
+		return progressVerdict{}, false, fmt.Errorf("resolve canonical transcript path for %s: %w", harp, err)
 	}
+	mon := liveness.New(liveness.Options{Thresholds: thr})
 	deadline := time.Now().Add(timeout)
-	var (
-		v    progressVerdict
-		verr error
-	)
 	for {
-		v, verr = evaluateTranscriptProgress(path)
-		if verr != nil {
-			// A half-written final line is normal while the recorder appends;
-			// only a persistently corrupt file is a broken measurement.
-			if time.Now().After(deadline) {
-				return v, verr
-			}
-		} else if v.progressing() {
-			return v, nil
+		v := assessTranscriptProgress(mon, harp, path, startedAt)
+		if until(v) {
+			return v, true, nil
 		}
 		if time.Now().After(deadline) {
-			break
+			return v, false, nil
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	if verr != nil {
-		return v, verr
+}
+
+// awaitTranscriptProgress is the GREEN direction: wait for liveness to reach a
+// positive HEALTHY verdict. An expired budget is an error carrying the final
+// verdict's full reason, so a failure is always auditable.
+func awaitTranscriptProgress(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (progressVerdict, error) {
+	v, ok, err := pollProgress(harp, timeout, thr, startedAt, progressVerdict.progressing)
+	switch {
+	case err != nil:
+		return v, err
+	case !ok:
+		return v, fmt.Errorf("agent %s is not making progress after %s:\n%s", harp, timeout, v)
 	}
-	return v, fmt.Errorf("agent %s is not making progress after %s:\n%s", harp, timeout, v)
+	return v, nil
+}
+
+// awaitTranscriptStall is the RED direction: wait for liveness to FIRE. Same
+// monitor, same rules, opposite question — a monitor that never fires is the
+// defect these tests exist to catch, so "it did not fire" is the error here.
+func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (progressVerdict, error) {
+	v, ok, err := pollProgress(harp, timeout, thr, startedAt, progressVerdict.stalled)
+	switch {
+	case err != nil:
+		return v, err
+	case !ok:
+		return v, fmt.Errorf("agent %s was never reported as stalled within %s:\n%s", harp, timeout, v)
+	}
+	return v, nil
 }
 
 // startProgressChild is the shared setup: build the image, stand a coordinator
 // up on an isolated HOME, and AgentRun one container child with prompt. Returns
-// the child's harp and the live spawner.
-func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.Duration, prompt string) (string, *progressSpawner) {
+// the child's harp, the instant the run was enqueued (liveness measures every
+// age-gated rule from it) and the live spawner.
+func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.Duration, prompt string) (string, time.Time, *progressSpawner) {
 	t.Helper()
 	if !(isolation.Docker{}).Available() {
 		t.Skip("docker unavailable; skipping the container-progress integration test")
@@ -318,11 +361,12 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
+	startedAt := time.Now()
 	out, err := c.AgentRun(ctx, ownerIdentity(), progressAgentName, prompt, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 	require.Equal(t, "container", out.Runtime)
-	return out.Harp, sp
+	return out.Harp, startedAt, sp
 }
 
 // TestCoordContainerProgress_DelegatedChildAdvances is the GREEN direction: a
@@ -338,7 +382,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 // exercise it, which is the same blind spot one level up.
 func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 	seed := "PROGRESS-SEED-" + randID("", 6)
-	harp, sp := startProgressChild(t, progressSpawnReal, 0, "TOOLS "+seed)
+	harp, startedAt, sp := startProgressChild(t, progressSpawnReal, 0, "TOOLS "+seed)
 
 	// A real container is up (the cheap signal — necessary, never sufficient).
 	require.Eventually(t, func() bool { return len(sp.containerNames()) > 0 && sp.containerNames()[0] != "" },
@@ -349,19 +393,20 @@ func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 		return strings.TrimSpace(string(psOut)) == containerName
 	}, 30*time.Second, 250*time.Millisecond, "the child's container must actually be running")
 
-	// The sufficient signal: PROGRESS.
-	v, err := awaitTranscriptProgress(harp, 120*time.Second)
+	// The sufficient signal: PROGRESS — judged under the PRODUCTION thresholds,
+	// so the green direction owes nothing to a test-only loosening.
+	v, err := awaitTranscriptProgress(harp, 120*time.Second, liveness.DefaultThresholds(), startedAt)
 	require.NoError(t, err, "the container child must make progress")
 
 	// Pin the individual signals so a future weakening of the definition is a
 	// visible diff, not a quietly-passing test.
-	assert.True(t, v.Present, "the transcript file must exist")
-	assert.Greater(t, v.MaxSeq, 0, "seq must advance past 0")
+	assert.True(t, v.present(), "the transcript file must exist")
+	assert.Greater(t, v.maxSeq(), 0, "seq must advance past 0")
 	assert.False(t, v.stalled())
-	assert.Positive(t, v.EntryTypes["assistant"], "at least one assistant entry")
-	assert.Greater(t, len(v.EntryTypes), 1, "entry-type variety")
+	assert.Positive(t, v.assistantEntries(), "at least one assistant entry")
+	assert.Greater(t, len(v.entryTypes()), 1, "entry-type variety")
 	for _, want := range []string{"user", "thinking", "tool_use", "tool_result", "assistant"} {
-		assert.Positive(t, v.EntryTypes[want],
+		assert.Contains(t, v.entryTypes(), want,
 			"the full entry vocabulary must survive the container round trip; missing %q in:\n%s", want, v)
 	}
 	// The payload itself, so this is never a shape-only assertion.
@@ -377,32 +422,35 @@ func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 // That leaves the exact on-disk signature the shipped defect left: a transcript
 // whose only record is the user turn, seq pinned at 0, no assistant entry, one
 // distinct entry type. The plumbing-only assertions this package already had
-// would call this a healthy launch; awaitTranscriptProgress must call it dead.
+// would call this a healthy launch; liveness must call it dead once the agent
+// has also gone silent (see progressTightThresholds for why the silence is
+// measured on a compressed clock, and the package comment for why the silence
+// gate is REQUIRED rather than incidental).
 func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
 	seed := "STALL-SEED-" + randID("", 6)
-	harp, _ := startProgressChild(t, progressSpawnReal, 0, "HANG "+seed)
+	harp, startedAt, _ := startProgressChild(t, progressSpawnReal, 0, "HANG "+seed)
 
 	// The transcript must first EXIST — otherwise this would be testing the
-	// missing-file signal by accident rather than the pinned-seq one.
+	// missing-file signal by accident rather than the silent-engine one.
 	require.Eventually(t, func() bool {
-		v, err := evaluateTranscriptProgress(mustTranscriptPath(t, harp))
-		return err == nil && v.Present
+		st, err := liveness.ReadTranscript(mustTranscriptPath(t, harp))
+		return err == nil && st.Exists
 	}, 120*time.Second, 250*time.Millisecond,
 		"the delivered prompt must be recorded (this proves the child really did launch and get its turn)")
 
-	// The SAME assertion the green test uses must reject this agent.
-	v, err := awaitTranscriptProgress(harp, 20*time.Second)
-	require.Error(t, err, "a stalled engine must NOT read as progress; verdict was:\n%s", v)
+	v, err := awaitTranscriptStall(harp, 60*time.Second, progressTightThresholds, startedAt)
+	require.NoError(t, err, "a stalled engine must be caught; verdict was:\n%s", v)
 	assert.True(t, v.stalled())
-	assert.True(t, v.Present, "the file exists — this is the pinned-seq signature, not the missing-file one")
-	assert.Equal(t, 0, v.MaxSeq, "seq pinned at 0 is the signature failure")
-	assert.Zero(t, v.EntryTypes["assistant"], "no assistant turn was ever produced")
+	assert.True(t, v.present(), "the file exists — this is the silent-engine signature, not the missing-file one")
+	assert.Equal(t, 0, v.maxSeq(), "seq pinned at 0 is the signature failure")
+	assert.Zero(t, v.assistantEntries(), "no assistant turn was ever produced")
+	assert.Contains(t, v.reason(), "zero assistant turns")
 
-	joined := strings.Join(v.Failures, "\n")
-	assert.Contains(t, joined, "seq never advanced past 0")
-	assert.Contains(t, joined, "no entry.type==\"assistant\"")
-	assert.Contains(t, joined, "no entry-type variety")
-	assert.Contains(t, err.Error(), "is not making progress")
+	// And the GREEN test's own entry point must refuse the same agent — a
+	// verdict that fires but still reads as progress would be no verdict at all.
+	pv, perr := awaitTranscriptProgress(harp, 2*time.Second, progressTightThresholds, startedAt)
+	require.Error(t, perr, "a stalled engine must NOT read as progress; verdict was:\n%s", pv)
+	assert.Contains(t, perr.Error(), "is not making progress")
 }
 
 // TestCoordContainerProgress_CatchesContainerThatNeverDialsHome is the RED
@@ -417,7 +465,7 @@ func TestCoordContainerProgress_CatchesContainerThatNeverDialsHome(t *testing.T)
 	seed := "DARK-SEED-" + randID("", 6)
 	// A deliberately tiny dial-home budget: the fault is permanent, so waiting
 	// out the production 5-minute budget would only make the test slow.
-	harp, sp := startProgressChild(t, progressSpawnDark, 15*time.Second, "TOOLS "+seed)
+	harp, startedAt, sp := startProgressChild(t, progressSpawnDark, 15*time.Second, "TOOLS "+seed)
 
 	// The lying cheap signal, asserted so the fault's realism is on the record:
 	// a container really is up.
@@ -429,12 +477,17 @@ func TestCoordContainerProgress_CatchesContainerThatNeverDialsHome(t *testing.T)
 		return strings.TrimSpace(string(psOut)) == containerName
 	}, 30*time.Second, 250*time.Millisecond, "the dark container must actually be running (the signal that lies)")
 
-	v, err := awaitTranscriptProgress(harp, 45*time.Second)
-	require.Error(t, err, "a container that never dials home must NOT read as progress; verdict was:\n%s", v)
-	assert.False(t, v.Present, "no transcript file at all — the recorder opens lazily on the first event")
+	v, err := awaitTranscriptStall(harp, 60*time.Second, progressTightThresholds, startedAt)
+	require.NoError(t, err, "a container that never dials home must be caught; verdict was:\n%s", v)
+	assert.False(t, v.present(), "no transcript file at all — the recorder opens lazily on the first event")
 	assert.True(t, v.stalled())
-	require.Len(t, v.Failures, 1)
-	assert.Contains(t, v.Failures[0], "no transcript file")
+	assert.Zero(t, v.records())
+	assert.Contains(t, v.reason(), "no canonical transcript exists")
+
+	// And the GREEN test's own entry point must refuse it too.
+	pv, perr := awaitTranscriptProgress(harp, 2*time.Second, progressTightThresholds, startedAt)
+	require.Error(t, perr, "a container that never dials home must NOT read as progress; verdict was:\n%s", pv)
+	assert.Contains(t, perr.Error(), "is not making progress")
 }
 
 // mustTranscriptPath resolves harp's canonical transcript path or fails.
@@ -446,9 +499,9 @@ func mustTranscriptPath(t *testing.T, harp string) string {
 }
 
 // transcriptContents reads harp's canonical transcript, failing loud if it is
-// absent. Deliberately NOT evaluateTranscriptProgress's missing-is-a-verdict
-// handling: by the time this is called the file's existence has already been
-// asserted, so absence here is a broken test, not a dead agent.
+// absent. Deliberately NOT liveness's missing-is-a-verdict handling: by the
+// time this is called the file's existence has already been asserted, so
+// absence here is a broken test, not a dead agent.
 func transcriptContents(t *testing.T, harp string) string {
 	t.Helper()
 	b, err := os.ReadFile(mustTranscriptPath(t, harp))

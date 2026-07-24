@@ -1,43 +1,39 @@
-// Package-local implementation of the SHARED liveness definition, plus its
-// hermetic unit coverage. Deliberately NOT build-tagged: the docker-gated
+// The coordinator-side ADAPTER onto the shared liveness definition, plus its
+// hermetic coverage. Deliberately NOT build-tagged: the docker-gated
 // container-progress test (container_progress_docker_integration_test.go) is
-// the live consumer, but the signal logic itself must run under plain
-// `just test` so the definition cannot rot behind a tag the way container
-// coverage did.
+// the live consumer, but the adapter itself must run under plain `just test` so
+// it cannot rot behind a tag the way container coverage did.
 //
-// The definition is supplied, not invented here — a production liveness
-// monitor is being built against the same wording, so any change to these
-// signals is a change to a CONTRACT, not a local tweak. An agent is making
-// PROGRESS when its canonical transcript shows all of:
+// THERE IS NO SIGNAL LOGIC IN THIS FILE, AND THERE MUST NEVER BE ANY AGAIN.
 //
-//   - seq strictly advances past 0, contiguously from 0 (record.go's writer
-//     contract). seq pinned at 0 is the signature failure of the container
-//     defect this file exists to catch;
-//   - at least one kind=="entry" record with entry.type=="assistant";
-//   - entry-type VARIETY: more than one distinct entry.type across kind=="entry"
-//     records (the failing agents were 100% "user");
-//   - no identical content re-appended on a fixed cadence — group by
-//     (entry.type, entry.content) and compare ts deltas (ts is RECEIPT time, so
-//     a re-delivery cadence is directly measurable).
+// This file previously carried a SECOND implementation of the progress
+// definition — its own seq/assistant/variety/cadence rules, its own repeat
+// threshold, its own jitter model. It was written from the same brief as
+// internal/liveness and drifted from it anyway, in two ways that mattered:
 //
-// Two more rules are part of the definition, not decorations on it:
+//   - it accepted a cadence when max delta <= 2 x min delta, where liveness
+//     accepts when consecutive gaps stay within +/-25% of their MEDIAN. Those
+//     disagree on borderline input;
+//   - it failed unconditionally on "no entry.type == assistant record", where
+//     liveness gates that clause on the agent also having gone QUIET. The
+//     unconditional form is wrong: a turn can legitimately be tool-only (an
+//     assistant invokes a tool with no preamble text, yielding
+//     {user, tool_use, tool_result} and zero assistant entries) on a perfectly
+//     healthy agent, so the old rule was a flake waiting for a real engine.
 //
-//   - a MISSING transcript file is a FAILURE SIGNAL, not an error. The recorder
-//     opens the file lazily on the first successful Record, so a zero-event chat
-//     leaves no file at all — exactly the shape of "the agent never got its
-//     prompt";
-//   - an agent PARKED AWAITING APPROVAL is NOT stalled and must never be
-//     treated as dead.
+// Two implementations of one definition is how that drift happens, so the
+// definition now lives in exactly one place — internal/liveness — and this file
+// only PROJECTS its verdicts into the shape the container tests assert on. If
+// you are about to add a threshold, a ratio, or an `if` over transcript
+// contents here, it belongs in internal/liveness instead.
 package coord
 
 import (
-	"bufio"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"sort"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,253 +41,98 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/liveness"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// progressVerdict is one evaluation of the liveness definition against a
-// harp's canonical transcript.
+// progressVerdict is one liveness.Report, projected. Every method below is a
+// READ of something liveness already decided or measured; none of them decides
+// anything, which is what keeps this an adapter rather than a second monitor.
 type progressVerdict struct {
 	// Path is the transcript file the verdict was computed from.
 	Path string
-	// Present reports whether the file existed at all. False is a FAILURE
-	// signal (see the package comment), never an error.
-	Present bool
-	// Records is the number of parsed JSONL lines.
-	Records int
-	// MaxSeq is the highest seq observed (-1 for no records).
-	MaxSeq int
-	// EntryTypes counts kind=="entry" records by entry.type.
-	EntryTypes map[string]int
-	// Parked reports that the transcript ENDS on an unanswered permission
-	// request — awaiting approval, which the definition says is not stalled.
-	Parked bool
-	// Failures names every progress signal that did NOT hold, in the
-	// definition's order. Empty means the agent is making progress.
-	Failures []string
+	// Report is the verdict, verbatim, from internal/liveness.
+	Report liveness.Report
 }
 
-// progressing reports whether every signal held.
-func (v progressVerdict) progressing() bool { return len(v.Failures) == 0 }
+// progressing is the positive answer: liveness has POSITIVE evidence of
+// progress. Deliberately not "did not fire" — StateStarting and StateSlow are
+// "we cannot say yet", and a test that accepted those as progress would be the
+// silent no-op this whole cluster is about.
+func (v progressVerdict) progressing() bool { return v.Report.State == liveness.StateHealthy }
 
-// stalled is the operational question: is this agent dead? A parked-awaiting-
-// approval agent has failing progress signals (it produced no assistant turn
-// yet) and is nonetheless ALIVE, so the two questions are deliberately
-// distinct methods rather than one overloaded boolean.
-func (v progressVerdict) stalled() bool { return !v.progressing() && !v.Parked }
+// stalled is the operational question: is this agent one an operator must be
+// told about? It is liveness's own Firing(), so "stalled" here can never drift
+// from "stalled" there.
+func (v progressVerdict) stalled() bool { return v.Report.Firing() }
 
-// String renders a verdict for a failing assertion's message.
+// parked is the definition's carve-out: an agent awaiting approval is ALIVE.
+func (v progressVerdict) parked() bool { return v.Report.State == liveness.StateAwaitingApproval }
+
+func (v progressVerdict) present() bool         { return v.Report.Evidence.Transcript.Exists }
+func (v progressVerdict) records() int          { return v.Report.Evidence.Transcript.Records }
+func (v progressVerdict) maxSeq() int           { return v.Report.Evidence.Transcript.MaxSeq }
+func (v progressVerdict) entryTypes() []string  { return v.Report.Evidence.Transcript.EntryTypes }
+func (v progressVerdict) assistantEntries() int { return v.Report.Evidence.Transcript.AssistantEntries }
+func (v progressVerdict) reason() string        { return v.Report.Reason }
+
+// String renders a verdict for a failing assertion's message. liveness
+// guarantees Reason is never empty, so a failure here is always auditable.
 func (v progressVerdict) String() string {
+	tx := v.Report.Evidence.Transcript
 	var b strings.Builder
-	fmt.Fprintf(&b, "transcript %s: present=%t records=%d max_seq=%d parked=%t\n",
-		v.Path, v.Present, v.Records, v.MaxSeq, v.Parked)
-	types := make([]string, 0, len(v.EntryTypes))
-	for t := range v.EntryTypes {
-		types = append(types, t)
+	fmt.Fprintf(&b, "transcript %s: state=%s present=%t records=%d max_seq=%d seq_pinned=%t\n",
+		v.Path, v.Report.State, tx.Exists, tx.Records, tx.MaxSeq, tx.SeqPinned)
+	fmt.Fprintf(&b, "  entry types: %s (assistant x%d, entries x%d)\n",
+		joinOrNone(tx.EntryTypes), tx.AssistantEntries, tx.EntryRecords)
+	if r := tx.Redelivery; r != nil {
+		fmt.Fprintf(&b, "  redelivery: %q x%d on a %s cadence (max deviation %s)\n",
+			r.EntryType, r.Repeats, r.Cadence, r.MaxDeviation)
 	}
-	sort.Strings(types)
-	for _, t := range types {
-		fmt.Fprintf(&b, "  entry.type %-12s x%d\n", t, v.EntryTypes[t])
-	}
-	for _, f := range v.Failures {
-		fmt.Fprintf(&b, "  FAIL: %s\n", f)
-	}
+	fmt.Fprintf(&b, "  quiet: %s (observed=%t) age: %s\n",
+		v.Report.Evidence.Quiet, v.Report.Evidence.QuietObserved, v.Report.Evidence.Age)
+	fmt.Fprintf(&b, "  reason: %s\n", v.Report.Reason)
 	return b.String()
 }
 
-// cadenceMinSamples is how many identical (type, content) records must appear
-// before their ts deltas are even considered a cadence. Two occurrences are a
-// retry; three evenly spaced ones are a loop.
-const cadenceMinSamples = 3
-
-// cadenceRegularityFactor bounds how much the deltas between identical
-// re-appends may vary before they count as a FIXED cadence. The observed
-// defect re-delivered a byte-identical block every ~4-5s — a max/min ratio of
-// ~1.25, comfortably inside this bound, while genuinely conversational
-// repetition is bursty and blows straight past it.
-const cadenceRegularityFactor = 2.0
-
-// evaluateTranscriptProgress reads path and applies the shared liveness
-// definition. A missing file yields Present=false plus the corresponding
-// failure; an UNREADABLE or MALFORMED file yields an error, because that is a
-// broken measurement rather than a verdict about the agent.
-func evaluateTranscriptProgress(path string) (progressVerdict, error) {
-	v := progressVerdict{Path: path, MaxSeq: -1, EntryTypes: map[string]int{}}
-
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		v.Failures = append(v.Failures,
-			"no transcript file: the recorder opens it lazily on the first event, so "+
-				"absence means the agent produced ZERO events (it never got, or never "+
-				"acted on, its prompt)")
-		return v, nil
+func joinOrNone(s []string) string {
+	if len(s) == 0 {
+		return "none"
 	}
-	if err != nil {
-		return v, fmt.Errorf("read transcript %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-	v.Present = true
-
-	var recs []transcript.Record
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) // context leads are large
-	for line := 1; sc.Scan(); line++ {
-		raw := strings.TrimSpace(sc.Text())
-		if raw == "" {
-			continue
-		}
-		var r transcript.Record
-		if err := json.Unmarshal([]byte(raw), &r); err != nil {
-			return v, fmt.Errorf("transcript %s line %d: %w", path, line, err)
-		}
-		recs = append(recs, r)
-	}
-	if err := sc.Err(); err != nil {
-		return v, fmt.Errorf("scan transcript %s: %w", path, err)
-	}
-	v.Records = len(recs)
-
-	v.Failures = append(v.Failures, progressSeqFailures(recs, &v)...)
-	v.Failures = append(v.Failures, progressEntryFailures(recs, &v)...)
-	v.Failures = append(v.Failures, progressCadenceFailures(recs)...)
-	v.Parked = progressParkedOnApproval(recs)
-	return v, nil
+	return strings.Join(s, ",")
 }
 
-// progressSeqFailures checks signal 1: seq starts at 0, is contiguous, and
-// advances PAST 0. It also latches MaxSeq onto the verdict.
-func progressSeqFailures(recs []transcript.Record, v *progressVerdict) []string {
-	if len(recs) == 0 {
-		return []string{"transcript is empty: no records at all"}
-	}
-	var out []string
-	for _, r := range recs {
-		if r.Seq > v.MaxSeq {
-			v.MaxSeq = r.Seq
-		}
-	}
-	// Contiguity is the writer's own documented contract (record.go: starts at
-	// 0, no gaps), so a violation means either truncation or — the case that
-	// matters here — a transcript appended to by SUCCESSIVE recorders, each
-	// restarting its own seq at 0. That is precisely what a relaunch loop that
-	// never gets a turn out of the engine leaves behind.
-	for i, r := range recs {
-		if r.Seq != i {
-			out = append(out, fmt.Sprintf(
-				"seq is not contiguous from 0: record %d carries seq %d (a restarted seq "+
-					"means a second recorder appended to the same file — the relaunch-loop "+
-					"signature)", i, r.Seq))
-			break
-		}
-	}
-	if v.MaxSeq <= 0 {
-		out = append(out, fmt.Sprintf(
-			"seq never advanced past 0 (max_seq=%d): the agent recorded at most its own "+
-				"prompt and produced nothing", v.MaxSeq))
-	}
-	return out
+// progressMonitor builds the liveness monitor these tests judge with. thr's
+// zero fields normalize to the PRODUCTION defaults inside liveness, so a caller
+// overriding one grace never silently loosens the rest.
+func progressMonitor(thr liveness.Thresholds, now func() time.Time) *liveness.Monitor {
+	return liveness.New(liveness.Options{Now: now, Thresholds: thr})
 }
 
-// progressEntryFailures checks signals 2 and 3 (an assistant entry exists;
-// more than one distinct entry.type appears) and latches the type census.
-func progressEntryFailures(recs []transcript.Record, v *progressVerdict) []string {
-	for _, r := range recs {
-		if r.Kind != transcript.KindEntry || r.Entry == nil {
-			continue
-		}
-		v.EntryTypes[r.Entry.Type]++
-	}
-	var out []string
-	if v.EntryTypes[string(agentEntryTypeAssistant)] == 0 {
-		out = append(out, "no entry.type==\"assistant\" record: the agent never produced a turn")
-	}
-	if len(v.EntryTypes) <= 1 {
-		only := "none"
-		for t := range v.EntryTypes {
-			only = fmt.Sprintf("%q x%d", t, v.EntryTypes[t])
-		}
-		out = append(out, fmt.Sprintf(
-			"no entry-type variety: every entry record is the same type (%s); the failing "+
-				"container agents were 100%% \"user\"", only))
-	}
-	return out
-}
-
-// agentEntryTypeAssistant is the one entry-type string this file compares
-// against by name, kept as a constant so a rename of the vocabulary is a
-// compile-visible change here rather than a silently-never-matching literal.
-const agentEntryTypeAssistant = "assistant"
-
-// progressCadenceFailures checks signal 4: identical (entry.type,
-// entry.content) content re-appended on a FIXED cadence — the re-delivery
-// loop, measured on ts (receipt time).
-func progressCadenceFailures(recs []transcript.Record) []string {
-	type key struct{ typ, content string }
-	groups := map[key][]time.Time{}
-	order := []key{}
-	for _, r := range recs {
-		if r.Kind != transcript.KindEntry || r.Entry == nil || r.Entry.Content == "" {
-			continue
-		}
-		k := key{r.Entry.Type, r.Entry.Content}
-		if _, seen := groups[k]; !seen {
-			order = append(order, k)
-		}
-		groups[k] = append(groups[k], r.TS)
-	}
-	var out []string
-	for _, k := range order {
-		ts := groups[k]
-		if len(ts) < cadenceMinSamples {
-			continue
-		}
-		sort.Slice(ts, func(i, j int) bool { return ts[i].Before(ts[j]) })
-		minD, maxD := time.Duration(1<<62), time.Duration(0)
-		for i := 1; i < len(ts); i++ {
-			d := ts[i].Sub(ts[i-1])
-			if d <= 0 {
-				// Sub-tick identical stamps are a burst, not a cadence.
-				minD = 0
-				break
-			}
-			if d < minD {
-				minD = d
-			}
-			if d > maxD {
-				maxD = d
-			}
-		}
-		if minD <= 0 {
-			continue
-		}
-		if float64(maxD) <= cadenceRegularityFactor*float64(minD) {
-			out = append(out, fmt.Sprintf(
-				"identical %q content (%d chars) re-appended %d times on a fixed cadence "+
-					"(deltas %s..%s): the agent is being re-delivered the same block, not "+
-					"advancing", k.typ, len(k.content), len(ts), minD.Round(time.Millisecond),
-				maxD.Round(time.Millisecond)))
-		}
-	}
-	return out
-}
-
-// progressParkedOnApproval reports whether the transcript ENDS on a permission
-// request — the definition's explicit carve-out: an agent awaiting approval is
-// alive, and must never be reaped as dead.
-func progressParkedOnApproval(recs []transcript.Record) bool {
-	for i := len(recs) - 1; i >= 0; i-- {
-		switch recs[i].Kind {
-		case transcript.KindPermission:
-			return true
-		case transcript.KindEntry, transcript.KindComplete:
-			return false
-		}
-	}
-	return false
+// assessTranscriptProgress is the ONE way anything in this package reaches a
+// progress verdict: hand liveness the transcript path and what we know about
+// the run, and report what it says.
+//
+// Note what it does NOT do: return an error. liveness.Monitor.Assess never
+// errors — a failed observation lands as ABSENT evidence, never as a silently
+// healthy agent — and a missing transcript is a VERDICT (the recorder opens its
+// file lazily on the first event, so absence means zero events).
+func assessTranscriptProgress(mon *liveness.Monitor, harp, path string, startedAt time.Time) progressVerdict {
+	return progressVerdict{Path: path, Report: mon.Assess(context.Background(), liveness.Target{
+		Harp:           harp,
+		TranscriptPath: path,
+		StartedAt:      startedAt,
+	})}
 }
 
 // ---------------------------------------------------------------------------
-// Hermetic coverage of the signal logic. No docker, no engine — this runs
-// under plain `just test`, which is the point (see the package comment).
+// Hermetic coverage of the ADAPTER, on a frozen clock. No docker, no engine —
+// this runs under plain `just test`, which is the point.
+//
+// The rules themselves are covered in internal/liveness (transcript_test.go for
+// the measurements, monitor_test.go for the ladder). What is proven here is
+// that the projection above answers the questions the container tests ask, and
+// that it answers them the way liveness does.
 // ---------------------------------------------------------------------------
 
 // progressLine renders one transcript record as a JSONL line for the fixtures
@@ -313,7 +154,7 @@ func progressEntry(seq int, ts time.Time, typ, content string) transcript.Record
 
 func writeProgressFixture(t *testing.T, recs ...transcript.Record) string {
 	t.Helper()
-	path := t.TempDir() + "/transcript.jsonl"
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	var b strings.Builder
 	for _, r := range recs {
 		b.WriteString(progressLine(t, r))
@@ -322,17 +163,17 @@ func writeProgressFixture(t *testing.T, recs ...transcript.Record) string {
 	return path
 }
 
-func TestEvaluateTranscriptProgress_MissingFileIsAFailureNotAnError(t *testing.T) {
-	v, err := evaluateTranscriptProgress(t.TempDir() + "/never-written.jsonl")
-	require.NoError(t, err, "a missing transcript is a VERDICT, never an error")
-	assert.False(t, v.Present)
-	assert.False(t, v.progressing())
-	assert.True(t, v.stalled())
-	require.Len(t, v.Failures, 1)
-	assert.Contains(t, v.Failures[0], "no transcript file")
+// assessFixture judges path under the PRODUCTION thresholds with the clock
+// frozen at now. Freezing the clock rather than compressing the graces is what
+// lets a hermetic test exercise a 5-minute or 10-minute rule as the real
+// deployment would apply it.
+func assessFixture(path string, now, startedAt time.Time) progressVerdict {
+	return assessTranscriptProgress(
+		progressMonitor(liveness.Thresholds{}, func() time.Time { return now }),
+		"fixture-harp", path, startedAt)
 }
 
-func TestEvaluateTranscriptProgress_HealthyTurnPasses(t *testing.T) {
+func TestTranscriptProgress_HealthyTurnIsProgressing(t *testing.T) {
 	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	path := writeProgressFixture(t,
 		progressEntry(0, base, "user", "do the thing"),
@@ -344,34 +185,53 @@ func TestEvaluateTranscriptProgress_HealthyTurnPasses(t *testing.T) {
 			Seq: 5, TS: base.Add(1300 * time.Millisecond), Kind: transcript.KindComplete,
 			Complete: &transcript.CompletePayload{StopReason: "end_turn"}},
 	)
-	v, err := evaluateTranscriptProgress(path)
-	require.NoError(t, err)
+
+	v := assessFixture(path, base.Add(2*time.Second), base.Add(-time.Minute))
 	assert.True(t, v.progressing(), "a healthy turn must show progress; got:\n%s", v)
 	assert.False(t, v.stalled())
-	assert.Equal(t, 5, v.MaxSeq)
-	assert.Len(t, v.EntryTypes, 5)
+	assert.Equal(t, 5, v.maxSeq(), "seq must advance past 0")
+	assert.Positive(t, v.assistantEntries())
+	for _, want := range []string{"user", "thinking", "tool_use", "tool_result", "assistant"} {
+		assert.Contains(t, v.entryTypes(), want, "the full entry vocabulary must survive; got:\n%s", v)
+	}
 }
 
-func TestEvaluateTranscriptProgress_UserOnlySeqPinnedAtZero(t *testing.T) {
-	// The exact shape a container child left behind when it never got going:
-	// one user record, seq 0, nothing else.
+// The GATED assistant clause, in both directions — the divergence this file's
+// old private copy got wrong.
+//
+// A tool-only turn (an assistant invoking a tool with no preamble text) records
+// {user, tool_use, tool_result} and ZERO assistant entries on a perfectly
+// healthy agent. The old unconditional rule called that dead. liveness calls it
+// dead only once the agent has ALSO gone silent past the quiet grace, which is
+// the correct reading: "has not spoken yet" and "has stopped" are different
+// facts.
+func TestTranscriptProgress_ToolOnlyTurnIsHealthyUntilItGoesQuiet(t *testing.T) {
 	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	path := writeProgressFixture(t, progressEntry(0, base, "user", "composed context"))
+	path := writeProgressFixture(t,
+		progressEntry(0, base, "user", "run the suite"),
+		progressEntry(1, base.Add(time.Second), "tool_use", "Bash: just test-acceptance"),
+		progressEntry(2, base.Add(2*time.Second), "tool_result", "running..."),
+	)
+	// Well past the LAUNCH grace, so nothing here is rescued by youth alone.
+	started := base.Add(-10 * time.Minute)
 
-	v, err := evaluateTranscriptProgress(path)
-	require.NoError(t, err)
-	assert.True(t, v.Present)
-	assert.True(t, v.stalled())
-	joined := strings.Join(v.Failures, "\n")
-	assert.Contains(t, joined, "seq never advanced past 0")
-	assert.Contains(t, joined, "no entry.type==\"assistant\"")
-	assert.Contains(t, joined, "no entry-type variety")
+	live := assessFixture(path, base.Add(30*time.Second), started)
+	require.Zero(t, live.assistantEntries(), "precondition: this turn has produced no assistant entry")
+	assert.True(t, live.progressing(), "a recent tool-only turn is HEALTHY, not stalled; got:\n%s", live)
+	assert.False(t, live.stalled())
+
+	quiet := assessFixture(path, base.Add(30*time.Minute), started)
+	assert.True(t, quiet.stalled(), "the same transcript, silent for half an hour, IS a stall; got:\n%s", quiet)
+	assert.Contains(t, quiet.reason(), "zero assistant turns")
 }
 
-func TestEvaluateTranscriptProgress_RedeliveryCadenceIsCaught(t *testing.T) {
+// POSITIVE evidence of a loop carries NO grace period — which is what turns the
+// incident's hour of nothing into seconds. Asserted at age zero, inside every
+// grace the ladder has.
+func TestTranscriptProgress_RelaunchLoopFiresWithNoGrace(t *testing.T) {
+	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	// The 21809-char block re-delivered every ~4-5s, in miniature: identical
 	// content, evenly spaced, seq restarting at 0 per relaunch.
-	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	const block = "COMPOSED CONTEXT BLOCK"
 	path := writeProgressFixture(t,
 		progressEntry(0, base, "user", block),
@@ -379,32 +239,44 @@ func TestEvaluateTranscriptProgress_RedeliveryCadenceIsCaught(t *testing.T) {
 		progressEntry(0, base.Add(9*time.Second), "user", block),
 		progressEntry(0, base.Add(13*time.Second), "user", block),
 	)
-	v, err := evaluateTranscriptProgress(path)
-	require.NoError(t, err)
-	assert.True(t, v.stalled())
-	joined := strings.Join(v.Failures, "\n")
-	assert.Contains(t, joined, "fixed cadence")
-	assert.Contains(t, joined, "seq is not contiguous from 0")
+	now := base.Add(14 * time.Second)
+
+	v := assessFixture(path, now, now) // age 0: inside the launch grace
+	assert.True(t, v.stalled(), "a re-delivery loop is observed, not inferred, so no grace applies; got:\n%s", v)
+	assert.False(t, v.progressing())
+	assert.Equal(t, 4, v.records())
+	assert.Contains(t, v.reason(), "re-delivered")
+
+	// Contrast, so the rule is not read as "seq 0 is bad": ONE record at seq 0
+	// is not the relaunch signature — a healthy conversation's first record
+	// carries seq 0 too, and the old private copy condemned it for that.
+	single := writeProgressFixture(t, progressEntry(0, base, "user", block))
+	sv := assessFixture(single, base.Add(5*time.Second), base.Add(-10*time.Minute))
+	assert.False(t, sv.stalled(), "one record at seq 0 is a conversation starting; got:\n%s", sv)
 }
 
-func TestEvaluateTranscriptProgress_BurstyRepetitionIsNotACadence(t *testing.T) {
-	// A conversation that legitimately repeats a short string must NOT trip the
-	// cadence signal — a false positive here would reap live agents.
-	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	path := writeProgressFixture(t,
-		progressEntry(0, base, "user", "ok"),
-		progressEntry(1, base.Add(200*time.Millisecond), "assistant", "ok"),
-		progressEntry(2, base.Add(400*time.Millisecond), "user", "ok"),
-		progressEntry(3, base.Add(30*time.Second), "assistant", "ok"),
-		progressEntry(4, base.Add(31*time.Second), "user", "ok"),
-		progressEntry(5, base.Add(200*time.Second), "assistant", "ok"),
-	)
-	v, err := evaluateTranscriptProgress(path)
-	require.NoError(t, err)
-	assert.True(t, v.progressing(), "bursty repetition is not a fixed cadence; got:\n%s", v)
+// A missing transcript is a VERDICT, never an error — and, inside the launch
+// grace, not even a firing one. This pins the adapter's no-error contract: the
+// dark-container test below depends on absence reaching it as a verdict.
+func TestTranscriptProgress_MissingTranscriptIsAVerdictNotAnError(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	missing := filepath.Join(t.TempDir(), "persist", "transcript.jsonl")
+
+	young := assessFixture(missing, now, now.Add(-30*time.Second))
+	assert.False(t, young.present())
+	assert.False(t, young.stalled(), "a slow launch is not a stall; got:\n%s", young)
+	assert.False(t, young.progressing(), "nor is it evidence of progress")
+
+	old := assessFixture(missing, now, now.Add(-30*time.Minute))
+	assert.False(t, old.present())
+	assert.True(t, old.stalled(), "past the launch grace, zero events is a stall; got:\n%s", old)
+	assert.Contains(t, old.reason(), "no canonical transcript exists")
 }
 
-func TestEvaluateTranscriptProgress_ParkedOnApprovalIsNotStalled(t *testing.T) {
+// The definition's explicit carve-out: an agent awaiting approval is ALIVE and
+// must never be reaped. Asserted with every absence rule below the approval
+// rung primed to condemn it — no assistant turn, and silent for 45 minutes.
+func TestTranscriptProgress_ParkedOnApprovalIsNotStalled(t *testing.T) {
 	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	path := writeProgressFixture(t,
 		progressEntry(0, base, "user", "please edit the file"),
@@ -412,16 +284,9 @@ func TestEvaluateTranscriptProgress_ParkedOnApprovalIsNotStalled(t *testing.T) {
 			Seq: 1, TS: base.Add(time.Second), Kind: transcript.KindPermission,
 			Permission: &transcript.PermissionPayload{ID: "perm-1", ToolName: "edit"}},
 	)
-	v, err := evaluateTranscriptProgress(path)
-	require.NoError(t, err)
-	assert.True(t, v.Parked)
-	assert.False(t, v.progressing(), "it genuinely has produced no assistant turn yet")
-	assert.False(t, v.stalled(), "an agent awaiting approval is ALIVE and must never be reaped")
-}
 
-func TestEvaluateTranscriptProgress_MalformedLineIsAnErrorNotAVerdict(t *testing.T) {
-	path := t.TempDir() + "/transcript.jsonl"
-	require.NoError(t, os.WriteFile(path, []byte("{not json}\n"), 0o600))
-	_, err := evaluateTranscriptProgress(path)
-	require.Error(t, err, "a corrupt transcript is a broken MEASUREMENT, not a dead agent")
+	v := assessFixture(path, base.Add(45*time.Minute), base.Add(-time.Hour))
+	assert.True(t, v.parked())
+	assert.False(t, v.stalled(), "an agent awaiting approval is ALIVE and must never be reaped; got:\n%s", v)
+	assert.False(t, v.progressing(), "it genuinely has produced no assistant turn yet")
 }

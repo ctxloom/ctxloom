@@ -227,7 +227,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// --- skip: spawns/fans out real agent engines ---
 	"weave": {skip: "fans a task across real agent engines/profiles and synthesizes results; not exercised here"},
-	"map":   {skip: "deprecated alias for `weave --map-only`; same real-engine fan-out as weave"},
 
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
 	// (`manage init` was deleted outright — not deprecated — root `ctxloom

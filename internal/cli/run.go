@@ -426,8 +426,9 @@ Examples:
 		}
 		// In --print (oneshot) mode with no prompt yet, read it from piped stdin.
 		// This makes `run --print` a universal reducer: `… | ctxloom run -p synth
-		// --print` synthesizes over any piped input (e.g. `ctxloom map` output or
-		// non-ctxloom text). Skipped on a TTY so an interactive read never blocks.
+		// --print` synthesizes over any piped input (e.g. `ctxloom weave
+		// --map-only` output or non-ctxloom text). Skipped on a TTY so an
+		// interactive read never blocks.
 		if prompt == "" && runPrint && stdinIsPiped() {
 			if data, rerr := io.ReadAll(os.Stdin); rerr == nil {
 				prompt = strings.TrimSpace(string(data))

@@ -247,10 +247,11 @@ default. Profiles compose into one assembled context. Runtime (optional:
 host|container) sets WHERE this agent's engine process executes; omit it to
 inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/map/weave --workspace). Driving (optional: conversational|oneshot) sets
+(run/weave --workspace). Driving (optional: conversational|oneshot) sets
 the per-turn execution axis; omit it to keep the default conversational
-(warm-engine) model — oneshot requires a resume-capable engine and is not yet
-executable in this release.
+(warm-engine) model. oneshot requires a resume-capable engine and is
+EXPERIMENTAL in this release — executable, but its interfaces and behavior
+may change.
 
 Examples:
   ctxloom agent set finder --engine claude-fast --profiles finder
@@ -402,7 +403,7 @@ func init() {
 	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
 	agentSetCmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	agentSetCmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
-	agentSetCmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's only behavior; oneshot requires a resume-capable engine and is not yet executable in this release — v0.8)")
+	agentSetCmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames

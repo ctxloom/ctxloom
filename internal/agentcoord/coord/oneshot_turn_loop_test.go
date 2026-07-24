@@ -123,17 +123,33 @@ func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
 // slot-yield (Slice 4 / Fork 1's companion): a child blocked on a human
 // approval releases its ceiling slot so a queued peer can execute, instead of
 // starving it up to the (now finite) cap. Cap 1: child A parks on an approval
-// mid-turn; child B, queued behind the cap, must run to completion WHILE A is
-// still blocked — only possible if A yielded its slot.
+// mid-turn; child B, queued behind the cap, must EXECUTE (acquire the freed
+// slot) WHILE A is still blocked — only possible if A yielded its slot.
+//
+// The slot-yield invariant is proven by B reaching StateExecuting (which
+// happens in runChild the instant slots.acquire returns, BEFORE the engine
+// turn) while A holds the only cap-1 slot parked — not by racing B's full
+// engine-turn completion latency against a wall-clock deadline. That earlier
+// shape flaked under full-suite load (gusty-flap): B's *result* rides a whole
+// in-process gRPC turn (Home dial + Chat + bridge) whose tail latency spikes
+// under scheduler contention, so a 5s budget on the result occasionally timed
+// out even though the slot had been yielded in microseconds. The mechanism
+// itself is NOT load-sensitive: if the slot were not yielded (cap 1, A parked
+// and only answered AFTER this assertion) B could never leave StateQueued at
+// any budget — a hard deadlock, not a slow arrival — so this proof cannot be
+// masked by load. B is held mid-turn by a turnGate so "B executing while A
+// parked" is a stable, observable instant rather than a state B might race
+// through before a poll sees it.
 func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
 	resetStrictness(t)
+	bGate := make(chan struct{})
 	var spawns int
 	sp := planPresetSpawner(func() *scriptedChat {
 		spawns++
 		if spawns == 1 {
 			return &scriptedChat{permission: commandExecRequest("perm-A")} // A parks on approval
 		}
-		return &scriptedChat{} // B just runs
+		return &scriptedChat{turnGate: bGate} // B: held mid-turn until released
 	})
 	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
 
@@ -147,14 +163,29 @@ func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateParked }, conformanceWait, 10*time.Millisecond,
 		"A must be parked (slot yielded) while it waits on the approval")
 
-	// B, queued behind the cap-1 ceiling, now executes to completion — proof
-	// the slot was freed by A's approval wait.
+	// B, queued behind the cap-1 ceiling, acquires the FREED slot and reaches
+	// StateExecuting — the direct proof A yielded. B is gated mid-turn, so it
+	// holds this state for a stable observation. If the slot were NOT yielded
+	// B would sit in StateQueued forever (A holds the only slot and is answered
+	// below, AFTER this), so no wall-clock budget can mask a real starvation.
 	b, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task B", "", "")
 	require.NoError(t, err)
-	bRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task B") }, conformanceWait)
-	require.NotEmpty(t, bRes, "B must run to completion while A is approval-blocked (A yielded its slot)")
+	require.Eventually(t, func() bool { return rosterState(c, b.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
+		"B must reach StateExecuting (acquire the slot A yielded) while A is approval-blocked")
 
-	// A is still parked on its unanswered approval.
+	// Both invariants hold at the same instant: B executing, A still parked on
+	// its unanswered approval — B did not have to wait for A.
+	assert.Equal(t, StateExecuting, rosterState(c, b.Harp), "B must be executing on the yielded slot")
+	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked on its approval")
+
+	// Release B: it runs its turn to completion (secondary confirmation; the
+	// slot-yield claim is already proven above and does not hinge on this
+	// engine-turn latency).
+	close(bGate)
+	bRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task B") }, conformanceWait)
+	require.NotEmpty(t, bRes, "B completes its turn once released")
+
+	// A is still parked on its unanswered approval after B has come and gone.
 	assert.Equal(t, StateParked, rosterState(c, a.Harp), "A must still be parked on its approval")
 
 	// Answer A: it reclaims a slot and finishes its turn.
@@ -162,7 +193,6 @@ func TestApproval_MidTurnWaitYieldsSlotToPeer(t *testing.T) {
 	require.NoError(t, err)
 	aRes := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task A") }, conformanceWait)
 	require.NotEmpty(t, aRes, "A resumes and completes its turn once the approval is answered")
-	_ = b
 }
 
 // countRuns returns how many run records the live fold currently holds.

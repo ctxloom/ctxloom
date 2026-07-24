@@ -548,14 +548,18 @@ release:
     ### Security
 
     On non-Linux hosts (macOS and Windows, running under Docker Desktop),
-    ctxloom's host-to-container LLM transport is plain gRPC over a loopback TCP
-    port bound to `127.0.0.1` only. This channel has no per-run token and no mTLS
-    — its only handshake value is a static, compiled-in magic cookie that guards
-    against mis-execution, not a credential. Its safety rests on the loopback
-    binding plus the port being ephemeral and short-lived, so any local process on
-    the host that can reach that port during a run could talk to the plugin. On
-    Linux the transport is a bind-mounted unix socket instead and is not exposed
-    over TCP.
+    ctxloom's host-to-container LLM transport is plain gRPC with no per-run token
+    and no mTLS — its only handshake value is a static, compiled-in magic cookie
+    that guards against mis-execution, not a credential. The host-side port is
+    published to `127.0.0.1` only, so it is not reachable from off the host. But
+    the in-container listener binds all interfaces (`0.0.0.0`), and ctxloom does
+    not place agent containers on an isolated network — so another container on
+    the same Docker bridge can reach the plugin directly at the container's IP,
+    which the `127.0.0.1` host publish does not prevent (it constrains only
+    host-side access, never container-to-container traffic). On a shared or
+    multi-tenant container host, treat this as a trust boundary and isolate
+    untrusted workloads on separate Docker networks. On Linux the transport is a
+    bind-mounted unix socket instead and is not exposed over TCP.
 
     ### Which Build?
 

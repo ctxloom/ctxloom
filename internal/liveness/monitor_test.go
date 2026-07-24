@@ -1,0 +1,430 @@
+package liveness_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/transcript"
+)
+
+// composedContext stands in for the block the incident's launcher re-delivered
+// every ~4-5 seconds. Its exact text does not matter; that it is IDENTICAL on
+// every delivery is the whole signal.
+const composedContext = "# Project context\n\nYou are a delegated agent. Here is the composed context...\n"
+
+// ---------------------------------------------------------------------------
+// The stuck agent, reproduced.
+//
+// The 2026-07-24 incident was not a crashed process and not a slow one. The
+// launcher kept (re)starting the child engine, delivered the composed context
+// as its first turn, and never got a turn back — so the canonical transcript
+// grew forever with the same `user` block, seq pinned at 0 (a fresh
+// transcript.Recorder per relaunch restarts the numbering against the same
+// O_APPEND file), 100% `user` entries, zero assistant turns.
+//
+// This helper is that loop, driving the REAL internal/transcript recorder
+// against the REAL canonical path, so the monitor is tested against the actual
+// artifact rather than against a hand-rolled imitation of one.
+// ---------------------------------------------------------------------------
+
+// stuckSpawner never produces a turn: it relaunches, re-delivers, repeat.
+type stuckSpawner struct {
+	harp       string
+	engine     string
+	deliveries int
+	cadence    time.Duration
+}
+
+func (s stuckSpawner) loop(t *testing.T) {
+	t.Helper()
+	for i := 0; i < s.deliveries; i++ {
+		// A relaunch: a brand-new Recorder, hence seq restarting at 0.
+		rec, err := transcript.NewRecorder(s.harp, s.engine)
+		require.NoError(t, err)
+		transcript.RecordUserText(rec, composedContext)
+		require.NoError(t, rec.Close())
+		if s.cadence > 0 && i < s.deliveries-1 {
+			time.Sleep(s.cadence)
+		}
+	}
+}
+
+// healthySession is what progress actually looks like: ONE recorder, seq
+// advancing, several distinct entry types, assistant output, a closed turn.
+func healthySession(t *testing.T, harp string) {
+	t.Helper()
+	rec, err := transcript.NewRecorder(harp, "claude")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rec.Close()) }()
+	transcript.RecordUserText(rec, composedContext)
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeAssistant, Content: "Reading the failing test first.",
+	}}))
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeToolUse, ToolName: "Read", Content: "internal/liveness/monitor.go",
+	}}))
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeToolResult, Content: "package liveness",
+	}}))
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeAssistant, Content: "The ladder is missing the redelivery rule.",
+	}}))
+	require.NoError(t, rec.Record(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}))
+}
+
+// approvalParkedSession ends on a forwarded permission request with nothing
+// after it — a child holding on a human, which an approval rung may
+// legitimately do for many minutes.
+func approvalParkedSession(t *testing.T, harp string) {
+	t.Helper()
+	rec, err := transcript.NewRecorder(harp, "claude")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rec.Close()) }()
+	transcript.RecordUserText(rec, composedContext)
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeAssistant, Content: "I need to run the migration.",
+	}}))
+	require.NoError(t, rec.Record(agent.ChatEvent{Permission: &agent.PermissionRequest{
+		ID: "perm-1", ToolName: "Bash",
+	}}))
+}
+
+// testHome points paths.HarpCanonicalTranscriptPath at a temp dir so the real
+// Recorder writes somewhere disposable.
+func testHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+}
+
+func transcriptPath(t *testing.T, harp string) string {
+	t.Helper()
+	p, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	return p
+}
+
+// aliveNoCPU is a probe standing in for a runtime whose process is up but
+// whose CPU cannot be read (the container case as the coordinator sees it).
+var aliveNoCPU = liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
+	return liveness.ProcState{Observed: true, Alive: true, Detail: "runner heartbeat 2s ago"}
+}}
+
+// ===========================================================================
+// THE THREE-DIRECTION PROOF
+//
+// A monitor that always reports healthy is worse than no monitor: it launders
+// the failure and hands out false confidence. So the load-bearing assertion is
+// not that the monitor RUNS, or that it returns a value — it is that it FIRES
+// on a genuinely stuck agent, and that it stays silent on the two things that
+// look superficially similar.
+// ===========================================================================
+
+// Direction 1 (the one that matters): the monitor FIRES on a genuinely stuck
+// agent — the incident, reproduced through the real recorder.
+func TestMonitor_FiresOnStuckAgent(t *testing.T) {
+	testHome(t)
+	const harp = "stuck-agent-harp"
+	stuckSpawner{harp: harp, engine: "claude", deliveries: 6}.loop(t)
+
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp:           harp,
+		Agent:          "worker",
+		Runtime:        "container",
+		RosterState:    "executing", // the lie: the roster said this was fine
+		StartedAt:      now.Add(-50 * time.Minute),
+		LastActivity:   now.Add(-1 * time.Second), // the transcript IS growing
+		TranscriptPath: transcriptPath(t, harp),
+	})
+
+	require.Equal(t, liveness.StateStalled, rep.State,
+		"the monitor must FIRE on the reproduced incident: %d identical user deliveries, seq pinned at 0, zero assistant turns.\nreason=%q\nevidence=%s",
+		6, rep.Reason, mustJSON(t, rep.Evidence))
+	assert.True(t, rep.Firing(), "a stalled verdict must be one an operator is told about")
+	assert.NotEmpty(t, rep.Reason, "a verdict a human cannot audit is the false confidence this package removes")
+
+	// And the underlying measurements must match the shared progress
+	// definition clause for clause, so a future change to the ladder cannot
+	// quietly stop looking at any of them.
+	ev := rep.Evidence.Transcript
+	assert.True(t, ev.Exists, "the incident's transcript existed and was growing")
+	assert.Equal(t, 6, ev.Records)
+	assert.Equal(t, 0, ev.MaxSeq, "seq pinned at 0 is the signature failure")
+	assert.True(t, ev.SeqPinned)
+	assert.Equal(t, 0, ev.AssistantEntries, "zero assistant turns")
+	assert.Equal(t, []string{"user"}, ev.EntryTypes, "100% user entries — no variety")
+	assert.False(t, ev.TurnClosed, "no complete for the in-flight turn")
+}
+
+// Direction 2: it does NOT fire on a healthy agent.
+func TestMonitor_DoesNotFireOnHealthyAgent(t *testing.T) {
+	testHome(t)
+	const harp = "healthy-agent-harp"
+	healthySession(t, harp)
+
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp:           harp,
+		Agent:          "worker",
+		Runtime:        "container",
+		RosterState:    "executing",
+		StartedAt:      now.Add(-20 * time.Minute),
+		LastActivity:   now.Add(-2 * time.Second),
+		TranscriptPath: transcriptPath(t, harp),
+	})
+
+	assert.Equal(t, liveness.StateHealthy, rep.State, "reason=%q evidence=%s", rep.Reason, mustJSON(t, rep.Evidence))
+	assert.False(t, rep.Firing(), "a working agent must never be reported as stalled or dead")
+	ev := rep.Evidence.Transcript
+	assert.Greater(t, ev.MaxSeq, 0, "seq must have advanced past 0")
+	assert.GreaterOrEqual(t, ev.AssistantEntries, 1)
+	assert.Greater(t, len(ev.EntryTypes), 1, "entry-type variety")
+	assert.Nil(t, ev.Redelivery)
+}
+
+// Direction 3: it does NOT fire on an agent parked awaiting approval — not
+// even when that park has lasted far longer than the quiet grace. An approval
+// rung can legitimately hold a child, and reaping one turns a working system
+// into one that kills its own children.
+func TestMonitor_DoesNotFireOnApprovalPark(t *testing.T) {
+	testHome(t)
+	const harp = "approval-parked-harp"
+	approvalParkedSession(t, harp)
+
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+
+	// (a) The coordinator tells us it is parked.
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp:             harp,
+		Agent:            "worker",
+		Runtime:          "container",
+		RosterState:      "parked",
+		AwaitingApproval: true,
+		StartedAt:        now.Add(-90 * time.Minute),
+		LastActivity:     now.Add(-45 * time.Minute), // quiet FAR past QuietGrace
+		TranscriptPath:   transcriptPath(t, harp),
+	})
+	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
+	assert.False(t, rep.Firing(), "a child waiting on a human must NEVER be reaped")
+
+	// (b) And even when the coordinator does NOT say so, the transcript's own
+	// trailing permission record must hold the verdict back — the two halves
+	// are independent on purpose, because whichever one is wired up wrongly
+	// must not be able to get a parked child killed.
+	rep = m.Assess(context.Background(), liveness.Target{
+		Harp:           harp,
+		Agent:          "worker",
+		Runtime:        "container",
+		RosterState:    "executing",
+		StartedAt:      now.Add(-90 * time.Minute),
+		LastActivity:   now.Add(-45 * time.Minute),
+		TranscriptPath: transcriptPath(t, harp),
+	})
+	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
+	assert.False(t, rep.Firing())
+}
+
+// ===========================================================================
+// The rest of the ladder.
+// ===========================================================================
+
+// A missing transcript is a FAILURE SIGNAL, not an error: the recorder opens
+// lazily on first successful Record, so no file means zero events were ever
+// produced.
+func TestMonitor_MissingTranscriptIsAStallNotAnError(t *testing.T) {
+	testHome(t)
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	missing := filepath.Join(t.TempDir(), "persist", "transcript.jsonl")
+
+	// Inside the launch grace: not a verdict yet.
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "young", Runtime: "container",
+		StartedAt: now.Add(-30 * time.Second), TranscriptPath: missing,
+	})
+	assert.Equal(t, liveness.StateStarting, rep.State, "a slow launch is not a stall")
+	assert.False(t, rep.Firing())
+
+	// Past it: an engine that has emitted literally nothing is stalled.
+	rep = m.Assess(context.Background(), liveness.Target{
+		Harp: "old", Runtime: "container",
+		StartedAt: now.Add(-30 * time.Minute), TranscriptPath: missing,
+	})
+	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
+	assert.False(t, rep.Evidence.Transcript.Exists)
+}
+
+// DIED is the process being gone with no `complete` for the in-flight turn —
+// and must not be confused with a clean end.
+func TestMonitor_DiedVersusCleanEnd(t *testing.T) {
+	testHome(t)
+	dead := liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
+		return liveness.ProcState{Observed: true, Alive: false, Detail: "runner link lost"}
+	}}
+	now := time.Now()
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{dead}})
+
+	const openHarp = "died-mid-turn"
+	rec, err := transcript.NewRecorder(openHarp, "codex")
+	require.NoError(t, err)
+	transcript.RecordUserText(rec, "do the thing")
+	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type: agent.EntryTypeAssistant, Content: "starting",
+	}}))
+	require.NoError(t, rec.Close())
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: openHarp, Runtime: "host", Ended: true,
+		StartedAt: now.Add(-10 * time.Minute), TranscriptPath: transcriptPath(t, openHarp),
+	})
+	assert.Equal(t, liveness.StateDied, rep.State, "reason=%q", rep.Reason)
+	assert.True(t, rep.Firing())
+
+	const closedHarp = "ended-cleanly"
+	healthySession(t, closedHarp)
+	rep = m.Assess(context.Background(), liveness.Target{
+		Harp: closedHarp, Runtime: "host", Ended: true,
+		StartedAt: now.Add(-10 * time.Minute), TranscriptPath: transcriptPath(t, closedHarp),
+	})
+	assert.False(t, rep.Firing(), "a run that finished its turn and ended is not a death: %s", rep.Reason)
+}
+
+// LEGITIMATELY SLOW: quiet past the grace, but the process is burning CPU. A
+// spin loop looks different from a hang; a long think is not a stall.
+func TestMonitor_CPUBurnIsSlowNotStalled(t *testing.T) {
+	testHome(t)
+	const harp = "thinking-hard"
+	healthySession(t, harp)
+	path := transcriptPath(t, harp)
+	// Backdate the transcript's own mtime is irrelevant — quiet is driven by
+	// the record timestamps and LastActivity, both of which we control.
+
+	now := time.Now()
+	cpu := 10 * time.Second
+	cur := now
+	m := liveness.New(liveness.Options{
+		Now: func() time.Time { return cur },
+		Probes: []liveness.Probe{liveness.ProbeFunc{Fn: func(context.Context, liveness.Target) liveness.ProcState {
+			return liveness.ProcState{Observed: true, Alive: true, CPUObserved: true, CPU: cpu}
+		}}},
+	})
+	target := liveness.Target{
+		Harp: harp, Runtime: "host", RosterState: "executing",
+		StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
+		TranscriptPath: path,
+	}
+
+	// First look: no CPU baseline yet, so no stall verdict may be reached
+	// from CPU alone.
+	rep := m.Assess(context.Background(), target)
+	assert.False(t, rep.Firing(), "a first sample has nothing to difference against: %s", rep.Reason)
+
+	// Second look, one minute later, having burned 30s of CPU: slow.
+	cur = now.Add(time.Minute)
+	cpu = 40 * time.Second
+	rep = m.Assess(context.Background(), target)
+	assert.Equal(t, liveness.StateSlow, rep.State, "reason=%q", rep.Reason)
+	assert.False(t, rep.Firing())
+
+	// Third look, another minute, having burned nothing: stalled.
+	cur = now.Add(2 * time.Minute)
+	rep = m.Assess(context.Background(), target)
+	assert.Equal(t, liveness.StateStalled, rep.State, "reason=%q", rep.Reason)
+	assert.True(t, rep.Firing())
+}
+
+// A runtime whose CPU can never be read must still be assessable — otherwise
+// the container case, which is where the incident happened, is exactly the
+// case the monitor cannot speak about.
+func TestMonitor_UnobservableCPUStillReachesAVerdict(t *testing.T) {
+	testHome(t)
+	const harp = "quiet-container"
+	healthySession(t, harp)
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: harp, Runtime: "container", RosterState: "executing",
+		StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
+		TranscriptPath: transcriptPath(t, harp),
+	})
+	assert.Equal(t, liveness.StateStalled, rep.State,
+		"with no CPU evidence obtainable, 30 minutes of total silence is a stall: %s", rep.Reason)
+}
+
+// Filesystem activity is evidence of life even when the transcript is quiet.
+func TestMonitor_WorktreeActivityCountsAsProgress(t *testing.T) {
+	testHome(t)
+	const harp = "writing-files"
+	healthySession(t, harp)
+	work := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(work, "out.go"), []byte("package x"), 0o644))
+
+	now := time.Now()
+	m := liveness.New(liveness.Options{
+		Now:    func() time.Time { return now },
+		Probes: []liveness.Probe{aliveNoCPU},
+	})
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: harp, Runtime: "container", RosterState: "executing",
+		StartedAt: now.Add(-2 * time.Hour), LastActivity: now.Add(-30 * time.Minute),
+		TranscriptPath: transcriptPath(t, harp), WorkDir: work,
+	})
+	assert.False(t, rep.Firing(), "an agent still writing to its worktree is working: %s", rep.Reason)
+	assert.True(t, rep.Evidence.FSObserved)
+}
+
+// AssessAll preserves order and assesses every target.
+func TestMonitor_AssessAllCoversEveryTarget(t *testing.T) {
+	testHome(t)
+	healthySession(t, "a-healthy")
+	stuckSpawner{harp: "b-stuck", engine: "claude", deliveries: 4}.loop(t)
+	now := time.Now()
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+	reps := m.AssessAll(context.Background(), []liveness.Target{
+		{Harp: "a-healthy", StartedAt: now.Add(-time.Hour), LastActivity: now, TranscriptPath: transcriptPath(t, "a-healthy")},
+		{Harp: "b-stuck", StartedAt: now.Add(-time.Hour), LastActivity: now, TranscriptPath: transcriptPath(t, "b-stuck")},
+	})
+	require.Len(t, reps, 2)
+	assert.Equal(t, "a-healthy", reps[0].Harp)
+	assert.False(t, reps[0].Firing())
+	assert.Equal(t, "b-stuck", reps[1].Harp)
+	assert.True(t, reps[1].Firing())
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("<unmarshalable: %v>", err)
+	}
+	return string(b)
+}

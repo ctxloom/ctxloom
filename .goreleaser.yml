@@ -545,6 +545,18 @@ release:
     brew install ctxloom/tap/{ctxloom,taskloom,ltk}
     ```
 
+    ### Security
+
+    On non-Linux hosts (macOS and Windows, running under Docker Desktop),
+    ctxloom's host-to-container LLM transport is plain gRPC over a loopback TCP
+    port bound to `127.0.0.1` only. This channel has no per-run token and no mTLS
+    — its only handshake value is a static, compiled-in magic cookie that guards
+    against mis-execution, not a credential. Its safety rests on the loopback
+    binding plus the port being ephemeral and short-lived, so any local process on
+    the host that can reach that port during a run could talk to the plugin. On
+    Linux the transport is a bind-mounted unix socket instead and is not exposed
+    over TCP.
+
     ### Which Build?
 
     | Build | Size | Features |

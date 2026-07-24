@@ -22,8 +22,8 @@ func TestSelectsDockerExecInteractive(t *testing.T) {
 	}{
 		{"container interactive", "container", pb.ExecutionMode_INTERACTIVE, false, true},
 		{"container-worktree interactive", "container-worktree", pb.ExecutionMode_INTERACTIVE, false, true},
-		{"container oneshot stays goplugin (Part B)", "container", pb.ExecutionMode_ONESHOT, false, false},
-		{"container structured stays goplugin (Part B)", "container", pb.ExecutionMode_INTERACTIVE, true, false},
+		{"container oneshot takes the Part B owned-run arm, not docker-exec", "container", pb.ExecutionMode_ONESHOT, false, false},
+		{"container structured takes the Part B owned-run arm, not docker-exec", "container", pb.ExecutionMode_INTERACTIVE, true, false},
 		{"none interactive stays goplugin", "none", pb.ExecutionMode_INTERACTIVE, false, false},
 		{"worktree interactive stays goplugin", "worktree", pb.ExecutionMode_INTERACTIVE, false, false},
 	}

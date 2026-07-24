@@ -1,0 +1,283 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
+)
+
+// Phase 2a-B host side: a TOP-LEVEL container run that is --structured or a
+// --print oneshot no longer constructs a go-plugin client. It mints an
+// owner-owned run in the in-process coordinator (Coordinator.StartOwnedRun),
+// spawns the runner via the SAME StartRunner primitive Phase 1/Part A use, and
+// drives the session by WATCHING that run's event stream over the in-process
+// Coordinator.WatchRuns — the container dials out on Transport 2, opening no
+// in-container listener. Host/worktree top-level runs stay on go-plugin (§0.4);
+// only a container policy reaches here.
+
+// ownedRunSession bundles a live owner-owned run with its pre-subscribed event
+// stream. The subscription is opened BEFORE StartOwnedRun so the first turn's
+// deltas are never missed in the gap between StartRun round-tripping and the
+// consumer subscribing.
+type ownedRunSession struct {
+	coord   *coord.Coordinator
+	outcome *coord.RunOutcome
+	events  <-chan *agentcoordpb.AgentEvent
+	cancel  func()
+}
+
+// selectsOwnedRunContainer reports whether a top-level built-in run takes the
+// Phase 2a-B Transport 2 / EngineHost arm: a container policy that is either
+// --structured (a turn REPL) or a --print oneshot. Interactive container runs
+// take Part A's docker-exec arm; host/worktree runs of any mode stay on
+// SpawnClient + go-plugin (they never had the mauve-state problem this fixes).
+func selectsOwnedRunContainer(policyName string, mode pb.ExecutionMode, structured bool) bool {
+	if !isolation.IsContainerPolicyName(policyName) {
+		return false
+	}
+	return structured || mode == pb.ExecutionMode_ONESHOT
+}
+
+// startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
+// event stream, then mint the owner-owned run and spawn its runner via the
+// StartRunner keepalive-with-run-id primitive (the runner runs `ctxloom llm
+// host` WITH the run-id trio, so EngineHost drives the engine and emits
+// AgentEvents over the RunChannel — byte-for-byte the Phase-1 delegated
+// runner). The returned RunnerHandle is the caller's teardown handle
+// (isolation `docker rm -f` by name); the ownedRunSession carries the outcome +
+// event stream the structured/oneshot consumers drive.
+func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy isolation.Policy, ws isolation.Workspace, req *pb.RunStart, backendName, label string, verbosity int, harp, contextText, prompt string, mcpServers []agent.ChatMCPServer, perm agent.PermissionMode, mode pb.ExecutionMode, structured bool, runnerEnv map[string]string) (*isolation.RunnerHandle, *ownedRunSession, error) {
+	if c == nil {
+		return nil, nil, fmt.Errorf("container structured/oneshot run needs the hosted session coordinator, which failed to stand up")
+	}
+	stampHostTerminalEnv(req)
+
+	var handle *isolation.RunnerHandle
+	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), error) {
+		h, err := policy.StartRunner(sctx, backendName, label, verbosity, ws, spawnEnv)
+		if err != nil {
+			return nil, err
+		}
+		handle = h
+		return h.Kill, nil
+	}
+
+	owner, ok := c.Identify(runnerEnv[coord.EnvCoordCred])
+	if !ok {
+		// The owner Identity is used only for lineage journaling (ParentHarp /
+		// Depth); if the owner token can't be resolved, the session harp at
+		// depth 0 is the honest fallback.
+		owner = coord.Identity{Harp: harp}
+	}
+
+	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is missed.
+	_, events, cancel := c.WatchRuns(nil)
+
+	lead := operations.JoinLeadBlocks(contextText, prompt)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
+		Harp:       harp,
+		Backend:    backendName,
+		Label:      label,
+		Model:      req.GetOptions().GetModel(),
+		WorkDir:    req.GetOptions().GetWorkDir(),
+		Env:        req.GetOptions().GetEnv(),
+		MCPServers: mcpServers,
+		Permission: perm,
+		Oneshot:    mode == pb.ExecutionMode_ONESHOT && !structured,
+	}, starter, lead)
+	if err != nil {
+		cancel()
+		return handle, nil, err
+	}
+	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
+}
+
+// runStructuredREPLViaCoord is the Transport 2 counterpart of runStructuredREPL
+// (plan §5.B1): instead of client.Chat, it renders the owner-owned run's event
+// stream from WatchRuns and feeds one stdin line as one SendOwnedRunTurn.
+// EOF closes input; the loop then drains any in-flight turn to its boundary
+// before returning. A terminal run event (RunCompleted) ends the exchange.
+func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, format string, stdin io.Reader, stdout io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runID := sess.outcome.RunID
+
+	turnIdle := make(chan struct{}, 256)
+	renderErr := make(chan error, 1)
+	go func() {
+		renderErr <- renderOwnedRunEvents(ctx, stdout, format, runID, sess.events, turnIdle, nil)
+	}()
+
+	lines := make(chan string)
+	scanDone := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdin)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			select {
+			case lines <- decodeMessageLine(scanner.Text()):
+			case <-ctx.Done():
+				scanDone <- ctx.Err()
+				return
+			}
+		}
+		scanDone <- scanner.Err()
+	}()
+
+	// The StartRun first turn is already in flight (pending=1); each stdin line
+	// adds one, each turn boundary retires one. At EOF we return once every
+	// issued turn has reached its boundary.
+	pending := 1
+	stdinOpen := true
+	for {
+		if !stdinOpen && pending <= 0 {
+			return nil
+		}
+		select {
+		case <-turnIdle:
+			pending--
+		case line := <-lines:
+			if err := sess.coord.SendOwnedRunTurn(runID, line); err != nil {
+				return err
+			}
+			pending++
+		case err := <-scanDone:
+			stdinOpen = false
+			lines = nil
+			if err != nil {
+				return err
+			}
+		case err := <-renderErr:
+			// The run terminated (RunCompleted) or the stream errored.
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// runOneshotViaCoord drives a --print container oneshot over Transport 2: it
+// streams the run's FINAL-channel answer to stdout as it arrives, and at the
+// turn boundary records the canonical two-entry oneshot transcript
+// (transcript.RecordOneshot — the silent-no-op guard) from the collected text.
+// The run's warm engine does not emit RunCompleted after a single turn, so the
+// turn boundary (ctxloom/turn_idle) is the completion signal; a RunCompleted
+// (engine exit) is honored too. The exit code follows the run's status.
+func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backend, prompt string, stdout io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runID := sess.outcome.RunID
+
+	turnIdle := make(chan struct{}, 4)
+	var answer strings.Builder
+	renderErr := make(chan error, 1)
+	go func() {
+		renderErr <- renderOwnedRunEvents(ctx, stdout, formatText, runID, sess.events, turnIdle, &answer)
+	}()
+
+	var runErr error
+	select {
+	case <-turnIdle:
+		// One turn completed: the answer is fully streamed.
+	case runErr = <-renderErr:
+		// The run terminated before/at the first boundary.
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	text := answer.String()
+	if !strings.HasSuffix(text, "\n") && text != "" {
+		fmt.Fprintln(stdout)
+	}
+	if text != "" {
+		if terr := transcript.RecordOneshot(harp, backend, prompt, text); terr != nil {
+			clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
+		}
+	} else {
+		// A green run that delivered zero bytes is this project's signature
+		// silent no-op — surface it rather than pretend success.
+		clidiag.Warn("ctxloom", "oneshot container run produced no answer text")
+	}
+	if runErr != nil {
+		return runErr
+	}
+	return nil
+}
+
+// renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
+// forwards FINAL-channel message deltas (text mode → prose to out; json mode →
+// the NDJSON entry contract runStructuredREPL's frontend already consumes),
+// signals each turn boundary on turnIdle (non-blocking), optionally accumulates
+// the FINAL text into answer (oneshot capture), and returns nil at RunCompleted
+// or ctx.Err() on cancellation. REASONING/LOG channels are excluded — the host
+// renders the answer, not the scratchpad, exactly like accumulateFinalText.
+func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- struct{}, answer *strings.Builder) error {
+	final := map[string]bool{}
+	enc := json.NewEncoder(out)
+	for {
+		select {
+		case ev := <-events:
+			if ev.GetRunId() != runID {
+				continue
+			}
+			switch p := ev.GetPayload().(type) {
+			case *agentcoordpb.AgentEvent_MessageStarted:
+				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
+					final[p.MessageStarted.GetMessageId()] = true
+				}
+			case *agentcoordpb.AgentEvent_MessageDelta:
+				if !final[p.MessageDelta.GetMessageId()] {
+					continue
+				}
+				text := p.MessageDelta.GetText()
+				if text == "" {
+					continue
+				}
+				if answer != nil {
+					answer.WriteString(text)
+				}
+				switch format {
+				case formatJSON:
+					if err := enc.Encode(chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
+						Type: string(agent.EntryTypeAssistant), Content: text,
+					}}); err != nil {
+						return err
+					}
+				default:
+					if _, err := io.WriteString(out, text); err != nil {
+						return err
+					}
+				}
+			case *agentcoordpb.AgentEvent_Custom:
+				if p.Custom.GetName() == coord.CustomTurnIdle {
+					select {
+					case turnIdle <- struct{}{}:
+					default:
+					}
+				}
+			case *agentcoordpb.AgentEvent_RunCompleted:
+				if r := p.RunCompleted.GetResult(); r != nil && r.GetStatus() == agentcoordpb.Result_RUN_STATUS_FAILED {
+					if msg := r.GetError().GetMessage(); msg != "" {
+						clidiag.Warn("ctxloom", "container run failed: %s", msg)
+					}
+					return &ExitError{Code: 1}
+				}
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}

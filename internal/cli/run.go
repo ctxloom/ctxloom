@@ -998,6 +998,12 @@ Examples:
 		// interactive, oneshot, structured), which stay on SpawnClient + goplugin.
 		var interactiveLauncher vpio.Launcher
 		var runnerHandle *isolation.RunnerHandle
+		// Phase 2a-B: a container-policy STRUCTURED or --print ONESHOT top-level
+		// run drives over Transport 2 / EngineHost (an owner-owned run watched
+		// via the in-process coordinator) instead of a go-plugin client — set
+		// here, consumed by the structured/oneshot branches below; nil on every
+		// other arm.
+		var ownedRun *ownedRunSession
 		if llmBinary != "" {
 			// The external plugin binary is spawned DIRECTLY — isolation wraps the
 			// built-in serve transport, not a user-supplied binary — so it can be
@@ -1115,6 +1121,18 @@ Examples:
 				}
 				runnerHandle = handle
 				interactiveLauncher = launcher
+			} else if selectsOwnedRunContainer(policy.Name(), mode, runStructured) {
+				// Phase 2a-B: structured/oneshot container → owner-owned run on
+				// Transport 2. Launched through the SAME StartRunner primitive
+				// (an `llm host` runner WITH the run-id trio → EngineHost); the
+				// host watches it via WatchRuns. No go-plugin client; no
+				// in-container listener.
+				handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName), permMode, mode, runStructured, runnerSpawnEnv)
+				if oerr != nil {
+					return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
+				}
+				runnerHandle = handle
+				ownedRun = sess
 			} else {
 				// Spawn through the policy, carrying the resolved label so serve
 				// configures exactly this entry (not the first map-ordered entry of the
@@ -1136,14 +1154,31 @@ Examples:
 			if runnerHandle != nil {
 				runnerHandle.Kill()
 			}
+			if ownedRun != nil {
+				ownedRun.cancel()
+			}
 		}()
 
 		// --structured: drive the session as a structured turn REPL (the gRPC
 		// WatchSession + user_message interface) instead of owning the terminal.
 		// The Chat RPC never runs Setup, so the managed MCP servers Setup would
-		// write to the engine's settings file ride the session instead.
+		// write to the engine's settings file ride the session instead. A
+		// container-policy structured run drives over Transport 2 (Phase 2a-B)
+		// instead of client.Chat; host/worktree stay on go-plugin.
 		if runStructured {
+			if ownedRun != nil {
+				return runStructuredREPLViaCoord(ctx, ownedRun, outputFormatOf(cmd), os.Stdin, os.Stdout)
+			}
 			return runStructuredREPL(ctx, client, req, managed.ChatMCPServers(backendName), outputFormatOf(cmd), os.Stdin, os.Stdout)
+		}
+
+		// Phase 2a-B: a container-policy --print ONESHOT (not --structured, which
+		// returned above) drives over Transport 2 too — collect the run's FINAL
+		// answer, record the oneshot transcript, exit with the run's status. No
+		// go-plugin client is constructed for this arm, so it returns before the
+		// vpio/go-plugin Run path below.
+		if ownedRun != nil {
+			return runOneshotViaCoord(ctx, ownedRun, activeHarp, backendName, prompt, os.Stdout)
 		}
 
 		// For an interactive run the frontend owns the terminal: raw mode + stdin

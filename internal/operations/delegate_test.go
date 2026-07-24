@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -967,4 +968,88 @@ func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *tes
 	})
 	require.Error(t, err, "the project's \"fail\" default still applies")
 	assert.Nil(t, p)
+}
+
+// hangingChatClient is a pb.Client whose Chat call never returns on its own —
+// it blocks until the ctx it was given is cancelled, standing in for a
+// legacy go-plugin dial that is stuck (a wedged subprocess, a container whose
+// grpc connection never comes up). killed closes when Kill() is called, so a
+// test can assert the stuck client was actually torn down rather than merely
+// abandoned.
+type hangingChatClient struct {
+	killed   chan struct{}
+	killOnce bool
+}
+
+func (h *hangingChatClient) Chat(ctx context.Context, _ agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	<-ctx.Done()
+	return nil, nil, nil, ctx.Err()
+}
+func (h *hangingChatClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
+func (h *hangingChatClient) Run(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (int32, error) {
+	return 0, nil
+}
+func (h *hangingChatClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
+	return &pb.RunResult{}, nil
+}
+func (h *hangingChatClient) GetSession(context.Context, string) (*agent.Session, error) {
+	return nil, nil
+}
+func (h *hangingChatClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
+	return nil, nil, nil
+}
+func (h *hangingChatClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
+	return nil, nil
+}
+func (h *hangingChatClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
+	return nil, nil
+}
+func (h *hangingChatClient) Kill() {
+	if !h.killOnce {
+		h.killOnce = true
+		close(h.killed)
+	}
+}
+
+// TestPrepareAgentChat_Start_ChatDialDoesNotHangForever is the red/green pin
+// for the legacy go-plugin Chat dial's missing bound (spawner.Launch /
+// prep.Start's client.Chat call, internal/operations/delegate.go). Before any
+// fix, Start blocks on client.Chat until its ctx is externally cancelled —
+// there is no internal budget at all, so a wedged backend hangs the launch
+// indefinitely. This test never waits out that hang: it races Start's return
+// against its OWN short watchdog window, so a still-unbounded Start fails
+// this test fast (by hitting the watchdog) rather than blocking the suite.
+func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
+	resetStrictness(t)
+	client := &hangingChatClient{killed: make(chan struct{})}
+	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
+		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "host"},
+		WorkDir:  t.TempDir(),
+		Factory:  func(string, string, int) (pb.Client, error) { return client, nil },
+	})
+	require.NoError(t, err)
+	defer p.Abort()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel) // reaps Start's goroutine below if it is still blocked when the test ends
+
+	done := make(chan struct{})
+	var startErr error
+	go func() {
+		_, startErr = p.Start(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		require.Error(t, startErr, "a chat dial that never completes must fail loud, not hang forever")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return within 2s of a wedged client.Chat call — the legacy dial has no internal bound at all (only ctx cancellation stops it)")
+	}
+
+	select {
+	case <-client.killed:
+	default:
+		t.Error("expected the wedged client to be Kill()ed once its dial was declared failed")
+	}
 }

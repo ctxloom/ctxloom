@@ -17,7 +17,7 @@ import (
 // agent.WriteManagedCommandFiles for the shared mechanics).
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
-	commandsDir := filepath.Join(workDir, ".claude", "commands")
+	commandsDir := filepath.Join(workDir, ConfigDirName, CommandsDirName)
 
 	// Migration: remove the old ctxloom/ subdirectory from earlier versions
 	// that wrote commands there instead of flat with a manifest.

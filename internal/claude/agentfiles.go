@@ -73,7 +73,7 @@ type AgentExport struct {
 // agent.WriteManagedCommandFiles for the shared mechanics.
 func WriteAgentFiles(workDir string, agents []AgentExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
-	agentsDir := filepath.Join(workDir, ".claude", "agents")
+	agentsDir := filepath.Join(workDir, ConfigDirName, AgentsDirName)
 
 	// Reuse the manifest-scoped, traversal-safe command writer: it only needs
 	// Name+Enabled to drive validation/cleanup and a render callback for bytes.

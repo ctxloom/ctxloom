@@ -13,6 +13,14 @@ import "encoding/json"
 //   - Deny: stdout {"hookSpecificOutput":{"hookEventName":"PreToolUse",
 //     "permissionDecision":"deny","permissionDecisionReason":"…"}}, exit 0.
 //     The reason is fed back to the model.
+//   - stderr (verified 2026-07-24, code.claude.com/docs/en/hooks): on exit 0 —
+//     which is every case above, deny included — stderr goes only to Claude
+//     Code's own debug log. It reaches neither the model nor the user's
+//     terminal without --debug. (Exit 2 feeds stderr to the model as the
+//     blocking reason; any other nonzero exit shows the user stderr's first
+//     line; this hook never uses either.) A hook that wants a human-visible
+//     warning cannot rely on stderr — see App.Warn's doc in ltk's app package
+//     for the consequence.
 
 // HookEventPreToolUse is the event name carried in payloads and decisions.
 const HookEventPreToolUse = "PreToolUse"

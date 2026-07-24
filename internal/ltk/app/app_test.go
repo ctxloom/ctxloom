@@ -212,6 +212,38 @@ func TestPanicOnAnalysisPathFailsOpenWithWarning(t *testing.T) {
 	}
 }
 
+// pwsh and cmd have no per-frontend recover of their own (shell.Frontend.Parse
+// is the only frontend with one) — a deliberate omission: pwsh defers to
+// PowerShell's own parser and cmd is a small first-party hand parser, neither
+// carrying the shell frontend's risk profile of an untrusted third-party AST
+// walked by hand. This test proves the omission is safe rather than merely
+// asserting it: App.Decide's backstop treats a panic from EITHER of them
+// exactly like a panic from any other frontend — same fail-open outcome, same
+// warning — so there is no correctness gap to close with per-frontend ceremony.
+// If pwsh or cmd ever grow their own known crash class, the fix is a
+// frontend-specific recover mirroring shell's (with its own marker for tests
+// like isKnownLoweringCrasher to key on), not a blanket Registry-level catch
+// that would blur which frontend actually broke.
+func TestPwshAndCmdPanicsUseTheSameBackstopAsShell(t *testing.T) {
+	for _, sh := range []ir.Shell{ir.ShellPwsh, ir.ShellCmd} {
+		t.Run(string(sh), func(t *testing.T) {
+			a := newApp(t, cfg)
+			var warn bytes.Buffer
+			a.Warn = &warn
+			a.Registry.Register(panicFrontend{shell: sh}) // overrides the real pwsh/cmd frontend for this shell
+
+			r := a.Decide(context.Background(), engine.Request{ToolName: "Bash", Command: "go test ./...", Shell: sh})
+
+			if !r.Allow {
+				t.Errorf("panic in the %s frontend must fail OPEN; got Allow=false reason=%q", sh, r.Reason)
+			}
+			if warn.Len() == 0 {
+				t.Errorf("panic in the %s frontend must still emit a warning via the App.Decide backstop", sh)
+			}
+		})
+	}
+}
+
 // The recover must not swallow a legitimate deny. Denials are RETURN VALUES,
 // never panics, so the deferred handler may only touch the result when
 // recover() actually caught something.

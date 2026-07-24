@@ -244,6 +244,48 @@ var noPanicCorpus = []string{
 	"exec > f", "exec 3< f", "echo a >&-", "> f 2>&1 | tee g",
 }
 
+// isKnownLoweringCrasher is the allowlist consulted wherever this file checks
+// Parse's error for the "internal error lowering" marker (TestParseNeverPanics
+// and FuzzParse below). Parse's recover boundary (shell.go:75) means a panic
+// during lowering no longer propagates as a panic — it comes back as an
+// ordinary error carrying that marker — so a bare `recover()` in the test, or
+// a fuzz body that only checks for a non-nil script, can no longer tell "no
+// panic happened" from "a panic happened and was swallowed". That is the
+// guard hiding the thing it guards against, one level up.
+//
+// The fix is to open the marker back up: any error containing it fails the
+// test/fuzz UNLESS the (shell, src) pair is catalogued here as an already-known
+// crasher. Matching on the panic's message text instead would not work — the
+// Go runtime's "invalid memory address or nil pointer dereference" string is
+// identical for every nil-deref regardless of cause, so it can't distinguish
+// "the one bug we know about" from "a brand new one that happens to also be a
+// nil-deref". Matching on input is precise enough to keep doing its job.
+func isKnownLoweringCrasher(sh ir.Shell, src string) bool {
+	// mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under
+	// the zsh variant only (expand/param.go:57) — filed upstream separately;
+	// see TestExpanderPanicBecomesParseError below and the swift-print task.
+	// Not deduplicated here by exact string: the fuzzer will find other
+	// spellings that hit the same underlying nil-deref (e.g. "x${}y"), and all
+	// of them are this one known bug, not a new one.
+	return sh == ir.ShellZsh && strings.Contains(src, "${}")
+}
+
+// failOnUncatalogedLoweringPanic fails t if err is a recovered internal
+// lowering panic that isn't already catalogued in isKnownLoweringCrasher — see
+// its doc comment for why this check exists at all.
+func failOnUncatalogedLoweringPanic(t *testing.T, sh ir.Shell, src string, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "internal error lowering") {
+		return
+	}
+	if isKnownLoweringCrasher(sh, src) {
+		return
+	}
+	t.Fatalf("Parse(%s, %q) hit an uncatalogued internal lowering panic (recovered as: %v) — "+
+		"this is a NEW crash the recover boundary is hiding; fix the root cause, or if it's a "+
+		"duplicate of an already-filed bug, extend isKnownLoweringCrasher", sh, src, err)
+}
+
 func TestParseNeverPanics(t *testing.T) {
 	for _, sh := range []ir.Shell{ir.ShellSh, ir.ShellBash, ir.ShellZsh, ir.ShellMksh} {
 		for _, src := range noPanicCorpus {
@@ -253,8 +295,11 @@ func TestParseNeverPanics(t *testing.T) {
 						t.Fatalf("Parse(%s, %q) panicked: %v", sh, src, r)
 					}
 				}()
-				// A parse ERROR is fine (dialects differ); a panic is not.
-				s, _ := New().Parse(context.Background(), sh, src)
+				// A parse ERROR is fine (dialects differ); a RECOVERED panic is
+				// not, unless it's already catalogued — see
+				// failOnUncatalogedLoweringPanic.
+				s, err := New().Parse(context.Background(), sh, src)
+				failOnUncatalogedLoweringPanic(t, sh, src, err)
 				if s == nil {
 					t.Fatalf("Parse(%s, %q) returned a nil script", sh, src)
 				}
@@ -272,7 +317,8 @@ func FuzzParse(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, src string) {
 		for _, sh := range []ir.Shell{ir.ShellSh, ir.ShellBash, ir.ShellZsh, ir.ShellMksh} {
-			s, _ := New().Parse(context.Background(), sh, src)
+			s, err := New().Parse(context.Background(), sh, src)
+			failOnUncatalogedLoweringPanic(t, sh, src, err)
 			if s == nil {
 				t.Fatalf("Parse(%s, %q) returned a nil script", sh, src)
 			}

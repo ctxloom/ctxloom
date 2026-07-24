@@ -154,9 +154,7 @@ const (
 // (b) failing while (a) passes is the whole point; if (a) ever starts failing,
 // the old gate was not as blind as documented and this test should be re-read.
 func TestNativeACPGate_RedAgainstBrokenEngine(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the native ACP gate broken-engine test")
 	for _, tc := range []struct {
 		client   string
 		broken   string
@@ -189,9 +187,7 @@ func TestNativeACPGate_RedAgainstBrokenEngine(t *testing.T) {
 // no output at all on stdin EOF) must NOT fail the build. Without this, a gate
 // that failed everything would look identical to a gate that works.
 func TestNativeACPGate_PassesAHealthyEngine(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the native ACP gate healthy-engine test")
 	stub := stubEngineLayer("kiro-cli", `cat >/dev/null; exit 0`)
 	body := stub + "RUN true \\\n" + nativeACPRunGate("kiro-cli", "acp")
 	err, out := buildFragmentImageErr(t, "ctxloom-acpprobe-healthy:latest", body)
@@ -202,18 +198,14 @@ func TestNativeACPGate_PassesAHealthyEngine(t *testing.T) {
 // `kiro-cli acp` comes up in the image it was installed into. Needs network
 // (the official installer).
 func TestACPAdapterRuns_Kiro(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the kiro adapter-runs integration test")
 	img := buildFragmentImage(t, "ctxloom-acpprobe-kiro:latest", kiroInstallFragment)
 	assertAdapterExecutes(t, img, "kiro-cli acp")
 }
 
 // TestACPAdapterRuns_Opencode is the same for opencode.
 func TestACPAdapterRuns_Opencode(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the opencode adapter-runs integration test")
 	img := buildFragmentImage(t, "ctxloom-acpprobe-opencode:latest", opencodeInstallFragment)
 	assertAdapterExecutes(t, img, "opencode acp")
 }

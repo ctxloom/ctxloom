@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,9 +30,7 @@ import (
 // ("SyntaxError: Unexpected token 'with'") was reachable only via `docker
 // logs` on a still-live container and vanished on teardown.
 func TestRunAttached_StderrTailSurvivesTeardown(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the stderr-tail survival integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the stderr-tail survival integration test")
 	rt := SelectRuntime("docker")
 	require.Equal(t, "docker", rt.Name())
 

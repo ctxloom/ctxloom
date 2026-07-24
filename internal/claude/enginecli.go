@@ -104,7 +104,8 @@ func commonFlags() []agent.CLIFlag {
 			Note: "PermissionBypass; the blanket skip"},
 		{Name: flagPermissionMode, Value: agent.ValueString,
 			Note: "acceptEdits | plan"},
-		// DELIBERATELY OMITTED for the red run — restored in the next commit.
+		{Name: flagDisallowedTools, Value: agent.ValueString,
+			Note: "ONE comma-joined value token (Bash,Edit,Write,NotebookEdit), not repeated flags; plan posture only"},
 		{Name: flagModel, Value: agent.ValueString},
 		{Name: flagAppendSystemFile, Value: agent.ValuePath,
 			Note: "the framed out-of-cwd sysprompt scratch; SharedCell delivery only"},

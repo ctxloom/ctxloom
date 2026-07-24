@@ -78,6 +78,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // progressAgentName is the one agent progressSpawner resolves. The healthy and
@@ -322,9 +323,7 @@ func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thres
 // age-gated rule from it) and the live spawner.
 func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.Duration, prompt string) (string, time.Time, *progressSpawner) {
 	t.Helper()
-	if !(isolation.Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the container-progress integration test")
-	}
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
 	resetStrictness(t)
 	// The container profile authenticates the in-container engine via the
 	// scoped ANTHROPIC_* passthrough; mock ignores the value, but a resolvable

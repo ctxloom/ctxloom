@@ -36,6 +36,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // dockerOwnerRunStarter builds an OwnedRunStarter that launches a REAL container
@@ -101,9 +102,7 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 //  4. the host-side canonical transcript.jsonl survives the container and
 //     carries the turn payload (the session-state-mount / silent-no-op guard).
 func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
-	if !(isolation.Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the owner-owned top-level container integration test")
-	}
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned top-level container integration test")
 	resetStrictness(t)
 	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
 
@@ -214,9 +213,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 // the FINAL text at the turn boundary); the coordinator/runner mechanism is
 // identical, so this asserts the payload + the negatives.
 func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
-	if !(isolation.Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the owner-owned oneshot container integration test")
-	}
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned oneshot container integration test")
 	resetStrictness(t)
 	t.Setenv("ANTHROPIC_API_KEY", "itest-mock-key")
 

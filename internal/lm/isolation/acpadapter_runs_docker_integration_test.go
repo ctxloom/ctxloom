@@ -31,6 +31,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // adapterProbeBase is the distro whose packaged nodejs is too old — the exact
@@ -75,9 +77,7 @@ func assertAdapterExecutes(t *testing.T, img, adapter string) {
 // TestACPAdapterRuns_ClaudeCode is the headline gate: after
 // claudeCodeInstallFragment, claude-code-acp must actually EXECUTE.
 func TestACPAdapterRuns_ClaudeCode(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the claude-code-acp adapter-runs integration test")
 	img := buildFragmentImage(t, "ctxloom-acpprobe-claude:latest", claudeCodeInstallFragment)
 	ver, err := exec.Command("docker", "run", "--rm", "--entrypoint", "node", img, "--version").Output()
 	require.NoError(t, err)
@@ -89,9 +89,7 @@ func TestACPAdapterRuns_ClaudeCode(t *testing.T) {
 // carries the same best-effort node prereq and the same PATH-presence-only
 // validate, so it is exposed to the identical failure.
 func TestACPAdapterRuns_Codex(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the codex adapter-runs integration test")
 	img := buildFragmentImage(t, "ctxloom-acpprobe-codex:latest", codexInstallFragment)
 	assertAdapterExecutes(t, img, "codex-acp")
 }

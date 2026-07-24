@@ -216,14 +216,24 @@ jobs:
       - name: Run integration tests
         run: just -f justfile.container test-integration
 
-      # Docker-gated container transport proof (internal/lm/isolation): builds
-      # a minimal image, spawns the mock plugin INSIDE a container, and proves
-      # the gRPC transport + force-removal-on-Kill boundary end to end.
-      # GitHub-hosted runners bind-mount /var/run/docker.sock into job
-      # containers, so the devcontainer image's docker-ce-cli can reach it;
-      # each test self-skips (not fails) if it can't, so this step is safe to
-      # run even if that assumption ever stops holding.
+      # Docker-gated container proof: builds minimal images, spawns real
+      # containers, and proves the gRPC transport + force-removal boundary
+      # (internal/lm/isolation), the coordinator<->containerized-child bus,
+      # top-level owner runs and progress/liveness (internal/agentcoord/coord),
+      # the interactive docker-exec turn (internal/vpio/dockerexec) and the ACP
+      # container transport (internal/acp) end to end. GitHub-hosted runners
+      # bind-mount /var/run/docker.sock into job containers, so the
+      # devcontainer's docker-ce-cli can reach it.
+      #
+      # CTXLOOM_REQUIRE_DOCKER=1 turns "docker unreachable" from a per-test
+      # SKIP into a FAILURE (internal/testsupport/dockergate). Without it a
+      # runner that lost its socket would pass this step having executed ZERO
+      # container tests — a green report for a suite that ran nothing, the same
+      # silent-no-op the suite exists to catch. Set here ONLY; a developer
+      # without docker still gets the skip locally.
       - name: Run docker-gated container integration tests
+        env:
+          CTXLOOM_REQUIRE_DOCKER: "1"
         run: just -f justfile.container test-docker-integration
 
       - name: Upload build artifacts

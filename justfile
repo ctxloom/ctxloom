@@ -6,6 +6,14 @@
 # found`) instead of reaching go test as one -run argument.
 set positional-arguments := true
 
+# Gates that MUST be identical here and in justfile.container:
+# test-docker-integration (and its package list) plus the generated-protobuf
+# precondition. Imported, not duplicated — the docker-integration recipe used
+# to exist in both files under the same name with different package lists,
+# which is how the whole internal/agentcoord/coord docker suite went unrun in
+# CI. See build/gates.justfile.
+import "build/gates.justfile"
+
 # Default recipe
 default: build
 
@@ -378,7 +386,7 @@ test-vendor-claude:
 # both invisible until something finally ran this. Wired into both `test`
 # below and `lint` (justfile.container), so it gates the default local AND CI
 # paths. vet, not test/run — stays cheap.
-vet-integration:
+vet-integration: _require-generated
     go vet -tags integration ./tests/...
 
 # Run integration tests (requires ctxloom binary)
@@ -416,24 +424,22 @@ test-integration-run PATTERN: build
 test-acceptance: build
     go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
-# Run the docker-gated container transport integration tests
-# (internal/lm/isolation/*_integration_test.go): builds a minimal image,
-# spawns the mock plugin INSIDE a real container, and proves the gRPC
-# transport + force-removal-on-Kill boundary end to end, including a real
-# git worktree mounted into a container. Also covers
-# internal/agentcoord/coord/container_bus_docker_integration_test.go
-# (crazy-yarn): the coordinator<->containerized-child agentcoord BUS itself
-# (agent_run over runtime: container, coordinator<->child agent_send,
-# agent_report, and artifact round-trip), a real docker container running
-# the production `ctxloom llm serve` runner, not the transport-only or
-# in-process-simulated proofs the rest of this package already gives.
-# Requires a local container runtime; each test self-skips (not fails) when
-# docker is unreachable or non-rootless, so this is safe to run anywhere —
-# it just proves nothing when it skips. Previously gated behind a build tag
-# that appeared in neither the justfile nor any CI workflow, so it had never
-# actually run.
-test-docker-integration:
-    go test -v -tags docker_integration ./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/vpio/dockerexec/...
+# test-docker-integration lives in build/gates.justfile, imported at the top
+# of this file and by justfile.container, so the host recipe and the one CI
+# runs are the SAME recipe over the SAME package list. What it covers:
+#   internal/lm/isolation      — the gRPC container transport + the
+#                                force-removal-on-Kill boundary end to end,
+#                                including a real git worktree mounted in;
+#   internal/agentcoord/coord  — the docker-direct delegated spawn
+#                                (TestCoordContainerDirect_NoPluginNoPort),
+#                                the owner-owned top-level container runs
+#                                (TestCoordOwnerRun_*) and the container
+#                                progress/liveness trio
+#                                (TestCoordContainerProgress_*);
+#   internal/vpio/dockerexec   — the interactive docker-exec turn;
+#   internal/acp               — containerTransport against a real container.
+# Reachability is mandatory under CTXLOOM_REQUIRE_DOCKER=1 (set in CI only);
+# locally the tests still self-skip so a machine without docker isn't blocked.
 
 # Build the acceptance image (devcontainer toolchain + Node + the Claude Code
 # agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;
@@ -540,7 +546,7 @@ isolation-probe ENGINE AXIS: build
 # different message (`? ... [no test files]`) and stays green, as does a
 # `-run` miss the pipefail chain never triggers because a package that
 # doesn't build/vet fails before printing either message.
-test-pkg PKG *ARGS:
+test-pkg PKG *ARGS: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     pkg="$1"; shift

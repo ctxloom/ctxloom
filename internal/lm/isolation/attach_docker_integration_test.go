@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 // TestRunAttached_SamePathMountAndTeardown proves ISO1's invariant 1
@@ -33,9 +35,7 @@ import (
 // INSIDE the container at the exact same absolute path — proving the mount
 // resolves, not just that the container started.
 func TestRunAttached_SamePathMountAndTeardown(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the container attach integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container attach integration test")
 
 	rt := SelectRuntime("docker")
 	require.Equal(t, "docker", rt.Name())

@@ -33,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 )
 
@@ -49,9 +50,7 @@ const dockerExecIntegrationImage = "ctxloom-dockerexec-itest:latest"
 //  4. the keepalive container publishes NO port, exposes NO port, and holds NO
 //     TCP LISTEN socket — the direct mauve-state negative for this path.
 func TestDockerExecInteractive_TurnEchoesNoListener(t *testing.T) {
-	if !(isolation.Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the docker-exec interactive integration test")
-	}
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-exec interactive integration test")
 	// The default container profile authenticates via the scoped ANTHROPIC_*
 	// passthrough; the mock ignores the value, but a resolvable auth is what
 	// clears PrepareWorkspace's gate under an isolated HOME.

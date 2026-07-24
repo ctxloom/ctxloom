@@ -11,6 +11,13 @@
 # justfile's matching setting/comment for the failure mode this avoids.
 set positional-arguments := true
 
+# Gates that MUST be identical here and in the host justfile:
+# test-docker-integration (and its package list) plus the generated-protobuf
+# precondition. Imported, not duplicated — this file used to carry its own
+# shorter copy of test-docker-integration under the same name, and since CI
+# runs THIS file, the packages the host copy listed never ran there.
+import "build/gates.justfile"
+
 # Containers build in plain module mode: github.com/ctxloom/* come from the
 # go.mod pins (module cache/proxy), never from a host go.work or sibling
 # checkouts. Push sibling changes and bump the pin to pick them up here.
@@ -309,13 +316,15 @@ gen-living-docs: build
     CTXLOOM_DOC_CAPTURE_DIR="$capture_dir" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
     go run ./scripts/gendocs/livingdocs --capture-dir "$capture_dir"
 
-# Run the docker-gated container transport integration tests (see the host
-# justfile's test-docker-integration for the full explanation). Requires the
-# devcontainer image to be run with the host's container runtime reachable
-# (docker CLI + a shared/mounted daemon socket); each test self-skips when it
-# is not.
-test-docker-integration:
-    go test -v -tags docker_integration ./internal/lm/isolation/...
+# test-docker-integration comes from build/gates.justfile (imported at the top
+# of this file AND by the host justfile) — this is the recipe
+# .github/workflows/ci.yml invokes. It used to be a SECOND, shorter copy of
+# the host recipe under the same name, running only ./internal/lm/isolation/...,
+# so the entire internal/agentcoord/coord docker suite had never executed in
+# CI. Running it here requires the devcontainer to see the host's runtime
+# (docker CLI + a shared/mounted daemon socket); CI sets
+# CTXLOOM_REQUIRE_DOCKER=1 so a runner that CANNOT see it fails loudly instead
+# of skipping to green.
 
 # ===== Validation =====
 

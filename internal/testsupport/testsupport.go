@@ -44,6 +44,15 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
 	"CTXLOOM_CELL_WORKDIR",
+	// Not production state: a CI-only knob read by
+	// internal/testsupport/dockergate to turn "docker unreachable" from a
+	// skip into a failure. Listed because TestEnvKeysCoversProductionReads
+	// scans every non-_test.go file under internal/ and cmd/, dockergate.go
+	// included, and an exception carved for one file is how the next real
+	// variable goes missing. Clearing it here is harmless: dockergate reads
+	// it once at package init, precisely so a test that isolates before it
+	// gates cannot silently demote itself back to skipping.
+	"CTXLOOM_REQUIRE_DOCKER",
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
 	"CODEX_HOME",

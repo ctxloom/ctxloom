@@ -213,3 +213,63 @@ func TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "AWS_REGION", "AWS_* rides along once KIRO_API_KEY triggers")
 	assert.Contains(t, auth.envPassthrough, "AWS_ACCESS_KEY_ID")
 }
+
+// TestEveryComposableEngineGatesItsACPSurfaceByExecution is the generalization
+// of the 2026-07-24 container-delegation defect (task minty-wilt): NO composable
+// engine's install fragment may validate its structured-chat surface by PATH
+// presence, or by a `--version` that exercises a DIFFERENT code path from the
+// one delegation actually spawns.
+//
+// It is deliberately table-driven over the surface each engine's ACP transport
+// declares (internal/lm/backends: claude-code/codex are agent.ACPAdapter with a
+// separate binary; kiro/opencode are agent.ACPNative with an `acp` subcommand
+// of their own client). Adding an engine to composableEngines() without giving
+// it an execution gate fails here.
+func TestEveryComposableEngineGatesItsACPSurfaceByExecution(t *testing.T) {
+	for _, tc := range []struct {
+		backend string
+		surface string // the exact command structured chat spawns
+	}{
+		{"claude-code", "claude-code-acp"},
+		{"codex", "codex-acp"},
+		{"kiro", "kiro-cli acp"},
+		{"opencode", "opencode acp"},
+	} {
+		t.Run(tc.backend, func(t *testing.T) {
+			frag := string(containerProfileFor(tc.backend).engineInstall)
+			require.NotEmpty(t, frag, "%s must be composable", tc.backend)
+			assert.Contains(t, frag, "timeout 20 "+tc.surface+" </dev/null",
+				"%s must RUN its ACP surface at image-build time, not merely locate it", tc.backend)
+			assert.Contains(t, frag, acpProbeFailurePatterns,
+				"%s must fail the build on the shared ACP-failure vocabulary", tc.backend)
+			assert.Contains(t, frag, "exit 1",
+				"%s's gate must FAIL THE BUILD, not warn", tc.backend)
+		})
+	}
+}
+
+// TestACPProbeFailurePatterns_CoverBothMechanisms pins the two distinct
+// silent-no-op mechanisms the shared grep must see. The node-loader half is the
+// original claude-code defect; the argument-parser/loader half is what kiro and
+// opencode were exposed to. "Failed to change directory" is opencode's measured
+// shape for a MISSING `acp` command — it exits ZERO, which is why nothing here
+// may be reduced to an exit-status check.
+func TestACPProbeFailurePatterns_CoverBothMechanisms(t *testing.T) {
+	for _, pat := range []string{
+		"SyntaxError", "Cannot find module", "ERR_MODULE_NOT_FOUND", "ERR_UNKNOWN_BUILTIN_MODULE",
+		"unrecognized subcommand", "unknown command", "unexpected argument",
+		"error while loading shared libraries", "symbol lookup error", "Failed to change directory",
+	} {
+		assert.Contains(t, acpProbeFailurePatterns, pat)
+	}
+}
+
+// TestNativeACPRunGate_ProbesTheSubcommandNotTheClient: the gate must run
+// `<client> <sub>`, never bare `<client>` — running kiro-cli with no arguments
+// would open its interactive chat, which proves nothing about the ACP surface.
+func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
+	g := nativeACPRunGate("kiro-cli", "acp")
+	assert.Contains(t, g, "timeout 20 kiro-cli acp </dev/null")
+	assert.Contains(t, g, "kiro-cli acp is installed but its ACP surface cannot start")
+	assert.Contains(t, g, "exit 1")
+}

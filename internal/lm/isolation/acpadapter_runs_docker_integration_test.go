@@ -63,7 +63,9 @@ func assertAdapterExecutes(t *testing.T, img, adapter string) {
 	out, _ := exec.Command("docker", "run", "--rm", "-i", "--entrypoint", "/bin/sh", img,
 		"-c", "timeout 20 "+adapter+" < /dev/null 2>&1 | head -40").CombinedOutput()
 	got := string(out)
-	for _, bad := range []string{"SyntaxError", "Cannot find module", "ERR_MODULE_NOT_FOUND", "ERR_UNKNOWN_BUILTIN_MODULE"} {
+	// The SAME vocabulary the in-image gate greps for (profile.go), split back
+	// out — so the test and the gate cannot drift apart.
+	for _, bad := range strings.Split(acpProbeFailurePatterns, "|") {
 		if strings.Contains(got, bad) {
 			t.Fatalf("%s does not RUN in the image it was installed into (%q):\n%s\n"+
 				"a PATH-presence gate cannot see this — the install must validate by execution", adapter, bad, got)
@@ -94,4 +96,126 @@ func TestACPAdapterRuns_Codex(t *testing.T) {
 	}
 	img := buildFragmentImage(t, "ctxloom-acpprobe-codex:latest", codexInstallFragment)
 	assertAdapterExecutes(t, img, "codex-acp")
+}
+
+// ---------------------------------------------------------------------------
+// The generalization (task minty-wilt): kiro and opencode.
+//
+// These two install from shell installers, not npm, so they were never exposed
+// to the node-version defect above — but their ONLY build gate was `<client>
+// --version`, which proves the client binary loads and nothing about
+// `<client> acp`, the surface their structured chat actually spawns
+// (internal/lm/backends' kiroACPTransport/opencodeACPTransport are
+// agent.ACPNative). Same silent-no-op class, different first cause.
+// ---------------------------------------------------------------------------
+
+// buildFragmentImageErr is buildFragmentImage's non-fatal twin: it returns the
+// build's error and combined output instead of failing the test, because the
+// gate tests below assert that a build FAILS.
+func buildFragmentImageErr(t *testing.T, tag, body string) (error, string) {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(body), 0o644))
+	out, err := exec.Command("docker", "build", "-t", tag, dir).CombinedOutput()
+	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", tag).Run() })
+	return err, string(out)
+}
+
+// stubEngineLayer installs a shell stand-in for an engine client at
+// /usr/local/bin/<client>: it is on PATH and answers `--version` happily, and
+// its `acp` surface is BROKEN in the given way. This is what a half-succeeded
+// installer or a pinned-old release looks like from the image's point of view —
+// a green build containing a dead engine.
+func stubEngineLayer(client, acpBehaviour string) string {
+	return "FROM " + adapterProbeBase + "\n" +
+		"RUN printf '%s\\n' '#!/bin/sh' 'if [ \"$1\" = \"--version\" ]; then echo \"" + client + " 9.9.9\"; exit 0; fi' " +
+		"'" + acpBehaviour + "' > /usr/local/bin/" + client + " && chmod +x /usr/local/bin/" + client + "\n"
+}
+
+// The two REAL broken-engine shapes, measured live 2026-07-24 by running the
+// host's own kiro-cli and opencode with an unrecognized subcommand:
+//
+//   - kiro-cli (clap) rejects it: `error: unrecognized subcommand 'acpXX'`, exit 2.
+//   - opencode does NOT reject it — it adopts the token as a working directory
+//     and reports `Error: Failed to change directory to <cwd>/acpXX`, EXIT 0.
+//
+// opencode's shape is the reason these gates match on stderr TEXT: a
+// status-shaped gate sees exit 0 and calls a dead engine healthy.
+const (
+	kiroBrokenACP     = `echo "error: unrecognized subcommand '"'"'$1'"'"'" >&2; exit 2`
+	opencodeBrokenACP = `echo "Error: Failed to change directory to /work/$1" >&2; exit 0`
+)
+
+// TestNativeACPGate_RedAgainstBrokenEngine is the red half, permanently
+// encoded: for each native-ACP engine, an image whose client is PRESENT and
+// answers --version but whose `acp` surface is dead
+//
+//	(a) BUILDS GREEN under the old `<client> --version` gate — the hole, and
+//	(b) FAILS THE BUILD under nativeACPRunGate — the fix.
+//
+// (b) failing while (a) passes is the whole point; if (a) ever starts failing,
+// the old gate was not as blind as documented and this test should be re-read.
+func TestNativeACPGate_RedAgainstBrokenEngine(t *testing.T) {
+	if !(Docker{}).Available() {
+		t.Skip("docker unavailable")
+	}
+	for _, tc := range []struct {
+		client   string
+		broken   string
+		wantText string
+	}{
+		{"kiro-cli", kiroBrokenACP, "unrecognized subcommand"},
+		{"opencode", opencodeBrokenACP, "Failed to change directory"},
+	} {
+		t.Run(tc.client, func(t *testing.T) {
+			stub := stubEngineLayer(tc.client, tc.broken)
+
+			// (a) the OLD gate: `--version` only. A dead engine ships green.
+			oldGate := stub + "RUN " + tc.client + " --version\n"
+			err, out := buildFragmentImageErr(t, "ctxloom-acpprobe-oldgate-"+tc.client+":latest", oldGate)
+			require.NoError(t, err, "the OLD --version-only gate is supposed to be blind to this; if it caught it, re-read the premise:\n%s", out)
+
+			// (b) the NEW gate: run the surface structured chat actually spawns.
+			newGate := stub + "RUN true \\\n" + nativeACPRunGate(tc.client, "acp")
+			err, out = buildFragmentImageErr(t, "ctxloom-acpprobe-newgate-"+tc.client+":latest", newGate)
+			require.Error(t, err, "a broken %s acp MUST fail the build:\n%s", tc.client, out)
+			require.Contains(t, out, tc.wantText, "the build must SAY what was wrong, not just fail:\n%s", out)
+			require.Contains(t, out, tc.client+" acp is installed but its ACP surface cannot start",
+				"the gate must name the surface it probed:\n%s", out)
+		})
+	}
+}
+
+// TestNativeACPGate_PassesAHealthyEngine is the green half: the same gate over
+// a client whose `acp` behaves like the real ones do (measured live: exit 0,
+// no output at all on stdin EOF) must NOT fail the build. Without this, a gate
+// that failed everything would look identical to a gate that works.
+func TestNativeACPGate_PassesAHealthyEngine(t *testing.T) {
+	if !(Docker{}).Available() {
+		t.Skip("docker unavailable")
+	}
+	stub := stubEngineLayer("kiro-cli", `cat >/dev/null; exit 0`)
+	body := stub + "RUN true \\\n" + nativeACPRunGate("kiro-cli", "acp")
+	err, out := buildFragmentImageErr(t, "ctxloom-acpprobe-healthy:latest", body)
+	require.NoError(t, err, "a healthy acp surface must build clean:\n%s", out)
+}
+
+// TestACPAdapterRuns_Kiro builds the REAL kiroInstallFragment and proves
+// `kiro-cli acp` comes up in the image it was installed into. Needs network
+// (the official installer).
+func TestACPAdapterRuns_Kiro(t *testing.T) {
+	if !(Docker{}).Available() {
+		t.Skip("docker unavailable")
+	}
+	img := buildFragmentImage(t, "ctxloom-acpprobe-kiro:latest", kiroInstallFragment)
+	assertAdapterExecutes(t, img, "kiro-cli acp")
+}
+
+// TestACPAdapterRuns_Opencode is the same for opencode.
+func TestACPAdapterRuns_Opencode(t *testing.T) {
+	if !(Docker{}).Available() {
+		t.Skip("docker unavailable")
+	}
+	img := buildFragmentImage(t, "ctxloom-acpprobe-opencode:latest", opencodeInstallFragment)
+	assertAdapterExecutes(t, img, "opencode acp")
 }

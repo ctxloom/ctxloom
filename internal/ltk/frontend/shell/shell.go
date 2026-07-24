@@ -18,6 +18,7 @@ package shell
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -59,7 +60,25 @@ func variantFor(sh ir.Shell) syntax.LangVariant {
 
 // Parse lowers src into a Script. On a parse error it returns a non-nil (empty)
 // script alongside the error, so the caller can apply its on_parse_error policy.
-func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
+//
+// Parse never panics. That is a contract, not an aspiration: this frontend is
+// the hook's first contact with an arbitrary command line, and a panic here
+// BLOCKS a command the operator wrote no rule against — strictly worse than
+// missing a rule, and with a stack trace as the agent's only feedback. Neither
+// half of the lowering is panic-free by construction: the walk is hand-written
+// over an AST shape we do not control, and the expander is third-party
+// (mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under the
+// POSIX variant — see testdata/fuzz/FuzzParse). So a panic is converted into an
+// ordinary parse error and the caller's on_parse_error policy decides, exactly
+// as it would for malformed syntax. App.Decide holds the outer backstop for
+// everything downstream of here.
+func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (script *ir.Script, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			script = &ir.Script{Shell: shell}
+			err = fmt.Errorf("internal error lowering %s command: %v", shell, r)
+		}
+	}()
 	parser := syntax.NewParser(syntax.Variant(variantFor(shell)))
 	file, err := parser.Parse(strings.NewReader(src), "")
 	if err != nil {
@@ -101,9 +120,21 @@ func (l *lowerer) lowerStmt(st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
 	return l.lowerCmd(st.Cmd, st, conn)
 }
 
+// lowerCmd lowers one statement's command. Every case nil-checks its node: the
+// AST is untrusted input as far as this package is concerned, and a nil node
+// reaching syntax.Walk panics ("syntax.Walk: unexpected node type <nil>"),
+// which would BLOCK the command the hook is guarding — strictly worse than
+// missing a rule. A nil Cmd is not hypothetical: a statement that is pure
+// redirection (`> file`, `2> err`, `< in`) is valid POSIX with no command word,
+// and the parser gives it Cmd == nil.
 func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
 	switch c := cmd.(type) {
+	case nil:
+		return l.lowerBareRedirect(st, conn)
 	case *syntax.CallExpr:
+		if c == nil {
+			return l.lowerBareRedirect(st, conn)
+		}
 		return []ir.Pipeline{{
 			Connector:  conn,
 			Background: st != nil && st.Background,
@@ -111,14 +142,48 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 			Commands:   []ir.SimpleCommand{l.lowerCall(c, st)},
 		}}
 	case *syntax.BinaryCmd:
+		if c == nil {
+			return nil
+		}
 		return l.lowerBinary(c, st, conn)
 	case *syntax.Block:
+		if c == nil {
+			return nil
+		}
 		return l.lowerGroup(c.Stmts, st, conn)
 	case *syntax.Subshell:
+		if c == nil {
+			return nil
+		}
 		return l.lowerGroup(c.Stmts, st, conn)
 	default:
 		return l.lowerCompound(cmd)
 	}
+}
+
+// lowerBareRedirect lowers a statement with no command word — a bare
+// redirection such as `> out.txt` (truncate) or `< in.txt`. It runs no program,
+// so it lowers to a command with empty Argv (Program() == "", which no command
+// rule can match) that still carries the redirects, keeping the statement
+// visible in the IR rather than silently dropping it.
+func (l *lowerer) lowerBareRedirect(st *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
+	sc := ir.SimpleCommand{}
+	if st != nil {
+		cfg := l.expandConfig(&sc)
+		for _, r := range st.Redirs {
+			if r == nil {
+				continue
+			}
+			sc.Redirects = append(sc.Redirects, ir.Redirect{Op: r.Op.String(), Target: l.literal(cfg, r.Word)})
+		}
+		sc.Raw = l.render(st)
+	}
+	return []ir.Pipeline{{
+		Connector:  conn,
+		Background: st != nil && st.Background,
+		Negated:    st != nil && st.Negated,
+		Commands:   []ir.SimpleCommand{sc},
+	}}
 }
 
 // lowerGroup lowers a `{ … }` block or `( … )` subshell, carrying the enclosing
@@ -161,7 +226,13 @@ func (l *lowerer) lowerBinary(c *syntax.BinaryCmd, st *syntax.Stmt, conn ir.Conn
 // construct we don't model: it walks the node to surface every simple command
 // inside so rules still match, stopping at each call we capture (lowerCall
 // already pulls in any nested substitutions).
+// A nil cmd never reaches here (lowerCmd routes it to lowerBareRedirect), but
+// the check is kept at the call site of syntax.Walk too: Walk PANICS on a nil
+// node, and this is the one place in the package that calls it.
 func (l *lowerer) lowerCompound(cmd syntax.Command) []ir.Pipeline {
+	if cmd == nil {
+		return nil
+	}
 	var out []ir.Pipeline
 	syntax.Walk(cmd, func(n syntax.Node) bool {
 		call, ok := n.(*syntax.CallExpr)

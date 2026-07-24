@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -101,6 +102,18 @@ type AgentChatRequest struct {
 	// field only ever selects WHICH handler runs, never authorizes the
 	// commit handler's mutation.
 	DirtyTreeHandler string
+	// ChatDialTimeout bounds Start's legacy go-plugin Chat dial (client.Chat,
+	// below): the ONLY per-attempt budget on this path today besides plain ctx
+	// cancellation. Zero (the normal case — no production caller sets this)
+	// uses the package default, defaultChatDialTimeout; this field exists so a
+	// test can inject a short budget instead of waiting out the real one. See
+	// Start's doc for why the bound races the call rather than deriving a
+	// child context from ctx: client.Chat's ctx parameter governs the WHOLE
+	// returned stream's lifetime (a successful dial must keep using the
+	// caller's own ctx, unbounded, for the life of the conversation), so a
+	// context.WithTimeout wrapper cannot be cancelled once the dial succeeds
+	// without also killing the stream it just opened.
+	ChatDialTimeout time.Duration
 }
 
 // AgentChatLaunch is a launched child: turns go in on In (plain text — the
@@ -132,11 +145,15 @@ type PreparedAgentChat struct {
 
 	// chat-path only (nil/empty on the oneshot fallback, which prepares its
 	// isolation per turn inside runResolvedAgent):
-	factory      pb.ClientFactory     // legacy go-plugin Chat spawn (Start)
+	factory      pb.ClientFactory        // legacy go-plugin Chat spawn (Start)
 	starter      isolation.EngineStarter // StartRun spawn half (StartEngine)
 	workDir      string
 	workspaceEnv map[string]string
 	cleanup      func()
+	// chatDialTimeout is req.ChatDialTimeout resolved against
+	// defaultChatDialTimeout (never zero) — see AgentChatRequest.ChatDialTimeout
+	// and Start's doc.
+	chatDialTimeout time.Duration
 }
 
 // PrepareAgentChat resolves how the child will run: the structured-chat path
@@ -177,6 +194,10 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 	} else if workspace == "" {
 		workspace = string(isolation.WorkspaceWorktree)
 	}
+	chatDialTimeout := req.ChatDialTimeout
+	if chatDialTimeout <= 0 {
+		chatDialTimeout = defaultChatDialTimeout
+	}
 	p := &PreparedAgentChat{
 		cfg:         cfg,
 		req:         req,
@@ -185,6 +206,7 @@ func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequ
 			Workspace: isolation.WorkspaceAxis(workspace),
 			Runtime:   isolation.RuntimeAxis(rs.Runtime),
 		},
+		chatDialTimeout: chatDialTimeout,
 	}
 	if p.contextText == "" {
 		p.contextText = rs.Context
@@ -730,8 +752,46 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 	}, nil
 }
 
+// defaultChatDialTimeout is the package default budget for Start's legacy
+// go-plugin Chat dial: client.Chat's blocking call to open the bidirectional
+// stream against an already-spawned engine process (or container). It is the
+// legacy path's mirror of coord/children.go's defaultRunnerAwaitTimeout (the
+// migrated StartRun path's dial-home budget) — same underlying operational
+// risk (host/container contention slowing a genuinely-succeeding spawn) —
+// but it is its OWN named constant and its OWN Option (AgentChatRequest.
+// ChatDialTimeout) rather than a reuse of that one: the two paths spawn
+// differently (a push-style dial-home wait there vs. a direct blocking RPC
+// call here) and are owned by different, actively-changing packages
+// (agentcoord/coord vs. operations), so a future retune of one must not have
+// to touch the other. 5 minutes matches runnerAwaitTimeout's just-recalibrated
+// value (2026-07-24, fix/launch-retry-budget) because nothing here suggests
+// this path's spawn latency differs from that one's: both exclude image
+// build/pull (staged earlier — PrepareAgentChat's own isolation.Prepare call
+// for this path, StartEngine's for that one) and both are bounding "process/
+// container comes up and finishes a handshake" under the same possible
+// contention (loaded docker daemon, DinD nesting, a busy bridge network).
+// Absent evidence the legacy path's engines (today: antigravity, opencode,
+// mock, or any StartRun-eligible backend launched --degraded) are faster or
+// slower to spawn, matching the sibling path's just-tuned number is the
+// defensible choice — not a copy-paste, an independent application of the
+// same reasoning to the same class of wait.
+const defaultChatDialTimeout = 5 * time.Minute
+
 // Start spawns the child and opens its turn stream. ctx bounds the child's
 // whole lifetime (the orchestrator's, not one tool call's).
+//
+// The client.Chat dial below is raced against p.chatDialTimeout rather than
+// bounded by deriving a context.WithTimeout(ctx, ...) and passing THAT into
+// client.Chat: client.Chat's ctx parameter is not a one-shot "setup" context
+// that this function could safely cancel once the call returns — it governs
+// the WHOLE returned stream's lifetime (GRPCClient.Chat binds the bidi stream
+// to the exact ctx it was given, for as long as the conversation runs). A
+// successful dial must keep using the caller's own long-lived ctx, completely
+// unbounded, for the life of the conversation that follows; cancelling a
+// derived timeout context immediately after a successful call would tear the
+// just-opened stream straight back down. Racing the call in a goroutine (never
+// touching ctx itself) lets a slow-but-succeeding dial complete normally while
+// still failing loud, on a timer, when it never completes at all.
 //
 // Wave C4 KILL-LIST VERIFICATION (R13-scoped): the branch below is the
 // delegated-child go-plugin Chat dial. It was NOT deleted — grepping
@@ -739,14 +799,24 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 // reached ONLY when `!(plan.ViaStartRun && url != "")`, i.e. exactly two
 // documented, intentional cases: (a) a StructuredChat backend outside the
 // coordinator's ViaStartRun allowlist (coord/spawner.go's
-// viaStartRunBackends — today, no production backend; only test doubles),
-// and (b) C1's documented degraded-mode no-reach-back spawn fallback (a
-// StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and no
-// coordinator endpoint reachable — the runner could never dial home, so
+// viaStartRunBackends) — CORRECTED 2026-07-24 (fix/legacy-launch-timeout):
+// this is NOT "no production backend, only test doubles". antigravity and
+// opencode are both fully registered production backends (internal/lm/
+// backends/registry.go) that implement agent.StructuredChat and are absent
+// from viaStartRunBackends by design (spawner.go's doc); an agent_run against
+// either rides this exact dial, unconditionally, on every ordinary
+// (non-degraded) launch — antigravity's own native-session resume explicitly
+// depends on this path (resumeCapableBackends' doc, children.go's LEGACY
+// resume branch). "mock" is the only member of the allowlist gap that is
+// test-only. And (b) C1's documented degraded-mode no-reach-back spawn
+// fallback (a StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and
+// no coordinator endpoint reachable — the runner could never dial home, so
 // StartRun is impossible and this is the only way the child launches at
 // all). Both are real, reachable, and intentional — this is NOT the general
-// delegated-child path anymore (claude/codex/kiro/acp with reach-back always
-// ride StartRun), so it stays, narrowly scoped and documented as such.
+// delegated-child path anymore (claude/codex/kiro/acp WITH reach-back ride
+// StartRun), so it stays, narrowly scoped and documented as such, and its
+// client.Chat dial gets the same fail-loud bound StartRun's dial-home wait
+// already has (defaultChatDialTimeout above).
 func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error) {
 	if p.oneshot {
 		return p.startOneshot(ctx), nil
@@ -766,14 +836,15 @@ func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error)
 		maps.Copy(merged, p.req.Env)
 		env = merged
 	}
-	in, events, errs, err := client.Chat(ctx, agent.ChatRequest{
+
+	in, events, errs, err := dialChat(ctx, client, rs.Backend, agent.ChatRequest{
 		WorkDir:         p.workDir,
 		Model:           rs.Model,
 		Env:             env,
 		Permissions:     p.req.Permissions,
 		MCPServers:      p.req.MCPServers,
 		ResumeSessionID: p.req.ResumeSessionID,
-	})
+	}, p.chatDialTimeout)
 	if err != nil {
 		client.Kill()
 		p.Abort()
@@ -795,6 +866,48 @@ func (p *PreparedAgentChat) Start(ctx context.Context) (*AgentChatLaunch, error)
 		Errs:   errs,
 		Close:  closeFn,
 	}, nil
+}
+
+// chatDialResult is dialChat's internal race payload: exactly the 4-tuple
+// pb.Client.Chat returns, boxed so a single channel send can carry it.
+type chatDialResult struct {
+	in     chan<- agent.ChatMessage
+	events <-chan agent.ChatEvent
+	errs   <-chan error
+	err    error
+}
+
+// dialChat races client.Chat(ctx, req) against timeout, giving Start's legacy
+// go-plugin dial a fail-loud bound without ever cancelling the ctx client.Chat
+// itself receives — see Start's doc for why a context.WithTimeout wrapper
+// would be unsafe here (it would double as a kill switch on a successful, now
+// long-lived stream). client.Chat runs in its own goroutine regardless of
+// which arm of the select fires; resultCh is buffered (size 1) specifically
+// so that goroutine can always deliver its result and exit even when nobody
+// is left reading — a timeout/ctx.Done() return here is never a goroutine
+// leak. On either failure arm, Start's caller kills `client` immediately
+// (see Start, right after this call), which is what actually unblocks or
+// fails whatever the dial was stuck on; a dial that later "succeeds" against
+// an already-killed client cannot leak a live, unreferenced engine either —
+// the process backing it is already torn down.
+func dialChat(ctx context.Context, client pb.Client, backend string, req agent.ChatRequest, timeout time.Duration) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+	resultCh := make(chan chatDialResult, 1)
+	go func() {
+		in, events, errs, err := client.Chat(ctx, req)
+		resultCh <- chatDialResult{in: in, events: events, errs: errs, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-resultCh:
+		return res.in, res.events, res.errs, res.err
+	case <-timer.C:
+		return nil, nil, nil, fmt.Errorf("agent_run: legacy chat dial for backend %q did not open within %s (client.Chat never returned — the engine process/container or its handshake may be stuck); check the runtime's process/container state and backend logs", backend, timeout)
+	case <-ctx.Done():
+		return nil, nil, nil, ctx.Err()
+	}
 }
 
 // leadContextIn wraps a chat input channel so the composed agent context

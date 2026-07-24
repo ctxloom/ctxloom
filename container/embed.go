@@ -31,3 +31,18 @@ var Base []byte
 //
 //go:embed entrypoint.sh
 var Entrypoint []byte
+
+// ProbeSeccomp is the PROBE-ONLY seccomp profile the isolation read-observation
+// probe passes via `--security-opt seccomp=<file>`. It is a complete, TIGHT
+// container default (defaultAction SCMP_ACT_ERRNO, the full standard syscall
+// allowlist) that additionally permits the ptrace family (ptrace,
+// process_vm_readv, process_vm_writev) UNCONDITIONALLY — the one delta from
+// Docker's compiled-in default, which gates those behind CAP_SYS_PTRACE. It is
+// NOT `seccomp=unconfined`: every other syscall stays under the default policy.
+// This is the minimal privilege delta that lets strace trace its OWN children
+// in-container (same-uid tracing) without the far broader CAP_SYS_PTRACE. Used
+// ONLY on the probe path (isolation.TraceProbe); production runs keep Docker's
+// default profile untouched.
+//
+//go:embed seccomp/probe-seccomp.json
+var ProbeSeccomp []byte

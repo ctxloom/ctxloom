@@ -144,7 +144,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	// The host already composed fragments into prompt (JoinLeadBlocks at the
 	// call site), so it leads the first turn verbatim.
-	if err := c.issueStartRun(rt, hashToken(token), hs, prompt, spec.Model, ""); err != nil {
+	if err := c.issueStartRun(ctx, rt, hashToken(token), hs, prompt, spec.Model, ""); err != nil {
 		return nil, err
 	}
 

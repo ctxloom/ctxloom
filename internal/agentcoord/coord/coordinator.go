@@ -167,6 +167,12 @@ type Coordinator struct {
 	// race to arm the SAME harp (armLaunch's doc), and awaitChildUp must be
 	// able to wait on every not-yet-settled attempt, not just the latest.
 	launchArmed map[string][]chan struct{}
+	// launches is per-harp launch/retry bookkeeping (launchgate.go): the
+	// cancel for the attempt currently in flight, the consecutive-failure
+	// count the bounded retry reads, and the agent_stop flag that stops an
+	// already-armed relaunch from carrying on behind the stop. Lazily
+	// initialized (launchGateLocked).
+	launches map[string]*launchState
 
 	// wg tracks every goroutine this coordinator dispatches beyond its
 	// spawning call's own return (delegation launches/resumes, the runner
@@ -282,6 +288,7 @@ func New(opts Options) (*Coordinator, error) {
 		runnerReady:   make(map[string]chan struct{}),
 		chans:         make(map[string]*runChan),
 		launchArmed:   make(map[string][]chan struct{}),
+		launches:      make(map[string]*launchState),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
@@ -684,8 +691,17 @@ func (c *Coordinator) AgentStop(caller Identity, harp string) (string, error) {
 	if rec == nil {
 		return "", fmt.Errorf("agent_stop: unknown session %q: not a child of this session", harp)
 	}
+	// Cancel the LAUNCH before anything else, and do it on BOTH paths below.
+	// A stop that only ends the run record cannot stop a launcher: the
+	// 2026-07-24 incident's stop landed on an already-ended run (the retry
+	// loop's own terminal) with a relaunch already armed behind it, reported
+	// success, and the loop span on for another 40 minutes. This marks the
+	// harp stopped — so an armed-but-not-yet-enqueued relaunch turns back —
+	// and cancels the context of any attempt currently in flight, which a
+	// container prepare makes a seconds-wide window.
+	c.cancelLaunch(harp)
 	if rec.Ended {
-		return fmt.Sprintf("child %s had already ended (%s)", harp, rec.Cause), nil
+		return fmt.Sprintf("child %s had already ended (%s); any pending relaunch is cancelled", harp, rec.Cause), nil
 	}
 	c.audit("agent_stop", caller.Harp, map[string]string{"harp": harp, "run_id": rec.RunID})
 	c.terminateRun(rec.RunID, CauseStopped, fmt.Sprintf("stopped by %s", caller.Harp))

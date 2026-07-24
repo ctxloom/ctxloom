@@ -225,8 +225,7 @@ func TestFailingLaunch_RetryIsBoundedAndGivesUpLoudly(t *testing.T) {
 	// Well past the point an unbounded loop would have run hundreds of times.
 	time.Sleep(3 * time.Second)
 	attempts := sp.attempts.Load()
-	// RED: no ceiling exists yet, so the literal stands in for maxLaunchAttempts.
-	assert.LessOrEqual(t, attempts, int64(8),
+	assert.LessOrEqual(t, attempts, int64(maxLaunchAttempts),
 		"the launch retry is unbounded: %d attempts in 3s with no ceiling and no backoff", attempts)
 
 	// And the give-up is LOUD: the parent learns, rather than the loop just

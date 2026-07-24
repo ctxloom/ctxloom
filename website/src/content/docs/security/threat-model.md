@@ -161,6 +161,16 @@ about what that costs you.
 **`$PAGER` runs during review.** Review shells out to your pager, which is user-controlled
 code execution at review time. Acknowledged and accepted, as it is in every tool that pages.
 
+**On Docker Desktop the host-to-container LLM transport has no cryptographic authentication.**
+On non-Linux hosts (macOS and Windows, under Docker Desktop) ctxloom reaches the isolated LLM
+plugin over plain gRPC on a loopback TCP port published to `127.0.0.1` only — there is no
+per-run bearer token, no mTLS (go-plugin's AutoMTLS is off), and the only handshake value is a
+static, compiled-in magic cookie that guards against mis-execution rather than a credential.
+Security here rests entirely on the loopback binding plus the port being ephemeral and
+short-lived: any local process on the host that can reach that port for the duration of a run
+can speak to the plugin. On Linux the same transport is a bind-mounted unix socket rather than
+TCP, so this caveat is specific to the Docker Desktop path.
+
 ## The one line we hold
 
 Everything above reduces to a single invariant: **a human sees third-party content —

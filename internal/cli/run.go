@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,6 +36,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/vpio"
+	"github.com/ctxloom/ctxloom/internal/vpio/dockerexec"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
 
@@ -988,6 +990,14 @@ Examples:
 		// The external-plugin-binary path is spawned directly — isolation wraps the
 		// built-in serve transport, not a user-supplied binary — and stays none.
 		var client pb.Client
+		// Phase 2a-A: a container-policy INTERACTIVE top-level run never
+		// constructs a go-plugin client — it launches the StartRunner keepalive
+		// container and drives the turn over a docker-exec vpio.Launcher (no
+		// in-container listener). These carry that arm's launcher + teardown
+		// handle out to the seam below; nil on every other arm (host/worktree
+		// interactive, oneshot, structured), which stay on SpawnClient + goplugin.
+		var interactiveLauncher vpio.Launcher
+		var runnerHandle *isolation.RunnerHandle
 		if llmBinary != "" {
 			// The external plugin binary is spawned DIRECTLY — isolation wraps the
 			// built-in serve transport, not a user-supplied binary — so it can be
@@ -1089,15 +1099,44 @@ Examples:
 				}
 				req.Options.Env[agent.MCPCommandOverrideEnv] = override
 			}
-			// Spawn through the policy, carrying the resolved label so serve
-			// configures exactly this entry (not the first map-ordered entry of the
-			// same type).
-			client, err = policy.SpawnClient(backendName, label, runVerbosity, ws, runnerSpawnEnv)
-			if err != nil {
-				return fmt.Errorf("failed to start plugin: %w", err)
+			// Phase 2a-A swap: an INTERACTIVE container-policy top-level run goes
+			// docker-exec instead of go-plugin. Launch the container via the SAME
+			// StartRunner primitive Phase 1 uses (an `llm host` keepalive), hand
+			// the RunStart off by 0600 file in the bind-mounted persist dir, and
+			// build the docker-exec Launcher; NO go-plugin client is constructed.
+			// Structured/oneshot container arms (Part B) and every host/worktree
+			// arm stay on SpawnClient + goplugin below. The observation/injection
+			// wrap sits ABOVE the seam (untouched) — the Launcher just receives
+			// the already-wrapped streams.
+			if selectsDockerExecInteractive(policy.Name(), mode, runStructured) {
+				handle, launcher, lerr := startContainerInteractive(ctx, policy, ws, req, backendName, label, runVerbosity, activeHarp, runnerSpawnEnv)
+				if lerr != nil {
+					return fmt.Errorf("failed to start container interactive turn: %w", lerr)
+				}
+				runnerHandle = handle
+				interactiveLauncher = launcher
+			} else {
+				// Spawn through the policy, carrying the resolved label so serve
+				// configures exactly this entry (not the first map-ordered entry of the
+				// same type).
+				client, err = policy.SpawnClient(backendName, label, runVerbosity, ws, runnerSpawnEnv)
+				if err != nil {
+					return fmt.Errorf("failed to start plugin: %w", err)
+				}
 			}
 		}
-		defer client.Kill()
+		// Teardown: kill the go-plugin client (host/worktree/oneshot/structured
+		// arms) OR the docker-exec keepalive container (Phase 2a-A interactive
+		// arm — RunnerHandle.Kill is Phase 1's rm -f + removeReportsGone). Exactly
+		// one is non-nil per run; the container arm never constructs a client.
+		defer func() {
+			if client != nil {
+				client.Kill()
+			}
+			if runnerHandle != nil {
+				runnerHandle.Kill()
+			}
+		}()
 
 		// --structured: drive the session as a structured turn REPL (the gRPC
 		// WatchSession + user_message interface) instead of owning the terminal.
@@ -1170,11 +1209,16 @@ Examples:
 			defer func() { restoreTerm() }()
 		}
 
-		// Run the AI plugin over the vpio seam. goplugin.Launcher is the seam's
-		// SWAP POINT: it wraps the existing go-plugin Run stream (client.Run,
-		// unchanged) below the seam; a future docker-exec or host-pty
-		// vpio.Launcher plugs in here without this call site changing.
-		session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
+		// Run the AI plugin over the vpio seam — the SWAP POINT. An interactive
+		// container run selected the docker-exec Launcher above (Phase 2a-A);
+		// every other arm wraps the go-plugin Run stream (client.Run, unchanged)
+		// below the seam. Above-the-seam (this call site + the observation wrap)
+		// references only vpio types, so the swap is invisible here.
+		launcher := interactiveLauncher
+		if launcher == nil {
+			launcher = goplugin.NewLauncher(client, req)
+		}
+		session, err := launcher.Start(ctx, vpio.ProcessSpec{
 			Stdin:  stdin,
 			Stdout: stdout,
 			Stderr: os.Stderr,
@@ -1253,6 +1297,68 @@ func convertVendorTranscriptOnExit(harp string) {
 	if _, cerr := operations.ConvertVendorTranscript(context.Background(), *entry); cerr != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: %v", cerr)
 	}
+}
+
+// selectsDockerExecInteractive reports whether a top-level built-in run takes
+// the Phase 2a-A docker-exec interactive arm — a container policy, INTERACTIVE
+// mode, and NOT --structured — instead of SpawnClient + the go-plugin Launcher.
+// Every other combination (host/worktree interactive, any oneshot, any
+// structured) stays on the go-plugin path: structured/oneshot container is
+// Part B, and host/worktree never had the mauve-state problem this fixes.
+func selectsDockerExecInteractive(policyName string, mode pb.ExecutionMode, structured bool) bool {
+	return isolation.IsContainerPolicyName(policyName) && mode == pb.ExecutionMode_INTERACTIVE && !structured
+}
+
+// startContainerInteractive is the Phase 2a-A docker-exec arm: it launches the
+// StartRunner keepalive container (Phase 1's `llm host` primitive — same
+// workspace mounts, auth env, session-state mounts, teardown-by-name), hands
+// the resolved RunStart off by a 0600 file in the bind-mounted persist dir
+// (never argv/env), and returns a docker-exec vpio.Launcher that runs the
+// interactive turn via `docker|podman exec -it <container> ctxloom llm turn`.
+// The keepalive carries NO coordinator reach-back (it just blocks); the trio
+// rides the exec into the turn process, which stands up its own runner-MCP —
+// so exactly one process dials home, mirroring the single top-level runner the
+// go-plugin path spawns. No in-container listener; teardown is RunnerHandle.Kill.
+func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws isolation.Workspace, req *pb.RunStart, backendName, label string, verbosity int, harp string, runnerEnv map[string]string) (*isolation.RunnerHandle, vpio.Launcher, error) {
+	rt := operations.RuntimeForPolicy(policy)
+	if rt == nil {
+		return nil, nil, fmt.Errorf("container interactive: policy %q exposes no launch runtime", policy.Name())
+	}
+	persistDir := operations.ContainerPersistDirForPolicy(policy, harp)
+	if persistDir == "" {
+		return nil, nil, fmt.Errorf("container interactive: no session harp — the RunStart handoff needs the bind-mounted persist dir")
+	}
+
+	// Hand off RunStart by file BEFORE the container starts (the persist dir is
+	// the bind SOURCE, created here and by the session-state mounts alike).
+	if _, err := writeRunStartHandoff(harp, req); err != nil {
+		return nil, nil, err
+	}
+	startPath := path.Join(persistDir, runStartHandoffFile)
+
+	// Keepalive env: session identity only — NO reach-back trio, so the `llm
+	// host` keepalive degrades to standup+block without dialing home (the turn
+	// owns the single dial). The container's auth/TERM/git env ride the
+	// workspace's own mounts+env, not this map.
+	keepaliveEnv := map[string]string{}
+	if harp != "" {
+		keepaliveEnv["CTXLOOM_SESSION_HARP"] = harp
+	}
+	handle, err := policy.StartRunner(ctx, backendName, label, verbosity, ws, keepaliveEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	launcher := dockerexec.NewLauncher(rt, handle.Name, dockerexec.TurnSpec{
+		Backend:   backendName,
+		Label:     label,
+		StartPath: startPath,
+		// The full reach-back trio (+ harp) crosses to the turn as bare `-e
+		// NAME` (values on the exec subprocess env, never argv), so the turn's
+		// runner-MCP standup can dial the session coordinator.
+		Env: runnerEnv,
+	})
+	return handle, launcher, nil
 }
 
 // mergeWorkspaceEnv layers the isolation-resolved per-engine config-home env

@@ -25,6 +25,13 @@ var _ agent.StructuredChat = (*Mock)(nil)
 //   - "HANG": the turn parks without completing until a CancelTurn message
 //     arrives, then completes with StopReason "cancelled" — the per-turn cancel
 //     seam, exercised without a real engine.
+//   - "TOOLS": the turn emits the FULL entry vocabulary a real engine produces
+//     — thinking, tool_use, tool_result, assistant — before completing. Added
+//     for the container-progress assertion (light-foe): a liveness check that
+//     asserts entry-type VARIETY is only meaningful against a stub that can
+//     actually produce more than one type, and the echo default cannot. Every
+//     entry carries the turn's text so the payload still proves exactly what
+//     was delivered to the engine.
 func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
 	defer close(out)
 	send := func(ev agent.ChatEvent) bool {
@@ -61,6 +68,10 @@ func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 					return nil // input closed mid-park
 				}
 				if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock chat: permission " + verdict}}) || !complete("end_turn") {
+					return ctx.Err()
+				}
+			case strings.Contains(msg.Text, "TOOLS"):
+				if !b.chatToolsTurn(msg.Text, send) || !complete("end_turn") {
 					return ctx.Err()
 				}
 			case strings.Contains(msg.Text, "HANG"):
@@ -120,6 +131,32 @@ func (b *Mock) chatPermissionTurn(ctx context.Context, seq int, in <-chan agent.
 			}
 		}
 	}
+}
+
+// chatToolsTurn emits one thinking → tool_use → tool_result → assistant
+// sequence for text, returning false when the consumer went away. The tool
+// call is entirely synthetic (nothing is executed): the point is the ENTRY
+// VOCABULARY on the wire and in the canonical transcript, not tool behavior.
+func (b *Mock) chatToolsTurn(text string, send func(agent.ChatEvent) bool) bool {
+	return send(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:    agent.EntryTypeThinking,
+		Content: "mock thinking: " + text,
+	}}) && send(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:       agent.EntryTypeToolUse,
+		ToolName:   "mock_tool",
+		ToolCallID: "mock-tool-1",
+		ToolInput:  json.RawMessage(`{"action":"scripted"}`),
+		Content:    "mock tool_use: " + text,
+	}}) && send(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:       agent.EntryTypeToolResult,
+		ToolName:   "mock_tool",
+		ToolCallID: "mock-tool-1",
+		ToolOutput: "mock tool_result: " + text,
+		Content:    "mock tool_result: " + text,
+	}}) && send(agent.ChatEvent{Entry: &agent.SessionEntry{
+		Type:    agent.EntryTypeAssistant,
+		Content: "mock chat: " + text,
+	}})
 }
 
 // chatHangTurn parks until a CancelTurn arrives, completing the turn with

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 )
@@ -32,7 +33,20 @@ type HostRunner struct {
 	stderr   *ringWriter
 	pid      int
 	killOnce sync.Once
+	// reaped blocks for the ONE background Wait this runner's process gets.
+	// A Start()ed process is only released from the process table by Wait,
+	// and no production caller ever invoked RunnerHandle.Wait — so before
+	// this every host runner spawn leaked a zombie exactly like the
+	// container path did (see isolation.reapRunProcess for why a background
+	// per-Cmd Wait, not a SIGCHLD reaper).
+	reaped func() error
 }
+
+// hostRunnerWaitDelay bounds the gap between the runner process exiting and
+// its stderr pipe closing: the runner puts itself in a fresh session, so a
+// grandchild it spawned can hold that pipe open and wedge Wait — a wedged
+// Wait is an unreaped child.
+const hostRunnerWaitDelay = 10 * time.Second
 
 // StartHostRunner self-execs `ctxloom <args…>` under a fresh session (setsid),
 // stamping spawnEnv (the coordinator reach-back trio) onto the SUBPROCESS env
@@ -57,10 +71,24 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 	setsid(cmd)
 	ring := newRingWriter(hostRunnerStderrTailBytes)
 	cmd.Stderr = ring
+	cmd.WaitDelay = hostRunnerWaitDelay
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start host runner: %w", err)
 	}
-	return &HostRunner{cmd: cmd, stderr: ring, pid: cmd.Process.Pid}, nil
+	h := &HostRunner{cmd: cmd, stderr: ring, pid: cmd.Process.Pid}
+	// Reap in the background, exactly once: Kill signals the process but only
+	// Wait releases it, and nothing in production calls Wait.
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		defer close(done)
+		waitErr = cmd.Wait()
+	}()
+	h.reaped = func() error {
+		<-done
+		return waitErr
+	}
+	return h, nil
 }
 
 // Kill terminates the runner and reaps its whole session (killSession) —
@@ -80,7 +108,7 @@ func (h *HostRunner) Kill() {
 // (the go-plugin Diagnose replacement) so a runner that dies pre-dial-home
 // surfaces WHY instead of just "exit status N".
 func (h *HostRunner) Wait() error {
-	err := h.cmd.Wait()
+	err := h.reaped()
 	if err != nil {
 		if tail := h.stderr.tail(); tail != "" {
 			return fmt.Errorf("host runner exited: %w (stderr tail: %s)", err, tail)

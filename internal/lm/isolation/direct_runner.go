@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -87,13 +88,21 @@ func (c Container) buildRunnerSpec(backendName, label, name string, cw *containe
 	}
 }
 
+// runnerWaitDelay bounds the delay Wait will tolerate between the `run`
+// process exiting and its stderr pipe closing. Without it, a container
+// descendant that inherits and holds that pipe wedges Wait FOREVER, and a
+// wedged Wait is an unreaped (defunct) child for this process's whole
+// lifetime — see reapRunProcess.
+const runnerWaitDelay = 10 * time.Second
+
 // startDirectRunner starts `rt.Binary() rt.RunArgs(spec)…` as a foreground
 // process (NO go-plugin handshake), capturing stderr into a bounded ring, and
 // returns a RunnerHandle. The per-spawn env values ride the run PROCESS env so
 // they never enter the world-readable argv. Kill force-removes the container
 // (reusing the same remove-with-timeout + removeReportsGone logic
-// containerRunner.Kill uses) then reaps our own `run` CLI; Wait reaps the run
-// process and surfaces the stderr tail on failure.
+// containerRunner.Kill uses) then signals our own `run` CLI; the reaper
+// goroutine started here Waits it exactly once, and RunnerHandle.Wait reads
+// that one outcome (surfacing the stderr tail on failure).
 func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*RunnerHandle, error) {
 	cmd := exec.Command(rt.Binary(), rt.RunArgs(spec)...)
 	if len(spawnEnv) > 0 {
@@ -106,6 +115,7 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	}
 	ring := newStderrRing(directRunnerStderrTailBytes)
 	cmd.Stderr = ring
+	cmd.WaitDelay = runnerWaitDelay
 	// No stdin (keeps `docker run` off the host terminal); the container's
 	// stdout carries no handshake on this path, so nothing reads it.
 	if err := cmd.Start(); err != nil {
@@ -114,6 +124,7 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		}
 		return nil, fmt.Errorf("start %s runner container %q: %w", rt.Name(), spec.Name, err)
 	}
+	reaped := reapRunProcess(cmd)
 	var killOnce sync.Once
 	kill := func() {
 		killOnce.Do(func() {
@@ -122,9 +133,12 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 				_ = cmd.Process.Kill()
 			}
 		})
+		// Deliberately does NOT block on the reap: teardown must stay
+		// bounded even against a wedged daemon, and the reaper goroutine
+		// finishes on its own (cmd.WaitDelay bounds it).
 	}
 	wait := func() error {
-		err := cmd.Wait()
+		err := reaped()
 		if err != nil {
 			if tail := ring.tail(); tail != "" {
 				return fmt.Errorf("runner container %q exited: %w (stderr tail: %s)", spec.Name, err, tail)
@@ -134,6 +148,38 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		return nil
 	}
 	return &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait}, nil
+}
+
+// reapRunProcess Waits a started *exec.Cmd exactly once, in the background,
+// and returns an accessor that blocks for that one outcome.
+//
+// This is the fix for the 2026-07-24 PID leak (846 `[docker] <defunct>`
+// children in 49 minutes). A Start()ed process is only released from the
+// kernel process table by Wait, and NOTHING in the production call graph ever
+// called RunnerHandle.Wait — Kill force-removed the container and signalled
+// the `run` CLI, then dropped it. Every launch attempt therefore leaked one
+// zombie, and a retry loop turned a container-launch bug into slow PID
+// exhaustion.
+//
+// A background Wait, not a SIGCHLD reaper: os/exec keeps its own per-Cmd
+// bookkeeping and REQUIRES Cmd.Wait to collect a child's status. A
+// process-wide SIGCHLD handler calling wait4 would race every other
+// exec.Cmd in this process (the fs probe, `docker rm`, every host runner)
+// and steal their exit statuses, turning one leak into a class of
+// "wait: no child processes" failures. The surrounding code is already
+// Cmd-per-process (HostRunner, containerRunner, probeExec) so per-Cmd
+// reaping is also the shape that fits.
+func reapRunProcess(cmd *exec.Cmd) func() error {
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		defer close(done)
+		waitErr = cmd.Wait()
+	}()
+	return func() error {
+		<-done
+		return waitErr
+	}
 }
 
 // removeContainer force-removes a named container under our OWN bounded timeout

@@ -5,8 +5,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
@@ -77,7 +79,71 @@ func (a *App) resolveShell(hint ir.Shell) ir.Shell {
 // Decide evaluates a request against the rules: a file edit (FilePath set) is
 // matched against path rules; otherwise the command is parsed and matched
 // against command rules.
-func (a *App) Decide(ctx context.Context, req engine.Request) engine.Response {
+//
+// Decide is the recover boundary for ltk's whole analysis path — parsing,
+// wrapper expansion, and rule matching all happen below it. It is the right
+// frame for the boundary because it is the innermost one that OWNS a decision:
+// recovering any deeper would return a meaningless zero value upward (an empty
+// engine.Response is Allow=false, i.e. a silent deny), and recovering any
+// shallower — in cmd/ltk's evaluate — would sit on top of the deliberate
+// fail-CLOSED paths there (unknown --engine, unreadable config, undecodable
+// payload, ungated tool) and risk flipping their intent.
+//
+// The boundary cannot swallow a legitimate denial: every deny in ltk is a
+// RETURNED engine.Response, never a panic, and the deferred handler leaves the
+// named result untouched unless recover actually caught something. A panic is
+// only ever ltk failing to analyze the command at all — never ltk deciding.
+func (a *App) Decide(ctx context.Context, req engine.Request) (resp engine.Response) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = a.onAnalysisPanic(req, r, debug.Stack())
+		}
+	}()
+	return a.decide(ctx, req)
+}
+
+// onAnalysisPanic converts a recovered panic into a decision and tells the
+// human. ltk is a cooperative redirect, not a sandbox, so an ltk bug must not
+// block a command the operator never wrote a rule against: it takes the same
+// route a parse error takes, which under the default (and shipped)
+// on_parse_error: allow means FAIL OPEN. An operator who explicitly set
+// on_parse_error: deny asked for "block whatever ltk cannot analyze", and a
+// crash is the most complete form of that; honouring it keeps one policy knob
+// instead of two.
+//
+// Either way the warning is unconditional. A silent recover would hide the bug
+// for as long as the guard keeps limping, which is precisely how this class of
+// defect stays invisible while the suite reports green.
+func (a *App) onAnalysisPanic(req engine.Request, val any, stack []byte) engine.Response {
+	subject := req.Command
+	if req.FilePath != "" {
+		subject = "file " + req.FilePath
+	}
+	if a.Warn != nil {
+		fmt.Fprintf(a.Warn,
+			"ltk: internal error while analyzing %q — recovered and %s this action. "+
+				"This is an ltk bug, not a problem with the command; please report it.\npanic: %v\n%s\n",
+			subject, a.panicOutcomeVerb(), val, stack)
+	}
+	if a.denyOnUnanalyzable() {
+		return engine.Response{Allow: false, Reason: fmt.Sprintf(
+			"could not analyze command (internal error: %v); defaults.on_parse_error is deny", val)}
+	}
+	return engine.Response{Allow: true}
+}
+
+func (a *App) denyOnUnanalyzable() bool {
+	return a.Config != nil && a.Config.Defaults.OnParseError == rules.ActionDeny
+}
+
+func (a *App) panicOutcomeVerb() string {
+	if a.denyOnUnanalyzable() {
+		return "DENIED"
+	}
+	return "ALLOWED"
+}
+
+func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	if req.FilePath != "" {
 		d := rules.EvaluatePath(a.Config, req.FilePath)
 		return engine.Response{

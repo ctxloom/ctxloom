@@ -470,3 +470,56 @@ rules:
 		}
 	})
 }
+
+// The 2026-07-24 incident, end to end through the real `ltk evaluate` path: a
+// bare redirection (`> /tmp/fsp.txt`) beside a `while` loop crashed the hook
+// with "syntax.Walk: unexpected node type <nil>", which BLOCKS a valid command
+// — worse than any missed rule. It must now pass through silently.
+func TestEvaluateBareRedirectionIsAllowed(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
+	cfg := `version: 1
+rules:
+  - id: go-test-to-just
+    match: { command: [go, test] }
+    message: "run tests through the task runner"
+    suggest: "just test"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := func(command string) string {
+		return `{"tool_name":"Bash","tool_input":{"command":` + strconv.Quote(command) + `}}`
+	}
+
+	allowed := []string{
+		"> /tmp/fsp.txt",
+		"> /tmp/fsp.txt; while read -r p; do echo \"$p\" >> /tmp/fsp.txt; done < /tmp/list",
+		"2>&1",
+		"( > /tmp/fsp.txt ) && echo done",
+	}
+	for _, command := range allowed {
+		t.Run(command, func(t *testing.T) {
+			out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload(command)))
+			if err != nil {
+				t.Fatalf("evaluate(%q) errored: %v", command, err)
+			}
+			// A pass-through is a zero Output. This asserts the DECISION, not
+			// merely the absence of a crash.
+			if len(out.Stdout) != 0 || len(out.Stderr) != 0 || out.ExitCode != 0 {
+				t.Errorf("evaluate(%q) should pass through silently, got %+v", command, out)
+			}
+		})
+	}
+
+	// A rule still fires when a bare redirection sits next to the denied command:
+	// the nil-Cmd guard must not swallow the rest of the statement list.
+	t.Run("rule still matches beside a bare redirection", func(t *testing.T) {
+		out, err := evaluate("claude-code", cfgPath, "", strings.NewReader(payload("> /tmp/fsp.txt; go test ./...")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out.Stdout), `"deny"`) || !strings.Contains(string(out.Stdout), "task runner") {
+			t.Errorf("go test after a bare redirection must still be denied, got %s", out.Stdout)
+		}
+	})
+}

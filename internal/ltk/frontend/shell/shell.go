@@ -18,6 +18,7 @@ package shell
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -59,7 +60,25 @@ func variantFor(sh ir.Shell) syntax.LangVariant {
 
 // Parse lowers src into a Script. On a parse error it returns a non-nil (empty)
 // script alongside the error, so the caller can apply its on_parse_error policy.
-func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (*ir.Script, error) {
+//
+// Parse never panics. That is a contract, not an aspiration: this frontend is
+// the hook's first contact with an arbitrary command line, and a panic here
+// BLOCKS a command the operator wrote no rule against — strictly worse than
+// missing a rule, and with a stack trace as the agent's only feedback. Neither
+// half of the lowering is panic-free by construction: the walk is hand-written
+// over an AST shape we do not control, and the expander is third-party
+// (mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under the
+// POSIX variant — see testdata/fuzz/FuzzParse). So a panic is converted into an
+// ordinary parse error and the caller's on_parse_error policy decides, exactly
+// as it would for malformed syntax. App.Decide holds the outer backstop for
+// everything downstream of here.
+func (f *Frontend) Parse(_ context.Context, shell ir.Shell, src string) (script *ir.Script, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			script = &ir.Script{Shell: shell}
+			err = fmt.Errorf("internal error lowering %s command: %v", shell, r)
+		}
+	}()
 	parser := syntax.NewParser(syntax.Variant(variantFor(shell)))
 	file, err := parser.Parse(strings.NewReader(src), "")
 	if err != nil {

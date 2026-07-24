@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
@@ -295,5 +296,26 @@ func TestParseErrorReturnsNonNilScript(t *testing.T) {
 	}
 	if s == nil {
 		t.Error("on parse error want a non-nil script alongside the error")
+	}
+}
+
+// An empty parameter name — `${}` — is REJECTED by the bash/POSIX parsers but
+// accepted by the zsh one, and then nil-derefs inside mvdan.cc/sh's expander
+// (v3.13.1, expand/param.go:57). Found by FuzzParse, and a second live crash
+// on the same hook path as the bare-redirection one. The frontend must turn it
+// into a parse error, not a panic, so on_parse_error decides.
+func TestExpanderPanicBecomesParseError(t *testing.T) {
+	s, err := New().Parse(context.Background(), ir.ShellZsh, "00${}0")
+	if err == nil {
+		t.Fatal("want a parse error for ${}, got nil")
+	}
+	if !strings.Contains(err.Error(), "internal error lowering") {
+		t.Errorf("error = %v, want it flagged as an internal lowering failure", err)
+	}
+	if s == nil {
+		t.Fatal("want a non-nil script alongside the error (Frontend contract)")
+	}
+	if len(s.Commands()) != 0 {
+		t.Errorf("a failed lowering must yield an empty script, got %+v", s.Commands())
 	}
 }

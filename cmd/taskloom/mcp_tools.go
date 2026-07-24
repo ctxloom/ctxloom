@@ -23,6 +23,8 @@ type taskListInput struct {
 	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones. Ignored (no summary is returned) when global is set."`
 	Global           bool     `json:"global,omitempty" jsonschema:"When true, aggregate tasks across every PRIVATELY-homed project instead of just the current one. Off by default: task_list scopes to the project resolved from the working directory. Automatically turned on (with notice set) when no project can be resolved at all. A repo-homed project (homing: repo, its log checked into <repo>/.taskloom/tasks.jsonl) is registered nowhere global and is NEVER included, even if it is the current project -- every global listing's notice field says so."`
 	Sort             string   `json:"sort,omitempty" jsonschema:"Optional sort order. \"priority\" sorts by derived, rank-normalized priority (descending) — a 0-5 score combining a project's priority_fn/decay_fn formulas over each task's tags, percentile-ranked against the project's non-terminal tasks; see each returned task's derived_priority field. Empty (default) leaves today's order unchanged."`
+	Compact          bool     `json:"compact,omitempty" jsonschema:"When true, return compact rows instead of full task bodies: harp_id, status, checked, tags, and a headline (first line, truncated to 80 runes) in a compact_tasks field, rather than the full tasks field (which includes each task's complete text, trigger, and other detail). Use this (optionally with limit) to enumerate many tasks without an unfiltered listing returning every task's full multi-KB body -- prefer statuses/tag_query filters too. Default false preserves today's full-record tasks field exactly."`
+	Limit            int      `json:"limit,omitempty" jsonschema:"Optional cap on the number of rows returned, applied AFTER every filter (statuses/term/tag_query) and the default active-only view. 0 (default) means no cap. Rows cut by the cap are reported in omitted_by_limit; status/summary counts (include_summary) are never affected by it -- they always cover every matching task."`
 }
 
 type taskListResult struct {
@@ -31,6 +33,14 @@ type taskListResult struct {
 	ProjectDir string         `json:"project_dir,omitempty"`
 	Tasks      []taskRow      `json:"tasks"`
 	Summary    *tasks.Summary `json:"summary,omitempty"`
+
+	// CompactTasks holds the compact projection (see internal/shared/tasks.
+	// Task.Compact) when the caller passed compact=true — Tasks is left at
+	// its zero value in that case, rather than duplicating the same rows in
+	// both shapes. Omitted (and empty) on every call that leaves compact
+	// unset, which is the entire pre-existing behavior: nothing about Tasks
+	// changes for a caller that never asks for this.
+	CompactTasks []compactTaskRow `json:"compact_tasks,omitempty"`
 
 	// Global is true when this listing aggregated every project rather than
 	// the one resolved from the working directory — either because the
@@ -59,6 +69,13 @@ type taskListResult struct {
 	// when include_completed or an explicit status filter was used.
 	HiddenCompleted int `json:"hidden_completed,omitempty"`
 	HiddenDeferred  int `json:"hidden_deferred,omitempty"`
+
+	// OmittedByLimit counts the rows a positive `limit` cut off Tasks/
+	// CompactTasks, after every filter and the default active-only view.
+	// Zero (omitted) when limit wasn't set or the result already fit.
+	// Never affects Summary's counts, which always cover every matching
+	// task regardless of limit — see operations.TaskListResult.OmittedByLimit.
+	OmittedByLimit int `json:"omitted_by_limit,omitempty"`
 
 	// PriorityWarning is set when sort="priority" was requested and the
 	// resulting ranking came back MEANINGLESS — no priority_fn declared, or
@@ -122,7 +139,7 @@ func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
+			Description: "List tasks, optionally filtered by status, text term, or tag query (tag_query). By default this is scoped to the CURRENT project (resolved from the working directory); pass global=true to aggregate every PRIVATELY-homed project instead (a repo-homed project -- homing: repo -- is registered nowhere global and is never included, even if it is the current project; the result's notice field always says so when global is true). When no project can be resolved at all (not in a git repo, no CTXLOOM_ROOT, no prior task history there), the listing automatically falls back to global too, with the same notice field explaining why. Completed (Done/Archived) and Deferred tasks are hidden unless include_completed is set; when a filter matches hidden tasks the result reports hidden_completed/hidden_deferred counts. Pass include_summary=true to also get per-status counts and the in-progress harp IDs (single-project only). To enumerate MANY tasks, pass compact=true (harp_id, status, checked, tags, and a truncated headline in compact_tasks -- no full text/trigger/detail) and/or limit (caps row count; omitted rows are reported in omitted_by_limit, and status/summary counts stay uncapped) -- an unfiltered listing otherwise returns every task's full body and can overflow the caller; prefer statuses/tag_query filters too. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		handleTaskList)
 
@@ -193,22 +210,27 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, &taskListResult{
-			Tasks:           gres.Rows,
+		out := &taskListResult{
 			Global:          true,
 			ProjectCount:    gres.ProjectCount,
 			Notice:          notice,
 			HiddenCompleted: gres.HiddenCompleted,
 			HiddenDeferred:  gres.HiddenDeferred,
 			PriorityWarning: gres.PriorityWarning,
-		}, nil
+		}
+		if in.Compact {
+			out.CompactTasks = compactRows(gres.Rows)
+		} else {
+			out.Tasks = gres.Rows
+		}
+		return nil, out, nil
 	}
 
 	tc, err = resolveHoming(tc)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary)
+	res, err := operations.ListTasksWithTagQuery(tc, in.Statuses, in.Term, in.TagQuery, in.IncludeCompleted, in.IncludeSummary, in.Limit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,19 +245,27 @@ func handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput)
 		sortTasksByPriorityDesc(res.Tasks)
 		priorityWarning = priorityDiagnosticWarning(diag)
 	}
-	rows := make([]taskRow, len(res.Tasks))
-	for i, t := range res.Tasks {
-		rows[i] = taskRow{Task: t, ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
-	}
 	out := &taskListResult{
 		Path:            res.Path,
 		ProjectID:       res.ProjectID,
 		ProjectDir:      res.ProjectDir,
-		Tasks:           rows,
 		Summary:         res.Summary,
 		HiddenCompleted: res.HiddenCompleted,
 		HiddenDeferred:  res.HiddenDeferred,
+		OmittedByLimit:  res.OmittedByLimit,
 		PriorityWarning: priorityWarning,
+	}
+	if in.Compact {
+		out.CompactTasks = make([]compactTaskRow, len(res.Tasks))
+		for i, t := range res.Tasks {
+			out.CompactTasks[i] = compactTaskRow{CompactTask: t.Compact(), ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
+		}
+	} else {
+		rows := make([]taskRow, len(res.Tasks))
+		for i, t := range res.Tasks {
+			rows[i] = taskRow{Task: t, ProjectID: res.ProjectID, ProjectDir: res.ProjectDir}
+		}
+		out.Tasks = rows
 	}
 	return nil, out, nil
 }

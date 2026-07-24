@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,6 +100,72 @@ func TestHandleTaskList_SortPriorityOrdersDescendingByKind(t *testing.T) {
 	}
 	assert.Greater(t, *res.Tasks[0].DerivedPriority, *res.Tasks[2].DerivedPriority)
 	assert.Empty(t, res.PriorityWarning, "a real spread of kinds is a meaningful ranking")
+}
+
+// TestHandleTaskList_CompactReturnsCompactRowsAndDefaultsStayFull pins the
+// additive/backward-compat contract: task_list with compact=true returns
+// compact rows (harp_id, status, checked, tags, headline -- no full text)
+// in compact_tasks, while leaving Tasks nil; the DEFAULT call (compact
+// omitted, exactly today's shape) still returns full records in Tasks with
+// compact_tasks absent.
+func TestHandleTaskList_CompactReturnsCompactRowsAndDefaultsStayFull(t *testing.T) {
+	withProjectDir(t)
+
+	longText := "fix the widget\nprovenance: found in session swift-amber-falcon on 2026-07-24"
+	_, add, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: longText, Tags: []string{"urgent"}})
+	require.NoError(t, err)
+
+	// Backward-compat: omitting compact preserves today's exact full-record
+	// shape.
+	_, full, err := handleTaskList(context.Background(), nil, taskListInput{})
+	require.NoError(t, err)
+	require.Len(t, full.Tasks, 1)
+	assert.Equal(t, longText, full.Tasks[0].Text, "default (compact unset) must still return the full task body")
+	assert.Empty(t, full.CompactTasks, "default (compact unset) must not populate compact_tasks")
+
+	// compact=true: compact_tasks is populated instead, and never carries the
+	// full text.
+	_, compact, err := handleTaskList(context.Background(), nil, taskListInput{Compact: true})
+	require.NoError(t, err)
+	assert.Empty(t, compact.Tasks, "compact=true must not also populate the full tasks field")
+	require.Len(t, compact.CompactTasks, 1)
+	row := compact.CompactTasks[0]
+	assert.Equal(t, add.Task.HarpID, row.HarpID)
+	assert.Equal(t, "To Do", row.Status)
+	assert.False(t, row.Checked)
+	assert.Equal(t, []string{"urgent"}, row.Tags)
+	assert.Equal(t, "fix the widget", row.Headline, "headline is the first line only")
+
+	b, err := json.Marshal(compact.CompactTasks)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "provenance", "compact rows must never carry the full text")
+	assert.NotContains(t, string(b), `"trigger"`)
+	assert.NotContains(t, string(b), `"text_hash"`)
+}
+
+// TestHandleTaskList_LimitCapsRowsWithoutAffectingSummary pins limit's
+// contract at the MCP surface: rows are capped, omitted_by_limit reports how
+// many, and include_summary's counts stay the FULL uncapped counts.
+func TestHandleTaskList_LimitCapsRowsWithoutAffectingSummary(t *testing.T) {
+	withProjectDir(t)
+
+	for i := 0; i < 5; i++ {
+		_, _, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: fmt.Sprintf("task %d", i)})
+		require.NoError(t, err)
+	}
+
+	_, res, err := handleTaskList(context.Background(), nil, taskListInput{Limit: 2, IncludeSummary: true})
+	require.NoError(t, err)
+	assert.Len(t, res.Tasks, 2)
+	assert.Equal(t, 3, res.OmittedByLimit)
+	require.NotNil(t, res.Summary)
+	assert.Equal(t, 5, res.Summary.Counts["To Do"], "include_summary must cover every task, not just the capped page")
+
+	// limit=0 (default/omitted) is today's exact unlimited behavior.
+	_, unlimited, err := handleTaskList(context.Background(), nil, taskListInput{})
+	require.NoError(t, err)
+	assert.Len(t, unlimited.Tasks, 5)
+	assert.Zero(t, unlimited.OmittedByLimit)
 }
 
 // TestHandleTaskList_UnknownSortValueErrors mirrors the CLI's --sort

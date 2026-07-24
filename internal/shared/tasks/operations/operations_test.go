@@ -2,6 +2,7 @@ package operations
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 		t.Fatalf("log not written at %s: %v", logPath, err)
 	}
 
-	list, err := ListTasks(tc, nil, "", false, true)
+	list, err := ListTasks(tc, nil, "", false, true, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -211,7 +212,7 @@ func TestMissingLogWarnsWhenSiblingIDHasLogAtSamePath(t *testing.T) {
 	// A session resolves (or is pinned) to empty-id instead -- its own log
 	// was never written, but nothing here DISAGREES about identity, so the
 	// existing pinned-vs-cwd check stays silent.
-	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "empty-id"}, nil, "", false, false)
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "empty-id"}, nil, "", false, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -243,7 +244,7 @@ func TestMissingLogStaysSilentWithoutASibling(t *testing.T) {
 		t.Fatalf("adopt only-id: %v", err)
 	}
 
-	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "only-id"}, nil, "", false, false)
+	res, err := ListTasks(TaskContext{WorkDir: cwd, ProjectID: "only-id"}, nil, "", false, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("add untagged: %v", err)
 	}
 
-	list, err := ListTasksWithTagQuery(tc, nil, "", "urgent/release/and", true, false)
+	list, err := ListTasksWithTagQuery(tc, nil, "", "urgent/release/and", true, false, 0)
 	if err != nil {
 		t.Fatalf("list urgent/release/and: %v", err)
 	}
@@ -288,7 +289,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("and-query = %+v, want only %s", list.Tasks, both.Task.HarpID)
 	}
 
-	list, err = ListTasksWithTagQuery(tc, nil, "", "urgent/release/or", true, false)
+	list, err = ListTasksWithTagQuery(tc, nil, "", "urgent/release/or", true, false, 0)
 	if err != nil {
 		t.Fatalf("list urgent/release/or: %v", err)
 	}
@@ -304,7 +305,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 		t.Fatalf("tag task add: %v", err)
 	}
 
-	list, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false)
+	list, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false, 0)
 	if err != nil {
 		t.Fatalf("list release: %v", err)
 	}
@@ -313,7 +314,7 @@ func TestAddTaskWithTagsThenListTagQuery(t *testing.T) {
 	}
 
 	// Plain ListTasks (no tag query) is unaffected — still sees all three.
-	list, err = ListTasks(tc, nil, "", true, false)
+	list, err = ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list (no tag query): %v", err)
 	}
@@ -331,7 +332,7 @@ func TestListTasksWithTagQueryMalformedErrors(t *testing.T) {
 	if _, err := AddTask(tc, "a task", "", ""); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if _, err := ListTasksWithTagQuery(tc, nil, "", "and", true, false); err == nil {
+	if _, err := ListTasksWithTagQuery(tc, nil, "", "and", true, false, 0); err == nil {
 		t.Fatal("expected an error for a malformed tag query")
 	}
 }
@@ -379,7 +380,7 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// Default view + tag query: one visible, one completed + one deferred hidden.
-	res, err := ListTasksWithTagQuery(tc, nil, "", "release", false, false)
+	res, err := ListTasksWithTagQuery(tc, nil, "", "release", false, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -391,7 +392,7 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// includeDone disables the view filter: nothing hidden, all three shown.
-	res, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false)
+	res, err = ListTasksWithTagQuery(tc, nil, "", "release", true, false, 0)
 	if err != nil {
 		t.Fatalf("list --all: %v", err)
 	}
@@ -400,12 +401,72 @@ func TestListTasksHiddenMatchCounts(t *testing.T) {
 	}
 
 	// An explicit status filter is honored verbatim: no view filter, no counts.
-	res, err = ListTasksWithTagQuery(tc, []string{"Done"}, "", "release", false, false)
+	res, err = ListTasksWithTagQuery(tc, []string{"Done"}, "", "release", false, false, 0)
 	if err != nil {
 		t.Fatalf("list --status Done: %v", err)
 	}
 	if len(res.Tasks) != 1 || res.HiddenCompleted != 0 || res.HiddenDeferred != 0 {
 		t.Fatalf("status view = %d tasks, hidden %d/%d; want 1, 0/0", len(res.Tasks), res.HiddenCompleted, res.HiddenDeferred)
+	}
+}
+
+// TestListTasksLimitCapsRowsButNotSummaryCounts pins the CRITICAL contract of
+// `limit`: it caps the row count of Tasks (applied after status/term/tag
+// filtering and the default active-only pass), reports how many it cut in
+// OmittedByLimit, but leaves include_summary's counts (which fold EVERY task)
+// completely uncapped — a caller must never mistake a truncated page for a
+// truncated project.
+func TestListTasksLimitCapsRowsButNotSummaryCounts(t *testing.T) {
+	taskstest.Isolate(t)
+	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
+
+	const total = 5
+	for i := 0; i < total; i++ {
+		if _, err := AddTask(tc, fmt.Sprintf("task number %d", i), "", ""); err != nil {
+			t.Fatalf("add %d: %v", i, err)
+		}
+	}
+
+	// limit=0 (default): no cap, today's exact behavior.
+	res, err := ListTasks(tc, nil, "", false, true, 0)
+	if err != nil {
+		t.Fatalf("list limit=0: %v", err)
+	}
+	if len(res.Tasks) != total {
+		t.Fatalf("limit=0 rows = %d, want all %d", len(res.Tasks), total)
+	}
+	if res.OmittedByLimit != 0 {
+		t.Fatalf("limit=0 OmittedByLimit = %d, want 0", res.OmittedByLimit)
+	}
+	if res.Summary == nil || res.Summary.Counts["To Do"] != total {
+		t.Fatalf("summary = %+v, want To Do:%d", res.Summary, total)
+	}
+
+	// limit=2: only 2 rows come back, 3 are reported omitted, but the
+	// summary's counts still cover all 5 — the query layer's include_summary
+	// is computed independently of the (now-truncated) row list.
+	const limit = 2
+	res, err = ListTasks(tc, nil, "", false, true, limit)
+	if err != nil {
+		t.Fatalf("list limit=%d: %v", limit, err)
+	}
+	if len(res.Tasks) != limit {
+		t.Fatalf("limit=%d rows = %d, want %d", limit, len(res.Tasks), limit)
+	}
+	if want := total - limit; res.OmittedByLimit != want {
+		t.Fatalf("OmittedByLimit = %d, want %d", res.OmittedByLimit, want)
+	}
+	if res.Summary == nil || res.Summary.Counts["To Do"] != total {
+		t.Fatalf("summary under limit=%d = %+v, want the FULL uncapped To Do:%d", limit, res.Summary, total)
+	}
+
+	// limit larger than the result: no truncation, nothing omitted.
+	res, err = ListTasks(tc, nil, "", false, false, total+10)
+	if err != nil {
+		t.Fatalf("list limit>total: %v", err)
+	}
+	if len(res.Tasks) != total || res.OmittedByLimit != 0 {
+		t.Fatalf("limit>total rows=%d omitted=%d, want %d/0", len(res.Tasks), res.OmittedByLimit, total)
 	}
 }
 
@@ -552,7 +613,7 @@ func TestAddTaskWithTagsRejectsUnqueryableTags(t *testing.T) {
 
 	// Neither rejected call should have written anything: the store stays
 	// empty.
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -581,7 +642,7 @@ func TestTagTaskRejectsUnqueryableAddedTags(t *testing.T) {
 		t.Fatal("expected an error adding a reserved-word tag via TagTask")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -778,7 +839,7 @@ func TestAddTaskWithTagsRejectsDeclaredSemverTypeViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value isn't a valid SemVer 2.0.0 version")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -812,7 +873,7 @@ func TestAddTaskWithTagsRejectsDeclaredEnumViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value violates the declared enum")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -829,7 +890,7 @@ func TestAddTaskWithTagsRejectsDeclaredRangeViolation(t *testing.T) {
 		t.Fatal("expected an error adding a tag whose value is outside the declared range")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -852,7 +913,7 @@ func TestTagTaskRejectsDeclaredEnumViolation(t *testing.T) {
 		t.Fatal("expected an error adding an enum-violating tag via TagTask")
 	}
 
-	list, err := ListTasks(tc, nil, "", true, false)
+	list, err := ListTasks(tc, nil, "", true, false, 0)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

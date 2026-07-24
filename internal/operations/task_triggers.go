@@ -139,7 +139,7 @@ type EvaluateTriggersResult struct {
 // the task is left entirely to the caller (the check-triggers command, or
 // whatever calls the evaluate_triggers MCP tool).
 func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTriggersRequest) (*EvaluateTriggersResult, error) {
-	listRes, err := tasksops.ListTasks(req.TaskContext, nil, "", true, false)
+	listRes, err := tasksops.ListTasks(req.TaskContext, nil, "", true, false, 0)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}

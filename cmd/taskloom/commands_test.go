@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,6 +205,59 @@ func TestRunListCmd_JSONOutputTagsEachRowWithItsProject(t *testing.T) {
 
 	assert.Contains(t, stdout.String(), `"project_id": "proj-a"`)
 	assert.Contains(t, stdout.String(), `"text": "a's task"`)
+}
+
+// TestRunListCmd_CompactEmitsCompactJSONAndDefaultStaysFull pins the CLI's
+// additive/backward-compat contract: `--format json` with `--compact` emits
+// compact rows (no full text), while omitting --compact (today's exact
+// invocation) still emits the full record.
+func TestRunListCmd_CompactEmitsCompactJSONAndDefaultStaysFull(t *testing.T) {
+	taskstest.ProjectDir(t)
+
+	longText := "fix the widget\nprovenance: found while doing the taskloom-compact work"
+	_, err := operations.AddTaskWithTags(mustTaskContext(t), longText, "", "", []string{"urgent"})
+	require.NoError(t, err)
+
+	var stdout, stderr strings.Builder
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Format: clifmt.FormatJSON})
+	require.NoError(t, err)
+	assert.Contains(t, stdout.String(), "fix the widget\\nprovenance", "default (no --compact) must keep emitting the full text field")
+
+	stdout.Reset()
+	stderr.Reset()
+	err = runListCmd(&stdout, &stderr, mustTaskContext(t), listOptions{Compact: true, Format: clifmt.FormatJSON})
+	require.NoError(t, err)
+	out := stdout.String()
+	assert.Contains(t, out, `"headline": "fix the widget"`)
+	assert.Contains(t, out, `"urgent"`)
+	assert.NotContains(t, out, "provenance", "--compact must never emit the full text")
+	assert.NotContains(t, out, `"trigger"`)
+	assert.NotContains(t, out, `"text_hash"`)
+}
+
+// TestRunListCmd_LimitCapsRowsAndNotesOmission pins --limit's contract on the
+// CLI: rows are capped, a stderr note names how many were omitted, and a
+// larger --limit (or omitting it) leaves today's unlimited behavior intact.
+func TestRunListCmd_LimitCapsRowsAndNotesOmission(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc := mustTaskContext(t)
+	for i := 0; i < 5; i++ {
+		_, err := operations.AddTask(tc, fmt.Sprintf("task %d", i), "", "")
+		require.NoError(t, err)
+	}
+
+	var stdout, stderr strings.Builder
+	err := runListCmd(&stdout, &stderr, tc, listOptions{Limit: 2, Format: clifmt.FormatJSON})
+	require.NoError(t, err)
+	assert.Equal(t, 2, strings.Count(stdout.String(), `"harp_id"`), "exactly 2 rows expected")
+	assert.Contains(t, stderr.String(), "3 more task(s) omitted by --limit")
+
+	stdout.Reset()
+	stderr.Reset()
+	err = runListCmd(&stdout, &stderr, tc, listOptions{Format: clifmt.FormatJSON})
+	require.NoError(t, err)
+	assert.Equal(t, 5, strings.Count(stdout.String(), `"harp_id"`), "limit omitted (0) must stay unlimited")
+	assert.NotContains(t, stderr.String(), "omitted by --limit")
 }
 
 // TestRunListCmd_SortPriorityOrdersDescendingByImpact exercises `taskloom

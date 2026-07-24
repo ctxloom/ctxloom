@@ -207,30 +207,6 @@ func warnTask(warning string) {
 	}
 }
 
-// summaryWidth caps the task text shown in the default human `list` so entries
-// stay scannable instead of running together into a wall; `--full` prints the
-// whole text. This is the number the authoring guidance (task_add's jsonschema
-// description, mcpServerInstructions, `taskloom add --help`, loadout.yaml)
-// promises authors when it says "keep the subject line to ~80 characters" —
-// change one, change the other.
-const summaryWidth = 80
-
-// summarize collapses s to its first line, capped to width runes with a
-// trailing ellipsis when truncated. Multi-line or long task text becomes a
-// single scannable line; the machine-readable views (--json / --format) keep
-// the full text.
-func summarize(s string, width int) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimRight(s, " ")
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return strings.TrimRight(string(r[:width]), " ") + "…"
-}
-
 // renderTaskTable prints the human `list` view: one entry per task, blank-line
 // separated so adjacent tasks are easy to tell apart, each a scannable one-line
 // summary. The harp id is never truncated (it's a copy-paste identifier); the
@@ -261,7 +237,7 @@ func renderTaskTable(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) err
 		if t.Checked {
 			check = "x"
 		}
-		text := summarize(t.Text, summaryWidth)
+		text := tasks.Headline(t.Text)
 		if t.Trigger != "" {
 			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
 		}

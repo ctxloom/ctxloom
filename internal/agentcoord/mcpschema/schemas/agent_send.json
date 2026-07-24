@@ -12,12 +12,15 @@
         "type": "array"
       },
       "in_reply_to": {
-        "description": "Correlates a reply to an earlier inbound PeerMessage.message_id.",
+        "description": "Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in `structured`; a resolved approval reports delivery: DELIVERY_DELIVERED, so DELIVERY_QUEUED on an approval reply means it was NOT honoured.",
+        "examples": [
+          "m-7f856e302456956b4f91ee01"
+        ],
         "type": "string"
       },
       "structured": {
         "additionalProperties": true,
-        "description": "Optional structured companion. `kind` names the message kind (e.g. result, question, error)",
+        "description": "Optional structured companion. Ordinarily an envelope whose `kind` names the message kind: result | question | error. ANSWERING A RELAYED approval_request is the exception — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}. `kind` may ride alongside the decision and is ignored; any OTHER key is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent.",
         "examples": [
           {
             "kind": "result"

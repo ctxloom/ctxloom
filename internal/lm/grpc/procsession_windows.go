@@ -17,3 +17,11 @@ func isolateRunner(_ *exec.Cmd) {}
 // orphaned grandchild is today's pre-fix behavior there, same as *nix
 // before this file's counterpart existed.
 func killSession(_ int) {}
+
+// ReapRunnerDescendants and InstallRunnerTeardown are no-ops on Windows for
+// the same reason: there is no session to sweep, and no PR_SET_PDEATHSIG to
+// deliver the SIGTERM they would react to. See procsession_unix.go.
+func ReapRunnerDescendants() {}
+
+// InstallRunnerTeardown is a no-op on Windows — see ReapRunnerDescendants.
+func InstallRunnerTeardown() {}

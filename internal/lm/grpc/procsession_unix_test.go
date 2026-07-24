@@ -202,3 +202,126 @@ func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
 	require.Eventually(t, func() bool { return !processAlive(runnerPID) }, 5*time.Second, 20*time.Millisecond,
 		"the runner must be GONE from the process table once its host dies — a host killed without running its teardown is exactly how the 36 orphaned `llm serve mock` processes accumulated")
 }
+
+// TestHelperTeardownRunner is not a real test — it is the re-exec target
+// TestInstallRunnerTeardown_ReapsEngineOnParentDeath spawns via os.Args[0].
+// It plays the part of `ctxloom llm serve <backend>`: optionally installs the
+// production teardown, spawns an engine subprocess in its OWN process group
+// (mirroring internal/acp's setpgid'd claude-code-acp), records that pid, then
+// blocks the way plugin.Serve does.
+//
+// CTXLOOM_GRPC_TEARDOWN selects the arm: "0" reproduces the pre-fix runner
+// (SIGTERM's default disposition, no sweep), "1" the fixed one.
+func TestHelperTeardownRunner(t *testing.T) {
+	if os.Getenv("CTXLOOM_GRPC_TEARDOWN_HELPER") != "1" {
+		return
+	}
+	if os.Getenv("CTXLOOM_GRPC_TEARDOWN") == "1" {
+		InstallRunnerTeardown()
+	}
+	pidFile := os.Args[len(os.Args)-1]
+	engine := exec.Command("sleep", "100")
+	engine.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := engine.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "helper: start engine:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(engine.Process.Pid)), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, "helper: write pidfile:", err)
+		os.Exit(1)
+	}
+	time.Sleep(100 * time.Second)
+}
+
+// startTeardownRunner spawns TestHelperTeardownRunner as a session leader
+// through the production isolateRunner, waits for its engine grandchild to
+// exist, and returns both pids. Both are unconditionally reaped by pid on test
+// exit so a failing arm can never itself contribute to the orphan population
+// this whole change exists to end.
+func startTeardownRunner(t *testing.T, installTeardown bool) (runnerPID, enginePID int) {
+	t.Helper()
+	pidFile := t.TempDir() + "/engine.pid"
+	runner := exec.Command(os.Args[0], "-test.run=TestHelperTeardownRunner", "--", pidFile)
+	runner.Env = append(os.Environ(),
+		"CTXLOOM_GRPC_TEARDOWN_HELPER=1",
+		"CTXLOOM_GRPC_TEARDOWN="+map[bool]string{true: "1", false: "0"}[installTeardown],
+	)
+	isolateRunner(runner)
+	require.NoError(t, runner.Start())
+	runnerPID = runner.Process.Pid
+	t.Cleanup(func() {
+		_ = runner.Process.Kill()
+		_ = runner.Wait()
+	})
+
+	var err error
+	enginePID, err = strconv.Atoi(waitForFile(t, pidFile, 5*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Kill(enginePID, syscall.SIGKILL) })
+
+	require.Eventually(t, func() bool { return processAlive(enginePID) }, time.Second, 10*time.Millisecond,
+		"the engine subprocess must actually be running before we can prove anything about reaping it")
+	return runnerPID, enginePID
+}
+
+// TestInstallRunnerTeardown_ReapsEngineOnParentDeath covers the step AFTER
+// isolateRunner's Pdeathsig fires. The kernel signals the runner SIGTERM when
+// its host dies; left to SIGTERM's default disposition that ends the runner
+// and strands the engine subprocess it had isolated into its own process
+// group — trading an orphaned runner for an orphaned engine, not closing the
+// leak. `llm serve` has no other graceful path (its body is go-plugin's
+// blocking plugin.Serve), so InstallRunnerTeardown is what makes SIGTERM mean
+// "take your subtree with you".
+//
+// Both arms run: the pre-fix one is asserted, not assumed, so the failure mode
+// stays on the record the way TestKillSession_ReapsOrphanedGrandchild keeps
+// damp-pupil 3's.
+func TestInstallRunnerTeardown_ReapsEngineOnParentDeath(t *testing.T) {
+	t.Run("without teardown the engine is stranded", func(t *testing.T) {
+		runnerPID, enginePID := startTeardownRunner(t, false)
+
+		require.NoError(t, syscall.Kill(runnerPID, syscall.SIGTERM))
+		require.Eventually(t, func() bool { return !processAlive(runnerPID) }, 2*time.Second, 10*time.Millisecond,
+			"sanity: SIGTERM's default disposition must actually end the runner")
+		require.True(t, processAlive(enginePID),
+			"sanity/documentation: a runner that merely dies on SIGTERM leaves its engine subprocess running — this is the half of the leak Pdeathsig alone does not close")
+	})
+
+	t.Run("with teardown the engine goes too", func(t *testing.T) {
+		runnerPID, enginePID := startTeardownRunner(t, true)
+
+		require.NoError(t, syscall.Kill(runnerPID, syscall.SIGTERM))
+		require.Eventually(t, func() bool { return !processAlive(runnerPID) }, 2*time.Second, 10*time.Millisecond,
+			"sanity: the runner itself must actually be dead before checking the engine")
+		require.Eventually(t, func() bool { return !processAlive(enginePID) }, 5*time.Second, 20*time.Millisecond,
+			"InstallRunnerTeardown must sweep the runner's whole session on SIGTERM, so nothing below it survives the host's death")
+	})
+}
+
+// TestReapRunnerDescendants_RefusesOutsideItsOwnSession is the blast-radius
+// guard. The test binary is NOT a session leader (it shares the session of the
+// shell or `go test` process that started it), so calling the sweep here must
+// be a no-op — if it were not, it would SIGKILL that whole session: the
+// developer's shell, its job control, every sibling command, and on this
+// machine other agents' concurrently running suites. That is the difference
+// between a scoped reap and the `pkill -f` pattern this change exists to avoid.
+func TestReapRunnerDescendants_RefusesOutsideItsOwnSession(t *testing.T) {
+	self := os.Getpid()
+	require.NotEqual(t, self, procSessionID(self),
+		"precondition: the test binary must not be its own session leader for this guard to be under test")
+
+	bystander := exec.Command("sleep", "100")
+	require.NoError(t, bystander.Start())
+	bystanderPID := bystander.Process.Pid
+	t.Cleanup(func() {
+		_ = bystander.Process.Kill()
+		_ = bystander.Wait()
+	})
+	require.Eventually(t, func() bool { return processAlive(bystanderPID) }, time.Second, 10*time.Millisecond)
+
+	ReapRunnerDescendants()
+
+	require.True(t, processAlive(bystanderPID),
+		"ReapRunnerDescendants must refuse to sweep a session it does not lead — a process in the caller's own session was killed")
+	require.True(t, processAlive(self), "and it must certainly not have killed the test binary")
+}

@@ -710,6 +710,16 @@ type AgentEngineProcess struct {
 	Model string
 	// Kill tears the engine process and its workspace down (idempotent).
 	Kill func()
+	// StderrTail reads the runner's bounded stderr tail without reaping it.
+	// For a docker-direct runner this is the CONTAINER's streamed stderr —
+	// the in-container `ctxloom llm host` process's, and (since internal/acp
+	// tees the adapter's stderr to os.Stderr as well as its own ring) the
+	// engine adapter's dying words too. It is the ONLY reason available when
+	// the whole container dies WITHOUT the in-process EngineHost getting to
+	// emit a FAILED RunCompleted — a docker-stop / OOM-kill (runner loss),
+	// where the RunChannel simply disconnects. Nil-safe via
+	// isolation.StderrTailOf. See isolation.RunnerHandle.StderrTail.
+	StderrTail func() string
 }
 
 // StartEngine spawns the engine runner process WITHOUT opening the go-plugin
@@ -740,9 +750,10 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 	}
 	var once sync.Once
 	return &AgentEngineProcess{
-		WorkDir: p.workDir,
-		Env:     env,
-		Model:   rs.Model,
+		WorkDir:    p.workDir,
+		Env:        env,
+		Model:      rs.Model,
+		StderrTail: func() string { return isolation.StderrTailOf(handle) },
 		Kill: func() {
 			once.Do(func() {
 				handle.Kill()

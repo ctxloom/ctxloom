@@ -128,6 +128,15 @@ type childRt struct {
 	// parent's terminal notice so a dead engine can say WHY. Captured on the
 	// RunChannel receive path (handleAgentEvent), read once at terminal.
 	runFailure string
+	// stderrTail reads the runner's bounded stderr tail (the container's
+	// streamed stderr, engine adapter's dying words teed in). It is the
+	// FALLBACK reason when the runner dies WITHOUT emitting a FAILED
+	// RunCompleted — a docker-stop / OOM-kill surfaces as runner loss, where
+	// there is no engine reason to capture but the container's stderr still
+	// holds why. terminateRun reads it only when runFailure is empty. Nil for
+	// a policy/spawner that captures nothing (tests, host paths without a
+	// ring). Set at spawn (runChildViaStartRun).
+	stderrTail func() string
 	// selfReported records that the CHILD ITSELF sent mail to its parent
 	// during the current turn (peerSend, caller.IsChild()). It is the
 	// no-double-delivery discriminator for bridgeTurnResult: a child that
@@ -613,6 +622,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	}
 	c.mu.Lock()
 	rt.close = engine.Kill
+	rt.stderrTail = engine.StderrTail
 	c.mu.Unlock()
 
 	spec, err := buildHarnessSpec(HarnessSpecInput{
@@ -1350,7 +1360,16 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		rt.launchCancel = nil
 		// The engine's own reason for dying (captureRunFailure) — read here,
 		// under the same lock that owns rt, to fold into the parent notice.
+		// When the engine emitted no FAILED RunCompleted (a docker-stop / OOM
+		// = runner loss, where the whole runner vanishes without a terminal
+		// event), fall back to the runner's captured stderr tail — the
+		// container's own dying words, streamed to us BEFORE teardown removed
+		// it. Read while rt is still ours; the accessor is cheap (a mutex +
+		// string copy) and nil-safe.
 		runFailure = rt.runFailure
+		if runFailure == "" && rt.stderrTail != nil {
+			runFailure = strings.TrimSpace(rt.stderrTail())
+		}
 	}
 	// Sever the revoked credential's runner stream (if one is connected).
 	if rs := c.runners[rec.CredHash]; rs != nil {

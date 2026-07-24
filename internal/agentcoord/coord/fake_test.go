@@ -182,6 +182,12 @@ type fakeSpawner struct {
 	nextBackend   func() agent.StructuredChat
 	engineWorkDir string
 	engineEnv     map[string]string
+	// engineStderrTail, when set, is threaded onto each EngineSpawn.StderrTail
+	// — the runner's captured stderr tail. It stands in for a docker-direct
+	// runner's ring (the container's streamed stderr): a runner-loss test uses
+	// it to prove terminateRun surfaces the container's dying words when the
+	// engine emitted no FAILED RunCompleted.
+	engineStderrTail func() string
 	// workspaces records each Launch/StartEngine call's plan.Workspace, in
 	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
 	// -> here), without needing real isolation machinery.
@@ -356,10 +362,11 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		maps.Copy(spawnedEnv, engineEnv)
 	}
 	return &EngineSpawn{
-		WorkDir: workDir,
-		Env:     spawnedEnv,
-		Model:   "test-model",
-		Kill:    kill,
+		WorkDir:    workDir,
+		Env:        spawnedEnv,
+		Model:      "test-model",
+		Kill:       kill,
+		StderrTail: s.engineStderrTail,
 	}, nil
 }
 

@@ -446,6 +446,12 @@ type EngineSpawn struct {
 	MCPServers []agent.ChatMCPServer
 	// Kill tears the engine process and its workspace down (idempotent).
 	Kill func()
+	// StderrTail reads the runner's bounded stderr tail without reaping —
+	// the container's streamed stderr (and, teed through it, the engine
+	// adapter's), the only death reason available when the whole runner dies
+	// without emitting a FAILED RunCompleted (docker-stop / OOM = runner
+	// loss). Nil-safe. See operations.AgentEngineProcess.StderrTail.
+	StderrTail func() string
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
@@ -474,6 +480,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		Model:      eng.Model,
 		MCPServers: plan.MCPServers,
 		Kill:       eng.Kill,
+		StderrTail: eng.StderrTail,
 	}, nil
 }
 

@@ -97,3 +97,57 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	assert.True(t, strings.Contains(body, "SyntaxError: Unexpected token 'with'"),
 		"the dead engine's own reason (the stderr tail) must reach the parent — a bare 'exited (runner-exit)' is the silent dead end this whole change exists to fix; got: %q", body)
 }
+
+// TestRunnerLoss_StderrTailReachesParentMailbox pins the fallback surface: a
+// runner that dies WITHOUT emitting a FAILED RunCompleted — a docker-stop /
+// OOM-kill, which reaches the coordinator as RUNNER LOSS (RunChannel
+// disconnect) — still surfaces WHY, from the runner's captured stderr tail
+// (the container's streamed dying words), not just "exited (runner-loss)".
+func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
+	resetStrictness(t)
+	const containerTail = "FATAL: node: bad option: --nonsense (container entrypoint died)"
+	gate := make(chan struct{})
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp.engineStderrTail = func() string { return containerTail }
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+
+	// Wait until the child is fully attached (its RunChannel live) so the
+	// stderr-tail handle is stored on the runtime and runner loss does not
+	// race the launch itself.
+	require.Eventually(t, func() bool {
+		var seq uint64
+		c.mu.Lock()
+		if ch := c.chans[out.Harp]; ch != nil {
+			seq = ch.ackSeq
+		}
+		c.mu.Unlock()
+		return seq > 0
+	}, conformanceWait, 5*time.Millisecond, "the RunChannel must be live before runner loss is driven")
+
+	var credHash string
+	c.runs.View(func() {
+		if r := c.runsF.run(out.RunID); r != nil {
+			credHash = r.CredHash
+		}
+	})
+	require.NotEmpty(t, credHash)
+
+	// Runner loss: no RunCompleted, no RunExited — the credential's runner is
+	// declared lost, and the coordinator synthesizes the terminal.
+	c.runnerLost(credHash, "missed heartbeats past the loss bound")
+
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+	require.NoError(t, err)
+	var body string
+	for _, m := range msgs {
+		if m.From == out.Harp {
+			body = m.Body
+		}
+	}
+	require.NotEmpty(t, body, "the parent must learn a lost child died")
+	assert.True(t, strings.Contains(body, containerTail),
+		"a runner that died without a terminal event must still carry its container's stderr tail to the parent; got: %q", body)
+}

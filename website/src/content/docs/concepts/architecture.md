@@ -351,6 +351,10 @@ Only hooks and settings live there.
 
 ### ACP (generic)
 
+:::caution[Experimental]
+Experimental — interfaces may change and it is not yet verified against all editors.
+:::
+
 `ctxloom acp` speaks the Agent Client Protocol, and an `acp` engine drives any
 ACP-capable client chosen by config (`claude-code-acp`, `kiro-cli acp`, a Zed
 external agent). A *generic* ACP target has no known native config format, so it

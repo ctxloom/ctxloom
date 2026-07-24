@@ -13,6 +13,8 @@ ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out 
 
 ### Synopsis
 
+Experimental — interfaces may change and it is not yet verified against all editors.
+
 ACP (Agent Client Protocol) has two directions under ctxloom, each its own
 subcommand:
 

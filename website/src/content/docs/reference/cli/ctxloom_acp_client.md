@@ -13,6 +13,8 @@ Connect ctxloom OUT to a configured ACP-speaking agent and drive one headless tu
 
 ### Synopsis
 
+Experimental — interfaces may change and it is not yet verified against all editors.
+
 Drive ONE headless turn against a configured ACP-CLIENT llm entry: an
 'llm:' label in .ctxloom/config.yaml whose type is "acp" — ctxloom's generic
 outbound ACP driver, which spawns the label's configured 'command' (e.g.

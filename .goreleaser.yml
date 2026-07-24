@@ -561,6 +561,12 @@ release:
     untrusted workloads on separate Docker networks. On Linux the transport is a
     bind-mounted unix socket instead and is not exposed over TCP.
 
+    ### ACP (Experimental)
+
+    The ACP (Agent Client Protocol) hub (`ctxloom acp server` / `ctxloom acp
+    client`) ships in this release. Experimental — interfaces may change and it
+    is not yet verified against all editors.
+
     ### Which Build?
 
     | Build | Size | Features |

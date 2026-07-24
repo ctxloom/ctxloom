@@ -117,6 +117,17 @@ type childRt struct {
 	wake        chan struct{}
 	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
 	turnErrored bool     // result bridging: this turn's Entry.IsError was set (Result.status)
+	// runFailure is the last FAILED RunCompleted's Result.Text for this run —
+	// the engine's own reason for dying, which since the stderr-tail capture
+	// (internal/acp) carries the adapter's dying words (a module-loader
+	// SyntaxError, a JSON-RPC -32603 "Invalid API key"). A migrated child
+	// that dies below the protocol emits NO final-channel output, so
+	// bridgeTurnResult has nothing to deliver and the parent would otherwise
+	// learn only "exited (runner-exit)" with no cause — the exact silent
+	// dead-end the 49-minute incident was. terminateRun folds this into the
+	// parent's terminal notice so a dead engine can say WHY. Captured on the
+	// RunChannel receive path (handleAgentEvent), read once at terminal.
+	runFailure string
 	// selfReported records that the CHILD ITSELF sent mail to its parent
 	// during the current turn (peerSend, caller.IsChild()). It is the
 	// no-double-delivery discriminator for bridgeTurnResult: a child that
@@ -823,6 +834,35 @@ func (c *Coordinator) accumulateFinalText(role string, ev *agentcoordpb.AgentEve
 	}
 }
 
+// captureRunFailure records a FAILED RunCompleted's reason on the child's
+// runtime so terminateRun can fold it into the parent's terminal notice. The
+// reason is the engine's OWN account of its death — and since internal/acp's
+// stderr-tail capture it carries the adapter's dying words (a module-loader
+// SyntaxError, a JSON-RPC -32603 "Invalid API key") for a death that happens
+// below the protocol, exactly the case that emits no final-channel output for
+// bridgeTurnResult to deliver. Only FAILED with non-empty text is captured: a
+// SUCCEEDED/CANCELLED terminal is not a failure to explain, and an empty text
+// carries nothing (this project's silent no-op — never surfaced as a reason).
+func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent) {
+	rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+	if !ok {
+		return
+	}
+	res := rc.RunCompleted.GetResult()
+	if res.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
+		return
+	}
+	text := strings.TrimSpace(res.GetText())
+	if text == "" {
+		return
+	}
+	c.mu.Lock()
+	if rt := c.byHarp[role]; rt != nil {
+		rt.runFailure = text
+	}
+	c.mu.Unlock()
+}
+
 // bridgeTurnResult is the AUTOMATIC child→parent report (blunt-whiff): at a
 // child's turn boundary, whatever the child said this turn lands in its
 // parent's mailbox as `kind: "result"` — WITHOUT the child's model having to
@@ -1302,11 +1342,15 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	delete(c.attach, runID)
 	var closeFn func()
 	var launchCancel context.CancelFunc
+	var runFailure string
 	if rt != nil {
 		closeFn = rt.close
 		rt.close = nil
 		launchCancel = rt.launchCancel
 		rt.launchCancel = nil
+		// The engine's own reason for dying (captureRunFailure) — read here,
+		// under the same lock that owns rt, to fold into the parent notice.
+		runFailure = rt.runFailure
 	}
 	// Sever the revoked credential's runner stream (if one is connected).
 	if rs := c.runners[rec.CredHash]; rs != nil {
@@ -1345,6 +1389,18 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
 		} else if detail != "" {
 			body += ": " + detail
+		}
+		// A dead engine says WHY: the FAILED RunCompleted's reason
+		// (captureRunFailure) — carrying the adapter's stderr tail since the
+		// internal/acp capture — is appended when the run failed and the
+		// terminal cause did not already carry it. Without this a child that
+		// died in its module loader reached the parent as a bare
+		// "exited (runner-exit)", the 49-minute dead end. Not appended when
+		// detail already IS this text (belt-and-suspenders against a future
+		// path that threads it through detail too).
+		if runFailure != "" && !strings.Contains(body, runFailure) {
+			kind = "error"
+			body += ": " + runFailure
 		}
 		if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
 			clidiag.Warn("ctxloom", "agent %s: queue terminal notice: %v", rec.Harp, err)

@@ -1,0 +1,180 @@
+package coord
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// Phase 2a-B: top-level STRUCTURED and ONESHOT container runs onto Transport 2
+// / EngineHost, without go-plugin. The owning `ctxloom run` process already
+// hosts this coordinator in-process (newHostedCoordinator), so minting an
+// owner-owned run and driving/watching it is a LIBRARY call — no new RPC, no
+// change to coordination.proto (plan §0.1). The run reuses the existing
+// credential-based ownership model unchanged: it is enqueued parent-less with
+// the owner's harp as its role, its runner dials home on the ordinary
+// RunnerChannel with the per-run credential minted here, and the host consumes
+// it via the in-process Coordinator.WatchRuns. The runner side is byte-for-byte
+// the Phase-1 delegated runner (`ctxloom llm host` with the run-id trio).
+
+// ownerRunRuntime is the runtime axis an owner-owned run always launches on —
+// Phase 2a-B covers the TOP-LEVEL CONTAINER structured/oneshot arm only; the
+// host (none/worktree) top-level path stays on local go-plugin (plan §0.4).
+const ownerRunRuntime = "container"
+
+// OwnerRunSpec is everything StartOwnedRun needs beyond the prompt and the
+// runner-launch closure. Its harness-shaped fields (WorkDir/Env/MCPServers/
+// Model/Permission) are resolved host-side by the owning `ctxloom run` exactly
+// as the go-plugin path resolved them — StartOwnedRun does not re-resolve them.
+type OwnerRunSpec struct {
+	// Harp is the owning session's harp; the owner-owned run REUSES it as its
+	// run role so transcript/session identity (state mounts, CTXLOOM_SESSION_HARP)
+	// stay coherent (plan §5.B2). The collision-audit test pins that the
+	// role-keyed maps stay coherent under this reuse.
+	Harp       string
+	Backend    string // harness name (HarnessSpec.harness)
+	Label      string
+	Model      string
+	WorkDir    string            // prepared container workspace dir
+	Env        map[string]string // harness env (HarnessSpec.config["env"])
+	MCPServers []agent.ChatMCPServer
+	Permission agent.PermissionMode
+	// Oneshot marks a --print single-turn run: the run tears down after the
+	// host collects the final answer. It changes only the host's wait mode; the
+	// coordinator machinery is identical.
+	Oneshot bool
+}
+
+// OwnedRunStarter launches the runner process for an owner-owned run with the
+// per-run reach-back env stamped on. It mirrors isolation.EngineStarter but
+// takes the spawn env because the run-id + credential trio it must carry is
+// minted INSIDE StartOwnedRun (a pre-bound isolation.EngineStarter cannot know
+// them yet). The returned kill tears the runner down; StartOwnedRun invokes it
+// if the post-launch handshake fails, and the caller owns it for normal
+// teardown (the host `ctxloom run` defers isolation.RunnerHandle.Kill). Defined
+// here so coord need not import lm/isolation for the seam.
+type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), err error)
+
+// StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto
+// Transport 2 (plan §5.B): journal a runEnqueued with ParentHarp = owner.Harp,
+// ParentRunID = "" (Depth 1), spawn the runner via start (with the per-run
+// reach-back trio), await its RunnerChannel dial-home, and issue StartRun over
+// that channel — the identical wire crossing runChildViaStartRun makes for a
+// delegated child, via the shared issueStartRun tail. On return the run is
+// live; the caller renders/collects it via WatchRuns and enqueues follow-up
+// turns via SendOwnedRunTurn. On any launch/handshake failure the run is failed
+// (terminateRun, exactly-once) and the error returned; the caller's deferred
+// runner teardown still runs.
+func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRunSpec, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
+	if spec.Harp == "" {
+		return nil, errors.New("owner run: harp is required (the run reuses the owning session's harp as its role)")
+	}
+	if spec.Backend == "" {
+		return nil, errors.New("owner run: backend is required")
+	}
+	if start == nil {
+		return nil, errors.New("owner run: a runner starter is required")
+	}
+	// Structured/oneshot over Transport 2 IS the reach-back — a run that could
+	// never dial home has no transport at all, so an unresolvable endpoint is
+	// fatal here (never a silent degrade, unlike a delegated child which can
+	// fall back to a message-less local orchestrator).
+	url, err := c.reachURL(ownerRunRuntime)
+	if err != nil {
+		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", ownerRunRuntime, err)
+	}
+
+	// A synthetic plan carrying exactly what enqueueRun journals and issueStartRun
+	// reads: the owner's harp AS the run role (AgentName), the resolved runtime,
+	// permission, and the composed MCP set. No agent-definition resolution runs —
+	// the host already resolved every field into OwnerRunSpec.
+	plan := &SpawnPlan{
+		AgentName:   spec.Harp,
+		Backend:     spec.Backend,
+		Label:       spec.Label,
+		Runtime:     ownerRunRuntime,
+		Perm:        spec.Permission,
+		Ladder:      presetLadder(spec.Permission),
+		MCPServers:  spec.MCPServers,
+		ViaStartRun: true,
+		// The session owner is the top of the delegation tree: keep its own
+		// run coordinator-capable so a top-level structured/oneshot session can
+		// still delegate (the go-plugin owner path is coordinator-capable too —
+		// its runner carries no run-id, so standUpRunner's leaf gate never
+		// fires). Deliberately NOT the plan's illustrative `false`, which would
+		// silently strip delegation from a top-level container session.
+		Coordinator: true,
+	}
+
+	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}))
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	rt.viaStartRun = true
+	rt.ownerRun = true
+	rt.oneshot = spec.Oneshot
+	c.mu.Unlock()
+	c.setState(rt, StateExecuting)
+	c.audit("owner_run", owner.Harp, map[string]string{"harp": spec.Harp, "run_id": rt.runID, "backend": spec.Backend})
+
+	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, plan.Coordinator))
+	if err != nil {
+		c.failChild(rt, fmt.Errorf("owner run: runner launch failed: %w", err))
+		return nil, err
+	}
+	c.mu.Lock()
+	rt.close = kill
+	c.mu.Unlock()
+
+	hs, err := buildHarnessSpec(HarnessSpecInput{
+		Harness:     spec.Backend,
+		Model:       spec.Model,
+		Workspace:   spec.WorkDir,
+		Env:         spec.Env,
+		MCPServers:  spec.MCPServers,
+		SessionHarp: spec.Harp,
+		Permission:  spec.Permission,
+	})
+	if err != nil {
+		c.failChild(rt, err)
+		return nil, err
+	}
+	// The host already composed fragments into prompt (JoinLeadBlocks at the
+	// call site), so it leads the first turn verbatim.
+	if err := c.issueStartRun(rt, hashToken(token), hs, prompt, spec.Model, ""); err != nil {
+		return nil, err
+	}
+
+	return &RunOutcome{
+		Harp:    spec.Harp,
+		RunID:   rt.runID,
+		Engine:  spec.Label,
+		Runtime: ownerRunRuntime,
+	}, nil
+}
+
+// SendOwnedRunTurn enqueues a follow-up user turn for an owner-owned run: the
+// same mailbox enqueue + pushMail push (CoordinatorNotice{PeerMessage}) a
+// migrated runner's EngineHost already consumes as a new turn (delivery-by-
+// state). The run's harp is both sender and recipient (it is the session's own
+// run); bridgeTurnResult is suppressed for an owner run, so this input queue
+// never sees the run's own output re-queued into it (childRt.ownerRun's doc).
+func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
+	c.mu.Lock()
+	rt := c.attach[runID]
+	c.mu.Unlock()
+	if rt == nil {
+		return fmt.Errorf("owner run %q: no live run to send a turn to", runID)
+	}
+	// queueMailPayloadID pushes to a migrated run's live channel itself
+	// (delivery-by-state), but push again explicitly for parity with
+	// runChildViaStartRun's standup drain — pushMail is idempotent.
+	if _, _, err := c.queueMail(rt.harp, rt.harp, "message", text); err != nil {
+		return fmt.Errorf("owner run %q: enqueue turn: %w", runID, err)
+	}
+	c.pushMail(rt.harp)
+	return nil
+}

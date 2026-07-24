@@ -87,6 +87,13 @@ type childRt struct {
 
 	slotHeld bool
 	oneshot  bool
+	// launchCancel cancels the context this run's engine was LAUNCHED under
+	// (launchgate.go). It is the run's, not the launch call's: a spawner may
+	// tie the engine's lifetime to that context, so it is fired exactly once,
+	// at the run terminal (terminateRun), never when the launch call returns.
+	// agent_stop reaches an attempt through the per-harp registration
+	// instead, which also covers an attempt that has no run yet.
+	launchCancel context.CancelFunc
 	// ownerRun marks a top-level, OWNER-OWNED run (Phase 2a-B, StartOwnedRun):
 	// the owning session's own structured/oneshot container run, minted
 	// parent-less with the OWNER'S HARP reused as its run role. It rides the
@@ -524,20 +531,31 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	// explicit "check what C1 landed and preserve its documented behavior");
 	// the dial's other reachable case is a StructuredChat backend outside
 	// the allowlist (today: none in production, only test doubles).
+	// The launch runs under a CANCELLABLE per-harp context, not baseCtx, so
+	// agent_stop reaches a launch that is in flight (container prepare, image
+	// pull, fs probe) and not merely the process a completed launch produced
+	// — see launchgate.go.
+	lctx, lcancel, deregister := c.launchContext(rt.harp)
+	defer deregister()
+	c.mu.Lock()
+	rt.launchCancel = lcancel
+	c.mu.Unlock()
+
 	if rt.plan.ViaStartRun && url != "" {
 		c.mu.Lock()
 		rt.viaStartRun = true
 		c.mu.Unlock()
-		c.runChildViaStartRun(rt, prompt, token, url, "", rt.plan.Context)
+		c.runChildViaStartRun(lctx, rt, prompt, token, url, "", rt.plan.Context)
 		return
 	}
 
-	launch, err := c.spawner.Launch(c.baseCtx, rt.plan, rt.plan.Context, "",
+	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
 		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
+	c.noteLaunchAttached(rt.harp)
 	c.attachLaunch(rt, launch)
 	c.sendTurn(rt, prompt)
 	c.markAttached(rt) // the engine is up; driveChild below drives its whole lifetime, not just the launch
@@ -557,8 +575,10 @@ const runnerAwaitTimeout = 60 * time.Second
 // inside StartEngine's PrepareAgentChat), typed permission_mode, env + MCP +
 // session harp in config, resume_session_id from the journal on a resume.
 // prompt=="" (resume) sends no initial turn: queued mail arrives as turns.
-func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
-	engine, err := c.spawner.StartEngine(c.baseCtx, rt.plan,
+// ctx is the caller's CANCELLABLE launch context (launchgate.go), not
+// baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
+func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
+	engine, err := c.spawner.StartEngine(ctx, rt.plan,
 		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
@@ -586,7 +606,7 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 	// path's leadContextIn performed, done once here (the runner writes
 	// input.prompt verbatim as the first turn).
 	first := operations.JoinLeadBlocks(contextText, prompt)
-	_ = c.issueStartRun(rt, hashToken(token), spec, first, engine.Model, resumeSessionID)
+	_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, engine.Model, resumeSessionID)
 }
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
@@ -598,8 +618,10 @@ func (c *Coordinator) runChildViaStartRun(rt *childRt, prompt, token, url, resum
 // through failChild (exactly-once terminal) and returns the error. role is
 // rt.agentName (a delegated child's agent name, or — for an owner-owned run —
 // the owner's own harp, §5.B2).
-func (c *Coordinator) issueStartRun(rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
-	actx, acancel := context.WithTimeout(c.baseCtx, runnerAwaitTimeout)
+// ctx is the launch context: cancelling it (agent_stop) aborts the
+// dial-home wait instead of holding the harp for the full runnerAwaitTimeout.
+func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
+	actx, acancel := context.WithTimeout(ctx, runnerAwaitTimeout)
 	_, err := c.awaitRunner(actx, credHash)
 	acancel()
 	if err != nil {
@@ -649,7 +671,8 @@ func (c *Coordinator) issueStartRun(rt *childRt, credHash string, spec *agentcoo
 	if c.pendingCount(rt.harp) > 0 {
 		c.pushMail(rt.harp)
 	}
-	c.markAttached(rt) // StartRun round-tripped: the migrated run is up
+	c.noteLaunchAttached(rt.harp) // a launch that came up resets the retry budget
+	c.markAttached(rt)            // StartRun round-tripped: the migrated run is up
 	return nil
 }
 
@@ -1098,6 +1121,9 @@ func (c *Coordinator) endChild(rt *childRt, launch *operations.AgentChatLaunch) 
 // already returned (async), so the mailbox is where the coordinator learns.
 func (c *Coordinator) failChild(rt *childRt, err error) {
 	clidiag.Warn("ctxloom", "agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
+	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
+	// this count to decide whether another relaunch is warranted at all.
+	c.noteLaunchFailure(rt.harp)
 	c.terminateRun(rt.runID, CauseLaunchFailed, err.Error())
 	c.markAttached(rt) // the attempt settled (failed): unblock any awaitChildUp
 }
@@ -1258,9 +1284,12 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	rt := c.attach[runID]
 	delete(c.attach, runID)
 	var closeFn func()
+	var launchCancel context.CancelFunc
 	if rt != nil {
 		closeFn = rt.close
 		rt.close = nil
+		launchCancel = rt.launchCancel
+		rt.launchCancel = nil
 	}
 	// Sever the revoked credential's runner stream (if one is connected).
 	if rs := c.runners[rec.CredHash]; rs != nil {
@@ -1274,6 +1303,11 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	}
 	if closeFn != nil {
 		closeFn()
+	}
+	// The run is over, so the context it was launched under is too — this is
+	// the ONE place it is cancelled (see childRt.launchCancel).
+	if launchCancel != nil {
+		launchCancel()
 	}
 	// Revocation severs the credential's parked long-poll AND its live run
 	// channel (the channel teardown un-reserves tentative deliveries so the
@@ -1302,11 +1336,9 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	c.spawner.MarkSessionEnded(rec.Harp)
 
 	// A message that raced the death (queued after the last boundary drain)
-	// must not strand: the ended-child delivery rule is resume (§6a).
-	if cause != CauseStopped && c.pendingCount(rec.Harp) > 0 {
-		attached := c.armLaunch(rec.Harp)
-		c.goTracked(func() { c.resumeChild(rec.Harp, attached) })
-	}
+	// must not strand: the ended-child delivery rule is resume (§6a). That
+	// tail is ALSO the launch-retry loop — see relaunchForLeftoverMail.
+	c.relaunchForLeftoverMail(rec, cause, detail)
 
 	// Retention (Slice 4 / Fork 2.3): bound the ended-run records the live
 	// folds keep. Runs after MarkSessionEnded (every terminal, one-shot or
@@ -1387,7 +1419,15 @@ func (c *Coordinator) reapEndedRuns() {
 // ownership to the new childRt) closes it directly via the defer/settled
 // guard, so awaitChildUp never hangs on an attempt that silently never
 // reached enqueueRun (S3, flaky-agentcoord).
-func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
+//
+// delay is the bounded-retry backoff this attempt must wait out before doing
+// anything (zero for an operator-driven resume; exponential for an automatic
+// relaunch after a launch failure — see launchgate.go). The wait, and every
+// step after it, runs under the harp's CANCELLABLE launch context, and the
+// stop flag is re-checked at each point the attempt can still turn back: an
+// attempt armed BEFORE an agent_stop must not carry on behind it, which is
+// exactly how the 2026-07-24 loop outlived every stop issued against it.
+func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay time.Duration) {
 	settled := false
 	defer func() {
 		// Only close here if enqueueRun never ran (found=false, Resolve
@@ -1400,6 +1440,26 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 			close(attached)
 		}
 	}()
+	// This attempt's cancellable launch context — agent_stop cancels it.
+	// Ownership passes to the run once enqueueRun wins (settled); until then
+	// this attempt owns it and must not leave it dangling.
+	lctx, lcancel, deregister := c.launchContext(harp)
+	defer deregister()
+	defer func() {
+		if !settled {
+			lcancel()
+		}
+	}()
+	// Back off before retrying (bounded-retry, defect 3): a launch that has
+	// just failed does not become launchable microseconds later, and the
+	// backoff-free version of this loop ran ~2 container launches/second for
+	// 49 minutes.
+	if !sleepLaunchBackoff(lctx, delay) {
+		return
+	}
+	if c.launchStopped(harp) {
+		return // an agent_stop landed while this attempt was armed/backing off
+	}
 	var rec RunRecord
 	found := false
 	c.runs.View(func() {
@@ -1411,7 +1471,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 	if !found {
 		return
 	}
-	plan, err := c.spawner.Resolve(c.baseCtx, rec.Agent)
+	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
 		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
 		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
@@ -1443,6 +1503,12 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		})
 	}
 	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Depth: rec.Depth - 1, Project: c.projectDir}
+	// Last check before this attempt becomes a REAL run: a stop that landed
+	// while Resolve was in flight (config read, agent resolution — slow
+	// enough to matter in production) must not be overtaken here.
+	if c.launchStopped(harp) {
+		return
+	}
 	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
@@ -1451,7 +1517,10 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
 		return
 	}
-	settled = true // rt now owns `attached`'s lifecycle (see the defer above)
+	settled = true // rt now owns `attached`'s AND the launch context's lifecycle
+	c.mu.Lock()
+	rt.launchCancel = lcancel
+	c.mu.Unlock()
 	c.audit("agent_resume", rec.ParentHarp, map[string]string{"harp": harp, "run_id": rt.runID})
 
 	if !rt.slotHeld {
@@ -1491,9 +1560,9 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 		c.mu.Unlock()
 		contextText := ""
 		if !haveResumeKey {
-			contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
+			contextText = c.spawner.ResumeContext(lctx, plan, harp)
 		}
-		c.runChildViaStartRun(rt, "", token, url, resumeSessionID, contextText)
+		c.runChildViaStartRun(lctx, rt, "", token, url, resumeSessionID, contextText)
 		return
 	}
 
@@ -1505,14 +1574,15 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}) {
 	// reported a session id falls back to the lossy ResumeContext replay.
 	contextText := ""
 	if !haveResumeKey {
-		contextText = c.spawner.ResumeContext(c.baseCtx, plan, harp)
+		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
-	launch, err := c.spawner.Launch(c.baseCtx, plan, contextText, resumeSessionID,
+	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
 		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, plan.Coordinator))
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
+	c.noteLaunchAttached(harp)
 	c.attachLaunch(rt, launch)
 	if msg, ok := c.takeNextMail(harp); ok {
 		c.sendTurn(rt, msg.Body)
@@ -1534,8 +1604,15 @@ func (c *Coordinator) driveQueued(harp string) string {
 	})
 	switch state {
 	case StateEnded:
+		// An EXPLICIT delivery (agent_send / inject) is a fresh ask from a
+		// parent or an operator, so it lifts a prior agent_stop and resets
+		// the consecutive-failure budget — the documented way a stopped or
+		// given-up child comes back. Only the AUTOMATIC relaunch
+		// (terminateRun's leftover-mail tail) is bounded; if this reset
+		// leaked into that path the bound would not be a bound.
+		c.clearLaunchGate(harp)
 		attached := c.armLaunch(harp)
-		c.goTracked(func() { c.resumeChild(harp, attached) })
+		c.goTracked(func() { c.resumeChild(harp, attached, 0) })
 	case StateIdle:
 		c.mu.Lock()
 		rt := c.byHarp[harp]

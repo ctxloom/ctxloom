@@ -18,10 +18,24 @@ import (
 // runtime axis rather than stalling the run indefinitely.
 const sharedFSProbeTimeout = 15 * time.Second
 
+// probeWaitDelay bounds the gap between a cancelled probe process being
+// killed and its output pipes closing. exec.CommandContext kills the process
+// on cancel, but Wait — and therefore the REAP — only completes once the
+// output-copy goroutines finish, and a probe container that leaves a
+// descendant holding those pipes closes neither. Without this the timed-out
+// probe never returns at all: the caller's goroutine wedges and the killed
+// child stays defunct for the process's whole lifetime. Generous next to
+// sharedFSProbeTimeout so it only ever fires on that pathology.
+const probeWaitDelay = 5 * time.Second
+
 // probeExec is the exec seam for the marker probe, stubbed in tests so the
-// probe logic is verifiable without a container runtime.
+// probe logic is verifiable without a container runtime. .Output() runs the
+// process to completion and Waits it, so the ordinary path reaps itself; the
+// WaitDelay is what keeps the CANCELLED path from hanging instead.
 var probeExec = func(ctx context.Context, bin string, args []string) (string, error) {
-	out, err := exec.CommandContext(ctx, bin, args...).Output()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.WaitDelay = probeWaitDelay
+	out, err := cmd.Output()
 	return string(out), err
 }
 

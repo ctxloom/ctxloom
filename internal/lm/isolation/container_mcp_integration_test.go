@@ -25,6 +25,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 const claudeStubIntegrationImage = "ctxloom-iso-itest-claudestub:latest"
@@ -71,9 +72,7 @@ func buildClaudeStubImage(t *testing.T) {
 // code (the old stdout-grep-only check would have false-passed a child with
 // zero working MCP tools).
 func TestContainerPolicy_MCPCommandOverride_EndToEnd(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the container MCP-surface integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container MCP-surface integration test")
 	buildClaudeStubImage(t)
 
 	rt := SelectRuntime("docker")

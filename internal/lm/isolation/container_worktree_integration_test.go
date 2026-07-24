@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,11 +38,9 @@ const worktreeIntegrationImage = "ctxloom-iso-wt-itest:latest"
 // member's worktree mounted into a container, with git resolving inside.
 func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping the worktree-in-container integration test")
+		dockergate.SkipCapability(t, "git not on PATH, and the worktree-in-container test needs a real repo")
 	}
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the worktree-in-container integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the worktree-in-container integration test")
 	// This test writes into the mounted worktree FROM INSIDE the container and
 	// then tears the worktree down FROM THE HOST. Only ROOTLESS docker maps
 	// container-root to the launching user, so those in-container writes are
@@ -50,7 +49,7 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 	// fail, LEAKING root-owned files — so gate on rootless, not merely Available().
 	rt := SelectRuntime("docker")
 	if d, ok := rt.(Docker); !ok || !d.rootless {
-		t.Skip("rootful docker root-owns worktree files the host-user teardown cannot remove; needs rootless docker")
+		dockergate.SkipCapability(t, "rootful docker root-owns worktree files the host-user teardown cannot remove; needs rootless docker")
 	}
 	buildGitIntegrationImage(t)
 

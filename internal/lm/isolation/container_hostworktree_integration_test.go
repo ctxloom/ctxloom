@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,18 +34,16 @@ import (
 // TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves is live-gag's gate.
 func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH; skipping the host-base out-of-repo-worktree integration test")
+		dockergate.SkipCapability(t, "git not on PATH, and the host-base out-of-repo-worktree test needs a real repo")
 	}
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the host-base out-of-repo-worktree integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the host-base out-of-repo-worktree integration test")
 	// Mirrors container_worktree_integration_test.go's rootless gate: this test
 	// writes the managed-config overlay scratch and reads worktree admin files
 	// the container may touch; only rootless docker maps container-root to the
 	// launching user so cleanup can remove anything the container wrote.
 	rt := SelectRuntime("docker")
 	if d, ok := rt.(Docker); !ok || !d.rootless {
-		t.Skip("rootful docker root-owns files the host-user teardown cannot remove; needs rootless docker")
+		dockergate.SkipCapability(t, "rootful docker root-owns files the host-user teardown cannot remove; needs rootless docker")
 	}
 	buildGitIntegrationImage(t) // shared helper, container_worktree_integration_test.go (same package)
 

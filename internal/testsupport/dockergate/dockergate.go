@@ -1,0 +1,87 @@
+// Package dockergate is the single decision point for what a docker-gated
+// test does when its container runtime is missing.
+//
+// Every `-tags docker_integration` test self-skips when the daemon is
+// unreachable. That is right on a developer laptop without docker and WRONG
+// on a CI runner: a runner that loses its socket then passes the
+// docker-integration step having executed zero container tests, reporting
+// green for a suite that ran nothing. It is the same silent-no-op failure
+// family these tests exist to catch, sitting inside the gate meant to catch
+// it — and it was load-bearing, .github/workflows/ci.yml explicitly relied on
+// the self-skip to keep the step "safe to run".
+//
+// So reachability becomes an assertion where it can be one: with
+// CTXLOOM_REQUIRE_DOCKER=1 (CI sets it, nobody else does) an unreachable
+// runtime is a FAILURE via RequireRuntime. Locally, unset, the skip stays and
+// a developer without docker is not blocked.
+//
+// Routing every skip through here is the point: a bare t.Skip in a
+// docker-gated test is invisible reachability policy that this env var cannot
+// see. `just test-docker-integration` runs _check-docker-skip-gate
+// (build/gates.justfile), which fails the build on any t.Skip/t.Skipf inside a
+// docker_integration-tagged file, so a future test cannot add an unguarded
+// one.
+//
+// The package deliberately does NOT probe for docker itself: callers pass the
+// availability bool. internal/lm/isolation owns the probe
+// (isolation.Docker{}.Available()) and its own tests are in `package
+// isolation`, so a probing dockergate would import isolation and close a
+// cycle. A bool keeps one gate usable from all four packages.
+package dockergate
+
+import (
+	"os"
+	"testing"
+)
+
+// EnvRequireDocker, set to "1", promotes "container runtime unreachable" from
+// a skip to a failure. Set it in CI only.
+const EnvRequireDocker = "CTXLOOM_REQUIRE_DOCKER"
+
+// required is captured at package init, on purpose. testsupport.Isolate
+// clears every CTXLOOM_* variable in testsupport.EnvKeys (this one included,
+// so the enforcement test there stays honest), and a test that isolates
+// before it gates would otherwise silently demote itself back to skipping —
+// the exact failure this package exists to remove.
+var required = os.Getenv(EnvRequireDocker) == "1"
+
+// Required reports whether this run demands a reachable container runtime.
+func Required() bool { return required }
+
+// RequireRuntime gates a test on container-runtime REACHABILITY. available is
+// the caller's probe (isolation.Docker{}.Available()); what names the test in
+// the resulting message, e.g. "the container-progress integration test".
+//
+// Unreachable + CTXLOOM_REQUIRE_DOCKER=1 fails the test. Unreachable without
+// it skips, naming the env var so the reader knows the stricter mode exists.
+func RequireRuntime(t testing.TB, available bool, what string) {
+	t.Helper()
+	if available {
+		return
+	}
+	if required {
+		t.Fatalf("no container runtime is reachable, but %s=1 demands one: %s ran NOTHING. "+
+			"A skip here would report green for a suite that executed zero container tests; "+
+			"fix the runner's docker socket, or unset %s to go back to skipping.",
+			EnvRequireDocker, what, EnvRequireDocker)
+	}
+	t.Skipf("docker unavailable; skipping %s (set %s=1 to make this a failure instead)",
+		what, EnvRequireDocker)
+}
+
+// SkipCapability skips for an environment CAPABILITY that a legitimate runner
+// may lack — a rootless daemon, engine credentials, git on PATH — as opposed
+// to runtime reachability. These are NEVER promoted to failures:
+// CTXLOOM_REQUIRE_DOCKER asserts that docker is REACHABLE, not that the host
+// is rootless or carries a subscription. GitHub-hosted runners are rootful,
+// so promoting those would turn CI permanently red for a condition CI cannot
+// satisfy.
+//
+// It exists so that every skip in a docker-gated test is still a call into
+// this package, which is what lets _check-docker-skip-gate ban bare t.Skip
+// outright rather than maintaining an allowlist of "fine" ones.
+func SkipCapability(t testing.TB, reason string) {
+	t.Helper()
+	t.Skipf("%s — environment capability, not runtime reachability, so %s=1 does not promote it",
+		reason, EnvRequireDocker)
+}

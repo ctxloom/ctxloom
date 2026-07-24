@@ -43,6 +43,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 const acpl1HarnessImage = "ctxloom-acp-iso1-itest:latest"
@@ -71,11 +72,9 @@ func hasResolvableClaudeAuth() bool {
 // completion stop reason the harness engine's default (non-sentinel) case
 // deterministically produces (cmd/acpl1harness/engine.go's runTurn).
 func TestACPContainerTransport_RealTurn(t *testing.T) {
-	if !(isolation.Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the ACP container transport integration test")
-	}
+	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the ACP container transport integration test")
 	if !hasResolvableClaudeAuth() {
-		t.Skip("no resolvable claude auth (ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials); skipping — PrepareWorkspace's auth gate needs SOME resolvable auth regardless of the test engine (see containerProfileBackend's doc)")
+		dockergate.SkipCapability(t, "no resolvable claude auth (ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN or ~/.claude credentials): PrepareWorkspace's auth gate needs SOME resolvable auth regardless of the test engine (see containerProfileBackend's doc)")
 	}
 	buildHarnessImage(t)
 

@@ -25,15 +25,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
 const integrationImage = "ctxloom-iso-itest:latest"
 
 // TestContainerPolicy_TransportEndToEnd is the P1 transport gate.
 func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
-	if !(Docker{}).Available() {
-		t.Skip("docker unavailable; skipping the container transport integration test")
-	}
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container transport integration test")
 	buildIntegrationImage(t)
 
 	rt := SelectRuntime("docker")

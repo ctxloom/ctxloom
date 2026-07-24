@@ -46,6 +46,9 @@ func (p stubPolicy) PrepareWorkspace(_ context.Context, projectDir, _ string) (i
 func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
 	return p.mk(), nil
 }
+func (stubPolicy) StartRunner(context.Context, string, string, int, isolation.Workspace, map[string]string) (*isolation.RunnerHandle, error) {
+	return &isolation.RunnerHandle{Kill: func() {}, Wait: func() error { return nil }}, nil
+}
 
 // stubPrepareIsolation swaps runResolvedAgent's isolation.Prepare seam for one
 // that records a fatal ClassIsolation finding for the agentIDs in failFor —

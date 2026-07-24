@@ -279,6 +279,13 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspa
 	return None{}.SpawnClient(backendName, label, verbosity, ws, spawnEnv)
 }
 
+// StartRunner launches the bare `ctxloom llm host` runner — identical to None
+// (the worktree rides RunOptions.WorkDir, not the spawn), so it defers to the
+// one unit rather than duplicate it.
+func (Worktree) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+	return None{}.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
+}
+
 // provisionConfigHome creates the per-agent config-home root (P2, T0.6) and, when
 // this policy carries a backend with a registered credentialSeedSpec, seeds it
 // with the backend's host subscription credentials (grave-prize). Returns "" on

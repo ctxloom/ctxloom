@@ -160,28 +160,28 @@ type agentStopResult struct {
 func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name: "agent_run",
+			Name:        "agent_run",
 			Description: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's harp (its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send(to: harp). Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum.",
 		},
 		s.handleAgentRun)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name: "agent_send",
+			Name:        "agent_send",
 			Description: "Send a message to another agent session. Coordinators address their children by harp — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts.",
 		},
 		s.handleAgentSend)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name: "agent_recv",
+			Name:        "agent_recv",
 			Description: "Receive pending mailbox messages for this session, waiting (parked server-side) up to the bounded timeout when none are pending. A child parked here yields its execution slot. Delivery is at-least-once: this call acknowledges the messages the previous call returned, and unacknowledged deliveries are re-delivered. On timeout the call fails and you are expected to drop the coordination: write your report/deferral state and finish.",
 		},
 		s.handleAgentRecv)
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name: "agent_stop",
+			Name:        "agent_stop",
 			Description: "Stop a delegated child session: its engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches it as a fresh run primed with its recorded history.",
 		},
 		s.handleAgentStop)

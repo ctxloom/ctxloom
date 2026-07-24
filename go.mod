@@ -76,6 +76,7 @@ require (
 
 require (
 	github.com/benjaminabbitt/tagma/ports/go v0.0.0-20260722013940-10300d4f7632
+	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/knadh/koanf/maps v0.1.2
 	github.com/knadh/koanf/providers/confmap v1.0.0
@@ -96,7 +97,6 @@ require (
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/creack/pty v1.1.24 // indirect
 	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
 	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect

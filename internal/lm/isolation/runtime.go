@@ -36,6 +36,15 @@ type Runtime interface {
 	RunArgs(spec RunSpec) []string
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
+	// ExecArgs builds the argv (after Binary) that runs command inside an
+	// ALREADY-RUNNING container by name — `exec -i [-t] [-e NAME…] <name>
+	// <command…>`. tty adds `-t` (the interactive pty the docker-exec
+	// vpio.Launcher drives an interactive turn over). env entries cross as bare
+	// `-e NAME` name-only forwards (the value rides the exec PROCESS env, never
+	// this world-readable argv) — the identical discipline renderRunSpec uses
+	// for `run`. No docker SDK: plain CLI, identical on docker and podman. Noop
+	// (nil) for Host/Chroot, which launch no container to exec into.
+	ExecArgs(name string, tty bool, env []string, command []string) []string
 	// Spawn launches the plugin client for a prepared run per this runtime's
 	// launch convention: Host self-invokes a bare `ctxloom llm serve` subprocess;
 	// the OCI runtimes go-plugin-run the plugin INSIDE a container (the moved
@@ -201,6 +210,25 @@ type ociRuntime struct{ pathMap pathMapper }
 // racing --rm auto-remove just reports "no such container", which callers ignore).
 // Shared by Docker and Podman — the `rm -f <name>` argv is identical on both.
 func (ociRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
+
+// ExecArgs renders `exec -i [-t] [-e NAME…] <name> <command…>` — the shared
+// OCI grammar (docker and podman render identically). `-i` is unconditional
+// (the exec's stdin is always wired to the host pty); `-t` is added only for an
+// interactive turn (the docker CLI's own "-t requires a tty" check is satisfied
+// by the host pty pair the Launcher runs this argv under). Each env entry is a
+// BARE NAME forwarded via `-e NAME`, so a credential value never lands on the
+// argv — matching renderRunSpec's bare-`-e` discipline for `run`.
+func (ociRuntime) ExecArgs(name string, tty bool, env []string, command []string) []string {
+	args := []string{"exec", "-i"}
+	if tty {
+		args = append(args, "-t")
+	}
+	for _, e := range env {
+		args = append(args, "-e", e)
+	}
+	args = append(args, name)
+	return append(args, command...)
+}
 
 // runArgs assembles the full `run` argv from a runtime-specific HEAD (the
 // --rm/--name/--user/identity prefix each concrete runtime builds) and the
@@ -406,6 +434,9 @@ func (Host) RunArgs(RunSpec) []string { return nil }
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
 
+// ExecArgs is a noop — Host launches no container to exec into.
+func (Host) ExecArgs(string, bool, []string, []string) []string { return nil }
+
 // Spawn launches the bare self-invoked plugin subprocess — the exact body of
 // pb.DefaultClientFactory that the None and Worktree policies spawn. The
 // workspace is expressed purely via the caller's RunOptions.WorkDir, so only
@@ -458,6 +489,9 @@ func (Chroot) RunArgs(RunSpec) []string { return nil }
 
 // RemoveArgs is a noop — there is nothing to force-remove.
 func (Chroot) RemoveArgs(string) []string { return nil }
+
+// ExecArgs is a noop — Chroot is never selected (Available is false).
+func (Chroot) ExecArgs(string, bool, []string, []string) []string { return nil }
 
 // Spawn is not implemented — the daemonless launch is the fast-follow's work.
 func (Chroot) Spawn(LaunchSpec) (pb.Client, error) {

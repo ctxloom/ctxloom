@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -60,6 +61,16 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	modelInfo := &agent.ModelInfo{
 		ModelName: "mock-model",
 		Provider:  "mock",
+	}
+
+	// CTXLOOM_MOCK_ECHO_STDIN drives the INTERACTIVE echo path used by the
+	// docker-exec turn's integration proof (Phase 2a): a real interactive
+	// engine reads keystrokes and reflects them, and reacts to terminal
+	// resizes — the default echo (prompt/context only) reads neither, so it
+	// cannot prove the host-pty → exec → turn → engine → back chain. This mode
+	// reflects one typed line and the resize it saw, then exits.
+	if getEnvFromMap(req.Env, "CTXLOOM_MOCK_ECHO_STDIN") == "1" && req.Stdin != nil {
+		return b.executeInteractiveEcho(ctx, req, stdout, modelInfo)
 	}
 
 	// Assemble context from fragments
@@ -179,6 +190,59 @@ func buildMockResponse(customResponse, contextStr, promptContent string, mode ag
 		response.WriteString("[mock] distilled=Compressed content for testing\n")
 	}
 	return response.String()
+}
+
+// executeInteractiveEcho reflects each typed line and the latest terminal
+// resize it has observed — the interactive engine behavior the docker-exec
+// turn's integration test round-trips through the full pty chain. It loops
+// (echoing `mock echo: <line>` plus, once a resize has been seen, `mock
+// winsize: RxC`) until a "quit" line or EOF: a tty rarely EOFs, so the sentinel
+// is what lets a test drive a resize BETWEEN two lines (giving the daemon's
+// SIGWINCH time to propagate) and then end the turn deterministically.
+func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteRequest, stdout io.Writer, modelInfo *agent.ModelInfo) (*agent.ExecuteResult, error) {
+	var lastWS agent.WindowSize
+	var sawWS bool
+	// drainResize picks up every resize delivered so far without blocking — a
+	// resize sent BETWEEN two lines (the integration test's pattern) is on the
+	// channel by the time the next line's iteration drains it.
+	drainResize := func() {
+		if req.Resize == nil {
+			return
+		}
+		for {
+			select {
+			case ws, ok := <-req.Resize:
+				if !ok {
+					req.Resize = nil
+					return
+				}
+				lastWS, sawWS = ws, true
+			default:
+				return
+			}
+		}
+	}
+
+	r := bufio.NewReader(req.Stdin)
+	for {
+		line, err := r.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+		if line == "quit" {
+			break
+		}
+		if line != "" {
+			drainResize()
+			_, _ = fmt.Fprintf(stdout, "mock echo: %s\n", line)
+			if sawWS {
+				_, _ = fmt.Fprintf(stdout, "mock winsize: %dx%d\n", lastWS.Rows, lastWS.Cols)
+			}
+		}
+		if err != nil || ctx.Err() != nil {
+			break
+		}
+	}
+
+	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
 // Cleanup releases resources after execution.

@@ -317,9 +317,9 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 			// machine-consumed here, so we lose nothing by buffering it.
 			flagOutputFormat, "json",
 			flagTools, "", // Disable all tools
-			flagNoSlashCommands, // No slash commands
+			flagNoSlashCommands,  // No slash commands
 			flagNoSessionPersist, // Don't save session
-			flagStrictMCPConfig, // ignore .mcp.json / external MCP servers
+			flagStrictMCPConfig,  // ignore .mcp.json / external MCP servers
 			flagSystemPrompt, "", // drop CLAUDE.md/memory/identity so they don't pollute the result
 			// Isolate via in-line overrides rather than `--setting-sources ""`:
 			// an empty source list also drops the model config, so the CLI routes

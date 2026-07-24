@@ -382,8 +382,11 @@ type ExecuteRequest struct {
 	SkipSetup   bool // Minimal mode - skip hooks/commands/context in backend
 	// CellKind is the resolved isolation cell this run executes in, decided
 	// host-side (isolation.Prepare) and carried over the wire alongside SetupRequest.
-	// buildArgs does not consume it yet (plan S4b); it is plumbed here so a later
-	// slice can switch on the cell instead of inferring it from WorkDir.
+	// A backend's buildArgs switches on it directly rather than inferring the
+	// cell from WorkDir: claude gates its out-of-cwd launch flags
+	// (--append-system-prompt-file / --mcp-config / --settings) on
+	// CellKindShared, since an isolated cell reads the engine's well-known
+	// files in its private cwd instead.
 	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive

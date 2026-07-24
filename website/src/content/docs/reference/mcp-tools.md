@@ -68,8 +68,8 @@ Send a message to another agent session. Coordinators address their children by 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `artifact_ids` | string[] | No | by reference, never by value |
-| `in_reply_to` | string | No | Correlates a reply to an earlier inbound PeerMessage.message_id. |
-| `structured` | object | No | Optional structured companion. `kind` names the message kind (e.g. result, question, error) |
+| `in_reply_to` | string | No | Correlates this reply to an earlier inbound PeerMessage.message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in `structured`; a resolved approval reports delivery: DELIVERY_DELIVERED, so DELIVERY_QUEUED on an approval reply means it was NOT honoured. |
+| `structured` | object | No | Optional structured companion. Ordinarily an envelope whose `kind` names the message kind: result \| question \| error. ANSWERING A RELAYED approval_request is the exception — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {"decision": "DECISION_ACCEPT" \| "DECISION_ACCEPT_FOR_SESSION" \| "DECISION_DECLINE" \| "DECISION_CANCEL", "note": "..."}. `kind` may ride alongside the decision and is ignored; any OTHER key is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent. |
 | `text` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
 | `to_agent_id` | string | No | Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set |
 | `to_role` | string | No | Role address. Delegated children may ONLY send to_role: "parent"; peer traffic routes via the coordinator |

@@ -3,6 +3,8 @@ package coord
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -116,13 +118,7 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 			decision, timedOut := c.relayApproval(rec, req, rung)
 			c.onRoleUnpark(rec.Harp)
 			if !timedOut {
-				resolution := "granted"
-				switch decision.GetDecision() {
-				case agentcoordpb.ApprovalDecision_DECISION_DECLINE:
-					resolution = "denied"
-				case agentcoordpb.ApprovalDecision_DECISION_CANCEL:
-					resolution = "cancelled"
-				}
+				resolution := approvalResolution(decision.GetDecision())
 				c.audit("approval", caller.Harp, map[string]string{
 					"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
 					"action": string(rung.Action), "role": rung.Role,
@@ -147,6 +143,30 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 		Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE,
 		Note:     "ladder exhausted with no rung resolving the request; bottoming at DECLINE",
 	})
+}
+
+// approvalResolution maps a decision onto the audit journal's resolution
+// vocabulary — DEFINED BY the enforcement allow-list (interactionResolution,
+// enginehost.go) rather than restating it, so the coordinator's audit trail
+// and the child's own InteractionRecorded can never disagree about the same
+// event.
+//
+// This used to initialise to "granted" and downgrade only on an explicit
+// DECLINE/CANCEL: fail-OPEN. Enforcement is fail-CLOSED, so a decision the
+// child recorded as RESOLUTION_DENIED was journaled here as "granted" — two
+// audit trails contradicting each other, which for a product whose thesis is
+// signed, trustworthy context matters well beyond its blast radius. It is an
+// INTEGRITY defect, not a privilege-escalation one: no grant ever leaked
+// (oily-morse).
+func approvalResolution(d agentcoordpb.ApprovalDecision_Decision) string {
+	switch interactionResolution(d) {
+	case agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED:
+		return "granted"
+	case agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED:
+		return "cancelled"
+	default:
+		return "denied"
+	}
 }
 
 func approvalResponse(d *agentcoordpb.ApprovalDecision) *agentcoordpb.CoordinatorResponse {
@@ -240,13 +260,47 @@ func (c *Coordinator) resolveApprovalReply(caller Identity, inReplyTo string, st
 		c.mu.Unlock()
 		return "", nil, false
 	}
-	delete(c.approvals, inReplyTo)
 	c.mu.Unlock()
 
+	// DECODE BEFORE CONSUME (legal-jelly). This used to delete the pending
+	// approval FIRST and decode second, with no restore on the error path —
+	// so ONE unusable reply permanently burned the correlation. The retry
+	// then found nothing registered, fell through to ordinary chat mail and
+	// reported DELIVERY_QUEUED (success!), and the child sat out its whole
+	// relay timeout before the ladder bottomed at DECLINE. No approval INTENT
+	// was even required: any agent_send carrying a live approval's in_reply_to
+	// is decoded as an ApprovalDecision, so a bare courtesy ack burned it too.
+	//
+	// The rule is now the obvious one: consume nothing this call cannot
+	// honour. A rejected reply leaves the approval outstanding and answerable.
 	decision, derr := decisionFromStructured(structured)
 	if derr != nil {
+		// AND leave a trace. The failed-decode path used to queue no mail and
+		// write no fact, so a burned approval left ZERO disk evidence — which
+		// is precisely why the live incident could not identify which send
+		// burned it. One audit fact makes this whole class self-diagnosing.
+		c.audit("approval_reply", caller.Harp, map[string]string{
+			"in_reply_to": inReplyTo, "resolution": "rejected", "error": derr.Error(),
+		})
 		return "", fmt.Errorf("agent_send in_reply_to %s: decode ApprovalDecision from structured: %w", inReplyTo, derr), true
 	}
+
+	// Consume exactly once, now that the payload is honourable. A concurrent
+	// reply (or the rung's own timeout teardown) may have taken it in the
+	// meantime — say so rather than reporting a decision that reached nobody.
+	c.mu.Lock()
+	held := c.approvals[inReplyTo] == pa
+	if held {
+		delete(c.approvals, inReplyTo)
+	}
+	c.mu.Unlock()
+	if !held {
+		c.audit("approval_reply", caller.Harp, map[string]string{
+			"in_reply_to": inReplyTo, "resolution": "already_resolved",
+		})
+		return "", fmt.Errorf("agent_send in_reply_to %s: that approval is no longer outstanding — it was already answered, or its rung timed out and the ladder moved on", inReplyTo), true
+	}
+
 	select {
 	case pa.ch <- decision:
 	default: // relayApproval already gave up (timed out) — the ladder moved on
@@ -316,19 +370,87 @@ func approvalRequestStructured(req *agentcoordpb.ApprovalRequest) (json.RawMessa
 	return json.Marshal(map[string]json.RawMessage{"approval_request": raw})
 }
 
+// envelopeKeys are the mailbox ENVELOPE's own keys, which ride the SAME
+// structured payload as the message body (peerMessageProto merges both, and
+// servePeerSend reads the message kind straight off structured.kind). Both
+// agent_send surfaces document `kind` as a thing you put in structured, so a
+// reply that carries it is following the documentation — it must not be a
+// decode failure. Stripped here rather than tolerated with protojson's
+// DiscardUnknown, which would ALSO swallow a misspelled `decision` and turn a
+// loud failure into a silent UNSPECIFIED-shaped one.
+var envelopeKeys = []string{"kind"}
+
+// stripEnvelopeKeys removes the envelope's own keys from an otherwise
+// ApprovalDecision-shaped payload. A payload that is not a JSON object is
+// returned untouched so protojson produces the authoritative error.
+func stripEnvelopeKeys(structured json.RawMessage) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(structured, &obj); err != nil {
+		return structured
+	}
+	stripped := false
+	for _, k := range envelopeKeys {
+		if _, ok := obj[k]; ok {
+			delete(obj, k)
+			stripped = true
+		}
+	}
+	if !stripped {
+		return structured
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return structured
+	}
+	return out
+}
+
+// decisionVocabulary renders ApprovalDecision.Decision's declared, non-zero
+// vocabulary, derived from the generated enum table so the diagnostic can
+// never drift from the wire contract it is describing.
+func decisionVocabulary() string {
+	names := make([]string, 0, len(agentcoordpb.ApprovalDecision_Decision_name))
+	for v, n := range agentcoordpb.ApprovalDecision_Decision_name {
+		if v == int32(agentcoordpb.ApprovalDecision_DECISION_UNSPECIFIED) {
+			continue
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, " | ")
+}
+
+// decisionShape is the self-documenting half of every decode error: the
+// accepted SHAPE and the accepted VOCABULARY, in the reply's own terms. Five
+// lines that would have made the original incident self-correcting — the
+// coordinator was guessing at both, and the error it got back named neither.
+func decisionShape() string {
+	return fmt.Sprintf(`answering a relayed approval_request, "structured" IS the ApprovalDecision: {"decision": <%s>, "note": "..."} — correlated by in_reply_to = the approval_request's message_id. The envelope key "kind" may ride alongside and is ignored; any OTHER key is rejected`, decisionVocabulary())
+}
+
 // decisionFromStructured decodes the parent's agent_send structured payload
-// into an ApprovalDecision (protojson accepts both proto and camelCase
-// field names).
+// into an ApprovalDecision (protojson accepts both proto and camelCase field
+// names). Deliberately strict: no protojson DiscardUnknown, because a
+// misspelled `decision` would then decode to DECISION_UNSPECIFIED and this
+// whole cluster is about failures that look like successes. Every rejection
+// names the shape AND the vocabulary.
 func decisionFromStructured(structured json.RawMessage) (*agentcoordpb.ApprovalDecision, error) {
 	if len(structured) == 0 {
-		return nil, fmt.Errorf(`structured is required (an ApprovalDecision projection, e.g. {"decision": "DECISION_ACCEPT"})`)
+		return nil, fmt.Errorf("structured is required — %s", decisionShape())
 	}
 	d := &agentcoordpb.ApprovalDecision{}
-	if err := protojson.Unmarshal(structured, d); err != nil {
-		return nil, err
+	if err := protojson.Unmarshal(stripEnvelopeKeys(structured), d); err != nil {
+		return nil, fmt.Errorf("%w — %s", err, decisionShape())
+	}
+	// proto3 enums are OPEN: protojson accepts {"decision": 99} without
+	// error, which used to sail through, journal itself as "granted" at the
+	// coordinator and be enforced as a denial at the child. A value outside
+	// the declared vocabulary is rejected at the boundary (oily-morse).
+	if _, ok := agentcoordpb.ApprovalDecision_Decision_name[int32(d.GetDecision())]; !ok {
+		return nil, fmt.Errorf("decision %d is outside the declared vocabulary — %s", int32(d.GetDecision()), decisionShape())
 	}
 	if d.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_UNSPECIFIED {
-		return nil, fmt.Errorf("decision is required (ACCEPT | ACCEPT_FOR_SESSION | DECLINE | CANCEL)")
+		return nil, fmt.Errorf("decision is required — %s", decisionShape())
 	}
 	return d, nil
 }

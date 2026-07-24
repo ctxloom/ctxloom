@@ -86,6 +86,7 @@
             },
             "structured": {
               "additionalProperties": true,
+              "description": "Structured companion the sender attached, when there is one. `kind` names the message kind. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first.",
               "type": "object"
             },
             "text": {

@@ -122,9 +122,9 @@ type agentRunResult struct {
 type agentSendInput struct {
 	To         string         `json:"to" jsonschema:"Recipient: a child session harp, or \"parent\" (delegated children may ONLY address their parent)"`
 	Body       string         `json:"body" jsonschema:"Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript)"`
-	Kind       string         `json:"kind,omitempty" jsonschema:"Optional message kind (e.g. result, question, error)"`
-	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion (e.g. an ApprovalDecision projection when answering a relayed approval_request: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"})"`
-	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id — e.g. answering an escalation-ladder approval_request with an ApprovalDecision (structured)"`
+	Kind       string         `json:"kind,omitempty" jsonschema:"Optional message kind: result | question | error (approval_request is the coordinator's own, emitted by the escalation ladder)"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Optional structured companion. Ordinarily an envelope whose \"kind\" names the message kind: result | question | error. ANSWERING A RELAYED approval_request is the exception — set in_reply_to to that message's message_id and this field IS the ApprovalDecision itself: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"}. \"kind\" may ride alongside the decision and is ignored; any OTHER key is rejected, and the send fails naming the accepted shape. Answering with anything else — including a bare courtesy ack — is refused without consuming the approval, so the decision can simply be re-sent."`
+	InReplyTo  string         `json:"in_reply_to,omitempty" jsonschema:"Correlates this reply to an earlier inbound message's message_id. It is the ONLY correlation key. Set it to a relayed approval_request's message_id to answer that approval, and put the ApprovalDecision in structured."`
 }
 
 type agentSendResult struct {
@@ -141,7 +141,7 @@ type agentBusMessage struct {
 	From       string         `json:"from"`
 	Kind       string         `json:"kind,omitempty"`
 	Body       string         `json:"body"`
-	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion, when the sender attached one (e.g. an escalation-ladder approval_request's ApprovalRequest projection: reply with agent_send(in_reply_to: message_id, structured: an ApprovalDecision))"`
+	Structured map[string]any `json:"structured,omitempty" jsonschema:"Structured companion the sender attached, when there is one. A message whose kind is approval_request carries the escalation ladder's ApprovalRequest projection and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\"|\"DECISION_ACCEPT_FOR_SESSION\"|\"DECISION_DECLINE\"|\"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first."`
 }
 
 type agentRecvResult struct {

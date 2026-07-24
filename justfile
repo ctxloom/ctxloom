@@ -386,7 +386,7 @@ test-vendor-claude:
 # both invisible until something finally ran this. Wired into both `test`
 # below and `lint` (justfile.container), so it gates the default local AND CI
 # paths. vet, not test/run — stays cheap.
-vet-integration:
+vet-integration: _require-generated
     go vet -tags integration ./tests/...
 
 # Run integration tests (requires ctxloom binary)
@@ -546,7 +546,7 @@ isolation-probe ENGINE AXIS: build
 # different message (`? ... [no test files]`) and stays green, as does a
 # `-run` miss the pipefail chain never triggers because a package that
 # doesn't build/vet fails before printing either message.
-test-pkg PKG *ARGS:
+test-pkg PKG *ARGS: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     pkg="$1"; shift

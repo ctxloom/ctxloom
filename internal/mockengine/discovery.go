@@ -1,6 +1,14 @@
 package mockengine
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
 
 // Resolver supplies the ambient facts the discovery walk resolves probe roots
 // against — this process's real cwd and home, and its environment. It is an
@@ -15,14 +23,186 @@ type Resolver struct {
 	Getenv func(string) string
 }
 
+func (r Resolver) getenv(k string) string {
+	if r.Getenv == nil {
+		return ""
+	}
+	return r.Getenv(k)
+}
+
 // Walk resolves and probes every context surface the engine's CLI declaration
 // lists, in declaration order, returning one ProbeRecord per probe — INCLUDING
 // present:false rows for absent paths and for flag-value probes whose flag was
-// not in argv. It is the single discovery engine every personality shares; it
+// not in argv. It is the single discovery engine every personality shares: it
 // asks L1 (the EngineCLI) where things live and never restates per-backend
-// knowledge.
-//
-// STUB: returns nil until implemented (TDD red).
+// knowledge. The one rule it does encode — that a --settings value beginning
+// with '{' is an inline JSON literal rather than a path — is L1's own
+// ValuePathOrJSON contract, read off the declared flag, not a claude fact
+// hardcoded here.
 func Walk(cli agent.EngineCLI, argv agent.ParsedArgv, res Resolver) []ProbeRecord {
-	return nil
+	out := make([]ProbeRecord, 0, len(cli.Probes))
+	for i, p := range cli.Probes {
+		out = append(out, probeOne(i, p, cli, argv, res))
+	}
+	return out
+}
+
+// probeOne resolves and observes a single probe.
+func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.ParsedArgv, res Resolver) ProbeRecord {
+	rec := ProbeRecord{
+		Order: order,
+		Kind:  string(p.Kind),
+		Scope: string(p.Scope),
+		Rel:   p.Rel,
+		Dir:   p.Dir,
+		Note:  p.Note,
+	}
+
+	switch p.Scope {
+	case agent.ScopeFlagValue:
+		return probeFlagValue(rec, p, cli, argv)
+	case agent.ScopeCwd:
+		rec.Root = res.Cwd
+		return observePath(rec, filepath.Join(res.Cwd, p.Rel), p.Dir)
+	case agent.ScopeHome:
+		rec.Root = res.Home
+		return observePath(rec, filepath.Join(res.Home, p.Rel), p.Dir)
+	case agent.ScopeEnvDir:
+		root := res.getenv(p.EnvVar)
+		if root == "" {
+			root = filepath.Join(res.Home, p.EnvHomeDefault)
+		}
+		rec.Root = root
+		return observePath(rec, filepath.Join(root, p.Rel), p.Dir)
+	default:
+		rec.Note = "unknown probe scope " + string(p.Scope)
+		return rec
+	}
+}
+
+// probeFlagValue handles a ScopeFlagValue probe: its path comes from a declared
+// flag's argv value. The flag being ABSENT is a first-class observation
+// (present:false), because that is what "the driver did not deliver this
+// surface on this run" looks like. When the flag's declared shape allows inline
+// JSON (claude's --settings under SkipSetup) and the value begins with '{', the
+// value IS the content — hashed directly, never statted as a path.
+func probeFlagValue(rec ProbeRecord, p agent.CLIProbe, cli agent.EngineCLI, argv agent.ParsedArgv) ProbeRecord {
+	rec.Root = "flag:" + p.Flag
+	val, ok := argv.Value(p.Flag)
+	if !ok {
+		rec.Present = false
+		rec.Note = joinNote(rec.Note, "flag "+p.Flag+" absent from argv")
+		return rec
+	}
+	flag, _ := cli.LookupFlag(p.Flag)
+	if inlineJSON(flag.Value, val) {
+		rec.Present = true
+		b := []byte(val)
+		rec.Size = int64(len(b))
+		rec.SHA256 = hashBytes(b)
+		rec.Head = head(b)
+		rec.Note = joinNote(rec.Note, "inline JSON literal in argv (not a file)")
+		return rec
+	}
+	rec.Note = joinNote(rec.Note, "path from flag "+p.Flag)
+	return observePath(rec, val, p.Dir)
+}
+
+// inlineJSON reports whether a flag value is a literal JSON document rather than
+// a path, per L1's declared value shape. Only shapes that ADMIT inline JSON are
+// eligible, and only when the token actually begins with '{' — so a plain path
+// under a path-or-json flag still statts as a path.
+func inlineJSON(shape agent.ValueShape, val string) bool {
+	switch shape {
+	case agent.ValueJSON:
+		return true
+	case agent.ValuePathOrJSON:
+		return strings.HasPrefix(strings.TrimSpace(val), "{")
+	default:
+		return false
+	}
+}
+
+// observePath statts and hashes a concrete path, filling Present/Size/SHA256 (a
+// file) or Entries (a directory). An absent path yields Present=false with no
+// hash — never an error, never a dropped record.
+func observePath(rec ProbeRecord, path string, dir bool) ProbeRecord {
+	rec.Path = path
+	info, err := os.Stat(path)
+	if err != nil {
+		rec.Present = false
+		return rec
+	}
+	if dir || info.IsDir() {
+		rec.Dir = true
+		entries := hashDir(path)
+		rec.Present = true
+		rec.Entries = entries
+		rec.Size = int64(len(entries))
+		rec.SHA256 = hashBytes([]byte(canonicalEntries(entries)))
+		return rec
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		// Present on disk but unreadable — report present with no hash and a
+		// note, rather than pretending it is absent.
+		rec.Present = true
+		rec.Note = joinNote(rec.Note, "unreadable: "+err.Error())
+		return rec
+	}
+	rec.Present = true
+	rec.Size = int64(len(b))
+	rec.SHA256 = hashBytes(b)
+	rec.Head = head(b)
+	return rec
+}
+
+// hashDir walks a directory and returns every regular file beneath it, keyed by
+// slash-separated relative path, name-sorted, each hashed. Recursive so nested
+// command/skill package files are captured; deterministic so the directory's
+// own hash is stable.
+func hashDir(root string) []EntryRecord {
+	var entries []EntryRecord
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		rel = filepath.ToSlash(rel)
+		b, readErr := os.ReadFile(path)
+		e := EntryRecord{Name: rel}
+		if readErr == nil {
+			e.Size = int64(len(b))
+			e.SHA256 = hashBytes(b)
+		}
+		entries = append(entries, e)
+		return nil
+	})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	return entries
+}
+
+// canonicalEntries renders a directory's entries as one deterministic line each,
+// so a directory surface has a single assertable hash.
+func canonicalEntries(entries []EntryRecord) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.Name)
+		b.WriteByte('|')
+		b.WriteString(e.SHA256)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// joinNote appends to an existing note, keeping the declaration's precedence
+// note and the resolution caveat both visible.
+func joinNote(existing, add string) string {
+	if existing == "" {
+		return add
+	}
+	return existing + "; " + add
 }

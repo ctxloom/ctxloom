@@ -67,16 +67,31 @@ func TestWalk_AbsentSurfaceIsPresentFalse(t *testing.T) {
 		t.Fatalf("agents surface reported present, but it was never delivered: %+v", agents)
 	}
 
-	// The present:true row for the delivered context file, with a matching hash.
-	ctx, ok := rep.Record("context")
-	if !ok {
-		t.Fatal("no probe record for the context surface")
+	// claude declares TWO context probes in precedence order: the out-of-cwd
+	// launch flag (--append-system-prompt-file, absent here) then the cwd
+	// CLAUDE.md. Both must appear; the flag one absent, the cwd one present with
+	// a matching hash.
+	ctxFlag := recordAt(t, rep, "context", "flag-value")
+	if ctxFlag.Present {
+		t.Fatalf("append-system-prompt-file flag was absent but reported present: %+v", ctxFlag)
 	}
-	if !ctx.Present {
-		t.Fatalf("CLAUDE.md was delivered but reported absent: %+v", ctx)
+	ctxCwd := recordAt(t, rep, "context", "cwd")
+	if !ctxCwd.Present {
+		t.Fatalf("CLAUDE.md was delivered but reported absent: %+v", ctxCwd)
 	}
-	wantHash := sha256hex(body)
-	if ctx.SHA256 != wantHash {
-		t.Fatalf("context hash mismatch: got %s want %s", ctx.SHA256, wantHash)
+	if want := sha256hex(body); ctxCwd.SHA256 != want {
+		t.Fatalf("context hash mismatch: got %s want %s", ctxCwd.SHA256, want)
 	}
+}
+
+// recordAt returns the record for a (kind, scope) pair, failing if absent.
+func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengine.ProbeRecord {
+	t.Helper()
+	for _, r := range rep.Records {
+		if r.Kind == kind && r.Scope == scope {
+			return r
+		}
+	}
+	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
+	return mockengine.ProbeRecord{}
 }

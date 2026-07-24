@@ -1,0 +1,164 @@
+package mockengine_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/mockengine"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+)
+
+// writeFile writes rel (which may contain slashes) under dir, creating parents.
+func writeFile(t *testing.T, dir, rel string, body []byte) {
+	t.Helper()
+	full := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// runOneshot drives a Runtime over claude's oneshot surface with the given
+// vendor argv and stdin prompt, returning stdout, the extracted report, and the
+// exit code.
+func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, env map[string]string) (string, mockengine.Report, int) {
+	t.Helper()
+	cli := claudeOneshot(t)
+	parsed, err := cli.ParseArgv(vendorArgv)
+	if err != nil {
+		t.Fatalf("parse argv %v: %v", vendorArgv, err)
+	}
+	var stdout, stderr bytes.Buffer
+	rt := &mockengine.Runtime{
+		CLI:    cli,
+		Argv:   parsed,
+		Res:    mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }},
+		Getenv: func(k string) string { return env[k] },
+		Stdin:  strings.NewReader(prompt),
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}
+	code := rt.Run()
+	rep, err := mockengine.ExtractReport(stderr.String())
+	if err != nil {
+		t.Fatalf("extract report from stderr: %v\nstderr:\n%s", err, stderr.String())
+	}
+	return stdout.String(), rep, code
+}
+
+// envelope mirrors parseClaudeJSONResult's read (internal/claude): the driver
+// picks the model with the most outputTokens and returns result. This test
+// asserts the mock emits exactly what that decode expects under SkipSetup.
+type envelope struct {
+	Result     string `json:"result"`
+	ModelUsage map[string]struct {
+		InputTokens  int `json:"inputTokens"`
+		OutputTokens int `json:"outputTokens"`
+	} `json:"modelUsage"`
+}
+
+// TestRuntime_OneshotJSONEnvelopeUnderSkipSetup proves that when the argv
+// carries --output-format json (the SkipSetup signal the driver keys its json
+// decode on), stdout is the {result, modelUsage} envelope, attributed to the
+// --model value — not plain text, which would make the driver's decode fail on
+// a run it believed succeeded.
+func TestRuntime_OneshotJSONEnvelopeUnderSkipSetup(t *testing.T) {
+	cwd := t.TempDir()
+	argv := []string{"--print", "--output-format", "json", "--model", "claude-sonnet-4-6"}
+	stdout, _, code := runOneshot(t, cwd, argv, "review this diff", nil)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	var env envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("stdout is not the JSON envelope the driver parses: %v\nstdout: %s", err, stdout)
+	}
+	if env.Result == "" {
+		t.Fatal("envelope result is empty")
+	}
+	if _, ok := env.ModelUsage["claude-sonnet-4-6"]; !ok {
+		t.Fatalf("envelope did not attribute usage to the --model value: %+v", env.ModelUsage)
+	}
+}
+
+// TestRuntime_OneshotPlainWithoutJSONFlag proves that without the json flag the
+// oneshot result is plain text (the normal claude -p shape).
+func TestRuntime_OneshotPlainWithoutJSONFlag(t *testing.T) {
+	stdout, _, code := runOneshot(t, t.TempDir(), []string{"--print"}, "hello", nil)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if strings.HasPrefix(strings.TrimSpace(stdout), "{") {
+		t.Fatalf("expected plain text without the json flag, got JSON: %s", stdout)
+	}
+	if stdout == "" {
+		t.Fatal("plain oneshot produced no result")
+	}
+}
+
+// TestRuntime_FailSentinelExitsNonzero proves the fault path: a prompt
+// containing the fail sentinel (as a SUBSTRING — composed context is prepended)
+// exits nonzero, and the discovery report is STILL emitted, because a failing
+// run is exactly when the evidence matters most.
+func TestRuntime_FailSentinelExitsNonzero(t *testing.T) {
+	prompt := "here is a lot of composed context...\n" + mockengine.SentinelFail + "\n...and a task"
+	_, rep, code := runOneshot(t, t.TempDir(), []string{"--print"}, prompt, nil)
+	if code == 0 {
+		t.Fatal("fail sentinel did not produce a nonzero exit")
+	}
+	if rep.PromptSHA256 == "" {
+		t.Fatal("report was not emitted on the failing run")
+	}
+}
+
+// TestRuntime_PromptHashMatchesReceivedBytes proves promptSha256 is over the
+// EXACT bytes the child received on stdin — the check that a composed prompt
+// reached the engine unmangled.
+func TestRuntime_PromptHashMatchesReceivedBytes(t *testing.T) {
+	prompt := "exact bytes 123\nwith newline"
+	_, rep, _ := runOneshot(t, t.TempDir(), []string{"--print"}, prompt, nil)
+	if want := sha256hex([]byte(prompt)); rep.PromptSHA256 != want {
+		t.Fatalf("promptSha256 = %s, want %s", rep.PromptSHA256, want)
+	}
+	if rep.PromptSize != int64(len(prompt)) {
+		t.Fatalf("promptSize = %d, want %d", rep.PromptSize, len(prompt))
+	}
+}
+
+// TestReport_DigestExcludesAbsolutePaths proves the DiscoveryDigest is a
+// reproducible fingerprint of WHAT was found, not WHERE on disk — the same
+// bytes delivered to the same declared surfaces under two different roots yield
+// the same digest. Without this a test could not assert one fixed digest value.
+func TestReport_DigestExcludesAbsolutePaths(t *testing.T) {
+	cli := claudeOneshot(t)
+	argv, _ := cli.ParseArgv([]string{"--print"})
+	body := []byte("# CLAUDE.md\nsame bytes\n")
+
+	digest := func() string {
+		cwd := t.TempDir()
+		writeFile(t, cwd, "CLAUDE.md", body)
+		recs := mockengine.Walk(cli, argv, mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }})
+		return mockengine.BuildReport(cli.Engine, string(cli.Surface), recs, nil).DiscoveryDigest
+	}
+	if a, b := digest(), digest(); a != b {
+		t.Fatalf("digest varied with the absolute root: %s != %s", a, b)
+	}
+}
+
+// TestRuntime_UndeclaredFlagIsLoud proves the mock rejects an argv flag L1 does
+// not declare, rather than tolerating drift silently. (Exercised via ParseArgv,
+// the shared reader.)
+func TestRuntime_UndeclaredFlagIsLoud(t *testing.T) {
+	cli := claudeOneshot(t)
+	if _, err := cli.ParseArgv([]string{"--print", "--totally-made-up"}); err == nil {
+		t.Fatal("an undeclared flag parsed cleanly — drift would hide here")
+	} else if _, ok := err.(*agent.UndeclaredFlagError); !ok {
+		t.Fatalf("want UndeclaredFlagError, got %T: %v", err, err)
+	}
+}
